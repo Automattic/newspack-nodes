@@ -50,6 +50,31 @@ That uniformity is the point. Any node can connect to any other node, because th
 
 For the full model — the drain loop, workers, partitions, the REPL — see [architecture-guide.md](architecture-guide.md).
 
+## Step 0: sixty seconds in the REPL
+
+Before any pipeline, meet the thing you'll use to poke at every pipeline. With just the plugin active (no workers, no topologies), `wp nodes cli` opens a **bare REPL** — a local interpreter in the wp-cli process:
+
+```
+$ wp nodes cli
+> list_nodes -a            # the REPL is itself a node graph: shell, interpreter, router, output
+_command_interpreter
+_output
+_router
+_shell
+_stdout
+> make_node Echo hello     # construct a live node
+ok
+> dump_node hello          # its config + state (note sink: where fill() forwards)
+Echo_Node {
+    "name": "hello",
+    "sink": "_command_interpreter",
+    ...
+}
+> help make_node           # every verb documents itself; bare `help` lists all
+```
+
+Exit with ctrl-D. Everything else in these docs — building graphs, inspecting workers, rewiring live topologies — is these same verbs, either here or pivoted into a running worker (`wp nodes cli <worker>.p<N>`). The full verb table is in [troubleshooting.md](troubleshooting.md); the terms are in the [glossary](README.md#glossary).
+
 ## Feel it in 5 minutes
 
 The repo ships a runnable example: `examples/example-ai-newsletter/`, a scored, durable digest pipeline built from small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources (`releases`, `community`) emit canned items into a `summarizer` that condenses each, then a `scorer` adds a notional priority and appends each item to the durable `example-scored` partition. A `Consumer` tails that log into the `digest` builder, which assembles a markdown draft and fans it through a `Tee` to the built-in `Log` (which writes it to a file).

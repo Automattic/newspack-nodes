@@ -12,9 +12,10 @@ namespace Newspack_Nodes;
 class CLI {
 
 	/**
-	 * uid-source seam shared by the root-refusing verbs (`cli`, `run`). Lazily-
-	 * defaulted to the real `posix_getuid()` (-1 when the extension is absent);
-	 * tests reassign to simulate root without the runner being root.
+	 * uid-source seam shared by the root-refusing verbs (`cli`, `run`) and
+	 * `doctor`'s ownership check (uid vs base-dir owner). Lazily-defaulted to
+	 * the real `posix_getuid()` (-1 when the extension is absent); tests
+	 * reassign to simulate any uid without the runner holding it.
 	 * Signature: `function (): int`.
 	 *
 	 * @var \Closure|null

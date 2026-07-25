@@ -18,6 +18,7 @@ import {
 	useState,
 	useSyncExternalStore,
 } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import {
 	getDevtoolsTabs,
 	subscribeDevtoolsTabs,
@@ -112,24 +113,56 @@ export default function DevtoolsTabHost( {
 		return emptyState;
 	}
 
+	const tabDomId = ( t ) => `nodes-devtools-tab-${ host }-${ t.id }`;
+	const panelDomId = `nodes-devtools-panel-${ host }`;
+	const hasBar = tabs.length > 1;
+
+	const pick = ( id ) => {
+		pickedRef.current = true;
+		setActiveId( id );
+		onActiveTabChange?.( id );
+	};
+
+	// WAI-ARIA tabs keyboard model: arrows move + select (roving tabindex).
+	const onTabKeyDown = ( event ) => {
+		const index = tabs.findIndex( ( t ) => t.id === active.id );
+		const last = tabs.length - 1;
+		const next = {
+			ArrowRight: index === last ? 0 : index + 1,
+			ArrowLeft: 0 === index ? last : index - 1,
+			Home: 0,
+			End: last,
+		}[ event.key ];
+		if ( undefined === next ) {
+			return;
+		}
+		event.preventDefault();
+		pick( tabs[ next ].id );
+		document.getElementById( tabDomId( tabs[ next ] ) )?.focus();
+	};
+
 	return (
 		<>
-			{ tabs.length > 1 && (
-				<div className="nodes-devtools__tabbar" role="tablist">
+			{ hasBar && (
+				<div
+					className="nodes-devtools__tabbar"
+					role="tablist"
+					aria-label={ __( 'Developer tools', 'newspack-nodes' ) }
+				>
 					{ tabs.map( ( t ) => (
 						<button
 							key={ t.id }
+							id={ tabDomId( t ) }
 							type="button"
 							role="tab"
 							aria-selected={ t.id === active.id }
+							aria-controls={ panelDomId }
+							tabIndex={ t.id === active.id ? 0 : -1 }
 							className={ `nodes-devtools__tab${
 								t.id === active.id ? ' is-active' : ''
 							}` }
-							onClick={ () => {
-								pickedRef.current = true;
-								setActiveId( t.id );
-								onActiveTabChange?.( t.id );
-							} }
+							onClick={ () => pick( t.id ) }
+							onKeyDown={ onTabKeyDown }
 						>
 							{ t.icon }
 							{ t.label }
@@ -138,6 +171,9 @@ export default function DevtoolsTabHost( {
 				</div>
 			) }
 			<div
+				id={ panelDomId }
+				role={ hasBar ? 'tabpanel' : undefined }
+				aria-labelledby={ hasBar ? tabDomId( active ) : undefined }
 				className={ `nodes-devtools__tab-content${
 					active.fullBleed ? ' is-full-bleed' : ''
 				}` }

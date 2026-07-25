@@ -488,6 +488,112 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Preflight the four environment legs the runtime stands on: memcache,
+	 * WP-Cron, the shared filesystem, and base-dir ownership. Each miss prints
+	 * the concrete degradation it causes; the exit code makes it scriptable.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes doctor
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function doctor( array $args, array $assoc_args ): void {
+		try {
+			$base_dir = $this->base_dir();
+		} catch ( \RuntimeException ) {
+			$base_dir = null;
+		}
+
+		$checks = [
+			'memcache'   => self::check_memcache(),
+			'wp-cron'    => self::check_cron(),
+			'filesystem' => self::check_filesystem( $base_dir ),
+			'ownership'  => self::check_ownership( $base_dir ),
+		];
+
+		$failed = 0;
+		foreach ( $checks as $name => $failure ) {
+			if ( null === $failure ) {
+				\WP_CLI::log( "ok   {$name}" );
+			} else {
+				++$failed;
+				\WP_CLI::log( "FAIL {$name} — {$failure}" );
+			}
+		}
+
+		$total = \count( $checks );
+		if ( 0 === $failed ) {
+			\WP_CLI::success( "All {$total} environment checks passed." );
+		} else {
+			\WP_CLI::error( "{$failed} of {$total} environment checks failed." );
+		}
+	}
+
+	/** Memcache leg: a real `Core::$memd` handle whose set/get roundtrip works. */
+	private static function check_memcache(): ?string {
+		$degradation = 'Dashboards go dark (no live position/stats), HMAC command auth refuses wire-arrived commands, and SSE slots fail closed.';
+		if ( ! Core::$memd instanceof \Memcached ) {
+			return 'no memcache handle (Core::$memd unset — check memcache_servers). ' . $degradation;
+		}
+		$key   = 'newspack_nodes_doctor_' . \getmypid();
+		$value = (string) \microtime( true );
+		if ( ! Core::$memd->set( $key, $value, 30 ) || Core::$memd->get( $key ) !== $value ) {
+			return 'set/get roundtrip failed (server unreachable?). ' . $degradation;
+		}
+		Core::$memd->delete( $key );
+		return null;
+	}
+
+	/** WP-Cron leg: cron enabled and the supervisor tick event scheduled. */
+	private static function check_cron(): ?string {
+		$degradation = 'The supervisor safety net never fires; dead workers stay down until a manual restart.';
+		if ( \defined( 'DISABLE_WP_CRON' ) && \constant( 'DISABLE_WP_CRON' ) ) {
+			return 'DISABLE_WP_CRON is true — fine only when a system cron runner invokes wp-cron.php; without one: ' . \lcfirst( $degradation );
+		}
+		if ( \function_exists( 'wp_next_scheduled' ) && false === \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
+			return "cron event 'newspack_nodes/supervisor' is not scheduled (re-activate the plugin, or load any admin page to self-heal). " . $degradation;
+		}
+		return null;
+	}
+
+	/** Filesystem leg: the base directory resolves and a probe write succeeds. */
+	private static function check_filesystem( ?string $base_dir ): ?string {
+		$degradation = 'Workers cannot write partitions/locks/IPC — nothing runs.';
+		if ( null === $base_dir ) {
+			return 'base_directory is not configured or not creatable. ' . $degradation;
+		}
+		$probe = "{$base_dir}/.doctor-probe-" . \getmypid();
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- writability probe on the runtime's own base dir.
+		if ( false === @\file_put_contents( $probe, 'probe' ) ) {
+			return "base directory {$base_dir} is not writable by this process. " . $degradation;
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- removing the probe file from the runtime's own base dir.
+		@\unlink( $probe );
+		return null;
+	}
+
+	/** Ownership leg: base dir owner uid matches this process's uid. */
+	private static function check_ownership( ?string $base_dir ): ?string {
+		if ( null === $base_dir ) {
+			return null; // The filesystem leg already reported the root cause.
+		}
+		$provider = CLI::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1;
+		$uid      = Core::as_int( $provider(), -1 );
+		$owner    = @\fileowner( $base_dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( $uid < 0 || false === $owner ) {
+			return null; // No posix / unreadable owner: nothing to compare.
+		}
+		if ( $owner !== $uid ) {
+			return "base directory {$base_dir} is owned by uid {$owner}, but this process runs as uid {$uid}. IPC dirs seeded under another user lock out the fleet; recover with: chown -R <webuser> {$base_dir}";
+		}
+		return null;
+	}
+
+	/**
 	 * Action handler (wired to `newspack_nodes/restart_fleet`): restart every
 	 * partition of one fleet by topology name. Best-effort; unknown → no-op.
 	 */

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`wp nodes doctor`** — environment preflight for the four legs the runtime
+  stands on (memcache roundtrip, WP-Cron supervisor event, base-dir
+  writability, base-dir ownership vs process uid). Each failing leg prints the
+  concrete degradation it causes; non-zero exit when anything fails.
+- **`wp nodes scaffold <plugin|node|topology> <name>`** — generates the
+  first-contact files by hand-copy no more: a whole consumer plugin directory
+  (bootstrap + classmap composer.json + one working example node + a TSL
+  topology + README), a single Node class, or a stock-nodes topology, all
+  matching `docs/writing-a-plugin.md`'s shapes. Never overwrites.
+- **`Bootstrap::version_at_least( $min, $dependent )`** — boot-time version
+  handshake for consumer plugins: `Requires Plugins` guarantees the substrate
+  is active but not which version; the guard lets a consumer go dormant with
+  an admin notice instead of fataling on a missing API.
+- **Substrate semver banner in built bundles.** The build-kit stamps
+  `/* @newspack-nodes <version> */` onto every bundle it builds (any consumer),
+  so a deployed bundle names the substrate it was built against. The version
+  constant is maintained by `bump-nodes-version.sh` and drift-pinned to
+  `package.json` by a test.
+- **ARIA-complete shared tab host.** `DevtoolsTabHost` gains the full WAI-ARIA
+  tabs pattern: tablist label, tab↔panel `aria-controls`/`aria-labelledby`
+  linkage, roving tabindex, and arrow/Home/End keyboard navigation — every
+  surface that mounts it (overlay + hub, all consumers) inherits it.
+- **Docs:** `docs/cli.md` (the `wp nodes` reference page), `docs/troubleshooting.md`
+  (promoted from the internal debugging skill), a glossary in `docs/README.md`
+  (TSL and CI finally expanded), a sixty-second bare-REPL step 0 in
+  `docs/getting-started.md`, and the version-handshake + scaffold pointers in
+  `docs/writing-a-plugin.md`.
+
+### Fixed
+- **The consumer build.mjs trap is defused.** `buildDashboards()` now fails
+  fast when an `@newspack-nodes/*` alias path doesn't exist, naming the exact
+  `NEWSPACK_NODES_*` env var to set — instead of dying deep inside esbuild
+  with `ERR_MODULE_NOT_FOUND` (the failure mode that broke two consumer
+  releases). The bundled example's `scripts/build.mjs` (the file the docs say
+  to copy) gains the fourth override, `NEWSPACK_NODES_BUILD_KIT`, with its own
+  fail-loud guard.
+
 ## [0.53.0] - 2026-07-24
 
 ### Added

@@ -55,6 +55,42 @@ describe( 'build-kit pure exports', () => {
 	test( 'buildDashboards is an exported function', () => {
 		expect( typeof kit.buildDashboards ).toBe( 'function' );
 	} );
+
+	test( 'assertAliasPathsExist names the missing alias and its env var', () => {
+		expect( () =>
+			kit.assertAliasPathsExist( {
+				'@newspack-nodes/debug-overlay':
+					'/nonexistent-9317/DebugOverlay.js',
+			} )
+		).toThrow(
+			/@newspack-nodes\/debug-overlay.*NEWSPACK_NODES_DEBUG_OVERLAY/s
+		);
+	} );
+
+	test( 'assertAliasPathsExist passes a real path silently', () => {
+		expect( () =>
+			kit.assertAliasPathsExist( { '@newspack-nodes/shared': __dirname } )
+		).not.toThrow();
+	} );
+
+	test( 'buildDashboards fails fast on a dead alias path, before esbuild', async () => {
+		await expect(
+			kit.buildDashboards( {
+				esbuild: {},
+				sass: {},
+				rtlcss: {},
+				root: '/tmp',
+				entries: [],
+				alias: { '@newspack-nodes/shared': '/nonexistent-4482' },
+			} )
+		).rejects.toThrow( /NEWSPACK_NODES_SHARED/ );
+	} );
+
+	test( 'substrateVersion reads the substrate package.json version', () => {
+		// eslint-disable-next-line import/no-relative-packages
+		const pkg = require( '../../../package.json' );
+		expect( kit.substrateVersion() ).toBe( pkg.version );
+	} );
 } );
 
 // Integration: drive buildDashboards end-to-end with real esbuild/sass/rtlcss.
@@ -105,6 +141,13 @@ describe( 'buildDashboards (integration, real esbuild)', () => {
 	test( 'emits the base-named bundle (entry.js → entry.js, not index.js)', async () => {
 		const js = await fs.readFile( path.join( outDir, 'entry.js' ), 'utf8' );
 		expect( js.length ).toBeGreaterThan( 0 );
+	} );
+
+	test( 'bundle opens with the substrate semver banner', async () => {
+		const js = await fs.readFile( path.join( outDir, 'entry.js' ), 'utf8' );
+		expect(
+			js.startsWith( `/* @newspack-nodes ${ kit.substrateVersion() } */` )
+		).toBe( true );
 	} );
 
 	test( 'asset.php manifest lists the externalized WP handle + a version', async () => {

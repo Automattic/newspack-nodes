@@ -430,6 +430,82 @@ describe( 'DevtoolsTabHost', () => {
 			} );
 		} );
 	} );
+
+	describe( 'ARIA tabs pattern', () => {
+		const registerTrio = () => {
+			[ 'first', 'second', 'third' ].forEach( ( id, order ) =>
+				registerDevtoolsTab( {
+					id,
+					label: id,
+					host: 'hub',
+					order,
+					component: () => <div />,
+				} )
+			);
+		};
+
+		it( 'labels the tablist and links each tab to the panel', () => {
+			registerTrio();
+			const { getByRole, getAllByRole } = render(
+				<DevtoolsTabHost host="hub" />
+			);
+			expect(
+				getByRole( 'tablist' ).getAttribute( 'aria-label' )
+			).toBeTruthy();
+			const tabs = getAllByRole( 'tab' );
+			const panel = getByRole( 'tabpanel' );
+			expect( tabs[ 0 ].getAttribute( 'aria-controls' ) ).toBe(
+				panel.id
+			);
+			expect( panel.getAttribute( 'aria-labelledby' ) ).toBe(
+				tabs[ 0 ].id
+			);
+		} );
+
+		it( 'roves tabindex: only the active tab is tabbable', () => {
+			registerTrio();
+			const { getAllByRole } = render( <DevtoolsTabHost host="hub" /> );
+			expect( getAllByRole( 'tab' ).map( ( t ) => t.tabIndex ) ).toEqual(
+				[ 0, -1, -1 ]
+			);
+		} );
+
+		it( 'ArrowRight selects + focuses the next tab and wraps around', () => {
+			registerTrio();
+			const { getAllByRole } = render( <DevtoolsTabHost host="hub" /> );
+			fireEvent.keyDown( getAllByRole( 'tab' )[ 0 ], {
+				key: 'ArrowRight',
+			} );
+			let tabs = getAllByRole( 'tab' );
+			expect( tabs[ 1 ].getAttribute( 'aria-selected' ) ).toBe( 'true' );
+			expect( document.activeElement ).toBe( tabs[ 1 ] );
+			fireEvent.keyDown( tabs[ 1 ], { key: 'ArrowRight' } );
+			fireEvent.keyDown( getAllByRole( 'tab' )[ 2 ], {
+				key: 'ArrowRight',
+			} );
+			tabs = getAllByRole( 'tab' );
+			expect( tabs[ 0 ].getAttribute( 'aria-selected' ) ).toBe( 'true' );
+		} );
+
+		it( 'ArrowLeft wraps back; Home and End jump to the ends', () => {
+			registerTrio();
+			const { getAllByRole } = render( <DevtoolsTabHost host="hub" /> );
+			fireEvent.keyDown( getAllByRole( 'tab' )[ 0 ], {
+				key: 'ArrowLeft',
+			} );
+			expect(
+				getAllByRole( 'tab' )[ 2 ].getAttribute( 'aria-selected' )
+			).toBe( 'true' );
+			fireEvent.keyDown( getAllByRole( 'tab' )[ 2 ], { key: 'Home' } );
+			expect(
+				getAllByRole( 'tab' )[ 0 ].getAttribute( 'aria-selected' )
+			).toBe( 'true' );
+			fireEvent.keyDown( getAllByRole( 'tab' )[ 0 ], { key: 'End' } );
+			expect(
+				getAllByRole( 'tab' )[ 2 ].getAttribute( 'aria-selected' )
+			).toBe( 'true' );
+		} );
+	} );
 } );
 
 describe( 'DevtoolsTabHost styles', () => {
