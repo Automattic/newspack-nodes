@@ -2075,229 +2075,233 @@ export default function Inspector( {
 				</Section>
 			) }
 
-			<div className="topology-insp__actions">
-				{ /* COMMANDS — stateless dumps into the transcript. */ }
-				<div className="topology-insp__group-label">
-					{ __( 'Commands', 'newspack-nodes' ) }
-				</div>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => onAction && onAction( 'dump', node.id ) }
-					title={ __(
-						'Send `dump_node <name>` to the worker',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Dump', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () =>
-						onAction && onAction( 'dump_config', node.id )
-					}
-					title={ __(
-						"Send `dump_config <name>` — the node's make_node config line",
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Config', 'newspack-nodes' ) }
-				</button>
-				{ /* MESSAGES — mint a typed message at this node. */ }
-				<div className="topology-insp__group-label">
-					{ __( 'Messages', 'newspack-nodes' ) }
-				</div>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => setPromptVerb( 'command_node' ) }
-					title={ __(
-						'Send a TM_COMMAND payload to this node via `command_node <name> <phrase>`',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Command', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => setPromptVerb( 'send' ) }
-					title={ __(
-						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Send', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => setPromptVerb( 'request' ) }
-					title={ __(
-						'Send a TM_REQUEST payload — `request_node <name> <payload>`',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Request', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => setPromptVerb( 'tell' ) }
-					title={ __(
-						'Send a TM_INFO payload — `tell_node <name> <info>`',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Tell', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () => setPromptVerb( 'send_struct' ) }
-					title={ __(
-						'Send a TM_STRUCT JSON payload — `send_struct <name> <json>`',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'Struct', 'newspack-nodes' ) }
-				</button>
-				<button
-					type="button"
-					className="button is-compact"
-					onClick={ () =>
-						onAction && onAction( 'send_eof', node.id )
-					}
-					title={ __(
-						'Send end-of-stream — `send_eof <name>` (TM_EOF)',
-						'newspack-nodes'
-					) }
-				>
-					{ __( 'EOF', 'newspack-nodes' ) }
-				</button>
-				{ regEvents.length > 0 && (
+			{ /* COMMANDS — stateless dumps into the transcript. */ }
+			<Section title={ __( 'Commands', 'newspack-nodes' ) }>
+				<div className="topology-insp__actions">
 					<button
 						type="button"
 						className="button is-compact"
-						onClick={ () => setRegisterOpen( true ) }
+						onClick={ () =>
+							onAction && onAction( 'dump', node.id )
+						}
 						title={ __(
-							'Register a listener for one of this node’s events — `register <source> <target> <event>`',
+							'Send `dump_node <name>` to the worker',
 							'newspack-nodes'
 						) }
 					>
-						{ __( 'Register', 'newspack-nodes' ) }
+						{ __( 'Dump', 'newspack-nodes' ) }
 					</button>
-				) }
-				{ /* TOGGLES — stateful switches on this node. */ }
-				<div className="topology-insp__group-label">
-					{ __( 'Toggles', 'newspack-nodes' ) }
-				</div>
-				<button
-					type="button"
-					className={ `button is-compact${
-						traceOn ? ' is-active' : ''
-					}` }
-					onClick={ () =>
-						onAction &&
-						onAction( 'trace', node.id, traceOn ? 0 : 1 )
-					}
-					title={
-						traceOn
-							? __(
-									'Stop tracing — `trace <name> 0`',
-									'newspack-nodes'
-							  )
-							: __(
-									'Start tracing — `trace <name> 1`',
-									'newspack-nodes'
-							  )
-					}
-				>
-					{ traceOn
-						? __( 'Stop Trace', 'newspack-nodes' )
-						: __( 'Trace', 'newspack-nodes' ) }
-				</button>
-				{ isTee && (
 					<button
 						type="button"
-						className={ `button is-compact topology-insp__actions-full${
-							tailOn ? ' is-active' : ''
+						className="button is-compact"
+						onClick={ () =>
+							onAction && onAction( 'dump_config', node.id )
+						}
+						title={ __(
+							"Send `dump_config <name>` — the node's make_node config line",
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Config', 'newspack-nodes' ) }
+					</button>
+				</div>
+			</Section>
+			{ /* MESSAGES — mint a typed message at this node. */ }
+			<Section title={ __( 'Messages', 'newspack-nodes' ) }>
+				<div className="topology-insp__actions">
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setPromptVerb( 'command_node' ) }
+						title={ __(
+							'Send a TM_COMMAND payload to this node via `command_node <name> <phrase>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Command', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setPromptVerb( 'send' ) }
+						title={ __(
+							'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Send', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setPromptVerb( 'request' ) }
+						title={ __(
+							'Send a TM_REQUEST payload — `request_node <name> <payload>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Request', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setPromptVerb( 'tell' ) }
+						title={ __(
+							'Send a TM_INFO payload — `tell_node <name> <info>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Tell', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () => setPromptVerb( 'send_struct' ) }
+						title={ __(
+							'Send a TM_STRUCT JSON payload — `send_struct <name> <json>`',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'Struct', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="button is-compact"
+						onClick={ () =>
+							onAction && onAction( 'send_eof', node.id )
+						}
+						title={ __(
+							'Send end-of-stream — `send_eof <name>` (TM_EOF)',
+							'newspack-nodes'
+						) }
+					>
+						{ __( 'EOF', 'newspack-nodes' ) }
+					</button>
+					{ regEvents.length > 0 && (
+						<button
+							type="button"
+							className="button is-compact"
+							onClick={ () => setRegisterOpen( true ) }
+							title={ __(
+								'Register a listener for one of this node’s events — `register <source> <target> <event>`',
+								'newspack-nodes'
+							) }
+						>
+							{ __( 'Register', 'newspack-nodes' ) }
+						</button>
+					) }
+				</div>
+			</Section>
+			{ /* TOGGLES — stateful switches on this node. */ }
+			<Section title={ __( 'Toggles', 'newspack-nodes' ) }>
+				<div className="topology-insp__actions">
+					<button
+						type="button"
+						className={ `button is-compact${
+							traceOn ? ' is-active' : ''
 						}` }
 						onClick={ () =>
 							onAction &&
-							onAction( tailOn ? 'disconnect' : 'tail', node.id )
+							onAction( 'trace', node.id, traceOn ? 0 : 1 )
 						}
 						title={
-							tailOn
+							traceOn
 								? __(
-										'Disconnect this session from the Tee — `disconnect_node <name>`',
+										'Stop tracing — `trace <name> 0`',
 										'newspack-nodes'
 								  )
 								: __(
-										'Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)',
+										'Start tracing — `trace <name> 1`',
 										'newspack-nodes'
 								  )
 						}
 					>
-						{ tailOn
-							? __( 'Disconnect', 'newspack-nodes' )
-							: __( 'Connect', 'newspack-nodes' ) }
+						{ traceOn
+							? __( 'Stop Trace', 'newspack-nodes' )
+							: __( 'Trace', 'newspack-nodes' ) }
 					</button>
-				) }
-				{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
-				{ /* Reserved spine nodes (e.g. _repl) skip these — the user doesn't own their configuration. */ }
-				{ ! isReserved( node ) &&
-					( () => {
-						const schema = catalog.find(
-							( c ) => c.shell_name === type
-						);
-						const commands = (
-							schema && schema.commands ? schema.commands : []
-						).filter( ( spec ) => ! spec.hidden );
-						const requests =
-							schema && schema.requests ? schema.requests : [];
-						if ( ! commands.length && ! requests.length ) {
-							return null;
-						}
-						// node_name args = live graph nodes minus inspected.
-						const liveNodeNames = ( parsed?.nodes || [] )
-							.map( ( n ) => n.name || n.id )
-							.filter( ( n ) => n && n !== node.id );
-						return [
-							<div
-								key="verbs-label"
-								className="topology-insp__group-label"
-							>
-								{ __( 'Verbs', 'newspack-nodes' ) }
-							</div>,
-							...commands.map( ( spec ) => (
-								<VerbButton
-									key={ `cmd-${ spec.name }` }
-									nodeId={ node.id }
-									spec={ spec }
-									kind="command"
-									formatters={ formatters }
-									vaults={ vaults }
-									nodeNames={ liveNodeNames }
-									onAction={ onAction }
-								/>
-							) ),
-							...requests.map( ( spec ) => (
-								<VerbButton
-									key={ `req-${ spec.name }` }
-									nodeId={ node.id }
-									spec={ spec }
-									kind="request"
-									formatters={ formatters }
-									vaults={ vaults }
-									nodeNames={ liveNodeNames }
-									onAction={ onAction }
-								/>
-							) ),
-						];
-					} )() }
-			</div>
+					{ isTee && (
+						<button
+							type="button"
+							className={ `button is-compact topology-insp__actions-full${
+								tailOn ? ' is-active' : ''
+							}` }
+							onClick={ () =>
+								onAction &&
+								onAction(
+									tailOn ? 'disconnect' : 'tail',
+									node.id
+								)
+							}
+							title={
+								tailOn
+									? __(
+											'Disconnect this session from the Tee — `disconnect_node <name>`',
+											'newspack-nodes'
+									  )
+									: __(
+											'Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)',
+											'newspack-nodes'
+									  )
+							}
+						>
+							{ tailOn
+								? __( 'Disconnect', 'newspack-nodes' )
+								: __( 'Connect', 'newspack-nodes' ) }
+						</button>
+					) }
+				</div>
+			</Section>
+			{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
+			{ /* Reserved spine nodes (e.g. _repl) skip these — the user doesn't own their configuration. */ }
+			{ ! isReserved( node ) &&
+				( () => {
+					const schema = catalog.find(
+						( c ) => c.shell_name === type
+					);
+					const commands = (
+						schema && schema.commands ? schema.commands : []
+					).filter( ( spec ) => ! spec.hidden );
+					const requests =
+						schema && schema.requests ? schema.requests : [];
+					if ( ! commands.length && ! requests.length ) {
+						return null;
+					}
+					// node_name args = live graph nodes minus inspected.
+					const liveNodeNames = ( parsed?.nodes || [] )
+						.map( ( n ) => n.name || n.id )
+						.filter( ( n ) => n && n !== node.id );
+					return (
+						<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+							<div className="topology-insp__actions">
+								{ commands.map( ( spec ) => (
+									<VerbButton
+										key={ `cmd-${ spec.name }` }
+										nodeId={ node.id }
+										spec={ spec }
+										kind="command"
+										formatters={ formatters }
+										vaults={ vaults }
+										nodeNames={ liveNodeNames }
+										onAction={ onAction }
+									/>
+								) ) }
+								{ requests.map( ( spec ) => (
+									<VerbButton
+										key={ `req-${ spec.name }` }
+										nodeId={ node.id }
+										spec={ spec }
+										kind="request"
+										formatters={ formatters }
+										vaults={ vaults }
+										nodeNames={ liveNodeNames }
+										onAction={ onAction }
+									/>
+								) ) }
+							</div>
+						</Section>
+					);
+				} )() }
 			{ node.registrations &&
 				Object.keys( node.registrations ).length > 0 && (
 					<div className="topology-insp__listeners">

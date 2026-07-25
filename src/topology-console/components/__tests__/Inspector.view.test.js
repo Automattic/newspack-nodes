@@ -933,17 +933,25 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /1,234/ );
 	} );
 
-	it( 'groups the selected-node actions under headings like the no-node panel', () => {
+	it( 'groups the selected-node actions into Sections, peers of the field sections', () => {
 		const { container } = renderNode();
-		const labels = [
-			...container.querySelectorAll(
-				'.topology-insp__actions .topology-insp__group-label'
-			),
+		const titles = [
+			...container.querySelectorAll( '.topology-insp__section-title' ),
 		].map( ( el ) => el.textContent );
-		expect( labels ).toEqual( [ 'Commands', 'Messages', 'Toggles' ] );
+		expect( titles.slice( -3 ) ).toEqual( [
+			'Commands',
+			'Messages',
+			'Toggles',
+		] );
+		// No small-strip group labels in the node panel — Sections carry it.
+		expect(
+			container.querySelector(
+				'.topology-insp__actions .topology-insp__group-label'
+			)
+		).toBeNull();
 	} );
 
-	it( 'adds a Verbs heading when the class schema declares verbs', () => {
+	it( 'adds a Verbs section when the class schema declares verbs', () => {
 		const { container } = renderNode( {
 			catalog: [
 				{
@@ -952,12 +960,10 @@ describe( 'Inspector (view mode)', () => {
 				},
 			],
 		} );
-		const labels = [
-			...container.querySelectorAll(
-				'.topology-insp__actions .topology-insp__group-label'
-			),
+		const titles = [
+			...container.querySelectorAll( '.topology-insp__section-title' ),
 		].map( ( el ) => el.textContent );
-		expect( labels ).toEqual( [
+		expect( titles.slice( -4 ) ).toEqual( [
 			'Commands',
 			'Messages',
 			'Toggles',

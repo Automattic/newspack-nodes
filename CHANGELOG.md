@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The selected-node inspector's Commands / Messages / Toggles / Verbs groups
+  are full `Section`s now — the same heading level as Routing, Constructor,
+  and Dead-Letter Queue — instead of the no-node strip's smaller group labels
+  (which stay as they were in the no-node palette).
+
 ## [1.3.0] - 2026-07-25
 
 ### Changed

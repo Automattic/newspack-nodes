@@ -1563,15 +1563,20 @@
 	margin-top: 18px;
 }
 
+// Inside a Section the title already spaces the grid; drop the standalone gap.
+.topology-insp__section .topology-insp__actions {
+	margin-top: 0;
+}
+
 .topology-insp__actions-full {
 	grid-column: span 2;
 }
 
-// Group headers inside both inspector button grids: span the 2-col grid and
-// separate the Views / Toggles / Commands (no node) and Commands / Messages /
-// Toggles / Verbs (selected node) clusters. Styled from the strip's mono
-// treatment (matches .topology-insp__levels). The leading header drops the
-// rule + gap so it doesn't double the container's own margin-top.
+// Group headers inside the no-node strip: span the 2-col grid and separate the
+// Views / Toggles / Commands clusters (the selected-node panel uses full
+// Sections instead). Styled from the strip's mono treatment (matches
+// .topology-insp__levels). The leading header drops the rule + gap so it
+// doesn't double the container's own margin-top.
 .topology-insp__group-label {
 	grid-column: span 2;
 	margin-top: 12px;
