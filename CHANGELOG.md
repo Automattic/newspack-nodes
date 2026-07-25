@@ -104,7 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and only a second click (now genuinely paused) recorded the rewind. The
   gate refs now flip at the moment of the `setPaused` call.
 - **Leaving debug mode no longer replays the rows that arrived during
-  it.** The smooth-scroll baseline only advanced in the live regime, so
+  it — nor the glide debt queued before entering it.** Debug zeroes the
+  pending smooth-scroll offset along with the new-row baseline; both
+  halves of the buffered motion die at the debug door. The smooth-scroll baseline only advanced in the live regime, so
   every row seen while debug was on counted as brand-new on exit and the
   list glided through the whole backlog. Debug keeps the baseline current.
 - **Debug rows render their columns.** The debug regime's styles never

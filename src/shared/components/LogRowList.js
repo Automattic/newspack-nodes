@@ -195,6 +195,8 @@ export default function LogRowList( {
 				// Baseline stays current: leaving debug must not replay these.
 				lastTopIdRef.current = topId;
 				lastTopFilterRef.current = activeFilter;
+				// Pending glide debt dies here too, or exit replays it.
+				offsetRef.current = 0;
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
 				// Report what debug actually shows; the toolbar reads x/total.
 				pushStats( end );
