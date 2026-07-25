@@ -405,19 +405,31 @@ export default function LogStreamViewer( {
 
 			<div className={ `${ className }__body` }>
 				{ sidebar && (
-					<button
-						className="newspack-nodes-rail-toggle"
-						onClick={ toggleRail }
-						title={
-							railOpen
-								? __( 'Hide the browse rail', 'newspack-nodes' )
-								: __( 'Show the browse rail', 'newspack-nodes' )
-						}
+					<div
+						className={ `newspack-nodes-rail-dock${
+							railOpen ? '' : ' is-collapsed'
+						}` }
 					>
-						{ railOpen ? '\u2039' : '\u203a' }
-					</button>
+						<button
+							className="newspack-nodes-rail-toggle"
+							onClick={ toggleRail }
+							title={
+								railOpen
+									? __(
+											'Hide the browse rail',
+											'newspack-nodes'
+									  )
+									: __(
+											'Show the browse rail',
+											'newspack-nodes'
+									  )
+							}
+						>
+							{ railOpen ? '\u2039' : '\u203a' }
+						</button>
+						{ railOpen && sidebar }
+					</div>
 				) }
-				{ railOpen && sidebar }
 
 				{ activeHeader ? (
 					<div
