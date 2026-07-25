@@ -21,6 +21,7 @@ import {
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import LogRowList from './LogRowList';
+import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
 import StalenessIndicator from './StalenessIndicator';
 
@@ -53,31 +54,84 @@ const renderDebugRow = ( row ) => (
 	</div>
 );
 
+// Log Viewer variant: raw lines carry no KEY — two columns only.
+const renderDebugRowNoKey = ( row ) => (
+	<div
+		key={ row.id }
+		className={ `newspack-nodes-log-row is-debug ${
+			row.isEven ? 'row-even' : 'row-odd'
+		}` }
+		data-p={ row.partition }
+	>
+		<span className="newspack-nodes-log-row__id">{ row.msgId || '?' }</span>
+		<span className="newspack-nodes-log-row__value">
+			{ debugValue( row ) }
+		</span>
+	</div>
+);
+
+// The debug-mode column header (ID [· Key] · Value), shared cell classes.
+const debugHeader = ( hasKeyColumn ) => (
+	<LogListHeader
+		columns={ [
+			{
+				key: 'id',
+				label: __( 'ID', 'newspack-nodes' ),
+				className: 'newspack-nodes-log-row__id',
+			},
+			...( hasKeyColumn
+				? [
+						{
+							key: 'key',
+							label: __( 'Key', 'newspack-nodes' ),
+							className: 'newspack-nodes-log-row__key',
+						},
+				  ]
+				: [] ),
+			{
+				key: 'value',
+				label: __( 'Value', 'newspack-nodes' ),
+				className: 'newspack-nodes-log-row__value',
+			},
+		] }
+	/>
+);
+
 /**
  * @param {Object}   props                      Props.
  * @param {string}   props.className            Root class; the body wrapper is `${className}__body`.
  * @param {string}   props.ariaLabel            The region's accessible name.
+ * @param {string}   [props.title]              Inline page heading (adopters without a hub header).
  * @param {Element}  [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
- * @param {Array}    props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown.
+ * @param {?Array}   props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
  * @param {string}   props.selectedKey          The picked option's key.
  * @param {Function} props.onPick               `(key) => void` — switch the source.
  * @param {string}   props.pickerEmptyLabel     Status text when the catalog is empty.
  * @param {boolean}  props.isPaused             The view's paused flag.
  * @param {boolean}  props.connectionError      The view's reconnect flag.
  * @param {Function} props.onTogglePause        Pause/resume the stream.
- * @param {Function} props.onStep               Step one message (enabled only while paused).
- * @param {Function} [props.onJump]             Jump handler for the offset input (`(text) => void`).
+ * @param {Function} [props.onStep]             Step one message (paused-only); absent = no step button.
+ * @param {Function} [props.onJump]             Jump handler for the offset input; absent = no input.
  * @param {Function} props.getViewNode          `() => node` — the live ring node (rows + Clear).
  * @param {Function} props.getLastEventTime     `() => ?number` — the link's last-frame ms clock.
  * @param {*}        props.sidebar              The configured `LogBrowser` element.
  * @param {Function} props.renderRow            One-row renderer for `LogRowList`.
  * @param {number}   props.rowHeight            Fixed row height (px).
  * @param {string}   [props.listClassName]      Extra `LogRowList` class.
+ * @param {Function} [props.matchRow]           `(row, filterLower) => boolean` filter override.
+ * @param {string}   [props.filterPlaceholder]  Filter input placeholder override.
+ * @param {Function} [props.renderCount]        `(stats) => string` count label override.
+ * @param {Function} [props.renderRate]         `(lps) => string` rate label override.
+ * @param {*}        [props.toolbarExtras]      Extra toolbar controls (before Clear).
+ * @param {*}        [props.belowToolbar]       Panel under the banner (e.g. a column picker).
+ * @param {*}        [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
+ * @param {boolean}  [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogStreamViewer( {
 	className,
 	ariaLabel,
+	title,
 	headerControlsSlot,
 	pickerOptions,
 	selectedKey,
@@ -94,6 +148,14 @@ export default function LogStreamViewer( {
 	renderRow,
 	rowHeight,
 	listClassName,
+	matchRow,
+	filterPlaceholder,
+	renderCount,
+	renderRate,
+	toolbarExtras,
+	belowToolbar,
+	listHeader,
+	hasKeyColumn = true,
 } ) {
 	const [ filter, setFilter ] = useState( '' );
 	// Debug rows: ID · KEY · VALUE, pretty structs, natural heights.
@@ -133,12 +195,12 @@ export default function LogStreamViewer( {
 	// Controls strip portals into the hub header slot; undefined = inline.
 	const controls = (
 		<div className="newspack-nodes-toolbar">
-			{ pickerOptions.length === 0 && (
+			{ pickerOptions && pickerOptions.length === 0 && (
 				<span className="newspack-nodes-toolbar-status">
 					{ pickerEmptyLabel }
 				</span>
 			) }
-			{ pickerOptions.length > 0 && (
+			{ pickerOptions && pickerOptions.length > 0 && (
 				<select
 					className="newspack-nodes-select"
 					value={ selectedKey }
@@ -159,31 +221,36 @@ export default function LogStreamViewer( {
 			<input
 				type="text"
 				className="newspack-nodes-search-input"
-				placeholder={ __( 'Filter…', 'newspack-nodes' ) }
+				placeholder={
+					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
+				}
 				value={ filter }
 				onChange={ ( e ) => setFilter( e.target.value ) }
 			/>
 
-			<input
-				type="text"
-				className="newspack-nodes-offset-input"
-				placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
-				value={ jumpText }
-				onChange={ ( e ) => setJumpText( e.target.value ) }
-				onKeyDown={ ( e ) => {
-					if ( 'Enter' === e.key && onJump ) {
-						onJump( jumpText.trim() );
-					}
-				} }
-				title={ __(
-					'Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message',
-					'newspack-nodes'
-				) }
-			/>
+			{ onJump && (
+				<input
+					type="text"
+					className="newspack-nodes-offset-input"
+					placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
+					value={ jumpText }
+					onChange={ ( e ) => setJumpText( e.target.value ) }
+					onKeyDown={ ( e ) => {
+						if ( 'Enter' === e.key ) {
+							onJump( jumpText.trim() );
+						}
+					} }
+					title={ __(
+						'Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message',
+						'newspack-nodes'
+					) }
+				/>
+			) }
 
 			<span className="newspack-nodes-toolbar-stats">
 				<span className="newspack-nodes-toolbar-stats__count">
-					{ stats.visible !== stats.total
+					{ renderCount && renderCount( stats ) }
+					{ ! renderCount && stats.visible !== stats.total
 						? sprintf(
 								// translators: 1: number of lines shown, 2: total number of lines.
 								_n(
@@ -195,7 +262,8 @@ export default function LogStreamViewer( {
 								stats.visible,
 								stats.total
 						  )
-						: sprintf(
+						: ! renderCount &&
+						  sprintf(
 								// translators: %d: number of lines.
 								_n(
 									'%d line',
@@ -208,11 +276,13 @@ export default function LogStreamViewer( {
 				</span>
 				{ stats.lps > 0 && (
 					<span className="newspack-nodes-toolbar-stats__rps">
-						{ sprintf(
-							// translators: %s: lines-per-second rate (one decimal place).
-							__( '%s lines/s', 'newspack-nodes' ),
-							stats.lps.toFixed( 1 )
-						) }
+						{ renderRate
+							? renderRate( stats.lps )
+							: sprintf(
+									// translators: %s: lines-per-second rate (one decimal place).
+									__( '%s lines/s', 'newspack-nodes' ),
+									stats.lps.toFixed( 1 )
+							  ) }
 					</span>
 				) }
 				<StalenessIndicator paused={ isPaused } staleSec={ staleSec } />
@@ -230,17 +300,19 @@ export default function LogStreamViewer( {
 				{ isPaused ? '▶' : '⏸' }
 			</button>
 
-			<button
-				className="button"
-				onClick={ onStep }
-				disabled={ ! isPaused }
-				title={ __(
-					'Step one message (paused only)',
-					'newspack-nodes'
-				) }
-			>
-				{ '⏭' }
-			</button>
+			{ onStep && (
+				<button
+					className="button"
+					onClick={ onStep }
+					disabled={ ! isPaused }
+					title={ __(
+						'Step one message (paused only)',
+						'newspack-nodes'
+					) }
+				>
+					{ '⏭' }
+				</button>
+			) }
 
 			<button
 				className={ `button ${ debug ? 'is-active' : '' }` }
@@ -252,6 +324,8 @@ export default function LogStreamViewer( {
 			>
 				{ __( 'Debug', 'newspack-nodes' ) }
 			</button>
+
+			{ toolbarExtras }
 
 			<button
 				className="button"
@@ -269,9 +343,37 @@ export default function LogStreamViewer( {
 		renderedControls = controls;
 	}
 
+	// The active header row: debug builds its own; normal is consumer-supplied.
+	const activeHeader = debug
+		? debugHeader( hasKeyColumn )
+		: listHeader ?? null;
+	const activeDebugRow = hasKeyColumn ? renderDebugRow : renderDebugRowNoKey;
+
+	const list = (
+		<LogRowList
+			getNode={ getViewNode }
+			rowHeight={ rowHeight }
+			debug={ debug }
+			renderRow={ debug ? activeDebugRow : renderRow }
+			filter={ filter }
+			matchRow={ matchRow }
+			emptyLabel={ emptyLabel }
+			onStats={ handleStats }
+			resetSignal={ resetSignal }
+			listClassName={ listClassName }
+		/>
+	);
+
 	return (
 		<div className={ className } role="region" aria-label={ ariaLabel }>
-			{ renderedControls }
+			{ title ? (
+				<div className={ `${ className }__header` }>
+					<h1 className="newspack-dashboard-title">{ title }</h1>
+					{ renderedControls }
+				</div>
+			) : (
+				renderedControls
+			) }
 
 			<ConnectionBanner
 				connectionError={ connectionError }
@@ -281,20 +383,19 @@ export default function LogStreamViewer( {
 				) }
 			/>
 
+			{ belowToolbar }
+
 			<div className={ `${ className }__body` }>
 				{ sidebar }
 
-				<LogRowList
-					getNode={ getViewNode }
-					rowHeight={ rowHeight }
-					debug={ debug }
-					renderRow={ debug ? renderDebugRow : renderRow }
-					filter={ filter }
-					emptyLabel={ emptyLabel }
-					onStats={ handleStats }
-					resetSignal={ resetSignal }
-					listClassName={ listClassName }
-				/>
+				{ activeHeader ? (
+					<div className={ `${ className }__main` }>
+						{ activeHeader }
+						{ list }
+					</div>
+				) : (
+					list
+				) }
 			</div>
 		</div>
 	);

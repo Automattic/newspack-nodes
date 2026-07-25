@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { IoTelemetry } from '../runtime/io-telemetry';
 import { overviewChartSeries } from './overviewChartSeries';
-import { RateSmoother } from '../event-dashboards/rateSmoother';
+import { RateSmoother } from '../shared/rateSmoother';
 
 // Card refresh cadence (20Hz); live rate uses the RateSmoother (10s avg, EMA).
 const TICK_MS = 50;

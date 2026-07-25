@@ -26,7 +26,7 @@ import useLogPositions, {
 } from '@newspack-nodes/shared/hooks/useLogPositions';
 import './styles/log-viewer.scss';
 
-const ROW_HEIGHT = 18;
+const ROW_HEIGHT = 33;
 // Catalog maintenance cadence (segment rotation + size growth).
 const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'logviewer:view';
@@ -210,6 +210,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			}
 			renderRow={ renderRawRow }
 			rowHeight={ ROW_HEIGHT }
+			hasKeyColumn={ false }
 		/>
 	);
 }

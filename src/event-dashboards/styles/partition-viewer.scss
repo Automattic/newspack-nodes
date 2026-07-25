@@ -26,10 +26,15 @@
 	min-height: 0;
 }
 
+// The column header sits above the gutter-padded rows; match their inset.
+.newspack-nodes-partition-viewer .newspack-nodes-log-header {
+	padding-left: 52px;
+}
+
 // The partition column: a `P<n>` gutter drawn from each row's data-p attribute.
 .newspack-nodes-partition-rows .newspack-nodes-log-row {
 	position: relative;
-	padding: 0 8px 0 40px;
+	padding: 0 12px 0 40px;
 
 	&::before {
 		content: "P" attr(data-p);

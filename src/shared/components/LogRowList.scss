@@ -1,20 +1,22 @@
 /**
  * LogRowList — shared DOM-virtualized log pane.
  *
+ * THE canonical log-area style (normalized from the event-logger's request
+ * stream): the bordered dark pane with its scrollbar, the uppercase column
+ * header capping it, and the striped/hover rows with fixed-width ID/KEY cells.
  * Themed with the --paper/--ink token families (with literal fallbacks) so the
- * pane flips light/dark with the skin — the light-theme the canvas renderer
- * could never give. Consumers apply `.newspack-nodes-log-row` to each row so its
- * height matches the JS `rowHeight` (via the `--log-row-height` custom property
- * the list sets on the container), keeping virtualization aligned.
+ * pane flips light/dark with the skin. Consumers apply `.newspack-nodes-log-row`
+ * to each row so its height matches the JS `rowHeight` (via the
+ * `--log-row-height` custom property the list sets on the container).
  */
 
 .newspack-nodes-log-rows {
 	flex: 1;
 	overflow-y: scroll;
 	overflow-x: hidden;
-	background: var(--paper-2, #1e1e1e);
+	background: var(--paper-3, #1e1e1e);
 	border: 1px solid var(--paper-shadow, #3a3a3a);
-	border-radius: 6px;
+	border-radius: var(--np-radius-md, 6px);
 	-webkit-overflow-scrolling: touch;
 
 	&::-webkit-scrollbar {
@@ -36,6 +38,33 @@
 	}
 }
 
+// Column-header row caps the dark pane — light-on-dark uppercase labels.
+.newspack-nodes-log-header {
+	display: flex;
+	gap: 12px;
+	padding: 6px 12px;
+	background: var(--paper-2, #262626);
+	border: 1px solid var(--paper-shadow, #3a3a3a);
+	border-bottom: none;
+	border-radius: var(--np-radius-md, 6px) var(--np-radius-md, 6px) 0 0;
+	flex-shrink: 0;
+}
+
+.newspack-nodes-log-header__th {
+	color: var(--ink-3, #949494);
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	cursor: default;
+}
+
+// A headed pane squares its top so the header caps it seamlessly.
+.newspack-nodes-log-header + .newspack-nodes-log-rows {
+	border-top: none;
+	border-radius: 0 0 var(--np-radius-md, 6px) var(--np-radius-md, 6px);
+}
+
 .newspack-nodes-log-rows__content {
 	display: flex;
 	flex-direction: column;
@@ -54,8 +83,11 @@
 }
 
 .newspack-nodes-log-row {
-	height: var(--log-row-height, 18px);
-	line-height: var(--log-row-height, 18px);
+	display: flex;
+	gap: 12px;
+	align-items: center;
+	height: var(--log-row-height, 33px);
+	padding: 0 12px;
 	box-sizing: border-box;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	font-size: 12px;
@@ -64,73 +96,71 @@
 	color: var(--ink, #e0e0e0);
 
 	&.row-odd {
-		background: var(--paper-3, #2a2a2a);
-	}
-
-	&.row-even {
 		background: var(--paper-2, #262626);
 	}
 
-	&:hover {
-		background: var(--paper-shadow, #30363d);
+	// @longform Surface tiers are nearly identical on dark skins, so tint
+	// every other row toward the ink for visible striping (lighter on dark,
+	// darker on light — it adapts to the skin); hover tints toward the accent.
+	&.row-even {
+		background: color-mix(
+			in srgb,
+			var(--ink, #e0e0e0) 8%,
+			var(--paper-2, #262626)
+		);
 	}
 
-	// Debug regime: ID · KEY · VALUE columns at natural row heights.
+	&:hover {
+		background: color-mix(
+			in srgb,
+			var(--cyan, #6ea8c9) 20%,
+			var(--paper-2, #262626)
+		);
+	}
+
+	// Debug regime: natural row heights, wrapped values.
 	&.is-debug {
-		display: flex;
 		align-items: baseline;
-		gap: 12px;
 		height: auto;
 		line-height: 1.5;
 		white-space: normal;
 		overflow: visible;
-		padding-top: 1px;
-		padding-bottom: 1px;
+		padding-top: 4px;
+		padding-bottom: 4px;
 	}
 }
 
+// Fixed-width gutter cells so headers and rows share one width source.
 .newspack-nodes-log-row__id {
 	flex: 0 0 auto;
+	width: 22ch;
 	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	user-select: all;
 	color: var(--ink-3, #949494);
 }
 
-// A runaway key can't blow the column past 40ch.
 .newspack-nodes-log-row__key {
 	flex: 0 0 auto;
-	max-width: 40ch;
+	width: 28ch;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	color: var(--ink-2, #b8b8b8);
 }
 
-// The value wraps and pretty-printed structs keep their line breaks.
+// The value cell: one clipped line live; wrapped (pre-wrap) in debug rows.
 .newspack-nodes-log-row__value {
 	flex: 1;
 	min-width: 0;
+	white-space: pre;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.newspack-nodes-log-row.is-debug .newspack-nodes-log-row__value {
 	white-space: pre-wrap;
 	word-break: break-word;
+	overflow: visible;
 }
-
-// @longform True content-sized columns: the list is a grid and each row a
-// subgrid over its tracks, so ID and KEY columns size to the WIDEST value
-// across all rows (an empty KEY column collapses to nothing) while row
-// backgrounds still span full width. Flex above is the no-subgrid fallback.
-@supports (grid-template-columns: subgrid) {
-	.newspack-nodes-log-rows.is-debug .newspack-nodes-log-rows__content {
-		display: grid;
-		grid-template-columns: max-content max-content 1fr;
-		align-content: start;
-	}
-
-	.newspack-nodes-log-row.is-debug {
-		display: grid;
-		grid-template-columns: subgrid;
-		grid-column: 1 / -1;
-		column-gap: 12px;
-		align-items: baseline;
-	}
-}
-
