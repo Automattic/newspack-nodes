@@ -202,6 +202,23 @@ test( 'an explicitly closed stream stays closed on the next visible event', () =
 // Build a configured SseIn. `subscribe` is the only positional argument; the
 // transport coordinates (baseUrl + nonce) are set explicitly — they no longer
 // ride the make_node args, they come from the localized global by default.
+test( 'a grouped stamp keys resume positions by its full offsets/<dir> key', () => {
+	const { sse } = makeSseIn( {
+		subscribe: [ 'offsets/combined.firehose.p0' ],
+	} );
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'offsets/combined.firehose.p0/producer';
+	m[ ID ] = '3:100:50';
+	m[ VALUE ] = 'cursor frame';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+
+	expect( sse.resumePositions() ).toEqual( {
+		'offsets/combined.firehose.p0': { segment: 3, offset: 150 },
+	} );
+} );
+
 function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	const sse = new SseInNode();
 	sse.arguments = [ subscribe.join( ',' ) ];

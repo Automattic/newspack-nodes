@@ -25,9 +25,10 @@
  * @param {Object} o
  * @param {Object} o.linkRef A ref to the RemoteLink node (`setSubscribe`/`close`/`resumePositions`).
  * @param {Object} o.viewRef A ref to the view node (the pause control is published to it).
- * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function }}
+ * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function, step: Function }}
  *   `isPausedRef` (for a mount rebuild to re-apply a surviving pause), `resubscribe`,
- *   and `setPaused` (flips the gate + publishes the pause control for the UI).
+ *   `setPaused` (flips the gate + publishes the pause control for the UI), and
+ *   `step` (paused-only: deliver one frame from the cursor, then close).
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
@@ -45,7 +46,7 @@ export function reopenSeed( link, { subscribe, positions } ) {
 		: null;
 }
 
-export function useGatedSubscription( { linkRef, viewRef } ) {
+export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 	const isPageVisible = usePageVisibility();
 
 	// Pause closes the SSE stream (frees the server slot); play resumes.
@@ -110,5 +111,42 @@ export function useGatedSubscription( { linkRef, viewRef } ) {
 		[ viewRef ]
 	);
 
-	return { isPausedRef, resubscribe, setPaused };
+	// @longform Paused-only single-step: the stream stays OFFLINE; one record
+	// is fetched over the command channel (`fetchMessage( sub, cursor )` →
+	// `{ message, cursor }`, server-stamped by the real read model), admitted
+	// through the view's paused belt, and the recorded reopen target advances
+	// to the post-step cursor — so the NEXT step continues from there and
+	// Play resumes streaming from the stepped point.
+	const step = useCallback( () => {
+		const link = linkRef.current;
+		const target = pendingTargetRef.current;
+		if ( ! isPausedRef.current || ! link || ! target || ! fetchMessage ) {
+			return;
+		}
+		const sub = target.subscribe[ 0 ];
+		const cursor =
+			target.positions?.[ sub ] ?? link.resumePositions()?.[ sub ];
+		if ( ! cursor || 'object' !== typeof cursor ) {
+			return;
+		}
+		fetchMessage( sub, cursor )
+			.then( ( result ) => {
+				const view = viewRef.current;
+				if ( ! result?.message || ! view || ! isPausedRef.current ) {
+					return;
+				}
+				const admit = newMessage();
+				admit[ TYPE ] = TM_STRUCT;
+				admit[ VALUE ] = { action: 'step', frames: 1 };
+				view.fill( admit );
+				view.fill( result.message );
+				pendingTargetRef.current = {
+					subscribe: target.subscribe,
+					positions: { [ sub ]: { ...result.cursor } },
+				};
+			} )
+			.catch( () => {} );
+	}, [ linkRef, viewRef, fetchMessage ] );
+
+	return { isPausedRef, resubscribe, setPaused, step };
 }

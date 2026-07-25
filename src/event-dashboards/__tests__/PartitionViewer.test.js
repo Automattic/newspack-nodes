@@ -91,6 +91,7 @@ describe( 'PartitionViewer', () => {
 	let setPaused;
 	let fetchLogStatus;
 	let seek;
+	let step;
 
 	// Wrap render in act so the async log_status fetch effect settles inside it.
 	async function renderViewer( props = {} ) {
@@ -109,12 +110,14 @@ describe( 'PartitionViewer', () => {
 		setPaused = jest.fn();
 		fetchLogStatus = jest.fn().mockResolvedValue( { segments: [] } );
 		seek = jest.fn();
+		step = jest.fn();
 		usePartitionViewerGraph.mockClear();
 		usePartitionViewerGraph.mockReturnValue( {
 			selectLog,
 			setPaused,
 			fetchLogStatus,
 			seek,
+			step,
 		} );
 		window.history.replaceState( {}, '', '/' );
 	} );
@@ -252,6 +255,40 @@ describe( 'PartitionViewer', () => {
 			{ id: 4, size: 100 },
 			{ id: 5, size: 2048 },
 		] );
+	} );
+
+	it( 'browsing a segment enters pause mode (time-travel)', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		await renderViewer();
+		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+	} );
+
+	it( 'step button steps once while paused; disabled while live', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			paused: true,
+		} );
+		const { getByTitle } = await renderViewer();
+		const button = getByTitle( 'Step one message (paused only)' );
+		expect( button.disabled ).toBe( false );
+		fireEvent.click( button );
+		expect( step ).toHaveBeenCalled();
+	} );
+
+	it( 'step button is disabled while live', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { getByTitle } = await renderViewer();
+		expect( getByTitle( 'Step one message (paused only)' ).disabled ).toBe(
+			true
+		);
 	} );
 
 	it( 'browsing a segment seeks the stream to it at offset 0', async () => {

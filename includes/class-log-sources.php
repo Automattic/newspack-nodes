@@ -43,17 +43,20 @@ class Log_Sources {
 	private const TAILLOG_DEFAULT_KB = 16;
 	private const TAILLOG_MAX_KB     = 64;
 
+
 	/**
 	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
 	 * fixed registry NAME (the shared registry: built-ins + config `log_sources` +
 	 * active-topology Log nodes). No source lists the registry with per-source
 	 * availability; the reserved name `sources` returns the registry as a struct
-	 * (array) a GUI reads; an unknown name or a missing/unreadable file returns a
+	 * (array) a GUI reads; the reserved `read <source> <segment>:<offset>`
+	 * returns the single line at a position (the paused single-step debugger);
+	 * an unknown name or a missing/unreadable file returns a
 	 * teaching error naming the resolved path (errors-as-docs). The interpreter's
 	 * `taillog` verb delegates here — file I/O over a registry Log_Sources owns.
 	 *
 	 * @param list<string> $args
-	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
+	 * @return string|array<array-key, mixed> Struct/read replies are arrays; tails and errors are strings.
 	 */
 	public static function taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
@@ -61,6 +64,9 @@ class Log_Sources {
 
 		if ( 'sources' === $source ) {
 			return self::taillog_sources_struct( $registry );
+		}
+		if ( 'read' === $source ) {
+			return self::taillog_read( $registry, $args[1] ?? '', $args[2] ?? '' );
 		}
 		if ( '' === $source ) {
 			return self::taillog_list( $registry );
@@ -76,6 +82,61 @@ class Log_Sources {
 		}
 		$window = \max( 1, \min( \ctype_digit( $max_kb ) ? (int) $max_kb : self::TAILLOG_DEFAULT_KB, self::TAILLOG_MAX_KB ) );
 		return self::tail_file( $path, $window * 1024 );
+	}
+
+	/**
+	 * The reserved `taillog read <source> <segment>:<offset>[:<length>]` reply:
+	 * the single LINE at a position, via the REAL read model — an ephemeral
+	 * Tail (file or segmented mode) seeked there and single-stepped through the
+	 * Durable_Reader debugger, so inode validation, segment rolls, and partial
+	 * lines behave exactly as they do on the live stream, and the emitted
+	 * record carries the stamped FROM + ID breadcrumb. Length-blind: a supplied
+	 * `:<length>` token is ignored. The reply's `cursor` is the post-step
+	 * position — the Log Viewer's paused single-step advance. File mode
+	 * validates the segment slot as the file's inode (a breadcrumb round-trip);
+	 * a mismatch re-seeks to 0 rather than reading a rotated-away generation.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @param string $name     Registry source name.
+	 * @param string $position `<segment>:<offset>[:<length>]`.
+	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
+	 */
+	private static function taillog_read( array $registry, string $name, string $position ): array|string {
+		$tokens = \explode( ':', $position );
+		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
+			return 'taillog read: invalid position (want <segment>:<offset>[:<length>])';
+		}
+		if ( ! isset( $registry[ $name ] ) ) {
+			$known = \implode( ', ', \array_keys( $registry ) );
+			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+		}
+		$entry    = $registry[ $name ];
+		$captured = null;
+		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
+			$captured = $message;
+		} );
+		$tail = new Tail_Node();
+		$tail->sink( $capture );
+		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
+		$tail->set_stamp_as( $name );
+		$tail->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
+		try {
+			$cursor = $tail->step();
+		} finally {
+			$tail->remove_node();
+		}
+		if ( null === $captured ) {
+			return "taillog read: no line at {$name} {$tokens[0]}:{$tokens[1]}";
+		}
+		return [
+			'source'  => $name,
+			'message' => $captured,
+			'cursor'  => [
+				'segment' => $cursor['segment'],
+				'offset'  => $cursor['offset'],
+			],
+			'at_eof'  => $cursor['at_eof'],
+		];
 	}
 
 	/**
@@ -164,7 +225,7 @@ class Log_Sources {
 	 * no `..`, and not the `sources` word `taillog` reserves for its struct verb.
 	 */
 	public static function is_valid_name( string $name ): bool {
-		if ( 'sources' === $name || \str_contains( $name, '..' ) ) {
+		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
 			return false;
 		}
 		return 1 === \preg_match( self::NAME_PATTERN, $name );

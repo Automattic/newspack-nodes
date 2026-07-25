@@ -36,6 +36,7 @@ import StalenessIndicator from './StalenessIndicator';
  * @param {boolean}  props.isPaused             The view's paused flag.
  * @param {boolean}  props.connectionError      The view's reconnect flag.
  * @param {Function} props.onTogglePause        Pause/resume the stream.
+ * @param {Function} props.onStep               Step one message (enabled only while paused).
  * @param {Function} props.getViewNode          `() => node` — the live ring node (rows + Clear).
  * @param {Function} props.getLastEventTime     `() => ?number` — the link's last-frame ms clock.
  * @param {*}        props.sidebar              The configured `LogBrowser` element.
@@ -55,6 +56,7 @@ export default function LogStreamViewer( {
 	isPaused,
 	connectionError,
 	onTogglePause,
+	onStep,
 	getViewNode,
 	getLastEventTime,
 	sidebar,
@@ -175,6 +177,18 @@ export default function LogStreamViewer( {
 				}
 			>
 				{ isPaused ? '▶' : '⏸' }
+			</button>
+
+			<button
+				className="button"
+				onClick={ onStep }
+				disabled={ ! isPaused }
+				title={ __(
+					'Step one message (paused only)',
+					'newspack-nodes'
+				) }
+			>
+				{ '⏭' }
 			</button>
 
 			<button

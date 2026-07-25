@@ -614,6 +614,74 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		} );
 	} );
 
+	test( 'step while paused fetches ONE record over /command — the stream stays offline', async () => {
+		// Server-stamped by the ephemeral Consumer: FROM + ID breadcrumb.
+		const stepped = newMessage();
+		stepped[ TYPE ] = TM_BYTESTREAM;
+		stepped[ FROM ] = 'firehose.p0';
+		stepped[ ID ] = '7:120:30';
+		stepped[ VALUE ] = 'stepped one';
+		const payload = {
+			list_logs: oneLogReply(),
+			read_message: {
+				message: [ ...stepped ],
+				cursor: { segment: 7, offset: 150 },
+				at_eof: false,
+			},
+		};
+		const client = makeFakeClient( payload );
+		const { result } = mountGraph( client );
+		await act( async () => {} );
+		// A live frame seeds the resume cursor, then pause closes the stream.
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = '';
+		env[ FROM ] = 'firehose.p0';
+		env[ ID ] = '7:100:20';
+		env[ VALUE ] = 'seen live';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		act( () => result.current.setPaused( true ) );
+
+		const esCount = FakeEventSource.instances.length;
+		await act( async () => result.current.step() );
+
+		// No stream opened; the record rode the command channel.
+		expect( FakeEventSource.instances.length ).toBe( esCount );
+		const cmd = client.batches
+			.flat()
+			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
+		expect( cmd[ VALUE ].arguments ).toEqual( [ 'firehose.p0', '7:120' ] );
+		const view = Core.node( VIEW );
+		expect( view.lines[ 0 ].content ).toBe( 'stepped one' );
+		// Stamped like a streamed frame: sub-prefixed FROM keeps the P column.
+		expect( view.lines[ 0 ].partition ).toBe( 0 );
+
+		// The SECOND step asks for offset + length — the next record.
+		payload.read_message = {
+			message: [ ...stepped ],
+			cursor: { segment: 7, offset: 160 },
+			at_eof: false,
+		};
+		await act( async () => result.current.step() );
+		const cmds = client.batches
+			.flat()
+			.filter( ( m ) => 'read_message' === m[ VALUE ]?.name );
+		expect( cmds[ 1 ][ VALUE ].arguments ).toEqual( [
+			'firehose.p0',
+			'7:150',
+		] );
+	} );
+
+	test( 'step while LIVE is a no-op (paused-only control)', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { list_logs: oneLogReply() } )
+		);
+		await act( async () => {} );
+		const before = FakeEventSource.instances.length;
+		await act( async () => result.current.step() );
+		expect( FakeEventSource.instances.length ).toBe( before );
+	} );
+
 	test( 'a user pause outranks a visibility refocus: pause → hide → refocus stays CLOSED (no auto-resume)', async () => {
 		const { result } = mountGraph(
 			makeFakeClient( { list_logs: oneLogReply() } )

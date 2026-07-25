@@ -389,6 +389,82 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( 233, $rows[0]['bytes'], 'bytes = the newest segment size' );
 	}
 
+	public function test_taillog_read_returns_the_line_at_a_position_in_a_segment(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-read',
+			"var num_partitions = 1\n"
+			. "make_node Log gate:log <config:logs_dir>/gate-decisions.jsonl 1 2 7\n"
+		);
+		\mkdir( "{$this->tmp}/logs", 0755, true );
+		$line1 = "first decision 4194\n";
+		$line2 = "second decision 977\n";
+		\file_put_contents( "{$this->tmp}/logs/gate-decisions.jsonl.3", $line1 . $line2 );
+
+		$result = Log_Sources::taillog( [ 'read', 'gate-decisions.jsonl', '3:0' ] );
+
+		$this->assertSame( "first decision 4194\n", $result['message'][ \Newspack_Nodes\Message::VALUE ] );
+		// The post-step cursor IS the next-line position.
+		$this->assertSame(
+			[
+				'segment' => 3,
+				'offset'  => \strlen( $line1 ),
+			],
+			$result['cursor']
+		);
+
+		// Stepping from the cursor yields line two; a trailing :length is ignored.
+		$next = Log_Sources::taillog( [ 'read', 'gate-decisions.jsonl', '3:' . \strlen( $line1 ) . ':555' ] );
+		$this->assertSame( "second decision 977\n", $next['message'][ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_taillog_read_file_mode_validates_the_inode_and_reads_at_offset(): void {
+		$path = "{$this->tmp}/plain-9313.log";
+		\file_put_contents( $path, "alpha line\nbeta line\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+		$inode = (int) \fileinode( $path );
+
+		// The segment slot is the file's inode (the breadcrumb round-trip).
+		$result = Log_Sources::taillog( [ 'read', 'php', "{$inode}:11" ] );
+
+		$this->assertSame( "beta line\n", $result['message'][ \Newspack_Nodes\Message::VALUE ] );
+		$this->assertSame( $inode, $result['cursor']['segment'] );
+		$this->assertSame( 21, $result['cursor']['offset'] );
+
+		// A MISMATCHED inode (rotated-away generation) re-seeks to the file
+		// start rather than reading a stale position: line one comes back.
+		$stale = Log_Sources::taillog( [ 'read', 'php', '12345:11' ] );
+		$this->assertSame( "alpha line\n", $stale['message'][ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_taillog_read_rejects_a_malformed_position(): void {
+		$path = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$this->assertSame(
+			'taillog read: invalid position (want <segment>:<offset>[:<length>])',
+			Log_Sources::taillog( [ 'read', 'php', 'abc' ] )
+		);
+	}
+
+	public function test_taillog_read_reports_no_line_on_an_empty_file(): void {
+		// A past-EOF offset resumes from 0 (crash-resume forgiveness, the
+		// cursor tells the truth); only a genuinely empty file has no line.
+		$path = "{$this->tmp}/empty-7717.log";
+		\file_put_contents( $path, '' );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$inode = (int) \fileinode( $path );
+		$this->assertSame(
+			"taillog read: no line at php {$inode}:0",
+			Log_Sources::taillog( [ 'read', 'php', "{$inode}:0" ] )
+		);
+	}
+
+	public function test_read_is_a_reserved_source_name(): void {
+		$this->assertFalse( Log_Sources::is_valid_name( 'read' ) );
+	}
+
 	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];

@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Paused single-step in the Partition Viewer and Log Viewer.** A step
+  button beside pause/play (paused-only) advances one message at a time —
+  the stream stays fully OFFLINE while paused; each step fetches exactly one
+  record over the command channel. Two new verbs front the substrate's OWN
+  time-travel read model (`Durable_Reader::step()` on an ephemeral
+  Consumer/Tail — segment rolls, torn records, inode validation, and
+  FROM/ID stamping all behave exactly as on the live stream):
+  `read_message <log> <segment>:<offset>[:<length>]` on `raw-logs`, and the
+  reserved `taillog read <source> <segment>:<offset>[:<length>]` (both
+  length-blind — a pasted `:<length>` is ignored; the reply carries the
+  post-step cursor, which IS the next position). Selecting a past segment
+  enters pause mode, so Step walks it and Play streams from wherever you
+  stepped to.
+
+### Fixed
+- Grouped-stamp subscriptions (`offsets/…`, `deadletter/…`) resume from the
+  right cursor: the SSE ingress keyed its per-partition positions by the
+  first FROM segment only, so pause/resume and reconnects for grouped subs
+  re-seeked the wrong key.
+
+### Added
 - **Partition Viewer reads offsetlogs and dead-letter queues.** The catalog
   (`list_logs`) now lists every partition dir under all three browsable roots
   — bare `logs` keys plus `offsets/…` and `deadletter/…` — and `log_status`

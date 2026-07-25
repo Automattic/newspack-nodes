@@ -117,6 +117,7 @@ describe( 'LogViewer', () => {
 	let selectSource;
 	let setPaused;
 	let seek;
+	let step;
 
 	function mockGraph( sources = SOURCES ) {
 		useLogViewerGraph.mockReturnValue( {
@@ -124,6 +125,7 @@ describe( 'LogViewer', () => {
 			setPaused,
 			seek,
 			sources,
+			step,
 		} );
 	}
 
@@ -134,6 +136,7 @@ describe( 'LogViewer', () => {
 		selectSource = jest.fn();
 		setPaused = jest.fn();
 		seek = jest.fn();
+		step = jest.fn();
 		useLogViewerGraph.mockClear();
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
@@ -183,6 +186,22 @@ describe( 'LogViewer', () => {
 		expect( logBrowserProps.itemKey( { id: 9, size: 1 } ) ).toBe( 9 );
 		expect( logBrowserProps.itemLabel( { id: 9 } ) ).toBe( 'Segment 9' );
 		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2.0 KB' );
+	} );
+
+	it( 'browsing a segment enters pause mode (time-travel)', () => {
+		registerViewFixture( { selected: 'gate' } );
+		render( <LogViewer /> );
+		act( () => logBrowserProps.onSelectItem( { id: 3, size: 977 } ) );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+	} );
+
+	it( 'step button steps once while paused; disabled while live', () => {
+		registerViewFixture( { selected: 'gate', paused: true } );
+		const { getByTitle } = render( <LogViewer /> );
+		const button = getByTitle( 'Step one message (paused only)' );
+		expect( button.disabled ).toBe( false );
+		fireEvent.click( button );
+		expect( step ).toHaveBeenCalled();
 	} );
 
 	it( 'browsing a segment seeks the stream to it at offset 0', () => {
