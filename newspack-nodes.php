@@ -35,8 +35,9 @@ if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
 	// PHP 8 rejects array callables here (wp-cli#5472); use shared instances.
-	$nodes_worker_cli = new \Newspack_Nodes\Worker_CLI_Command();
-	$nodes_ingest_cli = new \Newspack_Nodes\Ingest_CLI_Command();
+	$nodes_worker_cli   = new \Newspack_Nodes\Worker_CLI_Command();
+	$nodes_ingest_cli   = new \Newspack_Nodes\Ingest_CLI_Command();
+	$nodes_scaffold_cli = new \Newspack_Nodes\Scaffold_CLI_Command();
 	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
 	\WP_CLI::add_command( 'nodes types',      [ $nodes_worker_cli, 'types' ]      );
 	\WP_CLI::add_command( 'nodes run',        [ $nodes_worker_cli, 'run' ]        );
@@ -44,7 +45,9 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes status',     [ $nodes_worker_cli, 'status' ]     );
 	\WP_CLI::add_command( 'nodes activate',   [ $nodes_worker_cli, 'activate' ]   );
 	\WP_CLI::add_command( 'nodes deactivate', [ $nodes_worker_cli, 'deactivate' ] );
+	\WP_CLI::add_command( 'nodes doctor',     [ $nodes_worker_cli, 'doctor' ]     );
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
+	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
 }
 
 // Runtime wiring: ensure_runtime_wired(), not file scope (frontend skips it).

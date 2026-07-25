@@ -22,8 +22,47 @@
  */
 
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import path from 'node:path';
+
+/**
+ * The substrate version, stamped as a banner comment into every bundle the
+ * kit builds so a deployed bundle names the substrate it was built against.
+ * Maintained by tools/bump-nodes-version.sh (never edit by hand); a build-kit
+ * test pins it to package.json. A constant, not a package.json read: the kit
+ * can't locate itself portably (import.meta breaks under jest's CJS
+ * transform), and the bump script already owns keeping version copies in sync.
+ */
+const SUBSTRATE_VERSION = '0.53.0';
+
+export function substrateVersion() {
+	return SUBSTRATE_VERSION;
+}
+
+/**
+ * Fail fast when an alias points nowhere, naming the env var that fixes it —
+ * without this, a consumer building outside a sibling newspack-nodes checkout
+ * (or a release.yml missing one NEWSPACK_NODES_* var) dies deep inside esbuild
+ * with ERR_MODULE_NOT_FOUND and no hint of which variable was missing.
+ */
+export function assertAliasPathsExist( alias ) {
+	for ( const [ key, aliasPath ] of Object.entries( alias ) ) {
+		if ( existsSync( aliasPath ) ) {
+			continue;
+		}
+		const prefix = '@newspack-nodes/';
+		const hint = key.startsWith( prefix )
+			? ` — set NEWSPACK_NODES_${ key
+					.slice( prefix.length )
+					.replace( /-/g, '_' )
+					.toUpperCase() } when building outside a sibling newspack-nodes checkout`
+			: '';
+		throw new Error(
+			`alias ${ key } → ${ aliasPath } does not exist${ hint }`
+		);
+	}
+}
 
 // Map import path → { global: window expr, handle: enqueue handle }.
 export const WP_EXTERNALS = {
@@ -244,6 +283,8 @@ export async function buildDashboards( {
 	watch = false,
 	logLevel = 'warning',
 } ) {
+	assertAliasPathsExist( alias );
+	const banner = { js: `/* @newspack-nodes ${ substrateVersion() } */` };
 	// Output basename mirrors the entry filename; WP enqueue paths need it.
 	const makeContext = ( entry, outDir ) => {
 		const usedHandles = new Set();
@@ -259,6 +300,7 @@ export async function buildDashboards( {
 			target: [ 'es2020' ],
 			jsx: 'automatic',
 			outfile: path.join( outDir, `${ base }.js` ),
+			banner,
 			loader: {
 				'.js': 'jsx',
 				'.svg': 'dataurl',

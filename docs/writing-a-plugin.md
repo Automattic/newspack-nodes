@@ -76,6 +76,17 @@ add_action(
 
 That's the whole "register a Nodes plugin" story — one call. (It used to be four separate hook registrations; collapsing them into `register_plugin` was a substrate refinement that fell out of writing *this* walkthrough — when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.)
 
+Once you depend on APIs from a specific substrate release, add the version handshake right after the `class_exists` gate — on an older substrate your plugin stays dormant with an admin notice instead of fataling mid-request (`Requires Plugins` only guarantees the substrate is *active*, not which version):
+
+```php
+if ( \method_exists( '\Newspack_Nodes\Bootstrap', 'version_at_least' )
+	&& ! \Newspack_Nodes\Bootstrap::version_at_least( '0.54.0', 'Newspack AI Newsletter' ) ) {
+	return; // substrate too old — notice shown, plugin dormant
+}
+```
+
+(You can also skip the ten hand-written files entirely: `wp nodes scaffold plugin <slug>` generates this walkthrough's shapes — see [cli.md](cli.md).)
+
 Run `composer dump-autoload -o` now, and again whenever you add or rename a node — the classmap is what `make_node` and the console palette read.
 
 There are no nodes yet. Let's write one.
@@ -473,7 +484,7 @@ Two things, and resist adding a third:
   }, 11 );
   ```
 
-That's the whole story — `Requires Plugins` + a presence check. **Don't build a version-floor / capability-probe / admin-notice "substrate guard."** The plugins deploy together, so "present but too old" isn't a real case; a version floor is just machinery that pins an arbitrary minimum and rots. (If your plugin genuinely needs an API added in a specific substrate release, gate on `class_exists` / `method_exists` of *that exact symbol* — presence of the thing you need, never a version string.)
+That's the whole story when your plugin deploys in lockstep with the substrate — `Requires Plugins` + a presence check. When it ships to sites you don't control, "present but too old" becomes a real case: add the substrate's canonical handshake right after the presence check (`Bootstrap::version_at_least( '<floor>', '<Plugin Name>' )`, shown earlier) instead of hand-rolling per-symbol capability probes — one mechanism, one admin notice. Keep the floor honest: the oldest substrate you actually test against, bumped only when you adopt a newer API.
 
 ### b. Test it — the bootstrap is the only non-obvious part
 

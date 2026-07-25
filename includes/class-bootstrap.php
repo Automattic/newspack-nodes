@@ -63,6 +63,38 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_supervisor = false;
 
+	/**
+	 * Boot-time version handshake for consumer plugins. `Requires Plugins`
+	 * guarantees the substrate is ACTIVE but says nothing about its version;
+	 * without this a consumer built against a newer substrate fatals on a
+	 * missing API mid-request. True when the loaded substrate satisfies $min;
+	 * otherwise registers an admin notice naming the dependent plugin and both
+	 * versions, and returns false so the consumer can stay dormant.
+	 *
+	 * @api Called from consumer plugins' deferred loaders (cross-repo, invisible here).
+	 *
+	 * @param string $min       Minimum substrate version the consumer needs.
+	 * @param string $dependent Human-readable consumer plugin name for the notice.
+	 */
+	public static function version_at_least( string $min, string $dependent ): bool {
+		if ( \version_compare( NEWSPACK_NODES_VERSION, $min, '>=' ) ) {
+			return true;
+		}
+		\add_action( 'admin_notices', static function () use ( $min, $dependent ): void {
+			\printf(
+				'<div class="notice notice-error"><p>%s</p></div>',
+				\esc_html( \sprintf(
+					/* translators: 1: consumer plugin name, 2: required version, 3: installed version. */
+					\__( '%1$s requires Newspack Nodes %2$s or newer (found %3$s) and is dormant until Newspack Nodes is updated.', 'newspack-nodes' ),
+					$dependent,
+					$min,
+					NEWSPACK_NODES_VERSION
+				) )
+			);
+		} );
+		return false;
+	}
+
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
 		if ( ! self::fleet_site() ) {

@@ -11,12 +11,23 @@
 import esbuild from 'esbuild';
 import * as sass from 'sass';
 import rtlcss from 'rtlcss';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDashboards } from '../../../src/build-kit/index.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname( fileURLToPath( import.meta.url ) );
 const ROOT = path.resolve( __dirname, '..' );
+
+// Fourth override, guarded here — the kit can't report its own missing path.
+const buildKit =
+	process.env.NEWSPACK_NODES_BUILD_KIT ||
+	path.resolve( ROOT, '../../src/build-kit/index.mjs' );
+if ( ! existsSync( buildKit ) ) {
+	throw new Error(
+		`build-kit not found at ${ buildKit } — set NEWSPACK_NODES_BUILD_KIT when building outside a sibling newspack-nodes checkout`
+	);
+}
+const { buildDashboards } = await import( pathToFileURL( buildKit ).href );
 
 const alias = {
 	'@newspack-nodes/runtime':

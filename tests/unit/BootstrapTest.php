@@ -1281,4 +1281,24 @@ class BootstrapTest extends TestCase {
 			Core::$memd = $saved_memd;
 		}
 	}
+
+	// ── version_at_least ─────────────────────────────────────────────────
+
+	public function test_version_at_least_passes_and_stays_silent(): void {
+		$this->assertTrue( Bootstrap::version_at_least( '0.1.0', 'Example Consumer' ) );
+		$this->assertArrayNotHasKey( 'admin_notices', $GLOBALS['_wp_actions'] );
+	}
+
+	public function test_version_at_least_fails_future_min_with_admin_notice(): void {
+		$this->assertFalse( Bootstrap::version_at_least( '99.1.7', 'Example Consumer' ) );
+
+		$notices = $GLOBALS['_wp_actions']['admin_notices'] ?? [];
+		$this->assertCount( 1, $notices );
+		\ob_start();
+		$notices[0]();
+		$html = \ob_get_clean();
+		$this->assertStringContainsString( 'Example Consumer', $html );
+		$this->assertStringContainsString( '99.1.7', $html );
+		$this->assertStringContainsString( NEWSPACK_NODES_VERSION, $html );
+	}
 }
