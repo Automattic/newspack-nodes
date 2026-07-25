@@ -34,11 +34,6 @@
 	border-bottom: none;
 	font-weight: 600;
 	font-size: 13px;
-	// @longform Explicit so the height survives portals: a components-modal
-	// renders OUTSIDE the dashboard root, where line-height falls back to
-	// `normal` and the sort-arrow glyph's fallback-font metrics inflate the
-	// header (26.85px vs 18.85px in-root).
-	line-height: 1.45;
 }
 
 @mixin table-list {

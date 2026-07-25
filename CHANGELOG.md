@@ -65,12 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segment rail, remembered per dashboard.
 
 ### Fixed
-- **Shared table mixins: portal-proof header height + a visible row
-  hover.** `table-header` pins an explicit line-height (a modal portals
-  outside the dashboard root, where `normal` + the sort-arrow glyph's
-  fallback-font metrics inflated the header by 8px), and `table-row`
-  hovers with the log-pane accent mix instead of an invisible
-  `--paper-2`-on-`--paper-2`.
+- **Shared `table-row` hover is visible**: rows hover with the log-pane
+  accent mix instead of an invisible `--paper-2`-on-`--paper-2`.
 - **The toolbar height never shifts**: the rate line always renders (0.0
   included) and the "Xs ago" heartbeat is gone from the log-stream
   chrome (the gyroscope in-flight view keeps its own).
