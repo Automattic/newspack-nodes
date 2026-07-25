@@ -108,7 +108,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node->add_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
-			'cmd remote-austin:config add_snapshot_node flame-builder',
+			'command_node remote-austin:config add_snapshot_node flame-builder',
 			$node->dump_config(),
 			'Remote_Source shares the Time_Travel surface and must round-trip its snapshot node too'
 		);

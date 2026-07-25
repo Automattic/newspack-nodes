@@ -83,118 +83,118 @@
         "line": 13
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "requests:consumer:config",
             "add_snapshot_node",
             "flame-builder"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "requests:consumer:config",
             "add_snapshot_node",
             "flame-builder"
         ],
-        "raw": "cmd requests:consumer:config add_snapshot_node flame-builder",
+        "raw": "command_node requests:consumer:config add_snapshot_node flame-builder",
         "line": 14
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "configure_stats",
             "<partition>"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "configure_stats",
             "<partition>"
         ],
-        "raw": "cmd flame-builder:config configure_stats <partition>",
+        "raw": "command_node flame-builder:config configure_stats <partition>",
         "line": 15
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "set_stats_target",
             "<eln:stats_mirror_node>"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "set_stats_target",
             "<eln:stats_mirror_node>"
         ],
-        "raw": "cmd flame-builder:config set_stats_target <eln:stats_mirror_node>",
+        "raw": "command_node flame-builder:config set_stats_target <eln:stats_mirror_node>",
         "line": 16
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "set_is_hub",
             "<eln:is_hub>"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flame-builder:config",
             "set_is_hub",
             "<eln:is_hub>"
         ],
-        "raw": "cmd flame-builder:config set_is_hub <eln:is_hub>",
+        "raw": "command_node flame-builder:config set_is_hub <eln:is_hub>",
         "line": 17
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flames:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flames:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd flames:partition:config void_warranty",
+        "raw": "command_node flames:partition:config void_warranty",
         "line": 18
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flames:partition:config",
             "with_index",
             "flame-index"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flames:partition:config",
             "with_index",
             "flame-index"
         ],
-        "raw": "cmd flames:partition:config with_index flame-index",
+        "raw": "command_node flames:partition:config with_index flame-index",
         "line": 19
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "flame-stats:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "flame-stats:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd flame-stats:partition:config void_warranty",
+        "raw": "command_node flame-stats:partition:config void_warranty",
         "line": 20
     },
     {

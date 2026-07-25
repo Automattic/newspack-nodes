@@ -74,6 +74,30 @@ class Shell_Node extends Node {
 	private bool $want_reply = true;
 
 	/**
+	 * Verb aliases the interpreter's dispatch table resolves — the ONE table the
+	 * static front-end applies on the tokenized verb (make/connect/disconnect and
+	 * the command family), so a topology written with the short form reads the same
+	 * as the long form to every static analysis.
+	 *
+	 * @var array<string,string>
+	 */
+	private const VERB_ALIASES = [
+		'make'       => 'make_node',
+		'connect'    => 'connect_node',
+		'disconnect' => 'disconnect_node',
+		'command'    => 'command_node',
+		'cmd'        => 'command_node',
+	];
+
+	/**
+	 * Verbs never cwd-routed by the static front-end. Intentional divergence
+	 * from the runtime's default-case dispatch (which cwd-routes everything):
+	 * no shipped .tsl issues these after a `cd`, and static analysis needs
+	 * their positions stable regardless of cwd.
+	 */
+	private const STRUCTURAL_VERBS = [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ];
+
+	/**
 	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
 	 * Message and dispatch it. Anything else (a pre-built command from
 	 * dispatch_line, a completion query, an EOF/ping marker) passes straight
@@ -119,36 +143,43 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Verb aliases the interpreter's dispatch table resolves — the ONE table the
-	 * static front-end applies on the tokenized verb (make/connect/disconnect and
-	 * the command family), so a topology written with the short form reads the same
-	 * as the long form to every static analysis.
-	 *
-	 * @var array<string,string>
-	 */
-	private const VERB_ALIASES = [
-		'make'         => 'make_node',
-		'connect'      => 'connect_node',
-		'disconnect'   => 'disconnect_node',
-		'command'      => 'cmd',
-		'command_node' => 'cmd',
-	];
-
-	/**
-	 * Verbs never cwd-routed by the static front-end. Intentional divergence
-	 * from the runtime's default-case dispatch (which cwd-routes everything):
-	 * no shipped .tsl issues these after a `cd`, and static analysis needs
-	 * their positions stable regardless of cwd.
-	 */
-	private const STRUCTURAL_VERBS = [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ];
-
-	/**
 	 * Quote-aware statement splitter: comment lines returned whole, others split on unquoted `;`.
 	 *
 	 * @return array<int,string>
 	 */
 	public function split_statements( string $script ): array {
 		return \array_column( self::split_statements_indexed( $script ), 'text' );
+	}
+
+	/**
+	 * The one static TSL statement front-end: split → join backslash
+	 * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
+	 * forms. A public static sibling of tokenize() / tokenize_spans() built from
+	 * the pieces the Shell already owns, with dispatch removed and no side
+	 * effects: no interpolation, no Core::$var reads, no node construction. Static
+	 * analysis (Topology_Registry) reads the list without executing it.
+	 *
+	 * Each statement is `{ verb, values, spans, raw, line }`: `verb` is the
+	 * canonical verb; `values` the quote-stripped tokens (`values[0] === verb`,
+	 * and for `cmd` `values[1]` is the cwd-resolved path); `spans` the same tokens
+	 * with quote chars + escapes verbatim (what a round-trip must emit, so a
+	 * deferred `'<partition>'` never becomes an eager `"<partition>"`); `raw` the
+	 * canonical single-line form (the sharing signature readers normalize); `line`
+	 * the 1-based first physical source line.
+	 *
+	 * @return list<array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}>
+	 * @throws \RuntimeException On an unterminated quote at end-of-input.
+	 */
+	public static function parse_statements( string $text ): array {
+		$shell      = new self();
+		$statements = [];
+		foreach ( self::join_statement_continuations( self::split_statements_indexed( $text ) ) as $joined ) {
+			$statement = self::build_statement( $shell, $joined['text'], $joined['line'] );
+			if ( null !== $statement ) {
+				$statements[] = $statement;
+			}
+		}
+		return $statements;
 	}
 
 	/**
@@ -247,37 +278,6 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * The one static TSL statement front-end: split → join backslash
-	 * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
-	 * forms. A public static sibling of tokenize() / tokenize_spans() built from
-	 * the pieces the Shell already owns, with dispatch removed and no side
-	 * effects: no interpolation, no Core::$var reads, no node construction. Static
-	 * analysis (Topology_Registry) reads the list without executing it.
-	 *
-	 * Each statement is `{ verb, values, spans, raw, line }`: `verb` is the
-	 * canonical verb; `values` the quote-stripped tokens (`values[0] === verb`,
-	 * and for `cmd` `values[1]` is the cwd-resolved path); `spans` the same tokens
-	 * with quote chars + escapes verbatim (what a round-trip must emit, so a
-	 * deferred `'<partition>'` never becomes an eager `"<partition>"`); `raw` the
-	 * canonical single-line form (the sharing signature readers normalize); `line`
-	 * the 1-based first physical source line.
-	 *
-	 * @return list<array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}>
-	 * @throws \RuntimeException On an unterminated quote at end-of-input.
-	 */
-	public static function parse_statements( string $text ): array {
-		$shell      = new self();
-		$statements = [];
-		foreach ( self::join_statement_continuations( self::split_statements_indexed( $text ) ) as $joined ) {
-			$statement = self::build_statement( $shell, $joined['text'], $joined['line'] );
-			if ( null !== $statement ) {
-				$statements[] = $statement;
-			}
-		}
-		return $statements;
-	}
-
-	/**
 	 * Fold trailing-backslash continuations across the statement stream — the same
 	 * splice parse() performs, applied statelessly. The joined statement keeps the
 	 * FIRST physical line of its run; an unterminated trailing continuation yields
@@ -345,18 +345,18 @@ class Shell_Node extends Node {
 			$shell->path = $shell->cd( $shell->path, $token_values[1] ?? '' );
 			return null;
 		}
-		if ( 'cmd' === $verb ) {
+		if ( 'command_node' === $verb ) {
 			$path   = $shell->prefix( $token_values[1] ?? '' );
-			$values = [ 'cmd', $path, ...\array_slice( $token_values, 2 ) ];
-			$spans  = [ 'cmd', $path, ...\array_slice( $token_spans, 2 ) ];
+			$values = [ 'command_node', $path, ...\array_slice( $token_values, 2 ) ];
+			$spans  = [ 'command_node', $path, ...\array_slice( $token_spans, 2 ) ];
 		} elseif ( \in_array( $verb, self::STRUCTURAL_VERBS, true ) || '' === $shell->path ) {
 			// Structural verbs and root-level bare verbs are not cwd-routed.
 			$values = [ $verb, ...\array_slice( $token_values, 1 ) ];
 			$spans  = [ $verb, ...\array_slice( $token_spans, 1 ) ];
 		} else {
 			// A bare verb inside a cwd is a command to that node.
-			$values = [ 'cmd', $shell->path, $verb, ...\array_slice( $token_values, 1 ) ];
-			$spans  = [ 'cmd', $shell->path, $verb, ...\array_slice( $token_spans, 1 ) ];
+			$values = [ 'command_node', $shell->path, $verb, ...\array_slice( $token_values, 1 ) ];
+			$spans  = [ 'command_node', $shell->path, $verb, ...\array_slice( $token_spans, 1 ) ];
 		}
 		return [
 			'verb'   => $values[0],
@@ -623,6 +623,27 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 *
+	 * @return list<string>
+	 */
+	public function tokenize( string $line ): array {
+		return \array_column( self::scan_tokens( $line ), 'value' );
+	}
+
+	/**
+	 * tokenize(), but each token is its RAW span, quote chars and escapes
+	 * intact. For static TSL parsing (Topology_Registry) and any editor
+	 * round-trip: the quote type carries interpolation semantics, so a span
+	 * must be reproduced verbatim, never re-quoted.
+	 *
+	 * @return list<string>
+	 */
+	public static function tokenize_spans( string $line ): array {
+		return \array_column( self::scan_tokens( $line ), 'raw' );
+	}
+
+	/**
 	 * The one tokenizer state machine ('/"/` + backslash escapes): splits on
 	 * unquoted whitespace; an empty quoted string still counts as a token.
 	 * Yields both forms per token — `value` (quote chars stripped, escapes
@@ -689,37 +710,6 @@ class Shell_Node extends Node {
 
 		$open_quote = $in_quote;
 		return $tokens;
-	}
-
-	/**
-	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
-	 *
-	 * @return list<string>
-	 */
-	public function tokenize( string $line ): array {
-		return \array_column( self::scan_tokens( $line ), 'value' );
-	}
-
-	/**
-	 * tokenize(), but each token is its RAW span, quote chars and escapes
-	 * intact. For static TSL parsing (Topology_Registry) and any editor
-	 * round-trip: the quote type carries interpolation semantics, so a span
-	 * must be reproduced verbatim, never re-quoted.
-	 *
-	 * @return list<string>
-	 */
-	public static function tokenize_spans( string $line ): array {
-		return \array_column( self::scan_tokens( $line ), 'raw' );
-	}
-
-	public function stdout( string $line ): void {
-		$message = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $line;
-		$dumper = Core::node( Node_Names::OUTPUT );
-		if ( $dumper instanceof Dumper_Node ) {
-			$dumper->fill( $message );
-		}
 	}
 
 	/**
@@ -793,6 +783,16 @@ class Shell_Node extends Node {
 			throw new \RuntimeException( 'got EOF while waiting for tokens: ' . \trim( $pending ) );
 		}
 		$this->stdout( 'got EOF while waiting for tokens: ' . \trim( $pending ) . "\n" );
+	}
+
+	public function stdout( string $line ): void {
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line;
+		$dumper = Core::node( Node_Names::OUTPUT );
+		if ( $dumper instanceof Dumper_Node ) {
+			$dumper->fill( $message );
+		}
 	}
 
 	/** A topology NAME resolves through the registry; a literal path is taken as-is. */

@@ -7,7 +7,7 @@
  * MULTI-WRITER seam: a Topic whose partitions are appended to by MANY processes
  * (e.g. the firehose, written by every request/worker) is a multi-writer log. A
  * Consumer reading such a log MUST opt into the seal-grace via
- * `set_multi_writer(true)` (topology: `cmd <consumer>:config set_multi_writer true`),
+ * `set_multi_writer(true)` (topology: `command_node <consumer>:config set_multi_writer true`),
  * or a peer's straggler append at a segment-rotation boundary is orphaned. A
  * single-writer log (one process appends) needs nothing — its reader advances
  * immediately. See Consumer_Node::SEAL_GRACE_SECONDS.
@@ -225,15 +225,15 @@ class Topic_Node extends Node {
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		if ( 'void' === $this->large_write_mode ) {
-			$out .= "cmd {$this->name}:config void_warranty\n";
+			$out .= "command_node {$this->name}:config void_warranty\n";
 		} elseif ( 'lock' === $this->large_write_mode ) {
 			$verb = $this->large_write_debounce_ms > 0
 				? "allow_large_writes {$this->large_write_debounce_ms}"
 				: 'allow_large_writes';
-			$out .= "cmd {$this->name}:config {$verb}\n";
+			$out .= "command_node {$this->name}:config {$verb}\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
-			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+			$out .= "command_node {$this->name}:config with_index {$this->index_formatter_name}\n";
 		}
 		return $out;
 	}

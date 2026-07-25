@@ -137,52 +137,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Resolve the hard-cap ceiling: an explicit value floored to num_segments, or —
-	 * when unset (0) — the derived default of twice the target count. The single
-	 * place the num_segments → max_segments derivation lives; the admin + CI disk-
-	 * ceiling displays call it so what they show matches what cleanup_segments()
-	 * actually enforces.
-	 */
-	public static function derive_max_segments( int $num_segments, int $max_segments ): int {
-		$num_segments = \max( 2, $num_segments ); // mirror arguments()' floor
-		$cap          = $max_segments > 0 ? $max_segments : 2 * $num_segments;
-		return \max( $num_segments, $cap );
-	}
-
-	/**
-	 * Write-stall quarantine dir ([159]): `{base}/deadletter/{dir-under-base,
-	 * dotted}` — unique per partition dir, beside the read-side consumer DLQs.
-	 * Anything already under deadletter/ gets NONE (a quarantine quarantining
-	 * into a quarantine would chain forever on a full disk).
-	 */
-	private static function derive_write_deadletter_dir( string $dir ): string {
-		if ( '' === $dir ) {
-			return '';
-		}
-		$base = \rtrim( Config::get_base_directory(), '/' );
-		$rel  = \str_starts_with( $dir, "{$base}/" ) ? \substr( $dir, \strlen( $base ) + 1 ) : \ltrim( $dir, '/' );
-		if ( \str_starts_with( $rel, 'deadletter/' ) ) {
-			return '';
-		}
-		return "{$base}/deadletter/" . \str_replace( '/', '.', $rel );
-	}
-
-	/** Sidecars (offsetlogs, quarantines) never quarantine their own writes — that recurses. */
-	public function without_write_deadletter(): void {
-		$this->deadletter_dir = '';
-	}
-
-	/**
-	 * The write-quarantine is shared by every writer of this partition dir; it
-	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
-	 * lockless (void_warranty) quarantine under multi-writer stalls would race
-	 * rotation exactly when every writer stalls at once (disk full).
-	 */
-	protected function deadletter_sole_writer(): bool {
-		return $this->allow_large_writes;
-	}
-
-	/**
 	 * Node entry point: pack the message and append to the current segment.
 	 *
 	 * @param array<int, mixed> $message Reference; not mutated.
@@ -297,6 +251,37 @@ class Partition_Node extends Timer_Node {
 				$this->set_timer( $this->debounce_lock_ms, true );
 			}
 		}
+	}
+
+	/**
+	 * Resolve the hard-cap ceiling: an explicit value floored to num_segments, or —
+	 * when unset (0) — the derived default of twice the target count. The single
+	 * place the num_segments → max_segments derivation lives; the admin + CI disk-
+	 * ceiling displays call it so what they show matches what cleanup_segments()
+	 * actually enforces.
+	 */
+	public static function derive_max_segments( int $num_segments, int $max_segments ): int {
+		$num_segments = \max( 2, $num_segments ); // mirror arguments()' floor
+		$cap          = $max_segments > 0 ? $max_segments : 2 * $num_segments;
+		return \max( $num_segments, $cap );
+	}
+
+	/**
+	 * Write-stall quarantine dir ([159]): `{base}/deadletter/{dir-under-base,
+	 * dotted}` — unique per partition dir, beside the read-side consumer DLQs.
+	 * Anything already under deadletter/ gets NONE (a quarantine quarantining
+	 * into a quarantine would chain forever on a full disk).
+	 */
+	private static function derive_write_deadletter_dir( string $dir ): string {
+		if ( '' === $dir ) {
+			return '';
+		}
+		$base = \rtrim( Config::get_base_directory(), '/' );
+		$rel  = \str_starts_with( $dir, "{$base}/" ) ? \substr( $dir, \strlen( $base ) + 1 ) : \ltrim( $dir, '/' );
+		if ( \str_starts_with( $rel, 'deadletter/' ) ) {
+			return '';
+		}
+		return "{$base}/deadletter/" . \str_replace( '/', '.', $rel );
 	}
 
 	/**
@@ -1210,6 +1195,21 @@ class Partition_Node extends Timer_Node {
 		return $this;
 	}
 
+	/** Sidecars (offsetlogs, quarantines) never quarantine their own writes — that recurses. */
+	public function without_write_deadletter(): void {
+		$this->deadletter_dir = '';
+	}
+
+	/**
+	 * The write-quarantine is shared by every writer of this partition dir; it
+	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
+	 * lockless (void_warranty) quarantine under multi-writer stalls would race
+	 * rotation exactly when every writer stalls at once (disk full).
+	 */
+	protected function deadletter_sole_writer(): bool {
+		return $this->allow_large_writes;
+	}
+
 	public static function hash_to_partition( string $key, int $num_partitions ): int {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
@@ -1248,10 +1248,10 @@ class Partition_Node extends Timer_Node {
 			} else {
 				$verb = 'allow_large_writes';
 			}
-			$out .= "cmd {$this->name}:config {$verb}\n";
+			$out .= "command_node {$this->name}:config {$verb}\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
-			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+			$out .= "command_node {$this->name}:config with_index {$this->index_formatter_name}\n";
 		}
 		return $out;
 	}

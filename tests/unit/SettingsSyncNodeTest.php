@@ -41,7 +41,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 
 		$this->assertStringContainsString(
-			'cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions',
+			'command_node settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions',
 			$node->dump_config()
 		);
 	}

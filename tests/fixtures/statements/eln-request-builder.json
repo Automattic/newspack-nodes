@@ -173,137 +173,137 @@
         "line": 19
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "add_snapshot_node",
             "request-builder"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "add_snapshot_node",
             "request-builder"
         ],
-        "raw": "cmd firehose:consumer:config add_snapshot_node request-builder",
+        "raw": "command_node firehose:consumer:config add_snapshot_node request-builder",
         "line": 20
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "set_multi_writer",
             "true"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "set_multi_writer",
             "true"
         ],
-        "raw": "cmd firehose:consumer:config set_multi_writer true",
+        "raw": "command_node firehose:consumer:config set_multi_writer true",
         "line": 21
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_alerts_target",
             "alerts:partition"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_alerts_target",
             "alerts:partition"
         ],
-        "raw": "cmd request-builder:config set_alerts_target alerts:partition",
+        "raw": "command_node request-builder:config set_alerts_target alerts:partition",
         "line": 22
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_errors_target",
             "errors:partition"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_errors_target",
             "errors:partition"
         ],
-        "raw": "cmd request-builder:config set_errors_target errors:partition",
+        "raw": "command_node request-builder:config set_errors_target errors:partition",
         "line": 23
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_inflight_target",
             "gyroscope:partition"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_inflight_target",
             "gyroscope:partition"
         ],
-        "raw": "cmd request-builder:config set_inflight_target gyroscope:partition",
+        "raw": "command_node request-builder:config set_inflight_target gyroscope:partition",
         "line": 24
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_completed_target",
             "completed:tee"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "request-builder:config",
             "set_completed_target",
             "completed:tee"
         ],
-        "raw": "cmd request-builder:config set_completed_target completed:tee",
+        "raw": "command_node request-builder:config set_completed_target completed:tee",
         "line": 25
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd requests:partition:config void_warranty",
+        "raw": "command_node requests:partition:config void_warranty",
         "line": 26
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "with_index",
             "request-index"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "with_index",
             "request-index"
         ],
-        "raw": "cmd requests:partition:config with_index request-index",
+        "raw": "command_node requests:partition:config with_index request-index",
         "line": 27
     },
     {

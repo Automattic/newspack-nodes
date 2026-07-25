@@ -221,7 +221,7 @@ class Topology_Registry {
 				continue;
 			}
 			// A lifted write cap assumes a sole writer; mark the node's path.
-			if ( 'cmd' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
+			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
 				&& \in_array( $values[2] ?? '', [ 'void_warranty', 'allow_large_writes' ], true ) ) {
 				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
 				if ( isset( $nodes[ $node_name ] ) ) {
@@ -254,27 +254,6 @@ class Topology_Registry {
 		\sort( $out );
 		self::$write_meta_cache[ $name ] = $meta;
 		return self::$write_set_cache[ $name ] = $out;
-	}
-
-	/**
-	 * A topology's statements, includes flattened and verbs canonicalized.
-	 *
-	 * EVERY static reader goes through here. Scanning the raw file makes an
-	 * include-only topology (ELN's combined.tsl is two `include` lines) look
-	 * EMPTY — which silently disarmed the write_set conflict gate.
-	 *
-	 * THROWS on a broken include. The safety gates read through here: an empty
-	 * write set reads as "no conflict" to find_conflicts and as "every one of its
-	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
-	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
-	 * Workers_CI's override collector at their call sites) so one bad .tsl
-	 * can't take out the dashboard or wp-admin.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
-	 */
-	private static function flat_lines( string $name ): array {
-		return \array_column( self::statements( $name )['statements'], 'line' );
 	}
 
 	/**
@@ -533,7 +512,7 @@ class Topology_Registry {
 			self::connect_edge( $edges, $source, $values[2] ?? '', $origins, $is_tee );
 			return;
 		}
-		if ( 'cmd' === $verb ) {
+		if ( 'command_node' === $verb ) {
 			$target     = $values[1] ?? '';
 			$has_config = \str_ends_with( $target, ':config' );
 			$node_name  = $has_config ? \substr( $target, 0, -\strlen( ':config' ) ) : $target;
@@ -910,12 +889,33 @@ class Topology_Registry {
 	}
 
 	/**
+	 * A topology's statements, includes flattened and verbs canonicalized.
+	 *
+	 * EVERY static reader goes through here. Scanning the raw file makes an
+	 * include-only topology (ELN's combined.tsl is two `include` lines) look
+	 * EMPTY — which silently disarmed the write_set conflict gate.
+	 *
+	 * THROWS on a broken include. The safety gates read through here: an empty
+	 * write set reads as "no conflict" to find_conflicts and as "every one of its
+	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
+	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
+	 * Workers_CI's override collector at their call sites) so one bad .tsl
+	 * can't take out the dashboard or wp-admin.
+	 *
+	 * @return list<string>
+	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
+	 */
+	private static function flat_lines( string $name ): array {
+		return \array_column( self::statements( $name )['statements'], 'line' );
+	}
+
+	/**
 	 * Raw structural graph for `$name` from its TSL (+ every topology it
 	 * `include`s, flattened via statements()): nodes with a class-derived kind,
 	 * the make_node `type` token + positional `args` list, (+ the log a
 	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
 	 * a name suffix), and edges from `connect_node` plus
-	 * `cmd <node>:config set_*_target <target>`, with `disconnect_node` applied
+	 * `command_node <node>:config set_*_target <target>`, with `disconnect_node` applied
 	 * in evaluation order. Memoized.
 	 *
 	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
@@ -1010,7 +1010,7 @@ class Topology_Registry {
 				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $is_tee );
 				continue;
 			}
-			if ( 'cmd' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
+			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
 				&& \preg_match( '/^set_\w*target$/', $values[2] ?? '' ) ) {
 				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
 				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );

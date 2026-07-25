@@ -17,8 +17,8 @@ describe( 'parseStatements', () => {
 			'make_node',
 			'connect_node',
 			'disconnect_node',
-			'cmd',
-			'cmd',
+			'command_node',
+			'command_node',
 		] );
 		// values[0] always equals the canonical verb.
 		for ( const s of stmts ) {
@@ -40,7 +40,7 @@ describe( 'parseStatements', () => {
 		const stmts = parseStatements( "cmd sink echo 'a ; b'" );
 		expect( stmts ).toHaveLength( 1 );
 		expect( stmts[ 0 ].values ).toEqual( [
-			'cmd',
+			'command_node',
 			'sink',
 			'echo',
 			'a ; b',
@@ -71,13 +71,13 @@ describe( 'parseStatements', () => {
 		expect( stmts[ 0 ].line ).toBe( 3 );
 	} );
 
-	it( 'resolves cd cwd: a bare verb inside a cd becomes cmd <path> <verb>', () => {
+	it( 'resolves cd cwd: a bare verb inside a cd becomes command_node <path> <verb>', () => {
 		const stmts = parseStatements(
 			'cd worker/inner\nset_multi_writer true'
 		);
 		expect( stmts ).toHaveLength( 1 );
 		expect( stmts[ 0 ].values ).toEqual( [
-			'cmd',
+			'command_node',
 			'worker/inner',
 			'set_multi_writer',
 			'true',
@@ -87,7 +87,7 @@ describe( 'parseStatements', () => {
 	it( 'prefixes a cmd path with the current cwd', () => {
 		const stmts = parseStatements( 'cd base\ncmd leaf void_warranty' );
 		expect( stmts[ 0 ].values ).toEqual( [
-			'cmd',
+			'command_node',
 			'base/leaf',
 			'void_warranty',
 		] );

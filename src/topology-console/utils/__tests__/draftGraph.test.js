@@ -25,7 +25,7 @@ describe( 'draftGraph', () => {
 	it( 'fails loud when a token target has no resolved-edge contract', () => {
 		const parsed = parseTsl(
 			'make_node Echo cerulean-source-619\n' +
-				'cmd cerulean-source-619:config set_stats_target <wombat:stats_sink>\n'
+				'command_node cerulean-source-619:config set_stats_target <wombat:stats_sink>\n'
 		);
 
 		expect( () => withResolvedConfigEdges( parsed, undefined ) ).toThrow(
@@ -180,7 +180,7 @@ describe( 'draftGraph', () => {
 			] );
 			expect( serializeTsl( next ) ).toBe(
 				'include koala-routing\n' +
-					'cmd koala-source:config set_errors_target\n'
+					'command_node koala-source:config set_errors_target\n'
 			);
 		} );
 	} );
@@ -298,7 +298,7 @@ describe( 'draftGraph', () => {
 				'new-lynx-errors-677'
 			);
 			expect( serializeTsl( next ) ).toContain(
-				'cmd lynx-source:config set_errors_target new-lynx-errors-677\n'
+				'command_node lynx-source:config set_errors_target new-lynx-errors-677\n'
 			);
 		} );
 	} );
@@ -821,7 +821,7 @@ describe( 'draftGraph', () => {
 			const graph = applyLoadedBaseline(
 				parseTsl(
 					'include numbat-routing\n' +
-						'cmd numbat-borrowed-source-811:config set_errors_target\n'
+						'command_node numbat-borrowed-source-811:config set_errors_target\n'
 				),
 				oldBase
 			);
@@ -1079,7 +1079,7 @@ describe( 'draftGraph', () => {
 			};
 			const source =
 				'include quokka-routing\n' +
-				'cmd quokka-source:config set_errors_target vicuna-new-errors-357\n';
+				'command_node quokka-source:config set_errors_target vicuna-new-errors-357\n';
 			const opened = applyLoadedBaseline( parseTsl( source ), baseline );
 			const expectedEdges = [
 				{
@@ -1132,7 +1132,7 @@ describe( 'draftGraph', () => {
 			};
 			const source =
 				'include wombat-token-base\n' +
-				'cmd cobalt-borrowed-source-619:config set_stats_target <wombat:stats_sink>\n';
+				'command_node cobalt-borrowed-source-619:config set_stats_target <wombat:stats_sink>\n';
 			const parsed = withResolvedConfigEdges( parseTsl( source ), [
 				{
 					from: 'cobalt-borrowed-source-619',
@@ -1193,7 +1193,7 @@ describe( 'draftGraph', () => {
 			const parsed = withResolvedConfigEdges(
 				parseTsl(
 					'include wombat-empty-token-base\n' +
-						'cmd teal-borrowed-source-421:config set_stats_target <wombat:disabled_stats_sink>\n'
+						'command_node teal-borrowed-source-421:config set_stats_target <wombat:disabled_stats_sink>\n'
 				),
 				[]
 			);
@@ -1233,7 +1233,7 @@ describe( 'draftGraph', () => {
 			};
 			const source =
 				'include aardvark-routing\n' +
-				'cmd aardvark-source:config set_errors_target\n';
+				'command_node aardvark-source:config set_errors_target\n';
 			const opened = applyLoadedBaseline( parseTsl( source ), baseline );
 
 			expect( opened.edges ).toEqual( [
@@ -1277,7 +1277,7 @@ describe( 'draftGraph', () => {
 				applyLoadedBaseline(
 					parseTsl(
 						'include lemur-routing\n' +
-							'cmd lemur-source:config set_errors_target\n'
+							'command_node lemur-source:config set_errors_target\n'
 					),
 					baseline
 				).edges
@@ -1292,7 +1292,7 @@ describe( 'draftGraph', () => {
 				applyLoadedBaseline(
 					parseTsl(
 						'include lemur-routing\n' +
-							'cmd lemur-source:config set_errors_target ibis-new-errors-731\n'
+							'command_node lemur-source:config set_errors_target ibis-new-errors-731\n'
 					),
 					baseline
 				).edges
@@ -1358,7 +1358,7 @@ describe( 'draftGraph', () => {
 			const graph = applyLoadedBaseline(
 				parseTsl(
 					'include marmot-routing\n' +
-						'cmd marmot-source:config set_errors_target orca-user-errors-947\n'
+						'command_node marmot-source:config set_errors_target orca-user-errors-947\n'
 				),
 				oldBaseline
 			);

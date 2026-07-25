@@ -17,7 +17,8 @@ any release without notice.
    On-disk Partition segments written by any 1.x remain readable by every later 1.x.
 3. **TSL.** The statement grammar (`Shell_Node::parse_statements()` semantics),
    the stock verbs (`make_node`, `connect_node`, `disconnect_node`, `remove_node`,
-   `cmd`, `var`, `include`), and `<config:KEY>` token resolution. A `.tsl` that
+   `command_node` (alias `cmd`), `var`, `include`), and `<config:KEY>` token
+   resolution. A `.tsl` that
    loads on 1.0 loads on every 1.x.
 4. **Stock node types.** The registered names and documented constructor-argument
    shapes (`node_schema()` is the authority) of every node the palette lists.

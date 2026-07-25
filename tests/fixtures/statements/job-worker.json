@@ -51,20 +51,20 @@
         "line": 14
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "jobs:consumer:config",
             "set_line_mode",
             "true"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "jobs:consumer:config",
             "set_line_mode",
             "true"
         ],
-        "raw": "cmd jobs:consumer:config set_line_mode true",
+        "raw": "command_node jobs:consumer:config set_line_mode true",
         "line": 15
     },
     {

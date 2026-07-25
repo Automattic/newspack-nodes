@@ -587,8 +587,8 @@ class TopicTest extends TestCase {
 
 		$dump = $t->dump_config();
 
-		$this->assertStringContainsString( 'cmd zebra:topic:config void_warranty', $dump );
-		$this->assertStringContainsString( 'cmd zebra:topic:config with_index zebra-index', $dump );
+		$this->assertStringContainsString( 'command_node zebra:topic:config void_warranty', $dump );
+		$this->assertStringContainsString( 'command_node zebra:topic:config with_index zebra-index', $dump );
 	}
 
 	/** Dispatch a verb through the node's own `{name}:config` interpreter. */

@@ -81,20 +81,20 @@
         "line": 12
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "set_multi_writer",
             "true"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "firehose:consumer:config",
             "set_multi_writer",
             "true"
         ],
-        "raw": "cmd firehose:consumer:config set_multi_writer true",
+        "raw": "command_node firehose:consumer:config set_multi_writer true",
         "line": 13
     },
     {

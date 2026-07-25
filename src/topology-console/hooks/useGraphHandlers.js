@@ -164,8 +164,8 @@ export function useGraphHandlers( {
 					}
 				} else if ( 'cmd' === action ) {
 					dispatchVerb(
-						`cmd ${ nodeId } ${ payload }`,
-						'cmd',
+						`command_node ${ nodeId } ${ payload }`,
+						'command_node',
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( 'send' === action ) {

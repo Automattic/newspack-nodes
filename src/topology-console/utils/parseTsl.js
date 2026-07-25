@@ -57,7 +57,7 @@ export function parseTsl( text ) {
 			};
 			nodesByName.set( name, node );
 			nodes.push( node );
-		} else if ( 'cmd' === verb && values.length >= 3 ) {
+		} else if ( 'command_node' === verb && values.length >= 3 ) {
 			// Strip trailing `:config`; bare token is the owner node's name.
 			const target = values[ 1 ];
 			const configTarget = target.endsWith( ':config' );

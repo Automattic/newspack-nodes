@@ -87,7 +87,7 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Round-trippable `cmd {name}:config <verb> 1` lines for every schema-declared
+	 * Round-trippable `command_node {name}:config <verb> 1` lines for every schema-declared
 	 * toggle currently ON — the dump_config fragment the old per-toggle ritual
 	 * (handler + fragment + truthy-parse) hand-rolled per class. node_schema()'s
 	 * `toggle` key is the whole declaration.
@@ -101,7 +101,7 @@ trait Schema_Reflection {
 			}
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop && ( $verb['dump'] ?? true ) && ( $this->{$prop} ?? false ) ) {
-				$out .= "cmd {$this->name}:config " . Core::as_string( $verb['name'] ?? '' ) . " 1\n";
+				$out .= "command_node {$this->name}:config " . Core::as_string( $verb['name'] ?? '' ) . " 1\n";
 			}
 		}
 		return $out;

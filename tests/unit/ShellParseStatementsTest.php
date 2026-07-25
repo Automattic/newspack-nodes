@@ -39,22 +39,22 @@ class ShellParseStatementsTest extends TestCase {
 			'verb'
 		);
 		$this->assertSame(
-			[ 'make_node', 'connect_node', 'disconnect_node', 'cmd', 'cmd' ],
+			[ 'make_node', 'connect_node', 'disconnect_node', 'command_node', 'command_node' ],
 			$verbs
 		);
 	}
 
-	/** A bare verb inside a cd'd path becomes `cmd <resolved-path> <verb> <args>`. */
-	public function test_cwd_wraps_a_bare_verb_into_a_cmd(): void {
+	/** A bare verb inside a cd'd path becomes `command_node <path> <verb> <args>`. */
+	public function test_cwd_wraps_a_bare_verb_into_a_command_node(): void {
 		$statements = $this->summarize(
 			Shell_Node::parse_statements( "cd requests:partition\nvoid_warranty keep\ncd /\nset_multi_writer true" )
 		);
 		$this->assertSame(
 			[
 				[
-					'verb'   => 'cmd',
-					'values' => [ 'cmd', 'requests:partition', 'void_warranty', 'keep' ],
-					'raw'    => 'cmd requests:partition void_warranty keep',
+					'verb'   => 'command_node',
+					'values' => [ 'command_node', 'requests:partition', 'void_warranty', 'keep' ],
+					'raw'    => 'command_node requests:partition void_warranty keep',
 					'line'   => 2,
 				],
 				[
@@ -68,7 +68,7 @@ class ShellParseStatementsTest extends TestCase {
 		);
 	}
 
-	/** An explicit `cmd` prefixes its path arg with the cwd and keeps the tail verbatim. */
+	/** The command family prefixes its path arg with the cwd; tail stays verbatim. */
 	public function test_cmd_resolves_path_against_cwd(): void {
 		$statements = $this->summarize(
 			Shell_Node::parse_statements( "cd n1\ncmd n2 set_x true" )
@@ -76,9 +76,9 @@ class ShellParseStatementsTest extends TestCase {
 		$this->assertSame(
 			[
 				[
-					'verb'   => 'cmd',
-					'values' => [ 'cmd', 'n1/n2', 'set_x', 'true' ],
-					'raw'    => 'cmd n1/n2 set_x true',
+					'verb'   => 'command_node',
+					'values' => [ 'command_node', 'n1/n2', 'set_x', 'true' ],
+					'raw'    => 'command_node n1/n2 set_x true',
 					'line'   => 2,
 				],
 			],
@@ -114,8 +114,8 @@ class ShellParseStatementsTest extends TestCase {
 	public function test_quoted_semicolon_stays_in_one_statement(): void {
 		$statements = Shell_Node::parse_statements( 'cmd n do "a ; b"' );
 		$this->assertCount( 1, $statements );
-		$this->assertSame( [ 'cmd', 'n', 'do', 'a ; b' ], $statements[0]['values'] );
-		$this->assertSame( [ 'cmd', 'n', 'do', '"a ; b"' ], $statements[0]['spans'] );
+		$this->assertSame( [ 'command_node', 'n', 'do', 'a ; b' ], $statements[0]['values'] );
+		$this->assertSame( [ 'command_node', 'n', 'do', '"a ; b"' ], $statements[0]['spans'] );
 	}
 
 	/** A trailing backslash folds the next physical line into one logical statement. */

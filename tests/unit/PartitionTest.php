@@ -474,7 +474,7 @@ class PartitionTest extends TestCase {
 		$p->void_warranty();
 
 		$dump = $p->dump_config();
-		$this->assertStringContainsString( 'cmd pt:config void_warranty', $dump );
+		$this->assertStringContainsString( 'command_node pt:config void_warranty', $dump );
 		$this->assertStringNotContainsString( 'allow_large_writes', $dump );
 	}
 
@@ -529,7 +529,7 @@ class PartitionTest extends TestCase {
 		$p->name( 'p' );
 		$p->allow_large_writes();
 		$this->assertStringContainsString(
-			'cmd p:config allow_large_writes',
+			'command_node p:config allow_large_writes',
 			$p->dump_config()
 		);
 	}
@@ -688,7 +688,7 @@ class PartitionTest extends TestCase {
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 250 );
 		$this->assertStringContainsString(
-			'cmd dbp:config allow_large_writes 250',
+			'command_node dbp:config allow_large_writes 250',
 			$p->dump_config()
 		);
 	}
@@ -1331,7 +1331,7 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 
 		$dump = $p->dump_config();
-		$this->assertStringContainsString( 'cmd my_part:config allow_large_writes', $dump );
+		$this->assertStringContainsString( 'command_node my_part:config allow_large_writes', $dump );
 	}
 
 	public function test_partition_with_index_verb_resolves_and_installs_callable(): void {
@@ -1361,7 +1361,7 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 1, $called );
 
 		$dump = $p->dump_config();
-		$this->assertStringContainsString( 'cmd my_part:config with_index a2-test-formatter', $dump );
+		$this->assertStringContainsString( 'command_node my_part:config with_index a2-test-formatter', $dump );
 	}
 
 	public function test_partition_with_index_verb_unknown_formatter_errors(): void {
