@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The console Inspector's selected-node panel groups its buttons under the
+  same headings the no-node palette already had: Commands (Dump, Config),
+  Messages (Command, Send, Request, Tell, Struct, EOF, Register), Toggles
+  (Trace, Connect/Disconnect), and Verbs (the class's `node_schema` verbs).
+
 ## [1.2.0] - 2026-07-24
 
 ### Changed

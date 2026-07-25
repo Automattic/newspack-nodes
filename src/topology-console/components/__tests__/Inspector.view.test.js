@@ -933,6 +933,38 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /1,234/ );
 	} );
 
+	it( 'groups the selected-node actions under headings like the no-node panel', () => {
+		const { container } = renderNode();
+		const labels = [
+			...container.querySelectorAll(
+				'.topology-insp__actions .topology-insp__group-label'
+			),
+		].map( ( el ) => el.textContent );
+		expect( labels ).toEqual( [ 'Commands', 'Messages', 'Toggles' ] );
+	} );
+
+	it( 'adds a Verbs heading when the class schema declares verbs', () => {
+		const { container } = renderNode( {
+			catalog: [
+				{
+					shell_name: 'Echo',
+					commands: [ { name: 'set_line_mode', args: [] } ],
+				},
+			],
+		} );
+		const labels = [
+			...container.querySelectorAll(
+				'.topology-insp__actions .topology-insp__group-label'
+			),
+		].map( ( el ) => el.textContent );
+		expect( labels ).toEqual( [
+			'Commands',
+			'Messages',
+			'Toggles',
+			'Verbs',
+		] );
+	} );
+
 	it( 'renders Dump + Send + Trace buttons', () => {
 		const { getByText } = renderNode();
 		expect( getByText( 'Dump' ) ).not.toBeNull();
