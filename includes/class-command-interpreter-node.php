@@ -337,13 +337,13 @@ class Command_Interpreter_Node extends Node {
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
 			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability;\n          the reserved name `sources` returns them as a { name, path, mode, available, bytes } struct for a GUI picker.\n",
-			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
 			// Shell-level builtins: Shell intercepts; listed for `help`.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
+			'include' => "include <file>\n    note: shell builtin — reads <file> and evals each line through THIS shell,\n          as though piped into the REPL (cwd and vars apply). Never a wire command.\n",
 			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
 			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",

@@ -2,7 +2,7 @@
  * parseStatements — the JS TSL statement front-end, mirroring PHP
  * Shell_Node::parse_statements byte-for-byte: statement splitting (quote/`;`/
  * comment-aware), backslash continuation, alias canonicalization, cd/prefix
- * cwd resolution with the STRUCTURAL_VERBS carve-out, both token forms, 1-based
+ * cwd resolution with the shell-builtin (var/include) carve-out, both token forms, 1-based
  * first-physical-line numbers, and NO interpolation. Unterminated quote throws.
  */
 
@@ -93,9 +93,21 @@ describe( 'parseStatements', () => {
 		] );
 	} );
 
-	it( 'never cwd-routes a STRUCTURAL verb (make_node/var) after a cd', () => {
+	it( 'a bare make_node inside a cwd is a command to that node, like any verb', () => {
 		const stmts = parseStatements( 'cd deep\nmake_node Topic leaf' );
-		expect( stmts[ 0 ].values ).toEqual( [ 'make_node', 'Topic', 'leaf' ] );
+		expect( stmts[ 0 ].values ).toEqual( [
+			'command_node',
+			'deep',
+			'make_node',
+			'Topic',
+			'leaf',
+		] );
+	} );
+
+	it( 'never routes the shell builtins var/include, even after a cd', () => {
+		const stmts = parseStatements( 'cd deep\nvar x = 1\ninclude other' );
+		expect( stmts[ 0 ].values ).toEqual( [ 'var', 'x', '=', '1' ] );
+		expect( stmts[ 1 ].values ).toEqual( [ 'include', 'other' ] );
 	} );
 
 	it( 'preserves a single-quoted span byte-identical (deferred token)', () => {

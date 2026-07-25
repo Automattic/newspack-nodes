@@ -44,6 +44,24 @@ class ShellParseStatementsTest extends TestCase {
 		);
 	}
 
+	/** A bare make_node inside a cwd is a command to that node, like any verb. */
+	public function test_make_node_inside_a_cwd_is_a_command_to_that_node(): void {
+		$statements = Shell_Node::parse_statements( "cd deep\nmake_node Topic leaf" );
+
+		$this->assertSame(
+			[ 'command_node', 'deep', 'make_node', 'Topic', 'leaf' ],
+			$statements[0]['values']
+		);
+	}
+
+	/** var and include are shell BUILTINS: never routed, even after a cd. */
+	public function test_builtins_var_and_include_are_never_cwd_routed(): void {
+		$statements = Shell_Node::parse_statements( "cd deep\nvar x = 1\ninclude other" );
+
+		$this->assertSame( [ 'var', 'x', '=', '1' ], $statements[0]['values'] );
+		$this->assertSame( [ 'include', 'other' ], $statements[1]['values'] );
+	}
+
 	/** A bare verb inside a cd'd path becomes `command_node <path> <verb> <args>`. */
 	public function test_cwd_wraps_a_bare_verb_into_a_command_node(): void {
 		$statements = $this->summarize(

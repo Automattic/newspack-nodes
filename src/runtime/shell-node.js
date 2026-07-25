@@ -43,17 +43,13 @@ const VERB_ALIASES = {
 };
 
 /**
- * Verbs never cwd-routed by the static front-end. Mirrors PHP
- * Shell_Node::STRUCTURAL_VERBS: static analysis needs their positions stable
- * regardless of cwd, and no shipped .tsl issues them after a `cd`.
+ * Shell BUILTINS: `var` sets shell state and `include` evals a file through
+ * this same shell — neither ever becomes a message, so the static front-end
+ * returns them as bare statements wherever they appear. Any other bare verb
+ * inside a cwd is a command to that node, `make_node` included. Mirrors PHP
+ * Shell_Node::BUILTIN_VERBS.
  */
-const STRUCTURAL_VERBS = new Set( [
-	'make_node',
-	'connect_node',
-	'disconnect_node',
-	'include',
-	'var',
-] );
+const BUILTIN_VERBS = new Set( [ 'include', 'var' ] );
 
 /**
  * The one tokenizer state machine ('/"/` + backslash escapes): splits on
@@ -358,8 +354,8 @@ function buildStatement( shell, text, line ) {
 		const path = shell.prefix( tokenValues[ 1 ] ?? '' );
 		values = [ 'command_node', path, ...tokenValues.slice( 2 ) ];
 		spans = [ 'command_node', path, ...tokenSpans.slice( 2 ) ];
-	} else if ( STRUCTURAL_VERBS.has( verb ) || '' === shell.path ) {
-		// Structural verbs and root-level bare verbs are not cwd-routed.
+	} else if ( BUILTIN_VERBS.has( verb ) || '' === shell.path ) {
+		// Builtins and root-level bare verbs are not cwd-routed.
 		values = [ verb, ...tokenValues.slice( 1 ) ];
 		spans = [ verb, ...tokenSpans.slice( 1 ) ];
 	} else {
