@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Config Audit's filter moved into the shared hub header.** The tab portals
+  its count + filter toolbar into the header controls slot like the other hub
+  tabs, instead of a toolbar row above the table.
+
+### Fixed
+- **Hub header title yields width instead of wrapping.** The brand subtitle
+  now shrinks and clips (nowrap + ellipsis) when the active tab's header
+  controls need the room; the wordmark keeps its size.
+
 ## [1.5.0] - 2026-07-25
 
 ### Added

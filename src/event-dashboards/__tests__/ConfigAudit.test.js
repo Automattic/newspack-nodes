@@ -171,6 +171,42 @@ describe( 'ConfigAudit', () => {
 		expect( getByText( 'No option names match the filter.' ) ).toBeTruthy();
 	} );
 
+	it( 'portals the filter toolbar into a provided header slot (none inline)', () => {
+		useNodeState.mockReturnValue( model() );
+		const slot = document.createElement( 'div' );
+		document.body.appendChild( slot );
+		const { container, getByText, queryByText } = render(
+			<ConfigAudit headerControlsSlot={ slot } />
+		);
+		// The toolbar lives in the slot, not in the tab body.
+		expect(
+			slot.querySelector( '.newspack-nodes-search-input' )
+		).toBeTruthy();
+		expect(
+			container.querySelector( '.newspack-nodes-search-input' )
+		).toBeNull();
+		// Filtering still drives the table from up there.
+		fireEvent.change(
+			slot.querySelector( '.newspack-nodes-search-input' ),
+			{
+				target: { value: 'flame' },
+			}
+		);
+		expect( getByText( 'newspack_flame_colors' ) ).toBeTruthy();
+		expect( queryByText( 'newspack_theme_mods' ) ).toBeNull();
+		slot.remove();
+	} );
+
+	it( 'renders nothing in a null slot (shared header exists but not mounted)', () => {
+		useNodeState.mockReturnValue( model() );
+		const { container } = render(
+			<ConfigAudit headerControlsSlot={ null } />
+		);
+		expect(
+			container.querySelector( '.newspack-nodes-search-input' )
+		).toBeNull();
+	} );
+
 	it( 'shows an empty state when nothing has been recorded', () => {
 		useNodeState.mockReturnValue( { entries: [] } );
 		const { getByText, queryByRole } = render( <ConfigAudit /> );
