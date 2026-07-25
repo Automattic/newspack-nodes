@@ -143,6 +143,7 @@ describe( 'LogViewer', () => {
 		useLogViewerGraph.mockClear();
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
+		window.localStorage.clear();
 	} );
 
 	it( 'the source catalog refreshes on an interval while a source streams', () => {
@@ -299,8 +300,10 @@ describe( 'LogViewer', () => {
 		);
 		expect( container.textContent ).toMatch( /9 lines/ );
 		const before = logRowListProps.resetSignal;
-		const clear = container.querySelectorAll( '.button' );
-		fireEvent.click( clear[ clear.length - 1 ] );
+		const clear = [ ...container.querySelectorAll( 'button' ) ].find(
+			( b ) => 'Clear' === b.textContent
+		);
+		fireEvent.click( clear );
 		expect( node.lines ).toEqual( [] );
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );

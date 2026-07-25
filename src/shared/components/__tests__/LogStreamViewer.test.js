@@ -6,7 +6,7 @@
  * is pinned through the PartitionViewer / LogViewer suites.
  */
 
-import { render } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import LogStreamViewer from '../LogStreamViewer';
 
 let logRowListProps;
@@ -123,18 +123,14 @@ it( 'hides step and jump when the consumer provides no handlers', () => {
 	expect( titles ).not.toContain( '⏭' );
 } );
 
-it( 'stats sit left of the inputs so width changes cannot bounce them', () => {
+it( 'stats sit left of ALL inputs (picker included) — no control bounces', () => {
 	const { container } = render( <LogStreamViewer { ...BASE } /> );
 	const toolbar = container.querySelector( '.newspack-nodes-toolbar' );
 	const children = [ ...toolbar.children ];
 	const stats = children.findIndex( ( el ) =>
 		el.classList.contains( 'newspack-nodes-toolbar-stats' )
 	);
-	const filterInput = children.findIndex( ( el ) =>
-		el.classList.contains( 'newspack-nodes-search-input' )
-	);
-	expect( stats ).toBeGreaterThan( -1 );
-	expect( stats ).toBeLessThan( filterInput );
+	expect( stats ).toBe( 0 );
 } );
 
 it( 'pickerOptions null renders neither a picker nor the empty status', () => {
@@ -143,4 +139,56 @@ it( 'pickerOptions null renders neither a picker nor the empty status', () => {
 	);
 	expect( container.querySelector( '.newspack-nodes-select' ) ).toBeNull();
 	expect( container.textContent ).not.toContain( 'None' );
+} );
+
+describe( 'rail toggle', () => {
+	beforeEach( () => {
+		window.localStorage.clear();
+	} );
+
+	it( 'collapses and reopens the sidebar, remembering the choice', () => {
+		const { container } = render(
+			<LogStreamViewer
+				{ ...BASE }
+				sidebar={ <div className="the-rail">rail</div> }
+			/>
+		);
+		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
+		const toggle = container.querySelector( '.newspack-nodes-rail-toggle' );
+		expect( toggle ).not.toBeNull();
+
+		fireEvent.click( toggle );
+		expect( container.querySelector( '.the-rail' ) ).toBeNull();
+		expect(
+			window.localStorage.getItem( 'newspack-nodes-rail:test-viewer' )
+		).toBe( 'closed' );
+
+		fireEvent.click(
+			container.querySelector( '.newspack-nodes-rail-toggle' )
+		);
+		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
+	} );
+
+	it( 'starts collapsed when the stored preference says closed', () => {
+		window.localStorage.setItem(
+			'newspack-nodes-rail:test-viewer',
+			'closed'
+		);
+		const { container } = render(
+			<LogStreamViewer
+				{ ...BASE }
+				sidebar={ <div className="the-rail">rail</div> }
+			/>
+		);
+		expect( container.querySelector( '.the-rail' ) ).toBeNull();
+	} );
+
+	it( 'renders no toggle when there is no sidebar', () => {
+		const { container } = render(
+			<LogStreamViewer { ...BASE } sidebar={ null } />
+		);
+		expect(
+			container.querySelector( '.newspack-nodes-rail-toggle' )
+		).toBeNull();
+	} );
 } );

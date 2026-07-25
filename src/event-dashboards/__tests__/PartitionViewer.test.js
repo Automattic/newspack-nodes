@@ -120,6 +120,7 @@ describe( 'PartitionViewer', () => {
 			step,
 		} );
 		window.history.replaceState( {}, '', '/' );
+		window.localStorage.clear();
 	} );
 
 	it( 'renders a select populated from the view model', async () => {
@@ -205,8 +206,10 @@ describe( 'PartitionViewer', () => {
 		} );
 		const { container } = await renderViewer();
 		const before = logRowListProps.resetSignal;
-		const clear = container.querySelectorAll( '.button' );
-		fireEvent.click( clear[ clear.length - 1 ] );
+		const clear = [ ...container.querySelectorAll( 'button' ) ].find(
+			( b ) => 'Clear' === b.textContent
+		);
+		fireEvent.click( clear );
 		expect( node.lines ).toEqual( [] );
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
