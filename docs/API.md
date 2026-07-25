@@ -222,7 +222,7 @@ The registry merges three families, in priority order (first name wins, then rea
 2. **Config** — `log_sources` entries (`name=/absolute/path`, one per line in the substrate settings page), Tail file mode.
 3. **Active topologies** — every `Log` node in an active topology's graph, its path template resolved per partition via `Core::resolve_partition_template`, tailed in Tail segmented mode (`{file}.{seg}`). Named by lowercased writes-basename, plus a `.p{N}` suffix when the template is per-partition. A broken topology degrades to being skipped, never a 500.
 
-The same registry backs the REPL's `taillog` verb; its reserved `taillog sources` name returns the merged catalog as `{ name, path, mode, available }` rows for GUI pickers.
+The same registry backs the REPL's `taillog` verb; its reserved `taillog sources` name returns the merged catalog as `{ name, path, mode, available, bytes, segments }` rows for GUI pickers (`bytes` is the size a tail would read, null when unreadable; `segments` is the sorted `{ id, size }` segment list, `[]` in file mode).
 
 **Permission**: `current_user_can( 'manage_options' )`. No nonce check — same posture as `/messages/stream`.
 

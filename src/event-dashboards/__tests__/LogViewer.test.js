@@ -1,8 +1,9 @@
 /**
  * LogViewer UI-surface tests — the thin DOM view over the logviewer node graph.
- * The list (LogRowList) and source picker (LogBrowser) have their own suites; here
- * they are mocked to markers capturing the props LogViewer wires in, so these
- * tests cover the toolbar, source selection, Live/Replay, and `?source=` linking.
+ * The list (LogRowList) and segment sidebar (LogBrowser) have their own suites;
+ * here they are mocked to markers capturing the props LogViewer wires in, so
+ * these tests cover the toolbar source dropdown, the segment sidebar, Live /
+ * Replay / segment browsing, and `?source=` linking.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -33,9 +34,37 @@ jest.mock( '../hooks/useLogViewerGraph', () => ( {
 
 const { useLogViewerGraph } = require( '../hooks/useLogViewerGraph' );
 
+const GATE_SEGMENTS = [
+	{ id: 3, size: 977 },
+	{ id: 5, size: 233 },
+];
+
+// php: plain file; gate: segmented with two segments; debug: unavailable.
 const SOURCES = [
-	{ name: 'php', path: '/php', mode: 'file', available: true },
-	{ name: 'debug', path: '/debug', mode: 'segmented', available: false },
+	{
+		name: 'php',
+		path: '/php',
+		mode: 'file',
+		available: true,
+		bytes: 977,
+		segments: [],
+	},
+	{
+		name: 'gate',
+		path: '/gate',
+		mode: 'segmented',
+		available: true,
+		bytes: 233,
+		segments: GATE_SEGMENTS,
+	},
+	{
+		name: 'debug',
+		path: '/debug',
+		mode: 'file',
+		available: false,
+		bytes: null,
+		segments: [],
+	},
 ];
 
 // Stand-in logviewer:view node: model in setStateCache.view, ring on the node.
@@ -43,6 +72,7 @@ function registerViewFixture( {
 	selected = '',
 	paused = false,
 	mode = 'live',
+	lastReceivedSegment = null,
 	lines = [],
 } = {} ) {
 	const node = {
@@ -77,6 +107,7 @@ function registerViewFixture( {
 		paused,
 		connectionError: false,
 		mode,
+		lastReceivedSegment,
 	} );
 	Core.nodes.set( 'logviewer:view', node );
 	return node;
@@ -108,41 +139,66 @@ describe( 'LogViewer', () => {
 		window.history.replaceState( {}, '', '/' );
 	} );
 
-	it( 'renders a toolbar with filter + pause + clear (no log dropdown)', () => {
+	it( 'renders the sources as a toolbar dropdown, unavailable ones disabled', () => {
 		registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
-		expect(
-			container.querySelector( '.newspack-nodes-search-input' )
-		).not.toBeNull();
-		expect(
-			container.querySelector( '.newspack-nodes-select' )
-		).toBeNull();
+		const select = container.querySelector( '.newspack-nodes-select' );
+		expect( select ).not.toBeNull();
+		expect( select.value ).toBe( 'php' );
+		const options = [ ...select.querySelectorAll( 'option' ) ];
+		expect( options.map( ( o ) => o.value ) ).toEqual( [
+			'php',
+			'gate',
+			'debug',
+		] );
+		expect( options[ 1 ].disabled ).toBe( false );
+		expect( options[ 2 ].disabled ).toBe( true );
 	} );
 
-	it( 'lists the sources in the picker', () => {
+	it( 'picking a source switches the stream and reflects ?source=', () => {
 		registerViewFixture( { selected: 'php' } );
-		render( <LogViewer /> );
-		expect( logBrowserProps.items ).toBe( SOURCES );
-		expect( logBrowserProps.selectedKey ).toBe( 'php' );
-		expect( logBrowserProps.title ).toBe( 'Sources' );
+		const { container } = render( <LogViewer /> );
+		const select = container.querySelector( '.newspack-nodes-select' );
+		fireEvent.change( select, { target: { value: 'gate' } } );
+		expect( selectSource ).toHaveBeenCalledWith( 'gate' );
+		expect( window.location.search ).toContain( 'source=gate' );
 	} );
 
-	it( 'shapes each source row: name key/label, mode meta, availability gate', () => {
-		registerViewFixture( { selected: 'php' } );
+	it( 'lists the selected segmented sources segments in the sidebar', () => {
+		registerViewFixture( { selected: 'gate' } );
 		render( <LogViewer /> );
-		expect( logBrowserProps.itemKey( SOURCES[ 1 ] ) ).toBe( 'debug' );
-		expect( logBrowserProps.itemLabel( SOURCES[ 1 ] ) ).toBe( 'debug' );
-		expect( logBrowserProps.itemMeta( SOURCES[ 1 ] ) ).toBe( 'segmented' );
-		expect( logBrowserProps.itemDisabled( SOURCES[ 1 ] ) ).toBe( true );
-		expect( logBrowserProps.itemDisabled( SOURCES[ 0 ] ) ).toBe( false );
+		expect( logBrowserProps.items ).toEqual( GATE_SEGMENTS );
+		expect( logBrowserProps.title ).toBe( 'Segments' );
 	} );
 
-	it( 'selecting a source switches the stream and reflects ?source=', () => {
+	it( 'a file source has no segments to browse', () => {
 		registerViewFixture( { selected: 'php' } );
 		render( <LogViewer /> );
-		act( () => logBrowserProps.onSelectItem( SOURCES[ 1 ] ) );
-		expect( selectSource ).toHaveBeenCalledWith( 'debug' );
-		expect( window.location.search ).toContain( 'source=debug' );
+		expect( logBrowserProps.items ).toEqual( [] );
+	} );
+
+	it( 'shapes each segment row: key, label, and a compact byte meta', () => {
+		registerViewFixture( { selected: 'gate' } );
+		render( <LogViewer /> );
+		expect( logBrowserProps.itemKey( { id: 9, size: 1 } ) ).toBe( 9 );
+		expect( logBrowserProps.itemLabel( { id: 9 } ) ).toBe( 'Segment 9' );
+		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2.0 KB' );
+	} );
+
+	it( 'browsing a segment seeks the stream to it at offset 0', () => {
+		registerViewFixture( { selected: 'gate' } );
+		render( <LogViewer /> );
+		act( () => logBrowserProps.onSelectItem( { id: 3, size: 977 } ) );
+		expect( seek ).toHaveBeenCalledWith( 'gate', {
+			gate: { segment: 3, offset: 0 },
+		} );
+		expect( logBrowserProps.selectedKey ).toBe( 3 );
+	} );
+
+	it( 'surfaces the view-derived last-received segment as the active row', () => {
+		registerViewFixture( { selected: 'gate', lastReceivedSegment: 5 } );
+		render( <LogViewer /> );
+		expect( logBrowserProps.activeKey ).toBe( 5 );
 	} );
 
 	it( 'Replay seeks the current source to start', () => {
@@ -198,10 +254,10 @@ describe( 'LogViewer', () => {
 	} );
 
 	it( 'seeds selectSource from ?source= once the catalog is available', () => {
-		window.history.replaceState( {}, '', '/?source=debug' );
+		window.history.replaceState( {}, '', '/?source=gate' );
 		registerViewFixture( { selected: 'php' } );
 		render( <LogViewer /> );
-		expect( selectSource ).toHaveBeenCalledWith( 'debug' );
+		expect( selectSource ).toHaveBeenCalledWith( 'gate' );
 	} );
 
 	it( 'does not seed ?source= that is not among the sources', () => {

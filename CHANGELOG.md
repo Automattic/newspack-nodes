@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Log Viewer: sources ride the toolbar dropdown; the sidebar browses
+  segments.** The source list moved out of the sidebar into the same toolbar
+  `<select>` the Partition Viewer uses (unavailable sources disabled). When the
+  selected source is segmented, the sidebar lists its segments below Live /
+  Replay — click one to replay it from its head, with the Kafka-style
+  last-received highlight — and Replay now captures the newest segment as the
+  catch-up boundary, so segmented sources auto-flip Replay → Live (previously
+  file-only).
+- **One chrome for the two log-stream dashboards.** The Partition Viewer and
+  Log Viewer now render through a shared `LogStreamViewer` (toolbar dropdown,
+  filter, counts + staleness, pause, clear, reconnect banner, sidebar + row
+  list) and a shared `useDeepLinkedSelection` hook for their `?log=` /
+  `?source=` deep links, replacing two hand-kept copies.
+
+### Added
+- `taillog sources` rows now carry `segments` — the source's on-disk
+  `{ id, size }` segment list (sorted by id, `.idx` companions excluded; `[]`
+  in file mode) — feeding the Log Viewer's segment sidebar and replay
+  boundary.
+
+### Removed
+- `LogBrowser`'s `itemDisabled` prop — no consumer passed it once source
+  availability moved to the toolbar dropdown's disabled options.
+
 ## [1.0.0] - 2026-07-24
 
 ### Added

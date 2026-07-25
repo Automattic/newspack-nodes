@@ -1,25 +1,25 @@
 /**
  * LogBrowser — the shared Kafka-UI-style browse sidebar. A Live/Replay control
- * pair sits above a selectable item list; the items are shaped by render props so
- * the same sidebar serves the Partition Viewer's segments (`log_status`) and the
- * Log Viewer's sources (`taillog sources`). It is presentational: browse STATE
- * lives in `useLogPositions`, which the consumer drives from these callbacks.
+ * pair sits above a selectable item list; the items are shaped by render props.
+ * Both log-stream dashboards drive it as a SEGMENT browser (the Partition
+ * Viewer from `log_status.segments`, the Log Viewer from `taillog
+ * sources[].segments`). It is presentational: browse STATE lives in
+ * `useLogPositions`, which the consumer drives from these callbacks.
  *
  * @param {Object}   props
- * @param {string}   props.mode           'live' | 'replay' (view-derived).
- * @param {Function} props.onFollow       Return to the live tail.
- * @param {Function} props.onReplay       Replay from the earliest record.
- * @param {Array}    props.items          Segments or sources.
- * @param {*}        [props.selectedKey]  Key of the browsed item (the clicked one, or null).
- * @param {*}        [props.activeKey]    Key of the item last RECEIVED from; wins over
- *                                        selectedKey for the highlight when provided.
- * @param {Function} props.onSelectItem   `(item) => void` — browse that item.
- * @param {Function} props.itemKey        `(item) => string|number`.
- * @param {Function} props.itemLabel      `(item) => ReactNode`.
- * @param {Function} [props.itemMeta]     `(item) => ReactNode` secondary line.
- * @param {Function} [props.itemDisabled] `(item) => boolean` (e.g. unavailable source).
- * @param {string}   [props.title]        Sidebar heading.
- * @param {*}        [props.emptyLabel]   Rendered when `items` is empty.
+ * @param {string}   props.mode          'live' | 'replay' (view-derived).
+ * @param {Function} props.onFollow      Return to the live tail.
+ * @param {Function} props.onReplay      Replay from the earliest record.
+ * @param {Array}    props.items         The `{id, size}` segments (or any render-prop-shaped items).
+ * @param {*}        [props.selectedKey] Key of the browsed item (the clicked one, or null).
+ * @param {*}        [props.activeKey]   Key of the item last RECEIVED from; wins over
+ *                                       selectedKey for the highlight when provided.
+ * @param {Function} props.onSelectItem  `(item) => void` — browse that item.
+ * @param {Function} props.itemKey       `(item) => string|number`.
+ * @param {Function} props.itemLabel     `(item) => ReactNode`.
+ * @param {Function} [props.itemMeta]    `(item) => ReactNode` secondary line.
+ * @param {string}   [props.title]       Sidebar heading.
+ * @param {*}        [props.emptyLabel]  Rendered when `items` is empty.
  * @return {import('react').ReactElement} The sidebar.
  */
 
@@ -37,7 +37,6 @@ export default function LogBrowser( {
 	itemKey,
 	itemLabel,
 	itemMeta,
-	itemDisabled,
 	title,
 	emptyLabel,
 } ) {
@@ -85,7 +84,6 @@ export default function LogBrowser( {
 									className={ `newspack-nodes-log-browser__item${
 										active ? ' is-active' : ''
 									}` }
-									disabled={ itemDisabled?.( item ) ?? false }
 									onClick={ () => onSelectItem( item ) }
 								>
 									<span className="newspack-nodes-log-browser__item-label">

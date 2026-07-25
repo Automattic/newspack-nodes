@@ -30,11 +30,12 @@ const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
- * id and its byte size, from a `log_status` segment list. Null when no segment
- * carries a numeric id (e.g. file-mode sources) — pass to `SeekTracker.browse`
- * as a null end so it enters replay with no auto-flip.
+ * id and its byte size, from a segment list (`log_status.segments` or `taillog
+ * sources[].segments` — same shape). Null when no segment carries a numeric id
+ * (e.g. file-mode sources) — pass to `SeekTracker.browse` as a null end so it
+ * enters replay with no auto-flip.
  *
- * @param {Array<{id?:number,size?:number}>} segments The `log_status` segments.
+ * @param {Array<{id?:number,size?:number}>} segments The `{id, size}` segments.
  * @return {{segment:number,offset:number}|null} The boundary, or null.
  */
 export function endPosition( segments ) {

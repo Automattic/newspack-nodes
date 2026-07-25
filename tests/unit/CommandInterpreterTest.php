@@ -371,6 +371,7 @@ class CommandInterpreterTest extends TestCase {
 					'available' => true,
 					// The file's current byte size — the Log Viewer's replay boundary.
 					'bytes'     => \filesize( $present ),
+					'segments'  => [],
 				],
 				[
 					'name'      => 'debug',
@@ -379,6 +380,7 @@ class CommandInterpreterTest extends TestCase {
 					'available' => false,
 					// An unavailable source has no readable size.
 					'bytes'     => null,
+					'segments'  => [],
 				],
 			],
 			$rows,

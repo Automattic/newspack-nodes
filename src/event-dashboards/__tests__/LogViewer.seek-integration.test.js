@@ -141,7 +141,8 @@ test( 'file-mode Replay flips to Live once records reach the captured byte size'
 	await act( async () => {
 		render( <LogViewer /> );
 	} );
-	expect( logBrowserProps.items ).toHaveLength( 1 );
+	// The source rides the toolbar dropdown; a file source has no segments.
+	expect( logBrowserProps.items ).toHaveLength( 0 );
 
 	// Replay: re-fetches the fresh size and enters a file-mode replay boundary.
 	await act( async () => {

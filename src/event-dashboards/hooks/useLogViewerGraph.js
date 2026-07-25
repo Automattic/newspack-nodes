@@ -8,17 +8,18 @@
  *     (packed `msg` frames, connected/heartbeat, slot pool), the source resolves
  *     to a `Tail` reader over a log FILE (or segmented Log) by registry NAME.
  *   - The catalog is the interpreter builtin `taillog sources` (empty TO → the
- *     command interpreter), which replies with `[{ name, path, mode, available }]`
- *     — no service CI. Those sources feed the picker; the view's dropdown catalog
- *     is the same names mapped to `{ key, label }`.
+ *     command interpreter), which replies with `[{ name, path, mode, available,
+ *     bytes, segments }]` — no service CI. Those rows feed the toolbar picker
+ *     and the segment sidebar; `bytes`/`segments` are the replay boundary.
  *
  * The rows are raw log-file lines (a `logviewer:view` `LogViewerViewNode` ring),
  * not packed partition envelopes. EVERY node sinks into the interpreter; flow is
  * steered ONLY by each node's `target`.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
+import { endPosition } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
 import { CommandClient } from '../../runtime/command-client';
 import {
@@ -74,8 +75,9 @@ function defaultSourceName( sources ) {
  * @param {Object} [opts.commandClient] CommandClient seam assigned to the link's
  *                                      HttpOut; defaults to a freshly-constructed
  *                                      CommandClient.
- * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array }}
- *   Control callbacks + the source catalog for the picker.
+ * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function }}
+ *   Control callbacks + the source catalog (name/mode/availability/segments)
+ *   for the picker and segment sidebar; fetchSources refreshes that catalog.
  */
 export function useLogViewerGraph( opts = {} ) {
 	const optsRef = useRef( opts );
@@ -120,17 +122,11 @@ export function useLogViewerGraph( opts = {} ) {
 			bumpBuild( ( n ) => n + 1 );
 
 			// Fetch the source catalog; its reply opens the default source.
-			const listId = makeOpId();
-			const listFuture = new Promise( ( resolve, reject ) => {
-				view.replies.add( listId, resolve, reject );
-			} );
-			link.send( buildSourcesCommand( listId ) );
-			listFuture
+			fetchSources()
 				.then( ( catalog ) => {
 					if ( ! Array.isArray( catalog ) || 0 === catalog.length ) {
 						return;
 					}
-					setSources( catalog );
 					const logs = catalog.map( ( s ) => ( {
 						key: s.name,
 						label: s.name,
@@ -162,14 +158,15 @@ export function useLogViewerGraph( opts = {} ) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// selectSource: records the pick; resubscribe re-opens if active.
+	// Record the pick, re-open if active, re-catalog for fresh segments.
 	const selectSource = ( name ) => {
 		viewRef.current?.fill( controlMsg( { action: 'select', log: name } ) );
 		resubscribe( [ name ], null );
+		fetchSources().catch( () => {} );
 	};
 
-	// Fetch a FRESH taillog-sources catalog at seek time (mount is stale).
-	const fetchSources = () => {
+	// Fetch a FRESH catalog + republish, so segments track rotation.
+	const fetchSources = useCallback( () => {
 		const view = viewRef.current;
 		const link = linkRef.current;
 		if ( ! view || ! link ) {
@@ -180,47 +177,74 @@ export function useLogViewerGraph( opts = {} ) {
 			view.replies.add( id, resolve, reject );
 		} );
 		link.send( buildSourcesCommand( id ) );
-		return future;
-	};
+		return future.then( ( catalog ) => {
+			if ( Array.isArray( catalog ) ) {
+				setSources( catalog );
+			}
+			return catalog;
+		} );
+	}, [] );
 
 	/**
 	 * Reposition the source + set the view mode. Live tail (null positions)
-	 * follows; Replay (positions) captures the source's CURRENT byte size as the
-	 * file-mode catch-up boundary. An empty source flips straight to Live; a
-	 * fetch failure replays with no boundary (never flips — the user clicks Live).
+	 * follows; Replay (positions) captures the source's CURRENT live boundary
+	 * for the Replay→Live flip: the newest segment for a segmented source, the
+	 * byte size (null segment) for a file. An empty source flips straight to
+	 * Live; a fetch failure replays with no boundary (never flips — the user
+	 * clicks Live).
 	 *
 	 * @param {string}  name      The source name to (re)open.
 	 * @param {?Object} positions The SSE positions seed; null tails live.
 	 */
-	const seek = ( name, positions ) => {
-		const apply = ( control ) => {
-			viewRef.current?.fill( controlMsg( control ) );
-			resubscribe( [ name ], positions );
-		};
-		if ( ! positions ) {
-			apply( { action: 'follow' } );
-			return;
-		}
-		fetchSources()
-			.then( ( catalog ) => {
-				const source = Array.isArray( catalog )
-					? catalog.find( ( s ) => s.name === name )
-					: null;
-				const bytes = source?.bytes ?? 0;
-				apply(
-					bytes > 0
-						? {
-								action: 'browse',
-								endSegment: null,
-								endOffset: bytes,
-						  }
-						: { action: 'follow' }
+	const seek = useCallback(
+		( name, positions ) => {
+			const apply = ( control ) => {
+				// Stale seek: the selection moved on while the fetch ran.
+				if ( viewRef.current?.selected !== name ) {
+					return;
+				}
+				viewRef.current?.fill( controlMsg( control ) );
+				resubscribe( [ name ], positions );
+			};
+			if ( ! positions ) {
+				apply( { action: 'follow' } );
+				return;
+			}
+			fetchSources()
+				.then( ( catalog ) => {
+					const source = Array.isArray( catalog )
+						? catalog.find( ( s ) => s.name === name )
+						: null;
+					const end = endPosition( source?.segments ?? [] );
+					if ( end ) {
+						apply( {
+							action: 'browse',
+							endSegment: end.segment,
+							endOffset: end.offset,
+						} );
+						return;
+					}
+					const bytes = source?.bytes ?? 0;
+					apply(
+						bytes > 0
+							? {
+									action: 'browse',
+									endSegment: null,
+									endOffset: bytes,
+							  }
+							: { action: 'follow' }
+					);
+				} )
+				.catch( () =>
+					apply( {
+						action: 'browse',
+						endSegment: null,
+						endOffset: 0,
+					} )
 				);
-			} )
-			.catch( () =>
-				apply( { action: 'browse', endSegment: null, endOffset: 0 } )
-			);
-	};
+		},
+		[ fetchSources, resubscribe ]
+	);
 
-	return { selectSource, setPaused, seek, sources };
+	return { selectSource, setPaused, seek, sources, fetchSources };
 }

@@ -1,7 +1,7 @@
 /**
- * LogBrowser tests — the shared browse sidebar: a Live/Replay control pair over a
- * selectable item list, generic across the Partition Viewer's segments and the
- * Log Viewer's sources (render-prop item shaping).
+ * LogBrowser tests — the shared browse sidebar: a Live/Replay control pair over
+ * a selectable item list (render-prop item shaping), the segment browser both
+ * log-stream dashboards render.
  */
 
 import { render, fireEvent } from '@testing-library/react';
@@ -81,30 +81,12 @@ it( 'highlights nothing when selectedKey is null (live segments)', () => {
 	).toBeNull();
 } );
 
-it( 'keeps the selected source lit even while live (source picker)', () => {
+it( 'keeps the selected item lit even while live', () => {
 	const { container } = renderSegments( { mode: 'live', selectedKey: 5 } );
 	const active = container.querySelector(
 		'.newspack-nodes-log-browser__item.is-active'
 	);
 	expect( active.textContent ).toMatch( /segment 5/ );
-} );
-
-it( 'disables an item flagged unavailable so it cannot be picked', () => {
-	const onSelectItem = jest.fn();
-	const { container } = renderSegments( {
-		items: [
-			{ id: 4, size: 1 },
-			{ id: 5, size: 2 },
-		],
-		itemDisabled: ( s ) => s.id === 5,
-		onSelectItem,
-	} );
-	const buttons = container.querySelectorAll(
-		'.newspack-nodes-log-browser__item'
-	);
-	expect( buttons[ 1 ].disabled ).toBe( true );
-	fireEvent.click( buttons[ 1 ] );
-	expect( onSelectItem ).not.toHaveBeenCalled();
 } );
 
 it( 'shows the empty label when there are no items', () => {

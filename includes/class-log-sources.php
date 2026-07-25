@@ -53,7 +53,7 @@ class Log_Sources {
 	 * `taillog` verb delegates here — file I/O over a registry Log_Sources owns.
 	 *
 	 * @param list<string> $args
-	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
+	 * @return string|list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
 	 */
 	public static function taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
@@ -79,42 +79,85 @@ class Log_Sources {
 	}
 
 	/**
-	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes }
-	 * row per (deduped) registry entry, as a plain array a GUI reads to build its
-	 * source picker — mirrors the dump_metadata array-reply precedent. `bytes` is the
-	 * byte size a tail would read (the Log Viewer's replay-catch-up boundary); null
-	 * when the source has no readable file.
+	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes,
+	 * segments } row per (deduped) registry entry, as a plain array a GUI reads to
+	 * build its source picker — mirrors the dump_metadata array-reply precedent.
+	 * `bytes` is the byte size a tail would read (the Log Viewer's replay-catch-up
+	 * boundary); null when the source has no readable file. `segments` is the
+	 * `{id, size}` list a segment browser renders — [] in file mode.
 	 *
 	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int}>
+	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
 	 */
 	private static function taillog_sources_struct( array $registry ): array {
 		$rows = [];
 		foreach ( $registry as $name => $entry ) {
-			$rows[] = [
+			$segments = self::source_segments( $entry );
+			$rows[]   = [
 				'name'      => $name,
 				'path'      => $entry['path'],
 				'mode'      => $entry['mode'],
 				'available' => self::is_available( $entry['path'], $entry['mode'] ),
-				'bytes'     => self::tail_bytes( $entry ),
+				'bytes'     => self::tail_bytes( $entry, $segments ),
+				'segments'  => $segments,
 			];
 		}
 		return $rows;
 	}
 
 	/**
+	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
+	 * list sorted by id — the shape the Log Viewer's segment browser renders,
+	 * matching `log_status.segments`. Companion files (`.idx`) whose suffix is
+	 * not purely numeric are excluded — the same rule as
+	 * `Workers_CI_Node::build_log_sink_entry()` (which also stats mtime, hence
+	 * its own loop); keep the two in step. File mode has no segments: [].
+	 *
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return list<array{id: int, size: int}>
+	 */
+	private static function source_segments( array $entry ): array {
+		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
+			return [];
+		}
+		$segments = [];
+		foreach ( self::segment_files( $entry['path'] ) as $file ) {
+			$suffix = \substr( $file, \strlen( $entry['path'] ) + 1 );
+			if ( ! \ctype_digit( $suffix ) ) {
+				continue;
+			}
+			$size       = \filesize( $file );
+			$segments[] = [
+				'id'   => (int) $suffix,
+				'size' => false === $size ? 0 : $size,
+			];
+		}
+		\usort( $segments, static fn ( array $a, array $b ): int => $a['id'] <=> $b['id'] );
+		return $segments;
+	}
+
+	/**
 	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
 	 * else the file. Null when there is no readable file (missing, or a segmented
 	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
+	 * Pass a pre-listed $segments to skip re-globbing (the struct builder has one).
 	 *
 	 * @param array{path: string, mode: string} $entry
+	 * @param list<array{id: int, size: int}>|null $segments A source_segments() list, or null to list here.
 	 */
-	private static function tail_bytes( array $entry ): ?int {
-		$tail = self::tail_path( $entry );
-		if ( null === $tail || ! \is_file( $tail ) ) {
+	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
+		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
+			$segments ??= self::source_segments( $entry );
+			if ( [] === $segments ) {
+				return null;
+			}
+			$newest = \end( $segments );
+			return $newest['size'];
+		}
+		if ( ! \is_file( $entry['path'] ) ) {
 			return null;
 		}
-		$size = \filesize( $tail );
+		$size = \filesize( $entry['path'] );
 		return false === $size ? null : $size;
 	}
 
@@ -256,20 +299,12 @@ class Log_Sources {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
 			return $entry['path'];
 		}
-		$newest = null;
-		$top    = -1;
-		foreach ( self::segment_files( $entry['path'] ) as $file ) {
-			$dot = \strrpos( $file, '.' );
-			if ( false === $dot ) {
-				continue; // Glob guarantees a dot; typed guard for the narrower.
-			}
-			$seg = (int) \substr( $file, $dot + 1 );
-			if ( $seg > $top ) {
-				$top    = $seg;
-				$newest = $file;
-			}
+		$segments = self::source_segments( $entry );
+		if ( [] === $segments ) {
+			return null;
 		}
-		return $newest;
+		$newest = \end( $segments );
+		return "{$entry['path']}.{$newest['id']}";
 	}
 
 	/** @return array<int, string> The on-disk `{path}.{seg}` segment files. */
