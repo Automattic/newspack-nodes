@@ -1046,6 +1046,10 @@ describe( 'Inspector (view mode)', () => {
 				onAction={ tailAction }
 			/>
 		);
+		// Sized like its Trace sibling — no full-row grid span.
+		expect( tailView.getByText( 'Connect' ).className ).not.toContain(
+			'topology-insp__actions-full'
+		);
 		fireEvent.click( tailView.getByText( 'Connect' ) );
 		expect( tailAction ).toHaveBeenCalledWith( 'tail', 'tee_a' );
 		tailView.unmount();
