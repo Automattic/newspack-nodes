@@ -178,8 +178,27 @@
 // %topology-panel-toggle (topology-console/styles/graph-view.scss) so every
 // hide/show control reads identically; duplicated because placeholders
 // can't @extend across bundles.
+// The dock wraps the rail so the chevron rides its top inner edge;
+// collapsed, it is the slim rail holding just the expand chevron
+// (mirrors the console's topology-palette-dock).
+.newspack-nodes-rail-dock {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	flex-shrink: 0;
+
+	&.is-collapsed {
+		width: 28px;
+		align-items: center;
+	}
+
+	&.is-collapsed .newspack-nodes-rail-toggle {
+		align-self: center;
+	}
+}
+
 .newspack-nodes-rail-toggle {
-	align-self: flex-start;
+	align-self: flex-end;
 	flex-shrink: 0;
 	width: 18px;
 	height: 18px;
@@ -187,7 +206,7 @@
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	margin-right: 8px;
+	margin-bottom: 4px;
 	background: var(--paper-2, #262626);
 	color: var(--ink, #e0e0e0);
 	border: 1px solid var(--ink-4, #6a6a6a);
