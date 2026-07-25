@@ -2076,6 +2076,10 @@ export default function Inspector( {
 			) }
 
 			<div className="topology-insp__actions">
+				{ /* COMMANDS — stateless dumps into the transcript. */ }
+				<div className="topology-insp__group-label">
+					{ __( 'Commands', 'newspack-nodes' ) }
+				</div>
 				<button
 					type="button"
 					className="button is-compact"
@@ -2100,6 +2104,10 @@ export default function Inspector( {
 				>
 					{ __( 'Config', 'newspack-nodes' ) }
 				</button>
+				{ /* MESSAGES — mint a typed message at this node. */ }
+				<div className="topology-insp__group-label">
+					{ __( 'Messages', 'newspack-nodes' ) }
+				</div>
 				<button
 					type="button"
 					className="button is-compact"
@@ -2181,6 +2189,10 @@ export default function Inspector( {
 						{ __( 'Register', 'newspack-nodes' ) }
 					</button>
 				) }
+				{ /* TOGGLES — stateful switches on this node. */ }
+				<div className="topology-insp__group-label">
+					{ __( 'Toggles', 'newspack-nodes' ) }
+				</div>
 				<button
 					type="button"
 					className={ `button is-compact${
@@ -2245,11 +2257,20 @@ export default function Inspector( {
 						).filter( ( spec ) => ! spec.hidden );
 						const requests =
 							schema && schema.requests ? schema.requests : [];
+						if ( ! commands.length && ! requests.length ) {
+							return null;
+						}
 						// node_name args = live graph nodes minus inspected.
 						const liveNodeNames = ( parsed?.nodes || [] )
 							.map( ( n ) => n.name || n.id )
 							.filter( ( n ) => n && n !== node.id );
 						return [
+							<div
+								key="verbs-label"
+								className="topology-insp__group-label"
+							>
+								{ __( 'Verbs', 'newspack-nodes' ) }
+							</div>,
 							...commands.map( ( spec ) => (
 								<VerbButton
 									key={ `cmd-${ spec.name }` }
