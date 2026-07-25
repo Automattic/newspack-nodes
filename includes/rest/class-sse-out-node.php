@@ -390,35 +390,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Split an optional `{group}/` prefix off a subscription: bare = the logs
-	 * root (stamped bare, back-compat); `offsets/…` and `deadletter/…` address
-	 * their sibling roots (stamped WITH the prefix). Any other prefix throws.
-	 *
-	 * @return array{0: string, 1: string} The root group + the remainder.
-	 *
-	 * @throws \InvalidArgumentException On a prefix outside the browsable roots.
-	 */
-	private static function parse_group( string $sub ): array {
-		$slash = \strpos( $sub, '/' );
-		if ( false === $slash ) {
-			return [ 'logs', $sub ];
-		}
-		$group = \substr( $sub, 0, $slash );
-		// `logs/x` rejected, not aliased to bare `x`: one spelling per source.
-		if ( 'logs' === $group || ! \in_array( $group, Log_Discovery::GROUPS, true ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( "invalid subscription: {$sub}" )
-			);
-		}
-		return [ $group, \substr( $sub, $slash + 1 ) ];
-	}
-
-	/** The stamp for a matched dir: bare-logs stays bare; grouped keeps its prefix. */
-	private static function stamp_for( string $group, string $basename ): string {
-		return 'logs' === $group ? $basename : "{$group}/{$basename}";
-	}
-
-	/**
 	 * A subscription's root group + its concrete matched partition dirs
 	 * (`logs` bare; `offsets/…` / `deadletter/…` prefixed); an exact name
 	 * matches itself. Layout-agnostic — the partition token sits wherever the
@@ -480,6 +451,35 @@ class SSE_Out_Node extends Node {
 			$c->remove_node();
 			unset( $consumers[ $name ], $glob_owned[ $name ] );
 		}
+	}
+
+	/**
+	 * Split an optional `{group}/` prefix off a subscription: bare = the logs
+	 * root (stamped bare, back-compat); `offsets/…` and `deadletter/…` address
+	 * their sibling roots (stamped WITH the prefix). Any other prefix throws.
+	 *
+	 * @return array{0: string, 1: string} The root group + the remainder.
+	 *
+	 * @throws \InvalidArgumentException On a prefix outside the browsable roots.
+	 */
+	private static function parse_group( string $sub ): array {
+		$slash = \strpos( $sub, '/' );
+		if ( false === $slash ) {
+			return [ 'logs', $sub ];
+		}
+		$group = \substr( $sub, 0, $slash );
+		// `logs/x` rejected, not aliased to bare `x`: one spelling per source.
+		if ( 'logs' === $group || ! \in_array( $group, Log_Discovery::GROUPS, true ) ) {
+			throw new \InvalidArgumentException(
+				\esc_html( "invalid subscription: {$sub}" )
+			);
+		}
+		return [ $group, \substr( $sub, $slash + 1 ) ];
+	}
+
+	/** The stamp for a matched dir: bare-logs stays bare; grouped keeps its prefix. */
+	private static function stamp_for( string $group, string $basename ): string {
+		return 'logs' === $group ? $basename : "{$group}/{$basename}";
 	}
 
 	/**

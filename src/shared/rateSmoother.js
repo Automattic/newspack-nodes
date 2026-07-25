@@ -47,6 +47,15 @@ export class RateSmoother {
 		return this.smoothed;
 	}
 
+	// Drop buckets older than the window from the running total.
+	_expire( sec ) {
+		const oldest = sec - this.windowSec;
+		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
+			this.windowTotal -= this.buckets[ 0 ].count;
+			this.buckets.shift();
+		}
+	}
+
 	// @longform Time-aware read for add-on-arrival feeders (the viewers' lps):
 	// with no adds the window never expires and the readout freezes at its
 	// last value. Expiring here lets an idle stream's rate decay to zero over
@@ -59,14 +68,5 @@ export class RateSmoother {
 			this.smoothed = rate;
 		}
 		return this.smoothed;
-	}
-
-	// Drop buckets older than the window from the running total.
-	_expire( sec ) {
-		const oldest = sec - this.windowSec;
-		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
-			this.windowTotal -= this.buckets[ 0 ].count;
-			this.buckets.shift();
-		}
 	}
 }

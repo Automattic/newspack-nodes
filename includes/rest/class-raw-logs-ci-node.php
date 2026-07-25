@@ -94,30 +94,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Map an inbound log argument to a known concrete catalog key. Falls through
-	 * to a firehose-ish concrete key when present (prefix preference), else the
-	 * first-discovered concrete dir. Catalog keys are bare logs basenames plus
-	 * `{group}/{basename}` for the offsets and deadletter roots.
-	 */
-	private static function resolve_log_key( string $log ): string {
-		$keys = \array_column( self::catalog_keys(), 'key' );
-		if ( empty( $keys ) ) {
-			return self::PREFERRED_LOG_PREFIX;
-		}
-		$default = $keys[0];
-		foreach ( $keys as $key ) {
-			if ( \str_starts_with( $key, self::PREFERRED_LOG_PREFIX ) ) {
-				$default = $key;
-				break;
-			}
-		}
-		if ( '' === $log ) {
-			return $default;
-		}
-		return \in_array( $log, $keys, true ) ? $log : $default;
-	}
-
-	/**
 	 * `read_message` verb handler — the single record AT a position, decoded.
 	 *
 	 * Drives the REAL read model: an ephemeral Consumer (no offsetlog, no DLQ)
@@ -172,6 +148,30 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * Map an inbound log argument to a known concrete catalog key. Falls through
+	 * to a firehose-ish concrete key when present (prefix preference), else the
+	 * first-discovered concrete dir. Catalog keys are bare logs basenames plus
+	 * `{group}/{basename}` for the offsets and deadletter roots.
+	 */
+	private static function resolve_log_key( string $log ): string {
+		$keys = \array_column( self::catalog_keys(), 'key' );
+		if ( empty( $keys ) ) {
+			return self::PREFERRED_LOG_PREFIX;
+		}
+		$default = $keys[0];
+		foreach ( $keys as $key ) {
+			if ( \str_starts_with( $key, self::PREFERRED_LOG_PREFIX ) ) {
+				$default = $key;
+				break;
+			}
+		}
+		if ( '' === $log ) {
+			return $default;
+		}
+		return \in_array( $log, $keys, true ) ? $log : $default;
+	}
+
+	/**
 	 * Split a catalog key into its root group + dir basename (bare = logs).
 	 *
 	 * @return array{0: string, 1: string}
@@ -182,6 +182,16 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			return [ 'logs', $key ];
 		}
 		return [ \substr( $key, 0, $slash ), \substr( $key, $slash + 1 ) ];
+	}
+
+	/**
+	 * `list_logs` verb handler — every on-disk partition dir as {key,label}:
+	 * bare logs keys, then `offsets/…` and `deadletter/…`.
+	 *
+	 * @return array<int, mixed>
+	 */
+	public static function cmd_list_logs(): array {
+		return self::catalog_keys();
 	}
 
 	/** @return list<array{key: string, label: string}> The full grouped catalog. */
@@ -197,16 +207,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			}
 		}
 		return $result;
-	}
-
-	/**
-	 * `list_logs` verb handler — every on-disk partition dir as {key,label}:
-	 * bare logs keys, then `offsets/…` and `deadletter/…`.
-	 *
-	 * @return array<int, mixed>
-	 */
-	public static function cmd_list_logs(): array {
-		return self::catalog_keys();
 	}
 
 	public static function node_schema(): array {

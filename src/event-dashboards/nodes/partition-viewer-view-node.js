@@ -30,30 +30,6 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		this.selected = '';
 	}
 
-	_control( value ) {
-		if ( 'select' === value.action ) {
-			this.selected = value.log;
-			// A fresh log tails live from a clean slate — drop browse cursor.
-			this.seek.select();
-			this._clear();
-		} else if ( 'logs' === value.action ) {
-			this.logs = value.logs;
-			if ( ! this.selected && value.logs.length > 0 ) {
-				this.selected = value.logs[ 0 ].key;
-			}
-		} else {
-			super._control( value );
-		}
-	}
-
-	viewModel() {
-		return {
-			...super.viewModel(),
-			logs: this.logs,
-			selected: this.selected,
-		};
-	}
-
 	// Shape a raw SSE log envelope into a row; empty VALUEs drop.
 	shapeRow( message ) {
 		const value = message[ VALUE ];
@@ -102,6 +78,30 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 			index.set( dir, index.size );
 		}
 		return index.get( dir );
+	}
+
+	_control( value ) {
+		if ( 'select' === value.action ) {
+			this.selected = value.log;
+			// A fresh log tails live from a clean slate — drop browse cursor.
+			this.seek.select();
+			this._clear();
+		} else if ( 'logs' === value.action ) {
+			this.logs = value.logs;
+			if ( ! this.selected && value.logs.length > 0 ) {
+				this.selected = value.logs[ 0 ].key;
+			}
+		} else {
+			super._control( value );
+		}
+	}
+
+	viewModel() {
+		return {
+			...super.viewModel(),
+			logs: this.logs,
+			selected: this.selected,
+		};
 	}
 
 	static nodeSchema() {
