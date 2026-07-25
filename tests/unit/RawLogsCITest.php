@@ -147,6 +147,49 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 'jobs.p0', $result['log_id'] );
 	}
 
+	public function test_list_logs_includes_offsets_and_deadletter_keys(): void {
+		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
+		\mkdir( $this->tmp . '/offsets/combined.firehose.p0', 0755, true );
+		\mkdir( $this->tmp . '/deadletter/job-worker.jobs.p0', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
+
+		$this->assertSame(
+			[
+				[
+					'key'   => 'firehose.p0',
+					'label' => 'firehose.p0',
+				],
+				[
+					'key'   => 'offsets/combined.firehose.p0',
+					'label' => 'offsets/combined.firehose.p0',
+				],
+				[
+					'key'   => 'deadletter/job-worker.jobs.p0',
+					'label' => 'deadletter/job-worker.jobs.p0',
+				],
+			],
+			$result
+		);
+	}
+
+	public function test_log_status_reads_a_deadletter_dir_by_grouped_key(): void {
+		$seg_dir = $this->tmp . '/deadletter/job-worker.jobs.p0';
+		\mkdir( $seg_dir, 0755, true );
+		\file_put_contents( "{$seg_dir}/7.log", \str_repeat( 'q', 977 ) );
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'log_status',
+			'deadletter/job-worker.jobs.p0'
+		);
+
+		$this->assertSame( 'deadletter/job-worker.jobs.p0', $result['log_id'] );
+		$this->assertSame( 977, $result['total_size'] );
+		$this->assertSame( [ 7 ], \array_column( $result['segments'], 'id' ) );
+	}
+
 	public function test_log_status_verb_reflects_seeded_segments(): void {
 		// Seed a 128-byte segment in the flat concrete dir so the verb reports
 		// non-zero size for that single dir.

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Partition Viewer reads offsetlogs and dead-letter queues.** The catalog
+  (`list_logs`) now lists every partition dir under all three browsable roots
+  — bare `logs` keys plus `offsets/…` and `deadletter/…` — and `log_status`
+  + the `/messages/stream` subscription resolver accept the group-prefixed
+  keys (whitelisted roots only; ipc/ stays bare-sub-only). Ownerless
+  quarantines — write-stall dirs like `logs.jobstats.p0` and pre-rename
+  reader DLQs — are finally inspectable from the dashboard: pick them from
+  the dropdown, browse their segments, replay from any point.
+
 ## [1.3.1] - 2026-07-25
 
 ### Changed

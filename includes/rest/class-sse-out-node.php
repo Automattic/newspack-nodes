@@ -22,6 +22,7 @@ use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Filter_Node;
@@ -165,6 +166,11 @@ class SSE_Out_Node extends Node {
 	 */
 	private function subscription_partition( array $subs ): int {
 		foreach ( $subs as $sub ) {
+			// A grouped sub pools like its bare sibling: strip the root prefix.
+			$slash = \strpos( $sub, '/' );
+			if ( false !== $slash && \in_array( \substr( $sub, 0, $slash ), Log_Discovery::GROUPS, true ) ) {
+				$sub = \substr( $sub, $slash + 1 );
+			}
 			if ( \preg_match( '/^[a-z0-9_-]+\.p(\d+)$/', $sub, $m ) ) {
 				return (int) $m[1];
 			}
@@ -336,7 +342,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * `$sub` is a concrete resource dir NAME or a glob over one — no `.p{N}`
 	 * parsing. An exact name with a live IPC worker (`{base}/ipc/{sub}/output`)
-	 * tails that; otherwise it globs `{base}/logs/{sub}` (exact name → itself,
+	 * tails that; otherwise it globs `{base}/{group}/{rest}` (exact name → itself,
 	 * `firehose.*` → one Consumer per matching partition dir), each stamped +
 	 * resume-keyed by its concrete dir basename. A traversal-guarded pattern
 	 * (name-char lead, no `/`, no `..`, `*` the only wildcard) confines glob to
@@ -353,15 +359,17 @@ class SSE_Out_Node extends Node {
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
+		[ $group, $rest ] = self::parse_group( $sub );
+
 		// Traversal guard: must start with a name char (blocks `.*` / `..`).
-		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $sub ) || \str_contains( $sub, '..' ) ) {
+		if ( ! \preg_match( '/^[a-z0-9_-][a-z0-9_.*-]*$/D', $rest ) || \str_contains( $rest, '..' ) ) {
 			throw new \InvalidArgumentException(
 				\esc_html( "invalid subscription: {$sub}" )
 			);
 		}
 
-		// Exact IPC reader wins: a live worker's output partition.
-		if ( ! \str_contains( $sub, '*' ) ) {
+		// IPC (bare exact subs only): grouped subs never address ipc/.
+		if ( $sub === $rest && ! \str_contains( $sub, '*' ) ) {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
 				$consumer = new Consumer_Node();
@@ -372,25 +380,56 @@ class SSE_Out_Node extends Node {
 			}
 		}
 
-		// Log feed: one Consumer per glob-matched dir (exact name → itself).
+		// Partition feed: one Consumer per matched dir (exact name → itself).
 		$consumers = [];
-		foreach ( self::matched_log_dirs( $base, $sub ) as $dir ) {
-			$name        = \basename( $dir );
+		foreach ( self::matched_dirs( $base, $sub )[1] as $dir ) {
+			$name        = self::stamp_for( $group, \basename( $dir ) );
 			$consumers[] = $this->log_consumer_for( $dir, $name, $positions );
 		}
 		return $consumers;
 	}
 
 	/**
-	 * Concrete log-partition dirs under `{base}/logs` matching a subscription
-	 * pattern; an exact name matches itself. Layout-agnostic — the partition
-	 * token sits wherever the producer put it in the dir name.
+	 * Split an optional `{group}/` prefix off a subscription: bare = the logs
+	 * root (stamped bare, back-compat); `offsets/…` and `deadletter/…` address
+	 * their sibling roots (stamped WITH the prefix). Any other prefix throws.
 	 *
-	 * @return array<int,string> Absolute dir paths, sorted (glob's default order).
+	 * @return array{0: string, 1: string} The root group + the remainder.
+	 *
+	 * @throws \InvalidArgumentException On a prefix outside the browsable roots.
 	 */
-	private static function matched_log_dirs( string $base, string $sub ): array {
-		$matches = \glob( "{$base}/logs/{$sub}", \GLOB_ONLYDIR );
-		return false === $matches ? [] : $matches;
+	private static function parse_group( string $sub ): array {
+		$slash = \strpos( $sub, '/' );
+		if ( false === $slash ) {
+			return [ 'logs', $sub ];
+		}
+		$group = \substr( $sub, 0, $slash );
+		// `logs/x` rejected, not aliased to bare `x`: one spelling per source.
+		if ( 'logs' === $group || ! \in_array( $group, Log_Discovery::GROUPS, true ) ) {
+			throw new \InvalidArgumentException(
+				\esc_html( "invalid subscription: {$sub}" )
+			);
+		}
+		return [ $group, \substr( $sub, $slash + 1 ) ];
+	}
+
+	/** The stamp for a matched dir: bare-logs stays bare; grouped keeps its prefix. */
+	private static function stamp_for( string $group, string $basename ): string {
+		return 'logs' === $group ? $basename : "{$group}/{$basename}";
+	}
+
+	/**
+	 * A subscription's root group + its concrete matched partition dirs
+	 * (`logs` bare; `offsets/…` / `deadletter/…` prefixed); an exact name
+	 * matches itself. Layout-agnostic — the partition token sits wherever the
+	 * producer put it in the dir name. Glob I/O errors yield an empty list.
+	 *
+	 * @return array{0: string, 1: array<int,string>} Group + absolute dir paths.
+	 */
+	private static function matched_dirs( string $base, string $sub ): array {
+		[ $group, $rest ] = self::parse_group( $sub );
+		$matches          = \glob( "{$base}/{$group}/{$rest}", \GLOB_ONLYDIR );
+		return [ $group, false === $matches ? [] : $matches ];
 	}
 
 	/**
@@ -413,13 +452,14 @@ class SSE_Out_Node extends Node {
 		$wanted  = [];
 		$glob_ok = true;
 		foreach ( $glob_subs as $sub ) {
-			$matches = \glob( "{$base}/logs/{$sub}", \GLOB_ONLYDIR );
+			[ $group, $rest ] = self::parse_group( $sub );
+			$matches          = \glob( "{$base}/{$group}/{$rest}", \GLOB_ONLYDIR );
 			if ( false === $matches ) {
 				$glob_ok = false; // I/O error — not a trustworthy "nothing wanted".
 				continue;
 			}
 			foreach ( $matches as $dir ) {
-				$wanted[ \basename( $dir ) ] = $dir;
+				$wanted[ self::stamp_for( $group, \basename( $dir ) ) ] = $dir;
 			}
 		}
 		foreach ( $wanted as $name => $dir ) {

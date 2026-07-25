@@ -85,6 +85,23 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$this->assertSame( 3, $captured );
 	}
 
+	public function test_acquire_slot_strips_the_group_prefix_for_partition_shaped_subs(): void {
+		// `offsets/x.p3` must pool like its bare sibling `x.p3` — the group
+		// prefix addresses a root, not a different accounting bucket.
+		$captured = null;
+		SSE_Out_Node::$acquire_slot = static function ( int $partition ) use ( &$captured ): int|false {
+			$captured = $partition;
+			return false;
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$req  = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'offsets/jobs.p3' );
+		$ctrl->stream( $req );
+
+		$this->assertSame( 3, $captured );
+	}
+
 	public function test_run_stream_loop_releases_slot_in_finally(): void {
 		$released_slot      = null;
 		$released_partition = null;

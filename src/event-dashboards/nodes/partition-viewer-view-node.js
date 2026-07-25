@@ -138,13 +138,14 @@ export class PartitionViewerViewNode extends Node {
 		if ( line.length > MAX_LINE_LENGTH ) {
 			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
 		}
-		// Prefer .pN column; else stable first-seen index (no collapse to 0).
-		const dir = String( message[ FROM ] || '' ).split( '/' )[ 0 ];
-		const match = dir.match( PARTITION_RE );
+		// First FROM segment with a .pN wins; else stable first-seen index.
+		const parts = String( message[ FROM ] || '' ).split( '/' );
+		const column = parts.find( ( part ) => PARTITION_RE.test( part ) );
 		let partition;
-		if ( match ) {
-			partition = parseInt( match[ 1 ], 10 );
+		if ( column ) {
+			partition = parseInt( column.match( PARTITION_RE )[ 1 ], 10 );
 		} else {
+			const dir = parts.slice( 0, 2 ).join( '/' );
 			const index = ( this._partitionIndex ??= new Map() );
 			if ( ! index.has( dir ) ) {
 				index.set( dir, index.size );
