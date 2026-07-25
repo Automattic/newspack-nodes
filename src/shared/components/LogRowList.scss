@@ -74,4 +74,69 @@
 	&:hover {
 		background: var(--paper-shadow, #30363d);
 	}
+
+	// Debug regime: ID · KEY · VALUE columns at natural row heights.
+	&.is-debug {
+		display: flex;
+		align-items: baseline;
+		gap: 12px;
+		height: auto;
+		line-height: 1.5;
+		white-space: normal;
+		overflow: visible;
+		padding-top: 1px;
+		padding-bottom: 1px;
+	}
+}
+
+.newspack-nodes-log-row__id {
+	flex: 0 0 auto;
+	white-space: nowrap;
+	user-select: all;
+	color: var(--ink-3, #949494);
+}
+
+// A runaway key can't blow the column past 40ch.
+.newspack-nodes-log-row__key {
+	flex: 0 0 auto;
+	max-width: 40ch;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--ink-2, #b8b8b8);
+}
+
+// The value wraps and pretty-printed structs keep their line breaks.
+.newspack-nodes-log-row__value {
+	flex: 1;
+	min-width: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+// @longform True content-sized columns: the list is a grid and each row a
+// subgrid over its tracks, so ID and KEY columns size to the WIDEST value
+// across all rows (an empty KEY column collapses to nothing) while row
+// backgrounds still span full width. Flex above is the no-subgrid fallback.
+@supports (grid-template-columns: subgrid) {
+	.newspack-nodes-log-rows.is-debug .newspack-nodes-log-rows__content {
+		display: grid;
+		grid-template-columns: max-content max-content 1fr;
+		align-content: start;
+	}
+
+	.newspack-nodes-log-row.is-debug {
+		display: grid;
+		grid-template-columns: subgrid;
+		grid-column: 1 / -1;
+		column-gap: 12px;
+		align-items: baseline;
+	}
+}
+
+.newspack-nodes-debug-cap {
+	padding: 4px 12px;
+	color: var(--ink-3, #949494);
+	font-size: 12px;
+	font-style: italic;
 }

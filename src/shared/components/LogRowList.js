@@ -182,6 +182,9 @@ export default function LogRowList( {
 
 			// Debug: the newest rows, natural height, no window math.
 			if ( debug ) {
+				// Baseline stays current: leaving debug must not replay these.
+				lastTopIdRef.current = topId;
+				lastTopFilterRef.current = activeFilter;
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
 				pushStats( visible );
 				const pushed2 = modelPushedRef.current;
