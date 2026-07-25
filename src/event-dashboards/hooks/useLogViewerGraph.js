@@ -64,6 +64,19 @@ function buildSourcesCommand( id ) {
 	return m;
 }
 
+// taillog-read command: one line at <segment>:<offset> (empty TO → builtin).
+function buildReadCommand( id, source, cursor ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = VIEW;
+	m[ ID ] = id;
+	m[ VALUE ] = {
+		name: 'taillog',
+		arguments: [ 'read', source, `${ cursor.segment }:${ cursor.offset }` ],
+	};
+	return m;
+}
+
 // Prefer the first available source; else fall back to the first listed.
 function defaultSourceName( sources ) {
 	const first = sources.find( ( s ) => s.available ) ?? sources[ 0 ];
@@ -86,11 +99,31 @@ export function useLogViewerGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
+	// One-line fetch behind the paused single-step (reply → VIEW future).
+	const fetchMessage = useCallback( ( sub, cursor ) => {
+		const view = viewRef.current;
+		const link = linkRef.current;
+		if ( ! view || ! link ) {
+			return Promise.reject( new Error( 'graph not ready' ) );
+		}
+		const id = makeOpId();
+		const future = new Promise( ( resolve, reject ) => {
+			view.replies.add( id, resolve, reject );
+		} );
+		link.send( buildReadCommand( id, sub, cursor ) );
+		return future.then( ( payload ) =>
+			payload && 'object' === typeof payload ? payload : null
+		);
+	}, [] );
+
 	// Pause/visibility gating + the record-then-reopen subscription control.
-	const { isPausedRef, resubscribe, setPaused } = useGatedSubscription( {
-		linkRef,
-		viewRef,
-	} );
+	const { isPausedRef, resubscribe, setPaused, step } = useGatedSubscription(
+		{
+			linkRef,
+			viewRef,
+			fetchMessage,
+		}
+	);
 
 	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
@@ -246,5 +279,5 @@ export function useLogViewerGraph( opts = {} ) {
 		[ fetchSources, resubscribe ]
 	);
 
-	return { selectSource, setPaused, seek, sources, fetchSources };
+	return { selectSource, setPaused, seek, sources, fetchSources, step };
 }

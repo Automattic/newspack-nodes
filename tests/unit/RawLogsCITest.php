@@ -16,6 +16,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -56,7 +57,7 @@ class RawLogsCITest extends TestCase {
 		$schema = Raw_Logs_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
-		$this->assertSame( [ 'list_logs', 'log_status' ], $names );
+		$this->assertSame( [ 'list_logs', 'log_status', 'read_message' ], $names );
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
@@ -188,6 +189,106 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 'deadletter/job-worker.jobs.p0', $result['log_id'] );
 		$this->assertSame( 977, $result['total_size'] );
 		$this->assertSame( [ 7 ], \array_column( $result['segments'], 'id' ) );
+	}
+
+	/** Seed two newline-delimited packed records into logs/firehose.p0. */
+	private function seed_two_records(): array {
+		$dir = $this->tmp . '/logs/firehose.p0';
+		\mkdir( $dir, 0755, true );
+		$first                   = Message::new_message();
+		$first[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$first[ Message::VALUE ] = 'first record 4194';
+		$second                   = Message::new_message();
+		$second[ Message::TYPE ]  = Message::TM_STRUCT;
+		$second[ Message::VALUE ] = [ 'k' => 'second 977' ];
+		$line1 = Message::packed( $first ) . "\n";
+		$line2 = Message::packed( $second ) . "\n";
+		\file_put_contents( "{$dir}/0.log", $line1 . $line2 );
+		return [ $line1, $line2 ];
+	}
+
+	public function test_read_message_returns_the_record_at_a_position(): void {
+		[ $line1 ] = $this->seed_two_records();
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', '0:0' ]
+		);
+
+		$this->assertSame( 'first record 4194', $result['message'][ Message::VALUE ] );
+		// Stamped exactly like a streamed row: FROM + the ID breadcrumb.
+		$this->assertSame( 'firehose.p0', $result['message'][ Message::FROM ] );
+		$this->assertSame( '0:0:' . \strlen( $line1 ), $result['message'][ Message::ID ] );
+		// The post-step cursor IS the next-record position.
+		$this->assertSame(
+			[
+				'segment' => 0,
+				'offset'  => \strlen( $line1 ),
+			],
+			$result['cursor']
+		);
+		$this->assertFalse( $result['at_eof'] );
+	}
+
+	public function test_read_message_followup_position_reads_the_next_record_length_blind(): void {
+		// offset + length steps to record two; a trailing :length is ignored.
+		[ $line1 ] = $this->seed_two_records();
+
+		$next = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', '0:' . \strlen( $line1 ) . ':12345' ]
+		);
+
+		$this->assertSame( [ 'k' => 'second 977' ], $next['message'][ Message::VALUE ] );
+	}
+
+	public function test_read_message_rejects_a_malformed_position(): void {
+		$this->seed_two_records();
+
+		$bad = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', 'abc' ]
+		);
+
+		$this->assertSame( 'read_message: invalid position (want <segment>:<offset>[:<length>])', $bad );
+	}
+
+	public function test_read_message_reads_a_grouped_deadletter_key(): void {
+		$dir = $this->tmp . '/deadletter/job-worker.jobs.p0';
+		\mkdir( $dir, 0755, true );
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'quarantined 41941';
+		\file_put_contents( "{$dir}/7.log", Message::packed( $m ) . "\n" );
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'deadletter/job-worker.jobs.p0', '7:0' ]
+		);
+
+		$this->assertSame( 'quarantined 41941', $result['message'][ Message::VALUE ] );
+		$this->assertSame( 7, $result['cursor']['segment'] );
+	}
+
+	public function test_read_message_reports_a_missing_record_as_an_error_string(): void {
+		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', '0:0' ]
+		);
+
+		$this->assertSame( 'read_message: no record at firehose.p0 0:0', $result );
 	}
 
 	public function test_log_status_verb_reflects_seeded_segments(): void {

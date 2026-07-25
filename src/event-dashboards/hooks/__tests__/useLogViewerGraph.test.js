@@ -296,6 +296,49 @@ describe( 'useLogViewerGraph', () => {
 		expect( Core.node( VIEW ).mode ).toBe( 'live' );
 	} );
 
+	test( 'step while paused fetches ONE line via taillog read — the stream stays offline', async () => {
+		// Server-stamped by the ephemeral Tail: FROM + ID breadcrumb.
+		const stepped = newMessage();
+		stepped[ TYPE ] = TM_BYTESTREAM;
+		stepped[ FROM ] = 'access';
+		stepped[ ID ] = '4242:100:20';
+		stepped[ VALUE ] = 'stepped line\n';
+		const payload = {
+			taillog: sourcesReply(),
+		};
+		const client = makeFakeClient( payload );
+		const { result } = mountGraph( client );
+		await act( async () => {} );
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = '';
+		env[ FROM ] = 'access';
+		env[ ID ] = '4242:80:20';
+		env[ VALUE ] = 'seen live';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		act( () => result.current.setPaused( true ) );
+		// The read reply replaces the catalog payload for the step's command.
+		payload.taillog = {
+			message: [ ...stepped ],
+			cursor: { segment: 4242, offset: 120 },
+			at_eof: false,
+		};
+
+		const esCount = FakeEventSource.instances.length;
+		await act( async () => result.current.step() );
+
+		expect( FakeEventSource.instances.length ).toBe( esCount );
+		const cmd = client.batches
+			.flat()
+			.find( ( m ) => 'read' === m[ VALUE ]?.arguments?.[ 0 ] );
+		expect( cmd[ VALUE ].arguments ).toEqual( [
+			'read',
+			'access',
+			'4242:100',
+		] );
+		expect( Core.node( VIEW ).lines[ 0 ].content ).toBe( 'stepped line\n' );
+	} );
+
 	test( 'fetchSources refreshes the returned catalog', async () => {
 		const payload = { taillog: sourcesReply() };
 		const { result } = mountGraph( makeFakeClient( payload ) );

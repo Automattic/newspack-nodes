@@ -39,6 +39,17 @@ function controlMsg( payload ) {
 	return m;
 }
 
+test( 'a step control admits exactly one envelope through a pause', () => {
+	const v = makeView( 'partition:view' );
+	v.fill( controlMsg( { action: 'pause', paused: true } ) );
+	v.fill( envelopeMsg( { value: 'dropped while paused' } ) );
+	v.fill( controlMsg( { action: 'step', frames: 1 } ) );
+	v.fill( envelopeMsg( { value: 'stepped through' } ) );
+	v.fill( envelopeMsg( { value: 'dropped again' } ) );
+	expect( v.lines ).toHaveLength( 1 );
+	expect( v.lines[ 0 ].content ).toBe( 'stepped through' );
+} );
+
 // --- Envelope-shaping branches inlined from the deleted partition:transform. ---
 
 test( 'a grouped stamp (offsets/x.pN) still parses its partition column', () => {

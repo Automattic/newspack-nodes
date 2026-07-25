@@ -38,6 +38,9 @@ import {
 // ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
+// PHP Log_Discovery::GROUPS prefixed roots: positions key on the FULL stamp.
+const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
+
 // Default REST route opened; RemoteLink overrides it for /log/stream.
 const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
 
@@ -243,7 +246,11 @@ export class SseInNode extends Node {
 		if ( ! idMatch ) {
 			return;
 		}
-		const dir = String( message[ FROM ] || '' ).split( '/' )[ 0 ];
+		const parts = String( message[ FROM ] || '' ).split( '/' );
+		const dir =
+			GROUP_PREFIXES.has( parts[ 0 ] ) && parts[ 1 ]
+				? `${ parts[ 0 ] }/${ parts[ 1 ] }`
+				: parts[ 0 ];
 		if ( '' === dir ) {
 			return;
 		}

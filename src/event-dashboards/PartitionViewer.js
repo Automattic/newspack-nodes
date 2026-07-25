@@ -63,7 +63,7 @@ const renderPartitionRow = ( row ) => (
  */
 export default function PartitionViewer( { headerControlsSlot } ) {
 	// Mount the node graph; it returns the thin control callbacks.
-	const { selectLog, setPaused, fetchLogStatus, seek } =
+	const { selectLog, setPaused, fetchLogStatus, seek, step } =
 		usePartitionViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
@@ -125,7 +125,9 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			endPosition( segments )
 		);
 	};
+	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
+		setPaused( true );
 		browseSegment( segment.id );
 		seek(
 			selectedLog,
@@ -156,6 +158,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			isPaused={ isPaused }
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
+			onStep={ step }
 			getViewNode={ getViewNode }
 			getLastEventTime={ getLastEventTime }
 			sidebar={

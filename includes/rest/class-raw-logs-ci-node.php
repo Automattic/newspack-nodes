@@ -16,10 +16,13 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
@@ -30,6 +33,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/** Preferred log-key prefix when the operator's `log` arg is missing or unknown. */
 	private const PREFERRED_LOG_PREFIX = 'firehose';
+
 
 	/**
 	 * Probe-wiring observation seam. Lazily-defaulted to null; the log_status
@@ -114,6 +118,60 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * `read_message` verb handler — the single record AT a position, decoded.
+	 *
+	 * Drives the REAL read model: an ephemeral Consumer (no offsetlog, no DLQ)
+	 * seeked to `<segment>:<offset>` and single-stepped via the Durable_Reader
+	 * debugger — so segment rolls, torn records, and oversized partials behave
+	 * exactly as they do for every other reader, and the emitted record carries
+	 * the stamped FROM + `seg:off:len` ID breadcrumb. Length-blind: a supplied
+	 * `:<length>` token is tolerated and ignored. The reply's `cursor` is the
+	 * post-step position — the exact next-record position for the paused
+	 * single-step debugger.
+	 *
+	 * @param Command_Interpreter_Node $self Verb argument.
+	 * @param list<string> $args `[<log key>, <segment>:<offset>[:<length>]]`.
+	 *
+	 * @return array<string,mixed>|string The record + cursor, or a teaching error.
+	 */
+	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
+		$log_key = self::resolve_log_key( $args[0] ?? '' );
+		$tokens  = \explode( ':', $args[1] ?? '' );
+		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
+			return 'read_message: invalid position (want <segment>:<offset>[:<length>])';
+		}
+		$base_dir            = RuntimeConfig::get_base_directory();
+		[ $group, $dir_key ] = self::split_group( $log_key );
+
+		$captured = null;
+		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
+			$captured = $message;
+		} );
+		$consumer = new Consumer_Node();
+		$consumer->sink( $capture );
+		$consumer->arguments( [ "{$base_dir}/{$group}/{$dir_key}" ] );
+		$consumer->set_stamp_as( $log_key );
+		$consumer->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
+		try {
+			$cursor = $consumer->step();
+		} finally {
+			$consumer->remove_node();
+		}
+		if ( null === $captured ) {
+			return "read_message: no record at {$log_key} {$tokens[0]}:{$tokens[1]}";
+		}
+		return [
+			'log_id'  => $log_key,
+			'message' => $captured,
+			'cursor'  => [
+				'segment' => $cursor['segment'],
+				'offset'  => $cursor['offset'],
+			],
+			'at_eof'  => $cursor['at_eof'],
+		];
+	}
+
+	/**
 	 * Split a catalog key into its root group + dir basename (bare = logs).
 	 *
 	 * @return array{0: string, 1: string}
@@ -168,6 +226,15 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_log_status( $self, self::arg_strings( $args ) ),
+				],
+				[
+					'name'        => 'read_message',
+					'description' => 'The single decoded record at <segment>:<offset> (a trailing :<length> is ignored); replies with the record + its consumed length.',
+					'args'        => [
+						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'position', 'type' => 'string', 'required' => true ],
+					],
+					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array|string => self::cmd_read_message( $self, self::arg_strings( $args ) ),
 				],
 			],
 		] );

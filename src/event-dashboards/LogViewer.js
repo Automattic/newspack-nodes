@@ -60,7 +60,8 @@ const renderRawRow = ( row ) => (
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogViewer( { headerControlsSlot } ) {
-	const { selectSource, setPaused, seek, sources } = useLogViewerGraph();
+	const { selectSource, setPaused, seek, sources, step } =
+		useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
 	const {
@@ -95,7 +96,9 @@ export default function LogViewer( { headerControlsSlot } ) {
 		replay();
 		seek( currentSource, replayPositions( currentSource ) );
 	};
+	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
+		setPaused( true );
 		browseSegment( segment.id );
 		seek( currentSource, segmentPositions( currentSource, segment.id ) );
 	};
@@ -123,6 +126,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			isPaused={ isPaused }
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
+			onStep={ step }
 			getViewNode={ getViewNode }
 			getLastEventTime={ getLastEventTime }
 			sidebar={

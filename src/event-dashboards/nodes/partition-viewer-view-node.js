@@ -59,6 +59,8 @@ export class PartitionViewerViewNode extends Node {
 		this.logs = [];
 		this.selected = '';
 		this.paused = false;
+		// Paused-step allowance: a `step` control admits this many envelopes.
+		this.stepBudget = 0;
 		this.connectionError = false;
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
@@ -100,6 +102,9 @@ export class PartitionViewerViewNode extends Node {
 			this._clear();
 		} else if ( 'pause' === value.action ) {
 			this.paused = value.paused;
+			this.stepBudget = 0;
+		} else if ( 'step' === value.action ) {
+			this.stepBudget = Number( value.frames ?? 1 );
 		} else if ( 'logs' === value.action ) {
 			this.logs = value.logs;
 			if ( ! this.selected && value.logs.length > 0 ) {
@@ -176,9 +181,12 @@ export class PartitionViewerViewNode extends Node {
 
 	// Write a shaped row into the ring (O(1)); no setState on this hot path.
 	_appendRow( partition, line ) {
-		// Belt: drops frames arriving in the pause-click→async-close window.
+		// Paused belt: drop frames, unless a step budget admits them.
 		if ( this.paused ) {
-			return;
+			if ( this.stepBudget <= 0 ) {
+				return;
+			}
+			this.stepBudget -= 1;
 		}
 		this.lineCounter += 1;
 		this._writeRow( {
