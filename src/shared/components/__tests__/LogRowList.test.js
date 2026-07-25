@@ -127,6 +127,46 @@ it( 'filters the ring, reporting and rendering only matching rows', () => {
 	);
 } );
 
+it( 'a burst keeps the unbounded glide, with the ring bound into the window', () => {
+	const lines = rows( 5 );
+	const node = makeNode( lines );
+	const { container } = render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+		/>
+	);
+	tickFrame();
+
+	// A 200-row burst lands between frames (ids keep climbing).
+	const burst = Array.from( { length: 200 }, ( _, i ) => ( {
+		id: 205 - i,
+		partition: 0,
+		content: `burst-${ 205 - i }`,
+		isEven: false,
+	} ) );
+	lines.unshift( ...burst );
+	tickFrame();
+
+	// The glide is untouched: the full burst debt translates (no clamp)…
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
+	const offset = m ? parseFloat( m[ 1 ] ) : 0;
+	expect( Math.abs( offset ) ).toBeGreaterThan( 18 * 100 );
+	// …but the window is BOUND to the transform it committed with: under
+	// the current translate, painted rows start at/above the viewport top —
+	// the decay reveals real rows, never blank space…
+	const rendered = container.querySelectorAll( '.row' );
+	const firstContent = rendered[ 0 ].getAttribute( 'data-content' );
+	const firstIndex = 205 - parseInt( firstContent.split( '-' )[ 1 ], 10 );
+	expect( firstIndex * 18 + offset ).toBeLessThanOrEqual( 0 );
+	// …and the window stays O(viewport + glide path), not the whole ring.
+	expect( rendered.length ).toBeLessThan( 60 );
+} );
+
 it( 'debug mode renders the newest rows unvirtualized, capped at DEBUG_MAX_ROWS', () => {
 	const node = makeNode( rows( DEBUG_MAX_ROWS + 40 ) );
 	const { container } = render(

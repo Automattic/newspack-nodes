@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stepped to.
 
 ### Fixed
+- The virtualization window binds to the ring at any rate — the smooth
+  scrolling is untouched. Two sync defects fixed: the translate was applied
+  imperatively every frame while the row window committed through React a
+  frame later, so at high rates the transform ran ahead of the rows it was
+  computed with (the climbing/jittering window); and the decay could reveal
+  unpainted space. Now the offset commits WITH its row window (imperative
+  nudges only on decay-only frames), and the window paints the glide path
+  the decay travels next (~8% of the debt, capped), so revealed rows are
+  always real.
 - Grouped-stamp subscriptions (`offsets/…`, `deadletter/…`) resume from the
   right cursor: the SSE ingress keyed its per-partition positions by the
   first FROM segment only, so pause/resume and reconnects for grouped subs
