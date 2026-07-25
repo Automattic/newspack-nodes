@@ -34,7 +34,7 @@ import path from 'node:path';
  * can't locate itself portably (import.meta breaks under jest's CJS
  * transform), and the bump script already owns keeping version copies in sync.
  */
-const SUBSTRATE_VERSION = '1.4.0';
+const SUBSTRATE_VERSION = '1.5.0';
 
 export function substrateVersion() {
 	return SUBSTRATE_VERSION;
