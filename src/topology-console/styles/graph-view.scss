@@ -2002,6 +2002,8 @@
 	font-size: 19px;
 	letter-spacing: 0.04em;
 	align-self: center;
+	// The wordmark never gives up width; the subtitle does.
+	flex-shrink: 0;
 
 	&__colon {
 		color: var(--oxide);
@@ -2016,6 +2018,11 @@
 	color: var(--ink-3);
 	border-left: 1px solid var(--ink-4);
 	padding-left: 16px;
+	// Yield width to the controls: shrink past content, clip, never wrap.
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .topology-header__controls {
