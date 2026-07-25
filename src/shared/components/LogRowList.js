@@ -13,27 +13,47 @@
  * consumer's toolbar. An optional `filter` scans the ring (only while active,
  * matching the canvas renderer) and windows over the matches.
  *
+ * Flood-safe, per the console Dumper: per-frame work is bounded regardless of
+ * INPUT RATE (the active-filter scan stays O(ring capacity), rate-independent).
+ * The glide debt is capped at MAX_DEBT_ROWS (excess rows appear instantly —
+ * the animation drops, never the data), stats publishes coalesce to
+ * STATS_INTERVAL_MS, and row elements re-map only on a model commit.
+ *
  * @param {Object}   props
  * @param {Function} props.getNode         `() => node|null`; node exposes `linesCount`, `lineAt(i)`, optional `lps`.
  * @param {number}   props.rowHeight       Fixed row height in px.
- * @param {Function} props.renderRow       `(row) => ReactElement` (must set its own key).
+ * @param {Function} props.renderRow       `(row) => ReactElement` (must set its own key; keep the identity stable or row memoization drops).
  * @param {string}   [props.filter]        Substring filter; '' scans nothing.
  * @param {Function} [props.matchRow]      `(row, filterLower) => boolean`; defaults to `row.content` includes.
  * @param {*}        [props.emptyLabel]    Rendered when no rows are visible.
- * @param {Function} [props.onStats]       `({ total, visible, lps }) => void`, called only on change.
+ * @param {Function} [props.onStats]       `({ total, visible, lps }) => void`, on change, coalesced to STATS_INTERVAL_MS.
  * @param {number}   [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
  * @param {boolean}  [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
  * @param {string}   [props.listClassName] Extra class on the scroll container.
  * @return {import('react').ReactElement} The virtualized list.
  */
 
-import { useState, useEffect, useRef, useCallback } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useRef,
+	useCallback,
+	useMemo,
+} from '@wordpress/element';
 import './LogRowList.scss';
 
 const OVERSCAN = 5;
 
-// Glide-path paint cap: debt rows rendered ahead so decay reveals real rows.
-const DEBT_RENDER_CAP = 400;
+// @longform Glide budget: rows of smooth-scroll debt a flood may queue.
+// Uncapped, a firehose accrues debt faster than the 1%/frame decay clears
+// it (50k lines/s ≈ 88k rows steady-state), pushing the window past the
+// ring (blank viewport) and churning hundreds of rows per frame. Past the
+// budget the excess appears instantly — the data always shows, only the
+// animation drops (MemorySieve degrade, per the console Dumper).
+const MAX_DEBT_ROWS = 300;
+
+// Stats publish cadence: coalesce toolbar re-renders off the frame rate.
+const STATS_INTERVAL_MS = 250;
 
 // Debug mode renders natural-height rows unvirtualized; bound the DOM cost.
 export const DEBUG_MAX_ROWS = 500;
@@ -70,14 +90,21 @@ export default function LogRowList( {
 	matchRef.current = matchRow;
 	const onStatsRef = useRef( onStats );
 	onStatsRef.current = onStats;
-	// Change-detect gates: idle frames push no React state / no onStats.
+	// Change-detect gate: idle frames push no React state.
 	const modelPushedRef = useRef( {
 		visible: -1,
 		start: -1,
 		end: -1,
+		topId: -1,
 		node: null,
 	} );
-	const statsPushedRef = useRef( { total: -1, visible: -1, lps: -1 } );
+	// Change-detect AND time-throttled (STATS_INTERVAL_MS since `at`).
+	const statsPushedRef = useRef( {
+		total: -1,
+		visible: -1,
+		lps: -1,
+		at: -Infinity,
+	} );
 
 	const [ model, setModel ] = useState( {
 		rows: [],
@@ -97,6 +124,7 @@ export default function LogRowList( {
 			visible: -1,
 			start: -1,
 			end: -1,
+			topId: -1,
 			node: null,
 		};
 		if ( contentRef.current ) {
@@ -108,12 +136,29 @@ export default function LogRowList( {
 	}, [ resetSignal, filter ] );
 
 	useEffect( () => {
-		const draw = () => {
+		const draw = ( frameTs ) => {
 			const node = getNode();
 			const total = node?.linesCount ?? 0;
 			const lps = node?.lps ?? 0;
 			const activeFilter = filterRef.current;
 			const filterLower = activeFilter.toLowerCase();
+
+			// On change AND on cadence; a throttled change lands next window.
+			const pushStats = ( visibleNow ) => {
+				const s = statsPushedRef.current;
+				if (
+					( total !== s.total ||
+						visibleNow !== s.visible ||
+						lps !== s.lps ) &&
+					frameTs - s.at >= STATS_INTERVAL_MS
+				) {
+					s.total = total;
+					s.visible = visibleNow;
+					s.lps = lps;
+					s.at = frameTs;
+					onStatsRef.current?.( { total, visible: visibleNow, lps } );
+				}
+			};
 
 			// Filter: scan the ring for matches; else window straight off it.
 			let filtered = null;
@@ -131,25 +176,20 @@ export default function LogRowList( {
 				visible = total;
 			}
 
+			// MONOTONIC top id: new-row detection AND the ring-rotation tell.
+			const topRow = filtered ? filtered[ 0 ] : node?.lineAt( 0 );
+			const topId = topRow ? topRow.id : 0;
+
 			// Debug: the newest rows, natural height, no window math.
 			if ( debug ) {
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
-				const s2 = statsPushedRef.current;
-				if (
-					total !== s2.total ||
-					visible !== s2.visible ||
-					lps !== s2.lps
-				) {
-					s2.total = total;
-					s2.visible = visible;
-					s2.lps = lps;
-					onStatsRef.current?.( { total, visible, lps } );
-				}
+				pushStats( visible );
 				const pushed2 = modelPushedRef.current;
 				if (
 					node !== pushed2.node ||
 					visible !== pushed2.visible ||
-					end !== pushed2.end
+					end !== pushed2.end ||
+					topId !== pushed2.topId
 				) {
 					const debugRows = [];
 					for ( let i = 0; i < end; i++ ) {
@@ -162,6 +202,7 @@ export default function LogRowList( {
 					pushed2.visible = visible;
 					pushed2.start = 0;
 					pushed2.end = end;
+					pushed2.topId = topId;
 					setModel( {
 						rows: debugRows,
 						spacerTop: 0,
@@ -173,9 +214,6 @@ export default function LogRowList( {
 				return;
 			}
 
-			// New rows via the MONOTONIC top id (survives the ring cap/pin).
-			const topRow = filtered ? filtered[ 0 ] : node?.lineAt( 0 );
-			const topId = topRow ? topRow.id : 0;
 			const filterChanged = activeFilter !== lastTopFilterRef.current;
 			lastTopFilterRef.current = activeFilter;
 			let newRows = 0;
@@ -204,6 +242,12 @@ export default function LogRowList( {
 				}
 			}
 
+			// Clamp to the glide budget: excess appears instantly, never blank.
+			const maxDebt = MAX_DEBT_ROWS * rowHeight;
+			if ( offsetRef.current < -maxDebt ) {
+				offsetRef.current = -maxDebt;
+			}
+
 			// Decay the smooth-scroll offset toward 0.
 			if ( Math.abs( offsetRef.current ) > 0.5 ) {
 				offsetRef.current += ( 0 - offsetRef.current ) * 0.01;
@@ -211,14 +255,7 @@ export default function LogRowList( {
 				offsetRef.current = 0;
 			}
 
-			// Report stats up only when they change (idle frames stay quiet).
-			const s = statsPushedRef.current;
-			if ( total !== s.total || visible !== s.visible || lps !== s.lps ) {
-				s.total = total;
-				s.visible = visible;
-				s.lps = lps;
-				onStatsRef.current?.( { total, visible, lps } );
-			}
+			pushStats( visible );
 
 			// Window bounds from live geometry; pull ONLY those rows.
 			const scrollTop = list ? list.scrollTop : 0;
@@ -227,11 +264,9 @@ export default function LogRowList( {
 			// @longform Bind the ring into the window: the viewport's shifted
 			// range plus the glide path the 1%/frame decay travels over the
 			// next ~8 frames (~8% of the debt) — revealed rows stay painted.
+			// The clamp bounds debtRows to MAX_DEBT_ROWS, so this tops at ~24.
 			const debtRows = Math.max( 0, Math.floor( -offset / rowHeight ) );
-			const debtPaint = Math.min(
-				DEBT_RENDER_CAP,
-				Math.ceil( debtRows * 0.08 )
-			);
+			const debtPaint = Math.ceil( debtRows * 0.08 );
 			const start = Math.max(
 				0,
 				Math.floor( ( scrollTop - offset ) / rowHeight ) -
@@ -249,7 +284,8 @@ export default function LogRowList( {
 				node !== pushed.node ||
 				visible !== pushed.visible ||
 				start !== pushed.start ||
-				end !== pushed.end
+				end !== pushed.end ||
+				topId !== pushed.topId
 			) {
 				const rows = [];
 				for ( let i = start; i < end; i++ ) {
@@ -262,6 +298,7 @@ export default function LogRowList( {
 				pushed.visible = visible;
 				pushed.start = start;
 				pushed.end = end;
+				pushed.topId = topId;
 				// Offset commits WITH its rows: translate never leads window.
 				setModel( {
 					rows,
@@ -290,6 +327,12 @@ export default function LogRowList( {
 			isAdjustingScrollRef.current = false;
 		}
 	}, [] );
+
+	// Rows re-map only when the model commits, not on parent re-renders.
+	const renderedRows = useMemo(
+		() => model.rows.map( renderRow ),
+		[ model, renderRow ]
+	);
 
 	return (
 		<div
@@ -323,7 +366,7 @@ export default function LogRowList( {
 								flexShrink: 0,
 							} }
 						/>
-						{ model.rows.map( renderRow ) }
+						{ renderedRows }
 					</>
 				) }
 			</div>

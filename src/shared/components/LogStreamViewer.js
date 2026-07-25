@@ -24,6 +24,37 @@ import LogRowList, { DEBUG_MAX_ROWS } from './LogRowList';
 import ConnectionBanner from './ConnectionBanner';
 import StalenessIndicator from './StalenessIndicator';
 
+// Pretty-print a struct row's raw JSON; anything else renders verbatim.
+const debugValue = ( row ) => {
+	if ( row.struct && row.raw ) {
+		try {
+			return JSON.stringify( JSON.parse( row.raw ), null, 2 );
+		} catch ( e ) {
+			return row.raw;
+		}
+	}
+	return row.raw ?? row.content;
+};
+
+// Module-scope: a stable identity keeps LogRowList's row memoization live.
+const renderDebugRow = ( row ) => (
+	<div
+		key={ row.id }
+		className={ `newspack-nodes-log-row is-debug ${
+			row.isEven ? 'row-even' : 'row-odd'
+		}` }
+		data-p={ row.partition }
+	>
+		<span className="newspack-nodes-log-row__meta">
+			{ row.msgId || '?' }
+			{ row.key ? ` ${ row.key }` : '' }
+		</span>
+		<span className="newspack-nodes-log-row__value">
+			{ debugValue( row ) }
+		</span>
+	</div>
+);
+
 /**
  * @param {Object}   props                      Props.
  * @param {string}   props.className            Root class; the body wrapper is `${className}__body`.
@@ -96,35 +127,6 @@ export default function LogStreamViewer( {
 		setStats( { total: 0, visible: 0, lps: 0 } );
 		setResetSignal( ( n ) => n + 1 );
 	};
-
-	// Pretty-print a struct row's raw JSON; anything else renders verbatim.
-	const debugValue = ( row ) => {
-		if ( row.struct && row.raw ) {
-			try {
-				return JSON.stringify( JSON.parse( row.raw ), null, 2 );
-			} catch ( e ) {
-				return row.raw;
-			}
-		}
-		return row.raw ?? row.content;
-	};
-	const renderDebugRow = ( row ) => (
-		<div
-			key={ row.id }
-			className={ `newspack-nodes-log-row is-debug ${
-				row.isEven ? 'row-even' : 'row-odd'
-			}` }
-			data-p={ row.partition }
-		>
-			<span className="newspack-nodes-log-row__meta">
-				{ row.msgId || '?' }
-				{ row.key ? ` ${ row.key }` : '' }
-			</span>
-			<span className="newspack-nodes-log-row__value">
-				{ debugValue( row ) }
-			</span>
-		</div>
-	);
 
 	const emptyLabel = isPaused
 		? __( 'Paused', 'newspack-nodes' )
