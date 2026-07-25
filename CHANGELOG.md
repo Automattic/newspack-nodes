@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The selected-node inspector's Commands / Messages / Toggles / Verbs groups
   are full `Section`s now — the same heading level as Routing, Constructor,
-  and Dead-Letter Queue — instead of the no-node strip's smaller group labels
-  (which stay as they were in the no-node palette).
+  and Dead-Letter Queue — instead of smaller group labels.
+- The no-node palette gets the same treatment: Views / Toggles / Commands are
+  full `Section`s, and the strip's horizontal rules are gone (the group-label
+  border-tops and the stats header's border-bottom under the err/warn/dbg
+  tallies). Sections separate by heading and rhythm alone, both panels.
 
 ## [1.3.0] - 2026-07-25
 
