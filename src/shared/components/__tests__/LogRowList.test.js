@@ -386,6 +386,26 @@ it( 'debug mode renders the newest rows unvirtualized, capped at DEBUG_MAX_ROWS'
 	).not.toBeNull();
 } );
 
+it( 'debug mode reports the rendered (capped) count as visible', () => {
+	const node = makeNode( rows( DEBUG_MAX_ROWS + 40 ) );
+	const onStats = jest.fn();
+	render(
+		<LogRowList
+			getNode={ () => node }
+			rowHeight={ 18 }
+			renderRow={ renderRow }
+			onStats={ onStats }
+			debug
+		/>
+	);
+	tickFrame();
+	expect( onStats ).toHaveBeenLastCalledWith( {
+		total: DEBUG_MAX_ROWS + 40,
+		visible: DEBUG_MAX_ROWS,
+		lps: 0,
+	} );
+} );
+
 it( 'debug mode windows the filter matches the same way', () => {
 	const base = rows( 30, 'noise' );
 	base[ 3 ].content = 'needle 4194';
