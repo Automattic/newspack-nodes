@@ -33,8 +33,6 @@ const ROW_HEIGHT = 33;
 // Segment-rail maintenance cadence (rotation + size growth).
 const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'partition:view';
-// SSE connector owns liveness; "Xs ago" reads its lastEventTime, not the view.
-const LINK_NODE = 'partition:link';
 
 const EMPTY_VIEW = {
 	logs: [],
@@ -198,10 +196,6 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	// Re-read the live nodes each frame so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
-	const getLastEventTime = useCallback(
-		() => Core.node( LINK_NODE )?.lastEventTime() ?? null,
-		[]
-	);
 
 	return (
 		<LogStreamViewer
@@ -221,7 +215,6 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			onStep={ step }
 			onJump={ handleJump }
 			getViewNode={ getViewNode }
-			getLastEventTime={ getLastEventTime }
 			sidebar={
 				<LogBrowser
 					mode={ displayMode }
