@@ -98,7 +98,16 @@ class Log_Cleaner {
 		}
 
 		foreach ( \array_keys( $active ) as $name ) {
-			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
+			try {
+				$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
+			} catch ( \RuntimeException $e ) {
+				// Unreadable topology: partial sets read logs as orphans.
+				Core::print_less_often( 'Log_Cleaner: skipping sweep: topology unreadable: ', $name . ': ' . $e->getMessage() );
+				return [
+					'logs'    => null,
+					'offsets' => null,
+				];
+			}
 			foreach ( $resolved['logs'] as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}

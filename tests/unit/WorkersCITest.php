@@ -245,6 +245,43 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_graph_survives_a_topology_including_a_dormant_providers_name(): void {
+		// aggregator-eve.tsl includes `aggregator`; when the plugin providing
+		// `aggregator` is dormant (version handshake), the include is
+		// unresolvable. Admin surfaces read dump_graph — degrade, don't fatal.
+		$base  = $this->arrange_base_dir();
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/demo-workers.tsl",
+			"include orphaned-topology-7311\n"
+		);
+		\file_put_contents(
+			"{$stock}/request-workers.tsl",
+			"make_node Log sized:log <config:logs_dir>/sized-7311.log 7311234\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		// Degrades, never fatals: the declared set fail-closes (a PARTIAL set
+		// reads the dormant plugin's logs as GC orphans — the errors.p0
+		// deletion bug), while the graph-sourced sink catalog still carries
+		// the intact sibling's Log with its override.
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'workers', $result );
+		$sized = \array_values( \array_filter(
+			$result['logs'],
+			static fn ( array $l ): bool => 'sized-7311.log' === $l['name']
+		) );
+		$this->assertSame( 7311234, $sized[0]['segment_size'] ?? null );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_dump_graph_payload_includes_heartbeat_interval(): void {
 		// The dashboard computes a stall threshold from the substrate heartbeat
 		// cadence; dump_graph must emit it so the frontend doesn't hardcode it.

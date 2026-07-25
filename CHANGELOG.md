@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/writing-a-plugin.md`.
 
 ### Fixed
+- **A dormant consumer no longer fatals wp-admin.** An active topology whose
+  `.tsl` includes a topology its (dormant or deactivated) provider never
+  registered used to throw straight through `Alerts::evaluate` on every admin
+  page. The declared-dir set now fail-closes on an unreadable topology (the
+  same guard as an unresolvable one — a partial set reads the provider's logs
+  as GC orphans), the segment-size override collector skips it, and the
+  graph-sourced sink catalog still shows the intact siblings.
 - **The consumer build.mjs trap is defused.** `buildDashboards()` now fails
   fast when an `@newspack-nodes/*` alias path doesn't exist, naming the exact
   `NEWSPACK_NODES_*` env var to set — instead of dying deep inside esbuild
