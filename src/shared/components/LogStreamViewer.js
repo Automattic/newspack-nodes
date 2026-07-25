@@ -218,35 +218,6 @@ export default function LogStreamViewer( {
 				</select>
 			) }
 
-			<input
-				type="text"
-				className="newspack-nodes-search-input"
-				placeholder={
-					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
-				}
-				value={ filter }
-				onChange={ ( e ) => setFilter( e.target.value ) }
-			/>
-
-			{ onJump && (
-				<input
-					type="text"
-					className="newspack-nodes-offset-input"
-					placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
-					value={ jumpText }
-					onChange={ ( e ) => setJumpText( e.target.value ) }
-					onKeyDown={ ( e ) => {
-						if ( 'Enter' === e.key ) {
-							onJump( jumpText.trim() );
-						}
-					} }
-					title={ __(
-						'Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message',
-						'newspack-nodes'
-					) }
-				/>
-			) }
-
 			<span className="newspack-nodes-toolbar-stats">
 				<span className="newspack-nodes-toolbar-stats__count">
 					{ renderCount && renderCount( stats ) }
@@ -287,6 +258,35 @@ export default function LogStreamViewer( {
 				) }
 				<StalenessIndicator paused={ isPaused } staleSec={ staleSec } />
 			</span>
+
+			<input
+				type="text"
+				className="newspack-nodes-search-input"
+				placeholder={
+					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
+				}
+				value={ filter }
+				onChange={ ( e ) => setFilter( e.target.value ) }
+			/>
+
+			{ onJump && (
+				<input
+					type="text"
+					className="newspack-nodes-offset-input"
+					placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
+					value={ jumpText }
+					onChange={ ( e ) => setJumpText( e.target.value ) }
+					onKeyDown={ ( e ) => {
+						if ( 'Enter' === e.key ) {
+							onJump( jumpText.trim() );
+						}
+					} }
+					title={ __(
+						'Jump: paste a message ID (seg:off:len) or a bare offset, Enter pauses and steps that message',
+						'newspack-nodes'
+					) }
+				/>
+			) }
 
 			<button
 				className={ `button ${ isPaused ? 'is-paused' : '' }` }
