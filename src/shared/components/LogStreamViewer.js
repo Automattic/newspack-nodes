@@ -389,7 +389,9 @@ export default function LogStreamViewer( {
 				{ sidebar }
 
 				{ activeHeader ? (
-					<div className={ `${ className }__main` }>
+					<div
+						className={ `${ className }__main newspack-nodes-log-main` }
+					>
 						{ activeHeader }
 						{ list }
 					</div>
