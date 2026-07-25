@@ -59,7 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Value in its debug view, ID | Value in the Log Viewer's debug view (its
   live raw tail stays headerless).
 
+### Added
+- **A browse-rail collapse toggle** in every log-stream dashboard: a
+  chevron button at the body's left edge minimizes or reopens the
+  segment rail, remembered per dashboard.
+
 ### Fixed
+- **The stats readout leads the toolbar**: lines/rate/heartbeat sit left
+  of ALL the controls (picker included), so their changing width can't
+  bounce anything.
 - **Smooth-scroll hysteresis**: gliding stops once you scroll past two row
   heights and only resumes back under one, so hovering near the top can't
   flip between glide and scroll-anchor modes every frame.

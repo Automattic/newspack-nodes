@@ -173,3 +173,14 @@
 	display: flex;
 	flex-direction: column;
 }
+
+// The browse-rail collapse toggle: a slim chevron at the body's left edge.
+.newspack-nodes-rail-toggle {
+	align-self: flex-start;
+	flex-shrink: 0;
+	min-width: 0;
+	padding: 2px 8px;
+	margin-right: 8px;
+	line-height: 1.4;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

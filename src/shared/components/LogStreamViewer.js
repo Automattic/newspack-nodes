@@ -158,6 +158,24 @@ export default function LogStreamViewer( {
 	hasKeyColumn = true,
 } ) {
 	const [ filter, setFilter ] = useState( '' );
+	// Browse-rail visibility, remembered per dashboard (className-keyed).
+	const railKey = `newspack-nodes-rail:${ className }`;
+	const [ railOpen, setRailOpen ] = useState( () => {
+		try {
+			return 'closed' !== window.localStorage.getItem( railKey );
+		} catch ( e ) {
+			return true;
+		}
+	} );
+	const toggleRail = () => {
+		const next = ! railOpen;
+		setRailOpen( next );
+		try {
+			window.localStorage.setItem( railKey, next ? 'open' : 'closed' );
+		} catch ( e ) {
+			// Preference-only; ignore storage failures.
+		}
+	};
 	// Debug rows: ID · KEY · VALUE, pretty structs, natural heights.
 	const [ debug, setDebug ] = useState( false );
 	const [ jumpText, setJumpText ] = useState( '' );
@@ -195,29 +213,6 @@ export default function LogStreamViewer( {
 	// Controls strip portals into the hub header slot; undefined = inline.
 	const controls = (
 		<div className="newspack-nodes-toolbar">
-			{ pickerOptions && pickerOptions.length === 0 && (
-				<span className="newspack-nodes-toolbar-status">
-					{ pickerEmptyLabel }
-				</span>
-			) }
-			{ pickerOptions && pickerOptions.length > 0 && (
-				<select
-					className="newspack-nodes-select"
-					value={ selectedKey }
-					onChange={ ( e ) => onPick( e.target.value ) }
-				>
-					{ pickerOptions.map( ( option ) => (
-						<option
-							key={ option.key }
-							value={ option.key }
-							disabled={ option.disabled ?? false }
-						>
-							{ option.label }
-						</option>
-					) ) }
-				</select>
-			) }
-
 			<span className="newspack-nodes-toolbar-stats">
 				<span className="newspack-nodes-toolbar-stats__count">
 					{ renderCount && renderCount( stats ) }
@@ -258,6 +253,29 @@ export default function LogStreamViewer( {
 				) }
 				<StalenessIndicator paused={ isPaused } staleSec={ staleSec } />
 			</span>
+
+			{ pickerOptions && pickerOptions.length === 0 && (
+				<span className="newspack-nodes-toolbar-status">
+					{ pickerEmptyLabel }
+				</span>
+			) }
+			{ pickerOptions && pickerOptions.length > 0 && (
+				<select
+					className="newspack-nodes-select"
+					value={ selectedKey }
+					onChange={ ( e ) => onPick( e.target.value ) }
+				>
+					{ pickerOptions.map( ( option ) => (
+						<option
+							key={ option.key }
+							value={ option.key }
+							disabled={ option.disabled ?? false }
+						>
+							{ option.label }
+						</option>
+					) ) }
+				</select>
+			) }
 
 			<input
 				type="text"
@@ -386,7 +404,20 @@ export default function LogStreamViewer( {
 			{ belowToolbar }
 
 			<div className={ `${ className }__body` }>
-				{ sidebar }
+				{ sidebar && (
+					<button
+						className="button newspack-nodes-rail-toggle"
+						onClick={ toggleRail }
+						title={
+							railOpen
+								? __( 'Hide the browse rail', 'newspack-nodes' )
+								: __( 'Show the browse rail', 'newspack-nodes' )
+						}
+					>
+						{ railOpen ? '\u2039' : '\u203a' }
+					</button>
+				) }
+				{ railOpen && sidebar }
 
 				{ activeHeader ? (
 					<div
