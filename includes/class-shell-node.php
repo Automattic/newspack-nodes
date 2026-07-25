@@ -90,12 +90,13 @@ class Shell_Node extends Node {
 	];
 
 	/**
-	 * Verbs never cwd-routed by the static front-end. Intentional divergence
-	 * from the runtime's default-case dispatch (which cwd-routes everything):
-	 * no shipped .tsl issues these after a `cd`, and static analysis needs
-	 * their positions stable regardless of cwd.
+	 * Shell BUILTINS: `var` sets shell state and `include` evals a file
+	 * through this same shell (as though piped into the REPL) — neither ever
+	 * becomes a message, so the static front-end returns them as bare
+	 * statements wherever they appear. Any other bare verb inside a cwd is a
+	 * command to that node, `make_node` included.
 	 */
-	private const STRUCTURAL_VERBS = [ 'make_node', 'connect_node', 'disconnect_node', 'include', 'var' ];
+	private const BUILTIN_VERBS = [ 'include', 'var' ];
 
 	/**
 	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
@@ -349,8 +350,8 @@ class Shell_Node extends Node {
 			$path   = $shell->prefix( $token_values[1] ?? '' );
 			$values = [ 'command_node', $path, ...\array_slice( $token_values, 2 ) ];
 			$spans  = [ 'command_node', $path, ...\array_slice( $token_spans, 2 ) ];
-		} elseif ( \in_array( $verb, self::STRUCTURAL_VERBS, true ) || '' === $shell->path ) {
-			// Structural verbs and root-level bare verbs are not cwd-routed.
+		} elseif ( \in_array( $verb, self::BUILTIN_VERBS, true ) || '' === $shell->path ) {
+			// Builtins and root-level bare verbs are not cwd-routed.
 			$values = [ $verb, ...\array_slice( $token_values, 1 ) ];
 			$spans  = [ $verb, ...\array_slice( $token_spans, 1 ) ];
 		} else {

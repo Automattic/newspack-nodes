@@ -85,6 +85,31 @@ class ShellIncludeTest extends TestCase {
 		$this->assertContains( 'make_node Echo loose-echo', $lines );
 	}
 
+	public function test_include_is_a_builtin_and_never_emits_an_include_message(): void {
+		$this->write_tsl( 'solo', "make_node Echo solo-echo\n" );
+
+		$lines = $this->run_script( "include solo\n" );
+
+		$this->assertSame( [ 'make_node Echo solo-echo' ], $lines, 'only the included file\'s own lines dispatch' );
+	}
+
+	public function test_include_provides_cwd_context_as_though_piped_into_the_repl(): void {
+		// A cd\'d include: the included file\'s bare verb routes to the cwd.
+		$this->write_tsl( 'tuning', "set_x 41941\n" );
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+		$shell->want_reply( false );
+
+		$shell->eval_script( "cd worker:sub\ninclude tuning\n" );
+
+		$this->assertCount( 1, $sink->captured );
+		$message = $sink->captured[0];
+		$this->assertSame( 'worker:sub', $message[ Message::TO ] );
+		$this->assertSame( 'set_x', $message[ Message::VALUE ]['name'] );
+		$this->assertSame( [ '41941' ], $message[ Message::VALUE ]['arguments'] );
+	}
+
 	public function test_pragma_once_expands_a_diamond_base_exactly_once(): void {
 		$this->write_tsl( 'diamond-base', "make_node Tee shared-tee\nconnect_node shared-tee wombat-sink\n" );
 		$this->write_tsl( 'diamond-left', "include diamond-base\nmake_node Echo left-echo\n" );

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- The static front-end's `STRUCTURAL_VERBS` carve-out is gone. A bare verb
+  inside a cwd is a command to that node — `make_node` / `connect_node` /
+  `disconnect_node` included, as at runtime. Only the shell BUILTINS `var`
+  and `include` stay bare: neither ever becomes a message (`var` sets shell
+  state; `include` evals the file through the same shell, as though piped
+  into the REPL, so cwd and vars apply to its lines). The interpreter's help
+  now documents `include` as that shell builtin instead of listing it among
+  interpreter verbs (it never had a wire handler).
 - `command_node` is the canonical command verb, matching Tachikoma's Shell3;
   `command` and `cmd` are its aliases (the Shell's alias table had it
   backwards). The statement front-end now canonicalizes `values[0]` /
