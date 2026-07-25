@@ -191,23 +191,18 @@
 	// Clearance for the pinned chevron (top: 6px + 18px box), like the
 	// console inspector's body padding.
 	&:not(.is-collapsed) {
-		padding-top: 30px;
+		padding: 30px 0 0 10px;
 	}
 
 	&.is-collapsed {
 		width: 28px;
 		align-items: center;
 	}
-
-	&.is-collapsed .newspack-nodes-rail-toggle {
-		position: static;
-		margin-top: 8px;
-	}
 }
 
 .newspack-nodes-rail-toggle {
 	position: absolute;
-	top: 6px;
+	top: 0;
 	right: 6px;
 	z-index: 2;
 	width: 18px;
