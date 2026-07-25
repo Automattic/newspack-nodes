@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Dropped `ReflectionProperty`/`ReflectionMethod::setAccessible()` calls from
   the test suite — deprecated in PHP 8.5, a no-op since PHP 8.1.
+- Dropped `curl_close()` calls (and their phpcs suppressions) — deprecated in
+  PHP 8.5, a no-op since PHP 8.0 (handles free when the last reference drops,
+  which each call site already did).
 - **Log Viewer: sources ride the toolbar dropdown; the sidebar browses
   segments.** The source list moved out of the sidebar into the same toolbar
   `<select>` the Partition Viewer uses (unavailable sources disabled). When the

@@ -25,7 +25,6 @@ namespace Newspack_Nodes;
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
-// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_close
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_error
 // cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
@@ -255,7 +254,6 @@ class SSE_In_Node extends Node {
 			// Stale handle — best-effort cleanup off the shared multi.
 			if ( $handle instanceof \CurlHandle ) {
 				Event_Framework::instance()->unregister_curl_easy( $handle );
-				@\curl_close( $handle );
 			}
 			return;
 		}
@@ -460,7 +458,7 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Teardown: disconnect (unregisters the easy handle off the shared multi + closes it).
+	 * Teardown: disconnect (unregisters the easy handle off the shared multi + drops it).
 	 *
 	 * @api Dynamic entrypoint.
 	 */
@@ -480,7 +478,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Detach the active handle: unregister it off the shared multi (so the drain
-	 * loop won't spin on a dead fd), then close it. Idempotent.
+	 * loop won't spin on a dead fd), then drop the reference. Idempotent.
 	 */
 	private function detach_handle(): void {
 		$handle = $this->handle;
@@ -488,7 +486,6 @@ class SSE_In_Node extends Node {
 			return;
 		}
 		Event_Framework::instance()->unregister_curl_easy( $handle );
-		@\curl_close( $handle );
 		$this->handle    = null;
 		$this->connected = false;
 	}

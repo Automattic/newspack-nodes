@@ -272,7 +272,7 @@ class HTTP_Out_Node extends Timer_Node {
 
 	/**
 	 * Teardown: detach every in-flight easy handle (unregistered from the shared
-	 * multi before it closes), then drop the pending batch.
+	 * multi, freed when its last reference drops), then drop the pending batch.
 	 * @api Used by substrate.
 	 */
 	public function remove_node(): void {
@@ -284,11 +284,9 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::remove_node();
 	}
 
-	/** Unregister an easy handle from the shared multi + close it. Idempotent. */
+	/** Unregister an easy handle from the shared multi. Idempotent. */
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_close
-		@\curl_close( $easy );
 	}
 
 	/** @api Resolved by make_node; consumed by topology wiring + later slices. */
