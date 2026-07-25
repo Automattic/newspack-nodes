@@ -90,6 +90,19 @@ it( 'shows average and total offsetlog cache size from the probe consumers', () 
 	expect( card( container, 'cache-avg' ) ).toContain( 'Avg Cache' );
 } );
 
+it( 'sums the current backlog across readers from the probe consumers', () => {
+	// Per-READER lag: two readers of one source are two distinct backlogs.
+	const { container } = renderCards( {
+		consumers: {
+			r1: { source: 'jobs.p0', latest: { backlog: 40960 } },
+			r2: { source: 'jobs.p0', latest: { backlog: 20480 } },
+			r3: { source: 'firehose.p0', latest: { backlog: 0 } },
+		},
+	} );
+	expect( card( container, 'backlog' ) ).toContain( '60 KB' );
+	expect( card( container, 'backlog' ) ).toContain( 'Backlog' );
+} );
+
 it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
 	const series = [
 		{ ts: 0, msgRate: 0, byteRate: 0 },

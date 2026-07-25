@@ -2,7 +2,7 @@
  * SummaryCards — the fleet-vitals card row shared by the Overview and Topologies
  * hub tabs. One small component, one set of derives, so both tabs show the SAME
  * numbers (topologies/active, worker liveness, on-disk partitions, health, global
- * R/W rates, 24h produced totals) with no per-tab drift.
+ * R/W rates, current backlog, 24h produced totals) with no per-tab drift.
  *
  * All card math lives in pure derives (fleetSummary, probe24hTotals, the
  * formatters); this component is just the presentation + i18n.
@@ -14,6 +14,7 @@ import { fleetSummary } from './fleetSummary';
 import { probe24hTotals } from './probe24hTotals';
 import { globalMsgRate } from './globalMsgRate';
 import { cacheSizeTotals } from './cacheSizeTotals';
+import { backlogTotal } from './backlogTotal';
 import {
 	formatBytes,
 	formatByteRate,
@@ -119,6 +120,11 @@ function SummaryCards( {
 				mod="msgrate"
 				value={ formatMsgRate( globalMsgRate( consumers ) ) }
 				label={ __( 'Messages/s', 'newspack-nodes' ) }
+			/>
+			<Card
+				mod="backlog"
+				value={ formatBytes( backlogTotal( consumers ) ) }
+				label={ __( 'Backlog', 'newspack-nodes' ) }
 			/>
 			<Card
 				mod="messages"
