@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Backlog card on the fleet-vitals row.** The Overview / Topologies card row
+  now shows the current total backlog — the sum of every reader's byte
+  distance behind its source's head.
+
 ### Fixed
+- **Job Queue Latency no longer paints the last job across idle hours.** The
+  chart held each identity's most recent latency for the entire span it was
+  the most recent job (identities stop emitting when their worker generation
+  recycles, and the LEVEL hold-fill carried the last sample forward). Queue
+  latency is an event metric, not a gauge: it now zero-fills idle buckets and
+  keeps the per-bucket peak, so spikes survive and idle reads 0. Also fixed
+  the hidden generation reset — a recycle landing on the same cumulative
+  (runs 1 → runs 1) was invisible to the counter-reset rule, eating the new
+  run's latency and count on fresh replays; a newer last-run timestamp with
+  flat runs now counts the new generation's values.
 - **Rail highlight follows the clicked segment immediately.** Clicking a
   segment highlighted the last-received segment until Play/Step delivered a
   record from the new position; `browse()` now drops the stale pre-seek
