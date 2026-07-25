@@ -585,3 +585,33 @@ describe( 'smooth-scroll hysteresis', () => {
 		expect( list.scrollTop ).toBe( 9 );
 	} );
 } );
+
+it( 'debug clears pending glide debt so exiting cannot replay it', () => {
+	const lines = rows( 10 );
+	const node = makeNode( lines );
+	const props = { getNode: () => node, rowHeight: 18, renderRow };
+	const { container, rerender } = render( <LogRowList { ...props } /> );
+	tickFrame();
+
+	// Build smooth-scroll debt with a live burst…
+	const burst = Array.from( { length: 80 }, ( _, i ) => ( {
+		id: 91 - i,
+		partition: 0,
+		content: `burst-${ 91 - i }`,
+		isEven: false,
+	} ) );
+	lines.unshift( ...burst );
+	tickFrame();
+
+	// …then duck into debug and back out.
+	rerender( <LogRowList { ...props } debug /> );
+	tickFrame();
+	rerender( <LogRowList { ...props } debug={ false } /> );
+	tickFrame();
+
+	const content = container.querySelector(
+		'.newspack-nodes-log-rows__content'
+	);
+	const m = ( content.style.transform || '' ).match( /,(-?[\d.]+)px,/ );
+	expect( m ? parseFloat( m[ 1 ] ) : 0 ).toBe( 0 );
+} );
