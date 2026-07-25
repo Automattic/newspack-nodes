@@ -164,3 +164,12 @@
 	word-break: break-word;
 	overflow: visible;
 }
+
+// The header + pane column fills the body beside any sidebar.
+.newspack-nodes-log-main {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
