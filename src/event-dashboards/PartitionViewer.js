@@ -10,7 +10,7 @@
  * with a P<n> gutter.
  */
 
-import { useState, useEffect, useCallback } from '@wordpress/element';
+import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -28,6 +28,8 @@ import useLogPositions, {
 import './styles/partition-viewer.scss';
 
 const ROW_HEIGHT = 18;
+// Segment-rail maintenance cadence (rotation + size growth).
+const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'partition:view';
 // SSE connector owns liveness; "Xs ago" reads its lastEventTime, not the view.
 const LINK_NODE = 'partition:link';
@@ -96,21 +98,39 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			return undefined;
 		}
 		let cancelled = false;
-		fetchLogStatus( selectedLog )
-			.then( ( status ) => {
-				if ( ! cancelled ) {
-					setSegments( status?.segments ?? [] );
-				}
-			} )
-			.catch( () => {
-				if ( ! cancelled ) {
-					setSegments( [] );
-				}
-			} );
+		const refresh = () =>
+			fetchLogStatus( selectedLog )
+				.then( ( status ) => {
+					if ( ! cancelled ) {
+						setSegments( status?.segments ?? [] );
+					}
+				} )
+				.catch( () => {} );
+		refresh();
+		// Maintain the rail: rotation and size growth while streaming.
+		const id = setInterval( refresh, SEGMENTS_REFRESH_MS );
 		return () => {
 			cancelled = true;
+			clearInterval( id );
 		};
 	}, [ selectedLog, fetchLogStatus ] );
+
+	// A record from an unknown segment = rotation; refetch once (no loops).
+	const staleSegmentRef = useRef( null );
+	useEffect( () => {
+		if (
+			null === lastReceivedSegment ||
+			staleSegmentRef.current === lastReceivedSegment ||
+			0 === segments.length ||
+			segments.some( ( s ) => s.id === lastReceivedSegment )
+		) {
+			return;
+		}
+		staleSegmentRef.current = lastReceivedSegment;
+		fetchLogStatus( selectedLog )
+			.then( ( status ) => setSegments( status?.segments ?? [] ) )
+			.catch( () => {} );
+	}, [ lastReceivedSegment, segments, selectedLog, fetchLogStatus ] );
 
 	// Browse: update seek intent, reposition, and carry the end for catch-up.
 	const handleFollow = () => {
