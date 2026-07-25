@@ -3,7 +3,8 @@
  * Tee → view backbone as the Partition Viewer, but the link opens the substrate's
  * `GET /log/stream` (endpoint override) and the catalog is the interpreter
  * builtin `taillog sources` (empty TO), replying with `{ name, path, mode,
- * available }` source rows that feed the picker.
+ * available, bytes, segments }` source rows that feed the picker, the segment
+ * sidebar, and the replay boundary.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -158,7 +159,7 @@ describe( 'useLogViewerGraph', () => {
 		);
 		await act( async () => {} );
 		const before = FakeEventSource.last;
-		act( () => result.current.selectSource( 'debug' ) );
+		await act( async () => result.current.selectSource( 'debug' ) );
 		expect( before.closed ).toBe( true );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
 		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe( 'debug' );
@@ -212,6 +213,98 @@ describe( 'useLogViewerGraph', () => {
 		expect( cmd[ VALUE ].arguments ).toEqual( [ 'sources' ] );
 	} );
 
+	// A segmented source: the newest segment (id 5, 233 bytes) is the boundary.
+	const segmentedReply = () => [
+		{
+			name: 'gate',
+			path: '/g',
+			mode: 'segmented',
+			available: true,
+			bytes: 233,
+			segments: [
+				{ id: 3, size: 977 },
+				{ id: 5, size: 233 },
+			],
+		},
+	];
+
+	test( 'replay on a SEGMENTED source captures the newest segment as the boundary', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { taillog: segmentedReply() } )
+		);
+		await act( async () => {} );
+		await act( async () =>
+			result.current.seek( 'gate', { gate: 'start' } )
+		);
+		const view = Core.node( VIEW );
+		expect( view.mode ).toBe( 'replay' );
+		expect( view.seek.fileMode ).toBe( false );
+		expect( view.seek.endSegment ).toBe( 5 );
+		expect( view.seek.endOffset ).toBe( 233 );
+		// A record reaching the boundary auto-flips Replay → Live.
+		const rec = newMessage();
+		rec[ TYPE ] = TM_BYTESTREAM;
+		rec[ KEY ] = '';
+		rec[ FROM ] = 'gate';
+		rec[ ID ] = '5:200:33';
+		rec[ VALUE ] = 'caught up';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( rec ) ) );
+		expect( view.mode ).toBe( 'live' );
+	} );
+
+	test( 'browsing a SEGMENT rides positions and keeps the newest-segment boundary', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { taillog: segmentedReply() } )
+		);
+		await act( async () => {} );
+		await act( async () =>
+			result.current.seek( 'gate', { gate: { segment: 3, offset: 0 } } )
+		);
+		const url = FakeEventSource.last.url;
+		const positions = JSON.parse(
+			decodeURIComponent(
+				url.split( 'positions=' )[ 1 ].split( '&' )[ 0 ]
+			)
+		);
+		expect( positions ).toEqual( { gate: { segment: 3, offset: 0 } } );
+		expect( Core.node( VIEW ).seek.endSegment ).toBe( 5 );
+	} );
+
+	test( 'selectSource refreshes the catalog (fresh segments for the sidebar)', async () => {
+		const payload = { taillog: sourcesReply() };
+		const client = makeFakeClient( payload );
+		const { result } = mountGraph( client );
+		await act( async () => {} );
+		payload.taillog = segmentedReply();
+		await act( async () => result.current.selectSource( 'debug' ) );
+		expect( result.current.sources ).toEqual( segmentedReply() );
+	} );
+
+	test( 'a stale seek does NOT reposition after the selection moved on', async () => {
+		const { result } = mountGraph(
+			makeFakeClient( { taillog: sourcesReply() } )
+		);
+		await act( async () => {} );
+		await act( async () => {
+			// Replay 'access' starts its catalog fetch…
+			result.current.seek( 'access', { access: 'start' } );
+			// …but the user switches source before it resolves.
+			result.current.selectSource( 'debug' );
+		} );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
+		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		expect( Core.node( VIEW ).mode ).toBe( 'live' );
+	} );
+
+	test( 'fetchSources refreshes the returned catalog', async () => {
+		const payload = { taillog: sourcesReply() };
+		const { result } = mountGraph( makeFakeClient( payload ) );
+		await act( async () => {} );
+		payload.taillog = segmentedReply();
+		await act( async () => result.current.fetchSources() );
+		expect( result.current.sources ).toEqual( segmentedReply() );
+	} );
+
 	test( 'a seek-time fetch failure replays with NO boundary (degraded; never auto-flips)', async () => {
 		// taillog errors → the fresh-size fetch rejects → the view enters replay
 		// with no byte boundary (file mode off), so it never auto-flips.
@@ -219,6 +312,8 @@ describe( 'useLogViewerGraph', () => {
 			makeFakeClient( { taillog: sourcesReply() }, [ 'taillog' ] )
 		);
 		await act( async () => {} );
+		// The mount catalog fetch failed too, so select the source explicitly.
+		await act( async () => result.current.selectSource( 'access' ) );
 		await act( async () =>
 			result.current.seek( 'access', { access: 'start' } )
 		);
@@ -382,7 +477,7 @@ describe( 'useLogViewerGraph', () => {
 			act( () => result.current.setPaused( true ) );
 			const closed = FakeEventSource.last;
 			const count = FakeEventSource.instances.length;
-			act( () => result.current.selectSource( 'debug' ) );
+			await act( async () => result.current.selectSource( 'debug' ) );
 			expect( FakeEventSource.instances.length ).toBe( count );
 			expect( closed.closed ).toBe( true );
 			expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
@@ -396,7 +491,7 @@ describe( 'useLogViewerGraph', () => {
 			);
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
-			act( () => result.current.selectSource( 'debug' ) );
+			await act( async () => result.current.selectSource( 'debug' ) );
 			const before = FakeEventSource.instances.length;
 			act( () => result.current.setPaused( false ) );
 			expect( FakeEventSource.instances.length ).toBe( before + 1 );

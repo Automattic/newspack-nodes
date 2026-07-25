@@ -1,10 +1,10 @@
 /**
  * Log Viewer Styles
  *
- * Light Newspack chrome above the shared `LogBrowser` source picker + `LogRowList`
- * pane. The pane and its rows theme light/dark via the --paper/--ink tokens in
- * LogRowList.scss; raw lines carry no partition column, so this stylesheet only
- * lays out the root and the sidebar/pane split.
+ * Light Newspack chrome above the shared `LogBrowser` segment browser +
+ * `LogRowList` pane. The pane and its rows theme light/dark via the
+ * --paper/--ink tokens in LogRowList.scss; raw lines carry no partition
+ * column, so this stylesheet only lays out the root and the sidebar/pane split.
  */
 
 @use "base";
@@ -19,7 +19,7 @@
 	font-family: base.$system-font;
 }
 
-// The source picker sits beside the scrolling log pane.
+// The segment browser sits beside the scrolling log pane.
 .newspack-nodes-log-viewer__body {
 	flex: 1;
 	display: flex;

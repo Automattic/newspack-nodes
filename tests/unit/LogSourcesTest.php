@@ -349,10 +349,44 @@ class LogSourcesTest extends TestCase {
 					'mode'      => 'file',
 					'available' => true,
 					'bytes'     => \filesize( $present ),
+					'segments'  => [],
 				],
 			],
 			$rows
 		);
+	}
+
+	public function test_taillog_sources_lists_a_segmented_sources_segments_sorted_by_id(): void {
+		Log_Sources::$builtin_sources = static fn (): array => [];
+		$this->activate_topology(
+			'lsrc-segs',
+			"var num_partitions = 1\n"
+			. "make_node Log gate:log <config:logs_dir>/gate-decisions.jsonl 1 2 7\n"
+		);
+		$base = "{$this->tmp}/logs/gate-decisions.jsonl";
+		\mkdir( "{$this->tmp}/logs", 0755, true );
+		\file_put_contents( "{$base}.5", \str_repeat( 'b', 233 ) );
+		\file_put_contents( "{$base}.3", \str_repeat( 'a', 977 ) );
+		\file_put_contents( "{$base}.3.idx", 'not-a-segment' );
+
+		$rows = Log_Sources::taillog( [ 'sources' ] );
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame(
+			[
+				[
+					'id'   => 3,
+					'size' => 977,
+				],
+				[
+					'id'   => 5,
+					'size' => 233,
+				],
+			],
+			$rows[0]['segments'],
+			'sorted by id, sized, .idx companions excluded'
+		);
+		$this->assertSame( 233, $rows[0]['bytes'], 'bytes = the newest segment size' );
 	}
 
 	public function test_taillog_rejects_an_unknown_source_name_never_a_path(): void {

@@ -1,17 +1,20 @@
 /**
  * useLogPositions — the browse-model → SSE `positions` mapping shared by the
- * Partition Viewer (segments) and the Log Viewer (sources). Seeks ride the
- * existing `positions` transport verbatim (RemoteLink `setSubscribe(sub,
- * positions)` → SSE `&positions=` → `SSE_Out::position_arg` → `next_offset`):
+ * Partition Viewer and the Log Viewer (both browse segments; only file-MODE
+ * log sources have none). Seeks ride the existing `positions` transport
+ * verbatim (RemoteLink `setSubscribe(sub, positions)` → SSE `&positions=` →
+ * `SSE_Out::position_arg` → `next_offset`):
  *
  *   - Live / follow → `null` positions ⇒ the server defaults each sub to 'end'.
  *   - Browse a segment → `{ [sub]: { segment, offset: 0 } }` (a `{segment,offset}`
  *     seek; in file mode the segment slot simply holds the inode).
  *   - Replay from start → `{ [sub]: 'start' }` (the magic token → offset 0 of the
  *     earliest segment).
- *   - Page back → the previous EXISTING segment id from `log_status.segments`.
+ *   - Page back → the previous EXISTING segment id from the segment list.
  *
- * No new server verb is needed — `log_status` already returns the segment list.
+ * No new server verb is needed — the segment list rides the existing catalog
+ * verbs (`log_status` for the Partition Viewer, `taillog sources` for the Log
+ * Viewer).
  */
 
 import { useState, useEffect, useMemo, useCallback } from '@wordpress/element';

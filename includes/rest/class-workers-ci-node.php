@@ -311,7 +311,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * Synthesize a one-partition catalog entry for a Log sink: stat the flat
 	 * `{file}.{seg}` monotonic segments, deriving each id from the numeric
-	 * suffix (highest id = current/newest).
+	 * suffix (highest id = current/newest). The numeric-suffix rule must match
+	 * `Log_Sources::source_segments()` (which skips mtime); keep the two in step.
 	 *
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
 	 */
