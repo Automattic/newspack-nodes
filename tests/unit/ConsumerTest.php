@@ -3853,7 +3853,6 @@ class ConsumerTest extends TestCase {
 		$this->read_private( $c2, 'interpreter' )->commands()['set_multi_writer']( $interp, [ $emitted_arg ] );
 
 		$mw = new \ReflectionProperty( $c2, 'multi_writer' );
-		$mw->setAccessible( true );
 		$this->assertTrue( $mw->getValue( $c2 ), 'the emitted set_multi_writer arg must replay back to true' );
 	}
 
@@ -3888,10 +3887,8 @@ class ConsumerTest extends TestCase {
 
 		$ref   = new \ReflectionObject( $c );
 		$saved = $ref->getProperty( 'saved_line_mode' );
-		$saved->setAccessible( true );
 		$saved->setValue( $c, false );
 		$mode = $ref->getProperty( 'line_mode' );
-		$mode->setAccessible( true );
 		$mode->setValue( $c, true );
 
 		$this->assertStringNotContainsString( 'set_line_mode', $c->dump_config() );

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Dropped `ReflectionProperty`/`ReflectionMethod::setAccessible()` calls from
+  the test suite — deprecated in PHP 8.5, a no-op since PHP 8.1.
 - **Log Viewer: sources ride the toolbar dropdown; the sidebar browses
   segments.** The source list moved out of the sidebar into the same toolbar
   `<select>` the Partition Viewer uses (unavailable sources disabled). When the
