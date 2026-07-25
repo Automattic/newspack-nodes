@@ -51,6 +51,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		let c = this.entries[ key ];
 		if ( ! c ) {
 			c = {
+				key,
 				handler: '',
 				series: [],
 				_lastRuns: null,
@@ -114,6 +115,8 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			itemsErrDelta,
 			durationDelta,
 			queueDelta,
+			// Per-window avg queue wait — the latency chart's metric.
+			queueLatencyMs: runsDelta > 0 ? queueDelta / runsDelta : 0,
 		} );
 		this._capSeries( c.series );
 	}
@@ -141,6 +144,7 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 
 	_entryView( c ) {
 		return {
+			key: c.key,
 			handler: c.handler,
 			// Windowed rollup (Runs/Failures/Avg) — the retained-window truth.
 			windowed: this._windowedTotals( c.series ),

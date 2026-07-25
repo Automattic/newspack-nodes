@@ -72,6 +72,26 @@ describe( 'JobstatsViewNode', () => {
 			'evtemplate',
 		] );
 		expect( snap[ 'cron:films' ].handler ).toBe( 'cron' );
+		// The identity rides the entry so per-identity charts can key on it.
+		expect( snap[ 'cron:films' ].key ).toBe( 'cron:films' );
+	} );
+
+	it( 'derives per-sample queue latency (Δqueue / Δruns) for the latency chart', () => {
+		const v = new JobstatsViewNode();
+		v.fill( jobstatsMsg( { runs: 10, queueMs: 1000, ts: 100 } ) );
+		v.fill( jobstatsMsg( { runs: 14, queueMs: 4200, ts: 115 } ) ); // +3200ms / +4 runs
+		expect( v.snapshot().evtemplate.series.at( -1 ).queueLatencyMs ).toBe(
+			800
+		);
+	} );
+
+	it( 'queue latency is 0 for a sample window with no runs', () => {
+		const v = new JobstatsViewNode();
+		v.fill( jobstatsMsg( { runs: 10, queueMs: 1000, ts: 100 } ) );
+		v.fill( jobstatsMsg( { runs: 10, queueMs: 1000, ts: 115 } ) );
+		expect( v.snapshot().evtemplate.series.at( -1 ).queueLatencyMs ).toBe(
+			0
+		);
 	} );
 
 	it( 'computes runs-rate from consecutive RUNS deltas over the ts gap', () => {

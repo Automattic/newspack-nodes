@@ -11,6 +11,9 @@ import Jobs from '../Jobs';
 jest.mock( '../hooks/useJobstatsStream', () => ( {
 	useJobstatsStream: jest.fn(),
 } ) );
+jest.mock( '../hooks/useTopicProbeStream', () => ( {
+	useTopicProbeStream: jest.fn(),
+} ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
 	useNodeState: jest.fn(),
@@ -35,6 +38,7 @@ function model() {
 	return {
 		handlers: {
 			'cron:films': {
+				key: 'cron:films',
 				handler: 'cron',
 				// Windowed totals differ from the newest cumulative record so a
 				// table still reading `latest` (the bug) is caught.
@@ -60,6 +64,7 @@ function model() {
 				series: [ { ts: 1, runsRate: 2, errorsRate: 1, itemsRate: 5 } ],
 			},
 			evtemplate: {
+				key: 'evtemplate',
 				handler: 'evtemplate',
 				windowed: {
 					runs: 40,
@@ -83,6 +88,7 @@ function model() {
 				series: [ { ts: 1, runsRate: 3, errorsRate: 0, itemsRate: 3 } ],
 			},
 			slowjob: {
+				key: 'slowjob',
 				handler: 'slowjob',
 				windowed: {
 					runs: 6,
@@ -114,6 +120,36 @@ beforeEach( () => {
 } );
 
 describe( 'Jobs', () => {
+	it( 'renders backlog + queue-latency panels; backlog holds jobs sources only', () => {
+		useNodeState.mockImplementation( ( node ) =>
+			'topicprobe:view' === node
+				? {
+						consumers: {
+							'job-worker.jobs.p0': {
+								source: 'jobs.p0',
+								series: [ { ts: 1, backlog: 4096 } ],
+							},
+							'combined.firehose.p0': {
+								source: 'firehose.p0',
+								series: [ { ts: 1, backlog: 9999 } ],
+							},
+						},
+				  }
+				: model()
+		);
+		render( <Jobs /> );
+
+		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
+		expect( titles ).toContain( 'Job Backlog' );
+		expect( titles ).toContain( 'Job Queue Latency' );
+
+		const backlog = globalThis.__jobsPanels.find(
+			( p ) => 'Job Backlog' === p.title
+		);
+		expect( Object.keys( backlog.series ) ).toContain( 'jobs.p0' );
+		expect( Object.keys( backlog.series ) ).not.toContain( 'firehose.p0' );
+	} );
+
 	it( 'renders a row per job identity with runs, failures, status and message', () => {
 		useNodeState.mockReturnValue( model() );
 		const { getByText, getAllByText } = render( <Jobs /> );
@@ -169,12 +205,14 @@ describe( 'Jobs', () => {
 		expect( container.querySelector( '.nodes-jobs__empty' ) ).toBeTruthy();
 	} );
 
-	it( 'feeds a Runs-rate and an Errors-rate panel to TopicsChart', () => {
+	it( 'feeds runs, errors, backlog and latency panels to TopicsChart', () => {
 		useNodeState.mockReturnValue( model() );
 		render( <Jobs /> );
 		const titles = globalThis.__jobsPanels.map( ( p ) => p.title );
-		expect( titles.length ).toBe( 2 );
+		expect( titles.length ).toBe( 4 );
 		expect( titles.some( ( t ) => /run/i.test( t ) ) ).toBe( true );
 		expect( titles.some( ( t ) => /error/i.test( t ) ) ).toBe( true );
+		expect( titles.some( ( t ) => /backlog/i.test( t ) ) ).toBe( true );
+		expect( titles.some( ( t ) => /latency/i.test( t ) ) ).toBe( true );
 	} );
 } );
