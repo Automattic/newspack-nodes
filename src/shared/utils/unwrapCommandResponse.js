@@ -12,6 +12,12 @@
 import { TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
 
 export default function unwrapCommandResponse( message ) {
+	// send() resolves null when the POST failed or the batch had no reply.
+	if ( null === message || undefined === message ) {
+		throw new Error(
+			'Command got no reply (the request failed or the worker did not respond)'
+		);
+	}
 	if ( ! Array.isArray( message ) || message.length < 7 ) {
 		throw new Error(
 			'CommandClient response is malformed (expected 7-field Message array)'

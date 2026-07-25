@@ -67,3 +67,9 @@ describe( 'unwrapCommandResponse', () => {
 		expect( unwrapCommandResponse( msg ) ).toEqual( { already: 'parsed' } );
 	} );
 } );
+
+it( 'a missing reply (failed POST / silent worker) says so, not "malformed"', () => {
+	expect( () => unwrapCommandResponse( null ) ).toThrow(
+		/no reply.*request failed or the worker did not respond/i
+	);
+} );

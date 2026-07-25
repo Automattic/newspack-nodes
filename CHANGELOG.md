@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   segment rail, remembered per dashboard.
 
 ### Fixed
+- **A failed `/command` round-trip reports itself honestly**: a missing
+  reply (the POST failed — e.g. mid-deploy — or an attached worker never
+  answered) now toasts "Command got no reply…" instead of the misleading
+  "response is malformed (expected 7-field Message array)".
 - **The stats readout leads the toolbar**: lines/rate/heartbeat sit left
   of ALL the controls (picker included), so their changing width can't
   bounce anything.
