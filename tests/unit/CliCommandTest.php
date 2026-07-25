@@ -56,7 +56,8 @@ class CliCommandTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		CLI::$uid_provider = null;
+		CLI::$uid_provider  = null;
+		CLI_Command::$stdin = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -76,7 +77,10 @@ class CliCommandTest extends TestCase {
 
 	public function test_cli_bare_repl_exits_on_closed_piped_stdin(): void {
 		CLI::$uid_provider = static fn (): int => 1000;
-		$start = \microtime( true );
+		// Fixture stdin (empty, non-TTY): the drain must exit on EOF even
+		// when the phpunit runner's own STDIN is an interactive terminal.
+		CLI_Command::$stdin = static fn () => \fopen( 'php://memory', 'r' );
+		$start              = \microtime( true );
 
 		( new CLI_Command() )->cli( [], [] );
 

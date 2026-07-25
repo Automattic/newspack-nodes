@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The bare-REPL CliCommand test no longer hangs (risky) when phpunit runs from
+  an interactive terminal: a `CLI_Command::$stdin` seam supplies the REPL's
+  stdin, so the TTY probe and reader see the fixture stream, not the runner's
+  terminal.
+
 ### Changed
 - Dropped `ReflectionProperty`/`ReflectionMethod::setAccessible()` calls from
   the test suite — deprecated in PHP 8.5, a no-op since PHP 8.1.
