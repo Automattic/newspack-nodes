@@ -278,8 +278,8 @@ describe( 'useGraphHandlers', () => {
 		const { result, dispatch } = renderHandlers( {} );
 		result.current.onInspectorAction( 'cmd', 'a', 'trace 1' );
 		expect( dispatch ).toHaveBeenCalledWith(
-			'cmd a trace 1',
-			'cmd',
+			'command_node a trace 1',
+			'command_node',
 			'a trace 1'
 		);
 	} );
@@ -289,8 +289,8 @@ describe( 'useGraphHandlers', () => {
 		const flags = { response: true, error: false };
 		result.current.onInspectorAction( 'cmd', 'a', 'trace 1', flags );
 		expect( dispatch ).toHaveBeenCalledWith(
-			'cmd a trace 1',
-			'cmd',
+			'command_node a trace 1',
+			'command_node',
 			'a trace 1',
 			flags
 		);

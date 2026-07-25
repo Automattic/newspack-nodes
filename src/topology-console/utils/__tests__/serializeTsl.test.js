@@ -158,8 +158,8 @@ describe( 'serializeTsl', () => {
 		};
 		expect( serializeTsl( g ) ).toBe(
 			'make_node Partition p\n' +
-				'cmd p:config allow_large_writes\n' +
-				'cmd p:config with_index request-index\n'
+				'command_node p:config allow_large_writes\n' +
+				'command_node p:config with_index request-index\n'
 		);
 	} );
 
@@ -228,7 +228,7 @@ describe( 'serializeTsl', () => {
 		};
 		expect( serializeTsl( g ) ).toBe(
 			'make_node Echo scorer\n' +
-				'cmd scorer:config add_profile "Engineers care about <team>"\n'
+				'command_node scorer:config add_profile "Engineers care about <team>"\n'
 		);
 	} );
 
@@ -430,8 +430,8 @@ describe( 'serializeTsl', () => {
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
 				'make_node FlameBuilder fb\n' +
-					'cmd fb:config set_is_hub <eln:is_hub>\n' +
-					'cmd fb:config configure_stats <partition>\n'
+					'command_node fb:config set_is_hub <eln:is_hub>\n' +
+					'command_node fb:config configure_stats <partition>\n'
 			);
 		} );
 
@@ -513,7 +513,7 @@ describe( 'serializeTsl', () => {
 			},
 		};
 
-		it( 'serializes an interpreter node verb to a bare `cmd <name> <verb>`', () => {
+		it( 'serializes an interpreter node verb to a bare `command_node <name> <verb>`', () => {
 			// Interpreter nodes take verbs on the bare node, no :config.
 			const g = {
 				nodes: [
@@ -528,11 +528,12 @@ describe( 'serializeTsl', () => {
 				edges: [],
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
-				'make_node Performance_CI perf\n' + 'cmd perf set_is_hub\n'
+				'make_node Performance_CI perf\n' +
+					'command_node perf set_is_hub\n'
 			);
 		} );
 
-		it( 'serializes a non-interpreter node verb to `cmd <name>:config <verb>`', () => {
+		it( 'serializes a non-interpreter node verb to `command_node <name>:config <verb>`', () => {
 			const g = {
 				nodes: [
 					{
@@ -548,7 +549,8 @@ describe( 'serializeTsl', () => {
 				edges: [],
 			};
 			expect( serializeTsl( g, schemas ) ).toBe(
-				'make_node Partition p\n' + 'cmd p:config allow_large_writes\n'
+				'make_node Partition p\n' +
+					'command_node p:config allow_large_writes\n'
 			);
 		} );
 

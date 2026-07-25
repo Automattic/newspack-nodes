@@ -180,12 +180,12 @@ class Settings_Sync_Node extends Timer_Node {
 		return 'ok';
 	}
 
-	/** Emit the base config plus one round-trippable `cmd {name}:config add_setting …` per registry mapping. */
+	/** Emit the base config plus one round-trippable `command_node {name}:config add_setting …` per registry mapping. */
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		foreach ( $this->registry as $local => $specs ) {
 			foreach ( $specs as $spec ) {
-				$out .= "cmd {$this->name}:config add_setting {$local} {$spec['to']} {$spec['remote']}\n";
+				$out .= "command_node {$this->name}:config add_setting {$local} {$spec['to']} {$spec['remote']}\n";
 			}
 		}
 		return $out;

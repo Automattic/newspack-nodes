@@ -317,7 +317,7 @@ class SchemaReflectionTest extends TestCase {
 
 		$commands = $node->interpreter()->commands();
 		$commands['set_turbo_mode']( $node->interpreter(), [ '1' ] );
-		$this->assertSame( "cmd toggle-probe:config set_turbo_mode 1\n", $node->dump() );
+		$this->assertSame( "command_node toggle-probe:config set_turbo_mode 1\n", $node->dump() );
 	}
 
 	public function test_truthy_is_the_one_canonical_bool_parse(): void {

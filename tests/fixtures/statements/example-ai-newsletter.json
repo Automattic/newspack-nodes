@@ -119,18 +119,18 @@
         "line": 22
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "digest:log:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "digest:log:config",
             "void_warranty"
         ],
-        "raw": "cmd digest:log:config void_warranty",
+        "raw": "command_node digest:log:config void_warranty",
         "line": 23
     },
     {
@@ -161,18 +161,18 @@
         "line": 26
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "scored:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "scored:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd scored:partition:config void_warranty",
+        "raw": "command_node scored:partition:config void_warranty",
         "line": 27
     },
     {
@@ -197,20 +197,20 @@
         "line": 28
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "scored:consumer:config",
             "add_snapshot_node",
             "digest"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "scored:consumer:config",
             "add_snapshot_node",
             "digest"
         ],
-        "raw": "cmd scored:consumer:config add_snapshot_node digest",
+        "raw": "command_node scored:consumer:config add_snapshot_node digest",
         "line": 29
     },
     {

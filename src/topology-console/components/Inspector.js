@@ -1265,7 +1265,7 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 
 // Message-composer types: each maps to a CLI verb. [label, action, takesValue].
 const COMPOSE_TYPES = [
-	[ 'TM_COMMAND (cmd)', 'cmd', true ],
+	[ 'TM_COMMAND (command_node)', 'cmd', true ],
 	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
 	[ 'TM_REQUEST (request_node)', 'request', true ],
 	[ 'TM_INFO (tell_node)', 'tell', true ],
@@ -2103,9 +2103,9 @@ export default function Inspector( {
 				<button
 					type="button"
 					className="button is-compact"
-					onClick={ () => setPromptVerb( 'cmd' ) }
+					onClick={ () => setPromptVerb( 'command_node' ) }
 					title={ __(
-						'Send a TM_COMMAND payload to this node via `cmd <name> <phrase>`',
+						'Send a TM_COMMAND payload to this node via `command_node <name> <phrase>`',
 						'newspack-nodes'
 					) }
 				>

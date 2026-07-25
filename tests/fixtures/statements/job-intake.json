@@ -51,18 +51,18 @@
         "line": 11
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "jobs:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "jobs:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd jobs:partition:config void_warranty",
+        "raw": "command_node jobs:partition:config void_warranty",
         "line": 12
     },
     {

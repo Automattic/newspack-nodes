@@ -732,7 +732,7 @@ trait Durable_Reader {
 	}
 
 	/**
-	 * Round-trippable `cmd {name}:config <verb>` lines for the PERSISTENT time-travel
+	 * Round-trippable `command_node {name}:config <verb>` lines for the PERSISTENT time-travel
 	 * config the trait owns — so a `dump_config()` serialize/replay restores them
 	 * (without it, a console-serialized topology loses its snapshot node and the
 	 * downstream stateful node's save_state() stops co-committing). Only the durable
@@ -746,10 +746,10 @@ trait Durable_Reader {
 	protected function dump_time_travel_config( string $name ): string {
 		$out = '';
 		foreach ( $this->snapshot_nodes as $snapshot_name ) {
-			$out .= "cmd {$name}:config add_snapshot_node {$snapshot_name}\n";
+			$out .= "command_node {$name}:config add_snapshot_node {$snapshot_name}\n";
 		}
 		if ( $this->saved_line_mode ?? $this->line_mode ) {
-			$out .= "cmd {$name}:config set_line_mode 1\n";
+			$out .= "command_node {$name}:config set_line_mode 1\n";
 		}
 		return $out;
 	}

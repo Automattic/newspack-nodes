@@ -159,20 +159,20 @@
         "line": 37
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_multi_writer",
             "true"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_multi_writer",
             "true"
         ],
-        "raw": "cmd fanout:config set_multi_writer true",
+        "raw": "command_node fanout:config set_multi_writer true",
         "line": 43
     },
     {
@@ -191,54 +191,54 @@
         "line": 44
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_completed_target",
             "completed:tee"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_completed_target",
             "completed:tee"
         ],
-        "raw": "cmd fanout:config set_completed_target completed:tee",
+        "raw": "command_node fanout:config set_completed_target completed:tee",
         "line": 48
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_errors_target",
             "errors:partition"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_errors_target",
             "errors:partition"
         ],
-        "raw": "cmd fanout:config set_errors_target errors:partition",
+        "raw": "command_node fanout:config set_errors_target errors:partition",
         "line": 49
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_inflight_target",
             "gyroscope:partition"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "fanout:config",
             "set_inflight_target",
             "gyroscope:partition"
         ],
-        "raw": "cmd fanout:config set_inflight_target gyroscope:partition",
+        "raw": "command_node fanout:config set_inflight_target gyroscope:partition",
         "line": 50
     },
     {
@@ -257,50 +257,50 @@
         "line": 54
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "with_index",
             "request-index"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "with_index",
             "request-index"
         ],
-        "raw": "cmd requests:partition:config with_index request-index",
+        "raw": "command_node requests:partition:config with_index request-index",
         "line": 58
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "requests:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd requests:partition:config void_warranty",
+        "raw": "command_node requests:partition:config void_warranty",
         "line": 59
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "errors:partition",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "errors:partition",
             "void_warranty"
         ],
-        "raw": "cmd errors:partition void_warranty",
+        "raw": "command_node errors:partition void_warranty",
         "line": 62
     },
     {
@@ -334,33 +334,33 @@
         "line": 66
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "gyroscope:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "gyroscope:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd gyroscope:partition:config void_warranty",
+        "raw": "command_node gyroscope:partition:config void_warranty",
         "line": 69
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "completed:partition:config",
             "void_warranty"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "completed:partition:config",
             "void_warranty"
         ],
-        "raw": "cmd completed:partition:config void_warranty",
+        "raw": "command_node completed:partition:config void_warranty",
         "line": 70
     }
 ]

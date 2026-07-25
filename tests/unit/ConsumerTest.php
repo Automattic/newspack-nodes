@@ -1174,7 +1174,7 @@ class ConsumerTest extends TestCase {
 		$c->name( 'firehose:consumer' );
 		$this->assertStringNotContainsString( 'assume_clean_shutdown', $c->dump_config() );
 		$c->set_assume_clean_shutdown( true );
-		$this->assertStringContainsString( 'cmd firehose:consumer:config assume_clean_shutdown 1', $c->dump_config() );
+		$this->assertStringContainsString( 'command_node firehose:consumer:config assume_clean_shutdown 1', $c->dump_config() );
 	}
 
 	public function test_cooperative_timeout_strikes_when_stopped_on_the_boot_cursor(): void {
@@ -3819,7 +3819,7 @@ class ConsumerTest extends TestCase {
 		$c->add_snapshot_node( 'flame-builder' );
 
 		$this->assertStringContainsString(
-			'cmd requests:consumer:config add_snapshot_node flame-builder',
+			'command_node requests:consumer:config add_snapshot_node flame-builder',
 			$c->dump_config(),
 			'dump_config must round-trip the snapshot node so a console-serialized topology still co-commits save_state'
 		);
@@ -3841,7 +3841,7 @@ class ConsumerTest extends TestCase {
 
 		// Real round-trip: extract the emitted arg and replay it through the verb
 		// handler on a fresh node — a value-less line would restore false.
-		$matched = \preg_match( '/cmd firehose:config set_multi_writer (\S+)/', $c->dump_config(), $matches );
+		$matched = \preg_match( '/command_node firehose:config set_multi_writer (\S+)/', $c->dump_config(), $matches );
 		$this->assertSame( 1, $matched, 'set_multi_writer must be emitted with an explicit argument' );
 		$emitted_arg = $matches[1];
 
@@ -3863,7 +3863,7 @@ class ConsumerTest extends TestCase {
 		$c->set_line_mode( true );
 
 		$this->assertStringContainsString(
-			'cmd reader:config set_line_mode 1',
+			'command_node reader:config set_line_mode 1',
 			$c->dump_config()
 		);
 	}

@@ -137,7 +137,7 @@ function emitVerb( name, invocation, schemas, className ) {
 	const target = isInterpreterClass( schemas, className )
 		? name
 		: `${ name }:config`;
-	const head = `cmd ${ target } ${ invocation.verb }`;
+	const head = `command_node ${ target } ${ invocation.verb }`;
 	return args.length ? `${ head } ${ args.join( ' ' ) }` : head;
 }
 
@@ -188,7 +188,7 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 		}
 	}
 	for ( const override of configOverrides ) {
-		const head = `cmd ${ override.from }:config ${ override.slot }`;
+		const head = `command_node ${ override.from }:config ${ override.slot }`;
 		lines.push(
 			override.to ? `${ head } ${ emitDraftArg( override.to ) }` : head
 		);

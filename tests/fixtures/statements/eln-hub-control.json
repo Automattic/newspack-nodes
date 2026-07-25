@@ -47,9 +47,9 @@
         "line": 14
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_rules",
@@ -57,20 +57,20 @@
             "newspack_event_logger_nodes_rules"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_rules",
             "performance",
             "newspack_event_logger_nodes_rules"
         ],
-        "raw": "cmd settings-sync:config add_setting newspack_event_logger_nodes_rules performance newspack_event_logger_nodes_rules",
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_rules performance newspack_event_logger_nodes_rules",
         "line": 18
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_log_memory",
@@ -78,20 +78,20 @@
             "newspack_event_logger_nodes_log_memory"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_log_memory",
             "performance",
             "newspack_event_logger_nodes_log_memory"
         ],
-        "raw": "cmd settings-sync:config add_setting newspack_event_logger_nodes_log_memory performance newspack_event_logger_nodes_log_memory",
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_log_memory performance newspack_event_logger_nodes_log_memory",
         "line": 19
     },
     {
-        "verb": "cmd",
+        "verb": "command_node",
         "values": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_flush_every_line",
@@ -99,14 +99,14 @@
             "newspack_event_logger_nodes_flush_every_line"
         ],
         "spans": [
-            "cmd",
+            "command_node",
             "settings-sync:config",
             "add_setting",
             "newspack_event_logger_nodes_flush_every_line",
             "performance",
             "newspack_event_logger_nodes_flush_every_line"
         ],
-        "raw": "cmd settings-sync:config add_setting newspack_event_logger_nodes_flush_every_line performance newspack_event_logger_nodes_flush_every_line",
+        "raw": "command_node settings-sync:config add_setting newspack_event_logger_nodes_flush_every_line performance newspack_event_logger_nodes_flush_every_line",
         "line": 20
     },
     {

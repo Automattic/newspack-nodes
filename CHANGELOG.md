@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `command_node` is the canonical command verb, matching Tachikoma's Shell3;
+  `command` and `cmd` are its aliases (the Shell's alias table had it
+  backwards). The statement front-end now canonicalizes `values[0]` /
+  `spans[0]` / `raw` to `command_node` in both languages, the topology
+  registry and console parser match on the canonical token, and the console's
+  composer/prompt emit it. `cmd` keeps working everywhere it did.
+
 ## [1.1.0] - 2026-07-24
 
 ### Fixed

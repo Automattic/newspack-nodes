@@ -38,8 +38,8 @@ const VERB_ALIASES = {
 	make: 'make_node',
 	connect: 'connect_node',
 	disconnect: 'disconnect_node',
-	command: 'cmd',
-	command_node: 'cmd',
+	command: 'command_node',
+	cmd: 'command_node',
 };
 
 /**
@@ -354,18 +354,23 @@ function buildStatement( shell, text, line ) {
 	const tokenSpans = scanned.tokens.map( ( t ) => t.raw );
 	let values;
 	let spans;
-	if ( 'cmd' === verb ) {
+	if ( 'command_node' === verb ) {
 		const path = shell.prefix( tokenValues[ 1 ] ?? '' );
-		values = [ 'cmd', path, ...tokenValues.slice( 2 ) ];
-		spans = [ 'cmd', path, ...tokenSpans.slice( 2 ) ];
+		values = [ 'command_node', path, ...tokenValues.slice( 2 ) ];
+		spans = [ 'command_node', path, ...tokenSpans.slice( 2 ) ];
 	} else if ( STRUCTURAL_VERBS.has( verb ) || '' === shell.path ) {
 		// Structural verbs and root-level bare verbs are not cwd-routed.
 		values = [ verb, ...tokenValues.slice( 1 ) ];
 		spans = [ verb, ...tokenSpans.slice( 1 ) ];
 	} else {
 		// A bare verb inside a cwd is a command to that node.
-		values = [ 'cmd', shell.path, verb, ...tokenValues.slice( 1 ) ];
-		spans = [ 'cmd', shell.path, verb, ...tokenSpans.slice( 1 ) ];
+		values = [
+			'command_node',
+			shell.path,
+			verb,
+			...tokenValues.slice( 1 ),
+		];
+		spans = [ 'command_node', shell.path, verb, ...tokenSpans.slice( 1 ) ];
 	}
 	return {
 		verb: values[ 0 ],
@@ -679,46 +684,6 @@ export class ShellNode extends Node {
 	}
 
 	/**
-	 * End-of-input gate: a held continuation at EOF is Tachikoma's
-	 * `got EOF while waiting for tokens` — report it and clear.
-	 *
-	 * @return {Object|null} An error signal, or null when nothing was pending.
-	 */
-	flushPending() {
-		const pending = (
-			this.quoteContinuation || this.lineContinuation
-		).trim();
-		this.quoteContinuation = '';
-		this.lineContinuation = '';
-		this.pendingQuote = '';
-		if ( '' === pending ) {
-			return null;
-		}
-		return {
-			kind: 'error',
-			text: `got EOF while waiting for tokens: ${ pending }`,
-		};
-	}
-
-	/** True while a quote/backslash continuation holds an open statement. */
-	hasPending() {
-		return '' !== this.quoteContinuation || '' !== this.lineContinuation;
-	}
-
-	/**
-	 * The continuation prompt while a statement is held: the open quote char
-	 * (`'> `) or a bare `> ` for a backslash splice; '' when nothing pends.
-	 *
-	 * @return {string} Prompt text for the host to render.
-	 */
-	pendingPrompt() {
-		if ( '' !== this.quoteContinuation ) {
-			return `${ this.pendingQuote }> `;
-		}
-		return '' !== this.lineContinuation ? '> ' : '';
-	}
-
-	/**
 	 * Quote-aware single-tier interpolation (mirrors PHP Shell_Node::interpolate,
 	 * runs before tokenizing). Outside quotes and inside double quotes: `<name>` →
 	 * vars, `<config:foo>` → config, unknown → ''. Inside single quotes or
@@ -858,6 +823,46 @@ export class ShellNode extends Node {
 	dispatch( message ) {
 		this.onDispatch?.( message );
 		this.sink?.fill( message );
+	}
+
+	/**
+	 * End-of-input gate: a held continuation at EOF is Tachikoma's
+	 * `got EOF while waiting for tokens` — report it and clear.
+	 *
+	 * @return {Object|null} An error signal, or null when nothing was pending.
+	 */
+	flushPending() {
+		const pending = (
+			this.quoteContinuation || this.lineContinuation
+		).trim();
+		this.quoteContinuation = '';
+		this.lineContinuation = '';
+		this.pendingQuote = '';
+		if ( '' === pending ) {
+			return null;
+		}
+		return {
+			kind: 'error',
+			text: `got EOF while waiting for tokens: ${ pending }`,
+		};
+	}
+
+	/** True while a quote/backslash continuation holds an open statement. */
+	hasPending() {
+		return '' !== this.quoteContinuation || '' !== this.lineContinuation;
+	}
+
+	/**
+	 * The continuation prompt while a statement is held: the open quote char
+	 * (`'> `) or a bare `> ` for a backslash splice; '' when nothing pends.
+	 *
+	 * @return {string} Prompt text for the host to render.
+	 */
+	pendingPrompt() {
+		if ( '' !== this.quoteContinuation ) {
+			return `${ this.pendingQuote }> `;
+		}
+		return '' !== this.lineContinuation ? '> ' : '';
 	}
 
 	get name() {
