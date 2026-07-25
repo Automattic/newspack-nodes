@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-25
+
 ### Added
 - **Debug rows + offset jump in both viewers.** A Debug toggle switches the
   list into an unvirtualized ID · KEY · VALUE regime: the message-ID
