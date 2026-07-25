@@ -321,6 +321,51 @@ describe( 'LogViewer', () => {
 		expect( ths ).toEqual( [ 'ID', 'Value' ] );
 	} );
 
+	it( 'pasting a full message ID jumps paused and steps that message', async () => {
+		registerViewFixture( { selected: 'gate' } );
+		const { container } = render( <LogViewer /> );
+		const input = container.querySelector( '.newspack-nodes-offset-input' );
+		fireEvent.change( input, { target: { value: '3:120:30' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+		expect( seek ).toHaveBeenCalledWith( 'gate', {
+			gate: { segment: 3, offset: 120 },
+		} );
+		await act( async () => {} );
+		expect( step ).toHaveBeenCalled();
+	} );
+
+	it( 'garbage in the offset input is ignored', () => {
+		registerViewFixture( { selected: 'gate' } );
+		const { container } = render( <LogViewer /> );
+		const input = container.querySelector( '.newspack-nodes-offset-input' );
+		fireEvent.change( input, { target: { value: 'nonsense-9x' } } );
+		fireEvent.keyDown( input, { key: 'Enter' } );
+		expect( seek ).not.toHaveBeenCalled();
+		expect( setPaused ).not.toHaveBeenCalled();
+	} );
+
+	it( 'no selected source: the rail-maintenance interval stays unarmed', () => {
+		jest.useFakeTimers();
+		registerViewFixture( { selected: '' } );
+		render( <LogViewer /> );
+		act( () => {
+			jest.advanceTimersByTime( 10000 );
+		} );
+		expect( fetchSources ).not.toHaveBeenCalled();
+		jest.useRealTimers();
+	} );
+
+	it( 'the pause button toggles through the graph callback', () => {
+		registerViewFixture( { selected: 'php' } );
+		const { container } = render( <LogViewer /> );
+		const pause = [ ...container.querySelectorAll( 'button' ) ].find(
+			( b ) => '⏸' === b.textContent
+		);
+		fireEvent.click( pause );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+	} );
+
 	it( 'a capped count reads visible/total, with no debug-cap banner', () => {
 		registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
