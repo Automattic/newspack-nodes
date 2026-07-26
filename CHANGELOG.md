@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **A user topology no longer shadows a stock one.** `Topology_Registry::resolve()`
+  checked the writable user dir first on a bare `is_file()`, so write access to
+  that directory was code execution: plant `<active-name>.tsl` and every worker
+  spawn ran your graph instead of the plugin's, with full interpreter authority.
+  Stock dirs now own their names and the user dir serves the rest. `save`
+  refuses a stock name outright rather than writing a file resolution would
+  ignore, and points at the pattern that replaces it — save under a new name and
+  `include` the stock one, which shadowing actively prevented (including the
+  name you shadow resolves to yourself and is refused as a cycle).
+
 ## [2.0.1] - 2026-07-26
 
 ### Added

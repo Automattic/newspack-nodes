@@ -2,7 +2,8 @@
 /**
  * Topology_Registry — name → .tsl path resolver.
  *
- * Plugins register stock dirs; the writable user dir shadows stock by name.
+ * Plugins register stock dirs, which own their names; the writable user dir
+ * serves only names no stock dir provides.
  * Resolution: user dir first, then each stock dir in registration order.
  *
  * @package Newspack_Nodes
@@ -108,16 +109,17 @@ class Topology_Registry {
 	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
 	 */
 	public static function resolve( string $name ): ?string {
-		if ( '' !== self::$user_dir ) {
-			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \is_file( $user_path ) ) {
-				return $user_path;
-			}
-		}
+		// Stock owns its names: shadowing made a writable dir code execution.
 		foreach ( self::$stock_dirs as $dir ) {
 			$path = $dir . '/' . $name . '.tsl';
 			if ( \is_file( $path ) ) {
 				return $path;
+			}
+		}
+		if ( '' !== self::$user_dir ) {
+			$user_path = self::$user_dir . '/' . $name . '.tsl';
+			if ( \is_file( $user_path ) ) {
+				return $user_path;
 			}
 		}
 		return null;
