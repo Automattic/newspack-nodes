@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A refused command logs ONCE, under the node that refused it.** `verify()`
+  looked its logger up as a hardcoded `_command_interpreter`, so on any other
+  interpreter the reason was logged under the wrong node AND the flag it set to
+  suppress the follow-up generic `unauthorized:` was read off a different
+  object — two lines per refusal, neither naming the right node. The handling
+  interpreter now passes itself into `authorize`, which is where the reason
+  belongs. `authorize` closures take `( Command_Interpreter_Node $ci, array
+  $message )`.
+- **A refused session is renewed instead of retried forever.** Nothing called
+  `renewSession()`, so once the server forgot a session — evicted, or lost to a
+  restart — the browser re-sent the same dead handle on every tick. A reply
+  carrying `unauthorized:` / `verification failed` now drops the session.
+- **Re-auth backs off.** Renewal alone would spin: mint, refused, renew, mint.
+  `ensureSession()` now refuses without a round trip inside a widening
+  cooldown (1s → 30s), so a persistently broken session costs one `/auth` per
+  window rather than one per tick. The browser was observed at ~150 req/s.
+  Renewal arms the cooldown too: a session the server ISSUES and then still
+  refuses would otherwise loop at the poll rate — refuse, renew, re-auth.
+- **Emitters ask for a session instead of only skipping.** `readyToMint()`
+  replaces the bare `hasSession()` gate in `Node::mint()` and `FetcherNode`: the
+  tick that finds the session gone is the tick that re-auths, so an eviction or
+  a server restart heals itself rather than leaving the page permanently silent.
+
 ### Added
 - **Command session keys (`Command_Auth`).** `mint_session()` issues a random
   key under a random handle; `store_session()`/`load_session()` persist it, and

@@ -164,7 +164,7 @@ class CommandAuthTest extends TestCase {
 		$m[ Message::TIMESTAMP ] = \time(); // real clock: verify() compares against time() with no $now pin
 		Command_Auth::sign( $m );
 		$verify = Command_Auth::verifier();
-		$this->assertTrue( $verify( $m ) );
+		$this->assertTrue( $verify( new Command_Interpreter_Node(), $m ) );
 	}
 
 	public function test_verifier_closure_accepts_in_process_local_without_signature(): void {
@@ -172,13 +172,13 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command(); // unsigned
 		$m[ Message::LOCAL ] = true;
 		$verify = Command_Auth::verifier();
-		$this->assertTrue( $verify( $m ) );
+		$this->assertTrue( $verify( new Command_Interpreter_Node(), $m ) );
 	}
 
 	public function test_verifier_closure_rejects_unsigned_wire_command(): void {
 		$m = $this->command(); // no LOCAL, no auth — as an IPC command would arrive
 		$verify = Command_Auth::verifier();
-		$this->assertFalse( $verify( $m ) );
+		$this->assertFalse( $verify( new Command_Interpreter_Node(), $m ) );
 	}
 
 	public function test_non_command_value_without_name_is_rejected_by_verify(): void {
