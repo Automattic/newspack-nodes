@@ -423,10 +423,10 @@ function nodeHasTarget( node, catalog ) {
 	return node.has_target ?? schema?.has_target ?? true;
 }
 
-// Tee-family fan-out per catalog is_tee; falls back to runtime target shape.
-function isTeeNode( node, catalog ) {
+// Fan-out per catalog fans_out; falls back to the runtime target shape.
+function nodeFansOut( node, catalog ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class );
-	return schema?.is_tee ?? Array.isArray( node.target );
+	return schema?.fans_out ?? Array.isArray( node.target );
 }
 
 // Tee fans out to many targets; everything else has a single target.
@@ -438,10 +438,10 @@ function TargetsField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Tee-family fan-out (catalog is_tee) gets the multi-target editor.
-	const isTee = isTeeNode( node, catalog );
+	// A fan-out node (catalog fans_out) gets the multi-target editor.
+	const fansOut = nodeFansOut( node, catalog );
 	const datalistId = `topology-targets-${ node.id }`;
-	if ( isTee ) {
+	if ( fansOut ) {
 		return (
 			<TeeTargetsField
 				node={ node }
@@ -1808,8 +1808,8 @@ export default function Inspector( {
 		to,
 	} ) );
 	const type = node.class;
-	// The tail/tap button keys off the catalog is_tee flag (any Tee subclass).
-	const isTee = isTeeNode( node, catalog );
+	// The tail/tap button keys off the catalog fans_out flag.
+	const fansOut = nodeFansOut( node, catalog );
 	// A consumer carries its read surface (frames + cursor) in dump_metadata.
 	const isConsumer = isConsumerNode( node );
 	// No streamStatus = no SSE stream (overlay reads its own Core, live).
@@ -2226,7 +2226,7 @@ export default function Inspector( {
 							? __( 'Stop Trace', 'newspack-nodes' )
 							: __( 'Trace', 'newspack-nodes' ) }
 					</button>
-					{ isTee && (
+					{ fansOut && (
 						<button
 							type="button"
 							className={ `button is-compact${

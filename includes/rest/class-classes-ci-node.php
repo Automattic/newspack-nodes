@@ -89,8 +89,8 @@ class Classes_CI_Node extends Service_CI_Node {
 					'has_target'   => (bool) ( $schema['has_target']   ?? true ),
 					// Interpreter node → bare target, else <name>:config.
 					'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
-					// Tee-family flag → Inspector multi-chip editor + tail.
-					'is_tee'         => \is_a( $fqcn, Tee_Node::class, true ),
+					// Fan-out (target LIST) → multi-chip editor + tail.
+					'fans_out'         => Core::class_fans_out( $fqcn ),
 				];
 			}
 		}

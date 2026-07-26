@@ -934,7 +934,7 @@ describe( 'draftGraph', () => {
 
 	describe( 'applyLoadedBaseline', () => {
 		it.each( [ 'Tap', 'Wombat_Fanout' ] )(
-			'uses catalog is_tee fan-out semantics for an own %s node',
+			'uses catalog fans_out semantics for an own %s node',
 			( shellName ) => {
 				const parsed = parseTsl(
 					[
@@ -945,7 +945,7 @@ describe( 'draftGraph', () => {
 						'connect_node zebra-fanout llama-sink',
 					].join( '\n' )
 				);
-				const catalog = [ { shell_name: shellName, is_tee: true } ];
+				const catalog = [ { shell_name: shellName, fans_out: true } ];
 
 				expect(
 					applyLoadedBaseline( parsed, null, catalog ).edges
@@ -1011,7 +1011,7 @@ describe( 'draftGraph', () => {
 				opened,
 				'zebra-source',
 				'llama-next',
-				[ { shell_name: 'Echo', is_tee: false } ]
+				[ { shell_name: 'Echo', fans_out: false } ]
 			);
 			expect( edited.edges ).toEqual( [
 				{
@@ -1674,7 +1674,7 @@ describe( 'draftGraph', () => {
 					{
 						name: 'zebra:tee',
 						class: 'Tee',
-						is_tee: true,
+						fans_out: true,
 						args: [],
 						origin: [ 'base' ],
 						via: [ 'base' ],

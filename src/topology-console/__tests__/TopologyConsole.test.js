@@ -1884,8 +1884,8 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'edit mode: handleConnect uses catalog Tee semantics for an own Tap', async () => {
 		globalThis.__catalog.classes = [
-			{ shell_name: 'Tap', is_tee: true, has_target: true },
-			{ shell_name: 'Echo', is_tee: false, has_target: true },
+			{ shell_name: 'Tap', fans_out: true, has_target: true },
+			{ shell_name: 'Echo', fans_out: false, has_target: true },
 		];
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl:
@@ -3105,8 +3105,8 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'handleOpenPick uses the PHP class catalog when opened from local view', async () => {
 		globalThis.__catalog.classes = [
-			{ shell_name: 'Tap', is_tee: true },
-			{ shell_name: 'Echo', is_tee: false },
+			{ shell_name: 'Tap', fans_out: true },
+			{ shell_name: 'Echo', fans_out: false },
 		];
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: [
@@ -3177,8 +3177,8 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			resolveCatalog( {
 				classes: [
-					{ shell_name: 'WombatFanout357', is_tee: true },
-					{ shell_name: 'Echo', is_tee: false },
+					{ shell_name: 'WombatFanout357', fans_out: true },
+					{ shell_name: 'Echo', fans_out: false },
 				],
 				formatters: [],
 			} );
@@ -3226,8 +3226,8 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			resolveCatalog( {
 				classes: [
-					{ shell_name: 'WombatModeFanout863', is_tee: true },
-					{ shell_name: 'Echo', is_tee: false },
+					{ shell_name: 'WombatModeFanout863', fans_out: true },
+					{ shell_name: 'Echo', fans_out: false },
 				],
 				formatters: [],
 			} );

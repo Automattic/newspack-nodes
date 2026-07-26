@@ -450,7 +450,7 @@ class Topology_Registry {
 	 *
 	 * @param list<string> $include_names Directly-declared includes.
 	 *
-	 * @return array{nodes: list<array{name: string, class: string, is_tee: bool, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
+	 * @return array{nodes: list<array{name: string, class: string, fans_out: bool, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names ): array {
@@ -473,7 +473,7 @@ class Topology_Registry {
 	 *
 	 * @param array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
-	 * @param array<string, array{name: string, class: string, is_tee: bool, args: list<string>, verbs: list<array{verb: string, args: list<string>}>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string, array{name: string, class: string, fans_out: bool, args: list<string>, verbs: list<array{verb: string, args: list<string>}>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
 	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
@@ -494,7 +494,7 @@ class Topology_Registry {
 			$nodes[ $name ] = [
 				'name'   => $name,
 				'class'  => $class,
-				'is_tee' => self::type_is_tee( $class ),
+				'fans_out' => self::type_fans_out( $class ),
 				'args'   => \array_slice( $spans, 3 ),
 				'verbs'  => [],
 				'origin' => $origins,
@@ -504,14 +504,14 @@ class Topology_Registry {
 		}
 		if ( 'disconnect_node' === $verb ) {
 			$source = $values[1] ?? '';
-			$is_tee = $nodes[ $source ]['is_tee'] ?? false;
-			self::disconnect_edge( $edges, $source, $values[2] ?? null, $is_tee );
+			$fans_out = $nodes[ $source ]['fans_out'] ?? false;
+			self::disconnect_edge( $edges, $source, $values[2] ?? null, $fans_out );
 			return;
 		}
 		if ( 'connect_node' === $verb ) {
 			$source = $values[1] ?? '';
-			$is_tee = $nodes[ $source ]['is_tee'] ?? false;
-			self::connect_edge( $edges, $source, $values[2] ?? '', $origins, $is_tee );
+			$fans_out = $nodes[ $source ]['fans_out'] ?? false;
+			self::connect_edge( $edges, $source, $values[2] ?? '', $origins, $fans_out );
 			return;
 		}
 		if ( 'command_node' === $verb ) {
@@ -536,7 +536,9 @@ class Topology_Registry {
 	}
 
 	/**
-	 * True when a TSL class token resolves to Tee fan-out semantics.
+	 * True when a TSL class token resolves to a Tee-family PASS-THROUGH node.
+	 * Narrower than fan-out on purpose: this drives the `tee` layout kind, which
+	 * the dashboard contracts out of the graph. A minter is a destination.
 	 */
 	private static function type_is_tee( string $type ): bool {
 		if ( 'Tee' === $type ) {
@@ -544,6 +546,17 @@ class Topology_Registry {
 		}
 		$fqcn = Command_Interpreter_Node::resolve_class( $type );
 		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
+	}
+
+	/**
+	 * True when a TSL class token resolves to a class that keeps a target LIST.
+	 */
+	private static function type_fans_out( string $type ): bool {
+		if ( 'Tee' === $type ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && Core::class_fans_out( $fqcn );
 	}
 
 	/**
@@ -555,13 +568,13 @@ class Topology_Registry {
 	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
 	 */
-	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $is_tee ): void {
-		if ( $is_tee && null === $target ) {
+	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
+		if ( $fans_out && null === $target ) {
 			return;
 		}
 		foreach ( \array_keys( $edges ) as $key ) {
 			$edge = $edges[ $key ];
-			if ( $edge['from'] !== $source || ( $is_tee && $edge['to'] !== $target ) ) {
+			if ( $edge['from'] !== $source || ( $fans_out && $edge['to'] !== $target ) ) {
 				continue;
 			}
 			$remaining = self::without_connect_role( $edge );
@@ -600,8 +613,8 @@ class Topology_Registry {
 	 * @param list<string> $origins Top-level includes providing the connection.
 	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
 	 */
-	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $is_tee ): void {
-		if ( ! $is_tee ) {
+	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
+		if ( ! $fans_out ) {
 			$current_key = $source . "\0" . $target;
 			foreach ( \array_keys( $edges ) as $key ) {
 				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
@@ -941,7 +954,7 @@ class Topology_Registry {
 				'Log'       => 'log',
 				default     => 'logic',
 			};
-			// An unknown Tee subclass (e.g. Tap) also gets 'tee'.
+			// Tee subclasses only: 'tee' is contracted out of the graph.
 			if ( 'logic' === $kind && self::type_is_tee( $cls ) ) {
 				return 'tee';
 			}
@@ -1002,14 +1015,14 @@ class Topology_Registry {
 			}
 			if ( 'disconnect_node' === $verb ) {
 				$source = $values[1] ?? '';
-				$is_tee = isset( $types[ $source ] ) && self::type_is_tee( $types[ $source ] );
-				self::disconnect_edge( $edges, $source, $values[2] ?? null, $is_tee );
+				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
+				self::disconnect_edge( $edges, $source, $values[2] ?? null, $fans_out );
 				continue;
 			}
 			if ( 'connect_node' === $verb ) {
 				$source = $values[1] ?? '';
-				$is_tee = isset( $types[ $source ] ) && self::type_is_tee( $types[ $source ] );
-				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $is_tee );
+				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
+				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $fans_out );
 				continue;
 			}
 			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )

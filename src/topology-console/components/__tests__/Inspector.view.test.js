@@ -1080,8 +1080,8 @@ describe( 'Inspector (view mode)', () => {
 		);
 	} );
 
-	it( 'shows the tail/tap button for a Tee SUBCLASS driven by the catalog is_tee flag', () => {
-		// Tail button keys off catalog is_tee, not the runtime target shape.
+	it( 'shows the tail/tap button for a Tee SUBCLASS driven by the catalog fans_out flag', () => {
+		// Tail button keys off catalog fans_out, not the runtime target shape.
 		const tapAction = jest.fn();
 		const tapNode = {
 			id: 'tap_a',
@@ -1096,7 +1096,7 @@ describe( 'Inspector (view mode)', () => {
 				selectedId="tap_a"
 				parsed={ { nodes: [ tapNode ], edges: [] } }
 				nodeIds={ new Set( [ 'tap_a' ] ) }
-				catalog={ [ { shell_name: 'Tap', is_tee: true } ] }
+				catalog={ [ { shell_name: 'Tap', fans_out: true } ] }
 				onAction={ tapAction }
 			/>
 		);

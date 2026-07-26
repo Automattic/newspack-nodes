@@ -310,8 +310,8 @@ class TopologyRegistryExpandTest extends TestCase {
 			$by_name[ $node['name'] ] = $node;
 		}
 
-		$this->assertFalse( $by_name['zebra-source']['is_tee'] );
-		$this->assertTrue( $by_name['zebra:tee']['is_tee'] );
+		$this->assertFalse( $by_name['zebra-source']['fans_out'] );
+		$this->assertTrue( $by_name['zebra:tee']['fans_out'] );
 		$this->assertSame(
 			[
 				[
@@ -359,7 +359,7 @@ class TopologyRegistryExpandTest extends TestCase {
 
 		$out = Topology_Registry::expand( [ 'wombat-tap-fanout' ] );
 
-		$this->assertTrue( $out['nodes'][0]['is_tee'] );
+		$this->assertTrue( $out['nodes'][0]['fans_out'] );
 		$this->assertSame(
 			[
 				[

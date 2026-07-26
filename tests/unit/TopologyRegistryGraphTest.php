@@ -381,6 +381,56 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Fan-out is the `Fanout_Targets` trait, not the Tee class. Settings_Sync and
+	 * ELN's Discovery_Collector are Timer_Node subclasses that keep a target LIST
+	 * and mint one signed command per spoke; testing for a Tee ancestor calls them
+	 * single-target, so the graph collapses the second edge and the console offers
+	 * no way to wire a hub to more than one spoke.
+	 */
+	public function test_graph_for_applies_fanout_to_a_trait_using_non_tee_class(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl(
+			'wombat-trait-fanout',
+			"make_node Settings_Sync zebra:sync\n"
+			. "make_node Echo giraffe-spoke\n"
+			. "make_node Echo llama-spoke\n"
+			. "connect_node zebra:sync giraffe-spoke\n"
+			. "connect_node zebra:sync llama-spoke\n"
+		);
+
+		$this->assertSame(
+			[
+				[ 'zebra:sync', 'giraffe-spoke' ],
+				[ 'zebra:sync', 'llama-spoke' ],
+			],
+			Topology_Registry::graph_for( 'wombat-trait-fanout' )['edges']
+		);
+	}
+
+	/**
+	 * Fan-out is not the layout kind. `kind: 'tee'` marks a pass-through hop the
+	 * dashboard CONTRACTS out of the graph (x->T, T->y becomes x->y), which is
+	 * right for a Tee and wrong for a minter: Settings_Sync is a destination that
+	 * signs per spoke, and classing it 'tee' erases it from the topology view.
+	 */
+	public function test_graph_for_keeps_a_trait_fanout_minter_out_of_the_tee_layout_kind(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl(
+			'wombat-minter-kind',
+			"make_node Settings_Sync zebra:sync\n"
+			. "make_node Tee giraffe:tee\n"
+		);
+
+		$nodes = [];
+		foreach ( Topology_Registry::graph_for( 'wombat-minter-kind' )['nodes'] as $node ) {
+			$nodes[ $node['name'] ] = $node['kind'];
+		}
+
+		$this->assertSame( 'logic', $nodes['zebra:sync'] );
+		$this->assertSame( 'tee', $nodes['giraffe:tee'] );
+	}
+
 	public function test_graph_for_expands_includes_so_a_borrowed_partition_is_not_a_hole(): void {
 		$this->write_tsl(
 			'wombat-base',

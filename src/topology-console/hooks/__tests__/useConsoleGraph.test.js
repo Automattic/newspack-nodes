@@ -951,7 +951,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			classes: [
 				{
 					shell_name: 'Wombat_Flame_Builder_619',
-					is_tee: false,
+					fans_out: false,
 					commands: [
 						{
 							name: 'set_stats_target',
@@ -959,7 +959,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 						},
 					],
 				},
-				{ shell_name: 'Echo', is_tee: false, commands: [] },
+				{ shell_name: 'Echo', fans_out: false, commands: [] },
 			],
 			formatters: [],
 		} );
@@ -1051,8 +1051,8 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		await act( async () => {
 			resolveCatalog( {
 				classes: [
-					{ shell_name: 'WombatSeedFanout731', is_tee: true },
-					{ shell_name: 'Echo', is_tee: false },
+					{ shell_name: 'WombatSeedFanout731', fans_out: true },
+					{ shell_name: 'Echo', fans_out: false },
 				],
 				formatters: [],
 			} );

@@ -54,7 +54,7 @@ const EMPTY_TRANSCRIPT = [];
  * @param {string[]} params.workers       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
  * @param {boolean}  params.streamEnabled Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
  * @param {Object}   params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @param {Function} params.loadCatalog   Load the PHP class catalog with `is_tee` flags.
+ * @param {Function} params.loadCatalog   Load the PHP class catalog with `fans_out` flags.
  * @return {Object} Connection state, the anonymous Shell, and any pre-metadata
  *                  seed failure.
  */

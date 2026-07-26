@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-07-26
+
+### Fixed
+- **A fan-out node that isn't a Tee can finally fan out.** The capability was
+  tested as descent from `Tee_Node`, but the minters that sign one command per
+  spoke — `Settings_Sync`, and ELN's `Discovery_Collector` — are `Timer_Node`
+  subclasses that fan out by USING the `Fanout_Targets` trait. The graph model
+  therefore read each `connect_node` after the first as a retarget and dropped
+  the earlier edge, and the class catalog told the console they were
+  single-target, so there was no way to wire a hub to two spokes. One shared
+  `Core::class_fans_out()` now tests the trait through the hierarchy, which
+  subsumes the Tee check since `Tee_Node` uses the trait.
+
+  The `tee` LAYOUT kind keeps the narrower Tee-descent test. It marks a
+  pass-through hop the dashboard contracts out of the graph (`x→T, T→y` becomes
+  `x→y`), which is right for a Tee and wrong for a minter — classing one 'tee'
+  would erase it from the topology view.
+
+### Changed
+- **The catalog flag is `fans_out`, not `is_tee`** (JS: `fansOut`). It never
+  meant "is a Tee" and now provably doesn't; a name that describes the class
+  rather than the capability is what let the two drift apart in the first place.
+  The `kind: 'tee'` layout value is unchanged — that one really is about Tees.
+
 ## [2.1.1] - 2026-07-26
 
 ### Fixed
