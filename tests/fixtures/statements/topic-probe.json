@@ -57,5 +57,16 @@
         ],
         "raw": "connect_node _topicprobe _topicprobe:log",
         "line": 3
+    },
+    {
+        "verb": "secure",
+        "values": [
+            "secure"
+        ],
+        "spans": [
+            "secure"
+        ],
+        "raw": "secure",
+        "line": 4
     }
 ]

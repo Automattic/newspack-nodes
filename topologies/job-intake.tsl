@@ -11,3 +11,4 @@ make_node Consumer jobintake:consumer <config:logs_dir>/jobintake.p<partition> <
 make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition>
 cmd jobs:partition:config void_warranty
 connect_node jobintake:consumer jobs:partition
+secure

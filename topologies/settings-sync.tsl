@@ -39,3 +39,4 @@ cmd settings-sync:config add_setting newspack_nodes_remote_lifetime settings new
 cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments
 
 connect_node settings:consumer settings-sync
+secure

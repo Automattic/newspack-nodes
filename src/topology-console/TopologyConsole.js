@@ -1270,6 +1270,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setDraft( ( g ) => ( { ...g, frontmatter: nextFrontmatter } ) );
 	}, [] );
 
+	// Not frontmatter: serializeTsl emits it as the file's last statement.
+	const handleSecureLevelChange = useCallback( ( next ) => {
+		setDraft( ( g ) => ( { ...g, secureLevel: next } ) );
+	}, [] );
+
 	// Opening a topology lands you in the editor, from live too — like New.
 	const handleOpenPick = useCallback(
 		async ( name ) => {
@@ -1850,7 +1855,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					key={ editingName || 'untitled' }
 					frontmatter={ draft.frontmatter || {} }
 					configDefaultPartitions={ configDefaultPartitions }
+					secureLevel={ draft.secureLevel || '' }
 					onChange={ handleFrontmatterChange }
+					onSecureLevelChange={ handleSecureLevelChange }
 					onClose={ () => setSettingsOpen( false ) }
 				/>
 			) }

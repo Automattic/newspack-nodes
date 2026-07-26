@@ -27,6 +27,8 @@ export function parseTsl( text ) {
 	const disconnects = [];
 	const edgeOperations = [];
 	const configOverrides = [];
+	// '' = declares nothing; 'insecure' or '1'|'2'|'3'.
+	let secureLevel = '';
 
 	for ( const { verb, values, spans } of parseStatements( text ) ) {
 		if ( 'var' === verb ) {
@@ -37,6 +39,10 @@ export function parseTsl( text ) {
 			if ( '' !== key ) {
 				frontmatter[ key ] = assignment.slice( eq + 1 ).trim();
 			}
+		} else if ( 'insecure' === verb ) {
+			secureLevel = 'insecure';
+		} else if ( 'secure' === verb ) {
+			secureLevel = values[ 1 ] ?? '1';
 		} else if ( 'include' === verb && values.length >= 2 ) {
 			if ( ! includes.includes( values[ 1 ] ) ) {
 				includes.push( values[ 1 ] );
@@ -99,6 +105,7 @@ export function parseTsl( text ) {
 		nodes,
 		edges,
 		frontmatter,
+		secureLevel,
 		includes,
 		disconnects,
 		edgeOperations,

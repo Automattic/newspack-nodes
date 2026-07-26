@@ -79,5 +79,16 @@
         ],
         "raw": "connect_node jobintake:consumer jobs:partition",
         "line": 13
+    },
+    {
+        "verb": "secure",
+        "values": [
+            "secure"
+        ],
+        "spans": [
+            "secure"
+        ],
+        "raw": "secure",
+        "line": 14
     }
 ]
