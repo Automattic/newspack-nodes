@@ -260,7 +260,7 @@ class SseInTest extends TestCase {
 
 	public function test_reconnect_reregisters_the_multi(): void {
 		// After detach_handle unregisters, a reconnect must re-register — else a
-		// base Remote_Link / Remote_IPC channel reconnects but is never serviced.
+		// base Remote_Link channel reconnects but is never serviced.
 		Event_Framework::reset();
 		[ $node ] = $this->configured_node();
 		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {

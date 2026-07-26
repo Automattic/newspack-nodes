@@ -405,6 +405,14 @@ class Admin {
 		self::render_number( 'remote_num_segments', 2, 2, 16, \__( 'Count-rule target: number of log segments to keep on remote servers (2-16).', 'newspack-nodes' ) );
 	}
 
+	public static function remote_min_segments_callback(): void {
+		self::render_number( 'remote_min_segments', 2, 2, 16, \__( 'Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime.', 'newspack-nodes' ) );
+	}
+
+	public static function remote_lifetime_callback(): void {
+		self::render_number( 'remote_lifetime', 0, 0, 604800, \__( 'Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled.', 'newspack-nodes' ) );
+	}
+
 	public static function remote_max_segments_callback(): void {
 		self::render_number( 'remote_max_segments', 0, 0, 64, \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
 	}
@@ -1036,6 +1044,22 @@ class Admin {
 			return '';
 		}
 		return \max( 2, \min( 16, \absint( $value ) ) );
+	}
+
+	/** Sanitize the remote min_segments floor: clamp to [2, 16], or '' when unset. */
+	public static function sanitize_remote_min_segments( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 2, \min( 16, \absint( $value ) ) );
+	}
+
+	/** Sanitize the remote lifetime age rule: clamp to [0, 604800], or '' when unset. */
+	public static function sanitize_remote_lifetime( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 0, \min( 604800, \absint( $value ) ) );
 	}
 
 	/**

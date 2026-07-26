@@ -137,9 +137,12 @@ class Settings_Sync_Node extends Timer_Node {
 		}
 		// One signed command per spoke; re-addressing post-mint can't verify.
 		foreach ( $this->live_targets() as $target ) {
-			$spoke = $this->spoke_for( $target );
+			$egress = $this->egress_for( $target );
+			$spoke  = $egress?->vault_id() ?? '';
 			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
 				$this->print_less_often( 'settings-sync: no session for ', $target, '; skipping this push' );
+				// Skipping alone deadlocks: someone must ask for the handshake.
+				$egress?->ensure_session();
 				continue;
 			}
 			$out                   = Message::new_message();
@@ -155,11 +158,11 @@ class Settings_Sync_Node extends Timer_Node {
 		}
 	}
 
-	/** The vault id a target egress speaks for; '' when it is not one. */
-	private function spoke_for( string $target ): string {
+	/** The egress a target names; a target may be a path, so resolve its head. */
+	private function egress_for( string $target ): ?HTTP_Out_Node {
 		[ $head ] = Message::split_first( $target );
 		$node     = Core::node( $head );
-		return $node instanceof HTTP_Out_Node ? $node->vault_id() : '';
+		return $node instanceof HTTP_Out_Node ? $node : null;
 	}
 
 	// Flatten to one token: arrays become JSON, scalars stringify; null if bad.

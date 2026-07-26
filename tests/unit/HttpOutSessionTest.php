@@ -60,12 +60,83 @@ class HttpOutSessionTest extends TestCase {
 		return $m;
 	}
 
+	private function last_handle( HTTP_Out_Node $node ): \CurlHandle {
+		$inflight = $this->read_private( $node, 'inflight' );
+		$entry    = \end( $inflight );
+		return $entry['handle'];
+	}
+
 	/** @param array<int,array<int,mixed>> $captured */
 	private function capture( array &$captured ): void {
 		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured ): \CurlHandle|false {
 			$captured[] = $opts;
 			return \curl_init();
 		};
+	}
+
+	/**
+	 * The bootstrap must not need traffic to start. Every minter refuses to
+	 * emit without a session (it cannot sign), so if the handshake only ran
+	 * when a batch was already queued, neither side could ever move: the
+	 * settings pushes and the Remote_Link heartbeat both went silent forever,
+	 * and a suppressed heartbeat let the spoke close the SSE stream.
+	 */
+	public function test_a_session_less_tick_runs_the_handshake_with_nothing_queued(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture( $captured );
+		$node = $this->make_node( self::SPOKE );
+
+		$node->fire(); // nothing enqueued, no session
+
+		$this->assertCount( 1, $captured, 'a session-less tick must reach out' );
+		$this->assertStringEndsWith(
+			'/wp-json/newspack-nodes/v1/auth',
+			(string) $captured[0][ \CURLOPT_URL ]
+		);
+	}
+
+	/** With a session in hand and nothing queued, a tick stays silent. */
+	public function test_an_established_tick_with_nothing_queued_sends_nothing(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Command_Auth::remember_session( self::SPOKE, 'handle-7', 'key-7' );
+		$captured = [];
+		$this->capture( $captured );
+		$node = $this->make_node( self::SPOKE );
+
+		$node->fire();
+
+		$this->assertSame( [], $captured );
+	}
+
+	/**
+	 * A spoke that evicted our session (or restarted) answers 401. Without
+	 * dropping the handle we would re-sign with a dead one forever — only a
+	 * process restart cleared it, since has_session() stayed true locally.
+	 */
+	public function test_a_401_forgets_the_session_and_re_authenticates(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		Command_Auth::remember_session( self::SPOKE, 'stale-handle', 'stale-key' );
+		$captured = [];
+		$this->capture( $captured );
+		$node = $this->make_node( self::SPOKE );
+		$node->fill( $this->a_command() );
+		$node->fire(); // POSTs /command with the stale handle
+		$easy = $this->last_handle( $node );
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 401, 'body' => '' ];
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $easy, 'result' => \CURLE_OK ] );
+
+		$this->assertFalse(
+			Command_Auth::has_session( self::SPOKE ),
+			'a 401 must drop the dead handle'
+		);
+		$node->fire();
+		$this->assertStringEndsWith(
+			'/wp-json/newspack-nodes/v1/auth',
+			(string) $captured[ \array_key_last( $captured ) ][ \CURLOPT_URL ],
+			'the next tick must re-authenticate'
+		);
 	}
 
 	public function test_fire_runs_the_auth_handshake_before_sending_any_command(): void {

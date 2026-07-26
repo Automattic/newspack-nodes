@@ -18,6 +18,7 @@ import {
 	TO,
 	VALUE,
 	TM_COMMAND,
+	TM_ERROR,
 	TM_PING,
 	TM_RESPONSE,
 	TM_BYTESTREAM,
@@ -420,6 +421,56 @@ describe( 'HttpOut wire-inbound clause', () => {
 	/** The `log` broadcast: minted unaddressed, dropped by _router until now. */
 	it( 'stamps TO=target on an unaddressed non-response', async () => {
 		const { node, seen } = replyWith( bytestream() );
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
+	} );
+
+	// Mirrors HttpOutTest::test_on_curl_message_forwards_a_command_error_reply.
+	it( 'forwards a command-error reply, as it does the success reply', async () => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_ERROR;
+		m[ TO ] = 'settings-sync';
+		m[ VALUE ] = { name: 'set', payload: 'unknown setting: x' };
+		const { node, seen } = replyWith( m );
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( 'settings-sync' );
+	} );
+
+	it( 'forwards a bare error reply, as it does a response', async () => {
+		const m = newMessage();
+		m[ TYPE ] = TM_ERROR;
+		m[ TO ] = 'settings-sync';
+		m[ VALUE ] = 'NOT_AVAILABLE';
+		const { node, seen } = replyWith( m );
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( 'settings-sync' );
+	} );
+
+	// Mirrors HttpOutTest::test_on_curl_message_stamps_an_undirected_error_onto_the_target.
+	it( 'stamps an undirected error onto the target', async () => {
+		const m = newMessage();
+		m[ TYPE ] = TM_ERROR;
+		m[ TO ] = '';
+		m[ VALUE ] = 'NOT_AVAILABLE';
+		const { node, seen } = replyWith( m );
 		node.target = '_output';
 
 		node.fill( routed( { to: 'topologies' } ) );

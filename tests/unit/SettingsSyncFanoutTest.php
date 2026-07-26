@@ -38,6 +38,7 @@ class SettingsSyncFanoutTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		HTTP_Out_Node::$curl_dispatch = null;
 		Command_Auth::forget_session( 'tw0' );
 		Command_Auth::forget_session( 'tw1' );
 		Vault::get_instance()->reset_cache();
@@ -90,6 +91,33 @@ class SettingsSyncFanoutTest extends TestCase {
 		$this->assertSame( 'settings:tw1/settings', $sink->captured[1][ Message::TO ] );
 		$this->assertSame( $a['handle'], $sink->captured[0][ Message::VALUE ]['auth']['handle'] );
 		$this->assertSame( $b['handle'], $sink->captured[1][ Message::VALUE ]['auth']['handle'] );
+	}
+
+	/**
+	 * A target may be a PATH (`spoke/settings`), which is alive as long as its head
+	 * is. The deadlock-breaker has to resolve the head like `send_set` does — a
+	 * full-path lookup returns null, the handshake never runs, and the deadlock the
+	 * skip path exists to break survives silently.
+	 */
+	public function test_a_path_form_target_without_a_session_still_kicks_the_handshake(): void {
+		\update_option( 'newspack_nodes_max_segments', 8 );
+		$this->egress( 'settings:tw0', 'tw0' );
+		$posts                        = 0;
+		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ) use ( &$posts ): \CurlHandle {
+			++$posts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$sink = new Capture_Sink_Node();
+		$node = $this->minter( $sink );
+		$node->add_setting( [ 'newspack_nodes_max_segments', 'settings', 'newspack_nodes_max_segments' ] );
+		$node->connect_node( 'settings:tw0/settings' );
+
+		$this->push( $node );
+
+		$this->assertSame( [], $sink->captured, 'no session: nothing may be minted' );
+		$this->assertGreaterThan( 0, $posts, 'the skip path must ask for a handshake' );
 	}
 
 	/** No session, no signature, no command: a minter must not emit what will be refused. */

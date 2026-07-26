@@ -695,4 +695,46 @@ class DeadLetterQueueTest extends TestCase {
 
 		$this->assertSame( 'ok: purged 1 of 1 dead-letter segment(s)', $result );
 	}
+
+	/**
+	 * A sidecar whose dir is refused must not leave its NAME registered. The
+	 * builder named the node before applying arguments, so a containment throw
+	 * stranded the registration and every retry reported a name collision —
+	 * burying the real error behind a wrong one.
+	 */
+	public function test_refused_sidecar_dir_leaves_no_registration(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->name( 'orphan-probe' );
+		$outside = '/newspack-nodes-outside-any-base/dlq.p7';
+
+		try {
+			$d->build_dlq( $outside );
+			$this->fail( 'expected the containment check to refuse the dir' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringNotContainsString( 'collision', $e->getMessage() );
+		}
+
+		$this->assertNull(
+			\Newspack_Nodes\Core::node( 'orphan-probe:deadletter' ),
+			'a refused sidecar must not stay registered'
+		);
+	}
+
+	/** The retry reports the real refusal, not a collision with the stranded first attempt. */
+	public function test_refused_sidecar_repeats_the_real_error(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->name( 'orphan-retry' );
+		$outside = '/newspack-nodes-outside-any-base/dlq.p9';
+
+		$first = null;
+		try {
+			$d->build_dlq( $outside );
+		} catch ( \RuntimeException $e ) {
+			$first = $e->getMessage();
+		}
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( (string) $first );
+		$d->build_dlq( $outside );
+	}
 }

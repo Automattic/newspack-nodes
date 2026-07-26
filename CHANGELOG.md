@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A refused command answers 401, and the hub acts on it.** `/command` used to
+  ack a batch it had refused with a 202, so a hub whose session the spoke had
+  evicted re-signed under the same dead handle forever — the
+  `verification failed: unknown or expired session` line every ten seconds, and
+  no traffic. `HTTP_In` now latches any authorization refusal in the batch and
+  answers 401 (a batch shares one handle and one clock, so one refusal condemns
+  it), and `HTTP_Out` forgets the session on a 401 so the next tick
+  re-handshakes. Both status codes now go through the class's own
+  `send_header` seam rather than calling `\status_header()` directly.
+- **An unanswered heartbeat drops the session.** `Remote_Link` tracks a
+  heartbeat liveness clock — a reply advances it, the first beat starts it — and
+  when three cadences pass with no reply it forgets the session and re-auths.
+  This is the backstop for an eviction the spoke never gets to report: nothing
+  else notices, because `has_session()` stays true locally forever.
+- **The auth handshake no longer deadlocks on an idle link.** `HTTP_Out::fire()`
+  returned early on an empty batch, so a session-less egress with nothing queued
+  never ran `/auth` — and the two things that queue for it (the heartbeat and
+  the settings push) both skip while there is no session. Both now call
+  `ensure_session()` on the skip path, and a session-less tick handshakes even
+  with an empty batch.
+- **Directed `TM_COMMAND|TM_ERROR` reaches the graph.** `HTTP_Out`'s
+  wire-inbound clause (PHP and the JS `HttpOut` alike) accepted only
+  `TM_RESPONSE`, so a failed verb's reply — which is how the far side reports
+  `unknown setting`, a refused argument, anything — was dropped as "addressed
+  while target is set". An error is a reply however it is paired.
+- **A sidecar Partition no longer strands its registration.** Naming precedes
+  `arguments()` (ADR-11), so a dir the runtime refused left the name registered
+  and every retry reported `node name collision` instead of the real error. The
+  builder now removes the node before re-throwing.
+
+### Removed
+- **`Remote_IPC_Node` (PHP) is retired** to the museum. It never worked: its
+  `send()` minted a `connect_worker_input` and relayed the caller's command
+  without signing either, so a spoke refused the pair as `bad envelope`. Signing
+  the minted half is one call; the relayed half would make the hub a signing
+  proxy that lets a browser drive a remote worker on the hub's authority — the
+  server acting on the caller's behalf, which `secure 2` exists to switch off.
+  Nothing shipped constructed one. The browser-side `RemoteIpc`
+  (`src/runtime/remote-ipc-node.js`), which the topology console's `cd /{worker}`
+  uses, is a separate implementation and stays. `Remote_Link::is_streaming()`
+  went with it — it had no other caller.
+
+### Added
+- **The six `remote_*` settings actually reach the spoke.** They were pushed by
+  `Settings_Sync` but rejected by the spoke's `set` allowlist, so
+  `remote_segment_size` and its five siblings had never once been applied.
+  `Settings_CI_Node::ALLOWED_KEYS` accepts them, `Settings_Schema` declares
+  `remote_min_segments` and `remote_lifetime` (the two that had no Field at
+  all), and two new drift guards fail the suite if a pushed option is missing
+  from either list.
+
 ## [2.1.0] - 2026-07-26
 
 ### Added

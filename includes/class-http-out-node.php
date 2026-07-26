@@ -125,22 +125,22 @@ class HTTP_Out_Node extends Timer_Node {
 		$batch                   = $this->batch;
 		$this->batch             = [];
 		$this->batch_timer_armed = false;
-		if ( [] === $batch ) {
+		$established             = Command_Auth::has_session( $this->vault_id );
+		// No session: handshake now, or waiting for traffic deadlocks.
+		if ( [] === $batch && $established ) {
 			return;
 		}
 
 		$server = Vault::get_instance()->get( $this->vault_id );
 		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
 		if ( '' === $url ) {
-			$dropped = \count( $batch );
-			$this->print_less_often( 'no Vault entry / url; dropping ', (string) $dropped, ' message(s)' );
+			$this->drop_batch( $batch, 'no Vault entry / url' );
 			return;
 		}
 
 		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
 		if ( Config::value( 'vault_require_ssl' ) && ! \str_starts_with( $url, 'https://' ) ) {
-			$dropped = \count( $batch );
-			$this->print_less_often( 'vault_require_ssl set but url is not https; dropping ', (string) $dropped, ' message(s)' );
+			$this->drop_batch( $batch, 'vault_require_ssl set but url is not https' );
 			return;
 		}
 
@@ -148,7 +148,7 @@ class HTTP_Out_Node extends Timer_Node {
 		if ( ! \is_array( $server ) ) {
 			return;
 		}
-		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
+		if ( ! $established ) {
 			$this->batch = \array_merge( $batch, $this->batch );
 			$this->request_session( $server, $url );
 			return;
@@ -164,6 +164,33 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		$this->send( $server, $url . self::COMMAND_PATH, $body, 'command' );
+	}
+
+	/**
+	 * Run the handshake if this spoke has no session yet.
+	 *
+	 * A minter that cannot sign must call this instead of simply skipping: the
+	 * handshake used to need a queued batch to trigger it, and every minter
+	 * refuses to queue without a session, so neither side could ever move.
+	 */
+	public function ensure_session(): void {
+		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
+			$this->fire();
+		}
+	}
+
+	/**
+	 * Report a batch we could not deliver. Silent on an empty one: a session-less
+	 * tick reaches this path with nothing queued and has nothing to report.
+	 *
+	 * @param array<int, array<int, mixed>> $batch  The undelivered envelopes.
+	 * @param string                        $reason Why they could not be sent.
+	 */
+	private function drop_batch( array $batch, string $reason ): void {
+		if ( [] === $batch ) {
+			return;
+		}
+		$this->print_less_often( $reason, '; dropping ', (string) \count( $batch ), ' message(s)' );
 	}
 
 	/**
@@ -278,6 +305,10 @@ class HTTP_Out_Node extends Timer_Node {
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {
+				// 401: dead handle. Drop it or we re-sign with it forever.
+				if ( 401 === $res['code'] ) {
+					Command_Auth::forget_session( $this->vault_id );
+				}
 				if ( 202 !== $res['code'] ) {
 					$this->print_less_often( 'HTTP ', (string) $res['code'] );
 				}
@@ -339,19 +370,21 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862.
 	 *
-	 * A TM_RESPONSE self-routes by the TO the remote echoed off our own FROM
-	 * breadcrumb. Anything else on the reply leg is the remote addressing OUR
-	 * graph, and `target` decides what that means: unaddressed output (a `log`
-	 * broadcast, say) belongs to the target, while an addressed non-response
-	 * arriving while a target is set is the remote picking its own destination
-	 * inside us — refused. With no target neither arm engages.
+	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
+	 * off our own FROM breadcrumb. Anything else on the reply leg is the remote
+	 * addressing OUR graph, and `target` decides what that means: unaddressed
+	 * output (a `log` broadcast, say) belongs to the target, while an addressed
+	 * non-reply arriving while a target is set is the remote picking its own
+	 * destination inside us — refused. With no target neither arm engages.
 	 *
 	 * @param array<int, mixed> $reply Reply Message, mutated in place.
 	 * @return bool True if the reply may be forwarded to the sink.
 	 */
 	private function accept_inbound( array &$reply ): bool {
 		$type = Core::int( $reply[ Message::TYPE ], 0 );
-		if ( $type & Message::TM_RESPONSE ) {
+		$to   = Core::as_string( $reply[ Message::TO ] );
+		// A directed error is a reply too; undirected output is the target's.
+		if ( '' !== $to && $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) {
 			return true;
 		}
 		// Single-valued, like Tachikoma's owner; the array form is Tee's.
@@ -359,11 +392,8 @@ class HTTP_Out_Node extends Timer_Node {
 		if ( ! \is_string( $target ) || '' === $target ) {
 			return true;
 		}
-		if ( '' !== Core::as_string( $reply[ Message::TO ] ) ) {
-			// A bare TM_ERROR is refused just as quietly as it arrived.
-			if ( Message::TM_ERROR !== $type ) {
-				$this->drop_message( $reply, "message addressed while target is set to {$target}" );
-			}
+		if ( '' !== $to ) {
+			$this->drop_message( $reply, "message addressed while target is set to {$target}" );
 			return false;
 		}
 		$reply[ Message::TO ] = $target;

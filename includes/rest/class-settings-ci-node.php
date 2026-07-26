@@ -47,13 +47,20 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * @var array<string,int>
 	 */
 	private const ALLOWED_KEYS = [
-		'num_partitions' => 1,
-		'segment_size'   => 1,
-		'min_segments'   => 1,
-		'num_segments'   => 1,
-		'min_lifetime'   => 0,
-		'lifetime'       => 0,
-		'max_segments'   => 0,
+		'num_partitions'       => 1,
+		'segment_size'         => 1,
+		'min_segments'         => 1,
+		'num_segments'         => 1,
+		'min_lifetime'         => 0,
+		'lifetime'             => 0,
+		'max_segments'         => 0,
+		// The remote_* axes a hub pushes; same floors as their locals.
+		'remote_segment_size'  => 1,
+		'remote_min_segments'  => 1,
+		'remote_num_segments'  => 1,
+		'remote_min_lifetime'  => 0,
+		'remote_lifetime'      => 0,
+		'remote_max_segments'  => 0,
 	];
 
 	/**

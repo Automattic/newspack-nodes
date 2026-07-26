@@ -354,12 +354,121 @@ class RemoteLinkNodeTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A signed heartbeat that goes unanswered means the spoke evicted our session
+	 * (its `verification failed: unknown or expired session` line). Nothing else
+	 * notices: has_session() stays true here forever, so every beat is minted,
+	 * refused, and dropped. Drop it locally so the next tick re-handshakes.
+	 */
+	public function test_an_unanswered_heartbeat_drops_the_session(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+
+		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+		$this->assertCount( 1, $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ) );
+
+		// Three cadences of silence — no reply was ever filled back in.
+		Core::$now = Core::$now + ( Remote_Link_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
+		$node->fire();
+
+		$this->assertFalse(
+			Command_Auth::has_session( 'austin' ),
+			'an unanswered heartbeat must drop the session so the next tick re-auths'
+		);
+	}
+
+	/**
+	 * The skip path must spend the cadence, or the handshake loses its only
+	 * backoff: `ensure_session()` would run on every housekeeping tick — one
+	 * /auth per second, per link, for as long as the spoke keeps refusing.
+	 * The slot ttl is three cadences, so a beat deferred by one is free.
+	 */
+	public function test_a_session_less_tick_spends_the_heartbeat_cadence(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		Command_Auth::forget_session( 'austin' );
+
+		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+
+		// The handshake lands one second later; the cadence is already spent.
+		Command_Auth::remember_session( 'austin', \str_repeat( 'c', 32 ), 'reauthed-session-key' );
+		++Core::$now;
+		$node->fire();
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ),
+			'the skipped tick must have spent the cadence'
+		);
+
+		Core::$now = Core::$now + Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+		$this->assertCount( 1, $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ) );
+	}
+
+	/**
+	 * Forgetting must re-arm the clock, or the link wedges: the skip path returns
+	 * without advancing the beat, so the next tick re-measures the SAME silence
+	 * and forgets the session it just re-established — one /auth per tick forever,
+	 * and no heartbeat ever sent to answer.
+	 */
+	public function test_a_re_established_session_gets_a_fresh_window(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+
+		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+		Core::$now = Core::$now + ( Remote_Link_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
+		$node->fire();
+		$this->assertFalse( Command_Auth::has_session( 'austin' ) );
+
+		// The handshake lands; one tick later the fresh session must survive.
+		Command_Auth::remember_session( 'austin', \str_repeat( 'c', 32 ), 'reauthed-session-key' );
+		++Core::$now;
+		$node->fire();
+
+		$this->assertTrue(
+			Command_Auth::has_session( 'austin' ),
+			'a session one second old cannot already be three cadences stale'
+		);
+	}
+
+	/** The reply leg is what keeps the session: an answered beat never expires it. */
+	public function test_an_answered_heartbeat_keeps_the_session(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+
+		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
+		$node->fire();
+
+		Core::$now = Core::$now + ( Remote_Link_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
+		$reply                  = Message::new_message();
+		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$node->fill( $reply );
+		$node->fire();
+
+		$this->assertTrue( Command_Auth::has_session( 'austin' ) );
+	}
+
 	// The dashboard status snapshot (publish_status / record_heartbeat_* / write_status)
 	// is Remote_Source-only now — the base publishes nothing, so those cases live in
 	// RemoteSourceNodeTest. The base still SENDS the slot-keepalive heartbeat (above).
 
 	// ---------------------------------------------------------------------
-	// connect / close / is_streaming.
+	// connect / close.
 	// ---------------------------------------------------------------------
 
 	public function test_connect_opens_the_inbound_stream(): void {
@@ -388,18 +497,6 @@ class RemoteLinkNodeTest extends TestCase {
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->close();
 		$this->assertNull( Core::node( 'link-austin:sse-in' ) );
-	}
-
-	public function test_is_streaming_reflects_live_connection(): void {
-		$this->seed_vault();
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_link( 'link-austin' );
-
-		$ref = new \ReflectionMethod( $node, 'is_streaming' );
-		$this->assertFalse( $ref->invoke( $node ) );
-
-		$node->connect();
-		$this->assertTrue( $ref->invoke( $node ) );
 	}
 
 	// ---------------------------------------------------------------------

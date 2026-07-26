@@ -61,6 +61,21 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
+	 * Production wiring: Router + base interpreter, and NO pre-built `_output`.
+	 * `ensure_request_graph()` then names the dispatching controller `_output`
+	 * itself ("same obj"), so its response-writer path and its status decision
+	 * share one instance — which is what decides whether a 401 can still be sent.
+	 */
+	private function build_graph_sans_output(): Command_Interpreter_Node {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$base_interpreter = new Command_Interpreter_Node();
+		$base_interpreter->name( '_command_interpreter' );
+		$base_interpreter->sink( $router );
+		return $base_interpreter;
+	}
+
+	/**
 	 * Translate the named fields a test expresses into a packed 7-element
 	 * positional Message array (the wire shape `Message::unpacked()` requires)
 	 * — the same named→positional mapping the controller's now-deleted
@@ -342,6 +357,97 @@ class HTTPInTest extends TestCase {
 		\ob_get_clean();
 
 		$this->assertSame( [], $ran, 'a stale command must not execute' );
+	}
+
+	/**
+	 * A refused command means the sender's credentials did not work — a session
+	 * the spoke evicted, a skewed clock, a mangled envelope. A 202 tells the hub
+	 * all is well and it re-sends under the same dead handle forever; only a 401
+	 * makes HTTP_Out drop the session and re-handshake.
+	 */
+	public function test_a_refused_command_answers_401(): void {
+		$this->build_graph_sans_output();
+
+		$stale                       = Message::new_message();
+		$stale[ Message::TYPE ]      = Message::TM_COMMAND;
+		$stale[ Message::TIMESTAMP ] = (int) Core::$now - 3600;
+		$stale[ Message::FROM ]      = '_http';
+		$stale[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign( $stale );
+
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $stale ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [ 401 ], $codes );
+	}
+
+	/** One refusal condemns the batch: a good command behind it can't clear the 401. */
+	public function test_a_batch_with_one_refusal_answers_401(): void {
+		$this->build_graph_sans_output();
+
+		$stale                       = Message::new_message();
+		$stale[ Message::TYPE ]      = Message::TM_COMMAND;
+		$stale[ Message::TIMESTAMP ] = (int) Core::$now - 3600;
+		$stale[ Message::FROM ]      = '_http';
+		$stale[ Message::VALUE ]     = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign( $stale );
+
+		$fresh                   = Message::new_message();
+		$fresh[ Message::TYPE ]  = Message::TM_COMMAND;
+		$fresh[ Message::FROM ]  = '_http';
+		$fresh[ Message::VALUE ] = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign( $fresh );
+
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $stale ) . "\n" . Message::packed( $fresh ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [ 401 ], $codes );
+	}
+
+	/** The 401 is the refusal's, not the boundary's: an accepted command answers 200. */
+	public function test_an_accepted_command_does_not_answer_401(): void {
+		$this->build_graph_sans_output();
+
+		$fresh                   = Message::new_message();
+		$fresh[ Message::TYPE ]  = Message::TM_COMMAND;
+		$fresh[ Message::FROM ]  = '_http';
+		$fresh[ Message::VALUE ] = [ 'name' => 'uptime', 'arguments' => [] ];
+		Command_Auth::sign( $fresh );
+
+		$req = new \WP_REST_Request();
+		$req->set_body( Message::packed( $fresh ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$codes = [];
+		$ctrl  = new HTTP_In_Node( static function ( int $code ) use ( &$codes ): void {
+			$codes[] = $code;
+		} );
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [ 200 ], $codes, 'the reply walked _output as a 200' );
 	}
 
 	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {

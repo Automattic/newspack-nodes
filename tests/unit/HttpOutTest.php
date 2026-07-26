@@ -570,6 +570,88 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) ); // cleaned up
 	}
 
+	/**
+	 * The interpreter answers a failed verb with TM_COMMAND|TM_ERROR and a
+	 * successful one with TM_COMMAND|TM_RESPONSE. Both are the same round
+	 * trip's reply leg, so the error must reach the sink too — the clause used
+	 * to pass the success and drop the error with a spurious warning.
+	 */
+	public function test_on_curl_message_forwards_a_command_error_reply(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$reply[ Message::TO ]    = 'settings-sync'; // our own FROM breadcrumb, echoed
+		$reply[ Message::VALUE ] = [ 'name' => 'set', 'payload' => 'unknown setting: x' ];
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertCount( 1, $sink->captured, 'a command-error reply must reach the sink' );
+		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
+	}
+
+	/**
+	 * A reply self-routes by the TO the remote echoed off our FROM breadcrumb —
+	 * so an error with NO TO isn't a reply, it's unaddressed output, and it
+	 * belongs to the target. Passing it through undirected drops it on the local
+	 * interpreter, which answers a remote-supplied FROM with `unauthorized:`.
+	 */
+	public function test_on_curl_message_stamps_an_undirected_error_onto_the_target(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::TO ]    = '';
+		$reply[ Message::VALUE ] = 'NOT_AVAILABLE';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'settings:tw0:null', $sink->captured[0][ Message::TO ] );
+	}
+
+	/** A directed error is a reply too — TM_ERROR passes like TM_RESPONSE, however paired. */
+	public function test_on_curl_message_forwards_a_bare_error_reply(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+		$node->target( 'settings:tw0:null' );
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::TO ]    = 'settings-sync';
+		$reply[ Message::VALUE ] = 'NOT_AVAILABLE';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [
+			'code' => 200,
+			'body' => Message::packed( $reply ) . "\n",
+		];
+		$sink = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertCount( 1, $sink->captured, 'a directed error reply must reach the sink' );
+		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
+	}
+
 	public function test_on_curl_message_empty_body_forwards_nothing(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 202, 'body' => '' ];
