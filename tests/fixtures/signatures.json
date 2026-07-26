@@ -1,0 +1,41 @@
+{
+    "vectors": [
+        {
+            "key": "session-key-4242-4242-4242-4242",
+            "type": 8,
+            "ts": 1771000000,
+            "name": "make_node",
+            "arguments": [
+                "Log",
+                "x",
+                "/tmp/newspack-nodes/logs/café.log"
+            ],
+            "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        },
+        {
+            "key": "session-key-9999-9999-9999-9999",
+            "type": 520,
+            "ts": 1771000001,
+            "name": "connect_node",
+            "arguments": [],
+            "nonce": "ffffffffffffffffffffffffffffffff"
+        },
+        {
+            "key": "session-key-7777-7777-7777-7777",
+            "type": 8,
+            "ts": 1771000002,
+            "name": "cmd",
+            "arguments": [
+                "topologies",
+                "save",
+                "a\\b \"quoted\" ünïcode / slash"
+            ],
+            "nonce": "0123456789abcdef0123456789abcdef"
+        }
+    ],
+    "signatures": [
+        "d162de7a490d680967756424f87c5ac26c20556fb651771d15bb795b410a4d65",
+        "1d0714a9637053312e1990d0b5fbb70c1012530a81d9486a8d224b36253bac60",
+        "168859f19166e02153f2109d30313efbcb827f19df8abfb2410b0259ce0e8f84"
+    ]
+}

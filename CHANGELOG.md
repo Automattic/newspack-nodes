@@ -79,6 +79,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encodings are pinned by a test that recomputes the HMAC over the string a
   `JSON.stringify` signer emits.
 
+- **Cross-language signature parity fixture** (`tests/fixtures/signatures.json`).
+  Committed vectors that PHP and the browser's WebCrypto signer must each derive
+  independently. Neither language's own suite can catch a canonicalization drift
+  — each is internally consistent, so both stay green while nothing verifies
+  across the wire. The vectors deliberately carry a path, non-ASCII, an embedded
+  quote and backslash, and an empty argument list.
+- **`src/runtime/command-auth.js`** — the browser's canonical string, HMAC-SHA256
+  over WebCrypto, and nonce minting, mirroring PHP `Command_Auth`.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly

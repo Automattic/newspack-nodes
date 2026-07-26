@@ -1,4 +1,23 @@
+/**
+ * jsdom ships neither TextEncoder nor WebCrypto's subtle, both of which the
+ * command signer needs. Node has real implementations — use those rather than a
+ * stub, so the suite exercises the same primitives the browser will.
+ */
+const { TextEncoder, TextDecoder } = require( 'util' );
+const { webcrypto } = require( 'crypto' );
+global.TextEncoder = global.TextEncoder || TextEncoder;
+global.TextDecoder = global.TextDecoder || TextDecoder;
+if ( ! global.crypto?.subtle ) {
+	// jsdom exposes crypto as a read-only accessor, so plain assignment no-ops.
+	Object.defineProperty( global, 'crypto', {
+		value: webcrypto,
+		configurable: true,
+		writable: true,
+	} );
+}
+
 /* eslint-env jest */
+// @longform
 // Jest setup — FAIL any test that emits an UNEXPECTED console.warn/error, and
 // fail any test that DECLARED an expected console message that never fired.
 //
@@ -27,12 +46,13 @@ const SUBSTRATE_STDERR = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC \S+: /;
 let violations = [];
 let expectedWarns = [];
 
-// Declare a console.warn a test legitimately produces. The actual warn line, with
-// the substrate `stderr` timestamp prefix stripped, must START WITH the declared
-// text — so a test asserts the stable, meaningful part of the message and ignores
-// only the trailing dynamic data (the FROM breadcrumb, a payload, an offending
-// path). Suppresses exactly the declared warnings and fails afterEach if a
-// declared message never fires.
+// @longform
+// Declare a console.warn a test legitimately produces. The actual warn
+// line, with the substrate `stderr` timestamp prefix stripped, must START
+// WITH the declared text — so a test asserts the stable, meaningful part of
+// the message and ignores only the trailing dynamic data (the FROM
+// breadcrumb, a payload, an offending path). Suppresses exactly the declared
+// warnings and fails afterEach if a declared message never fires.
 global.expectConsoleWarn = ( message ) => {
 	expectedWarns.push( { message: String( message ).trim(), matched: false } );
 };
