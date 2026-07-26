@@ -18,6 +18,16 @@
  * consistent, so both stay green while nothing verifies across the wire.
  */
 
+import {
+	TYPE,
+	TIMESTAMP,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+} from './message';
+import { Core } from './core';
+
 /**
  * The canonical signing string: message TYPE + command semantics + ts + nonce.
  * Never TO/FROM — Router peels TO and nodes stamp FROM in transit.
@@ -76,4 +86,113 @@ export function newNonce() {
 	return Array.from( bytes )
 		.map( ( b ) => b.toString( 16 ).padStart( 2, '0' ) )
 		.join( '' );
+}
+
+/**
+ * The session, and the in-flight promise establishing it. Memoised so N
+ * concurrent commands share ONE /auth round trip rather than racing to mint N
+ * sessions the server would have to keep.
+ */
+let session = null;
+let establishing = null;
+
+/**
+ * /auth transport seam. Lazily-defaulted to the real POST so the surrounding
+ * memoisation, predicate and stamping run as production code under test.
+ * Signature: `function (): Promise<{handle,key,expires_in}>`.
+ */
+let authFetch = null;
+
+/** @param {Function|null} fn Replacement transport, or null to restore. */
+export function __setAuthFetch( fn ) {
+	authFetch = fn;
+}
+
+/** Drop the session so the next command re-authenticates. */
+export function forgetSession() {
+	session = null;
+	establishing = null;
+}
+
+async function postAuth() {
+	const { CommandClient } = await import( './command-client' );
+	const client = CommandClient.fromGlobal();
+	const r = await fetch( `${ client.baseUrl }newspack-nodes/v1/auth`, {
+		method: 'POST',
+		headers: { 'X-WP-Nonce': client.nonce },
+	} );
+	if ( ! r.ok ) {
+		throw new Error( `/auth failed - HTTP ${ r.status }` );
+	}
+	return r.json();
+}
+
+async function ensureSession() {
+	if ( session ) {
+		return session;
+	}
+	if ( ! establishing ) {
+		establishing = ( authFetch ?? postAuth )()
+			.then( ( issued ) => {
+				session = issued?.handle && issued?.key ? issued : null;
+				return session;
+			} )
+			.finally( () => {
+				establishing = null;
+			} );
+	}
+	return establishing;
+}
+
+/**
+ * Sign a freshly-minted command in place. No-op unless TYPE is a request
+ * command — TM_COMMAND without TM_RESPONSE/TM_ERROR, with an object VALUE —
+ * mirroring PHP's is_request_command(). TM_NOREPLY rides along fine.
+ *
+ * Without a session the command is left UNSIGNED and the server refuses it.
+ * That is the correct failure: better a refused command than one that looks
+ * authorized.
+ *
+ * @param {Array} message Positional Message, mutated in place.
+ * @return {Promise<void>} Resolves once the envelope is stamped, or skipped.
+ */
+export async function signCommand( message ) {
+	const type = message[ TYPE ];
+	const value = message[ VALUE ];
+	if (
+		! ( type & TM_COMMAND ) ||
+		type & ( TM_RESPONSE | TM_ERROR ) ||
+		! value ||
+		'object' !== typeof value
+	) {
+		return;
+	}
+
+	let live;
+	try {
+		live = await ensureSession();
+	} catch ( e ) {
+		Core.printLessOften( `ERROR: command signing: ${ e.message }` );
+		return;
+	}
+	if ( ! live ) {
+		Core.printLessOften(
+			'ERROR: command signing: no session; sending unsigned'
+		);
+		return;
+	}
+
+	const nonce = newNonce();
+	const string = canonical(
+		type,
+		message[ TIMESTAMP ],
+		value.name,
+		value.arguments,
+		nonce
+	);
+	value.auth = {
+		nonce,
+		sig: await hmacHex( string, live.key ),
+		handle: live.handle,
+	};
 }
