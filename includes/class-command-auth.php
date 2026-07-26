@@ -201,7 +201,10 @@ class Command_Auth {
 
 	/**
 	 * Canonical signing string: message TYPE + command semantics + ts + nonce.
-	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM). Returns
+	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM).
+	 *
+	 * The encoding is byte-for-byte what `JSON.stringify` produces, because the
+	 * browser signs the same string with its session key. Returns
 	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
 	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
 	 *
@@ -210,6 +213,7 @@ class Command_Auth {
 	private static function canonical( int $type, int $ts, array $value, string $nonce ): ?string {
 		$name      = $value['name']      ?? '';
 		$arguments = $value['arguments'] ?? [];
+		// Flags match JSON.stringify (PHP would escape / and non-ASCII).
 		$encoded   = \wp_json_encode(
 			[
 				$type,
@@ -217,7 +221,8 @@ class Command_Auth {
 				Core::as_string( $name ),
 				\is_array( $arguments ) ? \array_values( $arguments ) : [],
 				$nonce,
-			]
+			],
+			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
 		);
 		return false === $encoded ? null : $encoded;
 	}

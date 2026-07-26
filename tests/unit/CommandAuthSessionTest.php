@@ -233,6 +233,47 @@ class CommandAuthSessionTest extends TestCase {
 	}
 
 	/**
+	 * The canonical string is computed independently in PHP and in the browser,
+	 * so its JSON encoding must be identical in both. PHP escapes slashes and
+	 * non-ASCII by default; JSON.stringify does neither. A command carrying a
+	 * path — `make_node Log x /tmp/...` — is enough to diverge, and the failure
+	 * mode is a signature that never verifies.
+	 *
+	 * This pins the encoding by recomputing the HMAC over the exact string a
+	 * JSON.stringify signer would produce.
+	 */
+	public function test_the_signed_canonical_string_matches_what_json_stringify_produces(): void {
+		$session = Command_Auth::mint_session();
+		Command_Auth::remember_session( 'spoke-a', $session['handle'], $session['key'] );
+
+		$m                   = $this->command();
+		$m[ Message::VALUE ] = [
+			'name'      => 'make_node',
+			'arguments' => [ 'Log', 'x', '/tmp/newspack-nodes/logs/café.log' ],
+		];
+		Command_Auth::sign_for( 'spoke-a', $m );
+
+		$auth = $m[ Message::VALUE ]['auth'];
+		// Exactly what `JSON.stringify( [ type, ts, name, args, nonce ] )` emits.
+		$js_canonical = \json_encode(
+			[
+				Message::TM_COMMAND,
+				1000,
+				'make_node',
+				[ 'Log', 'x', '/tmp/newspack-nodes/logs/café.log' ],
+				$auth['nonce'],
+			],
+			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
+		);
+
+		$this->assertSame(
+			\hash_hmac( 'sha256', (string) $js_canonical, $session['key'] ),
+			$auth['sig'],
+			'PHP and the browser must canonicalize identically'
+		);
+	}
+
+	/**
 	 * ID is the originator's opaque continuation token — Tachikoma's Shell3 keys
 	 * its pipe stages on it. The substrate must never read or write it, and the
 	 * temptation is to reuse it as the session handle.
