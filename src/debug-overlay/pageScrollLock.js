@@ -1,7 +1,7 @@
 /**
  * Pin the page behind the overlay so it can't scroll while the pointer is inside
  * the panel. The canvas wheel's `preventDefault()` is ignored by Safari when the
- * event target is the SVG canvas (a WebKit quirk — it honours it from an HTML
+ * event target is the SVG canvas (a WebKit quirk — it honors it from an HTML
  * listener but not the svg), so rather than fight it we physically lock the page
  * scroll.
  *

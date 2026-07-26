@@ -11,6 +11,9 @@ namespace Newspack_Nodes;
 
 class Node {
 
+	/** Stand-in for a masked credential in diagnostics. */
+	public const REDACTED = '<redacted>';
+
 	public const MAX_FROM_SIZE = 1024;
 
 	/** Message types whose payload is included in the drop_message() audit line. */
@@ -271,9 +274,10 @@ class Node {
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
 			// @longform json-encode array VALUEs, substituting bad bytes: this
 			// line IS the drop diagnostic, so a blank payload hides the cause.
-			$value_str = \is_array( $value )
-				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
-				: Core::as_string( $value );
+			$redacted  = self::redact_secrets( $value );
+			$value_str = \is_array( $redacted )
+				? (string) \wp_json_encode( $redacted, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE )
+				: Core::as_string( $redacted );
 			$parts[] = 'payload: ' . $value_str;
 		}
 
@@ -281,6 +285,35 @@ class Node {
 		$head = \array_shift( $parts );
 		$tail = empty( $parts ) ? '' : ' ' . \implode( ' ', $parts );
 		$this->print_less_often( $head, $tail );
+	}
+
+	/**
+	 * Mask credentials in a dropped message's VALUE, by the same rule
+	 * `dump_node()` uses — `Core::is_secret_property()`. Two shapes carry them:
+	 * a secret-named array key, and a `--auth_password=…` argument token, which
+	 * is how the Vault admin UI sends them. The key survives; only the value
+	 * goes, because the drop line is a diagnostic.
+	 *
+	 * @param mixed $value Message VALUE, any depth.
+	 * @return mixed The same shape with secrets masked.
+	 */
+	private static function redact_secrets( $value ) {
+		if ( \is_array( $value ) ) {
+			$out = [];
+			foreach ( $value as $key => $item ) {
+				$out[ $key ] = \is_string( $key ) && Core::is_secret_property( $key )
+					? self::REDACTED
+					: self::redact_secrets( $item );
+			}
+			return $out;
+		}
+		if ( \is_string( $value ) && \str_starts_with( $value, '--' ) ) {
+			$eq = \strpos( $value, '=' );
+			if ( false !== $eq && Core::is_secret_property( \substr( $value, 2, $eq - 2 ) ) ) {
+				return \substr( $value, 0, $eq + 1 ) . self::REDACTED;
+			}
+		}
+		return $value;
 	}
 
 	/**

@@ -466,6 +466,44 @@ class HttpOutTest extends TestCase {
 		$this->assertCount( 1, $captured );
 	}
 
+	/**
+	 * A compromised spoke answers the routine heartbeat POST with a 200 and
+	 * streams for the whole 15-second window; libcurl buffers it into the PHP
+	 * heap and the aggregation worker dies on memory_limit. A declared
+	 * Content-Length is refused outright; an undeclared stream is cut by the
+	 * write callback, which is the shape that matters — a hostile peer will not
+	 * announce the size.
+	 */
+	public function test_the_reply_body_is_capped(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+
+		$node = $this->make_node( 'austin' );
+		$node->fill( $this->command_message( 'settings', 'update', 'k=v' ) );
+		$node->fire();
+
+		$this->assertNotEmpty( $captured );
+		$opts = $captured[0];
+		$this->assertSame(
+			HTTP_Out_Node::MAX_REPLY_BYTES,
+			$opts[ \CURLOPT_MAXFILESIZE ],
+			'a declared oversize body is refused before transfer'
+		);
+		$this->assertIsCallable(
+			$opts[ \CURLOPT_WRITEFUNCTION ],
+			'an undeclared stream needs a callback to cut it'
+		);
+
+		// Accepts right up to the cap, then refuses — a short write aborts the
+		// transfer. Two calls, not a loop: the cap is 8 MiB.
+		$write = $opts[ \CURLOPT_WRITEFUNCTION ];
+		$fill  = \str_repeat( 'x', HTTP_Out_Node::MAX_REPLY_BYTES );
+
+		$this->assertSame( HTTP_Out_Node::MAX_REPLY_BYTES, $write( null, $fill ) );
+		$this->assertSame( 0, $write( null, 'x' ), 'one byte past the cap is refused' );
+	}
+
 	public function test_node_schema_shape(): void {
 		$schema = HTTP_Out_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );

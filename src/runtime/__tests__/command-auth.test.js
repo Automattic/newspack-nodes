@@ -216,7 +216,7 @@ describe( 'authentication gates minting, and recovers', () => {
 		await ensureSession();
 		const first = hasSession();
 
-		// The server no longer recognises the handle.
+		// The server no longer recognizes the handle.
 		renewSession();
 		expect( hasSession() ).toBe( false );
 		// Renewal arms a cooldown; recovery lands on the first tick past it.

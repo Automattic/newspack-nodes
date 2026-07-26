@@ -2,7 +2,7 @@
 /**
  * Smoke tests for `wp nodes types`, `wp nodes restart`, `wp nodes status`, and
  * `wp nodes run` — covering registration shape, capability/nonce surface, and
- * happy-path behaviour. Tests do NOT spawn real workers (run command is gated
+ * happy-path behavior. Tests do NOT spawn real workers (run command is gated
  * out by missing topology files in the temp dir).
  *
  * @package Newspack_Nodes

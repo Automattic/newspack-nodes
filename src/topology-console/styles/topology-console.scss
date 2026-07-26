@@ -205,7 +205,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 		}
 	}
 
-	// The native number spinner renders in the browser's light UA colours (a
+	// The native number spinner renders in the browser's light UA colors (a
 	// white box that ignores the field's own colors), which jars on a dark skin.
 	// `color-scheme: dark` makes the UA paint the spinner dark to match the skin,
 	// instead of hiding it.

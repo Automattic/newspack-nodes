@@ -613,7 +613,7 @@ class CoreTest extends TestCase {
 		$this->assertTrue( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
 	}
 
-	public function test_the_spawn_post_honours_the_verification_opt_out(): void {
+	public function test_the_spawn_post_honors_the_verification_opt_out(): void {
 		Core::$verify_spawn_tls = false;
 		try {
 			$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )

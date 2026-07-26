@@ -30,8 +30,8 @@ namespace Newspack_Nodes;
 trait Fanout_Targets {
 
 	/**
-	 * Get/set the target LIST. Normalises on read so a fan-out never reports the
-	 * scalar `''` that Node initialises: consumers would otherwise each have to
+	 * Get/set the target LIST. Normalizes on read so a fan-out never reports the
+	 * scalar `''` that Node initializes: consumers would otherwise each have to
 	 * remember a constructor line, and forgetting it is invisible until someone
 	 * reads target() directly.
 	 *

@@ -96,7 +96,7 @@
 	cursor: pointer;
 	user-select: none;
 	text-align: left;
-	// A bare <button> doesn't inherit colour (UA ButtonText), so set it to the
+	// A bare <button> doesn't inherit color (UA ButtonText), so set it to the
 	// skin ink explicitly — otherwise the header reads black on a dark surface.
 	color: var(--ink);
 

@@ -1,6 +1,6 @@
 // Shared connection/reconnect banner — a functional error banner. Reskins off the
 // universal --oxide error fill (= --np-error under Newspack) with --paper text:
-// --paper is the surface colour, so it contrasts with --oxide on every skin (a
+// --paper is the surface color, so it contrasts with --oxide on every skin (a
 // fixed white would vanish on bright-oxide skins like CRT's lime). Literal
 // fallbacks keep the prior white-on-red look without the token sheet.
 @use "@newspack-nodes/shared/styles/focus";
