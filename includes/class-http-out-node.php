@@ -167,19 +167,6 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Run the handshake if this spoke has no session yet.
-	 *
-	 * A minter that cannot sign must call this instead of simply skipping: the
-	 * handshake used to need a queued batch to trigger it, and every minter
-	 * refuses to queue without a session, so neither side could ever move.
-	 */
-	public function ensure_session(): void {
-		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
-			$this->fire();
-		}
-	}
-
-	/**
 	 * Report a batch we could not deliver. Silent on an empty one: a session-less
 	 * tick reaches this path with nothing queued and has nothing to report.
 	 *
@@ -467,6 +454,19 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Unregister an easy handle from the shared multi. Idempotent. */
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
+	}
+
+	/**
+	 * Run the handshake if this spoke has no session yet.
+	 *
+	 * A minter that cannot sign must call this instead of simply skipping: the
+	 * handshake used to need a queued batch to trigger it, and every minter
+	 * refuses to queue without a session, so neither side could ever move.
+	 */
+	public function ensure_session(): void {
+		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
+			$this->fire();
+		}
 	}
 
 	/**

@@ -324,7 +324,7 @@ class Worker_Base {
 	 *
 	 * Routes through Core::fire_and_forget_post — the same raw-curl path the
 	 * Supervisor uses (wp_remote_post's Requests transport floors the timeout at
-	 * 1s, defeating the 10ms fire-and-forget contract; the helper guards on the
+	 * 1s, defeating the sub-second fire-and-forget contract; the helper guards on the
 	 * curl extension itself). Body stays byte-compatible with the spawn endpoint's
 	 * {type, partition, nonce} contract so HMAC/nonce validation still passes.
 	 *

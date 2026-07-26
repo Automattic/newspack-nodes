@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The spawn POST now survives a TLS handshake, so the fleet actually starts.**
+  Its budget was 10ms for connect AND total. On any site with a real
+  certificate that is not enough to finish the handshake — TCP landed in under
+  a millisecond but appconnect around 17ms — so curl aborted before writing a
+  byte. Every worker spawn failed, on every tick, forever.
+
+  It failed in perfect silence, which is why it went unnoticed: nothing reached
+  the access log (no request was ever sent), and nothing reached the error log
+  either, because `CURLE_OPERATION_TIMEDOUT` is deliberately counted as success
+  by the fire-and-forget classifier. The supervisor stayed healthy and reported
+  nothing while its whole fleet sat `down`. Only a loopback spawn URL, where the
+  handshake is trivial, ever came in under the budget — which is why local
+  development never saw it.
+
+  The budget is now 50ms (`SPAWN_POST_TIMEOUT_MS`): enough to WRITE the request,
+  never enough to await the reply, which is the contract the 10ms was reaching
+  for. The abort is still the design working — the request is delivered and the
+  server runs on under `ignore_user_abort`. `Worker_Base` self-respawn shares the
+  helper and was failing the same way.
+
 ## [2.1.2] - 2026-07-26
 
 ### Fixed
