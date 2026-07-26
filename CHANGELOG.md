@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A spawn POST that timed out before it was sent is now reported.** The
+  fire-and-forget classifier counted every `CURLE_OPERATION_TIMEDOUT` as
+  success, which is right only once the request is on the wire — hanging up
+  then is the entire contract. Timing out during the connect phase means it
+  never left, and calling that success is the second half of why a too-small
+  budget stranded three sites in silence: no access-log line because nothing was
+  sent, and no error-log line because the timeout "worked".
+  `CURLINFO_PRETRANSFER_TIME` stays 0 until connect and TLS complete, so it
+  draws exactly that line, and the two cases are now told apart. Split into
+  `classify_post_result()` so the rule is assertable without a transport seam —
+  the same split `post_curl_options()` already uses for the option set.
+
 ## [2.1.3] - 2026-07-26
 
 ### Fixed
