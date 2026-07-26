@@ -85,6 +85,30 @@ final class UninstallCleanupTest extends TestCase {
 		return $base;
 	}
 
+	/**
+	 * A symlinked base directory turns uninstall into a delete primitive: the
+	 * six runtime subtree names are removed AT THE TARGET, wherever that points.
+	 * The runtime refuses a symlinked base (Config::ensure_path); teardown must
+	 * refuse it too, or the one path that runs as an admin action stays open.
+	 */
+	public function test_delete_runtime_tree_refuses_a_symlinked_base(): void {
+		$root = (string) \realpath( \sys_get_temp_dir() ) . '/nodes-symlink-' . \uniqid();
+		$real = $root . '/real-target';
+		@\mkdir( $real . '/logs', 0700, true );
+		\file_put_contents( $real . '/logs/keep.log', "x\n" );
+		$link = $root . '/linked-base';
+		@\symlink( $real, $link );
+
+		\Newspack_Nodes\delete_runtime_tree( $link );
+
+		$this->assertFileExists( $real . '/logs/keep.log', 'the symlink target must be untouched' );
+		@\unlink( $link );
+		@\unlink( $real . '/logs/keep.log' );
+		@\rmdir( $real . '/logs' );
+		@\rmdir( $real );
+		@\rmdir( $root );
+	}
+
 	public function test_delete_runtime_tree_removes_every_runtime_subtree(): void {
 		$base = $this->seed_runtime_tree();
 
