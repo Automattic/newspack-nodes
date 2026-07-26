@@ -64,9 +64,10 @@ class TapTest extends TestCase {
 		$tap->fill( $message );
 	}
 
-	public function test_target_whose_delivery_throws_is_logged_not_fatal(): void {
-		// A live-head target whose fan-out delivery throws is caught + logged
-		// rate-limited; the original message still passes through to the sink.
+	public function test_target_whose_delivery_throws_still_passes_the_message_through(): void {
+		// A live-head target whose fan-out delivery throws is deferred, not
+		// swallowed: the passthrough happens first — so the pipeline has the
+		// message before the consumer decides — and the throwable escapes after.
 		$live = new Capture_Sink_Node();
 		$live->name( 'boom' ); // keeps `boom/x` alive through the dead-target prune
 
@@ -89,12 +90,19 @@ class TapTest extends TestCase {
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = 'data';
-		$tap->fill( $message );
+		$escaped = null;
+		try {
+			$tap->fill( $message );
+		} catch ( \RuntimeException $e ) {
+			$escaped = $e;
+		}
 
-		// The throwing fan-out was swallowed; only the passthrough (TO empty) landed.
+		// Passthrough (TO empty) landed first, then the failure escaped.
 		$this->assertCount( 1, $sink->passed );
 		$this->assertSame( '', $sink->passed[0][ Message::TO ] );
 		$this->assertSame( 'data', $sink->passed[0][ Message::VALUE ] );
+		$this->assertNotNull( $escaped, 'a failed tap is no longer silently swallowed' );
+		$this->assertSame( 'delivery failed', $escaped->getMessage() );
 	}
 
 	public function test_passthrough_still_forwards_to_sink(): void {

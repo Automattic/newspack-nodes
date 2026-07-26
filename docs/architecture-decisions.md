@@ -547,17 +547,33 @@ the predicate. That was a live bug — a mid-job stop was guaranteed only on the
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
 handling anything else — it's cooperative-stop signalling, not an error. Catch it explicitly
-first (`catch (Worker_Should_Stop $e) { throw $e; }`). Three deliberate carve-outs, documented
+first (`catch (Worker_Should_Stop $e) { throw $e; }`). Two deliberate carve-outs, documented
 at each site:
 
-- **Tee (fan-out).** A target throwing says nothing about its siblings, so Tee attempts *every*
-  target — one branch's failure can't silently starve the others (a skipped healthy target is
-  a permanent loss once the poison path dead-letters the message and advances the cursor). The
-  first throwable is deferred and re-thrown only after the full fan-out; a `Worker_Should_Stop`
-  overrides the deferred slot so a co-occurring stop beats a poison-DLQ (the poison would
-  advance the cursor, but a stop must re-play, not advance).
-- **Tap (observability fan-out).** A regular target throw is non-fatal — swallow + log — so a
-  broken tap can't break the pipeline; but `Worker_Should_Stop` re-throws.
+- **Fan-out (Tee and Tap, via `Fanout_Targets`).** A target throwing says nothing about its
+  siblings, so a fan-out attempts *every* target — one branch's failure can't silently starve
+  the others (a skipped healthy target is a permanent loss once the poison path dead-letters
+  the message and advances the cursor). Completing the fan-out is what preserves at-least-once;
+  duplicates on replay are its accepted cost, and they arise with any fan-out regardless of
+  when it throws. Tap additionally always performs its passthrough before re-throwing — the
+  passthrough IS the pipeline, and a `Worker_Should_Stop_Clean` commits PAST the message, so
+  aborting early would drop it from the main path entirely.
+
+  The deferred slot holds whichever throwable is safest to act on, decided once in
+  `Fanout_Targets::outranks()`: a plain `Worker_Should_Stop` (replay) outranks both a poison
+  (dead-letter, cursor advances) and a `Worker_Should_Stop_Clean` (commit past), in either
+  order. Advancing past a message that needed a replay loses it; replaying a clean one is a
+  duplicate the contract already tolerates.
+
+  *Superseded:* Tap previously swallowed ordinary target errors as non-fatal ("a broken tap
+  can't break the pipeline") and re-threw `Worker_Should_Stop` immediately. The justification
+  was categorical — taps are observability — and nothing enforces that category: a snapshot
+  node raising `Worker_Should_Stop_Clean` from a tap participates in cursor semantics. The
+  immediate re-throw also skipped the passthrough. Both are gone.
+
+  *Superseded:* the deferred slot previously preferred `Worker_Should_Stop_Clean` in either
+  order, added while chasing duplicate deliveries in request-builder. The revert signal is
+  recorded in `tests/unit/TeeStopPrecedenceTest.php`.
 - **Post-success `finally` (`Job_Worker::after_job`).** Swallows everything, WSS included: the
   handler already succeeded, so propagating anything from post-success cleanup would false-poison
   a completed job (the drain would quarantine an already-processed message — see ADR-12).

@@ -1,6 +1,12 @@
 <?php
 /**
- * Tap: Tee with hard targets and passthrough
+ * Tap: Tee with hard targets and passthrough.
+ *
+ * Same failure handling as Tee — attempt every target, defer the throwable that
+ * outranks, re-throw after the passthrough. Completing the fan-out is what keeps
+ * at-least-once: a target skipped by an early throw never receives the message
+ * once the poison path dead-letters it and advances the cursor. Duplicates on
+ * replay are the accepted cost of that, and they arise with any fan-out.
  *
  * @package Newspack_Nodes
  */
@@ -17,29 +23,26 @@ class Tap_Node extends Tee_Node {
 		}
 		++$this->counter;
 
-		// Prune dead bare-name targets; inline array not Core::arr (phpstan).
-		$targets = \is_array( $this->target ) ? $this->target : [];
-		$alive   = [];
-		foreach ( $targets as $t ) {
-			[ $head ] = Message::split_first( $t );
-			if ( Core::node( $head ) !== null ) {
-				$alive[] = $t;
-			}
-		}
-		$this->target = $alive;
+		$sink  = $this->sink;
+		$alive = $this->live_targets();
+		$to    = Core::as_string( $message[ Message::TO ] );
 
-		$to = Core::as_string( $message[ Message::TO ] );
+		// Defer: the passthrough below IS the pipeline, and Clean commits past.
+		$deferred = null;
 		foreach ( $alive as $t ) {
-			$message[ Message::TO ] = $t;
+			$message[ Message::TO ] = $t; // hard target: no remainder to route on
 			try {
-				$this->sink?->fill( $message );
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // cooperative stop is control flow
+				$sink->fill( $message );
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( "target $t threw: ", $e->getMessage() );  // tap error stays non-fatal
+				if ( $this->outranks( $e, $deferred ) ) {
+					$deferred = $e;
+				}
 			}
 		}
 		$message[ Message::TO ] = $to;
-		$this->sink?->fill( $message );
+		$sink->fill( $message );
+		if ( null !== $deferred ) {
+			throw $deferred;
+		}
 	}
 }
