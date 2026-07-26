@@ -125,6 +125,62 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->rendered( $cap ), 'prompt-update must NOT print to stdout' );
 	}
 
+	/**
+	 * `prompt` is the ONE response that mutates state rather than rendering, so
+	 * it is the one worth spoofing: a peer that sets the operator's prompt makes
+	 * them believe they are attached somewhere they are not, and type the next
+	 * command there. FROM is X-Forwarded-For — the IPC Consumer stamps the
+	 * worker id at the HEAD and everything after is whatever the worker wrote,
+	 * so only the head may be trusted.
+	 */
+	public function test_prompt_from_the_attached_worker_is_honored(): void {
+		[ $dumper ] = $this->fresh();
+		$shell        = new Shell_Node();
+		$shell->path  = 'firehose-workers.p0';
+		$dumper->set_shell( $shell );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::FROM ]  = 'firehose-workers.p0/_output';
+		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'worker> ' ];
+		$dumper->fill( $message );
+
+		$this->assertSame( 'worker> ', $shell->prompt );
+	}
+
+	public function test_prompt_from_another_origin_is_refused(): void {
+		[ $dumper ] = $this->fresh();
+		$shell        = new Shell_Node();
+		$shell->path  = 'firehose-workers.p0';
+		$shell->prompt = 'worker> ';
+		$dumper->set_shell( $shell );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::FROM ]  = 'spoke-austin/_output';
+		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'combined.p0> ' ];
+		$dumper->fill( $message );
+
+		$this->assertSame( 'worker> ', $shell->prompt );
+	}
+
+	/** The worker id further down the path is the peer's own text, not our stamp. */
+	public function test_prompt_with_the_worker_id_only_in_the_tail_is_refused(): void {
+		[ $dumper ] = $this->fresh();
+		$shell        = new Shell_Node();
+		$shell->path  = 'firehose-workers.p0';
+		$shell->prompt = 'worker> ';
+		$dumper->set_shell( $shell );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::FROM ]  = 'spoke-austin/firehose-workers.p0';
+		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'combined.p0> ' ];
+		$dumper->fill( $message );
+
+		$this->assertSame( 'worker> ', $shell->prompt );
+	}
+
 	public function test_TM_ERROR_prints_payload_to_stdout_like_any_other_value(): void {
 		// A bare TM_ERROR has no dedicated branch — it falls through to the
 		// default renderer and goes out via write_async, exactly like a plain

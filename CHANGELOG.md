@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **A `prompt` response only sets the prompt when it comes from the worker you
+  are attached to.** `prompt` is the one response that mutates state rather than
+  rendering, which makes it the one worth spoofing: repoint an operator's prompt
+  and they believe they are attached elsewhere and type the next command there.
+  FROM is X-Forwarded-For — only the head is ours. The attached-mode IPC
+  Consumer now stamps the worker id there (it was unnamed and unstamped, so
+  there was no trustworthy head at all), and the Dumper compares that head
+  against the shell's cwd. Bare mode has no remote peer feeding it.
+
+### Security
 - **Command-signing and spawn-token keys derive from `wp_salt('nonce')`**, not
   the raw `NONCE_SALT` constant. `wp_salt()` distrusts that constant — it
   substitutes a DB-generated value when it is undefined or still the shipped

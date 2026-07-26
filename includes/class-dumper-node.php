@@ -87,7 +87,8 @@ class Dumper_Node extends Node {
 					$name    = self::coerce_string( $cmd['name'] ?? '' );
 					$payload = self::render_payload( $cmd['payload'] ?? '' );
 
-					if ( 'prompt' === $name && null !== $this->shell ) {
+					if ( 'prompt' === $name && null !== $this->shell
+							&& $this->prompt_is_trusted( $message ) ) {
 						$this->shell->prompt = $payload;
 						return;
 					}
@@ -294,6 +295,31 @@ class Dumper_Node extends Node {
 			return $text;
 		}
 		return $lines[0] . "\n" . \implode( "\n", \array_map( static fn ( $l ) => $prefix . $l, \array_slice( $lines, 1 ) ) );
+	}
+
+	/**
+	 * Whether a `prompt` response may set the shell's prompt.
+	 *
+	 * `prompt` is the one response that mutates state rather than rendering, so
+	 * it is the one worth spoofing: a peer that repoints the prompt makes the
+	 * operator believe they are attached elsewhere and type the next command
+	 * there. FROM is X-Forwarded-For — the IPC Consumer stamps the worker id at
+	 * the HEAD and everything after it is whatever the worker wrote, so only the
+	 * head is ours to trust. Bare mode has no remote peer feeding this Dumper.
+	 *
+	 * @param array<int, mixed> $message The response Message.
+	 */
+	private function prompt_is_trusted( array $message ): bool {
+		if ( null === $this->shell ) {
+			return false;
+		}
+		$attached = $this->shell->path;
+		if ( '' === $attached ) {
+			return true;
+		}
+		$from = Core::as_string( $message[ Message::FROM ] );
+		$head = \strtok( $from, '/' );
+		return $attached === $head;
 	}
 
 	public function set_shell( Shell_Node $shell ): void {
