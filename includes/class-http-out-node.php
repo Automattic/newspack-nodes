@@ -27,8 +27,9 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Outbound request timeout (seconds). */
 	public const REQUEST_TIMEOUT = 15;
 
-	/** Spoke /command endpoint path appended to the Vault url. */
+	/** Spoke endpoints appended to the Vault url. */
 	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
+	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
@@ -61,11 +62,14 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
 	protected bool $batch_timer_armed = false;
 
-	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
+	/** @var array<int,array{handle:\CurlHandle,vault_id:string,url:string,kind:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
 	protected array $inflight = [];
 
 	/** Vault id whose url + credentials this node POSTs to. */
 	protected string $vault_id = '';
+
+	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
+	protected bool $auth_in_flight = false;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -130,6 +134,16 @@ class HTTP_Out_Node extends Timer_Node {
 			return;
 		}
 
+		// Held, not dropped: no session means a minter cannot sign for it.
+		if ( ! \is_array( $server ) ) {
+			return;
+		}
+		if ( ! Command_Auth::has_session( $this->vault_id ) ) {
+			$this->batch = \array_merge( $batch, $this->batch );
+			$this->request_session( $server, $url );
+			return;
+		}
+
 		$body = '';
 		foreach ( $batch as $envelope ) {
 			$packed                  = Message::packed( $envelope );
@@ -139,6 +153,31 @@ class HTTP_Out_Node extends Timer_Node {
 			$body                   .= $packed . "\n";
 		}
 
+		$this->send( $server, $url . self::COMMAND_PATH, $body, 'command' );
+	}
+
+	/**
+	 * Establish the command session with this spoke. HTTP_Out runs the handshake
+	 * because it already holds the credentials and the multi registration; the
+	 * minters that will sign for the spoke have neither. It never signs itself.
+	 *
+	 * @param array<string,mixed> $server Decrypted vault entry.
+	 */
+	private function request_session( array $server, string $url ): void {
+		if ( $this->auth_in_flight ) {
+			return;
+		}
+		$this->auth_in_flight = true;
+		$this->send( $server, $url . self::AUTH_PATH, '', 'auth' );
+	}
+
+	/**
+	 * Assemble the opts, dispatch on the shared multi, and record the handle under
+	 * its kind so the completion callback knows what it is answering.
+	 *
+	 * @param array<string,mixed> $server Decrypted vault entry.
+	 */
+	private function send( array $server, string $endpoint, string $body, string $kind ): void {
 		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
 		$user    = Core::as_string( $server['auth_username'] ?? '' );
 		$pass    = Core::as_string( $server['auth_password'] ?? '' );
@@ -153,7 +192,7 @@ class HTTP_Out_Node extends Timer_Node {
 		// Mirror Vault_CI_Node::probe_remote: verify on unless disabled.
 		$verify = (bool) Config::value( 'vault_verify_ssl' );
 		$opts   = [
-			\CURLOPT_URL            => $url . self::COMMAND_PATH,
+			\CURLOPT_URL            => $endpoint,
 			\CURLOPT_POST           => true,
 			\CURLOPT_POSTFIELDS     => $body,
 			\CURLOPT_HTTPHEADER     => $headers,
@@ -177,15 +216,45 @@ class HTTP_Out_Node extends Timer_Node {
 		$easy = $dispatch( $opts );
 		if ( ! $easy instanceof \CurlHandle ) {
 			$this->print_less_often( "curl_init failed" );
+			if ( 'auth' === $kind ) {
+				$this->auth_in_flight = false;
+			}
 			return;
 		}
 		// Hold handle to avoid GC; freed ids get reused and collide keys.
 		$this->inflight[ \spl_object_id( $easy ) ] = [
 			'handle'   => $easy,
 			'vault_id' => $this->vault_id,
-			'url'      => $url,
+			'url'      => $endpoint,
+			'kind'     => $kind,
 		];
 		Event_Framework::instance()->register_curl_easy( $this, $easy );
+	}
+
+	/**
+	 * Adopt the session the spoke issued, then re-arm the held batch. A refusal
+	 * only clears the in-flight flag: the batch stays put and the next fill or
+	 * tick retries, since discarding traffic over a transient handshake failure
+	 * is worse than waiting.
+	 */
+	private function on_session_reply( int $code, string $body ): void {
+		$this->auth_in_flight = false;
+		if ( 200 !== $code ) {
+			$this->print_less_often( 'auth refused by spoke: HTTP ', (string) $code );
+			return;
+		}
+		$issued = \json_decode( $body, true, 8 );
+		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
+		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		if ( '' === $handle || '' === $key ) {
+			$this->print_less_often( 'spoke returned a malformed session' );
+			return;
+		}
+		Command_Auth::remember_session( $this->vault_id, $handle, $key );
+		if ( [] !== $this->batch && ! $this->batch_timer_armed ) {
+			$this->set_timer( 0, true );
+			$this->batch_timer_armed = true;
+		}
 	}
 
 	/**
@@ -208,9 +277,17 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$id = \spl_object_id( $easy );
 
+		$kind = Core::as_string( $this->inflight[ $id ]['kind'] ?? 'command' );
+
 		$result = $info['result'] ?? \CURLE_OK;
 		if ( \CURLE_OK !== $result ) {
 			$this->print_less_often( 'transport error ', (string) $result );
+			if ( 'auth' === $kind ) {
+				$this->auth_in_flight = false;
+			}
+		} elseif ( 'auth' === $kind ) {
+			$res = $this->read_result( $easy );
+			$this->on_session_reply( $res['code'], $res['body'] );
 		} else {
 			$res = $this->read_result( $easy );
 			if ( 200 !== $res['code'] ) {

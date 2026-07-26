@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\TestCase;
@@ -30,6 +31,8 @@ class HttpOutTest extends TestCase {
 	protected function tearDown(): void {
 		HTTP_Out_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_result   = null;
+		Command_Auth::forget_session( 'austin' );
+		Command_Auth::forget_session( 'ghost' );
 		Vault::get_instance()->reset_cache();
 		// Drop any per-test config overlay so vault_require_ssl set via
 		// use_base_dir() doesn't bleed into the next test.
@@ -39,6 +42,9 @@ class HttpOutTest extends TestCase {
 	}
 
 	private function make_node( string $id ): HTTP_Out_Node {
+		// fire() holds rather than posts until a session exists; these tests
+		// exercise the send path, so give them one.
+		Command_Auth::remember_session( $id, \str_repeat( '7', 32 ), 'test-session-key' );
 		$node = new HTTP_Out_Node();
 		$node->name( 'remote:' . $id );
 		$node->arguments( [ $id ] );
