@@ -512,8 +512,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$sink = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$interpreter->authorize = function ( array $m ) use ( $interpreter ): bool {
-			$interpreter->drop_message( $m, 'verification failed: timestamp out of range' );
+		$interpreter->authorize = function ( Command_Interpreter_Node $ci, array $m ): bool {
+			$ci->drop_message( $m, 'verification failed: timestamp out of range' );
 			return false;
 		};
 
@@ -542,7 +542,7 @@ class CommandInterpreterTest extends TestCase {
 		};
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
-		$interpreter->authorize = static fn ( array $m ): bool => false;
+		$interpreter->authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => false;
 
 		$interpreter->fill( $this->command_message( 'dump_metadata' ) );
 
@@ -564,7 +564,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
-		$interpreter->authorize = static fn ( array $m ): bool => true;
+		$interpreter->authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => true;
 
 		$message = $this->command_message( 'make_node', 'Capture_Sink trusted' ); // no LOCAL
 		$interpreter->fill( $message );
@@ -573,7 +573,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_static_default_authorize_can_refuse_even_with_local(): void {
-		Command_Interpreter_Node::$default_authorize = static fn ( array $m ): bool => false;
+		Command_Interpreter_Node::$default_authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => false;
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
@@ -583,7 +583,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNull( Core::node( 'nope' ) );
 
 		// Instance override beats the static default.
-		$interpreter->authorize = static fn ( array $m ): bool => true;
+		$interpreter->authorize = static fn ( Command_Interpreter_Node $ci, array $m ): bool => true;
 		$message2 = $this->command_message( 'make_node', 'Capture_Sink yes' );
 		$interpreter->fill( $message2 );
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'yes' ) );

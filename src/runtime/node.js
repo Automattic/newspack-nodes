@@ -1,4 +1,4 @@
-import { hasSession, markLocal } from './command-auth';
+import { markLocal, readyToMint } from './command-auth';
 import { Core } from './core';
 import {
 	FROM,
@@ -443,16 +443,17 @@ export class Node {
 	 * the Shell finishes its own messages elsewhere; anything that emits
 	 * straight into its sink completes here.
 	 *
-	 * Returns null when there is no session yet. A mint is synchronous and
-	 * cannot wait for /auth, so the caller holds instead — a poll skips the tick
-	 * and carries it on the next one. Sending unsigned would only earn a refusal.
+	 * Returns null when there is no session yet, and asks for one. A mint is
+	 * synchronous and cannot wait for /auth, so the caller holds instead — a poll
+	 * skips the tick and carries it on the next one, by which time the re-auth
+	 * this triggered has landed. Sending unsigned would only earn a refusal.
 	 *
 	 * @param {string}   name Command verb.
 	 * @param {string[]} args Argument tokens.
 	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
 	 */
 	mint( name, args = [] ) {
-		if ( ! hasSession() ) {
+		if ( ! readyToMint() ) {
 			return null;
 		}
 		return markLocal( this.command( name, args ) );

@@ -99,6 +99,29 @@ let establishing = null;
 /** Whether a session was ever asked for. Silence before that is expected. */
 let attempted = false;
 
+/**
+ * Re-auth backoff. A session the server refuses would otherwise spin — every
+ * poll tick minting, being refused, renewing, minting again. The browser hit
+ * ~150 requests/second that way. One /auth per window instead, widening while
+ * it keeps failing.
+ */
+const BACKOFF_START_MS = 1000;
+const BACKOFF_MAX_MS = 30_000;
+let backoffMs = BACKOFF_START_MS;
+let retryAfter = 0;
+
+/** Clock seam so the backoff can be tested without waiting on it. */
+let now = null;
+
+/** @param {Function|null} fn Replacement clock, or null to restore. */
+export function __setBackoffClock( fn ) {
+	now = fn;
+}
+
+function clock() {
+	return ( now ?? Date.now )();
+}
+
 /** Server clock minus ours, in seconds, learned from /auth. */
 let clockOffset = 0;
 
@@ -127,6 +150,26 @@ export function hasSession() {
 export function renewSession() {
 	session = null;
 	establishing = null;
+	// Else an issued-then-refused session loops at the poll rate.
+	retryAfter = clock() + backoffMs;
+	backoffMs = Math.min( backoffMs * 2, BACKOFF_MAX_MS );
+}
+
+/**
+ * Whether a command may be minted now — and, when it may not, ask for a session
+ * so the next tick can. Emitters gate on THIS rather than hasSession(), so an
+ * eviction or a server restart heals itself: the tick that finds the session
+ * gone is the tick that re-auths. The backoff lives in ensureSession(), so a
+ * session that stays broken costs one /auth per window, not one per tick.
+ *
+ * @return {boolean} True if a mint will produce a signed command.
+ */
+export function readyToMint() {
+	if ( session ) {
+		return true;
+	}
+	void ensureSession();
+	return false;
 }
 
 /** Drop the session so the next command re-authenticates. */
@@ -135,6 +178,8 @@ export function forgetSession() {
 	establishing = null;
 	clockOffset = 0;
 	attempted = false;
+	backoffMs = BACKOFF_START_MS;
+	retryAfter = 0;
 }
 
 async function postAuth() {
@@ -166,19 +211,34 @@ export async function ensureSession() {
 	if ( session ) {
 		return session;
 	}
+	// Backing off: one /auth per window, not one per caller.
+	if ( clock() < retryAfter ) {
+		return null;
+	}
 	if ( ! establishing ) {
 		establishing = ( authFetch ?? postAuth )()
 			.then( ( issued ) => {
 				// "Expected" only once a server actually answered.
 				attempted = null !== issued;
 				session = issued?.handle && issued?.key ? issued : null;
+				if ( session ) {
+					backoffMs = BACKOFF_START_MS;
+					retryAfter = 0;
+				} else {
+					retryAfter = clock() + backoffMs;
+					backoffMs = Math.min( backoffMs * 2, BACKOFF_MAX_MS );
+				}
 				if ( session && 'number' === typeof issued.now ) {
 					clockOffset = issued.now - Math.floor( Date.now() / 1000 );
 				}
 				return session;
 			} )
 			// Never rejects: mount fires this unawaited.
-			.catch( () => null )
+			.catch( () => {
+				retryAfter = clock() + backoffMs;
+				backoffMs = Math.min( backoffMs * 2, BACKOFF_MAX_MS );
+				return null;
+			} )
 			.finally( () => {
 				establishing = null;
 			} );

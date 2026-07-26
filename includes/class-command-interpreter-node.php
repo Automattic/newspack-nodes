@@ -21,7 +21,11 @@ class Command_Interpreter_Node extends Node {
 	 * process — the main `_command_interpreter` plus the patron interpreters embedded in
 	 * Partitions and other config-bearing nodes — inherits it without per-instance
 	 * wiring. Null → the built-in LOCAL-provenance check (client tier).
-	 * Signature: `function ( array $message ): bool` (true = allow).
+	 * Signature: `function ( Command_Interpreter_Node $ci, array $message ): bool`
+	 * (true = allow). The interpreter comes first so a refusal is logged through
+	 * the node that actually handled the command — the reason and the generic
+	 * "unauthorized" suppression must land on ONE object, or every refusal logs
+	 * twice under two different node names.
 	 *
 	 * @var \Closure|null
 	 */
@@ -116,8 +120,8 @@ class Command_Interpreter_Node extends Node {
 		// Authorize every command (LOCAL taint client-side, HMAC on verifiers).
 		$this->reason_logged = false;
 		$authorize = $this->authorize ?? self::$default_authorize
-			?? static fn ( array $m ): bool => isset( $m[ Message::LOCAL ] );
-		if ( ! $authorize( $message ) ) {
+			?? static fn ( self $ci, array $m ): bool => isset( $m[ Message::LOCAL ] );
+		if ( ! $authorize( $this, $message ) ) {
 			$result    = 'unauthorized: ' . $cmd_name;
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			// authorize may have logged the reason; skip the generic one.

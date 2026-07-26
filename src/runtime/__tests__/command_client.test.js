@@ -1,12 +1,14 @@
-import { forgetSession, __setAuthFetch } from '../command-auth';
+import { forgetSession, hasSession, __setAuthFetch } from '../command-auth';
 import { CommandClient } from '../command-client';
 import {
+	newMessage,
 	TYPE,
 	FROM,
 	TO,
 	KEY,
 	VALUE,
 	TM_COMMAND,
+	TM_ERROR,
 	TM_RESPONSE,
 	pack,
 	LOCAL,
@@ -143,6 +145,44 @@ test( 'send waits for the session, so the command it mints is signed', async () 
 	expect( sent[ VALUE ].auth.handle ).toBe(
 		'cccc3333dddd4444eeee5555ffff6666'
 	);
+	forgetSession();
+	__setAuthFetch( null );
+} );
+
+/**
+ * A session the server no longer recognises — evicted, or lost to a restart —
+ * must be renewed, or the client retries the same dead handle forever. That is
+ * also the throttle: renewing clears the session, so hasSession() goes false,
+ * pollers skip their tick and send() waits until re-auth lands.
+ */
+test( 'a refusal renews the session instead of retrying the dead handle', async () => {
+	forgetSession();
+	let issued = 0;
+	__setAuthFetch( async () => {
+		issued++;
+		return {
+			handle: `${ issued }`.repeat( 32 ).slice( 0, 32 ),
+			key: `key-${ issued }`,
+			expires_in: 3600,
+			now: 1771000000,
+		};
+	} );
+
+	const refusal = newMessage();
+	refusal[ TYPE ] = TM_COMMAND | TM_ERROR;
+	refusal[ VALUE ] = { name: 'list', payload: 'unauthorized: list' };
+	global.fetch = jest.fn().mockResolvedValue( {
+		ok: true,
+		status: 200,
+		text: async () => JSON.stringify( refusal ),
+	} );
+
+	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
+	await client.send( { to: 'topologies', verb: 'list' } );
+
+	// The refused session is dropped, so nothing mints until re-auth.
+	expect( hasSession() ).toBe( false );
+
 	forgetSession();
 	__setAuthFetch( null );
 } );

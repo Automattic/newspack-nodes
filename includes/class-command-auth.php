@@ -298,14 +298,19 @@ class Command_Auth {
 	 * Verify a command Message's `auth` envelope: freshness window, HMAC, then a
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
-	 * @param array<int, mixed> $message Message to verify.
-	 * @param int|null          $now     Verification time; defaults to time().
+	 * Refusal reasons are logged through $interpreter — the node that HANDLED the
+	 * command, passed in by its authorize call. Never look one up: logging under
+	 * a different interpreter than the one refusing also defeats its
+	 * generic-"unauthorized" suppression, so each refusal logs twice.
+	 *
+	 * @param array<int, mixed>            $message     Message to verify.
+	 * @param int|null                     $now         Verification time; defaults to time().
+	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 */
-	public static function verify( array $message, ?int $now = null ): bool {
-		$type        = $message[ Message::TYPE ]       ?? null;
-		$ts          = $message[ Message::TIMESTAMP ]  ?? null;
-		$value       = $message[ Message::VALUE ]      ?? null;
-		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
+	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null ): bool {
+		$type  = $message[ Message::TYPE ]      ?? null;
+		$ts    = $message[ Message::TIMESTAMP ] ?? null;
+		$value = $message[ Message::VALUE ]     ?? null;
 		if ( ! self::is_request_command( $type, $ts, $value ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
@@ -373,7 +378,7 @@ class Command_Auth {
 	 * (e.g. a worker loading its topology via Shell::eval_script), while every
 	 * wire command still requires a signature.
 	 *
-	 * @return \Closure(array<int, mixed>): bool
+	 * @return \Closure(Command_Interpreter_Node, array<int, mixed>): bool
 	 */
 	public static function verifier(): \Closure {
 		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
@@ -384,9 +389,11 @@ class Command_Auth {
 	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
 	 * honored end-to-end.
 	 *
-	 * @param array<int, mixed> $message
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int, mixed>        $message
 	 */
-	private static function authorize_command( array $message ): bool {
-		return isset( $message[ Message::LOCAL ] ) || self::verify( $message );
+	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
+		return isset( $message[ Message::LOCAL ] )
+			|| self::verify( $message, null, $interpreter );
 	}
 }

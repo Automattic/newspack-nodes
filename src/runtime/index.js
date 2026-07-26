@@ -23,6 +23,7 @@ export { useNodeState, useNodeFill, useGraphGeneration } from './react';
 export {
 	ensureSession,
 	hasSession,
+	readyToMint,
 	renewSession,
 	forgetSession,
 	markLocal,

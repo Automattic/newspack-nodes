@@ -123,6 +123,52 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
+	/**
+	 * A refusal is logged ONCE, by the interpreter that handled the command.
+	 * verify() used to log through a hardcoded `_command_interpreter` lookup, so
+	 * on any other interpreter the reason landed under the wrong node AND the
+	 * suppression flag it set was read off a different object — producing two
+	 * lines per refusal (`verification failed:` on the root, `unauthorized:` on
+	 * the real one). The handling interpreter here is deliberately not the root.
+	 */
+	public function test_a_refusal_is_logged_once_by_the_interpreter_that_handled_it(): void {
+		$logger = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
+			/** @var string[] */
+			public array $dropped = [];
+			public function drop_message( array $message, string $error ): void {
+				$this->dropped[] = $error;
+				parent::drop_message( $message, $error );
+			}
+		};
+		$root = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
+			/** @var string[] */
+			public array $dropped = [];
+			public function drop_message( array $message, string $error ): void {
+				$this->dropped[] = $error;
+				parent::drop_message( $message, $error );
+			}
+		};
+		$root->name( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER );
+		$logger->name( 'topologies' );
+		$logger->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$logger->authorize = Command_Auth::verifier();
+
+		$m = $this->command();
+		Command_Auth::sign( $m );
+		$value                   = $m[ Message::VALUE ];
+		$value['auth']['handle'] = 'deadbeefdeadbeefdeadbeefdeadbeef';
+		$m[ Message::VALUE ]     = $value;
+		$m[ Message::TIMESTAMP ] = \time();
+
+		$logger->fill( $m );
+
+		$this->assertSame(
+			[ 'verification failed: unknown or expired session' ],
+			$logger->dropped
+		);
+		$this->assertSame( [], $root->dropped );
+	}
+
 	public function test_verify_refuses_a_handle_carrying_no_signature(): void {
 		$session = Command_Auth::mint_session();
 

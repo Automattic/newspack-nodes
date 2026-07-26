@@ -5,6 +5,7 @@ import {
 	renewSession,
 	forgetSession,
 	__setAuthFetch,
+	__setBackoffClock,
 } from '../command-auth';
 import {
 	newMessage,
@@ -180,6 +181,7 @@ describe( 'authentication gates minting, and recovers', () => {
 	afterEach( () => {
 		forgetSession();
 		__setAuthFetch( null );
+		__setBackoffClock( null );
 	} );
 
 	it( 'reports no session before /auth resolves', () => {
@@ -217,10 +219,109 @@ describe( 'authentication gates minting, and recovers', () => {
 		// The server no longer recognises the handle.
 		renewSession();
 		expect( hasSession() ).toBe( false );
+		// Renewal arms a cooldown; recovery lands on the first tick past it.
+		__setBackoffClock( () => Date.now() + 60_000 );
 		await ensureSession();
+		__setBackoffClock( null );
 
 		expect( first ).toBe( true );
 		expect( issued ).toBe( 2 );
+		expect( hasSession() ).toBe( true );
+	} );
+} );
+
+/**
+ * A session the server refuses must not spin. Renewing clears it — so pollers
+ * skip and send() waits — and a failed re-auth backs off, so a persistently
+ * broken session costs one /auth per window rather than one per tick. Without
+ * this the browser hammered the server at ~150 req/s.
+ */
+describe( 'renewal backs off', () => {
+	beforeEach( () => {
+		forgetSession();
+		__setBackoffClock( null );
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+		__setBackoffClock( null ); // else the next test's "advance" is a no-op
+	} );
+
+	it( 'does not re-POST /auth while backing off from a failure', async () => {
+		let attempts = 0;
+		__setAuthFetch( async () => {
+			attempts++;
+			throw new Error( 'HTTP 503' );
+		} );
+
+		await ensureSession();
+		await ensureSession();
+		await ensureSession();
+
+		expect( attempts ).toBe( 1 );
+		expect( hasSession() ).toBe( false );
+	} );
+
+	it( 'retries once the backoff window passes', async () => {
+		let attempts = 0;
+		__setAuthFetch( async () => {
+			attempts++;
+			throw new Error( 'HTTP 503' );
+		} );
+
+		await ensureSession();
+		__setBackoffClock( () => Date.now() + 60_000 );
+		await ensureSession();
+
+		expect( attempts ).toBe( 2 );
+	} );
+
+	/**
+	 * A session the server ISSUES and then still refuses would otherwise loop at
+	 * the poll rate: refuse → renew → re-auth → refuse. Renewal arms the cooldown
+	 * so the loop widens instead of running flat out.
+	 */
+	it( 'arms the cooldown when a live session is renewed', async () => {
+		let attempts = 0;
+		__setAuthFetch( async () => {
+			attempts++;
+			return {
+				handle: HANDLE,
+				key: KEY,
+				expires_in: 3600,
+				now: 1771000000,
+			};
+		} );
+		await ensureSession();
+
+		renewSession();
+		await ensureSession();
+
+		expect( attempts ).toBe( 1 );
+		expect( hasSession() ).toBe( false );
+	} );
+
+	it( 'clears the backoff once a session is obtained', async () => {
+		let attempts = 0;
+		__setAuthFetch( async () => {
+			attempts++;
+			if ( 1 === attempts ) {
+				throw new Error( 'HTTP 503' );
+			}
+			return {
+				handle: HANDLE,
+				key: KEY,
+				expires_in: 3600,
+				now: 1771000000,
+			};
+		} );
+
+		await ensureSession();
+		__setBackoffClock( () => Date.now() + 60_000 );
+		await ensureSession();
+		__setBackoffClock( null );
+
 		expect( hasSession() ).toBe( true );
 	} );
 } );

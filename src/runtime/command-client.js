@@ -10,13 +10,28 @@ import {
 	TM_ERROR,
 	TM_UNTYPED,
 } from './message';
-import { ensureSession, markLocal } from './command-auth';
+import { ensureSession, markLocal, renewSession } from './command-auth';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
+
+/**
+ * Whether a TM_ERROR reply says our session is the problem, not the verb.
+ *
+ * @param {Array} message A positional Message carrying a TM_ERROR reply.
+ * @return {boolean} True if the refusal is about authentication.
+ */
+function refusedForAuth( message ) {
+	const payload = message[ VALUE ]?.payload;
+	return (
+		'string' === typeof payload &&
+		( payload.startsWith( 'unauthorized:' ) ||
+			payload.startsWith( 'verification failed' ) )
+	);
+}
 
 // The `code` off a WP REST error body ('rest_no_route'), or '' if unreadable.
 function restErrorCode( text ) {
@@ -100,6 +115,10 @@ export class CommandClient {
 		for ( const message of messages ) {
 			if ( message[ TYPE ] & TM_ERROR ) {
 				IoTelemetry.recordError();
+				// Drop a dead handle; the next mint re-auths.
+				if ( refusedForAuth( message ) ) {
+					renewSession();
+				}
 			}
 		}
 		return messages;

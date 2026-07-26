@@ -1,4 +1,5 @@
 import { FetcherNode } from '../fetcher-node';
+import { forgetSession, hasSession, __setAuthFetch } from '../command-auth';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import {
 	newMessage,
@@ -154,4 +155,40 @@ test( "makeNode('Fetcher', name) resolves the registered class", () => {
 	expect( node ).toBeInstanceOf( FetcherNode );
 	expect( node.receiver ).toBe( 'countsIn' );
 	expect( node.command ).toBe( 'counts' );
+} );
+
+/**
+ * A poll tick that finds no session must also ASK for one. Skipping alone
+ * leaves the page dead after an eviction or a server restart: the session is
+ * gone, every tick skips, and nothing ever re-auths. ensureSession() carries
+ * its own backoff, so this costs one /auth per window, not one per tick.
+ */
+test( 'a poll tick with no session re-authenticates', async () => {
+	forgetSession();
+	let issued = 0;
+	__setAuthFetch( async () => {
+		issued++;
+		return {
+			handle: 'bbbb2222bbbb2222bbbb2222bbbb2222',
+			key: 'key-after-eviction',
+			expires_in: 3600,
+			now: 1771000000,
+		};
+	} );
+
+	const f = new FetcherNode();
+	f.arguments = [ 'topIn', 'rank' ];
+	f.sink = { fill: () => {} };
+
+	const trigger = newMessage();
+	trigger[ TYPE ] = TM_BYTESTREAM;
+	f.fill( trigger );
+	await Promise.resolve();
+	await Promise.resolve();
+
+	expect( issued ).toBe( 1 );
+	expect( hasSession() ).toBe( true );
+
+	forgetSession();
+	__setAuthFetch( null );
 } );
