@@ -48,6 +48,31 @@ class AuthControllerTest extends TestCase {
 		$this->assertSame( [ 'expires_in', 'handle', 'key', 'now' ], $this->sorted_keys( $body ) );
 	}
 
+	public function test_a_main_site_manage_options_user_is_permitted(): void {
+		$this->assertTrue( ( new Auth_Controller() )->check_permission( new \WP_REST_Request() ) );
+	}
+
+	/**
+	 * Bootstrap::register_rest_routes() drives this too, but #[CoversClass] there
+	 * credits Bootstrap — the route shape has to be asserted from here to count.
+	 */
+	public function test_it_registers_one_post_route_behind_its_permission_gate(): void {
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		( new Auth_Controller() )->register_routes();
+
+		$routes = $GLOBALS['_wp_test_registered_routes'];
+		$this->assertCount( 1, $routes );
+		$this->assertSame( 'newspack-nodes/v1', $routes[0]['namespace'] );
+		$this->assertSame( '/auth', $routes[0]['route'] );
+		$this->assertSame( 'POST', $routes[0]['args']['methods'] );
+		$this->assertSame(
+			'check_permission',
+			$routes[0]['args']['permission_callback'][1],
+			'the route must not be reachable without the gate'
+		);
+	}
+
 	public function test_a_user_without_manage_options_is_refused(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [ 'edit_posts' => true ];
 
