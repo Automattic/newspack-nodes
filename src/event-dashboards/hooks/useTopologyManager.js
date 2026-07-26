@@ -46,6 +46,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { markLocal } from '../../runtime/command-auth';
 import { Core } from '../../runtime/core';
 import {
 	newMessage,
@@ -255,6 +256,7 @@ function buildMutation( ci, verb, args, from, id ) {
 	m[ TO ] = `_shell/_http/${ ci }`;
 	m[ ID ] = id;
 	m[ VALUE ] = { name: verb, arguments: args };
+	markLocal( m );
 	return m;
 }
 

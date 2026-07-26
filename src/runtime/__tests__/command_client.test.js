@@ -7,6 +7,8 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_RESPONSE,
+	pack,
+	LOCAL,
 } from '../message';
 
 beforeEach( () => {
@@ -47,6 +49,7 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	const msg = JSON.parse( opts.body );
 	// Body is a packed 7-element positional Message, not a keyed object.
 	expect( Array.isArray( msg ) ).toBe( true );
+	// LOCAL never crosses: pack() slices index 7 off the wire.
 	expect( msg ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'performance' );
@@ -77,14 +80,17 @@ test( 'send returns the parsed JSON response', async () => {
 	expect( res[ TYPE ] ).toBe( TM_RESPONSE );
 } );
 
-test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {
+test( 'buildMessage returns a positional TM_COMMAND Message, 7 fields on the wire', () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	const msg = client.buildMessage( {
 		to: 'demo.p0',
 		verb: 'dump_metadata',
 	} );
 	expect( Array.isArray( msg ) ).toBe( true );
-	expect( msg ).toHaveLength( 7 );
+	// A local mint carries LOCAL at index 7; pack() slices it off, so the wire
+	// shape is the canonical 7 and the in-memory one is 8.
+	expect( msg[ LOCAL ] ).toBe( true );
+	expect( JSON.parse( pack( msg ) ) ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'demo.p0' );
 	expect( msg[ FROM ] ).toBe( '' );

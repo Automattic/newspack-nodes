@@ -36,6 +36,7 @@
  * defaults to the shared CommandClient singleton.
  */
 
+import { markLocal } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
@@ -84,6 +85,7 @@ function buildCommand( from, verb, args, id ) {
 	m[ TO ] = `${ HTTP }/vault`;
 	m[ ID ] = id;
 	m[ VALUE ] = { name: verb, arguments: args };
+	markLocal( m );
 	return m;
 }
 

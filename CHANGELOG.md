@@ -111,6 +111,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stamped `LOCAL` at all, so it rode the ingress oracle until that was removed.
   A regex over the `LOCAL` marker could not find it — that only locates sites
   which already half-remembered.
+- **Every remaining command mint completes.** `Fetcher`, `CommandClient`, and the
+  topology-manager, log-viewer, partition-viewer, aggregator-status and vault
+  dashboard hooks all built commands without marking them. Found by auditing
+  every `TYPE ] = TM_COMMAND` construction for a mint, which is the check that
+  works — the earlier pass grepped the `LOCAL` marker and so could only find
+  sites that already half-remembered.
 - **An unsigned command says so.** Once a session has been asked for and a server
   answered, a command that cannot be signed logs `no command session; this
   command will be refused` instead of failing silently and surfacing only as an

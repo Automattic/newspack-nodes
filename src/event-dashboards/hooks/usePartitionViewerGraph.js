@@ -26,6 +26,7 @@
  * `link.setSubscribe` already does close→resubscribe→reopen.
  */
 
+import { markLocal } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import { useGatedSubscription } from './useGatedSubscription';
@@ -71,6 +72,7 @@ function buildListCommand( id ) {
 	m[ TO ] = 'raw-logs';
 	m[ ID ] = id;
 	m[ VALUE ] = { name: 'list_logs', arguments: [] };
+	markLocal( m );
 	return m;
 }
 
@@ -85,6 +87,7 @@ function buildReadCommand( id, log, cursor ) {
 		name: 'read_message',
 		arguments: [ log, `${ cursor.segment }:${ cursor.offset }` ],
 	};
+	markLocal( m );
 	return m;
 }
 
@@ -96,6 +99,7 @@ function buildStatusCommand( id, log ) {
 	m[ TO ] = 'raw-logs';
 	m[ ID ] = id;
 	m[ VALUE ] = { name: 'log_status', arguments: [ log ] };
+	markLocal( m );
 	return m;
 }
 
