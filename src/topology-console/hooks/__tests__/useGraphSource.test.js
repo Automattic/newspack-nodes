@@ -23,8 +23,10 @@ describe( 'useGraphSource', () => {
 		expect(
 			result.current.graph.nodes.map( ( n ) => n.id ).sort()
 		).toEqual( [ '_heartbeat', '_http', '_shell' ] );
-		// The backbone heartbeat's permanent poke edge (_heartbeat → _http).
+		// The backbone's two permanent edges: the heartbeat's poke, and
+		// _http's target for unaddressed reply-leg output.
 		expect( result.current.graph.edges ).toEqual( [
+			{ from: '_http', to: '_output' },
 			{ from: '_heartbeat', to: '_http' },
 		] );
 		expect( result.current.graph.pwd ).toBe( '_output' );

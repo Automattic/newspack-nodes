@@ -338,6 +338,66 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'spoke-austin', $sink->captured[0][ Message::TO ] );
 	}
 
+	/**
+	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862. Only a
+	 * TM_RESPONSE self-routes; anything else on the reply leg is the remote
+	 * addressing OUR graph, and `target` decides what that means.
+	 */
+	public function test_on_curl_message_stamps_target_on_an_unaddressed_non_response(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::VALUE ] = 'hello world';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+		$node->target( 'spoke:view' );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'spoke:view', $sink->captured[0][ Message::TO ] );
+	}
+
+	public function test_on_curl_message_refuses_a_non_response_that_addressed_our_graph(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::TO ]    = '_command_interpreter';
+		$reply[ Message::VALUE ] = 'make_node Tee pwned';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+		$node->target( 'spoke:view' );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( [], $sink->captured );
+	}
+
+	/** No target: neither arm engages, so existing graphs are untouched. */
+	public function test_on_curl_message_passes_an_unaddressed_non_response_when_no_target(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::VALUE ] = 'hello world';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( '', $sink->captured[0][ Message::TO ] );
+	}
+
 	public function test_on_curl_message_leaves_reply_to_without_prefix_unchanged(): void {
 		[ $node, $easy ] = $this->node_with_one_inflight();
 
@@ -409,7 +469,8 @@ class HttpOutTest extends TestCase {
 	public function test_node_schema_shape(): void {
 		$schema = HTTP_Out_Node::node_schema();
 		$this->assertSame( 'I/O', $schema['category'] );
-		$this->assertFalse( $schema['has_target'] );
+		// The wire-inbound clause reads target; see accept_inbound().
+		$this->assertTrue( $schema['has_target'] );
 		$this->assertSame( 'vault_id', $schema['arguments'][0]['name'] );
 		$this->assertSame( 'vault_id', $schema['arguments'][0]['type'] );
 		$this->assertTrue( $schema['arguments'][0]['required'] );

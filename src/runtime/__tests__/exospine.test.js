@@ -399,3 +399,14 @@ test( 'co-mount does not rebuild the first graph (its build runs once across bot
 	// The reuser's mount must not bump generation and re-run the first build.
 	expect( firstBuilds ).toBe( 1 );
 } );
+
+/**
+ * `_http` targets `_output`: the wire-inbound clause stamps an unaddressed
+ * non-response with it, which is how a server-side `log` broadcast — minted
+ * with no TO and packed verbatim into the reply body — reaches the transcript
+ * instead of dying at `_router` as "message not addressed".
+ */
+test( '_http targets _output', () => {
+	mountExospine();
+	expect( Core.node( names.HTTP ).target ).toBe( names.OUTPUT );
+} );

@@ -19,6 +19,8 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_PING,
+	TM_RESPONSE,
+	TM_BYTESTREAM,
 } from '../message';
 
 function makeNode() {
@@ -345,8 +347,8 @@ describe( 'HttpOut', () => {
 			} );
 		} );
 
-		it( 'declares has_target:false (POSTs out + routes replies, never targets in-graph — no out-port)', () => {
-			expect( HttpOutNode.nodeSchema().has_target ).toBe( false );
+		it( 'declares has_target:true (the wire-inbound clause reads it)', () => {
+			expect( HttpOutNode.nodeSchema().has_target ).toBe( true );
 		} );
 
 		it( 'accepts the client as a public property and POSTs through it', () => {
@@ -383,5 +385,90 @@ describe( 'HttpOut', () => {
 			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /^ERROR:.*boom 502/ );
 			spy.mockRestore();
 		} );
+	} );
+} );
+
+/**
+ * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862. A reply is
+ * TM_RESPONSE and self-routes by TO. Anything else arriving on the reply leg is
+ * the remote addressing OUR graph, and `target` decides what that means:
+ * unaddressed output belongs to the target, and an addressed non-response while
+ * a target is set is the remote choosing its own destination — refused.
+ */
+describe( 'HttpOut wire-inbound clause', () => {
+	afterEach( () => {
+		const { Core } = require( '../core' );
+		Core.reset();
+	} );
+
+	function replyWith( message ) {
+		const { node } = makeNode();
+		node.client.postBatch = jest.fn().mockResolvedValue( [ message ] );
+		const seen = [];
+		node.sink = { fill: ( m ) => seen.push( m ) };
+		return { node, seen };
+	}
+
+	const bytestream = ( to = '' ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ TO ] = to;
+		m[ VALUE ] = 'hello world';
+		return m;
+	};
+
+	/** The `log` broadcast: minted unaddressed, dropped by _router until now. */
+	it( 'stamps TO=target on an unaddressed non-response', async () => {
+		const { node, seen } = replyWith( bytestream() );
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( '_output' );
+	} );
+
+	it( 'refuses a non-response that addressed our graph itself', async () => {
+		expectConsoleWarn(
+			'_http: WARNING: message addressed while target is set'
+		);
+		const { node, seen } = replyWith(
+			bytestream( '_command_interpreter' )
+		);
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toEqual( [] );
+	} );
+
+	it( 'leaves a TM_RESPONSE to self-route by its own TO', async () => {
+		const reply = bytestream( 'topologies:view' );
+		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		const { node, seen } = replyWith( reply );
+		node.target = '_output';
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( 'topologies:view' );
+	} );
+
+	/** No target: neither arm engages, so existing graphs are untouched. */
+	it( 'passes an unaddressed non-response through when no target is set', async () => {
+		const { node, seen } = replyWith( bytestream() );
+
+		node.fill( routed( { to: 'topologies' } ) );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ TO ] ).toBe( '' );
 	} );
 } );

@@ -228,6 +228,18 @@ routes onward after the Router peels the head, and Echo completes the re-address
 otherwise). `_router` resolves a non-empty TO by peeling the head segment. Replies set
 `TO=$message[FROM]` to walk the breadcrumb back.
 
+`target` also governs the **inbound** direction at a wire boundary, which is Tachikoma's
+`Socket.pm:852-862` clause ported into `HTTP_Out`/`HttpOut`'s reply leg. A `TM_RESPONSE`
+self-routes by the TO the remote echoed off our own FROM breadcrumb. Anything else arriving
+there is the remote addressing OUR graph, and `target` decides what that means: an
+unaddressed non-response belongs to the target (this is how a server-side `log` broadcast —
+minted with no TO by the stderr handler, packed verbatim into the reply body — reaches the
+browser transcript instead of dying at `_router` as *message not addressed*), while an
+addressed non-response arriving **while a target is set** is the remote choosing its own
+destination inside us, and is refused. With no target neither arm engages, so a graph that
+sets none is unaffected. `SSE_In` is deliberately exempt: a subscribed `_repl` stream is
+*supposed* to deliver unaddressed output verbatim.
+
 **Observed benefits:**
 
 - **A TO path is a serializable address** — it rides inside the message across process and

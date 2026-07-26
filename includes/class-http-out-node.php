@@ -322,13 +322,49 @@ class HTTP_Out_Node extends Timer_Node {
 						$reply[ Message::TO ] = \substr( $to, \strlen( '_output/' ) );
 					}
 					++$this->counter;
-					$this->sink?->fill( $reply );
+					if ( $this->accept_inbound( $reply ) ) {
+						$this->sink?->fill( $reply );
+					}
 				}
 			}
 		}
 
 		$this->detach( $easy );
 		unset( $this->inflight[ $id ] );
+	}
+
+	/**
+	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862.
+	 *
+	 * A TM_RESPONSE self-routes by the TO the remote echoed off our own FROM
+	 * breadcrumb. Anything else on the reply leg is the remote addressing OUR
+	 * graph, and `target` decides what that means: unaddressed output (a `log`
+	 * broadcast, say) belongs to the target, while an addressed non-response
+	 * arriving while a target is set is the remote picking its own destination
+	 * inside us — refused. With no target neither arm engages.
+	 *
+	 * @param array<int, mixed> $reply Reply Message, mutated in place.
+	 * @return bool True if the reply may be forwarded to the sink.
+	 */
+	private function accept_inbound( array &$reply ): bool {
+		$type = Core::int( $reply[ Message::TYPE ], 0 );
+		if ( $type & Message::TM_RESPONSE ) {
+			return true;
+		}
+		// Single-valued, like Tachikoma's owner; the array form is Tee's.
+		$target = $this->target();
+		if ( ! \is_string( $target ) || '' === $target ) {
+			return true;
+		}
+		if ( '' !== Core::as_string( $reply[ Message::TO ] ) ) {
+			// A bare TM_ERROR is refused just as quietly as it arrived.
+			if ( Message::TM_ERROR !== $type ) {
+				$this->drop_message( $reply, "message addressed while target is set to {$target}" );
+			}
+			return false;
+		}
+		$reply[ Message::TO ] = $target;
+		return true;
 	}
 
 	/**
@@ -381,7 +417,7 @@ class HTTP_Out_Node extends Timer_Node {
 		return [
 			'category'    => 'I/O',
 			'description' => 'Outbound: POSTs each message as a TM_COMMAND to a remote spoke /command (non-blocking).',
-			'has_target'  => false,
+			'has_target'  => true,
 			'arguments'   => [
 				[ 'name' => 'vault_id', 'type' => 'vault_id', 'required' => true, 'description' => 'Which spoke to connect to — a Vault-registered server (URL + credentials).' ],
 			],
