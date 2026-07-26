@@ -158,4 +158,46 @@ class RouterTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$router->sink( new Capture_Sink_Node() );
 	}
+	/**
+	 * A command surface nobody has declared a policy for is worth saying so,
+	 * every tick, until someone declares. A graph-only process (secure_level
+	 * null — no interpreter was ever named) has no policy to declare and must
+	 * stay quiet, or every `wp nodes ingest` run would nag.
+	 */
+	public function test_an_undeclared_command_surface_warns_on_tick(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		Core::$secure_level = 0;
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$router->fire_cb();
+
+		$this->assertStringContainsString( 'no secure level declared', $buf );
+	}
+
+	public function test_a_graph_only_process_never_warns(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		Core::$secure_level = null;
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$router->fire_cb();
+
+		$this->assertStringNotContainsString( 'secure level', $buf );
+	}
+
+	public function test_a_declared_level_stops_the_warning(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		Core::$secure_level = -1;
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$router->fire_cb();
+
+		$this->assertStringNotContainsString( 'secure level', $buf );
+	}
+
 }

@@ -32,6 +32,41 @@ class Command_Interpreter_Node extends Node {
 	public static ?\Closure $default_authorize = null;
 
 	/**
+	 * Verb classes disabled at each secure level, ported from Tachikoma's
+	 * %DISABLED. Indexed by the CURRENT level, not a union: each level says
+	 * what is off AT that level, which is how Ruleset and Scheduler declare
+	 * only their own level-3 verbs.
+	 *
+	 * The ladder freezes definitions and never disables the machine: reads
+	 * still read, wired flow still flows, defined verbs still run.
+	 *
+	 * @var array<int, list<string>>
+	 */
+	private const DISABLED_CLASSES = [
+		1 => [ 'make_node' ],
+		2 => [ 'command_node' ],
+		3 => [ 'connect_node' ],
+	];
+
+	/**
+	 * Verb name => class, for the substrate's own verbs. A node classifies its
+	 * own verbs through `node_schema()['verb_classes']`, so a consumer plugin
+	 * joins a class without editing this file.
+	 *
+	 * @var array<string, string>
+	 */
+	private const VERB_CLASSES = [
+		'make_node'       => 'make_node',
+		'make'            => 'make_node',
+		'connect_node'    => 'connect_node',
+		'connect'         => 'connect_node',
+		'disconnect_node' => 'connect_node',
+		'disconnect'      => 'connect_node',
+		'set_sink'        => 'connect_node',
+		'reply_to'        => 'command_node',
+	];
+
+	/**
 	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
 	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
 	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
@@ -103,6 +138,22 @@ class Command_Interpreter_Node extends Node {
 			return;
 		}
 		$this->sink->fill( $message );
+	}
+
+	/**
+	 * Naming an interpreter is the moment this process gains a command surface,
+	 * so it is the moment the policy becomes something someone has to declare.
+	 * Ported from Tachikoma's CommandInterpreter::name().
+	 */
+	public function name( ?string $name = null ): string {
+		// Parent splits getter/setter on func_num_args(); null would write.
+		if ( 0 === \func_num_args() ) {
+			return parent::name();
+		}
+		if ( null === Core::$secure_level ) {
+			Core::$secure_level = 0;
+		}
+		return parent::name( $name );
 	}
 
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
@@ -201,6 +252,10 @@ class Command_Interpreter_Node extends Node {
 	 * @return mixed Verb result (string for most verbs; array for dump_metadata).
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
+		$refusal = $this->refuse_at_secure_level( $name );
+		if ( null !== $refusal ) {
+			return $refusal;
+		}
 		$commands = $this->commands();
 		if ( ! isset( $commands[ $name ] ) ) {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
@@ -300,6 +355,8 @@ class Command_Interpreter_Node extends Node {
 		}
 		self::$H = [
 			// interpreter-dispatched verbs.
+			'secure'   => "secure [<level>]\n    note: climbs 1..3 and never descends; each level removes management verbs.\n",
+			'insecure' => "insecure\n    note: declares this process deliberately unratcheted; refused once secured.\n",
 			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
 			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails the node's flow back to your own cli/SSE session.\n",
@@ -361,6 +418,8 @@ class Command_Interpreter_Node extends Node {
 			'status' => "status\n    note: local cli mode summary (no command sent).\n",
 		];
 		self::$C = [
+			'secure'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_secure( self::arg_strings( $args ) ),
+			'insecure'        => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_insecure(),
 			'make_node'       => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_make_node( $self, self::arg_strings( $args ) ),
 			'make'            => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_make_node( $self, self::arg_strings( $args ) ),
 			'pwd'             => fn ( Command_Interpreter_Node $self, array $args, array $message ): string => self::cmd_pwd( self::arg_strings( $args ), $message ),
@@ -409,6 +468,71 @@ class Command_Interpreter_Node extends Node {
 	 */
 	protected static function arg_strings( array $args ): array {
 		return \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
+	}
+
+	/**
+	 * Refuse a verb whose class is disabled at the current secure level, or
+	 * null to proceed. A node's own verbs classify themselves through
+	 * `node_schema()['verb_classes']`.
+	 */
+	private function refuse_at_secure_level( string $verb ): ?string {
+		$level = Core::$secure_level ?? 0;
+		if ( ! isset( self::DISABLED_CLASSES[ $level ] ) ) {
+			return null;
+		}
+		$class = self::VERB_CLASSES[ $verb ] ?? $this->schema_verb_class( $verb );
+		if ( '' === $class || ! \in_array( $class, self::DISABLED_CLASSES[ $level ], true ) ) {
+			return null;
+		}
+		return "{$verb} is disabled at secure level {$level}";
+	}
+
+	/** This node's own class for a verb, from node_schema; '' when unclassified. */
+	private function schema_verb_class( string $verb ): string {
+		$schema = static::node_schema();
+		$map    = \is_array( $schema['verb_classes'] ?? null ) ? $schema['verb_classes'] : [];
+		return Core::as_string( $map[ $verb ] ?? '' );
+	}
+
+	/**
+	 * `secure [<level>]` — climb the ratchet. Bare climbs one level, capped at
+	 * 3; an explicit level must be >= 1 and may never descend. Ported from
+	 * Tachikoma's $C{secure}.
+	 *
+	 * @param list<string> $args Verb arguments.
+	 */
+	private static function cmd_secure( array $args ): string {
+		$current = Core::$secure_level ?? 0;
+		$raw     = $args[0] ?? '';
+		if ( '' !== $raw ) {
+			if ( ! \ctype_digit( $raw ) || (int) $raw < 1 ) {
+				return 'invalid secure level';
+			}
+			$want = \min( 3, (int) $raw );
+			if ( $want < $current ) {
+				return "cannot lower secure level from {$current}";
+			}
+			if ( $want === $current ) {
+				return "already at secure level {$current}";
+			}
+			Core::$secure_level = $want;
+			return '';
+		}
+		Core::$secure_level = $current < 1 ? 1 : \min( 3, $current + 1 );
+		return '';
+	}
+
+	/**
+	 * `insecure` — declare this process deliberately unratcheted. Refused once
+	 * secured, so the declaration cannot be walked back. Ported from
+	 * Tachikoma's $C{insecure}.
+	 */
+	private static function cmd_insecure(): string {
+		if ( ( Core::$secure_level ?? 0 ) > 0 ) {
+			return 'process already secured';
+		}
+		Core::$secure_level = -1;
+		return '';
 	}
 
 	/**

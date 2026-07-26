@@ -31,6 +31,22 @@ class Core {
 	public static array $config_resolvers = [];
 
 	/**
+	 * Command-surface policy for this process, ported from Tachikoma's
+	 * `secure_level`.
+	 *
+	 * `null` means there is no command surface at all — a graph-only script
+	 * (`wp nodes ingest`, `wp nodes reqgrep`) composes nodes and never names an
+	 * interpreter, so it has no policy to declare and is never warned about one.
+	 * Naming an interpreter arms it to 0: a surface exists and nobody has said
+	 * what policy it is under. `insecure` declares -1; `secure` climbs 1..3,
+	 * each level removing management verbs. Tachikoma's level 0 also disables
+	 * signing (RSA over ~10k startup commands is slow) and seals the network
+	 * because of it; our HMAC costs microseconds, so 0 is only the undeclared
+	 * state here.
+	 */
+	public static ?int $secure_level = null;
+
+	/**
 	 * Whether the spawn POST verifies the TLS peer and hostname. True by
 	 * default; Bootstrap lowers it from `spawn_verify_ssl` for deployments
 	 * fronted by a self-signed internal certificate. Config is a layer above
@@ -276,6 +292,7 @@ class Core {
 		self::$in_stderr         = false;
 		self::$var               = [];
 		self::$memd              = null;
+		self::$secure_level      = null;
 		self::set_stderr_handler( static function ( string $text ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
