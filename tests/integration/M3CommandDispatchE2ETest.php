@@ -30,6 +30,7 @@
 
 namespace Newspack_Nodes\Tests\Integration;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\HTTP_In_Node;
@@ -39,6 +40,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
 		// Wipe the hook store and re-attach exactly one mount callback so
 		// dataProvider iterations don't double-register the same hook (which
 		// would collide on node names on the second tick — `name()` throws
@@ -111,6 +113,8 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args, 'payload' => $payload ];
 
 		$req = new \WP_REST_Request();
+		// Ingress no longer signs; a request arrives signed like a real client's.
+		Command_Auth::sign( $message );
 		$req->set_body( Message::packed( $message ) );
 		// JSONL-as-text/plain is the command contract (the controller ignores
 		// the header, but keep it consistent with the surrounding comments).

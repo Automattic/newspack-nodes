@@ -87,6 +87,7 @@ class CommandAuthSessionTest extends TestCase {
 			'the returned key must be the one that was persisted'
 		);
 		$this->assertSame( Command_Auth::SESSION_TTL_S, $session['expires_in'] );
+		$this->assertGreaterThan( 0, $session['now'], 'the client aligns its clock to this' );
 	}
 
 	public function test_mint_session_never_repeats_a_handle_or_a_key(): void {

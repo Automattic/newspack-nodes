@@ -20,6 +20,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Rest\Aggregator_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -37,6 +38,11 @@ class AggregatorCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A probe now requires a live session for its destination; seed the ids
+		// this file probes so the $http_call stubs answer only the /command leg.
+		foreach ( [ 'austin', 'ghost', 'sentinel', 'xvault', 'spoke1' ] as $spoke ) {
+			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
+		}
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
 		// matching ServersCITest / StatusCITest.
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/aggregator-ci-test-' . \uniqid();

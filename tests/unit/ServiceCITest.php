@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
@@ -27,6 +28,11 @@ class ServiceCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A probe now requires a live session for its destination; seed the ids
+		// this file probes so the $http_call stubs answer only the /command leg.
+		foreach ( [ 'test-spoke' ] as $spoke ) {
+			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
+		}
 		// Deny by default so the manage_options happy path is explicit.
 		$GLOBALS['_wp_test_current_user_can'] = [];
 	}
@@ -291,10 +297,9 @@ class ServiceCITest extends TestCase {
 		ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'workers', 'dump_graph', [ 'p0' ] );
 
 		$this->assertSame( 'workers', $seen_body[ Message::TO ] );
-		$this->assertSame(
-			[ 'name' => 'dump_graph', 'arguments' => [ 'p0' ] ],
-			$seen_body[ Message::VALUE ]
-		);
+		// VALUE also carries the auth envelope now; assert the semantics.
+		$this->assertSame( 'dump_graph', $seen_body[ Message::VALUE ]['name'] );
+		$this->assertSame( [ 'p0' ], $seen_body[ Message::VALUE ]['arguments'] );
 	}
 
 	public function test_probe_command_throws_when_transport_returns_wp_error(): void {

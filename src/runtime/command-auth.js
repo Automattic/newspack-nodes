@@ -94,6 +94,9 @@ export function newNonce() {
 let session = null;
 let establishing = null;
 
+/** Server clock minus ours, in seconds, learned from /auth. */
+let clockOffset = 0;
+
 /**
  * /auth transport seam. Lazily-defaulted to the real POST so the surrounding
  * memoisation, predicate and stamping run as production code under test.
@@ -110,6 +113,7 @@ export function __setAuthFetch( fn ) {
 export function forgetSession() {
 	session = null;
 	establishing = null;
+	clockOffset = 0;
 }
 
 async function postAuth() {
@@ -141,6 +145,9 @@ export async function ensureSession() {
 		establishing = ( authFetch ?? postAuth )()
 			.then( ( issued ) => {
 				session = issued?.handle && issued?.key ? issued : null;
+				if ( session && 'number' === typeof issued.now ) {
+					clockOffset = issued.now - Math.floor( Date.now() / 1000 );
+				}
 				return session;
 			} )
 			// Never rejects: mount fires this unawaited.
@@ -182,6 +189,9 @@ export function signCommand( message ) {
 	if ( ! live ) {
 		return;
 	}
+
+	// Server-aligned: TIMESTAMP is signed, so ingress cannot re-anchor it.
+	message[ TIMESTAMP ] = Math.floor( Date.now() / 1000 ) + clockOffset;
 
 	const nonce = newNonce();
 	const string = canonical(

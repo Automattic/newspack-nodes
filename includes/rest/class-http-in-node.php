@@ -195,11 +195,7 @@ class HTTP_In_Node extends Node {
 		foreach ( $messages as $message ) {
 			// Stamp with _output constant, not $this->name (pre-built differs).
 			$this->stamp_message( $message, Node_Names::OUTPUT );
-			// Signed already: TIMESTAMP is signed material. Leave it.
-			if ( ! Command_Auth::is_signed( $message ) ) {
-				$message[ Message::TIMESTAMP ] = (int) Core::$now;
-				Command_Auth::sign( $message );
-			}
+			// Ingress does NOT sign: authority comes from the minter.
 			$base_interpreter->fill( $message );
 		}
 

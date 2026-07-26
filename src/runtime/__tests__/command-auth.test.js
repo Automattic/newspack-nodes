@@ -6,6 +6,7 @@ import {
 } from '../command-auth';
 import {
 	newMessage,
+	TIMESTAMP,
 	TYPE,
 	VALUE,
 	TM_COMMAND,
@@ -33,7 +34,12 @@ describe( 'browser command signing', () => {
 		forgetSession();
 		__setAuthFetch( async () => {
 			calls++;
-			return { handle: HANDLE, key: KEY, expires_in: 3600 };
+			return {
+				handle: HANDLE,
+				key: KEY,
+				expires_in: 3600,
+				now: 1771000000,
+			};
 		} );
 	} );
 
@@ -118,5 +124,40 @@ describe( 'browser command signing', () => {
 		await ensureSession();
 
 		expect( calls ).toBe( 2 );
+	} );
+} );
+
+/**
+ * The minter signs TIMESTAMP, so ingress can no longer re-anchor a skewed
+ * client's clock — the signature covers it. /auth reports the server's clock
+ * instead and the minter aligns to it, which preserves the skew tolerance the
+ * old ingress re-stamp provided.
+ */
+describe( 'clock alignment', () => {
+	const SERVER_NOW = 1771000000;
+
+	beforeEach( () => {
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			key: KEY,
+			expires_in: 3600,
+			now: SERVER_NOW,
+		} ) );
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+	} );
+
+	it( 'stamps a server-aligned timestamp, not the local clock', async () => {
+		await ensureSession();
+		const m = aCommand();
+		m[ TIMESTAMP ] = 1; // a wildly wrong local clock
+
+		signCommand( m );
+
+		expect( Math.abs( m[ TIMESTAMP ] - SERVER_NOW ) ).toBeLessThan( 5 );
 	} );
 } );

@@ -15,6 +15,7 @@
 
 namespace Newspack_Nodes\Tests\Unit\Rest;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Vault_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -27,6 +28,11 @@ class VaultCINodeTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// A probe now requires a live session for its destination; seed the ids
+		// this file probes so the $http_call stubs answer only the /command leg.
+		foreach ( [ 'ghost', 'spoke1' ] as $spoke ) {
+			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
+		}
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$GLOBALS['_wp_actions']               = [];

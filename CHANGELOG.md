@@ -101,6 +101,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   microtask later. JS cannot block on a promise, so the fix is to have no async
   operation: the session round trip happens at mount, the HMAC is a function call.
 
+### Removed
+- **`HTTP_In` no longer signs on ingress — the oracle is gone.** It used to sign
+  whatever arrived, on the grounds that WordPress had already authenticated the
+  caller, which made authority a property of ARRIVAL: anything reaching the
+  boundary acquired it regardless of what put it there. Every minter now signs,
+  so an unsigned command stays unsigned and is refused. No compat path remains;
+  the Vault probe's tolerance for a pre-session spoke is deleted too.
+
+### Changed
+- **`/auth` reports the server clock, and the browser aligns to it.** Ingress
+  used to re-anchor a skewed client's TIMESTAMP before signing. It cannot now —
+  the minter signs TIMESTAMP, so it is signed material — so the tolerance moved
+  to the mint instead of being dropped.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly

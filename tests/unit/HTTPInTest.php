@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Rest\HTTP_In_Node;
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
@@ -18,6 +19,11 @@ class HTTPInTest extends TestCase {
 	/** @var array<int,int> status_header codes captured by HTTP_In's seam */
 	private array $status_codes = [];
 
+	protected function tearDown(): void {
+		Command_Auth::$claim_nonce = null;
+		parent::tearDown();
+	}
+
 	protected function setUp(): void {
 		parent::setUp();
 		// The base TestCase resets Core's registry and $GLOBALS['_wp_options'],
@@ -26,6 +32,9 @@ class HTTPInTest extends TestCase {
 		// boundaries and break later dispatches. Reset here.
 		$GLOBALS['_wp_actions'] = [];
 		$this->status_codes     = [];
+		// Ingress no longer signs, so a request must arrive signed like a real
+		// client's. Same-site secret() signing is the `wp nodes cli` path.
+		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
 	}
 
 	/**
@@ -72,6 +81,11 @@ class HTTPInTest extends TestCase {
 		// string. Only the envelope/wire (Message::packed) is JSON. Don't
 		// string-cast: that would flatten an array VALUE to "Array".
 		$message[ Message::VALUE ] = $fields['value'] ?? '';
+		// Ingress no longer signs, so a request arrives signed like a real
+		// client's. `sign => false` lets a test supply its own envelope.
+		if ( false !== ( $fields['sign'] ?? true ) ) {
+			Command_Auth::sign( $message );
+		}
 		return $message;
 	}
 
@@ -113,6 +127,43 @@ class HTTPInTest extends TestCase {
 	 * anyway, and the verify-by-handle branch is unreachable on the only live
 	 * wire ingress.
 	 */
+	/**
+	 * The flag day. HTTP_In used to sign whatever arrived, on the grounds that
+	 * WordPress had already authenticated the caller — which made the boundary an
+	 * oracle: authority came from ARRIVAL, so anything reaching it acquired
+	 * authority regardless of what put it there. Every minter now signs, so
+	 * ingress signing is gone and an unsigned command stays unsigned.
+	 */
+	public function test_dispatch_does_not_sign_an_unsigned_command(): void {
+		$base_interpreter = $this->build_graph();
+		$capture          = new Capture_Sink_Node();
+		$capture->name( 'capture_service' );
+		$capture->sink( $base_interpreter );
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'capture_service',
+				'from'  => '_http',
+				'sign'  => false,
+				'value' => [ 'name' => 'echo', 'arguments' => [] ],
+			]
+		);
+
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertCount( 1, $capture->captured );
+		$this->assertArrayNotHasKey(
+			'auth',
+			$capture->captured[0][ Message::VALUE ],
+			'ingress must not confer authority on arrival'
+		);
+	}
+
 	public function test_dispatch_leaves_an_already_signed_session_envelope_alone(): void {
 		$base_interpreter = $this->build_graph();
 		$capture          = new Capture_Sink_Node();
@@ -124,6 +175,7 @@ class HTTPInTest extends TestCase {
 				'type'  => Message::TM_COMMAND,
 				'to'    => 'capture_service',
 				'from'  => '_http',
+				'sign'  => false,
 				'value' => [
 					'name'      => 'echo',
 					'arguments' => [],
@@ -247,12 +299,15 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'help', $message[ Message::VALUE ]['name'] );
 	}
 
-	public function test_server_restamps_timestamp_so_client_clock_skew_still_verifies(): void {
-		// A browser mints a command stamped with ITS OWN wall clock. If the client is
-		// 20+s skewed from the server, signing that client timestamp would blow the
-		// Command_Auth freshness window and silently reject every dashboard command.
-		// HTTP_In restamps TIMESTAMP to the server clock (Core::$now) right before
-		// Command_Auth::sign() — the ingress/sign moment — so a skewed command still verifies.
+	/**
+	 * Ingress used to re-anchor TIMESTAMP to the server clock before signing, so
+	 * a browser 20+s skewed still verified. It cannot any more: the minter signs
+	 * TIMESTAMP, so it is signed material and re-anchoring would destroy the
+	 * signature. The tolerance moved to the mint — /auth reports the server clock
+	 * and the client aligns to it — so what ingress must now do is REFUSE a stale
+	 * command rather than quietly rescue it.
+	 */
+	public function test_a_stale_client_timestamp_is_refused_not_rescued(): void {
 		$base_interpreter = $this->build_graph();
 		$echo             = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
@@ -262,19 +317,19 @@ class HTTPInTest extends TestCase {
 			[
 				'echo' => static function ( $self, $args ) use ( &$ran ): string {
 					$ran[] = \implode( ' ', $args );
-					return 'got: ' . \implode( ' ', $args );
+					return 'ok';
 				},
 			]
 		);
 
-		// Client clock an hour behind the server — far outside the freshness window.
+		// Signed an hour ago — far outside Command_Auth's freshness window.
 		$stale                       = Message::new_message();
 		$stale[ Message::TYPE ]      = Message::TM_COMMAND;
 		$stale[ Message::TIMESTAMP ] = (int) Core::$now - 3600;
 		$stale[ Message::TO ]        = 'echo_service';
 		$stale[ Message::FROM ]      = '_http';
-		$stale[ Message::ID ]        = 'cmd-skew';
-		$stale[ Message::VALUE ]     = [ 'name' => 'echo', 'arguments' => [ 'hi' ], 'payload' => '' ];
+		$stale[ Message::VALUE ]     = [ 'name' => 'echo', 'arguments' => [ 'hi' ] ];
+		Command_Auth::sign( $stale );
 
 		$req = new \WP_REST_Request();
 		$req->set_body( Message::packed( $stale ) );
@@ -284,14 +339,9 @@ class HTTPInTest extends TestCase {
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
-		$body = (string) \ob_get_clean();
+		\ob_get_clean();
 
-		// The verifier accepted the server-restamped command → echo ran and replied.
-		$this->assertSame( [ 'hi' ], $ran, 'the client-skewed command must verify after the server restamp' );
-		$this->assertNotSame( '', $body );
-		$message = Message::unpacked( $body );
-		$this->assertSame( 'cmd-skew', $message[ Message::ID ] );
-		$this->assertSame( 'got: hi', $message[ Message::VALUE ]['payload'] );
+		$this->assertSame( [], $ran, 'a stale command must not execute' );
 	}
 
 	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {
