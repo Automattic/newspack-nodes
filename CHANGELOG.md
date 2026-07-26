@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **`refusedForAuth()`** — the body-based session-renewal check in the browser
+  client. Redundant since the 401: every command in a batch carries the SAME
+  handle, so a dead one refuses all of them, the first reply is always the
+  refusal, and the status alone says so. Even a contrived batch that slipped
+  through would re-auth on the next cycle's 401. Its test now exercises the real
+  wire shape (a 401) rather than a 200 carrying an `unauthorized` reply, which
+  is a response no tab can actually produce.
+
 ## [2.1.4] - 2026-07-26
 
 ### Fixed
