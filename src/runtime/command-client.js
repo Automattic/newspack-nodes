@@ -80,6 +80,10 @@ export class CommandClient {
 		const text = await r.text();
 		// A non-2xx body is a REST error OBJECT, not JSONL. Say so.
 		if ( false === r.ok ) {
+			// A 401 refused our session; we return before the body is parsed.
+			if ( 401 === r.status ) {
+				renewSession();
+			}
 			const code = restErrorCode( text );
 			if (
 				mayRenewNonce &&
