@@ -27,6 +27,7 @@
  * is not re-entrant), so the fix is to not have an async operation at all.
  */
 
+import { Core } from './core';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
@@ -95,6 +96,9 @@ export function newNonce() {
 let session = null;
 let establishing = null;
 
+/** Whether a session was ever asked for. Silence before that is expected. */
+let attempted = false;
+
 /** Server clock minus ours, in seconds, learned from /auth. */
 let clockOffset = 0;
 
@@ -115,11 +119,16 @@ export function forgetSession() {
 	session = null;
 	establishing = null;
 	clockOffset = 0;
+	attempted = false;
 }
 
 async function postAuth() {
 	const { CommandClient } = await import( './command-client' );
 	const client = CommandClient.fromGlobal();
+	// No nonce: nothing to trade for a session. Don't POST into the dark.
+	if ( ! client.nonce ) {
+		return null;
+	}
 	const r = await fetch( `${ client.baseUrl }newspack-nodes/v1/auth`, {
 		method: 'POST',
 		headers: { 'X-WP-Nonce': client.nonce },
@@ -145,6 +154,8 @@ export async function ensureSession() {
 	if ( ! establishing ) {
 		establishing = ( authFetch ?? postAuth )()
 			.then( ( issued ) => {
+				// "Expected" only once a server actually answered.
+				attempted = null !== issued;
 				session = issued?.handle && issued?.key ? issued : null;
 				if ( session && 'number' === typeof issued.now ) {
 					clockOffset = issued.now - Math.floor( Date.now() / 1000 );
@@ -185,9 +196,14 @@ export function signCommand( message ) {
 		return;
 	}
 
-	// Unsigned is a state, not an error; the server refuses a crossing one.
 	const live = session;
 	if ( ! live ) {
+		// Quiet where none was obtainable; loud where one was expected.
+		if ( attempted ) {
+			Core.printLessOften(
+				'ERROR: no command session; this command will be refused'
+			);
+		}
 		return;
 	}
 

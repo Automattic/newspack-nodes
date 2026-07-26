@@ -112,7 +112,7 @@ describe( 'browser command signing', () => {
 		} );
 		const m = aCommand();
 
-		await ensureSession().catch( () => {} );
+		await ensureSession();
 		signCommand( m );
 
 		expect( m[ VALUE ].auth ).toBeUndefined();

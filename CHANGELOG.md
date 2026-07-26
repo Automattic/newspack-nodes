@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   heartbeat poll and `Remote_IPC`'s bundled `connect_worker_input` were building
   commands directly and being refused. `LOCAL` and the signature assert the same
   thing, so `markLocal()` now sets both and every mint site calls it.
+- **`Remote_IPC`'s bundled `connect_worker_input` is a mint too.** It never
+  stamped `LOCAL` at all, so it rode the ingress oracle until that was removed.
+  A regex over the `LOCAL` marker could not find it — that only locates sites
+  which already half-remembered.
+- **An unsigned command says so.** Once a session has been asked for and a server
+  answered, a command that cannot be signed logs `no command session; this
+  command will be refused` instead of failing silently and surfacing only as an
+  unexplained server-side refusal. Before a session is obtainable at all (no
+  nonce — a test harness, or a page that never localized) it stays quiet.
 - **`Node.mint()`** — build-and-complete, collapsing four byte-identical
   `_pollMessage()` bodies (heartbeat, dmesg, uptime, metadata) onto one helper.
 

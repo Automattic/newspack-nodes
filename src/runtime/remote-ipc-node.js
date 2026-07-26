@@ -27,7 +27,7 @@
 
 import { Node } from './node';
 import { RemoteLinkNode } from './remote-link-node';
-import { newMessage, TYPE, FROM, TO, VALUE, TM_COMMAND } from './message';
+import { FROM, TO } from './message';
 import names from './reserved-node-names.json';
 
 export class RemoteIpcNode extends RemoteLinkNode {
@@ -73,14 +73,9 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		command[ TO ] =
 			'' === remainder ? reader : `${ reader }/${ remainder }`;
 
-		const connect = newMessage();
-		connect[ TYPE ] = TM_COMMAND;
-		connect[ FROM ] = this.name;
+		// Our own mint beside the Shell's; TO after, since it isn't signed.
+		const connect = this.mint( 'connect_worker_input', [ reader ] );
 		connect[ TO ] = 'topologies';
-		connect[ VALUE ] = {
-			name: 'connect_worker_input',
-			arguments: [ reader ],
-		};
 
 		// One POST: ride a pre-existing lock, else open one around this pair.
 		const h = this.httpOut;

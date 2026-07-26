@@ -11,8 +11,9 @@
  * so they are set together by markLocal() and cannot drift apart.
  */
 import { HeartbeatNode } from '../heartbeat-node';
+import { RemoteIpcNode } from '../remote-ipc-node';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
-import { VALUE, LOCAL } from '../message';
+import { newMessage, TYPE, TO, VALUE, LOCAL, TM_COMMAND } from '../message';
 
 describe( 'local mints carry a signature', () => {
 	beforeEach( async () => {
@@ -40,5 +41,61 @@ describe( 'local mints carry a signature', () => {
 
 		expect( m[ LOCAL ] ).toBe( true );
 		expect( m[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
+	} );
+} );
+
+/**
+ * Remote_IPC bundles its own `connect_worker_input` alongside the command the
+ * Shell handed it. That one is a mint too — it was never stamped LOCAL at all,
+ * so it rode the ingress oracle until ingress stopped signing:
+ *
+ *   topologies: unauthorized: connect_worker_input - from: _output/combined.p0
+ *
+ * It is also why grepping for the LOCAL marker is a weak way to find mints: the
+ * marker only appears where someone already half-remembered.
+ */
+describe( 'Remote_IPC bundles a signed connect', () => {
+	beforeEach( async () => {
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: 'aaaa1111bbbb2222cccc3333dddd4444',
+			key: 'ipc-session-key-4242',
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+		await ensureSession();
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+	} );
+
+	it( 'signs the connect_worker_input it mints', () => {
+		const sent = [];
+		const node = new RemoteIpcNode();
+		node.name = 'combined.p0';
+		node.reader = 'combined.p0';
+		node.pid = () => 7;
+		node.connect = () => {};
+		node.httpOut = {
+			locked: true,
+			lock: () => {},
+			flush: () => {},
+			fill: ( m ) => sent.push( m ),
+		};
+
+		const typed = newMessage();
+		typed[ TYPE ] = TM_COMMAND;
+		typed[ TO ] = '';
+		typed[ VALUE ] = { name: 'ls', arguments: [] };
+		node.fill( typed );
+
+		const connect = sent.find(
+			( m ) => 'connect_worker_input' === m[ VALUE ]?.name
+		);
+		expect( connect ).toBeDefined();
+		expect( connect[ LOCAL ] ).toBe( true );
+		expect( connect[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
 	} );
 } );
