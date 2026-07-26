@@ -294,12 +294,11 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
-	public function test_list_flags_tee_subclasses_with_is_tee(): void {
+	public function test_list_flags_fan_out_classes_with_fans_out(): void {
 		// The Inspector renders the multi-chip fan-out editor (and the tail/tap
-		// button) iff a node IS a Tee-family node. That signal must come from the
+		// button) iff a node keeps a target LIST. That signal must come from the
 		// catalog — not the runtime target shape — so it holds in edit mode where
-		// the draft node's target is a string. Tee and Tap report is_tee === true;
-		// a non-Tee node (Echo) reports false.
+		// the draft node's target is a string.
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
 
 		$by_name = [];
@@ -313,13 +312,13 @@ class ClassesCITest extends TestCase {
 			'Tee absent from catalog — class discovery broken (run composer dump-autoload -o)'
 		);
 		$this->assertArrayHasKey(
-			'is_tee',
+			'fans_out',
 			$by_name['Tee'],
-			'each catalog entry must carry an is_tee flag'
+			'each catalog entry must carry a fans_out flag'
 		);
 		$this->assertTrue(
-			$by_name['Tee']['is_tee'],
-			'Tee must report is_tee === true'
+			$by_name['Tee']['fans_out'],
+			'Tee must report fans_out === true'
 		);
 
 		$this->assertArrayHasKey(
@@ -328,8 +327,8 @@ class ClassesCITest extends TestCase {
 			'Tap absent from catalog — class discovery broken (run composer dump-autoload -o)'
 		);
 		$this->assertTrue(
-			$by_name['Tap']['is_tee'],
-			'a Tee subclass (Tap) must report is_tee === true'
+			$by_name['Tap']['fans_out'],
+			'a Tee subclass (Tap) must report fans_out === true'
 		);
 
 		$this->assertArrayHasKey(
@@ -338,8 +337,17 @@ class ClassesCITest extends TestCase {
 			'Echo absent from catalog — class discovery broken (run composer dump-autoload -o)'
 		);
 		$this->assertFalse(
-			$by_name['Echo']['is_tee'],
-			'a non-Tee node must report is_tee === false'
+			$by_name['Echo']['fans_out'],
+			'a single-target node must report fans_out === false'
+		);
+
+		// The flag is the Fanout_Targets trait, not descent from Tee: the minters
+		// that sign one command per spoke are Timer_Node subclasses using it, and
+		// a false flag leaves the Inspector with no way to wire a second spoke.
+		$this->assertArrayHasKey( 'Settings_Sync', $by_name );
+		$this->assertTrue(
+			$by_name['Settings_Sync']['fans_out'],
+			'a Fanout_Targets user must report fans_out === true'
 		);
 	}
 

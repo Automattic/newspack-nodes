@@ -1005,8 +1005,8 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee_a', 'a' );
 	} );
 
-	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog is_tee flag (edit-mode string target)', () => {
-		// Edit-mode target is a STRING; multi-chip editor keys off is_tee.
+	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog fans_out flag (edit-mode string target)', () => {
+		// Edit-mode target is a STRING; multi-chip editor keys off fans_out.
 		const onConnect = jest.fn();
 		const { container } = render(
 			<Inspector
@@ -1023,7 +1023,7 @@ describe( 'Inspector (edit mode)', () => {
 				catalog={ [
 					{
 						shell_name: 'Tap',
-						is_tee: true,
+						fans_out: true,
 						arguments: [],
 						commands: [],
 					},

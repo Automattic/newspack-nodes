@@ -28,13 +28,13 @@ export function edgeHasConnectRole( edge ) {
 }
 
 export function nodeUsesTeeSemantics( node, catalog = [] ) {
-	if ( 'boolean' === typeof node?.isTee ) {
-		return node.isTee;
+	if ( 'boolean' === typeof node?.fansOut ) {
+		return node.fansOut;
 	}
 	const schema = Array.isArray( catalog )
 		? catalog.find( ( entry ) => entry.shell_name === node?.class )
 		: catalog?.[ node?.class ];
-	return schema?.is_tee ?? 'Tee' === node?.class;
+	return schema?.fans_out ?? 'Tee' === node?.class;
 }
 
 const CONFIG_TOKEN_RE = /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/;
@@ -410,7 +410,7 @@ function borrowedNode( record ) {
 		} ) ),
 		origin: record.origin || [],
 		via: record.via || [],
-		isTee: record.is_tee ?? 'Tee' === record.class,
+		fansOut: record.fans_out ?? 'Tee' === record.class,
 	};
 }
 
@@ -601,7 +601,7 @@ export function reconcileIncludes( graph, oldBaseline, newBaseline ) {
  *
  * @param {Object} graph    parseTsl() output for the collapsed `.tsl` file.
  * @param {Object} baseline `topologies expand( graph.includes )` result.
- * @param {Array}  catalog  Class catalog carrying Tee-family `is_tee` flags.
+ * @param {Array}  catalog  Class catalog carrying the `fans_out` flag.
  * @return {Object} Draft graph with borrowed nodes/edges merged in.
  */
 export function applyLoadedBaseline( graph, baseline, catalog = [] ) {

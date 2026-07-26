@@ -481,6 +481,29 @@ class Core {
 		unset( self::$nodes_by_name[ $name ] );
 	}
 
+	/**
+	 * Whether a node class fans out — keeps a target LIST rather than one target.
+	 *
+	 * The capability is the `Fanout_Targets` trait, NOT descent from `Tee_Node`:
+	 * the minters that sign one command per spoke (Settings_Sync, ELN's
+	 * Discovery_Collector) are Timer_Node subclasses that use the trait. Asking
+	 * about the base class calls them single-target, and the graph then collapses
+	 * every connect_node after the first.
+	 *
+	 * @param class-string|string $fqcn Fully-qualified class name.
+	 */
+	public static function class_fans_out( string $fqcn ): bool {
+		if ( ! \class_exists( $fqcn ) ) {
+			return false;
+		}
+		for ( $class = $fqcn; false !== $class; $class = \get_parent_class( $class ) ) {
+			if ( \in_array( Fanout_Targets::class, \class_uses( $class ) ?: [], true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}
