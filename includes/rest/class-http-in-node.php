@@ -84,6 +84,9 @@ class HTTP_In_Node extends Node {
 
 	public bool $sent_headers = false;
 
+	/** Whether any command in this request failed verification (drives the 401). */
+	public bool $refused_a_command = false;
+
 	/** @var \Closure status-header seam */
 	private \Closure $send_header;
 
@@ -97,11 +100,36 @@ class HTTP_In_Node extends Node {
 		parent::__construct();
 	}
 
+	/** Reset the refusal latch and hand back this request's authorize policy. */
+	private function fresh_verifier(): \Closure {
+		$this->refused_a_command = false;
+		return \Closure::fromCallable( [ $this, 'authorize_and_latch' ] );
+	}
+
+	/**
+	 * The request's authorize policy: Command_Auth's verifier, latching any
+	 * refusal so dispatch() answers 401 instead of a reassuring 202. Named (not
+	 * an inline closure) for the same reason `authorize_command` is — the
+	 * int-keyed Message type is honored end-to-end.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int, mixed>        $message
+	 */
+	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
+		$refused_before = $this->refused_a_command;
+		// Pessimistic: the verifier logs before it returns, opening the body.
+		$this->refused_a_command = true;
+		$ok                      = ( Command_Auth::verifier() )( $interpreter, $message );
+		$this->refused_a_command = $refused_before || ! $ok;
+		return $ok;
+	}
+
 	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
 	public function fill( array $message ): void {
 		++$this->counter;
 		if ( ! $this->sent_headers ) {
-			( $this->send_header )( 200 );
+			// Decided here: once the body starts, the status is spent.
+			( $this->send_header )( $this->refused_a_command ? 401 : 200 );
 			$this->sent_headers = true;
 		}
 		// JSONL: one packed Message per line; split on \n, never JSON.parse.
@@ -193,7 +221,7 @@ class HTTP_In_Node extends Node {
 		}
 
 		// This request process is a command VERIFIER: HMAC-check every command.
-		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
+		Command_Interpreter_Node::$default_authorize = $this->fresh_verifier();
 
 		// Route the batch in order through the base interpreter (serial).
 		$out->reset();
@@ -205,8 +233,8 @@ class HTTP_In_Node extends Node {
 		}
 
 		if ( ! $out->sent_headers ) {
-			// Async/IPC: routed onward, reply arrives via SSE — bare 202 ack.
-			\status_header( 202 );
+			// Nothing written back: say 401, else ack the onward route.
+			( $this->send_header )( $this->refused_a_command ? 401 : 202 );
 		}
 		$this->finish();
 	}

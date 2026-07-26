@@ -58,7 +58,7 @@ class SSE_In_Node extends Node {
 	/**
 	 * Delivery seam. The owner (patron) sets this; every `msg` SSE event hands its RAW
 	 * `data:` payload (the packed line, byte-identical to the remote's on-disk encoding)
-	 * to it. Remote_IPC implements it as unpack + forward downstream; Remote_Source appends
+	 * to it. Remote_Source implements it as an append
 	 * the raw line to its Durable_Reader buffer. A null seam drops the event.
 	 * Signature: `function ( string $raw ): void`.
 	 *
@@ -89,7 +89,7 @@ class SSE_In_Node extends Node {
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
 	private bool  $require_ssl          = false;
-	/** Session pid snooped from the `connected` handshake (Remote_IPC's reply-FROM). */
+	/** Session pid snooped from the `connected` handshake; scopes a reply-FROM. */
 	private ?int  $session_pid          = null;
 	private ?int  $slot                 = null;
 
@@ -588,7 +588,7 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Session pid captured from the `connected` handshake. Null until connected.
-	 * Remote_IPC stamps it into the reply-FROM (`_sse:{pid}/{node}`).
+	 * A caller stamps it into the reply-FROM (`_sse:{pid}/{node}`).
 	 *
 	 * @api Dynamic entrypoint.
 	 */

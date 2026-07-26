@@ -16,8 +16,7 @@
  * seams: connection (`restore_position`, `should_connect`) and the dashboard status
  * snapshot (`publish_status`, `record_heartbeat_sent`, `record_heartbeat_reply`
  * — all no-ops here, so only `Remote_Source_Node` publishes).
- * `Remote_Source_Node` adds the durable aggregation offsetlog + that status snapshot;
- * `Remote_IPC_Node` adds the worker-attach send + single-connection steal.
+ * `Remote_Source_Node` adds the durable aggregation offsetlog + that status snapshot.
  *
  * @package Newspack_Nodes
  */
@@ -42,6 +41,10 @@ class Remote_Link_Node extends Timer_Node {
 	protected ?Null_Node $null_sink = null;
 
 	protected int $last_heartbeat_sent = 0;
+
+	/** Wall-second the heartbeat liveness clock last advanced: a reply, or the first send. */
+	protected int $last_heartbeat_reply = 0;
+
 	protected string $remote_partition = '';
 
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */
@@ -89,6 +92,7 @@ class Remote_Link_Node extends Timer_Node {
 		$type = Core::int( $message[ Message::TYPE ] );
 		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type
 				|| ( Message::TM_COMMAND | Message::TM_ERROR ) === $type ) {
+			$this->last_heartbeat_reply = (int) Core::$now;
 			$this->record_heartbeat_reply();
 			return;
 		}
@@ -98,8 +102,7 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Per-tick housekeeping (Timer_Node::fire_cb calls this): drive the passive
 	 * SSE_In, persist the cursor, and keep the slot alive. Idempotent and cheap.
-	 * `should_connect()` gates whether a tick initiates/keeps the connection —
-	 * Remote_Source always pulls; Remote_IPC only while it holds the live stream.
+	 * `should_connect()` gates whether a tick initiates/keeps the connection.
 	 */
 	public function fire(): void {
 		// Housekeeping once per second; subclass fast paths ride every tick.
@@ -108,7 +111,6 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$this->last_housekeeping_s = $now_s;
-		// Only the link managing stream ticks; stolen Remote_IPC stays dormant.
 		if ( ! $this->should_connect() ) {
 			return;
 		}
@@ -123,8 +125,7 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Default send: relay the message out through the patron HTTP_Out. Remote_IPC
-	 * overrides this to wrap the reply-FROM + bundle a `connect_worker_input`.
+	 * Default send: relay the message out through the patron HTTP_Out.
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
@@ -160,10 +161,22 @@ class Remote_Link_Node extends Timer_Node {
 		}
 		// The spoke authorizes this like any command; hold until we can sign.
 		$spoke = $this->http_out->vault_id();
+		// Three cadences of silence: the spoke evicted our session.
+		if ( '' !== $spoke && 0 !== $this->last_heartbeat_reply
+				&& $now - $this->last_heartbeat_reply >= self::HEARTBEAT_INTERVAL * 3 ) {
+			Command_Auth::forget_session( $spoke );
+			// Re-arm, or the next tick forgets the fresh session too.
+			$this->last_heartbeat_reply = $now;
+		}
 		if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
+			// Our only traffic: ask, and spend the cadence (backoff).
+			$this->last_heartbeat_sent = $now;
+			$this->http_out->ensure_session();
 			return;
 		}
 		$this->last_heartbeat_sent = $now;
+		// First beat starts the liveness clock; silence is measured from it.
+		$this->last_heartbeat_reply = $this->last_heartbeat_reply ?: $now;
 
 		// ttl must outlive HEARTBEAT_INTERVAL — only client refreshes slot.
 		$message                   = Message::new_message();
@@ -340,11 +353,6 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public function close(): void {
 		$this->sse_in?->disconnect();
-	}
-
-	/** True while the SSE_In holds a live stream (a steady poll doesn't reconnect). */
-	protected function is_streaming(): bool {
-		return null !== $this->sse_in && $this->sse_in->connection()['connected'];
 	}
 
 	public function connect_node( string $target ): void {

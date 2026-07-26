@@ -33,7 +33,13 @@ trait Sidecar {
 			$partition->name( $name );
 		}
 		$partition->patron( $this );
-		$partition->arguments( \array_map( '\strval', [ $dir, ...$geometry ] ) );
+		try {
+			$partition->arguments( \array_map( '\strval', [ $dir, ...$geometry ] ) );
+		} catch ( \Throwable $e ) {
+			// Naming precedes arguments (ADR-11): unregister or retries clash.
+			$partition->remove_node();
+			throw $e;
+		}
 		$partition->sink( $this->sink );
 		// A sidecar quarantining its own writes would recurse ([159]).
 		$partition->without_write_deadletter();

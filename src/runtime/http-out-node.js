@@ -96,31 +96,29 @@ export class HttpOutNode extends Node {
 	/**
 	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862.
 	 *
-	 * A TM_RESPONSE self-routes by the TO the remote echoed off our own FROM
-	 * breadcrumb. Anything else on the reply leg is the remote addressing OUR
-	 * graph, and `target` decides what that means: unaddressed output (a `log`
-	 * broadcast, say) belongs to the target, while an addressed non-response
-	 * arriving while a target is set is the remote picking its own destination
-	 * inside us — refused. With no target neither arm engages.
+	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
+	 * off our own FROM breadcrumb. Anything else on the reply leg is the remote
+	 * addressing OUR graph, and `target` decides what that means: unaddressed
+	 * output (a `log` broadcast, say) belongs to the target, while an addressed
+	 * non-reply arriving while a target is set is the remote picking its own
+	 * destination inside us — refused. With no target neither arm engages.
 	 *
 	 * @param {Array} message A positional Message, mutated in place.
 	 * @return {boolean} True if the message may be forwarded to the sink.
 	 */
 	acceptInbound( message ) {
-		if ( message[ TYPE ] & TM_RESPONSE ) {
+		// An error is a reply too — but only when directed (see the docblock).
+		if ( message[ TO ] && message[ TYPE ] & ( TM_RESPONSE | TM_ERROR ) ) {
 			return true;
 		}
 		if ( ! this.target ) {
 			return true;
 		}
 		if ( message[ TO ] ) {
-			// A bare TM_ERROR is refused just as quietly as it arrived.
-			if ( TM_ERROR !== message[ TYPE ] ) {
-				this.dropMessage(
-					message,
-					`message addressed while target is set to ${ this.target }`
-				);
-			}
+			this.dropMessage(
+				message,
+				`message addressed while target is set to ${ this.target }`
+			);
 			return false;
 		}
 		message[ TO ] = this.target;
