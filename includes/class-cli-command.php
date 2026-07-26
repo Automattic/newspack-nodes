@@ -178,6 +178,8 @@ class CLI_Command {
 			$ipc_in = new Consumer_Node();
 			$ipc_in->arguments( [ $ipc['output'] ] );
 			$ipc_in->next_offset( 'end' );
+			// Worker id at the HEAD of FROM; the tail is the worker's own text.
+			$ipc_in->set_stamp_as( $worker_id );
 			$ipc_in->sink( $reply_in );
 		}
 

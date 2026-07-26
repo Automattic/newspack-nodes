@@ -174,6 +174,40 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
+	/**
+	 * The reply Consumer stamps the WORKER id onto every frame it reads out of
+	 * the worker's IPC output. stamp_message() prepends, so the head of FROM is
+	 * ours and everything after it is whatever the worker wrote — the
+	 * X-Forwarded-For rule: only the front is trustworthy. Unnamed and
+	 * unstamped, as it was, there is no trustworthy head at all.
+	 */
+	public function test_the_reply_consumer_stamps_the_worker_id_at_the_head(): void {
+		$ipc = [
+			'input'     => "{$this->tmp}/ipc/firehose-workers.p0/input",
+			'output'    => "{$this->tmp}/ipc/firehose-workers.p0/output",
+			'type'      => 'firehose-workers',
+			'partition' => 0,
+		];
+		\mkdir( $ipc['input'], 0755, true );
+		\mkdir( $ipc['output'], 0755, true );
+
+		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
+		$ref->invoke( new CLI_Command(), true, $ipc );
+
+		// Unnamed by design, so reach it off the framework's timer registry.
+		$timers = ( new \ReflectionProperty( \Newspack_Nodes\Event_Framework::class, 'timers' ) )
+			->getValue( \Newspack_Nodes\Event_Framework::instance() );
+		$consumer = null;
+		foreach ( $timers as $node ) {
+			if ( $node instanceof \Newspack_Nodes\Consumer_Node ) {
+				$consumer = $node;
+			}
+		}
+
+		$this->assertNotNull( $consumer, 'attached mode mounts a reply Consumer' );
+		$this->assertSame( 'firehose-workers.p0', $consumer->stamped_as() );
+	}
+
 	public function test_build_repl_graph_attached_mounts_worker_partition_and_reply_in(): void {
 		// Attached mode: the IPC input Partition is mounted under the WORKER id (the
 		// mount point routing peels to), plus an unnamed `reply-in` Consumer.
