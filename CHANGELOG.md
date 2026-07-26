@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **A browser tab re-authenticates when the substrate answers 401.** The client
+  already renewed on a `verification failed` reply, but it reads that from the
+  BODY and `#post` returns at `false === r.ok` before any JSONL is parsed — so
+  once refusals started coming back as 401 (2.1.1) the reply was never seen, and
+  a tab re-signed with a dead handle every couple of seconds forever. The status
+  now triggers the renewal directly, as `HTTP_Out` already does server-side.
+
+  The body check stays: it is not redundant. A response can only carry the
+  status known at its FIRST write, so a batch whose refusal lands after an
+  accepted command has already opened the response answers 200 with an
+  `unauthorized` reply inside it. The status covers refusal-first, the body
+  covers refusal-after — and an open tab still needs a reload to pick this up.
+
+### Fixed
 - **A spawn POST that timed out before it was sent is now reported.** The
   fire-and-forget classifier counted every `CURLE_OPERATION_TIMEDOUT` as
   success, which is right only once the request is on the wire — hanging up

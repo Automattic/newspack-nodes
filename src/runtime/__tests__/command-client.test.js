@@ -6,6 +6,7 @@
  */
 
 import { CommandClient } from '../command-client';
+import * as auth from '../command-auth';
 import { Core } from '../core';
 import { TYPE, TM_BYTESTREAM } from '../message';
 import apiFetch from '@wordpress/api-fetch';
@@ -127,6 +128,23 @@ describe( 'CommandClient — HTTP failures', () => {
 		expect( warn ).toHaveBeenCalledWith(
 			'ERROR: CommandClient: /command failed - HTTP 404 rest_no_route'
 		);
+		warn.mockRestore();
+	} );
+
+	// The substrate answers 401 when it refused a command's session. The reply
+	// body says so too, but a non-2xx returns before the JSONL is ever parsed —
+	// so the STATUS has to trigger the renewal, or a tab re-signs with a dead
+	// handle every couple of seconds forever.
+	it( 'renews the session when the substrate answers 401', async () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const renew = jest.spyOn( auth, 'renewSession' );
+
+		await failing( 401, 'rest_forbidden' ).postBatch( [], [] );
+
+		expect( renew ).toHaveBeenCalled();
+		renew.mockRestore();
 		warn.mockRestore();
 	} );
 
