@@ -22,13 +22,6 @@ class CLI {
 	 */
 	public static ?\Closure $uid_provider = null;
 
-	/** The running uid through the seam; -1 when posix is absent. */
-	public static function uid(): int {
-		$provider = self::$uid_provider
-			?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1;
-		return Core::as_int( $provider(), -1 );
-	}
-
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
@@ -195,6 +188,13 @@ class CLI {
 		if ( 0 === $uid ) {
 			\WP_CLI::error( "wp nodes {$verb} must run as the same user as the workers, not root." );
 		}
+	}
+
+	/** The running uid through the seam; -1 when posix is absent. */
+	public static function uid(): int {
+		$provider = self::$uid_provider
+			?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1;
+		return Core::as_int( $provider(), -1 );
 	}
 
 	/**
