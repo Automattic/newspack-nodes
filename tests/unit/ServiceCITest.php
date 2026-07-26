@@ -195,12 +195,11 @@ class ServiceCITest extends TestCase {
 		$this->assertSame( '{"sliced":true}', $result );
 	}
 
-	// ── command_body ──────────────────────────────────────────────────────
+	// ── command_message ───────────────────────────────────────────────────
 
-	public function test_command_body_builds_packed_tm_command_envelope(): void {
-		$method = new \ReflectionMethod( Service_CI_Node::class, 'command_body' );
-		$body   = $method->invoke( null, 'discovery', 'get', [ 'a', 'b' ] );
-		$decoded = Message::unpacked( $body );
+	public function test_command_message_builds_tm_command_envelope(): void {
+		$method = new \ReflectionMethod( Service_CI_Node::class, 'command_message' );
+		$decoded = $method->invoke( null, 'discovery', 'get', [ 'a', 'b' ] );
 
 		$this->assertSame( Message::TM_COMMAND, $decoded[ Message::TYPE ] );
 		$this->assertSame( Node_Names::HTTP, $decoded[ Message::FROM ] );
@@ -211,10 +210,9 @@ class ServiceCITest extends TestCase {
 		);
 	}
 
-	public function test_command_body_defaults_args_to_empty_list(): void {
-		$method  = new \ReflectionMethod( Service_CI_Node::class, 'command_body' );
-		$body    = $method->invoke( null, 'workers', 'dump_graph' );
-		$decoded = Message::unpacked( $body );
+	public function test_command_message_defaults_args_to_empty_list(): void {
+		$method  = new \ReflectionMethod( Service_CI_Node::class, 'command_message' );
+		$decoded = $method->invoke( null, 'workers', 'dump_graph' );
 
 		$this->assertSame( [], $decoded[ Message::VALUE ]['arguments'] );
 	}
@@ -283,7 +281,10 @@ class ServiceCITest extends TestCase {
 	public function test_probe_command_forwards_to_and_verb_and_args_in_body(): void {
 		$seen_body = null;
 		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_body ): array {
-			$seen_body = Message::unpacked( $args['body'] );
+			// Skip the /auth handshake: it carries no packed Message.
+			if ( ! \str_ends_with( $url, '/auth' ) ) {
+				$seen_body = Message::unpacked( $args['body'] );
+			}
 			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
 		};
 
@@ -440,7 +441,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 	}
 
 	public static function probe_command_probe( array $server, string $to, string $verb, array $verb_args = [] ): array {
-		return self::probe_command( $server, $to, $verb, $verb_args );
+		return self::probe_command( 'test-spoke', $server, $to, $verb, $verb_args );
 	}
 
 	/**

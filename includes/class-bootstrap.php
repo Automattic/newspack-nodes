@@ -10,6 +10,7 @@
 
 namespace Newspack_Nodes;
 
+use Newspack_Nodes\Rest\Auth_Controller;
 use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
@@ -127,6 +128,8 @@ class Bootstrap {
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Alerts::class, 'emit' ] );
 		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Job_Delay::class, 'sweep_action' ] );
+		// A re-credentialed or removed spoke invalidates its command session.
+		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'forget_command_session' ] );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
@@ -455,11 +458,23 @@ class Bootstrap {
 		return $event;
 	}
 
+	/**
+	 * A re-credentialed or removed spoke invalidates its command session; drop it
+	 * so the next command re-auths instead of signing under a key the far side
+	 * has forgotten.
+	 *
+	 * @param string $id Vault server id, from `newspack_nodes/vault/changed`.
+	 */
+	public static function forget_command_session( string $id ): void {
+		Command_Auth::forget_session( $id );
+	}
+
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
 		// Slot-pool seams here, not ensure_runtime_wired: SSE_Out is REST-only.
 		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::supervisor() ) )->register_routes();
+		( new Auth_Controller() )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
 		( new Log_Stream_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();

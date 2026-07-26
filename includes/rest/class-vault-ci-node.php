@@ -236,7 +236,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string, mixed> Sanitised probe response.
 	 */
 	private static function probe_remote( string $id, array $server ): array {
-		$body = self::probe_command( $server, 'discovery', 'get' );
+		$body = self::probe_command( $id, $server, 'discovery', 'get' );
 
 		// Whitelist what we surface so we never proxy arbitrary remote JSON.
 		$safe = [];

@@ -84,7 +84,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		return self::fleet_rollup( $id, self::probe_command( $server, 'workers', 'dump_graph' ) );
+		return self::fleet_rollup( $id, self::probe_command( $id, $server, 'workers', 'dump_graph' ) );
 	}
 
 	/**

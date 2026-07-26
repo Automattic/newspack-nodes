@@ -59,6 +59,85 @@ class Command_Auth {
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
 	public static function sign( array &$message ): void {
+		self::stamp( $message, self::secret(), null );
+	}
+
+	/**
+	 * Sign for a specific remote, under the session key established with it.
+	 * Choosing the key IS the destination binding — a signature under one
+	 * remote's key verifies only there — which is how a command is pinned to its
+	 * destination without signing TO, a field Router peels in transit.
+	 *
+	 * No session means no signature. An unsigned command is refused downstream,
+	 * which is the correct failure: minters must wait for the session rather
+	 * than emit something that will rot before it can be believed.
+	 *
+	 * @param array<int,mixed> $message Message (mutated in place).
+	 */
+	public static function sign_for( string $destination, array &$message ): void {
+		$session = self::$sessions[ $destination ] ?? null;
+		if ( null === $session ) {
+			Core::print_less_often( 'Command_Auth: no session for ', $destination, '; refusing to sign' );
+			return;
+		}
+		self::stamp( $message, $session['key'], $session['handle'] );
+	}
+
+	/**
+	 * Client-side sessions keyed by VAULT ID, per-process. Not by url: two
+	 * entries may share a host with different credentials, and a url can be
+	 * edited while the id stays — both would alias one session across two
+	 * authorization contexts. Lost on worker restart,
+	 * which costs one re-auth. The verifier's own copy lives in the shared cache.
+	 *
+	 * @var array<string,array{handle:string,key:string}>
+	 */
+	private static array $sessions = [];
+
+	/**
+	 * Drop the session with a remote, so the next command to it re-auths. Fired
+	 * when a Vault entry is re-credentialed or removed: the far side has
+	 * forgotten the key, or the credentials that bought it no longer apply.
+	 */
+	public static function forget_session( string $destination ): void {
+		unset( self::$sessions[ $destination ] );
+	}
+
+	/** Whether a session with this remote is already established in this process. */
+	public static function has_session( string $destination ): bool {
+		return isset( self::$sessions[ $destination ] );
+	}
+
+	/**
+	 * Record the session established with a remote, for `sign_for()` to use.
+	 * All three are required: an empty one means a malformed `/auth` response was
+	 * read through a `??`, and the resulting signature would be refused at the far
+	 * end under a misleading diagnosis. Fail here, where the cause is visible.
+	 *
+	 * @throws \InvalidArgumentException When any argument is empty.
+	 */
+	public static function remember_session( string $destination, string $handle, string $key ): void {
+		if ( '' === $destination || '' === $handle || '' === $key ) {
+			throw new \InvalidArgumentException( 'Command_Auth::remember_session() requires a destination, handle, and key' );
+		}
+		self::$sessions[ $destination ] = [
+			'handle' => $handle,
+			'key'    => $key,
+		];
+	}
+
+	/**
+	 * Stamp an `auth` envelope under $key. No-op unless TYPE is a request command
+	 * — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY rides along fine).
+	 * The HMAC covers TYPE, so the signer's flags must match the verifier's.
+	 *
+	 * $handle names the session the verifier must resolve $key from; null means
+	 * the per-site secret. It is deliberately outside `canonical()`: repointing
+	 * an envelope at another handle only makes the signature stop matching.
+	 *
+	 * @param array<int,mixed> $message Message (mutated in place).
+	 */
+	private static function stamp( array &$message, string $key, ?string $handle ): void {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
@@ -73,11 +152,28 @@ class Command_Auth {
 			Core::print_less_often( 'Command_Auth: un-encodable command arguments; refusing to sign' );
 			return;
 		}
-		$value['auth'] = [
+		$envelope = [
 			'nonce' => $nonce,
-			'sig'   => \hash_hmac( 'sha256', $canon, self::secret() ),
+			'sig'   => \hash_hmac( 'sha256', $canon, $key ),
 		];
+		if ( null !== $handle ) {
+			$envelope['handle'] = $handle;
+		}
+		$value['auth']             = $envelope;
 		$message[ Message::VALUE ] = $value;
+	}
+
+	/**
+	 * True when a Message already carries an `auth` envelope, i.e. some minter has
+	 * already vouched for it. Such a message is finished: its TIMESTAMP is signed
+	 * material and re-anchoring it, or re-stamping the envelope, destroys the
+	 * signature rather than replacing it.
+	 *
+	 * @param array<int,mixed> $message
+	 */
+	public static function is_signed( array $message ): bool {
+		$value = $message[ Message::VALUE ] ?? null;
+		return \is_array( $value ) && isset( $value['auth'] );
 	}
 
 	/**
@@ -132,6 +228,75 @@ class Command_Auth {
 	}
 
 	/**
+	 * Session-key lifetime. Fixed, never slid on use: a leaked handle expires on a
+	 * bounded schedule no matter how busy it is. Clients re-auth on refusal.
+	 */
+	public const SESSION_TTL_S = 3600;
+
+	/**
+	 * Cache address for a session key. Namespaced per site: the cache is shared
+	 * infrastructure, not a trusted store, so a handle minted by another install
+	 * — or planted directly by anything that can write memcached — must not
+	 * resolve here. Deriving the namespace from the site secret costs nothing;
+	 * anyone who can compute it already holds the salt and can sign outright.
+	 */
+	private static function session_address( string $handle ): string {
+		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \NONCE_SALT ), 0, 16 ) . ':' . $handle;
+	}
+
+	/**
+	 * Mint a session: a random key under a random handle. Both are generated
+	 * here — a caller-supplied handle could collide with or fixate a live
+	 * session, and caller-supplied entropy is unverifiable.
+	 *
+	 * Takes no destination or user: the verifier resolves a key by handle and
+	 * nothing more, and a signature under one session's key is verifiable only
+	 * by the site that minted it. Scope lives with the client that holds the key.
+	 *
+	 * @return array{handle:string,key:string,expires_in:int}
+	 * @throws \RuntimeException When the session could not be persisted.
+	 */
+	public static function mint_session(): array {
+		$handle = \bin2hex( \random_bytes( 16 ) );
+		$key    = \bin2hex( \random_bytes( 32 ) );
+		if ( ! self::store_session( $handle, $key, self::SESSION_TTL_S ) ) {
+			throw new \RuntimeException( 'Command_Auth: could not persist the session (no shared store, or handle taken)' );
+		}
+		return [
+			'handle'     => $handle,
+			'key'        => $key,
+			'expires_in' => self::SESSION_TTL_S,
+		];
+	}
+
+	/**
+	 * Store a session key under its handle. `add()`, never `set()`: a handle can
+	 * never displace a live session, so a colliding mint fails rather than
+	 * fixating someone else's. False when the handle is taken or no shared store
+	 * exists (fail closed).
+	 *
+	 * `shared_only()` — not the `local_first()` the nonce claim uses, and not
+	 * `shared_first()` either: a session minted in a web request has to resolve
+	 * in a worker, and the APCu arm both of those can fall back to is per-host
+	 * and usually disabled under CLI. Storing there would succeed and then
+	 * verify nowhere.
+	 */
+	public static function store_session( string $handle, string $key, int $ttl ): bool {
+		$backend = Cache_Backend::shared_only();
+		return null !== $backend && $backend->add( self::session_address( $handle ), $key, $ttl );
+	}
+
+	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
+	public static function load_session( string $handle ): ?string {
+		$backend = Cache_Backend::shared_only();
+		if ( null === $backend ) {
+			return null;
+		}
+		$key = $backend->get( self::session_address( $handle ) );
+		return \is_string( $key ) && '' !== $key ? $key : null;
+	}
+
+	/**
 	 * Verify a command Message's `auth` envelope: freshness window, HMAC, then a
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
@@ -164,12 +329,24 @@ class Command_Auth {
 			return false;
 		}
 
+		// A handle names a session; no handle means the per-site secret.
+		$handle = $auth['handle'] ?? null;
+		if ( null === $handle ) {
+			$key = self::secret();
+		} else {
+			$key = self::load_session( Core::as_string( $handle ) );
+			if ( null === $key ) {
+				$interpreter?->drop_message( $message, 'verification failed: unknown or expired session' );
+				return false;
+			}
+		}
+
 		$canon = self::canonical( $type, $ts, $value, $nonce );
 		if ( null === $canon ) {
 			$interpreter?->drop_message( $message, 'verification failed: invalid signature' );
 			return false;
 		}
-		$expected = \hash_hmac( 'sha256', $canon, self::secret() );
+		$expected = \hash_hmac( 'sha256', $canon, $key );
 		$sig      = $auth['sig'];
 		if ( ! \hash_equals( $expected, Core::as_string( $sig ) ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: signature mismatch' );
