@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-26
+
 ### Fixed
 - **A refused command answers 401, and the hub acts on it.** `/command` used to
   ack a batch it had refused with a 202, so a hub whose session the spoke had
