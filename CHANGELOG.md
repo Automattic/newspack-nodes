@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`log` output from a `/command` verb reaches the browser.** The server's
+  stderr handler mints its line with no TO and `fill()`s it straight into the
+  sink — fine in-process, but when that sink is the `_output` response writer
+  the unaddressed message is packed verbatim into the reply body, and the
+  browser's `HttpOut` handed it to `_router`, which dropped it as *message not
+  addressed*. `HTTP_Out`/`HttpOut` now apply Tachikoma's wire-inbound clause
+  (`Socket.pm:852-862`): a `TM_RESPONSE` self-routes; an unaddressed
+  non-response is stamped `TO=target`; an addressed non-response arriving while
+  a target is set is refused. `_http` targets `_output`. Both nodes now declare
+  `has_target: true`. This also closes the reply-leg injection the security
+  audit described as unclosable — a spoke can no longer address our graph. See
+  [ADR-7](docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies).
 - **A refused command logs ONCE, under the node that refused it.** `verify()`
   looked its logger up as a hardcoded `_command_interpreter`, so on any other
   interpreter the reason was logged under the wrong node AND the flag it set to

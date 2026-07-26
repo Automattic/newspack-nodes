@@ -14,7 +14,7 @@
  */
 
 import { Node } from './node';
-import { pack } from './message';
+import { pack, TYPE, TO, TM_RESPONSE, TM_ERROR } from './message';
 import { byteLength } from './io-telemetry';
 import { CommandClient } from './command-client';
 
@@ -80,7 +80,9 @@ export class HttpOutNode extends Node {
 					// Read boundary: tally the wire size of each reply.
 					this.bytesRead += byteLength( pack( message ) );
 					this.counter++;
-					this.sink?.fill( message );
+					if ( this.acceptInbound( message ) ) {
+						this.sink?.fill( message );
+					}
 				}
 			} )
 			.catch( ( err ) => {
@@ -89,6 +91,40 @@ export class HttpOutNode extends Node {
 					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
 				);
 			} );
+	}
+
+	/**
+	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862.
+	 *
+	 * A TM_RESPONSE self-routes by the TO the remote echoed off our own FROM
+	 * breadcrumb. Anything else on the reply leg is the remote addressing OUR
+	 * graph, and `target` decides what that means: unaddressed output (a `log`
+	 * broadcast, say) belongs to the target, while an addressed non-response
+	 * arriving while a target is set is the remote picking its own destination
+	 * inside us — refused. With no target neither arm engages.
+	 *
+	 * @param {Array} message A positional Message, mutated in place.
+	 * @return {boolean} True if the message may be forwarded to the sink.
+	 */
+	acceptInbound( message ) {
+		if ( message[ TYPE ] & TM_RESPONSE ) {
+			return true;
+		}
+		if ( ! this.target ) {
+			return true;
+		}
+		if ( message[ TO ] ) {
+			// A bare TM_ERROR is refused just as quietly as it arrived.
+			if ( TM_ERROR !== message[ TYPE ] ) {
+				this.dropMessage(
+					message,
+					`message addressed while target is set to ${ this.target }`
+				);
+			}
+			return false;
+		}
+		message[ TO ] = this.target;
+		return true;
 	}
 
 	lock() {
@@ -101,7 +137,7 @@ export class HttpOutNode extends Node {
 			category: 'I/O',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
 			// POSTs out, routes replies to FROM; no `target`, no out-port.
-			has_target: false,
+			has_target: true,
 			arguments: [],
 			commands: [],
 		};

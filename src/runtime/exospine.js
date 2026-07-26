@@ -102,6 +102,8 @@ export function mountExospine( build ) {
 		const http = new HttpOutNode();
 		http.name = names.HTTP;
 		http.sink = interpreter;
+		// Unaddressed reply-leg output (a server `log` line) lands here.
+		http.target = names.OUTPUT;
 
 		const heartbeat = new HeartbeatNode();
 		heartbeat.name = names.HEARTBEAT;
