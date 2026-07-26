@@ -38,6 +38,9 @@ class Remote_Link_Node extends Timer_Node {
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
 	protected ?HTTP_Out_Node $http_out = null;
 
+	/** Black hole for reply-leg traffic the wire-inbound clause stamps. */
+	protected ?Null_Node $null_sink = null;
+
 	protected int $last_heartbeat_sent = 0;
 	protected string $remote_partition = '';
 
@@ -155,6 +158,11 @@ class Remote_Link_Node extends Timer_Node {
 		if ( $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
+		// The spoke authorizes this like any command; hold until we can sign.
+		$spoke = $this->http_out->vault_id();
+		if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
+			return;
+		}
 		$this->last_heartbeat_sent = $now;
 
 		// ttl must outlive HEARTBEAT_INTERVAL — only client refreshes slot.
@@ -166,6 +174,7 @@ class Remote_Link_Node extends Timer_Node {
 			'name'      => 'heartbeat',
 			'arguments' => [ (string) $slot, (string) ( self::HEARTBEAT_INTERVAL * 3 ) ],
 		];
+		Command_Auth::sign_for( $spoke, $message );
 		++$this->counter;
 		$this->http_out->fill( $message );
 
@@ -258,6 +267,12 @@ class Remote_Link_Node extends Timer_Node {
 		$http->patron( $this );
 		$http->arguments( [ $this->vault_id ] );
 		$http->sink( $this->sink );
+		// Arms HTTP_Out's wire-inbound clause; a Null, since the link relays.
+		$null = new Null_Node();
+		$null->name( "{$this->name}:null" );
+		$null->patron( $this );
+		$this->null_sink = $null;
+		$http->target( $null->name() );
 		$this->http_out = $http;
 
 		return $sse;
@@ -347,6 +362,8 @@ class Remote_Link_Node extends Timer_Node {
 		$this->sse_in = null;
 		$this->http_out?->remove_node();
 		$this->http_out = null;
+		$this->null_sink?->remove_node();
+		$this->null_sink = null;
 		parent::remove_node();
 	}
 
