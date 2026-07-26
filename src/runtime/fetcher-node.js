@@ -1,3 +1,4 @@
+import { markLocal } from './command-auth';
 import { Node } from './node';
 import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
 
@@ -61,6 +62,7 @@ export class FetcherNode extends Node {
 			name: this.command,
 			arguments: Array.isArray( args ) ? args : [],
 		};
+		markLocal( m );
 		super.fill( m );
 	}
 

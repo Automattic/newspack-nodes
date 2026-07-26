@@ -36,6 +36,7 @@
  * useNodeState('aggregator:fleet','view').
  */
 
+import { markLocal } from '../../runtime/command-auth';
 import { useCallback, useEffect, useState } from '@wordpress/element';
 import {
 	Core,
@@ -161,6 +162,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 				name: 'probe',
 				arguments: formatCommandArgs( [ id ] ),
 			};
+			markLocal( m );
 			interpreter.fill( m );
 			return promise;
 		},

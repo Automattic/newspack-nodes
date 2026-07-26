@@ -10,6 +10,7 @@ import {
 	TM_ERROR,
 	TM_UNTYPED,
 } from './message';
+import { markLocal } from './command-auth';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
@@ -130,6 +131,7 @@ export class CommandClient {
 			name: verb,
 			arguments: args,
 		};
+		markLocal( msg );
 		return msg;
 	}
 

@@ -17,6 +17,7 @@
  * steered ONLY by each node's `target`.
  */
 
+import { markLocal } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import { endPosition } from '../../shared/nodes/seekTracker';
@@ -61,6 +62,7 @@ function buildSourcesCommand( id ) {
 	m[ FROM ] = VIEW;
 	m[ ID ] = id;
 	m[ VALUE ] = { name: 'taillog', arguments: [ 'sources' ] };
+	markLocal( m );
 	return m;
 }
 
@@ -74,6 +76,7 @@ function buildReadCommand( id, source, cursor ) {
 		name: 'taillog',
 		arguments: [ 'read', source, `${ cursor.segment }:${ cursor.offset }` ],
 	};
+	markLocal( m );
 	return m;
 }
 
