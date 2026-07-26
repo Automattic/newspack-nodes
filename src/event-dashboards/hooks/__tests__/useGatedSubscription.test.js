@@ -158,10 +158,30 @@ describe( 'useGatedSubscription', () => {
 			} );
 		} );
 		await act( async () => result.current.step() );
-		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', {
-			segment: 2,
-			offset: 0,
+		// fetchMessage takes the formatted read position, not a cursor object.
+		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', '2:0' );
+	} );
+
+	/**
+	 * Replay seeks the magic 'start' token, so the cursor is a STRING. The old
+	 * object-only guard silently returned here — pause → Replay → Step did
+	 * nothing until a segment click replaced the token with a {segment,offset}.
+	 */
+	test( 'steps from the magic start token a Replay seeks', async () => {
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const fetchMessage = jest.fn( () =>
+			Promise.resolve( {
+				message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
+				cursor: { segment: 0, offset: 9 },
+			} )
+		);
+		const { result } = mount( link, { fill: jest.fn() }, fetchMessage );
+		act( () => {
+			result.current.setPaused( true );
+			result.current.resubscribe( [ 'x.p0' ], { 'x.p0': 'start' } );
 		} );
+		await act( async () => result.current.step() );
+		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', 'start' );
 	} );
 
 	// @longform The symmetric hole: play flips the gate refs synchronously,

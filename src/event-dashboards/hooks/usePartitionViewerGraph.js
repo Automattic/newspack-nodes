@@ -93,7 +93,7 @@ export function usePartitionViewerGraph( opts = {} ) {
 	const viewRef = useRef( null );
 
 	// One-record fetch behind the paused single-step (reply → VIEW future).
-	const fetchMessage = useCallback( ( sub, cursor ) => {
+	const fetchMessage = useCallback( ( sub, position ) => {
 		const view = viewRef.current;
 		const link = linkRef.current;
 		if ( ! view || ! link ) {
@@ -103,10 +103,7 @@ export function usePartitionViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		const m = rawLogsCommand( view, id, 'read_message', [
-			sub,
-			`${ cursor.segment }:${ cursor.offset }`,
-		] );
+		const m = rawLogsCommand( view, id, 'read_message', [ sub, position ] );
 		if ( null === m ) {
 			return Promise.reject( new Error( 'not authenticated' ) );
 		}

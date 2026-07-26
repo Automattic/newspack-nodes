@@ -11,6 +11,7 @@ import useLogPositions, {
 	segmentPositions,
 	replayPositions,
 	previousSegmentId,
+	stepPosition,
 } from '../useLogPositions';
 
 describe( 'pure position helpers', () => {
@@ -102,5 +103,45 @@ describe( 'useLogPositions', () => {
 		rerender( { sub: 'errors.p2' } );
 		expect( result.current.mode ).toBe( 'live' );
 		expect( result.current.positions ).toBeNull();
+	} );
+} );
+
+/**
+ * The position a Step reads from. Replay seeks with the magic 'start' token, so
+ * the cursor is a STRING there — the two step() implementations both required an
+ * object and silently returned, which is why pause → Replay → Step did nothing.
+ * One resolver now serves both.
+ */
+describe( 'stepPosition', () => {
+	const link = ( resume ) => ( { resumePositions: () => resume } );
+
+	it( 'passes a magic token through verbatim', () => {
+		expect(
+			stepPosition( link( null ), 'firehose.p0', {
+				'firehose.p0': 'start',
+			} )
+		).toBe( 'start' );
+	} );
+
+	it( 'formats an explicit cursor as <segment>:<offset>', () => {
+		expect(
+			stepPosition( link( null ), 'firehose.p0', {
+				'firehose.p0': { segment: 4, offset: 128 },
+			} )
+		).toBe( '4:128' );
+	} );
+
+	it( 'falls back to the live resume position with no pending seek', () => {
+		expect(
+			stepPosition(
+				link( { 'firehose.p0': { segment: 7, offset: 42 } } ),
+				'firehose.p0',
+				null
+			)
+		).toBe( '7:42' );
+	} );
+
+	it( 'returns null when there is no cursor at all', () => {
+		expect( stepPosition( link( null ), 'firehose.p0', null ) ).toBeNull();
 	} );
 } );

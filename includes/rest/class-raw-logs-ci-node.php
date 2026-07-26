@@ -22,6 +22,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
@@ -112,9 +113,14 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
 		$log_key = self::resolve_log_key( $args[0] ?? '' );
-		$tokens  = \explode( ':', $args[1] ?? '' );
-		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
-			return 'read_message: invalid position (want <segment>:<offset>[:<length>])';
+		$position = Core::as_string( $args[1] ?? '' );
+		// A magic token rides through to next_offset(), which speaks them.
+		$magic   = \in_array( $position, Log_Sources::MAGIC_POSITIONS, true );
+		$tokens  = \explode( ':', $position );
+		if ( ! $magic
+				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
+					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
+			return 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)';
 		}
 		$base_dir            = RuntimeConfig::get_base_directory();
 		[ $group, $dir_key ] = self::split_group( $log_key );
@@ -127,14 +133,16 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		$consumer->sink( $capture );
 		$consumer->arguments( [ "{$base_dir}/{$group}/{$dir_key}" ] );
 		$consumer->set_stamp_as( $log_key );
-		$consumer->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
+		$consumer->next_offset(
+			$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
+		);
 		try {
 			$cursor = $consumer->step();
 		} finally {
 			$consumer->remove_node();
 		}
 		if ( null === $captured ) {
-			return "read_message: no record at {$log_key} {$tokens[0]}:{$tokens[1]}";
+			return "read_message: no record at {$log_key} {$position}";
 		}
 		return [
 			'log_id'  => $log_key,

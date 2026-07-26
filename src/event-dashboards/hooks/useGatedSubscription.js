@@ -33,6 +33,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
+import { stepPosition } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { newMessage, TYPE, VALUE, TM_STRUCT } from '../../runtime/message';
 
 // Reopen: explicit seek wins; else resume the same dir (tail a changed dir).
@@ -134,12 +135,11 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 			return;
 		}
 		const sub = target.subscribe[ 0 ];
-		const cursor =
-			target.positions?.[ sub ] ?? link.resumePositions()?.[ sub ];
-		if ( ! cursor || 'object' !== typeof cursor ) {
+		const position = stepPosition( link, sub, target.positions );
+		if ( null === position ) {
 			return;
 		}
-		fetchMessage( sub, cursor )
+		fetchMessage( sub, position )
 			.then( ( result ) => {
 				const view = viewRef.current;
 				if ( ! result?.message || ! view || ! isPausedRef.current ) {

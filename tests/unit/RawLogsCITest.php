@@ -232,6 +232,25 @@ class RawLogsCITest extends TestCase {
 		$this->assertFalse( $result['at_eof'] );
 	}
 
+	/**
+	 * Replay seeks with the magic 'start' token and Step reads at the SAME
+	 * position, so the read verb must accept the seek transport's vocabulary.
+	 * Rejecting it is why pause → Replay → Step did nothing.
+	 */
+	public function test_read_message_accepts_the_magic_start_position(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', 'start' ]
+		);
+
+		$this->assertIsArray( $result, 'start must read, not error' );
+		$this->assertSame( 'first record 4194', $result['message'][ Message::VALUE ] );
+	}
+
 	public function test_read_message_followup_position_reads_the_next_record_length_blind(): void {
 		// offset + length steps to record two; a trailing :length is ignored.
 		[ $line1 ] = $this->seed_two_records();
@@ -256,7 +275,7 @@ class RawLogsCITest extends TestCase {
 			[ 'firehose.p0', 'abc' ]
 		);
 
-		$this->assertSame( 'read_message: invalid position (want <segment>:<offset>[:<length>])', $bad );
+		$this->assertSame( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)', $bad );
 	}
 
 	public function test_read_message_reads_a_grouped_deadletter_key(): void {
