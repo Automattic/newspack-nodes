@@ -1,3 +1,4 @@
+import { markLocal } from '../../runtime/command-auth';
 import { useMemo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import {
@@ -6,7 +7,6 @@ import {
 	FROM,
 	TO,
 	VALUE,
-	LOCAL,
 	TM_COMMAND,
 	TM_REQUEST,
 } from '../../runtime/message';
@@ -241,7 +241,7 @@ export function useGraphHandlers( {
 					const m = newMessage();
 					m[ TO ] = prefix( commandTarget );
 					m[ FROM ] = replyFrom( names.OUTPUT );
-					m[ LOCAL ] = true;
+					markLocal( m );
 					// Only attached-worker replies ride stream; local, no pid.
 					if ( ! sseGuard( m[ TO ] ) ) {
 						append( {

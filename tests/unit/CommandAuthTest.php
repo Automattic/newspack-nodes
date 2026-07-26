@@ -196,12 +196,39 @@ class CommandAuthTest extends TestCase {
 		);
 	}
 
-	public function test_verify_rejects_tampered_type(): void {
-		// TYPE is part of the canonical, so re-typing a signed command breaks it.
-		$m = $this->command();
+	/**
+	 * TYPE is deliberately NOT signed — it is envelope, like TO and FROM, and
+	 * Tachikoma's Command::sign covers `id:timestamp:name:arguments:payload` for
+	 * the same reason. Leaving it out is what lets a mint sign at build time
+	 * rather than after every flag has been OR'd in.
+	 *
+	 * That is safe because re-typing cannot change WHAT RUNS: name and arguments
+	 * are signed. A tamperer can only make the message stop being a command (it
+	 * is then never interpreted), make it fail the request-command predicate (it
+	 * is then refused), or toggle TM_NOREPLY. None of those reach a verb.
+	 */
+	public function test_retyping_a_signed_command_does_not_change_what_runs(): void {
+		$m                       = $this->command();
 		$m[ Message::TIMESTAMP ] = 1000;
 		Command_Auth::sign( $m );
+
 		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_STRUCT;
+		$this->assertTrue( Command_Auth::verify( $m, 1000 ), 'flags are not signed' );
+
+		// The semantics are, and that is the property that matters.
+		$value              = $m[ Message::VALUE ];
+		$value['arguments'] = [ 'Tee', 'evil' ];
+		$m[ Message::VALUE ] = $value;
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	/** Adding TM_RESPONSE does not sneak past: the predicate refuses it outright. */
+	public function test_a_retyped_response_is_refused_by_the_predicate(): void {
+		$m                       = $this->command();
+		$m[ Message::TIMESTAMP ] = 1000;
+		Command_Auth::sign( $m );
+		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 

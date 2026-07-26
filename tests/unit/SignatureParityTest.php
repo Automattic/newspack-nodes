@@ -14,7 +14,10 @@
  * boundary. The slash/unicode escaping bug this file exists to prevent was
  * real — PHP's wp_json_encode() defaults escape both, JSON.stringify escapes
  * neither. The vectors deliberately include a path, non-ASCII, a quote, a
- * backslash and an empty argument list.
+ * backslash and an empty argument list. TYPE is carried in the vectors but NOT
+ * signed — matching Tachikoma's Command::sign, which covers
+ * `id:timestamp:name:arguments:payload` — so flags can be OR'd in after the
+ * mint without invalidating the signature.
  *
  * Regenerate after an intentional change to the canonical string:
  *   NEWSPACK_NODES_REGEN_SIGNATURES=1 phpunit --filter SignatureParity
@@ -79,7 +82,7 @@ class SignatureParityTest extends TestCase {
 	 */
 	private function sign_vector( array $v ): string {
 		$canonical = \wp_json_encode(
-			[ $v['type'], $v['ts'], $v['name'], $v['arguments'], $v['nonce'] ],
+			[ $v['ts'], $v['name'], $v['arguments'], $v['nonce'] ],
 			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
 		);
 		return \hash_hmac( 'sha256', (string) $canonical, $v['key'] );

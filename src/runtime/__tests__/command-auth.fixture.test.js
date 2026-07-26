@@ -5,6 +5,9 @@
  * Command_Auth (see tests/unit/SignatureParityTest.php). This suite asserts the
  * browser's WebCrypto signer derives the same signature from the same inputs.
  *
+ * TYPE is carried in the vectors but deliberately NOT signed — it is envelope,
+ * like TO and FROM — so a caller may OR flags in after the mint.
+ *
  * A canonicalization difference between the two languages produces a signature
  * that never verifies. The server does log it — `verification failed: signature
  * mismatch` — but neither language's own suite can catch it, because each is
@@ -28,7 +31,6 @@ describe( 'command signing parity with PHP', () => {
 
 		for ( const [ index, vector ] of fixture.vectors.entries() ) {
 			const string = canonical(
-				vector.type,
 				vector.ts,
 				vector.name,
 				vector.arguments,
@@ -47,7 +49,6 @@ describe( 'command signing parity with PHP', () => {
 	 */
 	it( 'leaves slashes and non-ASCII unescaped in the canonical string', () => {
 		const string = canonical(
-			8,
 			1771000000,
 			'make_node',
 			[ 'Log', 'x', '/tmp/newspack-nodes/logs/café.log' ],

@@ -5,6 +5,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { markLocal } from '../runtime/command-auth';
 import { Core } from '../runtime/core';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
@@ -189,7 +190,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				parsed[ FROM ] = names.OUTPUT;
 			}
 			if ( undefined === parsed[ LOCAL ] ) {
-				parsed[ LOCAL ] = true;
+				markLocal( parsed );
 			}
 			// Ignore TO that's non-empty? Overlay is local-only; trust Shell.
 			if ( undefined === parsed[ TO ] ) {

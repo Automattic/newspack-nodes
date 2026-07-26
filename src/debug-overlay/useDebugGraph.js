@@ -1,3 +1,4 @@
+import { markLocal } from '../runtime/command-auth';
 import { useCallback, useRef, useState } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
@@ -58,7 +59,7 @@ export function useDebugGraph(
 					parsed[ FROM ] = names.OUTPUT;
 				}
 				if ( undefined === parsed[ LOCAL ] ) {
-					parsed[ LOCAL ] = true;
+					markLocal( parsed );
 				}
 				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
 				applyReplyFlags( parsed, flags );

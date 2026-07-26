@@ -9,15 +9,7 @@ import { Core } from './core';
 import { TimerNode } from './timer-node';
 import { RouterNode } from './router-node';
 import reservedNames from './reserved-node-names.json';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-} from './message';
+import { VALUE } from './message';
 
 /**
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
@@ -306,13 +298,7 @@ export class MetadataNode extends TimerNode {
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb, args = [] ) {
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.name;
-		m[ TO ] = this.target;
-		m[ VALUE ] = { name: verb, arguments: args };
-		m[ LOCAL ] = true;
-		return m;
+		return this.mint( verb, args );
 	}
 
 	// Optimistic local edit: patch the raw map + re-publish, no round-trip.

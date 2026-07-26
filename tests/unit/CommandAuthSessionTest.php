@@ -258,7 +258,6 @@ class CommandAuthSessionTest extends TestCase {
 		// Exactly what `JSON.stringify( [ type, ts, name, args, nonce ] )` emits.
 		$js_canonical = \json_encode(
 			[
-				Message::TM_COMMAND,
 				1000,
 				'make_node',
 				[ 'Log', 'x', '/tmp/newspack-nodes/logs/café.log' ],

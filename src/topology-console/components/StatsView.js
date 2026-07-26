@@ -10,6 +10,7 @@
  * (includes scaffolding self-time absent from the visible rows).
  */
 
+import { markLocal } from '../../runtime/command-auth';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
@@ -21,7 +22,6 @@ import {
 	FROM,
 	TO,
 	VALUE,
-	LOCAL,
 	TM_COMMAND,
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
@@ -122,7 +122,7 @@ export default function StatsView() {
 		m[ FROM ] = POLLER;
 		m[ TO ] = names.CWD;
 		m[ VALUE ] = { name: 'profile', arguments: [ enable ? 'on' : 'off' ] };
-		m[ LOCAL ] = true;
+		markLocal( m );
 		interpreter.fill( m );
 		pollerRef.current?.fire();
 	};

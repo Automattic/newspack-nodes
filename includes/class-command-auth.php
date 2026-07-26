@@ -53,8 +53,7 @@ class Command_Auth {
 	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
 	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
-	 * rides along fine). The HMAC covers TYPE, so the signer's flags must match
-	 * the verifier's.
+	 * rides along fine).
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
@@ -135,6 +134,9 @@ class Command_Auth {
 	 * the per-site secret. It is deliberately outside `canonical()`: repointing
 	 * an envelope at another handle only makes the signature stop matching.
 	 *
+	 * TYPE is outside it too, so a caller may still OR flags in afterwards —
+	 * which is what lets the mint sign at build time.
+	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
 	private static function stamp( array &$message, string $key, ?string $handle ): void {
@@ -146,7 +148,7 @@ class Command_Auth {
 		}
 		$ts    = (int) $ts; // Second granularity, matching freshness window.
 		$nonce = \bin2hex( \random_bytes( 16 ) );
-		$canon = self::canonical( $type, $ts, $value, $nonce );
+		$canon = self::canonical( $ts, $value, $nonce );
 		if ( null === $canon ) {
 			// Leave un-encodable args unsigned so the verifier refuses them.
 			Core::print_less_often( 'Command_Auth: un-encodable command arguments; refusing to sign' );
@@ -166,9 +168,9 @@ class Command_Auth {
 	/**
 	 * True when a Message is a signable request command: TM_COMMAND without
 	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
-	 * VALUE. sign() and verify() share this ONE predicate so the signer's flags
-	 * can never drift from the verifier's — the HMAC covers TYPE, so a mismatch
-	 * here would silently reject every command.
+	 * VALUE. sign() and verify() share this ONE predicate so the signer and the
+	 * verifier agree on what is signable at all. TYPE gates that decision but is
+	 * not itself signed.
 	 *
 	 * @param mixed $type  Raw Message TYPE.
 	 * @param mixed $ts    Raw Message TIMESTAMP.
@@ -187,8 +189,11 @@ class Command_Auth {
 	}
 
 	/**
-	 * Canonical signing string: message TYPE + command semantics + ts + nonce.
-	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM).
+	 * Canonical signing string: command semantics + ts + nonce. Never TYPE and
+	 * never TO/FROM — the SEMANTICS are signed, not the envelope. Tachikoma's
+	 * Command::sign covers `id:timestamp:name:arguments:payload` for the same
+	 * reason, and excluding TYPE is what lets the mint sign at build time
+	 * instead of after every flag has been OR'd in.
 	 *
 	 * The encoding is byte-for-byte what `JSON.stringify` produces, because the
 	 * browser signs the same string with its session key. Returns
@@ -197,13 +202,12 @@ class Command_Auth {
 	 *
 	 * @param array<array-key, mixed> $value Command struct (name/arguments).
 	 */
-	private static function canonical( int $type, int $ts, array $value, string $nonce ): ?string {
+	private static function canonical( int $ts, array $value, string $nonce ): ?string {
 		$name      = $value['name']      ?? '';
 		$arguments = $value['arguments'] ?? [];
 		// Flags match JSON.stringify (PHP would escape / and non-ASCII).
 		$encoded   = \wp_json_encode(
 			[
-				$type,
 				$ts,
 				Core::as_string( $name ),
 				\is_array( $arguments ) ? \array_values( $arguments ) : [],
@@ -335,7 +339,7 @@ class Command_Auth {
 			}
 		}
 
-		$canon = self::canonical( $type, $ts, $value, $nonce );
+		$canon = self::canonical( $ts, $value, $nonce );
 		if ( null === $canon ) {
 			$interpreter?->drop_message( $message, 'verification failed: invalid signature' );
 			return false;

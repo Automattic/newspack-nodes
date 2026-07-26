@@ -4,15 +4,7 @@
  */
 
 import { TimerNode } from './timer-node';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-} from './message';
+import { VALUE } from './message';
 
 // Poll cadence (ms) — the base Timer throttle paces it (interval_ms > 1000).
 const POLL_INTERVAL_MS = 5000;
@@ -54,13 +46,7 @@ export class UptimeNode extends TimerNode {
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb ) {
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.name;
-		m[ TO ] = this.target;
-		m[ VALUE ] = { name: verb, arguments: [] };
-		m[ LOCAL ] = true;
-		return m;
+		return this.mint( verb );
 	}
 
 	// Hitchhike the Router TIMER and let the base fireCb() throttle to 5s.
