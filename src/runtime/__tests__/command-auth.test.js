@@ -325,3 +325,109 @@ describe( 'renewal backs off', () => {
 		expect( hasSession() ).toBe( true );
 	} );
 } );
+
+/**
+ * The real /auth transport. Every other suite swaps it out via __setAuthFetch,
+ * so without these the POST itself — the nonce guard, the non-2xx throw, the
+ * JSON hand-back — ships unexercised.
+ */
+describe( 'postAuth transport', () => {
+	const DATA = { restUrl: '/wp-json/', nonce: 'NONCE' };
+
+	beforeEach( () => {
+		forgetSession();
+		__setAuthFetch( null ); // exercise the real POST
+		window.NewspackNodesData = { ...DATA };
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+		delete window.NewspackNodesData;
+		delete global.fetch;
+	} );
+
+	it( 'POSTs to /auth with the WP nonce and keeps the issued session', async () => {
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			json: async () => ( {
+				handle: HANDLE,
+				key: KEY,
+				expires_in: 3600,
+				now: 1771000000,
+			} ),
+		} );
+
+		await ensureSession();
+
+		expect( global.fetch ).toHaveBeenCalledWith(
+			'/wp-json/newspack-nodes/v1/auth',
+			{ method: 'POST', headers: { 'X-WP-Nonce': 'NONCE' } }
+		);
+		expect( hasSession() ).toBe( true );
+	} );
+
+	/** No nonce, nothing to trade: don't POST into the dark. */
+	it( 'does not POST at all without a nonce', async () => {
+		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: '' };
+		global.fetch = jest.fn();
+
+		await ensureSession();
+
+		expect( global.fetch ).not.toHaveBeenCalled();
+		expect( hasSession() ).toBe( false );
+	} );
+
+	it( 'treats a non-2xx as a failure and stays sessionless', async () => {
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: false, status: 403 } );
+
+		await ensureSession();
+
+		expect( hasSession() ).toBe( false );
+	} );
+} );
+
+/**
+ * A server that ANSWERS but hands back nothing usable is not the same as an
+ * unreachable one: the round trip counts as attempted, so an unsigned command
+ * is now worth a diagnostic, and the backoff arms so we don't re-ask per tick.
+ */
+describe( 'an answered but unusable /auth', () => {
+	beforeEach( () => {
+		forgetSession();
+		__setBackoffClock( null );
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+		__setBackoffClock( null );
+	} );
+
+	it( 'arms the backoff when the payload carries no handle or key', async () => {
+		let attempts = 0;
+		__setAuthFetch( async () => {
+			attempts++;
+			return { expires_in: 3600 }; // answered, but unusable
+		} );
+
+		await ensureSession();
+		await ensureSession();
+
+		expect( attempts ).toBe( 1 );
+		expect( hasSession() ).toBe( false );
+	} );
+
+	it( 'reports an unsigned command once a server has answered', async () => {
+		expectConsoleWarn( 'ERROR: no command session' );
+		__setAuthFetch( async () => ( { expires_in: 3600 } ) );
+		await ensureSession();
+		const m = aCommand();
+
+		signCommand( m );
+
+		expect( m[ VALUE ].auth ).toBeUndefined();
+	} );
+} );
