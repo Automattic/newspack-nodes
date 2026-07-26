@@ -3,6 +3,9 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\HTTP_Out_Node;
+use Newspack_Nodes\Vault;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Settings_Sync_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -85,13 +88,24 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'newspack_nodes_num_partitions', $ref->getValue( $node ) );
 	}
 
-	/** Build a named Settings_Sync_Node wired to a capturing sink and connected to a Tee target. */
+	/**
+	 * Settings_Sync now mints one SIGNED command per spoke, so the harness wires a
+	 * real egress node and gives it a session — a target it cannot sign for is
+	 * skipped, which is the point of the change.
+	 */
 	private function wired_node( Capture_Sink_Node $sink ): Settings_Sync_Node {
 		$sink->name( '_command_interpreter' );
+		\update_option( Vault::OPTION_KEY, [ 'tw0' => [ 'url' => 'https://tw0.example' ] ] );
+		Vault::get_instance()->reset_cache();
+		$egress = new HTTP_Out_Node();
+		$egress->name( 'spokes:tw0' );
+		$egress->arguments( [ 'tw0' ] );
+		Command_Auth::remember_session( 'tw0', \str_repeat( '5', 32 ), 'harness-session-key' );
+
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );
 		$node->sink( $sink );
-		$node->connect_node( 'spokes:tee' );
+		$node->connect_node( 'spokes:tw0' );
 		return $node;
 	}
 
@@ -109,7 +123,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertCount( 1, $sink->captured );
 		$out = $sink->captured[0];
 		$this->assertSame( Message::TM_COMMAND, $out[ Message::TYPE ] );
-		$this->assertSame( 'spokes:tee/settings', $out[ Message::TO ] );
+		$this->assertSame( 'spokes:tw0/settings', $out[ Message::TO ] );
 		$this->assertSame( 'set', $out[ Message::VALUE ]['name'] );
 		$this->assertSame( [ 'newspack_nodes_max_segments', '8' ], $out[ Message::VALUE ]['arguments'] );
 	}

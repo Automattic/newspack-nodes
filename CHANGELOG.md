@@ -61,6 +61,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target errors as non-fatal. The swallow's justification was categorical — taps
   are observability — and nothing enforces that category. See ADR-14.
 
+- **`Settings_Sync` fans out itself, one signed command per spoke.** Choosing the
+  key IS the destination binding, so a signature under one spoke's key verifies
+  only there — a `Tee` re-addressing the command after the mint would produce
+  something no spoke can verify. `spokes:tee` is deleted from `settings-sync.tsl`;
+  connect `settings-sync` directly to each `HTTP_Out`. A spoke with no live
+  session is skipped rather than sent something that will be refused.
+- **`HTTP_Out_Node::vault_id()`** — which spoke an egress speaks for. Minters
+  resolve the target node at fill time and ask, because the node name and the
+  vault id are independent (the live hub names one `settings:tw0` for id `tw0`).
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly
