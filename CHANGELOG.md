@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-26
+
 ### Added
 - **The topology editor declares the secure level.** A select in Topology
   settings, beside Partitions and Stale timeout. It is written as a STATEMENT,
