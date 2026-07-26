@@ -16,6 +16,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_Sync_Node extends Timer_Node {
+	use Fanout_Targets;
 	use Schema_Reflection;
 
 	/** Default sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
@@ -130,19 +131,35 @@ class Settings_Sync_Node extends Timer_Node {
 	 * @param string $scalar        Already-scalarized value token.
 	 */
 	private function send_set( string $to, string $remote_option, string $scalar ): void {
-		if ( null === $this->sink ) {
+		$sink = $this->sink;
+		if ( null === $sink ) {
 			return;
 		}
-		$target                = \is_array( $this->target ) ? ( $this->target[0] ?? '' ) : $this->target;
-		$out                   = Message::new_message();
-		$out[ Message::TYPE ]  = Message::TM_COMMAND;
-		$out[ Message::FROM ]  = $this->name;
-		$out[ Message::TO ]    = $target . '/' . $to;
-		$out[ Message::VALUE ] = [
-			'name'      => 'set',
-			'arguments' => Command_Args::format( [ $remote_option, $scalar ], [] ),
-		];
-		$this->sink->fill( $out );
+		// One signed command per spoke; re-addressing post-mint can't verify.
+		foreach ( $this->live_targets() as $target ) {
+			$spoke = $this->spoke_for( $target );
+			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
+				$this->print_less_often( 'settings-sync: no session for ', $target, '; skipping this push' );
+				continue;
+			}
+			$out                   = Message::new_message();
+			$out[ Message::TYPE ]  = Message::TM_COMMAND;
+			$out[ Message::FROM ]  = $this->name;
+			$out[ Message::TO ]    = $this->target_path( $target, $to );
+			$out[ Message::VALUE ] = [
+				'name'      => 'set',
+				'arguments' => Command_Args::format( [ $remote_option, $scalar ], [] ),
+			];
+			Command_Auth::sign_for( $spoke, $out );
+			$sink->fill( $out );
+		}
+	}
+
+	/** The vault id a target egress speaks for; '' when it is not one. */
+	private function spoke_for( string $target ): string {
+		[ $head ] = Message::split_first( $target );
+		$node     = Core::node( $head );
+		return $node instanceof HTTP_Out_Node ? $node->vault_id() : '';
 	}
 
 	// Flatten to one token: arrays become JSON, scalars stringify; null if bad.

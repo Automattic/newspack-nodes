@@ -76,6 +76,16 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::__construct();
 	}
 
+	/**
+	 * Which spoke this egress speaks for. A minter resolves the target node at
+	 * fill time and asks, because the node name and the vault id are independent
+	 * — the live hub names one `settings:tw0` for vault id `tw0`.
+	 * @api Read by minters that sign per destination.
+	 */
+	public function vault_id(): string {
+		return $this->vault_id;
+	}
+
 	/** Assign vault_id from the positional token via the schema; gated on a non-empty string. */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {

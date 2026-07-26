@@ -30,6 +30,26 @@ namespace Newspack_Nodes;
 trait Fanout_Targets {
 
 	/**
+	 * Get/set the target LIST. Normalises on read so a fan-out never reports the
+	 * scalar `''` that Node initialises: consumers would otherwise each have to
+	 * remember a constructor line, and forgetting it is invisible until someone
+	 * reads target() directly.
+	 *
+	 * @param string|array<int,string>|null $value New target (null = getter).
+	 * @return list<string>
+	 */
+	public function target( $value = null ) {
+		if ( null !== $value ) {
+			$this->target = \is_array( $value ) ? \array_values( $value ) : ( '' !== $value ? [ $value ] : [] );
+			return $this->target;
+		}
+		if ( ! \is_array( $this->target ) ) {
+			$this->target = '' !== $this->target ? [ $this->target ] : [];
+		}
+		return \array_values( $this->target );
+	}
+
+	/**
 	 * Add a target. Accumulates rather than replaces, and tolerates a scalar
 	 * target assigned before the first connect (a graph may `arguments()` one in).
 	 */

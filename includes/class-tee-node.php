@@ -12,11 +12,6 @@ namespace Newspack_Nodes;
 class Tee_Node extends Node {
 	use Fanout_Targets;
 
-	public function __construct() {
-		parent::__construct();
-		$this->target = [];
-	}
-
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );

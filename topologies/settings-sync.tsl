@@ -1,11 +1,14 @@
 # settings-sync topology — single-instance settings-sync control plane (hub side).
 #
-#   settings:consumer ─→ settings-sync ─→ spokes:tee ─→ remote:<id> (operator-added)
+#   settings:consumer ─→ settings-sync ─→ <HTTP_Out per spoke> (operator-added)
 #
 # Runs ONCE (not per-partition): `var num_partitions = 1` mounts a single
 # instance regardless of the operator's data num_partitions. The pipeline is
 # correctly inert until an operator wires a per-spoke `make_node HTTP_Out
-# remote:<id>` from the topology console and connects spokes:tee to it.
+# <name> <vault-id>` from the topology console and connects settings-sync to it.
+# settings-sync fans out itself: one command per spoke, each signed under that
+# spoke's session key. A Tee cannot do it — re-addressing a signed command
+# after the mint makes it verify nowhere.
 #
 # settings:consumer tails the settings.p0 log that Settings_Event_Writer
 # appends option-name-only events to on watched WP-option changes. Settings_Sync
@@ -19,7 +22,6 @@ include topic-probe
 
 make_node Consumer settings:consumer <config:logs_dir>/settings.p0 <config:offsets_dir>/<topology>.settings.p0 <config:deadletter_dir>/<topology>.settings.p0
 make_node Settings_Sync settings-sync 300
-make_node Tee spokes:tee
 
 cmd settings-sync:config add_setting newspack_nodes_num_partitions settings newspack_nodes_num_partitions
 cmd settings-sync:config add_setting newspack_nodes_remote_segment_size settings newspack_nodes_segment_size
@@ -37,4 +39,3 @@ cmd settings-sync:config add_setting newspack_nodes_remote_lifetime settings new
 cmd settings-sync:config add_setting newspack_nodes_remote_max_segments settings newspack_nodes_remote_max_segments
 
 connect_node settings:consumer settings-sync
-connect_node settings-sync spokes:tee
