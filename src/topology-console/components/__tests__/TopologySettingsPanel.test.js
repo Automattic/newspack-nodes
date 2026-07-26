@@ -117,3 +117,51 @@ describe( 'TopologySettingsPanel', () => {
 		expect( screen.getByLabelText( /partitions/i ).value ).toBe( '4' );
 	} );
 } );
+
+/**
+ * The secure level is a STATEMENT, not frontmatter — it stays the verb an
+ * operator would type, and it is greppable, which is half its value. So it
+ * rides its own prop and its own callback rather than the frontmatter map.
+ */
+describe( 'TopologySettingsPanel secure level', () => {
+	function setupSecure( secureLevel = '' ) {
+		const onSecureLevelChange = jest.fn();
+		render(
+			<TopologySettingsPanel
+				frontmatter={ {} }
+				configDefaultPartitions={ 2 }
+				secureLevel={ secureLevel }
+				onChange={ () => {} }
+				onSecureLevelChange={ onSecureLevelChange }
+				onClose={ () => {} }
+			/>
+		);
+		return { onSecureLevelChange };
+	}
+
+	it( 'defaults to declaring nothing', () => {
+		setupSecure();
+		expect( screen.getByLabelText( /secure level/i ).value ).toBe( '' );
+	} );
+
+	it( 'reflects a declared level', () => {
+		setupSecure( '3' );
+		expect( screen.getByLabelText( /secure level/i ).value ).toBe( '3' );
+	} );
+
+	it( 'commits a chosen level', () => {
+		const { onSecureLevelChange } = setupSecure();
+		fireEvent.change( screen.getByLabelText( /secure level/i ), {
+			target: { value: '2' },
+		} );
+		expect( onSecureLevelChange ).toHaveBeenCalledWith( '2' );
+	} );
+
+	it( 'commits insecure', () => {
+		const { onSecureLevelChange } = setupSecure();
+		fireEvent.change( screen.getByLabelText( /secure level/i ), {
+			target: { value: 'insecure' },
+		} );
+		expect( onSecureLevelChange ).toHaveBeenCalledWith( 'insecure' );
+	} );
+} );

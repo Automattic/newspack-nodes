@@ -49,7 +49,9 @@ function getPortalTarget() {
 export default function TopologySettingsPanel( {
 	frontmatter,
 	configDefaultPartitions = 1,
+	secureLevel = '',
 	onChange,
+	onSecureLevelChange = () => {},
 	onClose,
 } ) {
 	// Seeded once per mount (the panel mounts on open, keyed by editing name).
@@ -199,6 +201,40 @@ export default function TopologySettingsPanel( {
 					}
 				/>
 				<small>{ __( 'Empty = default.', 'newspack-nodes' ) }</small>
+			</label>
+
+			<label
+				className="topology-settings-field"
+				htmlFor="ts-secure-level"
+			>
+				<span>{ __( 'Secure level', 'newspack-nodes' ) }</span>
+				<select
+					id="ts-secure-level"
+					value={ secureLevel }
+					onChange={ ( e ) => onSecureLevelChange( e.target.value ) }
+				>
+					<option value="">
+						{ __( 'Not declared', 'newspack-nodes' ) }
+					</option>
+					<option value="insecure">
+						{ __( 'insecure — no restrictions', 'newspack-nodes' ) }
+					</option>
+					<option value="1">
+						{ __( '1 — no graph construction', 'newspack-nodes' ) }
+					</option>
+					<option value="2">
+						{ __( '2 — also no reply_to', 'newspack-nodes' ) }
+					</option>
+					<option value="3">
+						{ __( '3 — also no re-wiring', 'newspack-nodes' ) }
+					</option>
+				</select>
+				<small>
+					{ __(
+						'Written as the last line. Undeclared logs a warning each tick.',
+						'newspack-nodes'
+					) }
+				</small>
 			</label>
 
 			<div className="topology-settings-vars">

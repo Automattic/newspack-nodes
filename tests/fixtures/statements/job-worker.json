@@ -155,5 +155,16 @@
         ],
         "raw": "connect_node jobstats jobstats:log",
         "line": 24
+    },
+    {
+        "verb": "secure",
+        "values": [
+            "secure"
+        ],
+        "spans": [
+            "secure"
+        ],
+        "raw": "secure",
+        "line": 25
     }
 ]

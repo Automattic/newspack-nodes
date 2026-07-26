@@ -6,6 +6,7 @@ describe( 'parseTsl', () => {
 			nodes: [],
 			edges: [],
 			frontmatter: {},
+			secureLevel: '',
 			includes: [],
 			disconnects: [],
 			edgeOperations: [],
@@ -317,5 +318,33 @@ describe( 'parseTsl — verb aliases', () => {
 		expect( g.disconnects ).toEqual( [
 			{ from: 'wombat:tee', to: 'zebra' },
 		] );
+	} );
+} );
+
+/**
+ * `secure` / `insecure` declares the process policy for the topology being
+ * loaded. It is a statement rather than frontmatter so it stays the same verb
+ * an operator would type — greppable, which is half its value — and the Shell
+ * runs it in file order, so the serializer must emit it LAST: `secure 1`
+ * disables make_node, and a declaration mid-file would refuse the rest of the
+ * graph it is meant to protect.
+ */
+describe( 'parseTsl secure level', () => {
+	it( 'reads a trailing secure level', () => {
+		const g = parseTsl( 'make_node Echo e\nsecure 3\n' );
+
+		expect( g.secureLevel ).toBe( '3' );
+	} );
+
+	it( 'reads insecure', () => {
+		const g = parseTsl( 'make_node Echo e\ninsecure\n' );
+
+		expect( g.secureLevel ).toBe( 'insecure' );
+	} );
+
+	it( 'leaves it unset when the topology declares nothing', () => {
+		const g = parseTsl( 'make_node Echo e\n' );
+
+		expect( g.secureLevel ).toBe( '' );
 	} );
 } );

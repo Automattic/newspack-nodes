@@ -22,3 +22,4 @@ connect_node jobs:consumer job-worker
 make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 2 86400 0
 make_node Job_Probe jobstats 15
 connect_node jobstats jobstats:log
+secure

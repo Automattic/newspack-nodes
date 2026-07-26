@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The topology editor declares the secure level.** A select in Topology
+  settings, beside Partitions and Stale timeout. It is written as a STATEMENT,
+  not frontmatter — it stays the same verb an operator would type, so it stays
+  greppable, which is half the point of declaring at all — and `serializeTsl`
+  emits it as the file's LAST line, because `secure 1` disables `make_node` and
+  a declaration any earlier would refuse the graph it exists to protect.
+  `parseTsl` reads it back, so it round-trips.
+
+### Added
 - **`secure` / `insecure` — the command-surface ratchet**, ported from
   Tachikoma. `Core::$secure_level` is `null` while a process has no command
   surface at all: a graph-only script (`wp nodes ingest`, `wp nodes reqgrep`)

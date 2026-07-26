@@ -832,3 +832,34 @@ describe( 'serializeTsl', () => {
 		} );
 	} );
 } );
+
+/**
+ * The declaration goes LAST, after every make_node and every edge: `secure 1`
+ * disables make_node, so a declaration emitted earlier would refuse the rest of
+ * the graph it is meant to protect.
+ */
+describe( 'serializeTsl secure level', () => {
+	const graph = ( secureLevel ) => ( {
+		nodes: [ { id: 'e', name: 'e', class: 'Echo' } ],
+		edges: [],
+		frontmatter: {},
+		includes: [],
+		secureLevel,
+	} );
+
+	it( 'emits a numeric level as the final line', () => {
+		const lines = serializeTsl( graph( '3' ) ).trim().split( '\n' );
+
+		expect( lines[ lines.length - 1 ] ).toBe( 'secure 3' );
+	} );
+
+	it( 'emits insecure as the final line', () => {
+		const lines = serializeTsl( graph( 'insecure' ) ).trim().split( '\n' );
+
+		expect( lines[ lines.length - 1 ] ).toBe( 'insecure' );
+	} );
+
+	it( 'emits nothing when the topology declares nothing', () => {
+		expect( serializeTsl( graph( '' ) ) ).not.toContain( 'secure' );
+	} );
+} );

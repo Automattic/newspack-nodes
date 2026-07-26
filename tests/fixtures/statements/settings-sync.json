@@ -354,5 +354,16 @@
         ],
         "raw": "connect_node settings:consumer settings-sync",
         "line": 41
+    },
+    {
+        "verb": "secure",
+        "values": [
+            "secure"
+        ],
+        "spans": [
+            "secure"
+        ],
+        "raw": "secure",
+        "line": 42
     }
 ]

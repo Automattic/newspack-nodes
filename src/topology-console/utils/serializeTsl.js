@@ -165,7 +165,8 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 		! ownNodes.length &&
 		! hasFrontmatter &&
 		! includes.length &&
-		! configOverrides.length
+		! configOverrides.length &&
+		! graph.secureLevel
 	) {
 		return '';
 	}
@@ -209,6 +210,14 @@ export function serializeTsl( graph, schemas = null, baseline = null ) {
 		if ( ! baseKeys.has( edgeKey( e ) ) ) {
 			lines.push( `connect_node ${ e.from } ${ e.to }` );
 		}
+	}
+	// LAST: `secure 1` disables make_node; earlier would refuse the graph.
+	if ( graph.secureLevel ) {
+		lines.push(
+			'insecure' === graph.secureLevel
+				? 'insecure'
+				: `secure ${ graph.secureLevel }`
+		);
 	}
 	if ( lines.length === 0 ) {
 		return '';
