@@ -2937,6 +2937,20 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 2, Core::$secure_level );
 	}
 
+	/**
+	 * The ratchet only refuses DESCENT, so an `insecure` process can still be
+	 * secured — you may change your mind toward tighter, never toward looser.
+	 * -1 is below 1, so bare `secure` lands on 1 rather than climbing to 0.
+	 */
+	public function test_secure_climbs_out_of_insecure(): void {
+		Core::$secure_level = -1;
+		$i = $this->armed_interpreter();
+
+		$i->dispatch( 'secure', [], $this->command_message( 'secure' ) );
+
+		$this->assertSame( 1, Core::$secure_level );
+	}
+
 	public function test_secure_accepts_an_explicit_level(): void {
 		$i = $this->armed_interpreter();
 
