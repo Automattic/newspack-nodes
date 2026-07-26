@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`secure` / `insecure` — the command-surface ratchet**, ported from
+  Tachikoma. `Core::$secure_level` is `null` while a process has no command
+  surface at all: a graph-only script (`wp nodes ingest`, `wp nodes reqgrep`)
+  composes nodes and never names an interpreter, so it has no policy to declare
+  and is never warned about one. Naming an interpreter arms it to 0 —
+  `Command_Interpreter_Node::name()`, as Tachikoma does — meaning "a surface
+  exists and nobody has said what policy it is under", and `_router` says so
+  each tick until someone does. `insecure` declares -1; `secure` climbs 1..3 and
+  never descends. The declaration is also a greppable marker in a topology.
+
+  Each level removes a class of verb: 1 `make_node`, 2 `command_node` (ours is
+  `reply_to`, which mints a LOCAL command with a caller-chosen FROM — the
+  server acting on your behalf), 3 `connect_node`. The ladder freezes
+  DEFINITIONS and never disables the machine: reads still read, wired flow still
+  flows. A node classifies its own verbs via `node_schema()['verb_classes']`, so
+  a consumer plugin joins a class without editing the substrate.
+
+  Tachikoma's level 0 also disables signing — RSA over ~10k startup commands is
+  slow — and seals the network *because* those commands are unsigned. Our HMAC
+  costs microseconds, so there is no bootstrap window to seal and 0 is only the
+  undeclared state here.
+
 ### Security
 - **A `prompt` response only sets the prompt when it comes from the worker you
   are attached to.** `prompt` is the one response that mutates state rather than

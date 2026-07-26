@@ -81,6 +81,10 @@ class Router_Node extends Timer_Node {
 
 	// Dispatch TIMER via notify_timer (Router has no sink) + prune logs.
 	public function fire_cb(): void {
+		// Armed but undeclared; null is a graph-only process with no surface.
+		if ( 0 === Core::$secure_level ) {
+			$this->print_less_often( 'WARNING: no secure level declared' );
+		}
 		$this->notify_timer();
 		Core::prune_logs();
 		if ( null !== self::$profiles ) {

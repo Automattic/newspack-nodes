@@ -2866,6 +2866,163 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->assertArrayNotHasKey( 'registrations', $decoded['plain'] );
 	}
+	/**
+	 * The ladder freezes DEFINITIONS; it never disables the machine. Level 1
+	 * removes graph construction, 2 removes the verbs where the server mints a
+	 * command on your behalf (ours is `reply_to`), 3 removes re-pointing flow.
+	 * Everything already wired keeps running at every level — which is why the
+	 * gate is on the verb, not on the message.
+	 */
+	public function test_level_one_blocks_make_node(): void {
+		$i = $this->armed_interpreter();
+		Core::$secure_level = 1;
+
+		$out = $i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) );
+
+		$this->assertStringContainsString( 'disabled at secure level 1', $out );
+		$this->assertNull( Core::node( 'nope' ) );
+	}
+
+	public function test_level_two_blocks_reply_to(): void {
+		$i = $this->armed_interpreter();
+		Core::$secure_level = 2;
+
+		$out = $i->dispatch( 'reply_to', [ 'somewhere', 'ls' ], $this->command_message( 'reply_to' ) );
+
+		$this->assertStringContainsString( 'disabled at secure level 2', $out );
+	}
+
+	public function test_level_three_blocks_connect_node(): void {
+		$i = $this->armed_interpreter();
+		Core::$secure_level = 3;
+
+		$out = $i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
+
+		$this->assertStringContainsString( 'disabled at secure level 3', $out );
+	}
+
+	/** Undeclared and unratcheted processes run every verb. */
+	public function test_an_undeclared_level_blocks_nothing(): void {
+		$i = $this->armed_interpreter();
+		Core::$secure_level = 0;
+
+		$i->dispatch( 'make_node', [ 'Capture_Sink', 'built' ], $this->command_message( 'make_node' ) );
+
+		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'built' ) );
+	}
+
+	/** A read still reads at every level: the machine keeps working. */
+	public function test_a_read_verb_survives_the_top_level(): void {
+		$i = $this->armed_interpreter();
+		Core::$secure_level = 3;
+
+		$out = $i->dispatch( 'ls', [], $this->command_message( 'ls' ) );
+
+		$this->assertIsString( $out );
+		$this->assertStringNotContainsString( 'disabled', $out );
+	}
+
+	/**
+	 * The ratchet: `secure` climbs and never descends, `insecure` is only
+	 * available before you have secured. Ported from Tachikoma's $C{secure} /
+	 * $C{insecure}.
+	 */
+	public function test_secure_climbs_one_level_at_a_time(): void {
+		$i = $this->armed_interpreter();
+
+		$i->dispatch( 'secure', [], $this->command_message( 'secure' ) );
+		$this->assertSame( 1, Core::$secure_level );
+
+		$i->dispatch( 'secure', [], $this->command_message( 'secure' ) );
+		$this->assertSame( 2, Core::$secure_level );
+	}
+
+	public function test_secure_accepts_an_explicit_level(): void {
+		$i = $this->armed_interpreter();
+
+		$i->dispatch( 'secure', [ '3' ], $this->command_message( 'secure' ) );
+
+		$this->assertSame( 3, Core::$secure_level );
+	}
+
+	public function test_secure_refuses_to_descend(): void {
+		Core::$secure_level = 3;
+		$i = $this->armed_interpreter();
+
+		$out = $i->dispatch( 'secure', [ '1' ], $this->command_message( 'secure' ) );
+
+		$this->assertStringContainsString( 'cannot lower', $out );
+		$this->assertSame( 3, Core::$secure_level );
+	}
+
+	public function test_secure_caps_at_three(): void {
+		Core::$secure_level = 3;
+		$i = $this->armed_interpreter();
+
+		$i->dispatch( 'secure', [], $this->command_message( 'secure' ) );
+
+		$this->assertSame( 3, Core::$secure_level );
+	}
+
+	public function test_insecure_declares_minus_one(): void {
+		$i = $this->armed_interpreter();
+
+		$i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) );
+
+		$this->assertSame( -1, Core::$secure_level );
+	}
+
+	public function test_insecure_is_refused_once_secured(): void {
+		Core::$secure_level = 1;
+		$i = $this->armed_interpreter();
+
+		$out = $i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) );
+
+		$this->assertStringContainsString( 'already secured', $out );
+		$this->assertSame( 1, Core::$secure_level );
+	}
+
+	private function armed_interpreter(): Command_Interpreter_Node {
+		$i = new Command_Interpreter_Node();
+		$i->name( '_command_interpreter' );
+		$i->sink( new Capture_Sink_Node() );
+		return $i;
+	}
+
+	/**
+	 * `null` means this process has no command surface at all — a graph-only
+	 * script (`wp nodes ingest`, `wp nodes reqgrep`) composes nodes and never
+	 * names an interpreter, so it has no policy to declare and nothing to warn
+	 * about. Naming an interpreter is exactly the moment the surface exists, so
+	 * that is when the level arms itself to 0: "there is a command surface here
+	 * and nobody has said what policy it is under."
+	 */
+	public function test_naming_an_interpreter_arms_the_secure_level(): void {
+		$this->assertNull( Core::$secure_level, 'a graph-only process stays null' );
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$this->assertSame( 0, Core::$secure_level );
+	}
+
+	public function test_a_graph_without_an_interpreter_never_arms_it(): void {
+		$node = new Capture_Sink_Node();
+		$node->name( 'plain' );
+
+		$this->assertNull( Core::$secure_level );
+	}
+
+	/** Already declared: naming another interpreter must not reset the policy. */
+	public function test_arming_does_not_overwrite_a_declared_level(): void {
+		Core::$secure_level = 2;
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$this->assertSame( 2, Core::$secure_level );
+	}
+
 }
 
 /** Fixture: a node that contributes extra dump_metadata fields via the generic hook. */
@@ -2880,4 +3037,5 @@ final class Clobbering_Metadata_Node extends Node {
 	public function dump_metadata(): array {
 		return [ 'class' => 'HIJACK', 'extra_only' => 99 ];
 	}
+
 }
