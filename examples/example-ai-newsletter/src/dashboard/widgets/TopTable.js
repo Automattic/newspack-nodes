@@ -6,10 +6,16 @@ import { draftNewsletter } from '../draftNewsletter';
 import { newsletterPost } from '../newsletterPost';
 import { itemLabel } from '../itemLabel';
 
-// @longform
-// REST-call seam for the "Create draft post" action. Lazily defaulted to a
-// thin apiFetch wrapper; tests inject a fake so the suite never hits the
-// network but still exercises the success/failure rendering paths.
+/**
+ * REST-call seam for the "Create draft post" action. Lazily defaulted to a thin
+ * apiFetch wrapper; tests inject a fake so the suite never hits the network but
+ * still exercises the success/failure rendering paths.
+ *
+ * @param {Object} draft         The post to create.
+ * @param {string} draft.title   Post title.
+ * @param {string} draft.content Post content.
+ * @return {Promise<Object>} The created draft post.
+ */
 const defaultCreateDraft = ( { title, content } ) =>
 	apiFetch( {
 		path: '/wp/v2/posts',
