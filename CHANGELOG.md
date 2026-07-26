@@ -40,6 +40,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   permanent misconfiguration (no Vault entry, or `vault_require_ssl` violated)
   still drops.
 
+- **`Fanout_Targets` trait.** The target LIST that prunes itself on use, shared by
+  `Tee`, `Tap`, and the minters that fan out. Liveness is a property of READING
+  the list — `live_targets()` prunes and writes back on every call — so there is
+  no way to consume it and skip the prune. Tee and Tap previously carried
+  byte-identical copies inside `fill()`.
+
+### Changed
+- **A plain `Worker_Should_Stop` now outranks a `Worker_Should_Stop_Clean` in a
+  fan-out, in either order.** The rule lives once, in `Fanout_Targets::outranks()`.
+  Clean commits PAST the message; plain replays it. Advancing past a message that
+  needed a replay loses it, while replaying a clean one is a duplicate that
+  at-least-once already tolerates. **This reverses a deliberate earlier choice** —
+  see the revert signal recorded in `tests/unit/TeeStopPrecedenceTest.php`.
+- **`Tap` failure handling now matches `Tee`.** It defers, finishes every target
+  and the passthrough, then re-throws; its one remaining difference is hard
+  addressing. Two behaviours are gone: aborting before the passthrough on a stop
+  (a snapshot node raising `Worker_Should_Stop_Clean` from a tap made the consumer
+  commit past a message the pipeline never received), and swallowing ordinary
+  target errors as non-fatal. The swallow's justification was categorical — taps
+  are observability — and nothing enforces that category. See ADR-14.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly

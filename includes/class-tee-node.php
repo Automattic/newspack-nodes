@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Tee_Node extends Node {
+	use Fanout_Targets;
 
 	public function __construct() {
 		parent::__construct();
@@ -22,30 +23,17 @@ class Tee_Node extends Node {
 		}
 		++$this->counter;
 
-		$to = Core::as_string( $message[ Message::TO ] );
-
-		// Prune dead bare-name targets; inline array not Core::arr (phpstan).
-		$targets = \is_array( $this->target ) ? $this->target : [];
-		$alive   = [];
-		foreach ( $targets as $t ) {
-			[ $head ] = Message::split_first( $t );
-			if ( Core::node( $head ) !== null ) {
-				$alive[] = $t;
-			}
-		}
-		$this->target = $alive;
+		$to    = Core::as_string( $message[ Message::TO ] );
+		$alive = $this->live_targets();
 
 		// At least once.
 		$deferred = null;
 		foreach ( $alive as $t ) {
-			$message[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
+			$message[ Message::TO ] = $this->target_path( $t, $to );
 			try {
 				$this->sink->fill( $message );
 			} catch ( \Throwable $e ) {
-				if ( null === $deferred ) {
-					$deferred = $e;
-				} elseif ( $e instanceof Worker_Should_Stop
-						&& ! ( $deferred instanceof Worker_Should_Stop_Clean ) ) {
+				if ( $this->outranks( $e, $deferred ) ) {
 					$deferred = $e;
 				}
 			}
@@ -53,23 +41,6 @@ class Tee_Node extends Node {
 		if ( null !== $deferred ) {
 			throw $deferred;
 		}
-	}
-
-	public function connect_node( string $target ): void {
-		if ( ! \is_array( $this->target ) ) {
-			$this->target = '' !== $this->target ? [ $this->target ] : [];
-		}
-		if ( ! \in_array( $target, $this->target, true ) ) {
-			$this->target[] = $target;
-		}
-	}
-
-	public function disconnect_node( string $target = '' ): void {
-		if ( ! \is_array( $this->target ) ) {
-			$this->target = [];
-			return;
-		}
-		$this->target = \array_values( \array_filter( $this->target, fn ( $t ) => $t !== $target ) );
 	}
 
 	public static function node_schema(): array {
