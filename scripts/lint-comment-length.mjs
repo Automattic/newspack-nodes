@@ -20,9 +20,14 @@ const MAX_COLS = 80;
 const TAB_WIDTH = 4;
 
 const isExemptPath = ( p ) =>
-	/(^|\/)(tests?|__tests__|__mocks__|node_modules|build|vendor)\//.test(
+	/(^|\/)(tests?|__tests__|__mocks__|node_modules|build|vendor|coverage|dist|release|\.phpstan)\//.test(
 		p
-	) || /\.test\.[jt]sx?$/.test( p );
+	) ||
+	/\.test\.[jt]sx?$/.test( p ) ||
+	// Build/lint config files carry their own explanatory prose; not source.
+	/(^|\/)(\.eslintrc|\.prettierrc|\.stylelintrc|babel\.config|jest\.(config|setup|style-mock)|commitlint\.config|webpack\.config)\.[cm]?js$/.test(
+		p
+	);
 
 const isDirective = ( text ) =>
 	/^\s*(?:\/\/|\/\*)+\s*(?:eslint-|prettier-|@ts-|istanbul\s|jsx\s|global\s|translators:|@codeCoverageIgnore|@phpstan-|@codingStandardsIgnore)/.test(

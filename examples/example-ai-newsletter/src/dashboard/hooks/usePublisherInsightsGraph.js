@@ -24,13 +24,17 @@ import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
 
-// The server-side CI mount this example owns (the real product owns unsuffixed
-// `insights`). The Fetchers target it through the substrate's `_shell/_http`.
+/**
+ * The server-side CI mount this example owns (the real product owns unsuffixed
+ * `insights`). The Fetchers target it through the substrate's `_shell/_http`.
+ */
 const SERVER = 'insights-demo';
 const TARGET = `_shell/_http/${ SERVER }`;
 
-// Per-slice fetcher config: the receiver Tee a reply pivots back to, the verb,
-// and the view node (+ its registered class) the reply lands on.
+/**
+ * Per-slice fetcher config: the receiver Tee a reply pivots back to, the verb,
+ * and the view node (+ its registered class) the reply lands on.
+ */
 const SLICES = [
 	{
 		fetcher: 'fetch-counts',
