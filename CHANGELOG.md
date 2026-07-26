@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-07-26
+
 ### Fixed
 - **The spawn POST now survives a TLS handshake, so the fleet actually starts.**
   Its budget was 10ms for connect AND total. On any site with a real
