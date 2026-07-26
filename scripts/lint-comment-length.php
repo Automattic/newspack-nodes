@@ -121,7 +121,7 @@ foreach ( \array_slice( $argv, 1 ) as $file ) {
 		continue;
 	}
 	// Unit tests are exempt (owner's rule), as are vendored trees.
-	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules)/#', $file ) ) {
+	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules|build|coverage|release|\.phpstan)/#', $file ) ) {
 		continue;
 	}
 	foreach ( check_file( $file ) as $violation ) {

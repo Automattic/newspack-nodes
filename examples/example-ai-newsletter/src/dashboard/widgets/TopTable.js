@@ -6,9 +6,10 @@ import { draftNewsletter } from '../draftNewsletter';
 import { newsletterPost } from '../newsletterPost';
 import { itemLabel } from '../itemLabel';
 
-// REST-call seam for the "Create draft post" action. Lazily defaulted to a thin
-// apiFetch wrapper; tests inject a fake so the suite never hits the network but
-// still exercises the success/failure rendering paths.
+// @longform
+// REST-call seam for the "Create draft post" action. Lazily defaulted to a
+// thin apiFetch wrapper; tests inject a fake so the suite never hits the
+// network but still exercises the success/failure rendering paths.
 const defaultCreateDraft = ( { title, content } ) =>
 	apiFetch( {
 		path: '/wp/v2/posts',
@@ -41,6 +42,7 @@ export function TopTable( { createDraft = defaultCreateDraft } = {} ) {
 
 	const onCopy = () => {
 		setDraftError( null );
+		// @longform
 		// navigator.clipboard is undefined on insecure (non-HTTPS) origins and
 		// older browsers — guard it, and only flag "Copied" once the write
 		// actually resolves.
