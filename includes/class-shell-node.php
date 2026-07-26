@@ -751,6 +751,9 @@ class Shell_Node extends Node {
 		try {
 			while ( ( $line = \fgets( $fh ) ) !== false ) {
 				$line = \rtrim( $line, "\r\n" );
+				if ( self::declares_secure_level( $line ) ) {
+					continue;
+				}
 				$this->eval_script( $line );
 			}
 			// A quote/continuation left open at include EOF never resolves.
@@ -759,6 +762,20 @@ class Shell_Node extends Node {
 			\array_pop( $this->include_stack );
 			\fclose( $fh );
 		}
+	}
+
+	/**
+	 * Whether a line declares the process's secure level.
+	 *
+	 * `secure` / `insecure` are a decision about the PROCESS, so they belong to
+	 * the topology being loaded and not to anything it includes — an include
+	 * that declared would decide on its parent's behalf. It would also break the
+	 * parent outright: `secure 1` disables `make_node`, so every make_node after
+	 * the include would be refused mid-load.
+	 */
+	private static function declares_secure_level( string $line ): bool {
+		$verb = \strtok( \trim( $line ), " \t" );
+		return 'secure' === $verb || 'insecure' === $verb;
 	}
 
 	/**

@@ -178,4 +178,39 @@ class ShellIncludeTest extends TestCase {
 		$matches = \array_filter( $lines, fn ( $l ) => 'make_node Echo wombat-echo' === $l );
 		$this->assertCount( 2, $matches, 'the second top-level include was silently ignored' );
 	}
+	/**
+	 * `secure` / `insecure` declare the policy for a PROCESS, so the decision
+	 * belongs to the topology being loaded, not to whatever it includes. Left
+	 * in, an included file would decide for its parent — and worse, `secure 1`
+	 * disables `make_node`, so a stock topology that secured would break every
+	 * later make_node in the file that included it. Stripped on the way in.
+	 */
+	public function test_include_strips_a_secure_declaration(): void {
+		$this->write_tsl( 'wombat-secured', "make_node Echo wombat-echo\nsecure 3\n" );
+
+		$lines = $this->run_script( "include wombat-secured\nmake_node Echo caller-echo\n" );
+
+		$this->assertContains( 'make_node Echo wombat-echo', $lines );
+		$this->assertNotContains( 'secure 3', $lines, 'an include may not secure its parent' );
+		$this->assertContains( 'make_node Echo caller-echo', $lines );
+	}
+
+	public function test_include_strips_an_insecure_declaration(): void {
+		$this->write_tsl( 'wombat-insecure', "make_node Echo wombat-echo\ninsecure\n" );
+
+		$lines = $this->run_script( "include wombat-insecure\n" );
+
+		$this->assertContains( 'make_node Echo wombat-echo', $lines );
+		$this->assertNotContains( 'insecure', $lines, 'the parent decides' );
+	}
+
+	/** The including topology still declares for itself. */
+	public function test_the_including_topology_may_still_declare(): void {
+		$this->write_tsl( 'wombat-plain', "make_node Echo wombat-echo\n" );
+
+		$lines = $this->run_script( "include wombat-plain\ninsecure\n" );
+
+		$this->assertContains( 'insecure', $lines );
+	}
+
 }
