@@ -1,3 +1,4 @@
+import { forgetSession, __setAuthFetch } from '../command-auth';
 import { CommandClient } from '../command-client';
 import {
 	TYPE,
@@ -112,4 +113,36 @@ test( 'postBatch posts JSONL — one packed Message per line — to /command', a
 	expect( lines ).toHaveLength( 2 );
 	expect( JSON.parse( lines[ 0 ] )[ TO ] ).toBe( 'topologies' );
 	expect( JSON.parse( lines[ 1 ] )[ TO ] ).toBe( 'demo.p0' );
+} );
+
+/**
+ * send() builds its own command, so it is a mint — and it is already async, so
+ * unlike a poll tick it can simply WAIT for the session rather than skip. Boot
+ * loads (`topologies list`, `classes list`) go through here; before this they
+ * minted during the /auth round trip and were refused.
+ */
+test( 'send waits for the session, so the command it mints is signed', async () => {
+	forgetSession();
+	__setAuthFetch( async () => ( {
+		handle: 'cccc3333dddd4444eeee5555ffff6666',
+		key: 'send-session-key-4242',
+		expires_in: 3600,
+		now: 1771000000,
+	} ) );
+	global.fetch = jest.fn().mockResolvedValue( {
+		ok: true,
+		status: 200,
+		text: async () => '',
+	} );
+
+	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
+	await client.send( { to: 'topologies', verb: 'list' } );
+
+	const body = global.fetch.mock.calls[ 0 ][ 1 ].body;
+	const sent = JSON.parse( body );
+	expect( sent[ VALUE ].auth.handle ).toBe(
+		'cccc3333dddd4444eeee5555ffff6666'
+	);
+	forgetSession();
+	__setAuthFetch( null );
 } );
