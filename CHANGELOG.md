@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flows. A node classifies its own verbs via `node_schema()['verb_classes']`, so
   a consumer plugin joins a class without editing the substrate.
 
+  `include` strips `secure` / `insecure` from an included file: the declaration
+  is about the process, so it belongs to the topology being loaded and not to
+  anything it composes. Left in, a stock topology that secured would also break
+  its parent outright — `secure 1` disables `make_node`, so every make_node
+  after the include would be refused mid-load.
+
   Tachikoma's level 0 also disables signing — RSA over ~10k startup commands is
   slow — and seals the network *because* those commands are unsigned. Our HMAC
   costs microseconds, so there is no bootstrap window to seal and 0 is only the
