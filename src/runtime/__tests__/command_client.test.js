@@ -1,14 +1,12 @@
 import { forgetSession, hasSession, __setAuthFetch } from '../command-auth';
 import { CommandClient } from '../command-client';
 import {
-	newMessage,
 	TYPE,
 	FROM,
 	TO,
 	KEY,
 	VALUE,
 	TM_COMMAND,
-	TM_ERROR,
 	TM_RESPONSE,
 	pack,
 	LOCAL,
@@ -154,6 +152,10 @@ test( 'send waits for the session, so the command it mints is signed', async () 
  * must be renewed, or the client retries the same dead handle forever. That is
  * also the throttle: renewing clears the session, so hasSession() goes false,
  * pollers skip their tick and send() waits until re-auth lands.
+ *
+ * The refusal arrives as a 401. Every command in a batch carries the SAME
+ * handle, so a dead one refuses all of them and the first reply is always the
+ * refusal — the status can say so, and the body never has to be read.
  */
 test( 'a refusal renews the session instead of retrying the dead handle', async () => {
 	forgetSession();
@@ -168,13 +170,12 @@ test( 'a refusal renews the session instead of retrying the dead handle', async 
 		};
 	} );
 
-	const refusal = newMessage();
-	refusal[ TYPE ] = TM_COMMAND | TM_ERROR;
-	refusal[ VALUE ] = { name: 'list', payload: 'unauthorized: list' };
+	expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
 	global.fetch = jest.fn().mockResolvedValue( {
-		ok: true,
-		status: 200,
-		text: async () => JSON.stringify( refusal ),
+		ok: false,
+		status: 401,
+		text: async () =>
+			JSON.stringify( { code: 'rest_forbidden', data: { status: 401 } } ),
 	} );
 
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
