@@ -502,17 +502,22 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function doctor( array $args, array $assoc_args ): void {
+		$refused = '';
 		try {
 			$base_dir = $this->base_dir();
-		} catch ( \RuntimeException ) {
+		} catch ( \RuntimeException $e ) {
 			$base_dir = null;
+			$refused  = $e->getMessage();
 		}
+
+		// Ownership reads the CONFIGURED path; it explains the refusal.
+		$configured = Config::configured_base_directory();
 
 		$checks = [
 			'memcache'   => self::check_memcache(),
 			'wp-cron'    => self::check_cron(),
-			'filesystem' => self::check_filesystem( $base_dir ),
-			'ownership'  => self::check_ownership( $base_dir ),
+			'filesystem' => self::check_filesystem( $base_dir, $refused ),
+			'ownership'  => self::check_ownership( $base_dir ?? $configured ),
 		];
 
 		$failed = 0;
@@ -561,10 +566,11 @@ class Worker_CLI_Command {
 	}
 
 	/** Filesystem leg: the base directory resolves and a probe write succeeds. */
-	private static function check_filesystem( ?string $base_dir ): ?string {
+	private static function check_filesystem( ?string $base_dir, string $refused = '' ): ?string {
 		$degradation = 'Workers cannot write partitions/locks/IPC — nothing runs.';
 		if ( null === $base_dir ) {
-			return 'base_directory is not configured or not creatable. ' . $degradation;
+			$why = '' === $refused ? 'base_directory is not configured or not creatable.' : $refused . '.';
+			return $why . ' ' . $degradation;
 		}
 		$probe = "{$base_dir}/.doctor-probe-" . \getmypid();
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- writability probe on the runtime's own base dir.
@@ -581,9 +587,8 @@ class Worker_CLI_Command {
 		if ( null === $base_dir ) {
 			return null; // The filesystem leg already reported the root cause.
 		}
-		$provider = CLI::$uid_provider ?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1;
-		$uid      = Core::as_int( $provider(), -1 );
-		$owner    = @\fileowner( $base_dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$uid   = CLI::uid();
+		$owner = @\fileowner( $base_dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		if ( $uid < 0 || false === $owner ) {
 			return null; // No posix / unreadable owner: nothing to compare.
 		}

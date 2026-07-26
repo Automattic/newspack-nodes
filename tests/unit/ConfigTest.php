@@ -10,6 +10,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_Utils;
 use Newspack_Nodes\Tests\TestCase;
@@ -41,6 +42,7 @@ class ConfigTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		CLI::$uid_provider = null; // process-global seam; must not leak
 		$this->rmdir_recursive( $this->temp_dir );
 		Config::reset();
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
@@ -419,6 +421,60 @@ class ConfigTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'null byte' );
 		Config::ensure_path( "/tmp/evil\0path" );
+	}
+
+	/**
+	 * The runtime tree is adopted, not just created: ensure_path() skipped mkdir
+	 * for a pre-existing directory and never looked at who owned it. Anyone who
+	 * won the race to `mkdir -m 0777 /tmp/newspack-nodes` owned every log, lock,
+	 * offset and topology under it. `wp nodes doctor` already computed this
+	 * comparison advisorily; it is a runtime gate now.
+	 */
+	public function test_ensure_path_refuses_a_directory_owned_by_another_uid(): void {
+		$path = $this->temp_dir . '/foreign';
+		@\mkdir( $path, 0700, true );
+		// A uid that is not this directory's owner, whoever the runner is.
+		CLI::$uid_provider = static fn (): int => ( (int) \fileowner( $path ) ) + 1;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'owned by uid' );
+		Config::ensure_path( $path );
+	}
+
+	public function test_ensure_path_refuses_a_group_or_world_writable_directory(): void {
+		$path = $this->temp_dir . '/loose';
+		@\mkdir( $path, 0777, true );
+		@\chmod( $path, 0777 );
+		CLI::$uid_provider = static fn (): int => (int) \fileowner( $path );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'writable by group or other' );
+		Config::ensure_path( $path );
+	}
+
+	public function test_ensure_path_accepts_a_private_directory_we_own(): void {
+		$path = $this->temp_dir . '/ours';
+		@\mkdir( $path, 0700, true );
+		CLI::$uid_provider = static fn (): int => (int) \fileowner( $path );
+
+		$this->assertSame( $path, Config::ensure_path( $path ) );
+	}
+
+	/** No posix extension: nothing to compare, so the other checks still stand alone. */
+	public function test_ensure_path_skips_the_ownership_gate_without_a_uid(): void {
+		$path = $this->temp_dir . '/no-posix';
+		@\mkdir( $path, 0700, true );
+		CLI::$uid_provider = static fn (): int => -1;
+
+		$this->assertSame( $path, Config::ensure_path( $path ) );
+	}
+
+	public function test_ensure_path_creates_private_directories(): void {
+		$path = $this->temp_dir . '/fresh';
+
+		Config::ensure_path( $path );
+
+		$this->assertSame( '0700', \substr( \sprintf( '%o', \fileperms( $path ) ), -4 ) );
 	}
 
 	// ── validate_config_values ────────────────────────────────────────────

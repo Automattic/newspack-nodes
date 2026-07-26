@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **The runtime tree is no longer adopted unexamined.** `Config::ensure_path()`
+  skipped `mkdir` for a pre-existing directory and never asked who owned it, so
+  whoever won the race to a predictable base path owned every log, lock, offset
+  and topology beneath it. It now refuses a directory owned by another uid, or
+  one group/other can write, and creates new ones 0700 rather than 0755. The
+  comparison is the one `wp nodes doctor` already made advisorily — the doctor
+  now reads the CONFIGURED path so it can still explain a refusal, and its
+  filesystem leg reports the actual reason instead of a generic message.
+- **Uninstall refuses a symlinked base directory.** `delete_runtime_tree()`
+  followed one, removing the six runtime subtree names at the target — a delete
+  primitive reachable from an ordinary plugin deletion. `Config::ensure_path()`
+  already refused a symlinked base at runtime; teardown matches it now.
+
 ### Changed
 - **A user topology no longer shadows a stock one.** `Topology_Registry::resolve()`
   checked the writable user dir first on a bare `is_file()`, so write access to

@@ -87,7 +87,7 @@ class Config {
 
 		if ( ! \is_dir( $path ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $path, 0755, true );
+			@\mkdir( $path, 0700, true );
 		}
 
 		$real = \realpath( $path );
@@ -112,7 +112,55 @@ class Config {
 			);
 		}
 
+		self::assert_private_to_us( $real );
+
 		return $real;
+	}
+
+	/**
+	 * Refuse a runtime directory this process does not privately own.
+	 *
+	 * ensure_path() skips mkdir when the directory already exists, so the tree
+	 * is ADOPTED as readily as created. Whoever wins the race to a predictable
+	 * base path owns every log, lock, offset and topology beneath it — and a
+	 * planted topology executes with full interpreter authority on the next
+	 * worker spawn. `wp nodes doctor` computes the same comparison advisorily.
+	 *
+	 * Skipped without posix (no uid to compare); the symlink and traversal
+	 * checks stand on their own there.
+	 *
+	 * @throws \RuntimeException When another uid owns it, or group/other can write.
+	 */
+	private static function assert_private_to_us( string $real ): void {
+		$uid   = CLI::uid();
+		$owner = @\fileowner( $real ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( $uid < 0 || false === $owner ) {
+			return;
+		}
+		if ( $owner !== $uid ) {
+			throw new \RuntimeException(
+				\esc_html(
+					\sprintf(
+						'Runtime directory %s is owned by uid %d, but this process runs as uid %d',
+						$real,
+						$owner,
+						$uid
+					)
+				)
+			);
+		}
+		$perms = @\fileperms( $real ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( false !== $perms && 0 !== ( $perms & 0022 ) ) {
+			throw new \RuntimeException(
+				\esc_html(
+					\sprintf(
+						'Runtime directory %s is writable by group or other (mode %o)',
+						$real,
+						$perms & 0777
+					)
+				)
+			);
+		}
 	}
 
 	/**
@@ -121,6 +169,15 @@ class Config {
 	 * @return string
 	 * @throws \RuntimeException If directory cannot be created or realpath doesn't match.
 	 */
+	/**
+	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
+	 * needs the path ensure_path() REFUSED in order to explain the refusal.
+	 */
+	public static function configured_base_directory(): string {
+		$base_dir = self::load_config()['base_directory'] ?? null;
+		return \is_scalar( $base_dir ) ? (string) $base_dir : '';
+	}
+
 	public static function get_base_directory(): string {
 		if ( null !== self::$validated_base_directory ) {
 			return self::$validated_base_directory;

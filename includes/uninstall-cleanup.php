@@ -80,6 +80,10 @@ function delete_runtime_tree( string $base_dir ): void {
 	if ( '' === $base_dir || ! \is_dir( $base_dir ) ) {
 		return;
 	}
+	// A symlinked base makes uninstall a delete primitive at the target.
+	if ( \is_link( $base_dir ) ) {
+		return;
+	}
 	require_once __DIR__ . '/class-supervisor-base.php';
 	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', 'deadletter', 'topologies' ] as $subdir ) {
 		Supervisor_Base::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
