@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-26
+
+### Added
+- **Command session keys (`Command_Auth`).** `mint_session()` issues a random
+  key under a random handle; `store_session()`/`load_session()` persist it, and
+  `sign_for( $destination, $message )` signs under the session established with
+  that remote. Choosing the key is the destination binding — a signature under
+  one remote's key verifies only there — so a command is pinned to its
+  destination without signing `TO`, which Router peels in transit. `ID` is left
+  alone: it is the originator's opaque continuation token, not substrate state.
+  `POST /newspack-nodes/v1/auth` issues them, gated on `manage_options` and the
+  `fleet_site()` guard the audit found missing from the other routes.
+- **`Cache_Backend::shared_only()`** — memcached with no per-host fallback, for
+  state that is worthless unless every process can see it. A session minted in a
+  web request must resolve in a worker, whose APCu segment is separate and
+  usually disabled, so session storage refuses rather than succeeding into a
+  dead end.
+
+### Changed
+- **`Node.command()` completes the message; `Node.mint()` is gone.** It now
+  marks LOCAL and signs at build, as Tachikoma's `Node.pm::command()` does.
+  Safe because LOCAL cannot leave the process — `packed()` slices to 7 fields,
+  `unpacked()` rejects 8 — and the signature covers only the semantics (ts,
+  name, arguments, nonce), so a caller may still rewrite TO/FROM afterwards,
+  which `Shell.sendCommand` and `RemoteIpc` both do. Returns null when
+  unauthenticated, and asks for a session.
+- **A plain `Worker_Should_Stop` now outranks a `Worker_Should_Stop_Clean` in a
+  fan-out, in either order.** The rule lives once, in `Fanout_Targets::outranks()`.
+  Clean commits PAST the message; plain replays it. Advancing past a message that
+  needed a replay loses it, while replaying a clean one is a duplicate that
+  at-least-once already tolerates. **This reverses a deliberate earlier choice** —
+  see the revert signal recorded in `tests/unit/TeeStopPrecedenceTest.php`.
+- **`Tap` failure handling now matches `Tee`.** It defers, finishes every target
+  and the passthrough, then re-throws; its one remaining difference is hard
+  addressing. Two behaviours are gone: aborting before the passthrough on a stop
+  (a snapshot node raising `Worker_Should_Stop_Clean` from a tap made the consumer
+  commit past a message the pipeline never received), and swallowing ordinary
+  target errors as non-fatal. The swallow's justification was categorical — taps
+  are observability — and nothing enforces that category. See ADR-14.
+- **`Settings_Sync` fans out itself, one signed command per spoke.** Choosing the
+  key IS the destination binding, so a signature under one spoke's key verifies
+  only there — a `Tee` re-addressing the command after the mint would produce
+  something no spoke can verify. `spokes:tee` is deleted from `settings-sync.tsl`;
+  connect `settings-sync` directly to each `HTTP_Out`. A spoke with no live
+  session is skipped rather than sent something that will be refused.
+- **`HTTP_Out_Node::vault_id()`** — which spoke an egress speaks for. Minters
+  resolve the target node at fill time and ask, because the node name and the
+  vault id are independent (the live hub names one `settings:tw0` for id `tw0`).
+- **TYPE is no longer signed.** It is envelope, like `TO` and `FROM`, and
+  Tachikoma's `Command::sign` covers `id:timestamp:name:arguments:payload` for
+  the same reason. TM_COMMAND is already peak type risk and the message is
+  already that, so signing it bought nothing `name`+`arguments` do not — while
+  forcing the signature to be applied after every flag had been OR'd in, which
+  is what made a single mint site impossible.
+- **`/auth` reports the server clock, and the browser aligns to it.** Ingress
+  used to re-anchor a skewed client's TIMESTAMP before signing. It cannot now —
+  the minter signs TIMESTAMP, so it is signed material — so the tolerance moved
+  to the mint instead of being dropped.
+
+### Removed
+- **`HTTP_In` no longer signs on ingress — the oracle is gone.** It used to sign
+  whatever arrived, on the grounds that WordPress had already authenticated the
+  caller, which made authority a property of ARRIVAL: anything reaching the
+  boundary acquired it regardless of what put it there. Every minter now signs,
+  so an unsigned command stays unsigned and is refused. No compat path remains;
+  the Vault probe's tolerance for a pre-session spoke is deleted too.
+
 ### Fixed
 - **Pause → Replay → Step now steps.** Replay seeks with the magic `start`
   token, so the browse cursor is a STRING; both `step()` implementations
@@ -27,17 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so an unsigned command is unconstructible. Two were worse than a race:
   graph-view `invoke` called `markLocal()` **before** setting TYPE, so
   `signCommand()` saw an untyped message and never signed at all.
-
-### Changed
-- **`Node.command()` completes the message; `Node.mint()` is gone.** It now
-  marks LOCAL and signs at build, as Tachikoma's `Node.pm::command()` does.
-  Safe because LOCAL cannot leave the process — `packed()` slices to 7 fields,
-  `unpacked()` rejects 8 — and the signature covers only the semantics (ts,
-  name, arguments, nonce), so a caller may still rewrite TO/FROM afterwards,
-  which `Shell.sendCommand` and `RemoteIpc` both do. Returns null when
-  unauthenticated, and asks for a session.
-
-### Fixed
 - **Two callers dereferenced an unauthenticated command.**
   `Shell.sendCommand` and `RemoteIpc.fill` used the built message without a
   null check, so with no session they threw `Cannot set properties of null`
@@ -76,24 +132,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replaces the bare `hasSession()` gate in `Node::mint()` and `FetcherNode`: the
   tick that finds the session gone is the tick that re-auths, so an eviction or
   a server restart heals itself rather than leaving the page permanently silent.
-
-### Added
-- **Command session keys (`Command_Auth`).** `mint_session()` issues a random
-  key under a random handle; `store_session()`/`load_session()` persist it, and
-  `sign_for( $destination, $message )` signs under the session established with
-  that remote. Choosing the key is the destination binding — a signature under
-  one remote's key verifies only there — so a command is pinned to its
-  destination without signing `TO`, which Router peels in transit. `ID` is left
-  alone: it is the originator's opaque continuation token, not substrate state.
-  `POST /newspack-nodes/v1/auth` issues them, gated on `manage_options` and the
-  `fleet_site()` guard the audit found missing from the other routes.
-- **`Cache_Backend::shared_only()`** — memcached with no per-host fallback, for
-  state that is worthless unless every process can see it. A session minted in a
-  web request must resolve in a worker, whose APCu segment is separate and
-  usually disabled, so session storage refuses rather than succeeding into a
-  dead end.
-
-### Fixed
 - **`HTTP_In` no longer re-signs a command that already carries a signature.**
   It replaced the whole `auth` envelope and re-anchored TIMESTAMP — which is
   signed material — so an already-signed command was silently re-keyed to the
@@ -102,53 +140,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `HTTP_Out::fire()` and `SSE_In::maybe_connect()` already did; this path carries
   the same stored password and now bootstraps every session key from it, so the
   refusal happens before a credential reaches the wire.
-
 - **`HTTP_Out` runs the `/auth` handshake for its spoke.** It already holds that
   spoke's credentials and its cURL-multi registration; the minters that will sign
   for the spoke have neither. It establishes the session and never signs itself.
   A batch it cannot yet have signed is now HELD rather than dropped — only a
   permanent misconfiguration (no Vault entry, or `vault_require_ssl` violated)
   still drops.
-
 - **`Fanout_Targets` trait.** The target LIST that prunes itself on use, shared by
   `Tee`, `Tap`, and the minters that fan out. Liveness is a property of READING
   the list — `live_targets()` prunes and writes back on every call — so there is
   no way to consume it and skip the prune. Tee and Tap previously carried
   byte-identical copies inside `fill()`.
-
-### Changed
-- **A plain `Worker_Should_Stop` now outranks a `Worker_Should_Stop_Clean` in a
-  fan-out, in either order.** The rule lives once, in `Fanout_Targets::outranks()`.
-  Clean commits PAST the message; plain replays it. Advancing past a message that
-  needed a replay loses it, while replaying a clean one is a duplicate that
-  at-least-once already tolerates. **This reverses a deliberate earlier choice** —
-  see the revert signal recorded in `tests/unit/TeeStopPrecedenceTest.php`.
-- **`Tap` failure handling now matches `Tee`.** It defers, finishes every target
-  and the passthrough, then re-throws; its one remaining difference is hard
-  addressing. Two behaviours are gone: aborting before the passthrough on a stop
-  (a snapshot node raising `Worker_Should_Stop_Clean` from a tap made the consumer
-  commit past a message the pipeline never received), and swallowing ordinary
-  target errors as non-fatal. The swallow's justification was categorical — taps
-  are observability — and nothing enforces that category. See ADR-14.
-
-- **`Settings_Sync` fans out itself, one signed command per spoke.** Choosing the
-  key IS the destination binding, so a signature under one spoke's key verifies
-  only there — a `Tee` re-addressing the command after the mint would produce
-  something no spoke can verify. `spokes:tee` is deleted from `settings-sync.tsl`;
-  connect `settings-sync` directly to each `HTTP_Out`. A spoke with no live
-  session is skipped rather than sent something that will be refused.
-- **`HTTP_Out_Node::vault_id()`** — which spoke an egress speaks for. Minters
-  resolve the target node at fill time and ask, because the node name and the
-  vault id are independent (the live hub names one `settings:tw0` for id `tw0`).
-
-### Fixed
 - **The canonical signing string now encodes exactly as `JSON.stringify` does.**
   PHP escaped `/` as `\/` and non-ASCII as `\uXXXX` by default; JavaScript does
   neither, so a browser-signed command carrying a path — `make_node Log x
   /tmp/...` — would have produced a signature that never verifies. The two
   encodings are pinned by a test that recomputes the HMAC over the string a
   `JSON.stringify` signer emits.
-
 - **Cross-language signature parity fixture** (`tests/fixtures/signatures.json`).
   Committed vectors that PHP and the browser's WebCrypto signer must each derive
   independently. Neither language's own suite can catch a canonicalization drift
@@ -157,7 +165,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quote and backslash, and an empty argument list.
 - **`src/runtime/command-auth.js`** — the browser's canonical string, HMAC-SHA256
   over WebCrypto, and nonce minting, mirroring PHP `Command_Auth`.
-
 - **The browser signs its own commands, at the mint.** `ShellNode.dispatch()` —
   the single exit every minted command leaves through — signs before the tap and
   the sink see it. `HttpOut` signs nothing, so a wire-arrived frame routed into
@@ -170,8 +177,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command and then read graph state — because it moved every graph mutation a
   microtask later. JS cannot block on a promise, so the fix is to have no async
   operation: the session round trip happens at mount, the HMAC is a function call.
-
-### Fixed
 - **Every local mint signs, not just the Shell's.** The first deploy after
   ingress signing was removed showed the Shell is not the only minter — the
   heartbeat poll and `Remote_IPC`'s bundled `connect_worker_input` were building
@@ -204,28 +209,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nonce — a test harness, or a page that never localized) it stays quiet.
 - **`Node.mint()`** — build-and-complete, collapsing four byte-identical
   `_pollMessage()` bodies (heartbeat, dmesg, uptime, metadata) onto one helper.
-
-### Changed
-- **TYPE is no longer signed.** It is envelope, like `TO` and `FROM`, and
-  Tachikoma's `Command::sign` covers `id:timestamp:name:arguments:payload` for
-  the same reason. TM_COMMAND is already peak type risk and the message is
-  already that, so signing it bought nothing `name`+`arguments` do not — while
-  forcing the signature to be applied after every flag had been OR'd in, which
-  is what made a single mint site impossible.
-
-### Removed
-- **`HTTP_In` no longer signs on ingress — the oracle is gone.** It used to sign
-  whatever arrived, on the grounds that WordPress had already authenticated the
-  caller, which made authority a property of ARRIVAL: anything reaching the
-  boundary acquired it regardless of what put it there. Every minter now signs,
-  so an unsigned command stays unsigned and is refused. No compat path remains;
-  the Vault probe's tolerance for a pre-session spoke is deleted too.
-
-### Changed
-- **`/auth` reports the server clock, and the browser aligns to it.** Ingress
-  used to re-anchor a skewed client's TIMESTAMP before signing. It cannot now —
-  the minter signs TIMESTAMP, so it is signed material — so the tolerance moved
-  to the mint instead of being dropped.
 
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
