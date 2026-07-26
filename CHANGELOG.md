@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-26
+
 ### Added
 - **`Null` node** — the black hole, ported from Tachikoma's `Nodes::Null`: its
   `fill()` counts and returns. It exists as a DESTINATION, so a node that must
