@@ -82,7 +82,10 @@ export class DmesgNode extends TimerNode {
 			return;
 		}
 		this.counter++;
-		this.sink.fill( this._pollMessage( this.verb, this.pollArgs ) );
+		const m = this._pollMessage( this.verb, this.pollArgs );
+		if ( m ) {
+			this.sink.fill( m ); // else unauthenticated; next tick carries it
+		}
 	}
 
 	// Poll TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.

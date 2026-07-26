@@ -36,8 +36,12 @@ export class HeartbeatNode extends TimerNode {
 			return;
 		}
 		for ( const slot of this._slots.values() ) {
+			const m = this._pollMessage( slot );
+			if ( ! m ) {
+				return; // unauthenticated: the next tick carries it
+			}
 			this.counter++;
-			this.sink.fill( this._pollMessage( slot ) );
+			this.sink.fill( m );
 		}
 	}
 

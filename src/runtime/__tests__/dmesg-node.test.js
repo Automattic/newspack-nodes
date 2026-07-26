@@ -86,7 +86,7 @@ describe( 'DmesgNode', () => {
 		node.sink = { fill: ( msg ) => sent.push( msg ) };
 		node.fire();
 		expect( sent ).toHaveLength( 1 );
-		expect( sent[ 0 ][ VALUE ] ).toEqual( {
+		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'dmesg',
 			arguments: [],
 		} );
@@ -102,7 +102,7 @@ describe( 'DmesgNode', () => {
 		node.sink = { fill: ( msg ) => sent.push( msg ) };
 		node.fire();
 		expect( sent ).toHaveLength( 1 );
-		expect( sent[ 0 ][ VALUE ] ).toEqual( {
+		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'taillog',
 			arguments: [ 'php' ],
 		} );

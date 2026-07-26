@@ -109,3 +109,23 @@ afterEach( () => {
 		);
 	}
 } );
+
+// @longform
+// Every emitter holds until authenticated, which is what production does — so
+// the harness authenticates too, or every poll test asserts silence. Guarded on
+// `window`: build-tooling suites run in the node environment and must not pull
+// in the browser runtime graph. Tests exercising the UNauthenticated path call
+// forgetSession() in their own beforeEach, which runs after this one.
+if ( 'undefined' !== typeof window ) {
+	const auth = require( './src/runtime/command-auth' );
+	beforeEach( async () => {
+		auth.forgetSession();
+		auth.__setAuthFetch( async () => ( {
+			handle: 'e2e11111e2e22222e2e33333e2e44444',
+			key: 'jest-harness-session-key',
+			expires_in: 3600,
+			now: Math.floor( Date.now() / 1000 ),
+		} ) );
+		await auth.ensureSession();
+	} );
+}

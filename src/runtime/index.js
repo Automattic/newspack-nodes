@@ -20,3 +20,12 @@ export { UptimeNode } from './uptime-node';
 export { CommandClient } from './command-client';
 export { formatCommandArgs, parseCommandArgs } from './command-args';
 export { useNodeState, useNodeFill, useGraphGeneration } from './react';
+export {
+	ensureSession,
+	hasSession,
+	renewSession,
+	forgetSession,
+	markLocal,
+	signCommand,
+	__setAuthFetch,
+} from './command-auth';

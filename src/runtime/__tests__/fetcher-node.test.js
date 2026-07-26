@@ -43,7 +43,7 @@ test( 'fill emits ONE TM_COMMAND with FROM=receiver and the configured command V
 	const m = sent[ 0 ];
 	expect( m[ TYPE ] & TM_COMMAND ).toBe( TM_COMMAND );
 	expect( m[ FROM ] ).toBe( 'topIn' );
-	expect( m[ VALUE ] ).toEqual( {
+	expect( m[ VALUE ] ).toMatchObject( {
 		name: 'rank',
 		arguments: [ '--limit', '10' ],
 	} );
@@ -66,7 +66,7 @@ test( 'fill ignores the trigger payload — a struct trigger carrying its own co
 	expect( sent ).toHaveLength( 1 );
 	const m = sent[ 0 ];
 	expect( m[ FROM ] ).toBe( 'countsIn' );
-	expect( m[ VALUE ] ).toEqual( { name: 'counts', arguments: [] } );
+	expect( m[ VALUE ] ).toMatchObject( { name: 'counts', arguments: [] } );
 	expect( m[ TO ] ).toBe( '_shell' );
 } );
 
@@ -80,7 +80,10 @@ test( 'fill on an empty trigger still emits the configured command', () => {
 	f.fill( newMessage() );
 
 	expect( sent ).toHaveLength( 1 );
-	expect( sent[ 0 ][ VALUE ] ).toEqual( { name: 'counts', arguments: [] } );
+	expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'counts',
+		arguments: [],
+	} );
 } );
 
 test( 'command_args may be a FUNCTION, called at fire time to get current args', () => {
@@ -93,7 +96,7 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 	f.sink = { fill: ( m ) => sent.push( m ) };
 
 	f.fill( newMessage() );
-	expect( sent[ 0 ][ VALUE ] ).toEqual( {
+	expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'urls',
 		arguments: [ '--sort', 'count' ],
 	} );
@@ -101,7 +104,7 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 	// A later tick reflects the CURRENT value the getter returns.
 	live = [ '--sort', 'avg_ms', '--order', 'asc' ];
 	f.fill( newMessage() );
-	expect( sent[ 1 ][ VALUE ] ).toEqual( {
+	expect( sent[ 1 ][ VALUE ] ).toMatchObject( {
 		name: 'urls',
 		arguments: [ '--sort', 'avg_ms', '--order', 'asc' ],
 	} );
@@ -114,7 +117,10 @@ test( 'a function command_args returning a non-string coerces to empty args', ()
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 	f.fill( newMessage() );
-	expect( sent[ 0 ][ VALUE ] ).toEqual( { name: 'urls', arguments: [] } );
+	expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'urls',
+		arguments: [],
+	} );
 } );
 
 test( 'static string command_args still works byte-identically (no getter)', () => {
@@ -123,7 +129,7 @@ test( 'static string command_args still works byte-identically (no getter)', () 
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 	f.fill( newMessage() );
-	expect( sent[ 0 ][ VALUE ] ).toEqual( {
+	expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'rank',
 		arguments: [ '--limit', '10' ],
 	} );

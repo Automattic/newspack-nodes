@@ -25,7 +25,7 @@ describe( 'ShellNode.sendCommand', () => {
 		expect( m[ TO ] ).toBe( 'some/path' );
 		expect( m[ FROM ] ).toBe( names.OUTPUT );
 		expect( m[ LOCAL ] ).toBe( true );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'connect_node',
 			arguments: [ 'a', 'b' ],
 		} );

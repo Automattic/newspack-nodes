@@ -292,7 +292,10 @@ export class MetadataNode extends TimerNode {
 			this.lastFired = now;
 			this.lastPath = path;
 			this.counter++;
-			this.sink.fill( this._pollMessage( 'dump_metadata' ) );
+			const m = this._pollMessage( 'dump_metadata' );
+			if ( m ) {
+				this.sink.fill( m ); // else unauthenticated; next tick carries it
+			}
 		}
 	}
 
