@@ -16,8 +16,20 @@
  * pinned by tests/fixtures/signatures.json, verified from both languages,
  * because neither language's own suite can catch a drift: each is internally
  * consistent, so both stay green while nothing verifies across the wire.
+ *
+ * The HMAC is @noble/hashes, not crypto.subtle, because it must be SYNCHRONOUS.
+ * WebCrypto returns promises as an API choice — HMAC-SHA256 over a few hundred
+ * bytes is microseconds of arithmetic, not work worth deferring — and making the
+ * Shell's dispatch() async to await it moved every graph mutation a microtask
+ * later, failing 105 tests across twelve suites and changing render ordering in
+ * the console. JS has no way to block on a promise (Perl's Tachikoma::drain
+ * swaps in a sync framework and re-enters the loop; JS's loop is the runtime and
+ * is not re-entrant), so the fix is to not have an async operation at all.
  */
 
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -26,7 +38,6 @@ import {
 	TM_RESPONSE,
 	TM_ERROR,
 } from './message';
-import { Core } from './core';
 
 /**
  * The canonical signing string: message TYPE + command semantics + ts + nonce.
@@ -54,29 +65,16 @@ export function canonical( type, ts, name, args, nonce ) {
 
 /**
  * HMAC-SHA256 of `string` under `key`, lowercase hex — matching PHP's
- * hash_hmac( 'sha256', … ).
+ * hash_hmac( 'sha256', … ). Synchronous by design; see the file header.
  *
  * @param {string} string Message to sign.
  * @param {string} key    Session key.
- * @return {Promise<string>} Lowercase hex digest.
+ * @return {string} Lowercase hex digest.
  */
-export async function hmacHex( string, key ) {
-	const encoder = new TextEncoder();
-	const imported = await crypto.subtle.importKey(
-		'raw',
-		encoder.encode( key ),
-		{ name: 'HMAC', hash: 'SHA-256' },
-		false,
-		[ 'sign' ]
+export function hmacHex( string, key ) {
+	return bytesToHex(
+		hmac( sha256, utf8ToBytes( key ), utf8ToBytes( string ) )
 	);
-	const digest = await crypto.subtle.sign(
-		'HMAC',
-		imported,
-		encoder.encode( string )
-	);
-	return Array.from( new Uint8Array( digest ) )
-		.map( ( b ) => b.toString( 16 ).padStart( 2, '0' ) )
-		.join( '' );
 }
 
 /** Hex nonce, same shape as PHP's bin2hex( random_bytes( 16 ) ). */
@@ -127,7 +125,15 @@ async function postAuth() {
 	return r.json();
 }
 
-async function ensureSession() {
+/**
+ * Establish the session, once. Call at mount — signing is synchronous and reads
+ * whatever this leaves behind, so the round trip must finish before the first
+ * command crosses to the server. Concurrent callers share the in-flight promise
+ * rather than racing to mint sessions the server would keep.
+ *
+ * @return {Promise<Object|null>} The session, or null if it could not be had.
+ */
+export async function ensureSession() {
 	if ( session ) {
 		return session;
 	}
@@ -137,6 +143,8 @@ async function ensureSession() {
 				session = issued?.handle && issued?.key ? issued : null;
 				return session;
 			} )
+			// Never rejects: mount fires this unawaited.
+			.catch( () => null )
 			.finally( () => {
 				establishing = null;
 			} );
@@ -145,7 +153,9 @@ async function ensureSession() {
 }
 
 /**
- * Sign a freshly-minted command in place. No-op unless TYPE is a request
+ * Sign a freshly-minted command in place. SYNCHRONOUS — it reads the session
+ * ensureSession() established at mount, so a caller mid-graph-mutation never
+ * has to yield. No-op unless TYPE is a request
  * command — TM_COMMAND without TM_RESPONSE/TM_ERROR, with an object VALUE —
  * mirroring PHP's is_request_command(). TM_NOREPLY rides along fine.
  *
@@ -154,9 +164,8 @@ async function ensureSession() {
  * authorized.
  *
  * @param {Array} message Positional Message, mutated in place.
- * @return {Promise<void>} Resolves once the envelope is stamped, or skipped.
  */
-export async function signCommand( message ) {
+export function signCommand( message ) {
 	const type = message[ TYPE ];
 	const value = message[ VALUE ];
 	if (
@@ -168,17 +177,9 @@ export async function signCommand( message ) {
 		return;
 	}
 
-	let live;
-	try {
-		live = await ensureSession();
-	} catch ( e ) {
-		Core.printLessOften( `ERROR: command signing: ${ e.message }` );
-		return;
-	}
+	// Unsigned is a state, not an error; the server refuses a crossing one.
+	const live = session;
 	if ( ! live ) {
-		Core.printLessOften(
-			'ERROR: command signing: no session; sending unsigned'
-		);
 		return;
 	}
 
@@ -192,7 +193,7 @@ export async function signCommand( message ) {
 	);
 	value.auth = {
 		nonce,
-		sig: await hmacHex( string, live.key ),
+		sig: hmacHex( string, live.key ),
 		handle: live.handle,
 	};
 }

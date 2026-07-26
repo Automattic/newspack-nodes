@@ -46,6 +46,7 @@
  *   rebuilds the build-registered nodes, and a `teardown()` that additionally
  *   stops the router TIMER, removes the backbone, and unsubscribes the rebuild.
  */
+import { ensureSession } from './command-auth';
 import { Core } from './core';
 import { RouterNode } from './router-node';
 import { CommandInterpreterNode } from './command-interpreter-node';
@@ -55,6 +56,9 @@ import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 
 export function mountExospine( build ) {
+	// Signing is sync and reads this; start the round trip before any command.
+	void ensureSession();
+
 	const spine = {};
 	let router;
 	let interpreter;
