@@ -1,6 +1,10 @@
 import { renderHook } from '@testing-library/react';
 import { useCompletion } from '../useCompletion';
-import { tabulateCandidates } from '../../../runtime/completion-node';
+import {
+	tabulateCandidates,
+	CompletionNode,
+} from '../../../runtime/completion-node';
+import { Core } from '../../../runtime/core';
 import {
 	TYPE,
 	FROM,
@@ -12,7 +16,12 @@ import {
 } from '../../../runtime/message';
 import names from '../../../runtime/reserved-node-names.json';
 
+// The minter is the `_completion` node itself (both real graphs mount one),
+// so the harness registers it before rendering.
 const render = ( opts ) => {
+	Core.reset();
+	const completion = new CompletionNode();
+	completion.name = names.COMPLETION;
 	const fill = jest.fn();
 	const append = jest.fn();
 	const { result } = renderHook( () =>

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Dashboard commands are signed.** Every hand-built mint — log viewer,
+  partition viewer, topology manager, aggregator, vault, stats profiling, tab
+  completion, graph-view invoke — called `markLocal()`, which sets LOCAL and
+  then silently declines to sign when there is no session. The browser's own
+  gate passed them; the server refused them as `verification failed: bad
+  envelope`. They now mint through `Node.command()`, which gates on the session,
+  so an unsigned command is unconstructible. Two were worse than a race:
+  graph-view `invoke` called `markLocal()` **before** setting TYPE, so
+  `signCommand()` saw an untyped message and never signed at all.
+
 ### Changed
 - **`Node.command()` completes the message; `Node.mint()` is gone.** It now
   marks LOCAL and signs at build, as Tachikoma's `Node.pm::command()` does.

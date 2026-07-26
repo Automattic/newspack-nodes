@@ -15,8 +15,10 @@ import {
 	TM_BYTESTREAM,
 	TM_RESPONSE,
 	TM_ERROR,
+	newMessage,
 } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
+import { markLocal } from '../../runtime/command-auth';
 
 // Mount _output Dumper so transcript echoes are observable in tests.
 function mountOutput() {
@@ -282,6 +284,7 @@ describe( 'useDebugGraph', () => {
 	it( 'invoke keys on catalog is_interpreter (interpreter → nodeId)', () => {
 		// Inspector reads catalog is_interpreter, not Core.node(:config).
 		const { teardown } = mountExospine();
+		mountOutput(); // `_output` mints the invoke commands
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
 		metadata.name = names.METADATA;
@@ -319,6 +322,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'invoke on a non-interpreter class targets the `:config` sibling', () => {
 		const { teardown } = mountExospine();
+		mountOutput(); // `_output` mints the invoke commands
 		const node = new Node();
 		node.name = 'my-node';
 		const config = new Node();
@@ -758,6 +762,7 @@ describe( 'useDebugGraph', () => {
 	it( 'invoke honors the shell cwd prefix at a non-root scope (Path-menu cd)', () => {
 		// Overlay injects shell.prefix so invoke honors a non-root cwd.
 		const { teardown } = mountExospine();
+		mountOutput(); // `_output` mints the invoke commands
 		const node = new Node();
 		node.name = 'my-node';
 		const config = new Node();
@@ -784,13 +789,14 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'sendVerb stamps FROM=_output and LOCAL=true on a parsed message that lacks them', () => {
-		// A parsed Message missing FROM/LOCAL → sendVerb backfills both.
+	it( 'sendVerb backfills FROM=_output, leaving the Shell-set LOCAL intact', () => {
+		// A real parse() completes every branch through stampNoreply, so the
+		// message arrives LOCAL-marked and signed; sendVerb only backfills FROM.
 		const { teardown } = mountExospine();
 		const dispatched = [];
 		const shell = {
 			path: '',
-			parse: () => [],
+			parse: () => markLocal( newMessage() ),
 			dispatch: ( m ) => dispatched.push( m ),
 			prefix: ( t ) => t,
 			replyFrom: ( n ) => n,

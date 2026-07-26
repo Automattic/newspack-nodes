@@ -11,6 +11,7 @@ import {
 } from '../../../runtime/message';
 import names from '../../../runtime/reserved-node-names.json';
 import { Core } from '../../../runtime/core';
+import { DumperNode } from '../../../runtime/dumper-node';
 
 // A minimal Shell stand-in: sink captures fills; prefix/replyFrom injectable.
 function makeShell( { path = '', prefix, replyFrom } = {} ) {
@@ -23,7 +24,13 @@ function makeShell( { path = '', prefix, replyFrom } = {} ) {
 	};
 }
 
+// `_output` mints the command_node commands (both real graphs mount one), so
+// the harness registers it before rendering.
 const renderHandlers = ( opts ) => {
+	if ( ! Core.node( names.OUTPUT ) ) {
+		const out = new DumperNode();
+		out.name = names.OUTPUT;
+	}
 	const dispatch = jest.fn();
 	const append = jest.fn();
 	const onDropStage = jest.fn();
@@ -438,7 +445,7 @@ describe( 'useGraphHandlers', () => {
 		expect( m[ TO ] ).toBe( 'my-node:config' );
 		expect( m[ FROM ] ).toBe( names.OUTPUT );
 		expect( m[ LOCAL ] ).toBe( true );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'configure',
 			arguments: [ 'foo', 'bar' ],
 		} );
@@ -470,7 +477,10 @@ describe( 'useGraphHandlers', () => {
 		const m = shell.sink.fills[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( 'n1' );
-		expect( m[ VALUE ] ).toEqual( { name: 'set_is_hub', arguments: [] } );
+		expect( m[ VALUE ] ).toMatchObject( {
+			name: 'set_is_hub',
+			arguments: [],
+		} );
 		expect( append ).toHaveBeenCalledWith(
 			expect.objectContaining( {
 				kind: 'sent',

@@ -5,13 +5,12 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { markLocal } from '../runtime/command-auth';
 import { Core } from '../runtime/core';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
 import { useGraphGeneration } from '../runtime/react';
-import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
+import { FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
 import {
@@ -188,9 +187,6 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			// FROM routes the reply back to our Dumper.
 			if ( ! parsed[ FROM ] ) {
 				parsed[ FROM ] = names.OUTPUT;
-			}
-			if ( undefined === parsed[ LOCAL ] ) {
-				markLocal( parsed );
 			}
 			// Ignore TO that's non-empty? Overlay is local-only; trust Shell.
 			if ( undefined === parsed[ TO ] ) {

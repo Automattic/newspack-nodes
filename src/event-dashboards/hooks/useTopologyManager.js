@@ -46,17 +46,8 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { markLocal } from '../../runtime/command-auth';
 import { Core } from '../../runtime/core';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	ID,
-	VALUE,
-	TM_COMMAND,
-} from '../../runtime/message';
+import { TO, ID } from '../../runtime/message';
 import { useNodeState } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
@@ -250,13 +241,13 @@ export function deriveConnected( {
  * @return {Array} A 7-field positional Message.
  */
 function buildMutation( ci, verb, args, from, id ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = from;
+	// The view mints; TO/ID after (neither is signed).
+	const m = Core.node( from )?.command( verb, args ) ?? null;
+	if ( null === m ) {
+		return null; // unauthenticated; re-auth is under way
+	}
 	m[ TO ] = `_shell/_http/${ ci }`;
 	m[ ID ] = id;
-	m[ VALUE ] = { name: verb, arguments: args };
-	markLocal( m );
 	return m;
 }
 
@@ -289,7 +280,11 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
 	const promise = new Promise( ( resolve, reject ) => {
 		view.replies.add( id, resolve, reject );
 	} );
-	interpreter.fill( buildMutation( ci, verb, args, viewName, id ) );
+	const m = buildMutation( ci, verb, args, viewName, id );
+	if ( null === m ) {
+		return Promise.reject( new Error( 'not authenticated' ) );
+	}
+	interpreter.fill( m );
 	// Event-driven, not the batched tick: flush the buffered command now.
 	Core.node( '_http' )?.flush();
 	return promise;
