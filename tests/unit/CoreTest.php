@@ -614,6 +614,32 @@ class CoreTest extends TestCase {
 	}
 
 	/**
+	 * A timeout is only success once the request is ON THE WIRE — hanging up
+	 * then is the whole fire-and-forget contract. Timing out during the connect
+	 * phase means it never left, and reporting that as success is what let a
+	 * 10ms budget silently strand three sites: no access-log line because
+	 * nothing was sent, and no error-log line because the timeout "succeeded".
+	 * `pretransfer` is 0 until connect + TLS complete, so it draws that line.
+	 */
+	public function test_a_timeout_before_the_request_was_sent_is_an_error(): void {
+		$classify = new \ReflectionMethod( Core::class, 'classify_post_result' );
+
+		$this->assertNotNull(
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 0.0, 'Operation timed out' ),
+			'a timeout with no pretransfer never reached the server'
+		);
+		$this->assertNull(
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 0.019, 'Operation timed out' ),
+			'a timeout after the request went out is the contract working'
+		);
+		$this->assertNull( $classify->invoke( null, 0, 0.0, '' ), 'no error is no error' );
+		$this->assertSame(
+			'Could not resolve host',
+			$classify->invoke( null, \CURLE_COULDNT_RESOLVE_HOST, 0.0, 'Could not resolve host' )
+		);
+	}
+
+	/**
 	 * The budget has to cover the TLS handshake, or the request is never sent.
 	 * At 10ms total the spawn POST died mid-handshake on every site with a real
 	 * certificate: TCP connected in under a millisecond but appconnect landed at

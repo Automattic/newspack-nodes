@@ -356,7 +356,7 @@ class Core {
 		if ( ! \function_exists( 'curl_init' ) ) {
 			return 'curl extension not available';
 		}
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
+		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error,WordPress.WP.AlternativeFunctions.curl_curl_getinfo -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
 		$ch = \curl_init();
 		if ( false === $ch ) {
 			return 'curl_init failed';
@@ -365,10 +365,39 @@ class Core {
 		// Default ignores $body (in POSTFIELDS); arg only matters to mocks.
 		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
-		$errno = \curl_errno( $ch );
-		$err   = ( 0 === $errno || \CURLE_OPERATION_TIMEDOUT === $errno ) ? null : \curl_error( $ch );
+		$err = self::classify_post_result(
+			\curl_errno( $ch ),
+			\curl_getinfo( $ch, \CURLINFO_PRETRANSFER_TIME ),
+			\curl_error( $ch )
+		);
 		// phpcs:enable WordPress.WP.AlternativeFunctions
 		return $err;
+	}
+
+	/**
+	 * Classify a fire-and-forget result. Split out so the rule is assertable
+	 * without a transport seam, as post_curl_options is for the option set.
+	 *
+	 * A timeout counts as success only once the request is on the wire — hanging
+	 * up then is the entire contract. Timing out during the connect phase means
+	 * it never left, and calling that success is how a too-small budget strands a
+	 * whole fleet in silence: nothing in the access log because nothing was sent,
+	 * nothing in the error log because the timeout "worked". `pretransfer` stays
+	 * 0 until connect and TLS complete, so it draws exactly that line.
+	 *
+	 * @param int    $errno       curl_errno().
+	 * @param float  $pretransfer CURLINFO_PRETRANSFER_TIME; 0.0 while still connecting.
+	 * @param string $error       curl_error().
+	 * @return string|null Error string on failure, null on success.
+	 */
+	private static function classify_post_result( int $errno, float $pretransfer, string $error ): ?string {
+		if ( 0 === $errno ) {
+			return null;
+		}
+		if ( \CURLE_OPERATION_TIMEDOUT === $errno ) {
+			return $pretransfer > 0.0 ? null : 'timed out before the request was sent: ' . $error;
+		}
+		return $error;
 	}
 
 	/**
