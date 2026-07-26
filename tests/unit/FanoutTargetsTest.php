@@ -37,6 +37,44 @@ class FanoutTargetsTest extends TestCase {
 	}
 
 	/** Node::connect_node() replaces; a fan-out must accumulate. */
+	/**
+	 * `target()` is the normalizing accessor: it accepts the scalar form Node's
+	 * base API and the TSL round-trip both hand it, and always reads back a list.
+	 */
+	public function test_target_accepts_a_scalar_and_reads_back_a_list(): void {
+		$node = $this->fanout();
+
+		$this->assertSame( [ 'alpha' ], $node->target( 'alpha' ) );
+		$this->assertSame( [ 'alpha' ], $node->target() );
+	}
+
+	public function test_target_accepts_a_list_and_reindexes_it(): void {
+		$node = $this->fanout();
+
+		$this->assertSame(
+			[ 'alpha', 'beta' ],
+			$node->target( [ 3 => 'alpha', 7 => 'beta' ] )
+		);
+	}
+
+	public function test_setting_an_empty_target_clears_the_list(): void {
+		$node = $this->fanout();
+		$node->target( 'alpha' );
+
+		$this->assertSame( [], $node->target( '' ) );
+	}
+
+	/** A node constructed with the base class's scalar target still reads as a list. */
+	public function test_a_scalar_target_field_normalizes_on_read(): void {
+		$node = new class() extends Node {
+			use Fanout_Targets;
+		};
+		$node->name( 'scalar-target' );
+		$node->connect_node( 'alpha' );
+
+		$this->assertSame( [ 'alpha' ], $node->target() );
+	}
+
 	public function test_connect_node_accumulates_instead_of_replacing(): void {
 		$node = $this->fanout();
 		( new Echo_Node() )->name( 'spoke-alpha' );
