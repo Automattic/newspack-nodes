@@ -52,7 +52,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * Nullable + default null so a freshly-constructed interpreter is in a known,
 	 * type-safe state until the bootstrap wires up the dep; verb handlers
 	 * that dereference `$self->cli` will fail loud if the bootstrap forgot
-	 * to assign it, rather than constructing into uninitialised-property UB.
+	 * to assign it, rather than constructing into uninitialized-property UB.
 	 *
 	 * Native type stays `object` (a duck-typed injection seam tests fill with a
 	 * fake); the `@var` names the production CLI shape so static analysis can

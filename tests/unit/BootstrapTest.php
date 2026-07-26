@@ -941,7 +941,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_get_topology_catalog_returns_empty_array_when_no_filter(): void {
 		// No filter registered → catalog is empty (matches get_topologies
-		// behaviour in the same scenario).
+		// behavior in the same scenario).
 		$this->assertSame( [], Bootstrap::get_topology_catalog() );
 	}
 

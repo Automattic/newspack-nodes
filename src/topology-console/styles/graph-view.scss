@@ -2538,7 +2538,7 @@
 
 	// Phosphor bloom — an over-driven beam bleeds bright glyphs' light into the
 	// dark glass. ONE group blur pass per on-screen group (not a drop-shadow per
-	// glyph) blurs the real pixels, so each element keeps its own colour — and
+	// glyph) blurs the real pixels, so each element keeps its own color — and
 	// the cards themselves bloom for free. Membership is the strict viewport, so
 	// the filter buffer never exceeds the visible region. (Header glyph bloom is
 	// folded into `.topology-brand` above.)
@@ -2885,7 +2885,7 @@
 	}
 
 	// Neon bloom — backlit signage through the rain. One group blur pass keeps
-	// each glyph's colour (white HUD, amber data, crimson flow) and blooms the
+	// each glyph's color (white HUD, amber data, crimson flow) and blooms the
 	// cards too; strict-viewport membership keeps the filter buffer bounded.
 	.topology-brand {
 		filter: drop-shadow(

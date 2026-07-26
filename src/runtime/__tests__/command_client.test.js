@@ -150,7 +150,7 @@ test( 'send waits for the session, so the command it mints is signed', async () 
 } );
 
 /**
- * A session the server no longer recognises — evicted, or lost to a restart —
+ * A session the server no longer recognizes — evicted, or lost to a restart —
  * must be renewed, or the client retries the same dead handle forever. That is
  * also the throttle: renewing clears the session, so hasSession() goes false,
  * pollers skip their tick and send() waits until re-auth lands.

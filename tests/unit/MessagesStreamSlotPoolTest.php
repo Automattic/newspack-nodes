@@ -134,7 +134,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-check-' ) );
 		// No bounding closure needed: this test's own check_slot returns false on
 		// the first consult, so it IS what terminates the drain — exactly the
-		// behaviour under test.
+		// behavior under test.
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 7, -1 );

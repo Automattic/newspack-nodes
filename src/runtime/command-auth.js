@@ -48,7 +48,7 @@ import {
  * TYPE out is what lets a mint sign at build time instead of after every flag.
  *
  * PHP encodes this with JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
- * precisely so it matches JSON.stringify. Do not "normalise" either side.
+ * precisely so it matches JSON.stringify. Do not "normalize" either side.
  *
  * @param {number}   ts    Unix seconds.
  * @param {string}   name  Command verb.

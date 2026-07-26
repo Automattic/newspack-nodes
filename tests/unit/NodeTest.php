@@ -133,6 +133,45 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'payload: data', $buf );
 	}
 
+	/**
+	 * The drop line JSON-encodes the whole VALUE, and the Vault admin UI sends
+	 * credentials as a `--auth_password=<plaintext>` token inside it. The class
+	 * already owns the redaction rule — Core::is_secret_property(), applied by
+	 * dump_node() — it just was not applied here.
+	 */
+	public function test_drop_message_redacts_secret_argument_tokens(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [
+			'name'      => 'add',
+			'arguments' => [ 'spoke-01', '--auth_username=admin', '--auth_password=hunter2' ],
+		];
+
+		$n->drop_message( $message, 'unauthorized: add' );
+
+		$this->assertStringNotContainsString( 'hunter2', $buf );
+		$this->assertStringContainsString( 'auth_password', $buf, 'the key stays; only the value goes' );
+		$this->assertStringContainsString( 'spoke-01', $buf, 'non-secret arguments are the diagnostic' );
+	}
+
+	public function test_drop_message_redacts_a_secret_keyed_value(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [ 'name' => 'save', 'auth_password' => 'hunter2' ];
+
+		$n->drop_message( $message, 'unauthorized: save' );
+
+		$this->assertStringNotContainsString( 'hunter2', $buf );
+	}
+
 	public function test_drop_message_labels_noreply_flag(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );

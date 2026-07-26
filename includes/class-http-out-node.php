@@ -27,6 +27,9 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Outbound request timeout (seconds). */
 	public const REQUEST_TIMEOUT = 15;
 
+	/** Cap on a spoke's reply body; it is buffered into the PHP heap. */
+	public const MAX_REPLY_BYTES = 8388608;
+
 	/** Spoke endpoints appended to the Vault url. */
 	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
 	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
@@ -200,6 +203,9 @@ class HTTP_Out_Node extends Timer_Node {
 			\CURLOPT_TIMEOUT        => self::REQUEST_TIMEOUT,
 			\CURLOPT_SSL_VERIFYPEER => $verify,
 			\CURLOPT_SSL_VERIFYHOST => $verify ? 2 : 0,
+			// MAXFILESIZE needs a declared length; the callback does the work.
+			\CURLOPT_MAXFILESIZE    => self::MAX_REPLY_BYTES,
+			\CURLOPT_WRITEFUNCTION  => self::body_cap(),
 		];
 
 		$dispatch = self::$curl_dispatch ?? static function ( array $o ): \CurlHandle|false {
@@ -358,6 +364,34 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
+	 * A libcurl write callback that buffers the reply and aborts once it passes
+	 * MAX_REPLY_BYTES — returning anything but the chunk length makes libcurl
+	 * fail the transfer. Buffers per handle, and read_result() reads it back:
+	 * setting WRITEFUNCTION supersedes RETURNTRANSFER's own buffering.
+	 *
+	 * @return \Closure(mixed, string): int
+	 */
+	private static function body_cap(): \Closure {
+		return static function ( $easy, string $chunk ) : int {
+			$key = \is_object( $easy ) ? \spl_object_id( $easy ) : 0;
+			$len = \strlen( $chunk );
+			$has = \strlen( self::$bodies[ $key ] ?? '' );
+			if ( $has + $len > self::MAX_REPLY_BYTES ) {
+				return 0; // short write: libcurl aborts the transfer
+			}
+			self::$bodies[ $key ] = ( self::$bodies[ $key ] ?? '' ) . $chunk;
+			return $len;
+		};
+	}
+
+	/**
+	 * Reply bodies accumulated by the write callback, keyed by easy-handle id.
+	 *
+	 * @var array<int,string>
+	 */
+	private static array $bodies = [];
+
+	/**
 	 * Read a completed handle's HTTP code + body. Routes through the $curl_result
 	 * seam when set (tests inject a synthetic result); otherwise reads libcurl
 	 * directly. The typed return narrows the seam's mixed result at this boundary.
@@ -376,9 +410,12 @@ class HTTP_Out_Node extends Timer_Node {
 			];
 		}
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_multi_getcontent
+		$key  = \spl_object_id( $easy );
+		$body = self::$bodies[ $key ] ?? (string) \curl_multi_getcontent( $easy );
+		unset( self::$bodies[ $key ] );
 		return [
 			'code' => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
-			'body' => (string) \curl_multi_getcontent( $easy ),
+			'body' => $body,
 		];
 		// phpcs:enable
 	}

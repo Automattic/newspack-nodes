@@ -55,7 +55,7 @@ describe( 'StalenessIndicator', () => {
 		expect( container.childNodes.length ).toBe( 0 );
 	} );
 
-	it( 'colours off the --ink-3 / --brass tokens, not fixed hexes', () => {
+	it( 'colors off the --ink-3 / --brass tokens, not fixed hexes', () => {
 		const scss = fs.readFileSync(
 			path.join( __dirname, '..', 'StalenessIndicator.scss' ),
 			'utf8'

@@ -49,10 +49,10 @@
 	// One below the FAB; both above dashboard modals + flame tooltip.
 	z-index: 999998;
 	// Theme tokens (DebugPanel wraps the panel in `.theme-<x> .topology-app`), so
-	// the chrome follows whatever skin is active instead of a fixed colour.
+	// the chrome follows whatever skin is active instead of a fixed color.
 	background: var(--paper-3);
 	border: 1px solid var(--paper-shadow);
-	// The shared tab bar colours its labels from --nodes-devtools-fg, which
+	// The shared tab bar colors its labels from --nodes-devtools-fg, which
 	// defaults to #fff (invisible on the light panel). The hub sets this on its
 	// own container; the embedded overlay must set it too — bind it to the theme
 	// ink so the tabs read on any page that mounts the overlay.

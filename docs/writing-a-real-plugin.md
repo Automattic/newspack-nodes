@@ -485,7 +485,7 @@ connect_node scored:consumer digest
 
 Three sources, one partition, one wire each — fan-in needs no special node, just like Ben's community source, except the shared target is now a durable log. **Why the partition sits between the sources and the summarizer:** a source TICK's job is a fast *fetch-and-append*, with no per-item LLM call on the hot path, so the worker keeps heartbeating while it collects; the `ingest:consumer` then tails one read-block per drain into the blocking summarizer → scorer, spreading the enrich across drain cycles instead of stalling the whole collect on the network. `void_warranty` lifts the partition's 4 KB PIPE_BUF write cap ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)) because a raw item can exceed it.
 
-The other new substrate behaviour at the source end is that the sources **emit nothing until configured**: a `Linear_Source` whose `set_vault_id` resolves to no token returns `[]` from `fetch()` and the TICK is a silent no-op. So a freshly-activated topology is live but silent, and stays silent until you add the Vault entry and the `:config` verbs — which is the correct default.
+The other new substrate behavior at the source end is that the sources **emit nothing until configured**: a `Linear_Source` whose `set_vault_id` resolves to no token returns `[]` from `fetch()` and the TICK is a silent no-op. So a freshly-activated topology is live but silent, and stays silent until you add the Vault entry and the `:config` verbs — which is the correct default.
 
 ### There is no manual FLUSH — the digest auto-composes on `DONE`
 

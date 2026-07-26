@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **Dropped-message diagnostics redact credentials.** `Node::drop_message()`
+  JSON-encoded the whole VALUE into its audit line, and the Vault admin UI sends
+  credentials as an `--auth_password=…` token inside it. It now applies the rule
+  `dump_node()` already used — `Core::is_secret_property()` — to both shapes: a
+  secret-named array key and a secret-named argument token. The key survives;
+  only the value goes, because the line is a diagnostic.
+- **A spoke's reply body is capped at 8 MiB.** `HTTP_Out` set no
+  `CURLOPT_MAXFILESIZE` and no write callback, so a compromised spoke could
+  answer the routine heartbeat with a 200 and stream for the full 15-second
+  window until the worker hit `memory_limit`. `MAXFILESIZE` covers a declared
+  `Content-Length`; the write callback covers the case that matters, since a
+  hostile peer will not announce the size.
+
+### Fixed
+- **A logs-directory failure no longer fatals the caller.**
+  `Settings_Event_Writer::default_append()` called
+  `Config::get_logs_directory()` outside its `try`, and those hooks run on every
+  `update_option` on every request — so an un-creatable logs directory turned
+  any option write into a fatal. A settings-audit producer must not be able to
+  kill the caller it observes.
+
+### Security
 - **The runtime tree is no longer adopted unexamined.** `Config::ensure_path()`
   skipped `mkdir` for a pre-existing directory and never asked who owned it, so
   whoever won the race to a predictable base path owned every log, lock, offset

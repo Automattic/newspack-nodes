@@ -2236,7 +2236,7 @@ class PartitionTest extends TestCase {
 		// filemtime can succeed.
 		//
 		// Easier and equally diagnostic: use a wrapper class that overrides
-		// rotate_segment behaviour. We don't want to add subclasses inside
+		// rotate_segment behavior. We don't want to add subclasses inside
 		// includes/, so instead seed an empty lock_dir with mtime set far in
 		// the future (>=now+ROTATE_LOCK_TTL_SECONDS+1) so mkdir fails but
 		// filemtime returns a *finite* large value — that goes through the
@@ -3297,7 +3297,7 @@ class PartitionTest extends TestCase {
 	}
 	/**
 	 * Segments carry the request firehose, IPC transcripts and every logged
-	 * record. fopen() honours the process umask, which on a typical web SAPI is
+	 * record. fopen() honors the process umask, which on a typical web SAPI is
 	 * 022 — so they landed 0644, readable by any local account. The tree is 0700
 	 * and ownership-gated now, but the file mode is wrong on its own terms.
 	 */

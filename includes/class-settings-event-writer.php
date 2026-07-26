@@ -200,14 +200,19 @@ class Settings_Event_Writer {
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
 	private static function default_append( array $message ): void {
-		$writer = new Partition_Node();
-		$writer->name( 'settings:writer' );
-		$writer->arguments( self::partition_args( Config::get_logs_directory() . '/' . self::SETTINGS_LOG_DIR ) );
+		// Runs on EVERY update_option; never fatal the caller we observe.
+		$writer = null;
 		try {
+			$dir    = Config::get_logs_directory() . '/' . self::SETTINGS_LOG_DIR;
+			$writer = new Partition_Node();
+			$writer->name( 'settings:writer' );
+			$writer->arguments( self::partition_args( $dir ) );
 			$writer->fill( $message );
 			$writer->flush();
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'settings-writer: ' . $e->getMessage() );
 		} finally {
-			$writer->remove_node();
+			$writer?->remove_node();
 		}
 	}
 

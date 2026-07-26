@@ -259,4 +259,29 @@ class SettingsEventWriterTest extends TestCase {
 			$values
 		);
 	}
+	/**
+	 * These hooks run on EVERY update_option on every request. A logs directory
+	 * that cannot be created — a symlink, a foreign owner — makes
+	 * Config::get_logs_directory() throw, and the throw escaped default_append()
+	 * into whatever called update_option(). A settings-audit producer must never
+	 * be able to fatal the caller it observes.
+	 */
+	public function test_a_logs_directory_failure_does_not_fatal_the_caller(): void {
+		Settings_Event_Writer::$append_seam = null;
+		// A symlinked `logs` leaf: ensure_path() refuses it, so
+		// Config::get_logs_directory() throws inside default_append().
+		$base = $this->make_temp_dir();
+		$this->use_base_dir( $base );
+		@\symlink( \sys_get_temp_dir(), $base . '/logs' );
+
+		$writer = new \ReflectionMethod( Settings_Event_Writer::class, 'default_append' );
+		$m      = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::VALUE ] = [ 'option' => 'newspack_nodes_x' ];
+
+		$writer->invoke( null, $m );
+
+		$this->assertTrue( true, 'the throw is swallowed; reaching here is the assertion' );
+	}
+
 }
