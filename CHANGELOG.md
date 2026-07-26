@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the same stored password and now bootstraps every session key from it, so the
   refusal happens before a credential reaches the wire.
 
+- **`HTTP_Out` runs the `/auth` handshake for its spoke.** It already holds that
+  spoke's credentials and its cURL-multi registration; the minters that will sign
+  for the spoke have neither. It establishes the session and never signs itself.
+  A batch it cannot yet have signed is now HELD rather than dropped — only a
+  permanent misconfiguration (no Vault entry, or `vault_require_ssl` violated)
+  still drops.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly
