@@ -10,6 +10,7 @@
  * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
  */
 
+import { signCommand } from './command-auth';
 import { Node, serializeArg } from './node';
 import {
 	newMessage,
@@ -817,6 +818,8 @@ export class ShellNode extends Node {
 	 * @return {void}
 	 */
 	dispatch( message ) {
+		// The mint-exit: every command built here leaves through this method.
+		signCommand( message );
 		this.onDispatch?.( message );
 		this.sink?.fill( message );
 	}

@@ -1,4 +1,9 @@
-import { signCommand, forgetSession, __setAuthFetch } from '../command-auth';
+import {
+	signCommand,
+	ensureSession,
+	forgetSession,
+	__setAuthFetch,
+} from '../command-auth';
 import {
 	newMessage,
 	TYPE,
@@ -40,7 +45,8 @@ describe( 'browser command signing', () => {
 	it( 'stamps a handle, nonce and signature onto a command', async () => {
 		const m = aCommand();
 
-		await signCommand( m );
+		await ensureSession();
+		signCommand( m );
 
 		expect( m[ VALUE ].auth.handle ).toBe( HANDLE );
 		expect( m[ VALUE ].auth.nonce ).toMatch( /^[0-9a-f]{32}$/ );
@@ -50,7 +56,8 @@ describe( 'browser command signing', () => {
 	it( 'leaves the command semantics untouched', async () => {
 		const m = aCommand();
 
-		await signCommand( m );
+		await ensureSession();
+		signCommand( m );
 
 		expect( m[ VALUE ].name ).toBe( 'help' );
 		expect( m[ VALUE ].arguments ).toEqual( [] );
@@ -60,7 +67,8 @@ describe( 'browser command signing', () => {
 	it( 'signs a no-reply command', async () => {
 		const m = aCommand( TM_COMMAND | TM_NOREPLY );
 
-		await signCommand( m );
+		await ensureSession();
+		signCommand( m );
 
 		expect( m[ VALUE ].auth ).toBeDefined();
 	} );
@@ -72,42 +80,42 @@ describe( 'browser command signing', () => {
 	] )( 'does not sign %s', async ( _label, type ) => {
 		const m = aCommand( type );
 
-		await signCommand( m );
+		await ensureSession();
+		signCommand( m );
 
 		expect( m[ VALUE ].auth ).toBeUndefined();
 	} );
 
 	/** One /auth round trip, not one per command — and not one per concurrent caller. */
 	it( 'establishes the session once and reuses it', async () => {
-		await Promise.all( [
-			signCommand( aCommand() ),
-			signCommand( aCommand() ),
-		] );
-		await signCommand( aCommand() );
+		await Promise.all( [ ensureSession(), ensureSession() ] );
+		await ensureSession();
 
 		expect( calls ).toBe( 1 );
 	} );
 
 	/**
-	 * No session, no signature. An unsigned command is refused by the server,
-	 * which is the correct failure — better than a command that looks authorized.
+	 * No session, no signature — and no warning. Unsigned is a STATE here: the
+	 * console mints local commands before /auth resolves and those never leave
+	 * the browser. One that does cross is refused server-side, where the failure
+	 * is logged. An unsigned command beats one that looks authorized.
 	 */
 	it( 'leaves the command unsigned when the session cannot be had', async () => {
-		global.expectConsoleWarn( 'ERROR: command signing:' );
 		__setAuthFetch( async () => {
 			throw new Error( 'HTTP 403' );
 		} );
 		const m = aCommand();
 
-		await signCommand( m );
+		await ensureSession().catch( () => {} );
+		signCommand( m );
 
 		expect( m[ VALUE ].auth ).toBeUndefined();
 	} );
 
 	it( 're-establishes the session after it is forgotten', async () => {
-		await signCommand( aCommand() );
+		await ensureSession();
 		forgetSession();
-		await signCommand( aCommand() );
+		await ensureSession();
 
 		expect( calls ).toBe( 2 );
 	} );

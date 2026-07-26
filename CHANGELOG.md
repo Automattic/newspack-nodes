@@ -88,6 +88,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`src/runtime/command-auth.js`** — the browser's canonical string, HMAC-SHA256
   over WebCrypto, and nonce minting, mirroring PHP `Command_Auth`.
 
+- **The browser signs its own commands, at the mint.** `ShellNode.dispatch()` —
+  the single exit every minted command leaves through — signs before the tap and
+  the sink see it. `HttpOut` signs nothing, so a wire-arrived frame routed into
+  `_http` never passes a mint site, ships unsigned, and is refused by the server.
+  The session is established once at `mountExospine()`.
+- **Signing is synchronous, via `@noble/hashes` rather than `crypto.subtle`.**
+  WebCrypto returns promises as an API choice; HMAC-SHA256 over a few hundred
+  bytes is microseconds of arithmetic. Making `dispatch()` async to await it
+  failed 105 tests across twelve suites — including React hooks that dispatch a
+  command and then read graph state — because it moved every graph mutation a
+  microtask later. JS cannot block on a promise, so the fix is to have no async
+  operation: the session round trip happens at mount, the HMAC is a function call.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly
