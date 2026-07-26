@@ -74,6 +74,13 @@ class HTTP_Out_Node extends Timer_Node {
 	/** One handshake at a time; a held batch must not fan out N /auth POSTs. */
 	protected bool $auth_in_flight = false;
 
+	/**
+	 * Reply bodies accumulated by the write callback, keyed by easy-handle id.
+	 *
+	 * @var array<int,string>
+	 */
+	private static array $bodies = [];
+
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
 		parent::__construct();
@@ -383,13 +390,6 @@ class HTTP_Out_Node extends Timer_Node {
 			return $len;
 		};
 	}
-
-	/**
-	 * Reply bodies accumulated by the write callback, keyed by easy-handle id.
-	 *
-	 * @var array<int,string>
-	 */
-	private static array $bodies = [];
 
 	/**
 	 * Read a completed handle's HTTP code + body. Routes through the $curl_result

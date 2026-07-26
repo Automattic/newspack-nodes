@@ -140,22 +140,6 @@ class Command_Interpreter_Node extends Node {
 		$this->sink->fill( $message );
 	}
 
-	/**
-	 * Naming an interpreter is the moment this process gains a command surface,
-	 * so it is the moment the policy becomes something someone has to declare.
-	 * Ported from Tachikoma's CommandInterpreter::name().
-	 */
-	public function name( ?string $name = null ): string {
-		// Parent splits getter/setter on func_num_args(); null would write.
-		if ( 0 === \func_num_args() ) {
-			return parent::name();
-		}
-		if ( null === Core::$secure_level ) {
-			Core::$secure_level = 0;
-		}
-		return parent::name( $name );
-	}
-
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
 	private function interpret( array $message ): void {
 		$cmd = $message[ Message::VALUE ];
@@ -1575,6 +1559,22 @@ class Command_Interpreter_Node extends Node {
 		$m[ Message::LOCAL ] = true;
 		$self->fill( $m );
 		return '';
+	}
+
+	/**
+	 * Naming an interpreter is the moment this process gains a command surface,
+	 * so it is the moment the policy becomes something someone has to declare.
+	 * Ported from Tachikoma's CommandInterpreter::name().
+	 */
+	public function name( ?string $name = null ): string {
+		// Parent splits getter/setter on func_num_args(); null would write.
+		if ( 0 === \func_num_args() ) {
+			return parent::name();
+		}
+		if ( null === Core::$secure_level ) {
+			Core::$secure_level = 0;
+		}
+		return parent::name( $name );
 	}
 
 	/**

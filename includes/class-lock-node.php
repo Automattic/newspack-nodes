@@ -71,16 +71,6 @@ class Lock_Node extends Node {
 		return true;
 	}
 
-	/**
-	 * A lock-dir file path, or null when something planted a symlink there —
-	 * the write would land at its target. Supervisor_Base refuses to follow one
-	 * when sweeping; the writer refuses too.
-	 */
-	private function unlinked_path( string $file ): ?string {
-		$path = $this->lock_path . '/' . $file;
-		return \is_link( $path ) ? null : $path;
-	}
-
 	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
 	public function verify_ownership(): bool {
 		if ( ! $this->is_held ) {
@@ -237,6 +227,16 @@ class Lock_Node extends Node {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $this->lock_path . '/' . self::RESTART_FLAG );
 		return true;
+	}
+
+	/**
+	 * A lock-dir file path, or null when something planted a symlink there —
+	 * the write would land at its target. Supervisor_Base refuses to follow one
+	 * when sweeping; the writer refuses too.
+	 */
+	private function unlinked_path( string $file ): ?string {
+		$path = $this->lock_path . '/' . $file;
+		return \is_link( $path ) ? null : $path;
 	}
 
 	public function release(): void {

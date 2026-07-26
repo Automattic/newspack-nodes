@@ -100,22 +100,6 @@ class Bootstrap {
 	}
 
 	/**
-	 * REST gate for the routes that front the fleet: null to proceed, a 403
-	 * WP_Error on a multisite subsite. One guard so a new route cannot quietly
-	 * omit it — the audit found three that had.
-	 */
-	public static function fleet_gate(): ?\WP_Error {
-		if ( self::fleet_site() ) {
-			return null;
-		}
-		return new \WP_Error(
-			'newspack_nodes_not_fleet_site',
-			'multisite subsite: the fleet runs on the main site only',
-			[ 'status' => 403 ]
-		);
-	}
-
-	/**
 	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
 	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
 	 *
@@ -484,6 +468,22 @@ class Bootstrap {
 		( new SSE_Out_Node() )->register_routes();
 		( new Log_Stream_Out_Node() )->register_routes();
 		( new HTTP_In_Node() )->register_routes();
+	}
+
+	/**
+	 * REST gate for the routes that front the fleet: null to proceed, a 403
+	 * WP_Error on a multisite subsite. One guard so a new route cannot quietly
+	 * omit it — the audit found three that had.
+	 */
+	public static function fleet_gate(): ?\WP_Error {
+		if ( self::fleet_site() ) {
+			return null;
+		}
+		return new \WP_Error(
+			'newspack_nodes_not_fleet_site',
+			'multisite subsite: the fleet runs on the main site only',
+			[ 'status' => 403 ]
+		);
 	}
 
 	/**
