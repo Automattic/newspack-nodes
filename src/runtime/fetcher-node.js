@@ -1,4 +1,4 @@
-import { markLocal } from './command-auth';
+import { hasSession, markLocal } from './command-auth';
 import { Node } from './node';
 import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
 
@@ -55,6 +55,9 @@ export class FetcherNode extends Node {
 			'function' === typeof this.command_args
 				? this.command_args()
 				: this.command_args;
+		if ( ! hasSession() ) {
+			return; // unauthenticated; the next poll carries it
+		}
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.receiver;

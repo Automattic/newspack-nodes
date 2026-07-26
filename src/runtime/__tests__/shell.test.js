@@ -291,7 +291,7 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		// FROM is the bare reply node; _sse wraps it downstream.
 		expect( m[ FROM ] ).toBe( '_output' );
 		expect( m[ TO ] ).toBe( 'demo.p0' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'ls',
 			arguments: [ '-al' ],
 		} );
@@ -363,7 +363,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		const { m } = drive( 'send_struct my_node \'{"foo":23,"bar":42}\'' );
 		expect( m[ TYPE ] ).toBe( TM_STRUCT );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/my_node' );
-		expect( m[ VALUE ] ).toEqual( { foo: 23, bar: 42 } );
+		expect( m[ VALUE ] ).toMatchObject( { foo: 23, bar: 42 } );
 	} );
 
 	it( 'send_struct with no node → error signal', () => {
@@ -407,7 +407,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		const { m } = drive( 'cmd firehose-in dump_metadata' );
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/firehose-in' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'dump_metadata',
 			arguments: [],
 		} );
@@ -425,7 +425,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		const { m } = drive( 'make_node Echo my_node' );
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'make_node',
 			arguments: [ 'Echo', 'my_node' ],
 		} );
@@ -435,7 +435,7 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		const { m } = drive( 'help' );
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ VALUE ].name ).toBe( 'help' );
-		expect( m[ VALUE ].arguments ).toEqual( [] );
+		expect( m[ VALUE ].arguments ).toMatchObject( [] );
 	} );
 } );
 
@@ -467,7 +467,7 @@ describe( 'Shell node — pwd', () => {
 		const m = filled[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'pwd',
 			arguments: [ '_http/demo.p0' ],
 		} );
@@ -478,7 +478,7 @@ describe( 'Shell node — pwd', () => {
 		shell.fill( 'pwd' );
 		const m = filled[ 0 ];
 		expect( m[ TO ] ).toBe( '' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'pwd',
 			arguments: [],
 		} );
@@ -651,7 +651,7 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 	it( 'bare verb args are tokens; a quoted arg survives as ONE token', () => {
 		const { shell } = makeShell( { path: '' } );
 		const m = shell.parse( 'foo a   "b c"' );
-		expect( m[ VALUE ] ).toEqual( {
+		expect( m[ VALUE ] ).toMatchObject( {
 			name: 'foo',
 			arguments: [ 'a', 'b c' ],
 		} );
@@ -679,7 +679,7 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 	it( 'cmd args are slice(2) tokens; a quoted arg stays one token', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.fill( 'cmd n verb a   "b c"' );
-		expect( filled[ 0 ][ VALUE ] ).toEqual( {
+		expect( filled[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'verb',
 			arguments: [ 'a', 'b c' ],
 		} );

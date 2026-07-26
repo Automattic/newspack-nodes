@@ -114,6 +114,21 @@ export function __setAuthFetch( fn ) {
 	authFetch = fn;
 }
 
+/** Whether a session is live. Emitters gate on this: a mint cannot wait. */
+export function hasSession() {
+	return null !== session;
+}
+
+/**
+ * The server has forgotten our session — evicted from the cache, or restarted.
+ * Drop it so the next ensureSession() establishes a new one; the poll that hit
+ * the refusal is lost, and its next tick works.
+ */
+export function renewSession() {
+	session = null;
+	establishing = null;
+}
+
 /** Drop the session so the next command re-authenticates. */
 export function forgetSession() {
 	session = null;

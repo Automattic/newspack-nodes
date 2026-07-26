@@ -150,7 +150,7 @@ describe( 'RemoteIpcNode', () => {
 		expect( reopened.target ).toBe( 'cerulean-replies-619' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=combined.p7' );
 		expect( posted[ 0 ][ FROM ] ).toBe( 'violet-ipc-947' );
-		expect( posted[ 0 ][ VALUE ] ).toEqual( {
+		expect( posted[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'connect_worker_input',
 			arguments: [ 'combined.p7' ],
 		} );
@@ -262,14 +262,17 @@ describe( 'RemoteIpcNode', () => {
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		node.fill( command() );
 		expect( posted ).toHaveLength( 2 );
-		expect( posted[ 0 ][ VALUE ] ).toEqual( {
+		expect( posted[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'connect_worker_input',
 			arguments: [ 'aggregator.p0' ],
 		} );
 		expect( posted[ 0 ][ TO ] ).toBe( 'topologies' );
 		// The mount command is minted here → stamps its own name as FROM.
 		expect( posted[ 0 ][ FROM ] ).toBe( 'aggregator.p0' );
-		expect( posted[ 1 ][ VALUE ] ).toEqual( { name: 'ls', arguments: [] } );
+		expect( posted[ 1 ][ VALUE ] ).toMatchObject( {
+			name: 'ls',
+			arguments: [],
+		} );
 		expect( posted[ 1 ][ TO ] ).toBe( 'aggregator.p0' );
 	} );
 

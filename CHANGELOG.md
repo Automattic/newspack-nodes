@@ -117,6 +117,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every `TYPE ] = TM_COMMAND` construction for a mint, which is the check that
   works — the earlier pass grepped the `LOCAL` marker and so could only find
   sites that already half-remembered.
+- **Nothing mints a command until authenticated, and eviction recovers.** A mint
+  is synchronous and cannot wait for `/auth`, so `Node.mint()` returns null when
+  there is no session and the EMITTERS hold — a poll skips the tick and carries
+  it on the next one, rather than sending something the server will refuse.
+  `hasSession()` is that gate; `renewSession()` drops a session the server has
+  forgotten (evicted, or restarted) so the next tick re-establishes one.
 - **An unsigned command says so.** Once a session has been asked for and a server
   answered, a command that cannot be signed logs `no command session; this
   command will be refused` instead of failing silently and surfacing only as an

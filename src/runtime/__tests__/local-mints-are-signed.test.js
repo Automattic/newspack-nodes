@@ -99,3 +99,43 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		expect( connect[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
 	} );
 } );
+
+/**
+ * A mint is synchronous and cannot wait for /auth, so the EMITTERS wait. A poll
+ * that fires before the session lands skips the tick rather than sending
+ * something the server will refuse — the next tick carries it.
+ */
+describe( 'polls hold until authenticated', () => {
+	beforeEach( () => {
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: 'aaaa1111bbbb2222cccc3333dddd4444',
+			key: 'poll-session-key-4242',
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+	} );
+
+	it( 'emits nothing before the session lands, then emits after', async () => {
+		const sent = [];
+		const node = new HeartbeatNode();
+		node.name = '_heartbeat_gate';
+		node.connectNode( 'workers' );
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node._slots = new Map( [ [ 'a', 0 ] ] );
+
+		node.fire();
+		expect( sent ).toHaveLength( 0 );
+
+		await ensureSession();
+		node.fire();
+
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
+	} );
+} );

@@ -1,6 +1,8 @@
 import {
 	signCommand,
 	ensureSession,
+	hasSession,
+	renewSession,
 	forgetSession,
 	__setAuthFetch,
 } from '../command-auth';
@@ -159,5 +161,66 @@ describe( 'clock alignment', () => {
 		signCommand( m );
 
 		expect( Math.abs( m[ TIMESTAMP ] - SERVER_NOW ) ).toBeLessThan( 5 );
+	} );
+} );
+
+/**
+ * Nothing mints until authenticated, and the page recovers on its own if the
+ * server forgets the session — evicted from the cache, or restarted.
+ *
+ * A mint is synchronous, so it cannot wait. The EMITTERS wait instead:
+ * `hasSession()` gates the poll ticks (they retry on the next tick anyway), and
+ * `CommandClient.send()` is already async so it simply awaits.
+ */
+describe( 'authentication gates minting, and recovers', () => {
+	beforeEach( () => {
+		forgetSession();
+	} );
+
+	afterEach( () => {
+		forgetSession();
+		__setAuthFetch( null );
+	} );
+
+	it( 'reports no session before /auth resolves', () => {
+		expect( hasSession() ).toBe( false );
+	} );
+
+	it( 'reports a session once established', async () => {
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			key: KEY,
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+
+		await ensureSession();
+
+		expect( hasSession() ).toBe( true );
+	} );
+
+	/** Eviction or a restart: the server forgets, so the client must re-auth. */
+	it( 're-authenticates after the server forgets the session', async () => {
+		let issued = 0;
+		__setAuthFetch( async () => {
+			issued++;
+			return {
+				handle: `${ issued }`.repeat( 32 ).slice( 0, 32 ),
+				key: `key-${ issued }`,
+				expires_in: 3600,
+				now: 1771000000,
+			};
+		} );
+		await ensureSession();
+		const first = hasSession();
+
+		// The server no longer recognises the handle.
+		renewSession();
+		expect( hasSession() ).toBe( false );
+		await ensureSession();
+
+		expect( first ).toBe( true );
+		expect( issued ).toBe( 2 );
+		expect( hasSession() ).toBe( true );
 	} );
 } );

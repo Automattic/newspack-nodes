@@ -41,7 +41,10 @@ export class UptimeNode extends TimerNode {
 			return;
 		}
 		this.counter++;
-		this.sink.fill( this._pollMessage( 'uptime' ) );
+		const m = this._pollMessage( 'uptime' );
+		if ( m ) {
+			this.sink.fill( m ); // else unauthenticated; next tick carries it
+		}
 	}
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.

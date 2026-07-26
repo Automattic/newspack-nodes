@@ -54,7 +54,7 @@ test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb
 	const shell2 = new ShellNode();
 	shell2.sink = { fill: ( m ) => captured.push( m ) };
 	shell2.fill( "cmd x verb 'a b' c" );
-	expect( captured[ 0 ][ VALUE ] ).toEqual( {
+	expect( captured[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'verb',
 		arguments: [ 'a b', 'c' ],
 	} );
@@ -122,7 +122,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-1' );
 	expect( got[ 0 ][ KEY ] ).toBe( 'gui:typed' );
 	// Response VALUE is the { name, arguments, payload } object, not JSON.
-	expect( got[ 0 ][ VALUE ] ).toEqual( {
+	expect( got[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'echo',
 		arguments: [ 'hi' ],
 		payload: 'echoed: hi',

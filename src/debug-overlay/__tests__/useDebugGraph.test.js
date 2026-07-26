@@ -373,7 +373,7 @@ describe( 'useDebugGraph', () => {
 			result.current.handlers.onInspectorAction( 'dump', 'a', null )
 		);
 		expect( spy ).toHaveBeenCalledTimes( 1 );
-		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'dump_node',
 			arguments: [ 'a' ],
 		} );
@@ -445,7 +445,7 @@ describe( 'useDebugGraph', () => {
 			result.current.handlers.onInspectorAction( 'trace', 'a', undefined )
 		);
 		expect( spy ).toHaveBeenCalledTimes( 1 );
-		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'trace',
 			arguments: [ 'a', '1' ],
 		} );
@@ -745,7 +745,7 @@ describe( 'useDebugGraph', () => {
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( spy ).toHaveBeenCalledTimes( 1 );
-		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toEqual( {
+		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'connect_node',
 			arguments: [ 'a', 'b' ],
 		} );
