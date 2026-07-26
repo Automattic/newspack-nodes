@@ -10,7 +10,7 @@ import {
 	TM_ERROR,
 	TM_UNTYPED,
 } from './message';
-import { markLocal } from './command-auth';
+import { ensureSession, markLocal } from './command-auth';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
@@ -41,6 +41,8 @@ export class CommandClient {
 	 * @return {Promise<Array>} Parsed response.
 	 */
 	async send( params ) {
+		// This MINTS, and is already async — so it waits rather than skipping.
+		await ensureSession();
 		// JSONL body; verb response comes last, so return that message.
 		const msgs = await this.#post( pack( this.buildMessage( params ) ), 1 );
 		return msgs.length ? msgs[ msgs.length - 1 ] : null;

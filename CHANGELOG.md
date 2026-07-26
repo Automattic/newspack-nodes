@@ -123,6 +123,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it on the next one, rather than sending something the server will refuse.
   `hasSession()` is that gate; `renewSession()` drops a session the server has
   forgotten (evicted, or restarted) so the next tick re-establishes one.
+- **`CommandClient.send()` waits for the session.** It mints its own command and
+  is already async, so unlike a poll tick it waits rather than skipping. The
+  console's boot loads (`topologies list`, `classes list`, `layouts get`) go
+  through it and were minting during the `/auth` round trip.
 - **An unsigned command says so.** Once a session has been asked for and a server
   answered, a command that cannot be signed logs `no command session; this
   command will be refused` instead of failing silently and surfacing only as an
