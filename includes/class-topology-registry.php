@@ -536,19 +536,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * True when a TSL class token resolves to a Tee-family PASS-THROUGH node.
-	 * Narrower than fan-out on purpose: this drives the `tee` layout kind, which
-	 * the dashboard contracts out of the graph. A minter is a destination.
-	 */
-	private static function type_is_tee( string $type ): bool {
-		if ( 'Tee' === $type ) {
-			return true;
-		}
-		$fqcn = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
-	}
-
-	/**
 	 * True when a TSL class token resolves to a class that keeps a target LIST.
 	 */
 	private static function type_fans_out( string $type ): bool {
@@ -1038,6 +1025,19 @@ class Topology_Registry {
 				\array_values( $edges )
 			),
 		];
+	}
+
+	/**
+	 * True when a TSL class token resolves to a Tee-family PASS-THROUGH node.
+	 * Narrower than fan-out on purpose: this drives the `tee` layout kind, which
+	 * the dashboard contracts out of the graph. A minter is a destination.
+	 */
+	private static function type_is_tee( string $type ): bool {
+		if ( 'Tee' === $type ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
 	}
 
 	/**

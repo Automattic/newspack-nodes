@@ -99,6 +99,19 @@ class Core {
 
 	/** @var callable */
 	private static $stderr_handler;
+	/**
+	 * Budget for the fire-and-forget spawn POST, in milliseconds — total AND
+	 * connect, since the total covers the connect phase and the smaller bites
+	 * first. Long enough to WRITE the request, never long enough to await the
+	 * reply: that is the whole contract. At 10ms it did not reach the write —
+	 * on any site with a real certificate TCP landed in under a millisecond but
+	 * the TLS handshake finished around 17ms, so curl aborted mid-handshake and
+	 * the fleet never started. It failed in total silence, because nothing
+	 * reached the access log and CURLE_OPERATION_TIMEDOUT counts as success.
+	 * The abort at 50ms is the design working: the request is already delivered
+	 * and the server runs on under ignore_user_abort.
+	 */
+	private const SPAWN_POST_TIMEOUT_MS = 50;
 
 	/**
 	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
@@ -331,7 +344,7 @@ class Core {
 
 	/**
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
-	 * CURLOPT_NOSIGNAL + TIMEOUT_MS=10 means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
+	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
 	 *
 	 * @param array<string, mixed> $body POST body.
 	 * @return string|null Error string on failure, null on success.
@@ -343,7 +356,7 @@ class Core {
 		if ( ! \function_exists( 'curl_init' ) ) {
 			return 'curl extension not available';
 		}
-		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's CURLOPT_TIMEOUT_MS=10 fire-and-forget contract. Raw curl is the only path that honors the 10ms timeout.
+		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_init,WordPress.WP.AlternativeFunctions.curl_curl_setopt_array,WordPress.WP.AlternativeFunctions.curl_curl_exec,WordPress.WP.AlternativeFunctions.curl_curl_errno,WordPress.WP.AlternativeFunctions.curl_curl_error -- raw curl is intentional. wp_remote_post() routes through Requests, whose Curl transport at src/Transport/Curl.php:427 does `max( (int) $timeout, 1 )` and clamps any sub-second timeout up to 1 full second — defeating this helper's sub-second CURLOPT_TIMEOUT_MS fire-and-forget contract. Raw curl is the only path that honors a sub-second timeout.
 		$ch = \curl_init();
 		if ( false === $ch ) {
 			return 'curl_init failed';
@@ -357,6 +370,7 @@ class Core {
 		// phpcs:enable WordPress.WP.AlternativeFunctions
 		return $err;
 	}
+
 	/**
 	 * Options for the fire-and-forget spawn POST. Split out so the option set is
 	 * assertable without a transport seam.
@@ -371,8 +385,8 @@ class Core {
 			\CURLOPT_POST              => true,
 			\CURLOPT_POSTFIELDS        => $fields,
 			\CURLOPT_NOSIGNAL          => true,
-			\CURLOPT_TIMEOUT_MS        => 10,
-			\CURLOPT_CONNECTTIMEOUT_MS => 10,
+			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
+			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
 			\CURLOPT_RETURNTRANSFER    => false,
 			\CURLOPT_HEADER            => false,
 			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,

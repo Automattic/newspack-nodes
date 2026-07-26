@@ -100,30 +100,6 @@ class HTTP_In_Node extends Node {
 		parent::__construct();
 	}
 
-	/** Reset the refusal latch and hand back this request's authorize policy. */
-	private function fresh_verifier(): \Closure {
-		$this->refused_a_command = false;
-		return \Closure::fromCallable( [ $this, 'authorize_and_latch' ] );
-	}
-
-	/**
-	 * The request's authorize policy: Command_Auth's verifier, latching any
-	 * refusal so dispatch() answers 401 instead of a reassuring 202. Named (not
-	 * an inline closure) for the same reason `authorize_command` is — the
-	 * int-keyed Message type is honored end-to-end.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int, mixed>        $message
-	 */
-	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
-		$refused_before = $this->refused_a_command;
-		// Pessimistic: the verifier logs before it returns, opening the body.
-		$this->refused_a_command = true;
-		$ok                      = ( Command_Auth::verifier() )( $interpreter, $message );
-		$this->refused_a_command = $refused_before || ! $ok;
-		return $ok;
-	}
-
 	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -239,6 +215,12 @@ class HTTP_In_Node extends Node {
 		$this->finish();
 	}
 
+	/** Reset the refusal latch and hand back this request's authorize policy. */
+	private function fresh_verifier(): \Closure {
+		$this->refused_a_command = false;
+		return \Closure::fromCallable( [ $this, 'authorize_and_latch' ] );
+	}
+
 	/**
 	 * Decode the JSONL request body into an ordered list of Messages (one
 	 * packed Message per line via `Message::unpacked()`; blank lines skipped).
@@ -304,6 +286,24 @@ class HTTP_In_Node extends Node {
 		$r[ Message::VALUE ] = $err;
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $r );
+	}
+
+	/**
+	 * The request's authorize policy: Command_Auth's verifier, latching any
+	 * refusal so dispatch() answers 401 instead of a reassuring 202. Named (not
+	 * an inline closure) for the same reason `authorize_command` is — the
+	 * int-keyed Message type is honored end-to-end.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int, mixed>        $message
+	 */
+	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
+		$refused_before = $this->refused_a_command;
+		// Pessimistic: the verifier logs before it returns, opening the body.
+		$this->refused_a_command = true;
+		$ok                      = ( Command_Auth::verifier() )( $interpreter, $message );
+		$this->refused_a_command = $refused_before || ! $ok;
+		return $ok;
 	}
 
 	public function reset(): void {

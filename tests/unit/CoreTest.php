@@ -613,6 +613,26 @@ class CoreTest extends TestCase {
 		$this->assertTrue( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
 	}
 
+	/**
+	 * The budget has to cover the TLS handshake, or the request is never sent.
+	 * At 10ms total the spawn POST died mid-handshake on every site with a real
+	 * certificate: TCP connected in under a millisecond but appconnect landed at
+	 * ~17ms, so curl aborted before writing a byte. Nothing reached the access
+	 * log, and CURLE_OPERATION_TIMEDOUT is counted as success, so nothing reached
+	 * the error log either — the fleet simply never started, in silence.
+	 */
+	public function test_the_spawn_post_budget_survives_a_tls_handshake(): void {
+		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
+			->invoke( null, 'https://example.test/spawn', 'a=b' );
+
+		// A measured handshake finished at ~17ms; the budget must clear it with
+		// headroom, while staying far below the ~120ms round trip it must NOT
+		// wait for — writing the request is the whole job.
+		$this->assertGreaterThanOrEqual( 50, $opts[ \CURLOPT_TIMEOUT_MS ] );
+		$this->assertGreaterThanOrEqual( 50, $opts[ \CURLOPT_CONNECTTIMEOUT_MS ] );
+		$this->assertLessThan( 120, $opts[ \CURLOPT_TIMEOUT_MS ] );
+	}
+
 	public function test_the_spawn_post_honors_the_verification_opt_out(): void {
 		Core::$verify_spawn_tls = false;
 		try {
