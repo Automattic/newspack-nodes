@@ -10,7 +10,7 @@
  * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
  */
 
-import { signCommand } from './command-auth';
+import { markLocal } from './command-auth';
 import { Node, serializeArg } from './node';
 import {
 	newMessage,
@@ -18,7 +18,6 @@ import {
 	FROM,
 	TO,
 	VALUE,
-	LOCAL,
 	TM_COMMAND,
 	TM_PING,
 	TM_INFO,
@@ -585,8 +584,6 @@ export class ShellNode extends Node {
 		const to = args[ 0 ] ?? '';
 		message[ FROM ] = this.replyFrom( names.OUTPUT );
 		message[ TO ] = this.prefix( to );
-		// LOCAL provenance taint — minted here, stripped at the wire (pack()).
-		message[ LOCAL ] = true;
 
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
 			const name = args[ 1 ] ?? '';
@@ -771,7 +768,6 @@ export class ShellNode extends Node {
 		m[ FROM ] = this.replyFrom( names.OUTPUT );
 		// `path` is RELATIVE to the cwd — prefix() joins them.
 		m[ TO ] = this.prefix( path );
-		m[ LOCAL ] = true;
 		this.stampNoreply( m );
 		this.dispatch( m );
 	}
@@ -806,7 +802,8 @@ export class ShellNode extends Node {
 		if ( ! this._wantReply && type & TM_COMMAND ) {
 			message[ TYPE ] = type | TM_NOREPLY;
 		}
-		return message;
+		// The Shell's completion point: every parse branch ends here.
+		return markLocal( message );
 	}
 
 	/**
@@ -818,8 +815,6 @@ export class ShellNode extends Node {
 	 * @return {void}
 	 */
 	dispatch( message ) {
-		// The mint-exit: every command built here leaves through this method.
-		signCommand( message );
 		this.onDispatch?.( message );
 		this.sink?.fill( message );
 	}

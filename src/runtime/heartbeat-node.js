@@ -11,15 +11,6 @@
  */
 
 import { TimerNode } from './timer-node';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-} from './message';
 
 // Slot TTL (s) per poke; throttle is half the TTL so a missed tick survives.
 const SLOT_TTL_S = 10;
@@ -52,16 +43,10 @@ export class HeartbeatNode extends TimerNode {
 
 	// Poke TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
 	_pollMessage( slot ) {
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.name;
-		m[ TO ] = this.target;
-		m[ VALUE ] = {
-			name: 'heartbeat',
-			arguments: [ String( slot ), String( SLOT_TTL_S ) ],
-		};
-		m[ LOCAL ] = true;
-		return m;
+		return this.mint( 'heartbeat', [
+			String( slot ),
+			String( SLOT_TTL_S ),
+		] );
 	}
 
 	// Record the slot the live SSE stream acquired; holding one arms the poke.

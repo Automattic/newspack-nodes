@@ -9,7 +9,7 @@
  */
 
 import { ShellNode } from '../shell-node';
-import { newMessage, TYPE, VALUE, TM_COMMAND } from '../message';
+import { TYPE, VALUE, TM_NOREPLY } from '../message';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
 
 describe( 'ShellNode.dispatch', () => {
@@ -64,16 +64,11 @@ describe( 'ShellNode.dispatch', () => {
 } );
 
 /**
- * dispatch() is the mint-exit: sendCommand, the REPL's parse-then-fill, and the
- * GUI gestures all leave through it, so it is where the signature goes. Signing
- * at the mint is what stops HttpOut being an oracle — a wire-arrived frame
- * routed into `_http` never passes through here, so it ships unsigned and dies
- * at the server.
- *
- * It stays SYNCHRONOUS. The session is established at mount and the HMAC is
- * synchronous, so a caller mid-graph-mutation never yields.
+ * The Shell completes its mint in stampNoreply(), not in dispatch(). TYPE is
+ * signed material and stampNoreply is its last mutation, so that is the only
+ * moment the message is finished. dispatch() just forwards.
  */
-describe( 'ShellNode.dispatch signing', () => {
+describe( 'ShellNode command signing', () => {
 	const HANDLE = 'aaaa1111bbbb2222cccc3333dddd4444';
 
 	beforeEach( async () => {
@@ -82,6 +77,7 @@ describe( 'ShellNode.dispatch signing', () => {
 			handle: HANDLE,
 			key: 'shell-session-key-4242',
 			expires_in: 3600,
+			now: 1771000000,
 		} ) );
 		await ensureSession();
 	} );
@@ -91,35 +87,27 @@ describe( 'ShellNode.dispatch signing', () => {
 		__setAuthFetch( null );
 	} );
 
-	function aCommand( name ) {
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ VALUE ] = { name, arguments: [] };
-		return m;
-	}
-
-	it( 'signs a command before it reaches the sink, synchronously', () => {
+	it( 'signs a sendCommand mint, with TM_NOREPLY already folded in', () => {
 		const captured = [];
 		const shell = new ShellNode();
 		shell.sink = { fill: ( m ) => captured.push( m ) };
 
-		shell.dispatch( aCommand( 'help' ) );
+		shell._wantReply = false; // fire-and-forget: stampNoreply ORs the flag
+		shell.sendCommand( 'workers', 'status', [] );
 
 		expect( captured ).toHaveLength( 1 );
-		expect( captured[ 0 ][ VALUE ].auth.handle ).toBe( HANDLE );
-		expect( captured[ 0 ][ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
+		const sent = captured[ 0 ];
+		expect( sent[ VALUE ].auth.handle ).toBe( HANDLE );
+		expect( sent[ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
+		// The signature must cover the FINAL type, NOREPLY included — signing
+		// before stampNoreply would verify against the wrong TYPE.
+		expect( sent[ TYPE ] & TM_NOREPLY ).toBe( TM_NOREPLY );
 	} );
 
-	it( 'signs before the tap observes it, so the tap sees what ships', () => {
+	it( 'signs a parsed REPL command', () => {
 		const shell = new ShellNode();
-		let seen = null;
-		shell.sink = { fill: () => {} };
-		shell.onDispatch = ( m ) => {
-			seen = m[ VALUE ].auth;
-		};
+		const parsed = shell.parse( 'ls' );
 
-		shell.dispatch( aCommand( 'ls' ) );
-
-		expect( seen.sig ).toMatch( /^[0-9a-f]{64}$/ );
+		expect( parsed[ VALUE ].auth.sig ).toMatch( /^[0-9a-f]{64}$/ );
 	} );
 } );

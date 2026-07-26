@@ -1,3 +1,4 @@
+import { markLocal } from './command-auth';
 import { Core } from './core';
 import {
 	FROM,
@@ -432,8 +433,22 @@ export class Node {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
+		m[ TO ] = this.target;
 		m[ VALUE ] = { name, arguments: args };
 		return m;
+	}
+
+	/**
+	 * Build AND complete a command: the mint. `command()` alone builds, because
+	 * the Shell finishes its own messages elsewhere; anything that emits
+	 * straight into its sink completes here.
+	 *
+	 * @param {string}   name Command verb.
+	 * @param {string[]} args Argument tokens.
+	 * @return {Array} A signed, LOCAL-marked Message.
+	 */
+	mint( name, args = [] ) {
+		return markLocal( this.command( name, args ) );
 	}
 }
 

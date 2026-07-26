@@ -1,3 +1,4 @@
+import { markLocal } from '../../runtime/command-auth';
 import { useCallback } from '@wordpress/element';
 import { tabulateCandidates } from '../../runtime/completion-node';
 import {
@@ -7,7 +8,6 @@ import {
 	TO,
 	KEY,
 	VALUE,
-	LOCAL,
 	TM_COMMAND,
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
@@ -45,7 +45,7 @@ export function useCompletion( { cwd, fill, append, skip = () => false } ) {
 			m[ TO ] = cwd;
 			m[ KEY ] = 'completion';
 			m[ VALUE ] = { name: verb, arguments: [] };
-			m[ LOCAL ] = true;
+			markLocal( m );
 			fill( m );
 		},
 		[ cwd, fill, skip ]

@@ -1,3 +1,4 @@
+import { markLocal } from './command-auth';
 import { Node } from './node';
 import { TeeNode } from './tee-node';
 import { TapNode } from './tap-node';
@@ -362,7 +363,7 @@ export class CommandInterpreterNode extends Node {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = path;
 		m[ VALUE ] = { name: verb, arguments: args.slice( 2 ) };
-		m[ LOCAL ] = true;
+		markLocal( m );
 		this.fill( m );
 		return '';
 	}

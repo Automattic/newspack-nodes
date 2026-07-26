@@ -31,6 +31,7 @@ import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import {
+	LOCAL,
 	TYPE,
 	TIMESTAMP,
 	VALUE,
@@ -40,22 +41,22 @@ import {
 } from './message';
 
 /**
- * The canonical signing string: message TYPE + command semantics + ts + nonce.
- * Never TO/FROM — Router peels TO and nodes stamp FROM in transit.
+ * The canonical signing string: command semantics + ts + nonce. Never TYPE and
+ * never TO/FROM — the SEMANTICS are signed, not the envelope, matching
+ * Tachikoma's Command::sign (`id:timestamp:name:arguments:payload`). Leaving
+ * TYPE out is what lets a mint sign at build time instead of after every flag.
  *
  * PHP encodes this with JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
  * precisely so it matches JSON.stringify. Do not "normalise" either side.
  *
- * @param {number}   type  Message TYPE bitmask.
  * @param {number}   ts    Unix seconds.
  * @param {string}   name  Command verb.
  * @param {string[]} args  Argument tokens.
  * @param {string}   nonce Single-use nonce (hex).
  * @return {string} The string to HMAC.
  */
-export function canonical( type, ts, name, args, nonce ) {
+export function canonical( ts, name, args, nonce ) {
 	return JSON.stringify( [
-		type,
 		ts,
 		String( name ?? '' ),
 		Array.isArray( args ) ? args : [],
@@ -195,7 +196,6 @@ export function signCommand( message ) {
 
 	const nonce = newNonce();
 	const string = canonical(
-		type,
 		message[ TIMESTAMP ],
 		value.name,
 		value.arguments,
@@ -206,4 +206,20 @@ export function signCommand( message ) {
 		sig: hmacHex( string, live.key ),
 		handle: live.handle,
 	};
+}
+
+/**
+ * Mark a message as minted by this process, and sign it if it is a command.
+ *
+ * LOCAL and the signature assert the same thing, so they are set in one place:
+ * a mint that set only LOCAL would pass the browser's own authorize gate and
+ * then be refused by the server, which is the bug the first deploy hit.
+ *
+ * @param {Array} message Positional Message, mutated in place.
+ * @return {Array} The same message.
+ */
+export function markLocal( message ) {
+	message[ LOCAL ] = true;
+	signCommand( message );
+	return message;
 }

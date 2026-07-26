@@ -101,6 +101,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   microtask later. JS cannot block on a promise, so the fix is to have no async
   operation: the session round trip happens at mount, the HMAC is a function call.
 
+### Fixed
+- **Every local mint signs, not just the Shell's.** The first deploy after
+  ingress signing was removed showed the Shell is not the only minter — the
+  heartbeat poll and `Remote_IPC`'s bundled `connect_worker_input` were building
+  commands directly and being refused. `LOCAL` and the signature assert the same
+  thing, so `markLocal()` now sets both and every mint site calls it.
+- **`Node.mint()`** — build-and-complete, collapsing four byte-identical
+  `_pollMessage()` bodies (heartbeat, dmesg, uptime, metadata) onto one helper.
+
+### Changed
+- **TYPE is no longer signed.** It is envelope, like `TO` and `FROM`, and
+  Tachikoma's `Command::sign` covers `id:timestamp:name:arguments:payload` for
+  the same reason. TM_COMMAND is already peak type risk and the message is
+  already that, so signing it bought nothing `name`+`arguments` do not — while
+  forcing the signature to be applied after every flag had been OR'd in, which
+  is what made a single mint site impossible.
+
 ### Removed
 - **`HTTP_In` no longer signs on ingress — the oracle is gone.** It used to sign
   whatever arrived, on the grounds that WordPress had already authenticated the
