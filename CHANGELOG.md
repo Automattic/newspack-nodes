@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- **Command-signing and spawn-token keys derive from `wp_salt('nonce')`**, not
+  the raw `NONCE_SALT` constant. `wp_salt()` distrusts that constant — it
+  substitutes a DB-generated value when it is undefined or still the shipped
+  placeholder — so reading it directly left the key globally computable on an
+  install whose salts were never generated, and `Spawn_Controller` accepts that
+  token in place of a capability. `Vault` already used the right idiom.
+- **`Partition`, `Log` and `Consumer` refuse a storage path outside the runtime
+  tree.** `/command` is full graph construction at `manage_options`, so on a
+  stock install this crossed no boundary; where administrator file writes are
+  deliberately disabled it restored an arbitrary write. `Tail` is deliberately
+  NOT constrained — reading `/var/log/...` is its whole job.
+- **The console transcript redacts credentials before `localStorage`.** Vault
+  CRUD rides the `_shell` Tap, and the REPL echoes what you type, so
+  `--auth_password=…` was persisted in cleartext with no expiry — exactly what
+  `Vault_CI_Node::public_shape()` refuses to hand back.
+
+### Security
 - **Dropped-message diagnostics redact credentials.** `Node::drop_message()`
   JSON-encoded the whole VALUE into its audit line, and the Vault admin UI sends
   credentials as an `--auth_password=…` token inside it. It now applies the rule

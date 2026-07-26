@@ -96,6 +96,8 @@ class Consumer_Node extends Timer_Node {
 		[ $source_path, $offsetlog_path ] = $this->resolve_args();
 		$this->source_dir    = \rtrim( $source_path, '/' );
 		$this->offsetlog_dir = \rtrim( $offsetlog_path, '/' );
+		Config::assert_within_base( $this->source_dir );
+		Config::assert_within_base( $this->offsetlog_dir );
 
 		$this->source = $this->make_source();
 		if ( '' !== $this->name ) {

@@ -170,6 +170,55 @@ class Config {
 	 * @throws \RuntimeException If directory cannot be created or realpath doesn't match.
 	 */
 	/**
+	 * Whether a path lies inside the runtime base directory.
+	 *
+	 * Lexical, not realpath: a partition directory is created lazily, so the
+	 * path usually does not exist yet at validation time. `..` and `.` are
+	 * resolved first so traversal cannot walk out.
+	 */
+	public static function within_base( string $path ): bool {
+		$base = \rtrim( self::get_base_directory(), '/' );
+		$norm = self::lexical_path( $path );
+		return $norm === $base || \str_starts_with( $norm, $base . '/' );
+	}
+
+	/**
+	 * Refuse a storage path outside the runtime tree. `/command` is full graph
+	 * construction at manage_options, so on a stock install this crosses no
+	 * boundary — but where administrator file writes are deliberately disabled
+	 * (DISALLOW_FILE_MODS, VIP-style installs) an unconstrained partition path
+	 * restores an arbitrary write. Empty is unconfigured, not an escape. Tail is
+	 * deliberately NOT constrained: reading /var/log/... is its whole job.
+	 *
+	 * @throws \RuntimeException When the path escapes the base directory.
+	 */
+	public static function assert_within_base( string $path ): void {
+		if ( '' === $path || self::within_base( $path ) ) {
+			return;
+		}
+		throw new \RuntimeException(
+			\esc_html( \sprintf( 'storage path %s is outside the runtime base directory', $path ) )
+		);
+	}
+
+	/** Collapse `.`/`..` segments without touching the filesystem. */
+	private static function lexical_path( string $path ): string {
+		$out = [];
+		foreach ( \explode( '/', $path ) as $seg ) {
+			if ( '' === $seg || '.' === $seg ) {
+				continue;
+			}
+			if ( '..' === $seg ) {
+				\array_pop( $out );
+				continue;
+			}
+			$out[] = $seg;
+		}
+		$prefix = \str_starts_with( $path, '/' ) ? '/' : '';
+		return $prefix . \implode( '/', $out );
+	}
+
+	/**
 	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
 	 * needs the path ensure_path() REFUSED in order to explain the refusal.
 	 */

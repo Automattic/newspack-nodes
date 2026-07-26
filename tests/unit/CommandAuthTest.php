@@ -241,4 +241,20 @@ class CommandAuthTest extends TestCase {
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
+	/**
+	 * wp_salt() distrusts the raw constant: it substitutes a DB-generated value
+	 * when NONCE_SALT is undefined or still the shipped placeholder. Reading the
+	 * constant bypassed that, so on an install whose salts were never generated
+	 * the signing key — and the spawn token keyed the same way — was globally
+	 * computable. Vault already used the right idiom.
+	 */
+	public function test_the_signing_key_comes_from_wp_salt_not_the_raw_constant(): void {
+		$secret = new \ReflectionMethod( Command_Auth::class, 'secret' );
+
+		$this->assertSame(
+			\hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) ),
+			$secret->invoke( null )
+		);
+	}
+
 }

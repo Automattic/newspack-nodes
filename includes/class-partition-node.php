@@ -126,6 +126,7 @@ class Partition_Node extends Timer_Node {
 		}
 		$this->parse_schema_args( $args );
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
+		Config::assert_within_base( $this->partition_dir );
 		$this->segment_size   = \max( 1, $this->segment_size );
 		$this->min_segments   = \max( 2, $this->min_segments );
 		$this->num_segments   = \max( $this->min_segments, $this->num_segments );

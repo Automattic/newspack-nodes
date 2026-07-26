@@ -127,8 +127,16 @@ abstract class TestCase extends PHPUnitTestCase {
 		// across PARALLEL processes (run-coverage runs nodes/ELN/pyrobase at once),
 		// which let two suites share one temp dir + its `/tmp/locks` rotate lock —
 		// a real cross-process flake. PID guarantees inter-process uniqueness.
-		$dir = (string) \realpath( \sys_get_temp_dir() ) . '/' . $prefix . \getmypid() . '-' . \uniqid( '', true );
-		\mkdir( $dir, 0755, true );
+		// UNDER the baseline config's base_directory, not beside it: storage
+		// nodes refuse a path outside the runtime tree, and a sibling is
+		// outside. Tests that repoint base_directory at their own temp dir stay
+		// contained either way.
+		$root = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-test';
+		if ( ! \is_dir( $root ) ) {
+			\mkdir( $root, 0700, true );
+		}
+		$dir = $root . '/' . $prefix . \getmypid() . '-' . \uniqid( '', true );
+		\mkdir( $dir, 0700, true );
 		return $dir;
 	}
 

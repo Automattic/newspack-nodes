@@ -218,7 +218,7 @@ class SettingsEventWriterTest extends TestCase {
 		// num_segments slot, licensing 86400 segments. The count target is 2, the
 		// day-long lifespan is the AGE rule; the hard cap derives to 2 × num_segments.
 		$part = new Partition_Node();
-		$part->arguments( Settings_Event_Writer::partition_args( '/tmp/settings.p0' ) );
+		$part->arguments( Settings_Event_Writer::partition_args( $this->make_temp_dir() . '/settings.p0' ) );
 
 		$this->assertSame( 2, $this->read_private( $part, 'min_segments' ) );
 		$this->assertSame( 2, $this->read_private( $part, 'num_segments' ), 'a count target, not a duration' );
