@@ -1,15 +1,7 @@
-import { markLocal } from '../../runtime/command-auth';
 import { useCallback } from '@wordpress/element';
 import { tabulateCandidates } from '../../runtime/completion-node';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	KEY,
-	VALUE,
-	TM_COMMAND,
-} from '../../runtime/message';
+import { Core } from '../../runtime/core';
+import { TO, KEY } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 
 /**
@@ -39,13 +31,13 @@ export function useCompletion( { cwd, fill, append, skip = () => false } ) {
 			// First token iff there's no whitespace before the trailing token.
 			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
 			const verb = onFirstToken ? 'help' : 'ls';
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ FROM ] = names.COMPLETION;
+			// The completion node mints; TO/KEY after (not signed).
+			const m = Core.node( names.COMPLETION )?.command( verb, [] );
+			if ( ! m ) {
+				return; // unauthenticated; the next keystroke retries
+			}
 			m[ TO ] = cwd;
 			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: [] };
-			markLocal( m );
 			fill( m );
 		},
 		[ cwd, fill, skip ]

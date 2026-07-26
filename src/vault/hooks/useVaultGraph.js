@@ -36,20 +36,12 @@
  * defaults to the shared CommandClient singleton.
  */
 
-import { markLocal } from '../../runtime/command-auth';
+import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { CommandClient } from '../../runtime/command-client';
-import {
-	newMessage,
-	TYPE,
-	TO,
-	FROM,
-	ID,
-	VALUE,
-	TM_COMMAND,
-} from '../../runtime/message';
+import { TO, ID } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
 import '../nodes/register';
 
@@ -79,13 +71,13 @@ function makeOpId() {
  * @return {Array} A 7-field positional Message.
  */
 function buildCommand( from, verb, args, id ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = from;
+	// The receiver Tee mints; TO/ID after (neither is signed).
+	const m = Core.node( from )?.command( verb, args ) ?? null;
+	if ( null === m ) {
+		return null; // unauthenticated, or the receiver is gone
+	}
 	m[ TO ] = `${ HTTP }/vault`;
 	m[ ID ] = id;
-	m[ VALUE ] = { name: verb, arguments: args };
-	markLocal( m );
 	return m;
 }
 
@@ -133,12 +125,18 @@ export function useVaultGraph( opts = {} ) {
 			// Re-render so useNodeState re-subscribes to the fresh views.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire one immediate list via _shell (fire-and-forget).
-			shell.fill( buildCommand( LIST_RECV, 'list', '', makeOpId() ) );
+			// One immediate list via _shell, once authed (mount races /auth).
+			ensureSession().then( () => {
+				const m = buildCommand( LIST_RECV, 'list', [], makeOpId() );
+				if ( null !== m && shellRef.current === shell ) {
+					shell.fill( m );
+				}
+			} );
 
 			// Non-node side effects undone before the nodes are removed.
 			return () => {
 				interpreterRef.current = null;
+				shellRef.current = null;
 			};
 		};
 
@@ -148,7 +146,7 @@ export function useVaultGraph( opts = {} ) {
 
 	// Dispatch a verb FROM a concern's Tee; its view settles by message[ID].
 	const dispatch = useCallback(
-		( recv, view, verb, args = '', id = null ) => {
+		( recv, view, verb, args = [], id = null ) => {
 			const shell = shellRef.current;
 			if ( ! shell ) {
 				return Promise.reject( new Error( 'graph not mounted' ) );
@@ -162,7 +160,11 @@ export function useVaultGraph( opts = {} ) {
 				node.replies.add( opId, resolve, reject );
 			} );
 			// Enter at _shell so the command is observable there.
-			shell.fill( buildCommand( recv, verb, args, opId ) );
+			const m = buildCommand( recv, verb, args, opId );
+			if ( null === m ) {
+				return Promise.reject( new Error( 'not authenticated' ) );
+			}
+			shell.fill( m );
 			return promise;
 		},
 		[]
@@ -173,7 +175,7 @@ export function useVaultGraph( opts = {} ) {
 		async ( verb, args ) => {
 			const result = await dispatch( LIST_RECV, LIST_VIEW, verb, args );
 			// Fire-and-forget re-list (replaces window.location.reload()).
-			dispatch( LIST_RECV, LIST_VIEW, 'list', '' ).catch( () => {} );
+			dispatch( LIST_RECV, LIST_VIEW, 'list', [] ).catch( () => {} );
 			return result;
 		},
 		[ dispatch ]

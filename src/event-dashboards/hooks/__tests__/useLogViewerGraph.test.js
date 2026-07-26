@@ -25,6 +25,7 @@ import {
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
+import { forgetSession, __setAuthFetch } from '../../../runtime/command-auth';
 import names from '../../../runtime/reserved-node-names.json';
 
 class FakeEventSource {
@@ -125,6 +126,31 @@ describe( 'useLogViewerGraph', () => {
 		expect( cmd ).toBeTruthy();
 		expect( cmd[ TO ] ).toBe( '' );
 		expect( cmd[ VALUE ].arguments ).toEqual( [ 'sources' ] );
+	} );
+
+	/**
+	 * The mount-time catalog raced /auth: markLocal set LOCAL but signCommand
+	 * no-opped with no session, so the command went out with no `auth` and the
+	 * server refused it as "verification failed: bad envelope". Routing through
+	 * Node.command() makes that unconstructible — it gates on the session.
+	 */
+	test( 'signs the catalog command even when the session lands late', async () => {
+		forgetSession();
+		__setAuthFetch( async () => ( {
+			handle: 'a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7',
+			key: 'key-logviewer-late-auth',
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+		const client = makeFakeClient( { taillog: sourcesReply() } );
+		mountGraph( client );
+		await act( async () => {} );
+
+		const cmd = client.batches
+			.flat()
+			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
+		expect( cmd ).toBeTruthy();
+		expect( cmd[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
 	} );
 
 	test( 'opens the stream on the first AVAILABLE source over /log/stream', async () => {

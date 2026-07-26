@@ -1,10 +1,9 @@
-import { markLocal } from '../runtime/command-auth';
 import { useCallback, useRef, useState } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
-import { FROM, LOCAL, applyReplyFlags } from '../runtime/message';
+import { FROM, applyReplyFlags } from '../runtime/message';
 import { tokenize } from '../runtime/shell-node';
 import names from '../runtime/reserved-node-names.json';
 
@@ -57,9 +56,6 @@ export function useDebugGraph(
 			if ( Array.isArray( parsed ) ) {
 				if ( ! parsed[ FROM ] ) {
 					parsed[ FROM ] = names.OUTPUT;
-				}
-				if ( undefined === parsed[ LOCAL ] ) {
-					markLocal( parsed );
 				}
 				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
 				applyReplyFlags( parsed, flags );

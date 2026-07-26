@@ -7,7 +7,6 @@ import {
 	FROM,
 	TO,
 	VALUE,
-	TM_COMMAND,
 	TM_REQUEST,
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/draftGraph';
@@ -238,12 +237,9 @@ export function useGraphHandlers( {
 						'request' === kind || isInterpreter
 							? nodeId
 							: `${ nodeId }:config`;
-					const m = newMessage();
-					m[ TO ] = prefix( commandTarget );
-					m[ FROM ] = replyFrom( names.OUTPUT );
-					markLocal( m );
+					const to = prefix( commandTarget );
 					// Only attached-worker replies ride stream; local, no pid.
-					if ( ! sseGuard( m[ TO ] ) ) {
+					if ( ! sseGuard( to ) ) {
 						append( {
 							kind: 'error',
 							text: __(
@@ -253,26 +249,34 @@ export function useGraphHandlers( {
 						} );
 						return;
 					}
+					let m;
 					let echo;
 					if ( 'request' === kind ) {
+						// TYPE first: a later-typed message goes unsigned.
+						m = newMessage();
 						m[ TYPE ] = TM_REQUEST;
 						m[ VALUE ] = positional
 							? `${ verb } ${ positional }`
 							: verb;
+						markLocal( m );
 						echo = `request_node ${ nodeId } ${ verb }${
 							positional ? ' ' + positional : ''
 						}`;
 					} else {
-						m[ TYPE ] = TM_COMMAND;
-						m[ VALUE ] = {
-							name: verb,
-							// Tokenize once at the producer boundary.
-							arguments: tokenize( positional || '' ),
-						};
+						// `_output` mints it; tokenize at the producer.
+						m = Core.node( names.OUTPUT )?.command(
+							verb,
+							tokenize( positional || '' )
+						);
+						if ( ! m ) {
+							return; // unauthenticated; re-auth is under way
+						}
 						echo = `command_node ${ commandTarget } ${ verb }${
 							positional ? ' ' + positional : ''
 						}`;
 					}
+					m[ TO ] = to;
+					m[ FROM ] = replyFrom( names.OUTPUT );
 					append( {
 						kind: 'sent',
 						text: echo,

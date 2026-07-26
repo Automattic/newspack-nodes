@@ -89,9 +89,11 @@ beforeEach( () => {
 } );
 
 describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
-	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', () => {
+	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		// The mount list waits on the session; flush the /auth microtask.
+		await act( async () => {} );
 		// The mount-time list goes through _shell, so the Tap counts it.
 		expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 );
 	} );
@@ -136,9 +138,11 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( Core.node( HTTP ).client ).toBe( client );
 	} );
 
-	test( 'fires one immediate list() on mount, FROM the list receiver', () => {
+	test( 'fires one immediate list() on mount, FROM the list receiver', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		// The mount list waits on the session; flush the /auth microtask.
+		await act( async () => {} );
 		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
 		const msg = client.batches[ 0 ][ 0 ];
 		expect( msg[ TO ] ).toBe( 'vault' );
@@ -395,6 +399,8 @@ describe( 'useVaultGraph — teardown', () => {
 		const { unmount } = renderHook( () =>
 			useVaultGraph( { commandClient: client } )
 		);
+		// The mount list waits on the session; let it POST before unmounting.
+		await act( async () => {} );
 		unmount();
 		expect( () => {
 			const reply = newMessage();

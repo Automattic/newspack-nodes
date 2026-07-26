@@ -36,19 +36,8 @@
  * useNodeState('aggregator:fleet','view').
  */
 
-import { markLocal } from '../../runtime/command-auth';
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import {
-	Core,
-	newMessage,
-	TYPE,
-	TO,
-	FROM,
-	ID,
-	VALUE,
-	TM_COMMAND,
-	formatCommandArgs,
-} from '@newspack-nodes/runtime';
+import { Core, TO, ID, formatCommandArgs } from '@newspack-nodes/runtime';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
@@ -153,16 +142,17 @@ export function useAggregatorStatusGraph( opts = {} ) {
 			const promise = new Promise( ( resolve, reject ) => {
 				view.replies.add( id, resolve, reject );
 			} );
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ FROM ] = FLEET_RECV;
+			// The receiver Tee mints; TO/ID after (not signed).
+			const m =
+				Core.node( FLEET_RECV )?.command(
+					'probe',
+					formatCommandArgs( [ id ] )
+				) ?? null;
+			if ( null === m ) {
+				return Promise.reject( new Error( 'not authenticated' ) );
+			}
 			m[ TO ] = TARGET;
 			m[ ID ] = id;
-			m[ VALUE ] = {
-				name: 'probe',
-				arguments: formatCommandArgs( [ id ] ),
-			};
-			markLocal( m );
 			interpreter.fill( m );
 			return promise;
 		},

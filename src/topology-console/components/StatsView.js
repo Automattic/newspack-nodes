@@ -10,20 +10,12 @@
  * (includes scaffolding self-time absent from the visible rows).
  */
 
-import { markLocal } from '../../runtime/command-auth';
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { useNodeState } from '../../runtime/react';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	VALUE,
-	TM_COMMAND,
-} from '../../runtime/message';
+import { TO } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
@@ -117,12 +109,14 @@ export default function StatsView() {
 		if ( ! interpreter ) {
 			return;
 		}
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = POLLER;
+		// The poller mints (FROM=its name, LOCAL, signed); TO after.
+		const m = Core.node( POLLER )?.command( 'profile', [
+			enable ? 'on' : 'off',
+		] );
+		if ( ! m ) {
+			return; // unauthenticated; re-auth is under way
+		}
 		m[ TO ] = names.CWD;
-		m[ VALUE ] = { name: 'profile', arguments: [ enable ? 'on' : 'off' ] };
-		markLocal( m );
 		interpreter.fill( m );
 		pollerRef.current?.fire();
 	};

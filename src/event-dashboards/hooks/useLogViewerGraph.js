@@ -17,7 +17,7 @@
  * steered ONLY by each node's `target`.
  */
 
-import { markLocal } from '../../runtime/command-auth';
+import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import { endPosition } from '../../shared/nodes/seekTracker';
@@ -29,7 +29,6 @@ import {
 	FROM,
 	ID,
 	VALUE,
-	TM_COMMAND,
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
@@ -55,28 +54,13 @@ const controlMsg = ( value ) => {
 	return m;
 };
 
-// taillog-sources command: empty TO → interpreter builtin; FROM=view for reply.
-function buildSourcesCommand( id ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
+// taillog: the view mints; ID after (not signed), TO stays empty.
+function taillogCommand( view, id, args ) {
+	const m = view.command( 'taillog', args );
+	if ( null === m ) {
+		return null; // unauthenticated; re-auth is under way
+	}
 	m[ ID ] = id;
-	m[ VALUE ] = { name: 'taillog', arguments: [ 'sources' ] };
-	markLocal( m );
-	return m;
-}
-
-// taillog-read command: one line at <segment>:<offset> (empty TO → builtin).
-function buildReadCommand( id, source, cursor ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
-	m[ ID ] = id;
-	m[ VALUE ] = {
-		name: 'taillog',
-		arguments: [ 'read', source, `${ cursor.segment }:${ cursor.offset }` ],
-	};
-	markLocal( m );
 	return m;
 }
 
@@ -113,7 +97,15 @@ export function useLogViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		link.send( buildReadCommand( id, sub, cursor ) );
+		const m = taillogCommand( view, id, [
+			'read',
+			sub,
+			`${ cursor.segment }:${ cursor.offset }`,
+		] );
+		if ( null === m ) {
+			return Promise.reject( new Error( 'not authenticated' ) );
+		}
+		link.send( m );
 		return future.then( ( payload ) =>
 			payload && 'object' === typeof payload ? payload : null
 		);
@@ -212,7 +204,13 @@ export function useLogViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		link.send( buildSourcesCommand( id ) );
+		// After the session lands: mount races /auth.
+		ensureSession().then( () => {
+			const m = taillogCommand( view, id, [ 'sources' ] );
+			if ( null !== m && viewRef.current === view ) {
+				link.send( m );
+			}
+		} );
 		return future.then( ( catalog ) => {
 			if ( Array.isArray( catalog ) ) {
 				setSources( catalog );

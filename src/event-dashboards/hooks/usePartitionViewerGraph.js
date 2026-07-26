@@ -26,7 +26,7 @@
  * `link.setSubscribe` already does close→resubscribe→reopen.
  */
 
-import { markLocal } from '../../runtime/command-auth';
+import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
 import { useGatedSubscription } from './useGatedSubscription';
@@ -38,7 +38,6 @@ import {
 	TO,
 	ID,
 	VALUE,
-	TM_COMMAND,
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
@@ -64,42 +63,14 @@ const controlMsg = ( value ) => {
 	return m;
 };
 
-// list_logs TM_COMMAND, FROM=partition:view so its reply (TO=VIEW) routes back.
-function buildListCommand( id ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
+// raw-logs: the view mints; TO/ID stamped after (neither is signed).
+function rawLogsCommand( view, id, verb, args = [] ) {
+	const m = view.command( verb, args );
+	if ( null === m ) {
+		return null; // unauthenticated; re-auth is under way
+	}
 	m[ TO ] = 'raw-logs';
 	m[ ID ] = id;
-	m[ VALUE ] = { name: 'list_logs', arguments: [] };
-	markLocal( m );
-	return m;
-}
-
-// read_message TM_COMMAND: one decoded record at <segment>:<offset>.
-function buildReadCommand( id, log, cursor ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
-	m[ TO ] = 'raw-logs';
-	m[ ID ] = id;
-	m[ VALUE ] = {
-		name: 'read_message',
-		arguments: [ log, `${ cursor.segment }:${ cursor.offset }` ],
-	};
-	markLocal( m );
-	return m;
-}
-
-// log_status TM_COMMAND for one log, correlated like list_logs (reply → VIEW).
-function buildStatusCommand( id, log ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND;
-	m[ FROM ] = VIEW;
-	m[ TO ] = 'raw-logs';
-	m[ ID ] = id;
-	m[ VALUE ] = { name: 'log_status', arguments: [ log ] };
-	markLocal( m );
 	return m;
 }
 
@@ -132,7 +103,14 @@ export function usePartitionViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		link.send( buildReadCommand( id, sub, cursor ) );
+		const m = rawLogsCommand( view, id, 'read_message', [
+			sub,
+			`${ cursor.segment }:${ cursor.offset }`,
+		] );
+		if ( null === m ) {
+			return Promise.reject( new Error( 'not authenticated' ) );
+		}
+		link.send( m );
 		return future.then( ( payload ) =>
 			payload && 'object' === typeof payload ? payload : null
 		);
@@ -184,7 +162,13 @@ export function usePartitionViewerGraph( opts = {} ) {
 			const listFuture = new Promise( ( resolve, reject ) => {
 				view.replies.add( listId, resolve, reject );
 			} );
-			link.send( buildListCommand( listId ) );
+			// After the session lands: mount races /auth.
+			ensureSession().then( () => {
+				const m = rawLogsCommand( view, listId, 'list_logs' );
+				if ( null !== m && viewRef.current === view ) {
+					link.send( m );
+				}
+			} );
 			listFuture
 				.then( ( logs ) => {
 					if ( ! Array.isArray( logs ) || 0 === logs.length ) {
@@ -233,7 +217,11 @@ export function usePartitionViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		link.send( buildStatusCommand( id, log ) );
+		const m = rawLogsCommand( view, id, 'log_status', [ log ] );
+		if ( null === m ) {
+			return Promise.reject( new Error( 'not authenticated' ) );
+		}
+		link.send( m );
 		return future;
 	}, [] );
 
