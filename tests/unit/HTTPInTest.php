@@ -8,6 +8,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -102,6 +103,49 @@ class HTTPInTest extends TestCase {
 		$req->set_body( \implode( "\n", $lines ) );
 		$req->set_header( 'content-type', 'application/json' );
 		return $req;
+	}
+
+	/**
+	 * A command that already carries a session envelope must reach the graph with
+	 * its handle intact. `stamp()` replaces the whole `auth` array, so an
+	 * unconditional re-sign at ingress strips the handle and re-keys the message
+	 * to the local secret — which means an expired or revoked session executes
+	 * anyway, and the verify-by-handle branch is unreachable on the only live
+	 * wire ingress.
+	 */
+	public function test_dispatch_leaves_an_already_signed_session_envelope_alone(): void {
+		$base_interpreter = $this->build_graph();
+		$capture          = new Capture_Sink_Node();
+		$capture->name( 'capture_service' );
+		$capture->sink( $base_interpreter );
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'capture_service',
+				'from'  => '_http',
+				'value' => [
+					'name'      => 'echo',
+					'arguments' => [],
+					'auth'      => [
+						'nonce'  => \str_repeat( 'b', 32 ),
+						'sig'    => 'signed-by-the-hub-4242',
+						'handle' => 'aaaabbbbccccddddeeeeffff00001111',
+					],
+				],
+			]
+		);
+
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertCount( 1, $capture->captured );
+		$auth = $capture->captured[0][ Message::VALUE ]['auth'];
+		$this->assertSame( 'aaaabbbbccccddddeeeeffff00001111', $auth['handle'] );
+		$this->assertSame( 'signed-by-the-hub-4242', $auth['sig'] );
 	}
 
 	public function test_local_command_writes_packed_response_to_http_body(): void {

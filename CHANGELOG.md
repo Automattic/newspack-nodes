@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Command session keys (`Command_Auth`).** `mint_session()` issues a random
+  key under a random handle; `store_session()`/`load_session()` persist it, and
+  `sign_for( $destination, $message )` signs under the session established with
+  that remote. Choosing the key is the destination binding — a signature under
+  one remote's key verifies only there — so a command is pinned to its
+  destination without signing `TO`, which Router peels in transit. `ID` is left
+  alone: it is the originator's opaque continuation token, not substrate state.
+  `POST /newspack-nodes/v1/auth` issues them, gated on `manage_options` and the
+  `fleet_site()` guard the audit found missing from the other routes.
+- **`Cache_Backend::shared_only()`** — memcached with no per-host fallback, for
+  state that is worthless unless every process can see it. A session minted in a
+  web request must resolve in a worker, whose APCu segment is separate and
+  usually disabled, so session storage refuses rather than succeeding into a
+  dead end.
+
+### Fixed
+- **`HTTP_In` no longer re-signs a command that already carries a signature.**
+  It replaced the whole `auth` envelope and re-anchored TIMESTAMP — which is
+  signed material — so an already-signed command was silently re-keyed to the
+  local secret, and an expired or revoked session executed anyway.
+- **The Vault probe refuses a plaintext spoke when `vault_require_ssl` is set.**
+  `HTTP_Out::fire()` and `SSE_In::maybe_connect()` already did; this path carries
+  the same stored password and now bootstraps every session key from it, so the
+  refusal happens before a credential reaches the wire.
+
+### Security
+- **Session keys are namespaced per site.** The cache is shared infrastructure,
+  not a trusted store; a handle minted by another install, or planted directly
+  by anything that can write memcached, does not resolve.
+
 ## [1.6.0] - 2026-07-25
 
 ### Changed

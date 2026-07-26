@@ -195,10 +195,11 @@ class HTTP_In_Node extends Node {
 		foreach ( $messages as $message ) {
 			// Stamp with _output constant, not $this->name (pre-built differs).
 			$this->stamp_message( $message, Node_Names::OUTPUT );
-			// Re-anchor TIMESTAMP to server clock (client skew >20s rejects).
-			$message[ Message::TIMESTAMP ] = (int) Core::$now;
-			// WP already authed; sign provenance so verifiers accept it.
-			Command_Auth::sign( $message );
+			// Signed already: TIMESTAMP is signed material. Leave it.
+			if ( ! Command_Auth::is_signed( $message ) ) {
+				$message[ Message::TIMESTAMP ] = (int) Core::$now;
+				Command_Auth::sign( $message );
+			}
 			$base_interpreter->fill( $message );
 		}
 

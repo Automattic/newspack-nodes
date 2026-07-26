@@ -63,37 +63,27 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * missing/ non-array payload). Callers whitelist the returned payload
 	 * themselves — this helper never surfaces raw remote JSON.
 	 *
+	 * @param string               $dest      Vault server id — the session identity.
 	 * @param array<string, mixed> $server    Decrypted vault server config (url, auth_*).
 	 * @param string               $to        Target node path on the spoke.
 	 * @param string               $verb      Command verb name.
 	 * @param list<string>         $verb_args Argument tail (Command_Args grammar).
 	 * @return array<array-key, mixed> The reply's `payload` array.
 	 */
-	protected static function probe_command( array $server, string $to, string $verb, array $verb_args = [] ): array {
-		$url  = \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) . '/wp-json/newspack-nodes/v1/command';
-		$args = [
-			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
-			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
-			'timeout'             => 5,
-			'sslverify'           => (bool) Config::value( 'vault_verify_ssl' ),
-			'redirection'         => 0,
-			'limit_response_size' => 1048576,
-			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
-			'body'                => self::command_body( $to, $verb, $verb_args ),
-		];
+	protected static function probe_command( string $dest, array $server, string $to, string $verb, array $verb_args = [] ): array {
+		$base = \rtrim( Core::as_string( $server['url'] ?? '' ), '/' );
 
-		$username = Core::as_string( $server['auth_username'] ?? '' );
-		$password = Core::as_string( $server['auth_password'] ?? '' );
-		if ( '' !== $username && '' !== $password ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
-			$args['headers']['Authorization'] = 'Basic ' . \base64_encode( $username . ':' . $password );
+		// Refuse before the stored password hits the wire (cf HTTP_Out::fire).
+		if ( Config::value( 'vault_require_ssl' ) && ! \str_starts_with( $base, 'https://' ) ) {
+			throw new \RuntimeException( 'vault_require_ssl is set but the server url is not https' );
 		}
 
-		$call = self::$http_call ?? static function ( string $u, array $a ) {
-			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
-			return \wp_remote_post( $u, $a );
-		};
-		$response = $call( $url, $args );
+		self::maybe_establish_session( $dest, $server, $base );
+
+		$message = self::command_message( $to, $verb, $verb_args );
+		Command_Auth::sign_for( $dest, $message );
+
+		$response = self::post( $base . self::COMMAND_PATH, self::request_args( $server, Message::packed( $message ) ) );
 
 		if ( $response instanceof \WP_Error ) {
 			throw new \RuntimeException( 'could not connect to server' );
@@ -133,21 +123,104 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
-	 * Build a packed `/command` request body for a spoke probe, using substrate
-	 * primitives only (mirror of the JS CommandClient + HTTP_In decode).
+	 * Mint the `/command` request Message for a spoke probe, using substrate
+	 * primitives only (mirror of the JS CommandClient + HTTP_In decode). Returns
+	 * the Message rather than a packed line so the caller can sign it — this is
+	 * the mint site, and only a mint site may sign.
 	 *
 	 * @param string       $to   Target node path.
 	 * @param string       $verb Command verb name.
 	 * @param list<string> $args Argument tail (Command_Args grammar).
-	 * @return string Packed Message JSONL line.
+	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private static function command_body( string $to, string $verb, array $args = [] ): string {
+	private static function command_message( string $to, string $verb, array $args = [] ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = Node_Names::HTTP;
 		$message[ Message::TO ]    = $to;
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
-		return Message::packed( $message );
+		return $message;
+	}
+
+	/** Spoke endpoints this class talks to. */
+	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
+	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
+
+	/**
+	 * Establish the command session with a spoke. First contact is itself a
+	 * command — `discovery get` is a TM_COMMAND the spoke's interpreter
+	 * authorizes — so /auth has to come first. Idempotent per process.
+	 *
+	 * Best-effort BY TRANSITION ONLY: a spoke running an older build has no
+	 * /auth route, and its HTTP_In still signs on arrival, so an unsigned probe
+	 * still works there. Delete this tolerance at the flag day — after it, an
+	 * unobtainable session must fail the probe rather than silently fall back to
+	 * the ingress oracle.
+	 *
+	 * @param string              $dest   Vault server id — the session identity.
+	 * @param array<string,mixed> $server Decrypted vault server config.
+	 */
+	private static function maybe_establish_session( string $dest, array $server, string $base ): void {
+		if ( Command_Auth::has_session( $dest ) ) {
+			return;
+		}
+		$response = self::post( $base . self::AUTH_PATH, self::request_args( $server, '' ) );
+		if ( $response instanceof \WP_Error || 200 !== \wp_remote_retrieve_response_code( $response ) ) {
+			Core::print_less_often( 'Service_CI: no command session from ', $base, '; probing unsigned (pre-session spoke)' );
+			return;
+		}
+		$issued = \json_decode( \wp_remote_retrieve_body( $response ), true, 8 );
+		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
+		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		if ( '' === $handle || '' === $key ) {
+			Core::print_less_often( 'Service_CI: malformed session from ', $base, '; probing unsigned' );
+			return;
+		}
+		Command_Auth::remember_session( $dest, $handle, $key );
+	}
+
+	/**
+	 * Shared outbound args for both spoke endpoints: the bounds, the TLS posture,
+	 * and the stored Basic credentials. One place so /auth and /command cannot
+	 * drift apart the way `vault_require_ssl` did.
+	 *
+	 * @param array<string,mixed> $server Decrypted vault server config.
+	 * @return array<string,mixed>
+	 */
+	private static function request_args( array $server, string $body ): array {
+		$args = [
+			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
+			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			'timeout'             => 5,
+			'sslverify'           => (bool) Config::value( 'vault_verify_ssl' ),
+			'redirection'         => 0,
+			'limit_response_size' => 1048576,
+			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
+			'body'                => $body,
+		];
+
+		$username = Core::as_string( $server['auth_username'] ?? '' );
+		$password = Core::as_string( $server['auth_password'] ?? '' );
+		if ( '' !== $username && '' !== $password ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
+			$args['headers']['Authorization'] = 'Basic ' . \base64_encode( $username . ':' . $password );
+		}
+		return $args;
+	}
+
+	/**
+	 * POST through the `$http_call` seam, so the arg assembly and response
+	 * classification around it run as real production code under test.
+	 *
+	 * @param array<string,mixed> $args
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	private static function post( string $url, array $args ) {
+		$call = self::$http_call ?? static function ( string $u, array $a ) {
+			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
+			return \wp_remote_post( $u, $a );
+		};
+		return $call( $url, $args );
 	}
 
 	/**
