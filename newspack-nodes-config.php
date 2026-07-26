@@ -22,9 +22,9 @@ return [
 	'segment_size'        => 64 * 1024 * 1024,
 	'min_segments'        => 2,
 	'num_segments'        => 8,
+	'max_segments'        => 0,
 	'min_lifetime'        => 3600,
 	'lifetime'            => 86400,
-	'max_segments'        => 0,
 
 	// Memcache. Stats live here only, never on disk; per-partition prefix.
 	'memcache_servers'    => [
@@ -47,18 +47,14 @@ return [
 	// Vault: encrypted aggregator-server registry (managed via Vault API).
 	'vault'               => [],
 
-	// Aggregator spoke list (hubs only; spokes leave empty).
-
 	// Lower ONLY for a self-signed internal certificate.
 	'spawn_verify_ssl'    => true,
-
 	'vault_verify_ssl'    => true,
 	'vault_require_ssl'   => true,
+	'remote_segment_size' => 64 * 1024 * 1024,
 	'remote_min_segments' => 2,
 	'remote_num_segments' => 8,
-	'remote_segment_size' => 64 * 1024 * 1024,
+	'remote_max_segments' => 0,
 	'remote_min_lifetime' => 900,
 	'remote_lifetime'     => 900,
-	// Remote hard cap; 0 = spoke derives 2x remote num segments.
-	'remote_max_segments' => 0,
 ];

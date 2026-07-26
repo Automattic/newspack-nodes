@@ -237,6 +237,12 @@ class Settings_Schema {
 					type: 'array_strings',
 					ui: false,
 				),
+				// Deploy replaces the config file; only this survives.
+				new Field(
+					key: 'spawn_verify_ssl',
+					type: 'bool',
+					ui: false,
+				),
 			],
 			[
 				$storage => [

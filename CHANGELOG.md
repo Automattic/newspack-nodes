@@ -46,6 +46,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there was no trustworthy head at all), and the Dumper compares that head
   against the shell's cwd. Bare mode has no remote peer feeding it.
 
+### Fixed
+- **`spawn_verify_ssl` is declared by the schema, and defaults to verifying.**
+  It was declared only in `newspack-nodes-config.php`, which the deploy
+  REPLACES with a server-side default — so `Config::value()` threw on it and
+  fataled plugin load in a real install while every test passed. Declared by
+  `Settings_Schema` now (`ui: false`), and Bootstrap reads it as `?? true`:
+  the key is declared but unset until an operator sets one, and a bare cast of
+  null would have silently turned verification off.
+
 ### Security
 - **Command-signing and spawn-token keys derive from `wp_salt('nonce')`**, not
   the raw `NONCE_SALT` constant. `wp_salt()` distrusts that constant — it
