@@ -34,6 +34,28 @@ export function replayPositions( sub ) {
 	return { [ sub ]: 'start' };
 }
 
+/**
+ * The read-verb position a Step should ask for: the pending seek if there is
+ * one, else wherever the live stream left off. A magic token ('start' from
+ * Replay) rides through verbatim — the read verbs speak the same vocabulary as
+ * the seek transport — and an explicit cursor formats as `<segment>:<offset>`.
+ *
+ * @param {Object}  link      The RemoteLink (for resumePositions()).
+ * @param {string}  sub       The subscription being stepped.
+ * @param {?Object} positions The pending target's positions, if any.
+ * @return {?string} The position argument, or null if there is no cursor.
+ */
+export function stepPosition( link, sub, positions ) {
+	const cursor = positions?.[ sub ] ?? link.resumePositions()?.[ sub ];
+	if ( 'string' === typeof cursor ) {
+		return cursor;
+	}
+	if ( cursor && 'object' === typeof cursor ) {
+		return `${ cursor.segment }:${ cursor.offset }`;
+	}
+	return null;
+}
+
 // Largest existing segment id below currentId (spans gaps); null at the oldest.
 export function previousSegmentId( segments, currentId ) {
 	if ( 'number' !== typeof currentId ) {

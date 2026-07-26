@@ -25,6 +25,9 @@ namespace Newspack_Nodes;
 
 class Log_Sources {
 
+	/** Position tokens next_offset() resolves; the seek transport's vocabulary. */
+	public const MAGIC_POSITIONS = [ 'start', 'recent', 'end' ];
+
 	/**
 	 * Built-in-source seam. Resolves the FIXED builtin name → absolute-path map
 	 * (`php` | `debug`). Lazily-defaulted to the real resolver
@@ -383,9 +386,13 @@ class Log_Sources {
 	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
 	 */
 	private static function taillog_read( array $registry, string $name, string $position ): array|string {
+		// A magic token rides through to next_offset(), which speaks them.
+		$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
 		$tokens = \explode( ':', $position );
-		if ( \count( $tokens ) < 2 || \count( $tokens ) > 3 || ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) {
-			return 'taillog read: invalid position (want <segment>:<offset>[:<length>])';
+		if ( ! $magic
+				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
+					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
+			return 'taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)';
 		}
 		if ( ! isset( $registry[ $name ] ) ) {
 			$known = \implode( ', ', \array_keys( $registry ) );
@@ -400,14 +407,16 @@ class Log_Sources {
 		$tail->sink( $capture );
 		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
 		$tail->set_stamp_as( $name );
-		$tail->next_offset( [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ] );
+		$tail->next_offset(
+			$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
+		);
 		try {
 			$cursor = $tail->step();
 		} finally {
 			$tail->remove_node();
 		}
 		if ( null === $captured ) {
-			return "taillog read: no line at {$name} {$tokens[0]}:{$tokens[1]}";
+			return "taillog read: no line at {$name} {$position}";
 		}
 		return [
 			'source'  => $name,

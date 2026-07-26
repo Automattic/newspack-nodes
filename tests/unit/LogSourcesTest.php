@@ -437,12 +437,32 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( "alpha line\n", $stale['message'][ \Newspack_Nodes\Message::VALUE ] );
 	}
 
+	/**
+	 * The Replay control seeks with the magic 'start' token, and Step then reads
+	 * at the SAME position — so the read verb must speak the same position
+	 * vocabulary as the seek transport. It used to reject the token as
+	 * malformed, which is why pause → Replay → Step did nothing.
+	 */
+	public function test_taillog_read_accepts_the_magic_start_position(): void {
+		$path = $this->write_fixed_width_log( 3, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$result = Log_Sources::taillog( [ 'read', 'php', 'start' ] );
+
+		$this->assertIsArray( $result, 'start must read, not error' );
+		$this->assertStringStartsWith(
+			'evlog-line-0000',
+			$result['message'][ \Newspack_Nodes\Message::VALUE ],
+			'start reads the EARLIEST line'
+		);
+	}
+
 	public function test_taillog_read_rejects_a_malformed_position(): void {
 		$path = $this->write_fixed_width_log( 3, 59 );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$this->assertSame(
-			'taillog read: invalid position (want <segment>:<offset>[:<length>])',
+			'taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)',
 			Log_Sources::taillog( [ 'read', 'php', 'abc' ] )
 		);
 	}

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Pause → Replay → Step now steps.** Replay seeks with the magic `start`
+  token, so the browse cursor is a STRING; both `step()` implementations
+  required an object and returned silently, which is why nothing happened until
+  a segment click replaced the token with a `{segment,offset}`. The read verbs
+  disagreed too: `taillog read` and `read_message` rejected `start` as malformed
+  even though `next_offset()` — which both call — has always resolved it. The
+  verbs now accept the same position vocabulary the seek transport uses
+  (`start` | `recent` | `end`), and one shared `stepPosition()` resolver
+  replaces the duplicated cursor logic in the substrate and event-logger hooks.
+  Affects the Partition Viewer, Log Viewer, Request Log and Error Log.
 - **Dashboard commands are signed.** Every hand-built mint — log viewer,
   partition viewer, topology manager, aggregator, vault, stats profiling, tab
   completion, graph-view invoke — called `markLocal()`, which sets LOCAL and

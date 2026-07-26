@@ -87,7 +87,7 @@ export function useLogViewerGraph( opts = {} ) {
 	const viewRef = useRef( null );
 
 	// One-line fetch behind the paused single-step (reply → VIEW future).
-	const fetchMessage = useCallback( ( sub, cursor ) => {
+	const fetchMessage = useCallback( ( sub, position ) => {
 		const view = viewRef.current;
 		const link = linkRef.current;
 		if ( ! view || ! link ) {
@@ -97,11 +97,7 @@ export function useLogViewerGraph( opts = {} ) {
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
-		const m = taillogCommand( view, id, [
-			'read',
-			sub,
-			`${ cursor.segment }:${ cursor.offset }`,
-		] );
+		const m = taillogCommand( view, id, [ 'read', sub, position ] );
 		if ( null === m ) {
 			return Promise.reject( new Error( 'not authenticated' ) );
 		}
