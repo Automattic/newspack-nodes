@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Null` node** — the black hole, ported from Tachikoma's `Nodes::Null`: its
+  `fill()` counts and returns. It exists as a DESTINATION, so a node that must
+  declare a target has somewhere harmless to point. (Tachikoma's load-generator
+  half does not port; it paces against the TM_PERSIST window ADR-3 removed.)
+
+### Fixed
+- **`Remote_Link`'s heartbeat is signed.** It hand-built a `TM_COMMAND` and
+  filled it straight into `HTTP_Out`, unsigned — authorized until now by the
+  spoke's `HTTP_In` signing on arrival, the ingress oracle we removed. The spoke
+  refused it as `verification failed: bad envelope`. It now signs with
+  `sign_for()` under the spoke's session, and holds the beat while there is no
+  session rather than sending one that will be refused.
+- **`Remote_Link`'s egress declares a target**, so `HTTP_Out`'s wire-inbound
+  clause is armed at all: without one, neither arm engages and a spoke can
+  address our graph unchallenged. The target is a `Null` sibling — not the link
+  itself, whose `fill()` relays whatever it is handed, which would send the
+  spoke's own output straight back to it.
+
 ## [2.0.0] - 2026-07-26
 
 ### Fixed

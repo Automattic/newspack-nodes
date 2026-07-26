@@ -1,7 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Null_Node;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
@@ -27,6 +29,7 @@ class RemoteLinkNodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Command_Auth::forget_session( 'austin' );
 		Core::$memd                   = null;
 		SSE_In_Node::$curl_dispatch   = null;
 		HTTP_Out_Node::$curl_dispatch = null;
@@ -40,6 +43,8 @@ class RemoteLinkNodeTest extends TestCase {
 	}
 
 	private function seed_vault( string $id = 'austin' ): void {
+		// A spoke that can be sent to has authed; the heartbeat signs for it.
+		Command_Auth::remember_session( $id, \str_repeat( 'b', 32 ), 'spoke-session-key' );
 		\update_option( Vault::OPTION_KEY, [ $id => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
 		Vault::get_instance()->reset_cache();
 	}
@@ -273,6 +278,80 @@ class RemoteLinkNodeTest extends TestCase {
 		[ $slot, $ttl ] = $value['arguments'];
 		$this->assertSame( '5', $slot );
 		$this->assertGreaterThan( Remote_Link_Node::HEARTBEAT_INTERVAL, (int) $ttl );
+	}
+
+	/**
+	 * HTTP_Out's wire-inbound clause is armed only once a target is set, and the
+	 * arm worth having is the refusal of a non-response the spoke addressed at
+	 * our graph. The target is a Null sibling, not the link: the link's fill()
+	 * relays whatever it is handed, so stamping traffic back onto it would send
+	 * the spoke's own output straight back to the spoke.
+	 */
+	public function test_the_egress_targets_a_null_sibling(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$this->assertSame(
+			'link-austin:null',
+			Core::node( 'link-austin:http-out' )->target()
+		);
+		$this->assertInstanceOf( Null_Node::class, Core::node( 'link-austin:null' ) );
+	}
+
+	public function test_the_null_sibling_is_torn_down_with_the_link(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$node->remove_node();
+
+		$this->assertNull( Core::node( 'link-austin:null' ) );
+	}
+
+	/**
+	 * The heartbeat is a COMMAND the spoke's interpreter must authorize. It rode
+	 * in unsigned and was authorized by the far side's HTTP_In signing on
+	 * arrival — the ingress oracle. With that removed the spoke refuses it as
+	 * "verification failed: bad envelope", so it must be signed at the mint,
+	 * under the session established with that spoke.
+	 */
+	public function test_heartbeat_is_signed_for_its_spoke(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'heartbeat-session-key' );
+
+		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$batch = $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch );
+		$auth = $batch[0][ Message::VALUE ]['auth'] ?? null;
+		$this->assertIsArray( $auth, 'the heartbeat must carry a signature' );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $auth['sig'] );
+	}
+
+	/** No session yet: hold the beat rather than send one the spoke will refuse. */
+	public function test_heartbeat_is_held_until_the_spoke_session_exists(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
+		Command_Auth::forget_session( 'austin' );
+
+		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' )
+		);
 	}
 
 	// The dashboard status snapshot (publish_status / record_heartbeat_* / write_status)

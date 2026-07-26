@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
@@ -55,6 +56,7 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Command_Auth::forget_session( 'austin' );
 		Core::$memd                = null;
 		SSE_In_Node::$curl_dispatch = null;
 		HTTP_Out_Node::$curl_dispatch = null;
@@ -68,6 +70,8 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	private function seed_vault( string $id, array $entry ): void {
+		// A spoke that can be sent to has authed; the heartbeat signs for it.
+		Command_Auth::remember_session( $id, \str_repeat( 'b', 32 ), 'spoke-session-key' );
 		\update_option( Vault::OPTION_KEY, [ $id => $entry ] );
 		Vault::get_instance()->reset_cache();
 	}
