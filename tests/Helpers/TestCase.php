@@ -20,6 +20,9 @@ abstract class TestCase extends PHPUnitTestCase {
 	 */
 	private array $saved_config_resolvers = [];
 
+	/** Root make_temp_dir() hands dirs out under, resolved once per test in setUp(). */
+	private string $temp_root = '';
+
 	protected function setUp(): void {
 		// Pin the tier resolver to memcached-only: tests that seed Core::$memd
 		// must see their claims land there even where CLI APCu is enabled.
@@ -83,6 +86,33 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Bootstrap::$supervisor_factory          = null;
 			\Newspack_Nodes\Bootstrap::$supervisor_enabled_override = null;
 		}
+
+		// Resolve the temp root HERE, not lazily in make_temp_dir(): reading the
+		// base directory warms Config's cache, and a test that seeds options
+		// first (BootstrapTest) would then never see them. Reset drops the warmth.
+		$this->temp_root = $this->resolve_temp_root();
+		if ( \class_exists( '\Newspack_Nodes\Config' ) ) {
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
+	/**
+	 * The CONFIGURED base directory, or the substrate default when config can't
+	 * answer: a consumer plugin's suite has its own base, and a hardcoded root
+	 * would sit outside it — where storage nodes refuse to open.
+	 */
+	private function resolve_temp_root(): string {
+		if ( \class_exists( '\\Newspack_Nodes\\Config' ) ) {
+			try {
+				$root = \Newspack_Nodes\Config::get_base_directory();
+				if ( '' !== $root ) {
+					return $root;
+				}
+			} catch ( \RuntimeException ) {
+				// Unconfigured or refused base; fall through to the default.
+			}
+		}
+		return (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-test';
 	}
 
 	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
@@ -122,16 +152,19 @@ abstract class TestCase extends PHPUnitTestCase {
 		parent::tearDown();
 	}
 
+	/**
+	 * A scratch dir INSIDE the runtime base, auto-removed in tearDown.
+	 *
+	 * Inside, not beside: storage nodes refuse a path outside the runtime tree,
+	 * and a sibling is outside. Tests that repoint base_directory at their own
+	 * temp dir stay contained either way.
+	 */
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
 		// PID + more-entropy uniqid: bare uniqid() is microtime-based and collides
 		// across PARALLEL processes (run-coverage runs nodes/ELN/pyrobase at once),
 		// which let two suites share one temp dir + its `/tmp/locks` rotate lock —
 		// a real cross-process flake. PID guarantees inter-process uniqueness.
-		// UNDER the baseline config's base_directory, not beside it: storage
-		// nodes refuse a path outside the runtime tree, and a sibling is
-		// outside. Tests that repoint base_directory at their own temp dir stay
-		// contained either way.
-		$root = (string) \realpath( \sys_get_temp_dir() ) . '/newspack-nodes-test';
+		$root = '' !== $this->temp_root ? $this->temp_root : $this->resolve_temp_root();
 		if ( ! \is_dir( $root ) ) {
 			\mkdir( $root, 0700, true );
 		}
