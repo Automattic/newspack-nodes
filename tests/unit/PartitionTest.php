@@ -3295,6 +3295,33 @@ class PartitionTest extends TestCase {
 			Partition_Node::$scandir = null;
 		}
 	}
+	/**
+	 * Segments carry the request firehose, IPC transcripts and every logged
+	 * record. fopen() honours the process umask, which on a typical web SAPI is
+	 * 022 — so they landed 0644, readable by any local account. The tree is 0700
+	 * and ownership-gated now, but the file mode is wrong on its own terms.
+	 */
+	public function test_segment_files_are_not_world_readable(): void {
+		$this->use_base_dir( $this->tmp );
+		$dir = "{$this->tmp}/logs/private.p0";
+		$p   = new Partition_Node();
+		$p->name( 'private' );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0' ] );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = "record\n";
+		$p->fill( $m );
+		$p->flush();
+
+		$segment = "{$dir}/0.log";
+		$this->assertFileExists( $segment, 'the write must have created a segment' );
+		$this->assertSame(
+			'0600',
+			\substr( \sprintf( '%o', \fileperms( $segment ) ), -4 )
+		);
+	}
+
 }
 
 /**
@@ -3326,4 +3353,5 @@ class PartialWriteStreamWrapper {
 	}
 
 	public function stream_close(): void {}
+
 }

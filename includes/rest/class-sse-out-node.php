@@ -619,6 +619,20 @@ class SSE_Out_Node extends Node {
 		$this->base_dir = $dir;
 	}
 
+	/**
+	 * Capability-only gate; NO nonce — a nonce breaks the cross-server pull.
+	 * Fronts the fleet, so the multisite guard applies.
+	 *
+	 * @return bool|\WP_Error
+	 */
+	public function check_permission() {
+		$gate = Bootstrap::fleet_gate();
+		if ( null !== $gate ) {
+			return $gate;
+		}
+		return \function_exists( 'current_user_can' ) && Capabilities::can( Capabilities::READ );
+	}
+
 	public function register_routes(): void {
 		\register_rest_route(
 			static::REST_NAMESPACE,
@@ -627,7 +641,7 @@ class SSE_Out_Node extends Node {
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
 				// Capability-only gate; NO nonce (breaks cross-server pull).
-				'permission_callback' => static fn () => \function_exists( 'current_user_can' ) && Capabilities::can( Capabilities::READ ),
+				'permission_callback' => [ $this, 'check_permission' ],
 				'args'                => [
 					'subscribe' => [ 'required' => true, 'type' => 'string' ],
 					'positions' => [ 'required' => false, 'type' => 'string' ],

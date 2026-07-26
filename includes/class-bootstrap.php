@@ -100,6 +100,22 @@ class Bootstrap {
 	}
 
 	/**
+	 * REST gate for the routes that front the fleet: null to proceed, a 403
+	 * WP_Error on a multisite subsite. One guard so a new route cannot quietly
+	 * omit it — the audit found three that had.
+	 */
+	public static function fleet_gate(): ?\WP_Error {
+		if ( self::fleet_site() ) {
+			return null;
+		}
+		return new \WP_Error(
+			'newspack_nodes_not_fleet_site',
+			'multisite subsite: the fleet runs on the main site only',
+			[ 'status' => 403 ]
+		);
+	}
+
+	/**
 	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
 	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
 	 *
@@ -118,6 +134,7 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
+		Core::$verify_spawn_tls = (bool) Config::value( 'spawn_verify_ssl' );
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );

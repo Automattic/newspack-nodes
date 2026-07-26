@@ -964,4 +964,24 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( [ 200, 200 ], $headers );
 		$this->assertTrue( $writer->sent_headers );
 	}
+	/**
+	 * The fleet is network-global — locks, IPC and logs carry no blog namespace
+	 * — so a subsite admin must not drive the main site's fleet. Spawn enforced
+	 * this; /command, /messages/stream and /log/stream did not.
+	 */
+	public function test_a_multisite_subsite_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$GLOBALS['_wp_test_is_multisite']     = true;
+		$GLOBALS['_wp_test_is_main_site']     = false;
+
+		$result = ( new HTTP_In_Node() )->check_permission( new \WP_REST_Request() );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'newspack_nodes_not_fleet_site', $result->get_error_code() );
+
+		$GLOBALS['_wp_test_is_multisite'] = false;
+		$GLOBALS['_wp_test_is_main_site'] = true;
+		$GLOBALS['_wp_test_current_user_can'] = [];
+	}
+
 }

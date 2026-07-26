@@ -791,8 +791,14 @@ class Partition_Node extends Timer_Node {
 
 		if ( null === $this->fh || $this->fh_segment_id !== $segment ) {
 			$this->close_handle();
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$fh = @\fopen( $log_path, 'a' );
+			// umask 022 would leave these world-readable.
+			$prev_umask = \umask( 0077 );
+			try {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+				$fh = @\fopen( $log_path, 'a' );
+			} finally {
+				\umask( $prev_umask );
+			}
 			if ( false === $fh ) {
 				return null;
 			}
@@ -806,8 +812,13 @@ class Partition_Node extends Timer_Node {
 
 			// Open .idx only when a with_index() formatter is set; else none.
 			if ( null !== $this->index_callback ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-				$idx_fh       = @\fopen( $idx_path, 'a' );
+				$prev_umask = \umask( 0077 );
+				try {
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+					$idx_fh = @\fopen( $idx_path, 'a' );
+				} finally {
+					\umask( $prev_umask );
+				}
 				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 			}
 		}

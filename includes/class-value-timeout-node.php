@@ -1,6 +1,6 @@
 <?php
 /**
- * ValueTimeout
+ * Value Timeout
  *
  * Port of Tachikoma's `PayloadTimeout.pm` (v2.0.905): value-keyed dedup
  * with a timeout window and a trailing re-emit. The first arrival of a
@@ -11,11 +11,12 @@
  * Messages older than `expires` drop on arrival.
  *
  * Wire ahead of dispatch to coalesce repeated triggers:
- *   Consumer → ValueTimeout → JobIntake-style sink
+ *   Consumer → Value_Timeout → Job_Intake-style sink
  *
  * Divergences from the Perl original (the standard budget): no TM_PERSIST on
  * the re-emit (ADR-3 removed persist acks), suppressed/stale messages are
- * dropped rather than cancel()ed, and the class and internals say 'value' for the substrate's PAYLOAD→VALUE field rename.
+ * dropped rather than cancel()ed, and the class and internals say 'value'
+ * for the substrate's PAYLOAD→VALUE field rename.
  *
  * @package Newspack_Nodes
  */

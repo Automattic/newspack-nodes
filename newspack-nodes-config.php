@@ -48,6 +48,10 @@ return [
 	'vault'               => [],
 
 	// Aggregator spoke list (hubs only; spokes leave empty).
+
+	// Lower ONLY for a self-signed internal certificate.
+	'spawn_verify_ssl'    => true,
+
 	'vault_verify_ssl'    => true,
 	'vault_require_ssl'   => true,
 	'remote_min_segments' => 2,

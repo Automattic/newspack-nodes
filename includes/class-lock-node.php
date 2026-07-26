@@ -62,9 +62,23 @@ class Lock_Node extends Node {
 		if ( ! $this->verify_ownership() ) {
 			return false;
 		}
+		$hb_path = $this->unlinked_path( self::HEARTBEAT_FILE );
+		if ( null === $hb_path ) {
+			return false;
+		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
-		@\touch( $this->lock_path . '/' . self::HEARTBEAT_FILE );
+		@\touch( $hb_path );
 		return true;
+	}
+
+	/**
+	 * A lock-dir file path, or null when something planted a symlink there —
+	 * the write would land at its target. Supervisor_Base refuses to follow one
+	 * when sweeping; the writer refuses too.
+	 */
+	private function unlinked_path( string $file ): ?string {
+		$path = $this->lock_path . '/' . $file;
+		return \is_link( $path ) ? null : $path;
 	}
 
 	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
@@ -204,13 +218,18 @@ class Lock_Node extends Node {
 	 * @return bool True if both files written; false on first failure.
 	 */
 	private function write_acquire_files(): bool {
+		$hb_path      = $this->unlinked_path( self::HEARTBEAT_FILE );
+		$started_path = $this->unlinked_path( self::STARTED_FILE );
+		if ( null === $hb_path || null === $started_path ) {
+			return false;
+		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		$hb_ok = false !== @\file_put_contents( $this->lock_path . '/' . self::HEARTBEAT_FILE, (string) \getmypid() );
+		$hb_ok = false !== @\file_put_contents( $hb_path, (string) \getmypid() );
 		if ( ! $hb_ok ) {
 			return false;
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		$started_ok = false !== @\file_put_contents( $this->lock_path . '/' . self::STARTED_FILE, (string) \time() );
+		$started_ok = false !== @\file_put_contents( $started_path, (string) \time() );
 		if ( ! $started_ok ) {
 			return false;
 		}

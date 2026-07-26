@@ -271,4 +271,20 @@ final class SseOutStreamHelpersTest extends TestCase {
 			}
 		}
 	}
+	/** Both SSE streams front the fleet, so the multisite guard applies to them too. */
+	public function test_a_multisite_subsite_is_refused(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'read' => true, 'manage_options' => true ];
+		$GLOBALS['_wp_test_is_multisite']     = true;
+		$GLOBALS['_wp_test_is_main_site']     = false;
+
+		$result = ( new SSE_Out_Node() )->check_permission();
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'newspack_nodes_not_fleet_site', $result->get_error_code() );
+
+		$GLOBALS['_wp_test_is_multisite']     = false;
+		$GLOBALS['_wp_test_is_main_site']     = true;
+		$GLOBALS['_wp_test_current_user_can'] = [];
+	}
+
 }

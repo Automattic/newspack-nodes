@@ -31,6 +31,14 @@ class Core {
 	public static array $config_resolvers = [];
 
 	/**
+	 * Whether the spawn POST verifies the TLS peer and hostname. True by
+	 * default; Bootstrap lowers it from `spawn_verify_ssl` for deployments
+	 * fronted by a self-signed internal certificate. Config is a layer above
+	 * Core, so it is injected rather than read.
+	 */
+	public static bool $verify_spawn_tls = true;
+
+	/**
 	 * libcurl-call seam. Lazily-defaulted at the call site to a closure wrapping
 	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
 	 * without short-circuiting the curl_init / curl_setopt_array / errno-
@@ -428,18 +436,7 @@ class Core {
 		if ( false === $ch ) {
 			return 'curl_init failed';
 		}
-		\curl_setopt_array( $ch, [
-			\CURLOPT_URL               => $url,
-			\CURLOPT_POST              => true,
-			\CURLOPT_POSTFIELDS        => \http_build_query( $body ),
-			\CURLOPT_NOSIGNAL          => true,
-			\CURLOPT_TIMEOUT_MS        => 10,
-			\CURLOPT_CONNECTTIMEOUT_MS => 10,
-			\CURLOPT_RETURNTRANSFER    => false,
-			\CURLOPT_HEADER            => false,
-			\CURLOPT_SSL_VERIFYHOST    => 0,
-			\CURLOPT_SSL_VERIFYPEER    => false,
-		] );
+		\curl_setopt_array( $ch, self::post_curl_options( $url, \http_build_query( $body ) ) );
 		// Default ignores $body (in POSTFIELDS); arg only matters to mocks.
 		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
@@ -468,6 +465,29 @@ class Core {
 		}
 		return false;
 	}
+	/**
+	 * Options for the fire-and-forget spawn POST. Split out so the option set is
+	 * assertable without a transport seam.
+	 *
+	 * @param string $url    Target URL.
+	 * @param string $fields Already query-encoded body.
+	 * @return array<int, mixed>
+	 */
+	private static function post_curl_options( string $url, string $fields ): array {
+		return [
+			\CURLOPT_URL               => $url,
+			\CURLOPT_POST              => true,
+			\CURLOPT_POSTFIELDS        => $fields,
+			\CURLOPT_NOSIGNAL          => true,
+			\CURLOPT_TIMEOUT_MS        => 10,
+			\CURLOPT_CONNECTTIMEOUT_MS => 10,
+			\CURLOPT_RETURNTRANSFER    => false,
+			\CURLOPT_HEADER            => false,
+			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
+			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
+		];
+	}
+
 }
 
 Core::reset();

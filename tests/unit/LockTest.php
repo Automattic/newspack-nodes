@@ -514,4 +514,46 @@ class LockTest extends TestCase {
 		$this->assertTrue( $lock->acquire() );
 		$this->assertSame( '', $lock->acquire_failure() );
 	}
+	/**
+	 * The lock dir sits in the runtime tree, so a planted `heartbeat` symlink
+	 * turns the writer into a write primitive at the target. Both paths reach
+	 * the write only after their own guards pass, so each is exercised where it
+	 * actually writes: acquire through write_acquire_files() (the mkdir already
+	 * succeeded — the plant lands in the window after it), and heartbeat with a
+	 * target holding our pid, which is exactly what verify_ownership reads.
+	 * Supervisor_Base already refuses to follow a link when sweeping.
+	 */
+	public function test_the_acquire_write_refuses_a_symlinked_heartbeat(): void {
+		$victim = "{$this->tmp}/victim.txt";
+		\file_put_contents( $victim, "untouched\n" );
+		$lock_dir = "{$this->tmp}/planted.lock.d";
+		@\mkdir( $lock_dir, 0700, true );
+		@\symlink( $victim, "{$lock_dir}/heartbeat" );
+
+		$lock   = new Lock_Node( $lock_dir );
+		$method = new \ReflectionMethod( $lock, 'write_acquire_files' );
+
+		$this->assertFalse( $method->invoke( $lock ), 'a planted link must fail the write' );
+		$this->assertSame( "untouched\n", \file_get_contents( $victim ) );
+	}
+
+	public function test_heartbeat_refuses_a_symlink_whose_target_holds_our_pid(): void {
+		// The target carries our pid, so verify_ownership() reads through the
+		// link and passes — the guard has to be at the write itself.
+		$victim = "{$this->tmp}/victim2.txt";
+		\file_put_contents( $victim, (string) \getmypid() );
+		$lock_dir = "{$this->tmp}/live.lock.d";
+		$lock     = new Lock_Node( $lock_dir );
+		$this->assertTrue( $lock->acquire() );
+		@\unlink( "{$lock_dir}/heartbeat" );
+		@\symlink( $victim, "{$lock_dir}/heartbeat" );
+		\clearstatcache();
+		$before = \filemtime( $victim );
+		\sleep( 1 );
+
+		$this->assertFalse( $lock->heartbeat(), 'a planted link must not be refreshed' );
+		\clearstatcache();
+		$this->assertSame( $before, \filemtime( $victim ) );
+	}
+
 }
