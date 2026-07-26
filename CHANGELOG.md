@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4] - 2026-07-26
+
 ### Fixed
 - **A browser tab re-authenticates when the substrate answers 401.** The client
   already renewed on a `verification failed` reply, but it reads that from the
