@@ -26,11 +26,14 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Service_CI_Node::class )]
 class ServiceCITest extends TestCase {
 
+	/** Session ids this file seeds; tearDown drops them so they can't leak. */
+	private const SEEDED_SESSIONS = [ 'test-spoke' ];
+
 	protected function setUp(): void {
 		parent::setUp();
 		// A probe now requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
-		foreach ( [ 'test-spoke' ] as $spoke ) {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
 		}
 		// Deny by default so the manage_options happy path is explicit.
@@ -38,6 +41,9 @@ class ServiceCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
+			Command_Auth::forget_session( $spoke );
+		}
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Service_CI_Node::$http_call = null;
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
