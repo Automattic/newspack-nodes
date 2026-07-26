@@ -118,7 +118,8 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
-		Core::$verify_spawn_tls = (bool) Config::value( 'spawn_verify_ssl' );
+		// Declared-but-unset must VERIFY; casting null is fail-open.
+		Core::$verify_spawn_tls = (bool) ( Config::value( 'spawn_verify_ssl' ) ?? true );
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );

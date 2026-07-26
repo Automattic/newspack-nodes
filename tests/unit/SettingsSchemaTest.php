@@ -39,6 +39,7 @@ class SettingsSchemaTest extends TestCase {
 		'alert_emit_interval',
 		'topologies',
 		'allowed_users',
+		'spawn_verify_ssl',
 	];
 
 	private const OPTION_NAMES = [
@@ -187,4 +188,25 @@ class SettingsSchemaTest extends TestCase {
 		\sort( $actual );
 		$this->assertSame( $expected, $actual );
 	}
+	/**
+	 * Bootstrap reads this at `ensure_runtime_wired()`, and `Config::value()`
+	 * throws on an undeclared key — so a key declared only in
+	 * `newspack-nodes-config.php` fatals plugin load in a real install, because
+	 * that file is NOT in the release archive. The schema is the durable
+	 * declaration; the config file only supplies a dev/test default.
+	 */
+	public function test_every_key_bootstrap_reads_is_schema_declared(): void {
+		$bootstrap = \file_get_contents( \dirname( __DIR__, 2 ) . '/includes/class-bootstrap.php' );
+		\preg_match_all( "/Config::value\(\s*'([^']+)'/", (string) $bootstrap, $m );
+
+		$this->assertNotEmpty( $m[1], 'Bootstrap should read at least one config key' );
+		foreach ( \array_unique( $m[1] ) as $key ) {
+			$this->assertContains(
+				$key,
+				Settings_Schema::get()->overlay_keys(),
+				"Bootstrap reads '{$key}', which no schema declares — plugin load will fatal"
+			);
+		}
+	}
+
 }

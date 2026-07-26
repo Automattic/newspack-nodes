@@ -1301,4 +1301,21 @@ class BootstrapTest extends TestCase {
 		$this->assertStringContainsString( '99.1.7', $html );
 		$this->assertStringContainsString( NEWSPACK_NODES_VERSION, $html );
 	}
+	/**
+	 * The key is declared by the schema but has no value unless an operator
+	 * sets one — and `(bool) null` is false, which would silently turn spawn-POST
+	 * TLS verification OFF on every install that never touched the setting.
+	 * Unset must mean verify.
+	 */
+	public function test_spawn_tls_verification_defaults_on_when_unset(): void {
+		Core::$verify_spawn_tls = false;
+		// ensure_runtime_wired is idempotent-guarded and has already run.
+		$wired = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$wired->setValue( null, false );
+
+		Bootstrap::ensure_runtime_wired();
+
+		$this->assertTrue( Core::$verify_spawn_tls );
+	}
+
 }
