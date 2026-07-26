@@ -248,4 +248,22 @@ class TailTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/deadletter", $ref->getProperty( 'deadletter_dir' )->getValue( $t ) );
 		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $t ) );
 	}
+	/**
+	 * Tail is deliberately NOT constrained to the runtime tree. Partition, Log
+	 * and Consumer refuse a path outside it — a `/command` caller could
+	 * otherwise write anywhere — but reading /var/log/php.log is Tail's whole
+	 * job, and it only ever reads.
+	 */
+	public function test_tail_reads_outside_the_runtime_tree(): void {
+		$outside = (string) \realpath( \sys_get_temp_dir() ) . '/outside-' . \uniqid( '', true ) . '.log';
+		\file_put_contents( $outside, "a line\n" );
+
+		$tail = new Tail_Node();
+		$tail->name( 'php-log' );
+		$tail->arguments( [ $outside, '', '', 'file' ] );
+
+		$this->assertSame( [ $outside, '', '', 'file' ], $tail->arguments() );
+		@\unlink( $outside );
+	}
+
 }

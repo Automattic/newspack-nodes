@@ -173,7 +173,7 @@ class Command_Auth {
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */
 	private static function secret(): string {
-		return \hash_hmac( 'sha256', 'nodes-command-v1', \NONCE_SALT );
+		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
 	}
 
 	/**
@@ -249,7 +249,7 @@ class Command_Auth {
 	 * anyone who can compute it already holds the salt and can sign outright.
 	 */
 	private static function session_address( string $handle ): string {
-		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \NONCE_SALT ), 0, 16 ) . ':' . $handle;
+		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle;
 	}
 
 	/**

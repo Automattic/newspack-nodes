@@ -477,6 +477,43 @@ class ConfigTest extends TestCase {
 		$this->assertSame( '0700', \substr( \sprintf( '%o', \fileperms( $path ) ), -4 ) );
 	}
 
+	/**
+	 * `/command` is full graph construction at manage_options, so on a stock
+	 * install an arbitrary partition path crosses no boundary — the same actor
+	 * already has the plugin editor. Where administrator file writes are
+	 * deliberately disabled (DISALLOW_FILE_MODS, VIP-style installs) it restores
+	 * an arbitrary write, which is the population this guards.
+	 */
+	public function test_assert_within_base_refuses_a_path_outside_the_tree(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'outside the runtime base directory' );
+		Config::assert_within_base( '/var/www/html/wp-content/uploads/evil' );
+	}
+
+	public function test_assert_within_base_refuses_a_traversal_out(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		$this->expectException( \RuntimeException::class );
+		Config::assert_within_base( $this->temp_dir . '/logs/../../escaped' );
+	}
+
+	public function test_assert_within_base_allows_a_path_inside_the_tree(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		Config::assert_within_base( $this->temp_dir . '/logs/firehose.p0' );
+		$this->assertTrue( true, 'no throw is the assertion' );
+	}
+
+	/** Unconfigured, not an escape — the writer guards an empty dir already. */
+	public function test_assert_within_base_allows_an_empty_path(): void {
+		$this->use_base_dir( $this->temp_dir );
+
+		Config::assert_within_base( '' );
+		$this->assertTrue( true, 'no throw is the assertion' );
+	}
+
 	// ── validate_config_values ────────────────────────────────────────────
 
 	public function test_validate_config_values_rejects_objects(): void {

@@ -153,9 +153,9 @@ class Bootstrap {
 		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
 	}
 
-	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
+	/** Build a Supervisor keyed on wp_salt('nonce') (factory seam for tests). */
 	public static function supervisor(): Supervisor {
-		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
+		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \wp_salt( 'nonce' ) );
 		return $factory();
 	}
 

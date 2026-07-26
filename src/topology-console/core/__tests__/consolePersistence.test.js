@@ -101,3 +101,48 @@ describe( 'consolePersistence [87]', () => {
 		expect( loadDebugLevel() ).toBe( 0 );
 	} );
 } );
+
+/**
+ * Vault CRUD is dispatched through the `_shell` Tap so it is observable via
+ * `connect _shell` — and anything typed into the REPL is echoed verbatim as a
+ * `sent` entry. Either way the transcript carried `--auth_password=hunter2`
+ * into localStorage with no expiry. The server deliberately never returns that
+ * password (Vault_CI_Node::public_shape strips it), so the browser was storing
+ * in cleartext exactly what the API refuses to hand back.
+ */
+describe( 'transcript redaction', () => {
+	beforeEach( () => window.localStorage.clear() );
+
+	const stored = () =>
+		window.localStorage.getItem( 'newspack-nodes:console:transcript' ) ??
+		'';
+
+	it( 'redacts a secret argument token in an echoed line', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: 'add prod --url=https://x --auth_password=hunter2',
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'hunter2' );
+		expect( stored() ).toContain( 'auth_password' );
+	} );
+
+	it( 'redacts a secret inside a rendered command payload', () => {
+		saveTranscript( [
+			{
+				kind: 'out',
+				text: '{"name":"add","arguments":["prod","--auth_password=hunter2"]}',
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'hunter2' );
+	} );
+
+	it( 'leaves an ordinary line alone', () => {
+		saveTranscript( [ { kind: 'sent', text: 'ls firehose.p0' } ] );
+
+		expect( stored() ).toContain( 'ls firehose.p0' );
+	} );
+} );

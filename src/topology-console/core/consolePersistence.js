@@ -61,11 +61,53 @@ function readInt( key ) {
 	return Number.isFinite( n ) ? n : 0;
 }
 
+// Mirrors PHP Core::SECRET_NAME_PATTERNS; keep the two lists in step.
+const SECRET_NAME_PATTERNS = [
+	'password',
+	'passwd',
+	'secret',
+	'token',
+	'credential',
+	'api_key',
+	'apikey',
+	'private_key',
+];
+
+const REDACTED = '<redacted>';
+
+/**
+ * Mask credential values in a transcript line. Two shapes carry them: a
+ * `--auth_password=…` argument token (what the Vault UI sends, and what the
+ * REPL echoes verbatim), and a `"password":"…"` pair inside a rendered command
+ * payload. The name survives so the line still reads; only the value goes.
+ *
+ * @param {string} text A transcript line.
+ * @return {string} The line with credential values masked.
+ */
+export function redactSecrets( text ) {
+	if ( 'string' !== typeof text ) {
+		return text;
+	}
+	const secret = ( name ) =>
+		SECRET_NAME_PATTERNS.some( ( n ) => name.toLowerCase().includes( n ) );
+	return text
+		.replace( /(--[\w.-]+=)("?)([^\s"]*)\2/g, ( all, lead, quote ) =>
+			secret( lead ) ? `${ lead }${ quote }${ REDACTED }${ quote }` : all
+		)
+		.replace( /("[\w.-]+"\s*:\s*)"([^"]*)"/g, ( all, lead ) =>
+			secret( lead ) ? `${ lead }"${ REDACTED }"` : all
+		);
+}
+
 function saveTranscriptTo( key, entries ) {
-	write(
-		key,
-		JSON.stringify( ( entries || [] ).slice( -MAX_PERSISTED_TRANSCRIPT ) )
-	);
+	const safe = ( entries || [] )
+		.slice( -MAX_PERSISTED_TRANSCRIPT )
+		.map( ( e ) =>
+			e && 'string' === typeof e.text
+				? { ...e, text: redactSecrets( e.text ) }
+				: e
+		);
+	write( key, JSON.stringify( safe ) );
 }
 
 export function loadTranscript() {
