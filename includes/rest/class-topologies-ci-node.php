@@ -2,9 +2,10 @@
 /**
  * Topologies_CI: command-dispatch for substrate topology-management verbs.
  *
- * Topologies are .tsl files describing the node graph. User copies at
- * `{user_dir}/{name}.tsl` shadow plugin-shipped stock copies; this interpreter honors
- * that resolution order and only mutates the (writable) user dir.
+ * Topologies are .tsl files describing the node graph. Stock copies the plugin
+ * ships own their names; the writable user dir serves names stock does not
+ * provide, and this interpreter only mutates that dir. To extend a stock
+ * topology, save under a new name and `include` the stock one.
  *
  * Verbs:
  *   list   — `{topologies: [{name, source, active, num_partitions, frontmatter}], user_dir}`.
@@ -235,9 +236,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// shadows_stock determined BEFORE writing (pre-existing stock state).
+		// A user file under a stock name would sit inert; refuse the write.
 		$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
-		$shadows     = ! empty( $pre_sources['stock'] );
+		if ( ! empty( $pre_sources['stock'] ) ) {
+			throw new \RuntimeException(
+				\esc_html( "refusing to write \"$name\": a stock topology owns that name. Save under a new name and `include $name`." )
+			);
+		}
+		$shadows = false;
 
 		$path = $user_dir . '/' . $name . '.tsl';
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents

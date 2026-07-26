@@ -35,13 +35,32 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( "{$this->stock}/only-stock.tsl", Topology_Registry::resolve( 'only-stock' ) );
 	}
 
-	public function test_resolve_prefers_user_dir_over_stock(): void {
+	/**
+	 * A stock name resolves ONLY from a stock dir. The user dir used to win on a
+	 * bare is_file(), so anyone who could write there replaced the graph the
+	 * plugin ships — under a name already marked active, executed by every
+	 * worker spawn. Extending a stock topology does not need the override: name
+	 * the file something else and `include` the stock one, which the old
+	 * precedence actively prevented (including the name you shadow is a cycle).
+	 */
+	public function test_a_user_file_cannot_shadow_a_stock_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertSame(
-			"{$this->user}/firehose-workers.tsl",
+			"{$this->stock}/firehose-workers.tsl",
 			Topology_Registry::resolve( 'firehose-workers' )
+		);
+	}
+
+	public function test_resolve_serves_a_user_name_stock_does_not_provide(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+		\file_put_contents( "{$this->user}/my-firehose.tsl", "include firehose-workers\n" );
+
+		$this->assertSame(
+			"{$this->user}/my-firehose.tsl",
+			Topology_Registry::resolve( 'my-firehose' )
 		);
 	}
 

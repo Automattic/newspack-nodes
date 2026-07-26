@@ -293,7 +293,13 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	public function test_get_returns_user_body_when_user_shadows_stock(): void {
+	/**
+	 * A user file no longer shadows stock, so `get` shows what actually RUNS —
+	 * the stock body. `source` still reports both copies exist, because they do;
+	 * a stale user file left over from before the precedence change is exactly
+	 * what an operator needs to see.
+	 */
+	public function test_get_returns_the_stock_body_that_actually_runs(): void {
 		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo stock\n" );
 		\file_put_contents( "{$this->user}/dual.tsl",  "make_node Echo user\n" );
 
@@ -306,9 +312,29 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertSame( 'both', $result['source'] );
 		$this->assertSame(
-			"make_node Echo user\n",
+			"make_node Echo stock\n",
 			$result['tsl']
 		);
+	}
+
+	/**
+	 * Refuse the write rather than accept a file resolution will ignore. Saving
+	 * a stock name used to override it; now it would sit inert on disk while
+	 * the editor reported success.
+	 */
+	public function test_save_refuses_a_name_a_stock_dir_already_provides(): void {
+		\file_put_contents( "{$this->stock}/dual.tsl", "make_node Echo stock\n" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			'dual make_node Echo mine'
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'a stock topology owns that name', $result );
+		$this->assertFileDoesNotExist( "{$this->user}/dual.tsl" );
 	}
 
 	public function test_get_rejects_unknown_topology(): void {
@@ -379,17 +405,16 @@ class TopologiesCITest extends TestCase {
 		);
 	}
 
-	public function test_save_reports_shadows_stock_when_stock_copy_exists(): void {
-		\file_put_contents( "{$this->stock}/shadowing.tsl", "make_node Echo s\n" );
-
+	/** Nothing shadows any more: a save that lands is a name stock does not own. */
+	public function test_save_never_reports_shadowing_stock(): void {
 		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[ 'shadowing', "make_node Echo u\n" ]
+			[ 'not-a-stock-name', "make_node Echo u\n" ]
 		);
 
-		$this->assertTrue( $result['shadows_stock'] );
+		$this->assertFalse( $result['shadows_stock'] );
 	}
 
 	/**
