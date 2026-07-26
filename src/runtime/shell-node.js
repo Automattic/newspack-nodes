@@ -765,6 +765,9 @@ export class ShellNode extends Node {
 	 */
 	sendCommand( path, name, args = [] ) {
 		const m = this.command( name, args );
+		if ( null === m ) {
+			return; // unauthenticated; re-auth is under way
+		}
 		m[ FROM ] = this.replyFrom( names.OUTPUT );
 		// `path` is RELATIVE to the cwd — prefix() joins them.
 		m[ TO ] = this.prefix( path );

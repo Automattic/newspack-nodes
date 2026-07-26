@@ -51,38 +51,6 @@ class Command_Auth {
 	public static ?\Closure $claim_nonce = null;
 
 	/**
-	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
-	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
-	 * rides along fine).
-	 *
-	 * @param array<int,mixed> $message Message (mutated in place).
-	 */
-	public static function sign( array &$message ): void {
-		self::stamp( $message, self::secret(), null );
-	}
-
-	/**
-	 * Sign for a specific remote, under the session key established with it.
-	 * Choosing the key IS the destination binding — a signature under one
-	 * remote's key verifies only there — which is how a command is pinned to its
-	 * destination without signing TO, a field Router peels in transit.
-	 *
-	 * No session means no signature. An unsigned command is refused downstream,
-	 * which is the correct failure: minters must wait for the session rather
-	 * than emit something that will rot before it can be believed.
-	 *
-	 * @param array<int,mixed> $message Message (mutated in place).
-	 */
-	public static function sign_for( string $destination, array &$message ): void {
-		$session = self::$sessions[ $destination ] ?? null;
-		if ( null === $session ) {
-			Core::print_less_often( 'Command_Auth: no session for ', $destination, '; refusing to sign' );
-			return;
-		}
-		self::stamp( $message, $session['key'], $session['handle'] );
-	}
-
-	/**
 	 * Client-side sessions keyed by VAULT ID, per-process. Not by url: two
 	 * entries may share a host with different credentials, and a url can be
 	 * edited while the id stays — both would alias one session across two
@@ -94,35 +62,20 @@ class Command_Auth {
 	private static array $sessions = [];
 
 	/**
-	 * Drop the session with a remote, so the next command to it re-auths. Fired
-	 * when a Vault entry is re-credentialed or removed: the far side has
-	 * forgotten the key, or the credentials that bought it no longer apply.
+	 * Session-key lifetime. Fixed, never slid on use: a leaked handle expires on a
+	 * bounded schedule no matter how busy it is. Clients re-auth on refusal.
 	 */
-	public static function forget_session( string $destination ): void {
-		unset( self::$sessions[ $destination ] );
-	}
-
-	/** Whether a session with this remote is already established in this process. */
-	public static function has_session( string $destination ): bool {
-		return isset( self::$sessions[ $destination ] );
-	}
+	public const SESSION_TTL_S = 3600;
 
 	/**
-	 * Record the session established with a remote, for `sign_for()` to use.
-	 * All three are required: an empty one means a malformed `/auth` response was
-	 * read through a `??`, and the resulting signature would be refused at the far
-	 * end under a misleading diagnosis. Fail here, where the cause is visible.
+	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
+	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
+	 * rides along fine).
 	 *
-	 * @throws \InvalidArgumentException When any argument is empty.
+	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
-	public static function remember_session( string $destination, string $handle, string $key ): void {
-		if ( '' === $destination || '' === $handle || '' === $key ) {
-			throw new \InvalidArgumentException( 'Command_Auth::remember_session() requires a destination, handle, and key' );
-		}
-		self::$sessions[ $destination ] = [
-			'handle' => $handle,
-			'key'    => $key,
-		];
+	public static function sign( array &$message ): void {
+		self::stamp( $message, self::secret(), null );
 	}
 
 	/**
@@ -224,20 +177,24 @@ class Command_Auth {
 	}
 
 	/**
-	 * Session-key lifetime. Fixed, never slid on use: a leaked handle expires on a
-	 * bounded schedule no matter how busy it is. Clients re-auth on refusal.
+	 * Sign for a specific remote, under the session key established with it.
+	 * Choosing the key IS the destination binding — a signature under one
+	 * remote's key verifies only there — which is how a command is pinned to its
+	 * destination without signing TO, a field Router peels in transit.
+	 *
+	 * No session means no signature. An unsigned command is refused downstream,
+	 * which is the correct failure: minters must wait for the session rather
+	 * than emit something that will rot before it can be believed.
+	 *
+	 * @param array<int,mixed> $message Message (mutated in place).
 	 */
-	public const SESSION_TTL_S = 3600;
-
-	/**
-	 * Cache address for a session key. Namespaced per site: the cache is shared
-	 * infrastructure, not a trusted store, so a handle minted by another install
-	 * — or planted directly by anything that can write memcached — must not
-	 * resolve here. Deriving the namespace from the site secret costs nothing;
-	 * anyone who can compute it already holds the salt and can sign outright.
-	 */
-	private static function session_address( string $handle ): string {
-		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \NONCE_SALT ), 0, 16 ) . ':' . $handle;
+	public static function sign_for( string $destination, array &$message ): void {
+		$session = self::$sessions[ $destination ] ?? null;
+		if ( null === $session ) {
+			Core::print_less_often( 'Command_Auth: no session for ', $destination, '; refusing to sign' );
+			return;
+		}
+		self::stamp( $message, $session['key'], $session['handle'] );
 	}
 
 	/**
@@ -284,14 +241,15 @@ class Command_Auth {
 		return null !== $backend && $backend->add( self::session_address( $handle ), $key, $ttl );
 	}
 
-	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
-	public static function load_session( string $handle ): ?string {
-		$backend = Cache_Backend::shared_only();
-		if ( null === $backend ) {
-			return null;
-		}
-		$key = $backend->get( self::session_address( $handle ) );
-		return \is_string( $key ) && '' !== $key ? $key : null;
+	/**
+	 * Cache address for a session key. Namespaced per site: the cache is shared
+	 * infrastructure, not a trusted store, so a handle minted by another install
+	 * — or planted directly by anything that can write memcached — must not
+	 * resolve here. Deriving the namespace from the site secret costs nothing;
+	 * anyone who can compute it already holds the salt and can sign outright.
+	 */
+	private static function session_address( string $handle ): string {
+		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \NONCE_SALT ), 0, 16 ) . ':' . $handle;
 	}
 
 	/**
@@ -366,6 +324,48 @@ class Command_Auth {
 			return $backend->add( 'nodes-cmd-nonce:' . $nonce, 1, $ttl );
 		};
 		return $claim( $nonce, self::NONCE_TTL_S );
+	}
+
+	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
+	public static function load_session( string $handle ): ?string {
+		$backend = Cache_Backend::shared_only();
+		if ( null === $backend ) {
+			return null;
+		}
+		$key = $backend->get( self::session_address( $handle ) );
+		return \is_string( $key ) && '' !== $key ? $key : null;
+	}
+
+	/**
+	 * Drop the session with a remote, so the next command to it re-auths. Fired
+	 * when a Vault entry is re-credentialed or removed: the far side has
+	 * forgotten the key, or the credentials that bought it no longer apply.
+	 */
+	public static function forget_session( string $destination ): void {
+		unset( self::$sessions[ $destination ] );
+	}
+
+	/** Whether a session with this remote is already established in this process. */
+	public static function has_session( string $destination ): bool {
+		return isset( self::$sessions[ $destination ] );
+	}
+
+	/**
+	 * Record the session established with a remote, for `sign_for()` to use.
+	 * All three are required: an empty one means a malformed `/auth` response was
+	 * read through a `??`, and the resulting signature would be refused at the far
+	 * end under a misleading diagnosis. Fail here, where the cause is visible.
+	 *
+	 * @throws \InvalidArgumentException When any argument is empty.
+	 */
+	public static function remember_session( string $destination, string $handle, string $key ): void {
+		if ( '' === $destination || '' === $handle || '' === $key ) {
+			throw new \InvalidArgumentException( 'Command_Auth::remember_session() requires a destination, handle, and key' );
+		}
+		self::$sessions[ $destination ] = [
+			'handle' => $handle,
+			'key'    => $key,
+		];
 	}
 
 	/**

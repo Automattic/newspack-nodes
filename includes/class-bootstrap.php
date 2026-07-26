@@ -458,17 +458,6 @@ class Bootstrap {
 		return $event;
 	}
 
-	/**
-	 * A re-credentialed or removed spoke invalidates its command session; drop it
-	 * so the next command re-auths instead of signing under a key the far side
-	 * has forgotten.
-	 *
-	 * @param string $id Vault server id, from `newspack_nodes/vault/changed`.
-	 */
-	public static function forget_command_session( string $id ): void {
-		Command_Auth::forget_session( $id );
-	}
-
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
 		// Slot-pool seams here, not ensure_runtime_wired: SSE_Out is REST-only.
@@ -490,6 +479,17 @@ class Bootstrap {
 	public static function remember_schedule_event_context( $event ) {
 		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
 		return $event;
+	}
+
+	/**
+	 * A re-credentialed or removed spoke invalidates its command session; drop it
+	 * so the next command re-auths instead of signing under a key the far side
+	 * has forgotten.
+	 *
+	 * @param string $id Vault server id, from `newspack_nodes/vault/changed`.
+	 */
+	public static function forget_command_session( string $id ): void {
+		Command_Auth::forget_session( $id );
 	}
 
 	/**

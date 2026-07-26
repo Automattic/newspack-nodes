@@ -9,6 +9,7 @@
 import { ShellNode } from '../shell-node';
 import { TYPE, FROM, TO, VALUE, LOCAL, TM_COMMAND } from '../message';
 import names from '../reserved-node-names.json';
+import { forgetSession } from '../command-auth';
 
 describe( 'ShellNode.sendCommand', () => {
 	it( 'builds a command message, stamps FROM/TO/LOCAL, and fills sink', () => {
@@ -29,6 +30,19 @@ describe( 'ShellNode.sendCommand', () => {
 			name: 'connect_node',
 			arguments: [ 'a', 'b' ],
 		} );
+	} );
+
+	/** command() returns null unauthenticated; the caller must not deref it. */
+	it( 'is a no-op with no session, rather than throwing', () => {
+		forgetSession();
+		const captured = [];
+		const shell = new ShellNode();
+		shell.sink = { fill: ( m ) => captured.push( m ) };
+
+		expect( () =>
+			shell.sendCommand( 'some/path', 'connect_node', [ 'a', 'b' ] )
+		).not.toThrow();
+		expect( captured ).toEqual( [] );
 	} );
 
 	it( 'is a no-op without sink', () => {

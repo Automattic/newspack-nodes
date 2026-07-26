@@ -47,7 +47,7 @@ export class HeartbeatNode extends TimerNode {
 
 	// Poke TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
 	_pollMessage( slot ) {
-		return this.mint( 'heartbeat', [
+		return this.command( 'heartbeat', [
 			String( slot ),
 			String( SLOT_TTL_S ),
 		] );

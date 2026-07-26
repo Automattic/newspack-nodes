@@ -49,7 +49,7 @@ export class UptimeNode extends TimerNode {
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb ) {
-		return this.mint( verb );
+		return this.command( verb );
 	}
 
 	// Hitchhike the Router TIMER and let the base fireCb() throttle to 5s.
