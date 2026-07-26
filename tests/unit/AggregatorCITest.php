@@ -34,13 +34,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Aggregator_CI_Node::class )]
 class AggregatorCITest extends TestCase {
+
+	/** Session ids this file seeds; tearDown drops them so they can't leak. */
+	private const SEEDED_SESSIONS = [ 'austin', 'ghost', 'sentinel', 'xvault', 'spoke1' ];
 	private string $tmp;
 
 	protected function setUp(): void {
 		parent::setUp();
 		// A probe now requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
-		foreach ( [ 'austin', 'ghost', 'sentinel', 'xvault', 'spoke1' ] as $spoke ) {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
 		}
 		// /tmp directly to dodge symlink-resolved sys_get_temp_dir on macOS,
@@ -59,6 +62,9 @@ class AggregatorCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
+			Command_Auth::forget_session( $spoke );
+		}
 		VerbHarness::reset();
 		Topology_Registry::reset();
 		$GLOBALS['_wp_options']       = [];

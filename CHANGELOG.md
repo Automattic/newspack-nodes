@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-07-26
 
+### Fixed
+- **Test isolation for command sessions.** `Command_Auth`'s session map is
+  process-global static; three suites seeded ids into it (`AggregatorCITest`
+  seeds `austin`, the same id `HttpOutSessionTest` uses) and never dropped them.
+  With `executionOrder="depends,defects"` the run order shifts with the result
+  cache, so `test_fire_runs_the_auth_handshake_before_sending_any_command` failed
+  only sometimes — it saw a leaked session and skipped the handshake. Each suite
+  now names its seeded ids once and forgets them in `tearDown`.
+
 ### Added
 - **Command session keys (`Command_Auth`).** `mint_session()` issues a random
   key under a random handle; `store_session()`/`load_session()` persist it, and

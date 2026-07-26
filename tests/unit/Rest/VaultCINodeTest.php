@@ -26,11 +26,14 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Vault_CI_Node::class )]
 class VaultCINodeTest extends TestCase {
 
+	/** Session ids this file seeds; tearDown drops them so they can't leak. */
+	private const SEEDED_SESSIONS = [ 'ghost', 'spoke1' ];
+
 	protected function setUp(): void {
 		parent::setUp();
 		// A probe now requires a live session for its destination; seed the ids
 		// this file probes so the $http_call stubs answer only the /command leg.
-		foreach ( [ 'ghost', 'spoke1' ] as $spoke ) {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
 			Command_Auth::remember_session( $spoke, \str_repeat( '3', 32 ), 'probe-session-key' );
 		}
 		$GLOBALS['_wp_options']               = [];
@@ -42,6 +45,9 @@ class VaultCINodeTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		foreach ( self::SEEDED_SESSIONS as $spoke ) {
+			Command_Auth::forget_session( $spoke );
+		}
 		VerbHarness::reset();
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
