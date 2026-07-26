@@ -27,12 +27,13 @@ class ServiceCiSessionTest extends TestCase {
 		parent::setUp();
 		$this->prev_memd = Core::$memd;
 		Core::$memd      = new InMemoryMemcached();
+		// This file exercises the handshake, so it must start with NO session.
+		// The map is process-static and other suites seed the same destination.
+		Command_Auth::forget_session( 'test-spoke' );
 	}
 
 	protected function tearDown(): void {
 		Service_CI_Node::$http_call = null;
-		// The client-side session map is process-static; drop it so each test
-		// drives the handshake itself instead of inheriting one.
 		Command_Auth::forget_session( 'test-spoke' );
 		Core::$memd                 = $this->prev_memd;
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );

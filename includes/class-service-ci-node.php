@@ -78,7 +78,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 			throw new \RuntimeException( 'vault_require_ssl is set but the server url is not https' );
 		}
 
-		self::maybe_establish_session( $dest, $server, $base );
+		self::establish_session( $dest, $server, $base );
 
 		$message = self::command_message( $to, $verb, $verb_args );
 		Command_Auth::sign_for( $dest, $message );
@@ -151,30 +151,27 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * command — `discovery get` is a TM_COMMAND the spoke's interpreter
 	 * authorizes — so /auth has to come first. Idempotent per process.
 	 *
-	 * Best-effort BY TRANSITION ONLY: a spoke running an older build has no
-	 * /auth route, and its HTTP_In still signs on arrival, so an unsigned probe
-	 * still works there. Delete this tolerance at the flag day — after it, an
-	 * unobtainable session must fail the probe rather than silently fall back to
-	 * the ingress oracle.
+	 * No session, no probe. Ingress no longer signs, so an unsigned probe is
+	 * refused anyway — failing here names the real cause instead of surfacing it
+	 * as an unexplained refusal from the far side.
 	 *
 	 * @param string              $dest   Vault server id — the session identity.
 	 * @param array<string,mixed> $server Decrypted vault server config.
+	 * @throws \RuntimeException When the spoke will not issue a session.
 	 */
-	private static function maybe_establish_session( string $dest, array $server, string $base ): void {
+	private static function establish_session( string $dest, array $server, string $base ): void {
 		if ( Command_Auth::has_session( $dest ) ) {
 			return;
 		}
 		$response = self::post( $base . self::AUTH_PATH, self::request_args( $server, '' ) );
 		if ( $response instanceof \WP_Error || 200 !== \wp_remote_retrieve_response_code( $response ) ) {
-			Core::print_less_often( 'Service_CI: no command session from ', $base, '; probing unsigned (pre-session spoke)' );
-			return;
+			throw new \RuntimeException( 'server refused to issue a command session' );
 		}
 		$issued = \json_decode( \wp_remote_retrieve_body( $response ), true, 8 );
 		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
 		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
 		if ( '' === $handle || '' === $key ) {
-			Core::print_less_often( 'Service_CI: malformed session from ', $base, '; probing unsigned' );
-			return;
+			throw new \RuntimeException( 'server returned a malformed command session' );
 		}
 		Command_Auth::remember_session( $dest, $handle, $key );
 	}

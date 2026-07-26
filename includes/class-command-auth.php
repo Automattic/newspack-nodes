@@ -164,19 +164,6 @@ class Command_Auth {
 	}
 
 	/**
-	 * True when a Message already carries an `auth` envelope, i.e. some minter has
-	 * already vouched for it. Such a message is finished: its TIMESTAMP is signed
-	 * material and re-anchoring it, or re-stamping the envelope, destroys the
-	 * signature rather than replacing it.
-	 *
-	 * @param array<int,mixed> $message
-	 */
-	public static function is_signed( array $message ): bool {
-		$value = $message[ Message::VALUE ] ?? null;
-		return \is_array( $value ) && isset( $value['auth'] );
-	}
-
-	/**
 	 * True when a Message is a signable request command: TM_COMMAND without
 	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
 	 * VALUE. sign() and verify() share this ONE predicate so the signer's flags
@@ -258,7 +245,7 @@ class Command_Auth {
 	 * nothing more, and a signature under one session's key is verifiable only
 	 * by the site that minted it. Scope lives with the client that holds the key.
 	 *
-	 * @return array{handle:string,key:string,expires_in:int}
+	 * @return array{handle:string,key:string,expires_in:int,now:int}
 	 * @throws \RuntimeException When the session could not be persisted.
 	 */
 	public static function mint_session(): array {
@@ -271,6 +258,8 @@ class Command_Auth {
 			'handle'     => $handle,
 			'key'        => $key,
 			'expires_in' => self::SESSION_TTL_S,
+			// The minter signs TIMESTAMP; the client aligns to this clock.
+			'now'        => \time(),
 		];
 	}
 

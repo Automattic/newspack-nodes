@@ -45,7 +45,7 @@ class AuthControllerTest extends TestCase {
 	public function test_the_response_carries_only_the_session_triplet(): void {
 		$body = ( new Auth_Controller() )->issue( new \WP_REST_Request() );
 
-		$this->assertSame( [ 'expires_in', 'handle', 'key' ], $this->sorted_keys( $body ) );
+		$this->assertSame( [ 'expires_in', 'handle', 'key', 'now' ], $this->sorted_keys( $body ) );
 	}
 
 	public function test_a_user_without_manage_options_is_refused(): void {
