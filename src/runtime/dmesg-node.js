@@ -90,7 +90,7 @@ export class DmesgNode extends TimerNode {
 
 	// Poll TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
 	_pollMessage( verb, args = [] ) {
-		return this.mint( verb, args );
+		return this.command( verb, args );
 	}
 
 	// Hitchhike the Router TIMER and let the base fireCb() throttle to 10s.

@@ -32,6 +32,7 @@ import {
 	TM_INFO,
 } from '../message';
 import names from '../reserved-node-names.json';
+import { forgetSession } from '../command-auth';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -214,6 +215,18 @@ describe( 'RemoteIpcNode', () => {
 		expect( a.httpOut ).toBe( b.httpOut );
 		expect( a.httpOut ).toBe( Core.node( names.HTTP ) );
 		expect( a.heartbeat ).toBe( b.heartbeat );
+	} );
+
+	/** command() returns null unauthenticated; the caller must not deref it. */
+	it( 'is a no-op with no session, rather than throwing', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() ); // boot the link while authenticated
+		const sentWhileAuthed = posted.length;
+		forgetSession();
+
+		expect( () => node.fill( command() ) ).not.toThrow();
+		expect( posted.length ).toBe( sentWhileAuthed );
 	} );
 
 	it( 'boots its SseIn on the first send, subscribed to its worker', () => {

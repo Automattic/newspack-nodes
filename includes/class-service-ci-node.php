@@ -46,6 +46,10 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 */
 	public static ?\Closure $http_call = null;
 
+	/** Spoke endpoints this class talks to. */
+	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
+	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
+
 	/**
 	 * Derive the dispatch table from the concrete subclass's node_schema() so each
 	 * verb is declared ONCE. Late static binding reads the subclass schema; the base
@@ -141,10 +145,6 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
 		return $message;
 	}
-
-	/** Spoke endpoints this class talks to. */
-	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
-	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
 
 	/**
 	 * Establish the command session with a spoke. First contact is itself a

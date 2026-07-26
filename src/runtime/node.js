@@ -256,6 +256,45 @@ export class Node {
 		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
 	}
 
+	/**
+	 * Build a TM_COMMAND, mark it LOCAL and sign it. Mirrors
+	 * Tachikoma::Node::command, which likewise signs at build — available on
+	 * every Node so Shell.sendCommand and overlay callers issue commands without
+	 * hand-building messages.
+	 *
+	 * Completing here (rather than leaving a separate mint step) is safe because
+	 * LOCAL cannot leave the process: packed() slices to 7 fields and unpacked()
+	 * rejects 8. The signature covers only the SEMANTICS — ts, name, arguments,
+	 * nonce — so a caller may still rewrite TO/FROM afterwards, which
+	 * Shell.sendCommand and RemoteIpc both do.
+	 *
+	 * Returns null when there is no session yet, and asks for one. Signing is
+	 * synchronous and cannot wait for /auth, so the caller holds instead — a poll
+	 * skips the tick and carries it on the next one, by which time the re-auth
+	 * this triggered has landed. Emitting unsigned would only earn a refusal.
+	 *
+	 * @param {string}   name Command verb (e.g. 'connect_node').
+	 * @param {string[]} args Positional argument tokens (the verb classifies them).
+	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
+	 */
+	command( name, args = [] ) {
+		// Fail loud like buildMessage: a string here would drop the args to [].
+		if ( ! Array.isArray( args ) ) {
+			throw new Error(
+				`command args must be a token array, got ${ typeof args } for verb "${ name }"`
+			);
+		}
+		if ( ! readyToMint() ) {
+			return null;
+		}
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = this.name;
+		m[ TO ] = this.target;
+		m[ VALUE ] = { name, arguments: args };
+		return markLocal( m );
+	}
+
 	// Byte/size stats; leaf I/O nodes bump these, composites aggregate.
 	get counter() {
 		return this._counter;
@@ -412,51 +451,6 @@ export class Node {
 			Core.unregisterNode( this.name );
 			this._name = '';
 		}
-	}
-
-	/**
-	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
-	 * available on every Node so Shell.sendCommand and overlay callers can
-	 * issue commands without hand-building messages.
-	 *
-	 * @param {string}   name Command verb (e.g. 'connect_node').
-	 * @param {string[]} args Positional argument tokens (the verb classifies them).
-	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
-	 */
-	command( name, args = [] ) {
-		// Fail loud like buildMessage: a string here would drop the args to [].
-		if ( ! Array.isArray( args ) ) {
-			throw new Error(
-				`command args must be a token array, got ${ typeof args } for verb "${ name }"`
-			);
-		}
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.name;
-		m[ TO ] = this.target;
-		m[ VALUE ] = { name, arguments: args };
-		return m;
-	}
-
-	/**
-	 * Build AND complete a command: the mint. `command()` alone builds, because
-	 * the Shell finishes its own messages elsewhere; anything that emits
-	 * straight into its sink completes here.
-	 *
-	 * Returns null when there is no session yet, and asks for one. A mint is
-	 * synchronous and cannot wait for /auth, so the caller holds instead — a poll
-	 * skips the tick and carries it on the next one, by which time the re-auth
-	 * this triggered has landed. Sending unsigned would only earn a refusal.
-	 *
-	 * @param {string}   name Command verb.
-	 * @param {string[]} args Argument tokens.
-	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
-	 */
-	mint( name, args = [] ) {
-		if ( ! readyToMint() ) {
-			return null;
-		}
-		return markLocal( this.command( name, args ) );
 	}
 }
 

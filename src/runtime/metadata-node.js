@@ -301,7 +301,7 @@ export class MetadataNode extends TimerNode {
 
 	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
 	_pollMessage( verb, args = [] ) {
-		return this.mint( verb, args );
+		return this.command( verb, args );
 	}
 
 	// Optimistic local edit: patch the raw map + re-publish, no round-trip.

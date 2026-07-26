@@ -74,7 +74,10 @@ export class RemoteIpcNode extends RemoteLinkNode {
 			'' === remainder ? reader : `${ reader }/${ remainder }`;
 
 		// Our own mint beside the Shell's; TO after, since it isn't signed.
-		const connect = this.mint( 'connect_worker_input', [ reader ] );
+		const connect = this.command( 'connect_worker_input', [ reader ] );
+		if ( null === connect ) {
+			return; // unauthenticated; re-auth is under way
+		}
 		connect[ TO ] = 'topologies';
 
 		// One POST: ride a pre-existing lock, else open one around this pair.

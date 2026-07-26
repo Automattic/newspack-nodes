@@ -76,16 +76,6 @@ class HTTP_Out_Node extends Timer_Node {
 		parent::__construct();
 	}
 
-	/**
-	 * Which spoke this egress speaks for. A minter resolves the target node at
-	 * fill time and asks, because the node name and the vault id are independent
-	 * — the live hub names one `settings:tw0` for vault id `tw0`.
-	 * @api Read by minters that sign per destination.
-	 */
-	public function vault_id(): string {
-		return $this->vault_id;
-	}
-
 	/** Assign vault_id from the positional token via the schema; gated on a non-empty string. */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -242,32 +232,6 @@ class HTTP_Out_Node extends Timer_Node {
 	}
 
 	/**
-	 * Adopt the session the spoke issued, then re-arm the held batch. A refusal
-	 * only clears the in-flight flag: the batch stays put and the next fill or
-	 * tick retries, since discarding traffic over a transient handshake failure
-	 * is worse than waiting.
-	 */
-	private function on_session_reply( int $code, string $body ): void {
-		$this->auth_in_flight = false;
-		if ( 200 !== $code ) {
-			$this->print_less_often( 'auth refused by spoke: HTTP ', (string) $code );
-			return;
-		}
-		$issued = \json_decode( $body, true, 8 );
-		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
-		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
-		if ( '' === $handle || '' === $key ) {
-			$this->print_less_often( 'spoke returned a malformed session' );
-			return;
-		}
-		Command_Auth::remember_session( $this->vault_id, $handle, $key );
-		if ( [] !== $this->batch && ! $this->batch_timer_armed ) {
-			$this->set_timer( 0, true );
-			$this->batch_timer_armed = true;
-		}
-	}
-
-	/**
 	 * Event_Framework completion callback (drain_curl_multi → CURLMSG_DONE).
 	 * Forwards each reply Message in a 200 body to the sink (each self-routes by
 	 * TO=FROM through _command_interpreter → _router; ports src/runtime/http-out-node.js
@@ -331,6 +295,32 @@ class HTTP_Out_Node extends Timer_Node {
 
 		$this->detach( $easy );
 		unset( $this->inflight[ $id ] );
+	}
+
+	/**
+	 * Adopt the session the spoke issued, then re-arm the held batch. A refusal
+	 * only clears the in-flight flag: the batch stays put and the next fill or
+	 * tick retries, since discarding traffic over a transient handshake failure
+	 * is worse than waiting.
+	 */
+	private function on_session_reply( int $code, string $body ): void {
+		$this->auth_in_flight = false;
+		if ( 200 !== $code ) {
+			$this->print_less_often( 'auth refused by spoke: HTTP ', (string) $code );
+			return;
+		}
+		$issued = \json_decode( $body, true, 8 );
+		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
+		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		if ( '' === $handle || '' === $key ) {
+			$this->print_less_often( 'spoke returned a malformed session' );
+			return;
+		}
+		Command_Auth::remember_session( $this->vault_id, $handle, $key );
+		if ( [] !== $this->batch && ! $this->batch_timer_armed ) {
+			$this->set_timer( 0, true );
+			$this->batch_timer_armed = true;
+		}
 	}
 
 	/**
@@ -410,6 +400,16 @@ class HTTP_Out_Node extends Timer_Node {
 	/** Unregister an easy handle from the shared multi. Idempotent. */
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
+	}
+
+	/**
+	 * Which spoke this egress speaks for. A minter resolves the target node at
+	 * fill time and asks, because the node name and the vault id are independent
+	 * — the live hub names one `settings:tw0` for vault id `tw0`.
+	 * @api Read by minters that sign per destination.
+	 */
+	public function vault_id(): string {
+		return $this->vault_id;
 	}
 
 	/** @api Resolved by make_node; consumed by topology wiring + later slices. */

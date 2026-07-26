@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`Node.command()` completes the message; `Node.mint()` is gone.** It now
+  marks LOCAL and signs at build, as Tachikoma's `Node.pm::command()` does.
+  Safe because LOCAL cannot leave the process — `packed()` slices to 7 fields,
+  `unpacked()` rejects 8 — and the signature covers only the semantics (ts,
+  name, arguments, nonce), so a caller may still rewrite TO/FROM afterwards,
+  which `Shell.sendCommand` and `RemoteIpc` both do. Returns null when
+  unauthenticated, and asks for a session.
+
 ### Fixed
+- **Two callers dereferenced an unauthenticated command.**
+  `Shell.sendCommand` and `RemoteIpc.fill` used the built message without a
+  null check, so with no session they threw `Cannot set properties of null`
+  instead of holding for the re-auth. Latent since the gate was introduced.
 - **`log` output from a `/command` verb reaches the browser.** The server's
   stderr handler mints its line with no TO and `fill()`s it straight into the
   sink — fine in-process, but when that sink is the `_output` response writer
