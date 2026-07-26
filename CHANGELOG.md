@@ -71,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve the target node at fill time and ask, because the node name and the
   vault id are independent (the live hub names one `settings:tw0` for id `tw0`).
 
+### Fixed
+- **The canonical signing string now encodes exactly as `JSON.stringify` does.**
+  PHP escaped `/` as `\/` and non-ASCII as `\uXXXX` by default; JavaScript does
+  neither, so a browser-signed command carrying a path — `make_node Log x
+  /tmp/...` — would have produced a signature that never verifies. The two
+  encodings are pinned by a test that recomputes the HMAC over the string a
+  `JSON.stringify` signer emits.
+
 ### Security
 - **Session keys are namespaced per site.** The cache is shared infrastructure,
   not a trusted store; a handle minted by another install, or planted directly
