@@ -598,6 +598,34 @@ class CoreTest extends TestCase {
 		$this->assertNotNull( $err );
 		$this->assertNotSame( '', $err );
 	}
+	/**
+	 * The spawn POST carries the rotating spawn token, and Spawn_Controller
+	 * accepts that token BEFORE the capability and nonce checks — so anyone who
+	 * can answer for the site's own hostname could present any certificate and
+	 * capture it. Verification is on by default; the knob exists because a
+	 * self-signed internal certificate is a real deployment.
+	 */
+	public function test_the_spawn_post_verifies_tls_by_default(): void {
+		$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
+			->invoke( null, 'https://example.test/spawn', 'a=b' );
+
+		$this->assertSame( 2, $opts[ \CURLOPT_SSL_VERIFYHOST ] );
+		$this->assertTrue( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
+	}
+
+	public function test_the_spawn_post_honours_the_verification_opt_out(): void {
+		Core::$verify_spawn_tls = false;
+		try {
+			$opts = ( new \ReflectionMethod( Core::class, 'post_curl_options' ) )
+				->invoke( null, 'https://example.test/spawn', 'a=b' );
+		} finally {
+			Core::$verify_spawn_tls = true;
+		}
+
+		$this->assertSame( 0, $opts[ \CURLOPT_SSL_VERIFYHOST ] );
+		$this->assertFalse( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
+	}
+
 }
 
 /**
@@ -634,4 +662,5 @@ class CoreTest_SelfUnregisteringNode extends \Newspack_Nodes\Node {
 		self::$log[] = $this->tag;
 		Core::unregister_node( $this->tag );
 	}
+
 }

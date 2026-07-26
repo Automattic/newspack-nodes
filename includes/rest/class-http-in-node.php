@@ -28,6 +28,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Command_Auth;
@@ -117,6 +118,10 @@ class HTTP_In_Node extends Node {
 	 * @return bool|\WP_Error
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
+		$gate = Bootstrap::fleet_gate();
+		if ( null !== $gate ) {
+			return $gate;
+		}
 		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
