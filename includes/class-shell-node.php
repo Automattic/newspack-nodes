@@ -166,7 +166,9 @@ class Shell_Node extends Node {
 			$parsed = $this->parse( $statement );
 			if ( null !== $parsed ) {
 				++$this->counter;
-				$parsed[ Message::KEY ] = $message[ Message::KEY ];
+				if ( '' === $parsed[ Message::KEY ] ) {
+					$parsed[ Message::KEY ] = $message[ Message::KEY ];
+				}
 				Command_Auth::sign( $parsed );
 				$this->sink->fill( $parsed );
 			}
@@ -525,15 +527,15 @@ class Shell_Node extends Node {
 
 		// Shell3:2240-2242 — var scope; overriding FROM re-routes the reply.
 		$message                   = Message::new_message();
-		$message[ Message::FROM ]  = Core::str( Core::$var['message.from'] ?? '', '' )
-			?: Node_Names::OUTPUT . '/' . \getmypid();
-		$message[ Message::KEY ]   = Core::str( Core::$var['message.key'] ?? '', '' );
-		$message[ Message::ID ]    = Core::str( Core::$var['message.id'] ?? '', '' );
 		// A forged TIMESTAMP is a debugging tool; unset keeps the mint clock.
 		$forged                    = Core::str( Core::$var['message.timestamp'] ?? '', '' );
 		if ( '' !== $forged ) {
 			$message[ Message::TIMESTAMP ] = $forged;
 		}
+		$message[ Message::FROM ]  = Core::str( Core::$var['message.from'] ?? '', '' )
+			?: Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::ID ]    = Core::str( Core::$var['message.id'] ?? '', '' );
+		$message[ Message::KEY ]   = Core::str( Core::$var['message.key'] ?? '', '' );
 		// LOCAL taint: in-proc mint, stripped at wire (packed()); local-only.
 		$message[ Message::LOCAL ] = true;
 
