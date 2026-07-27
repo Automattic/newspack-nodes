@@ -239,6 +239,26 @@ describe( 'PromptModal', () => {
 		expect( getByText( 'Save' ).disabled ).toBe( true );
 	} );
 
+	it( 'drops button-primary while disabled so core cannot force #e2e2e2', () => {
+		// `.wp-core-ui .button-primary:disabled` sets its grey with !important,
+		// which no selector outranks — so a disabled primary must stop being one.
+		const { getByText, baseElement } = render(
+			<PromptModal
+				title=""
+				body=""
+				initialValue=""
+				onConfirm={ () => {} }
+				onCancel={ () => {} }
+			/>
+		);
+		expect( getByText( 'Save' ).className ).not.toMatch( /button-primary/ );
+
+		fireEvent.change( baseElement.querySelector( 'input' ), {
+			target: { value: 'gamma' },
+		} );
+		expect( getByText( 'Save' ).className ).toMatch( /button-primary/ );
+	} );
+
 	it( 'disables Save when value fails pattern and shows hint', () => {
 		const { getByText, baseElement } = render(
 			<PromptModal

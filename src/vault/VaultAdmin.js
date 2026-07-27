@@ -20,6 +20,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { useNodeState } from '../runtime/react';
 import { useVaultGraph } from './hooks/useVaultGraph';
 import './vault-admin.scss';
+import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 // The view model before the first list publishes one — drives the loading gate.
 const EMPTY_MODEL = {
@@ -426,7 +427,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( busy ) }
 					id="event-aggregator-add-server"
 					disabled={ busy }
 					onClick={ handleAdd }

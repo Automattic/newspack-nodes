@@ -7,6 +7,7 @@ import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/serializeTsl';
+import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 export function ModalShell( { title, onDismiss, wide = false, children } ) {
 	const ref = useRef( null );
@@ -177,7 +178,7 @@ export function PromptModal( {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( ! valid || '' === value ) }
 					onClick={ submit }
 					disabled={ ! valid || '' === value }
 				>
@@ -296,7 +297,7 @@ export function NewNodeModal( {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( ! valid ) }
 					onClick={ submit }
 					disabled={ ! valid }
 				>
