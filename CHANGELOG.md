@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.2] - 2026-07-27
+
+### Changed
+- **SSE slot TTL raised from 30s to 60s.** The slot expired at exactly the
+  moment the client gave up on heartbeat replies and began re-authenticating
+  (`Remote_Link_Node::HEARTBEAT_INTERVAL * 3`, also 30s) — and the keepalive is
+  gated on having a session, so it cannot refresh the slot during re-auth. With
+  no margin between those two, any re-auth cost the SSE stream: the server's
+  `check_slot` went false and hung up, which the client logged as
+  `disconnected - Connection closed by server`. Re-auth needs at least two
+  cadences (`/auth` is a separate endpoint and can't batch with `/command`, so
+  the tick that calls `ensure_session()` sends nothing else), and 60s leaves
+  three. A new test pins the relationship rather than the number: the slot must
+  outlive the session-forget threshold.
+
 ## [2.2.1] - 2026-07-27
 
 ### Fixed

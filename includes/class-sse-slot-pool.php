@@ -27,8 +27,8 @@ class SSE_Slot_Pool {
 	/** Maximum concurrent SSE streams per user/IP per pool. */
 	public static int $max_slots = 10;
 
-	/** Slot TTL (seconds) */
-	public static int $ttl = 30;
+	/** Slot TTL (seconds). Must outlive the client's session-forget threshold. */
+	public static int $ttl = 60;
 
 	/**
 	 * Install the three `SSE_Out` slot-pool seams. Idempotent. Call from the
