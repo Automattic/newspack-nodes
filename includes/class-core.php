@@ -259,7 +259,7 @@ class Core {
 	 * listeners must write via a Topic/Partition directly, never back through
 	 * stderr(). The function_exists gate keeps Core loadable in WP-less bootstraps.
 	 */
-	public static function _stderr( string $text ): void {
+	public static function _stderr( string $text, bool $raw = false ): void {
 		if ( self::$in_stderr ) {
 			// Re-entry guard: go straight to error_log to avoid recursion.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
@@ -277,7 +277,8 @@ class Core {
 					\error_log( 'newspack_nodes/stderr listener threw: ' . $e->getMessage() );
 				}
 			}
-			( self::$stderr_handler )( $text );
+			// Extra args are ignored by handlers that declare only $text.
+			( self::$stderr_handler )( $text, $raw );
 		} finally {
 			// Reset even if handler throws, else stderr latches to fallback.
 			self::$in_stderr = false;
@@ -306,7 +307,7 @@ class Core {
 		self::$var               = [];
 		self::$memd              = null;
 		self::$secure_level      = null;
-		self::set_stderr_handler( static function ( string $text ): void {
+		self::set_stderr_handler( static function ( string $text, bool $raw = false ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
 				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
@@ -315,7 +316,8 @@ class Core {
 				$message                       = Message::new_message();
 				$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$message[ Message::TIMESTAMP ] = self::$now;
-				$message[ Message::VALUE ]     = self::log_prefix( $text );
+				// $raw = caller composed it; error_log stamps its own.
+				$message[ Message::VALUE ]     = $raw ? $text : self::log_prefix( $text );
 				$sink->fill( $message );
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log

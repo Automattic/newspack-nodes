@@ -1280,6 +1280,11 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 	const [ value, setValue ] = useState( '' );
 	const [ responseFlag, setResponseFlag ] = useState( false );
 	const [ errorFlag, setErrorFlag ] = useState( false );
+	// Blank = keep what the mint stamped (FROM: this session's reply path).
+	const [ from, setFrom ] = useState( '' );
+	const [ id, setId ] = useState( '' );
+	const [ key, setKey ] = useState( '' );
+	const [ timestamp, setTimestamp ] = useState( '' );
 	const [ , action, takesValue ] = COMPOSE_TYPES[ typeIdx ];
 	return (
 		<ModalShell
@@ -1287,24 +1292,6 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 			onDismiss={ onCancel }
 		>
 			<div className="topology-modal__body">
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-to"
-				>
-					{ __( 'To (node)', 'newspack-nodes' ) }
-					<select
-						id="nodes-compose-to"
-						className="topology-modal__input"
-						value={ to }
-						onChange={ ( e ) => setTo( e.target.value ) }
-					>
-						{ nodeNames.map( ( n ) => (
-							<option key={ n } value={ n }>
-								{ n }
-							</option>
-						) ) }
-					</select>
-				</label>
 				<label
 					className="topology-modal__label"
 					htmlFor="nodes-compose-type"
@@ -1355,6 +1342,81 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						{ __( 'TM_ERROR', 'newspack-nodes' ) }
 					</label>
 				</div>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-timestamp"
+				>
+					{ __( 'Timestamp', 'newspack-nodes' ) }
+					<input
+						id="nodes-compose-timestamp"
+						className="topology-modal__input"
+						type="text"
+						value={ timestamp }
+						placeholder={ __( 'now (default)', 'newspack-nodes' ) }
+						onChange={ ( e ) => setTimestamp( e.target.value ) }
+					/>
+				</label>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-from"
+				>
+					{ __( 'From (reply path)', 'newspack-nodes' ) }
+					<input
+						id="nodes-compose-from"
+						className="topology-modal__input"
+						type="text"
+						value={ from }
+						placeholder={ __(
+							'this session (default)',
+							'newspack-nodes'
+						) }
+						onChange={ ( e ) => setFrom( e.target.value ) }
+					/>
+				</label>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-to"
+				>
+					{ __( 'To (node)', 'newspack-nodes' ) }
+					<select
+						id="nodes-compose-to"
+						className="topology-modal__input"
+						value={ to }
+						onChange={ ( e ) => setTo( e.target.value ) }
+					>
+						{ nodeNames.map( ( n ) => (
+							<option key={ n } value={ n }>
+								{ n }
+							</option>
+						) ) }
+					</select>
+				</label>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-id"
+				>
+					{ __( 'ID', 'newspack-nodes' ) }
+					<input
+						id="nodes-compose-id"
+						className="topology-modal__input"
+						type="text"
+						value={ id }
+						onChange={ ( e ) => setId( e.target.value ) }
+					/>
+				</label>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-key"
+				>
+					{ __( 'Key', 'newspack-nodes' ) }
+					<input
+						id="nodes-compose-key"
+						className="topology-modal__input"
+						type="text"
+						value={ key }
+						onChange={ ( e ) => setKey( e.target.value ) }
+					/>
+				</label>
 				{ takesValue && (
 					<label
 						className="topology-modal__label"
@@ -1383,6 +1445,10 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						onConfirm( action, to, value, {
 							response: responseFlag,
 							error: errorFlag,
+							from,
+							id,
+							key,
+							timestamp,
 						} )
 					}
 				>

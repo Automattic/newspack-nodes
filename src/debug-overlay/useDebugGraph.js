@@ -3,7 +3,7 @@ import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
-import { FROM, applyReplyFlags } from '../runtime/message';
+import { FROM, applyComposeFields } from '../runtime/message';
 import { tokenize } from '../runtime/shell-node';
 import names from '../runtime/reserved-node-names.json';
 
@@ -45,7 +45,7 @@ export function useDebugGraph(
 
 	// Echo the line into `_output` then dispatch (reply routes back via FROM).
 	const sendVerb = useCallback(
-		( echoText, path, name, args = '', flags = null ) => {
+		( echoText, path, name, args = '', fields = null ) => {
 			Core.node( names.OUTPUT )?.append( {
 				kind: 'sent',
 				text: echoText,
@@ -57,8 +57,8 @@ export function useDebugGraph(
 				if ( ! parsed[ FROM ] ) {
 					parsed[ FROM ] = names.OUTPUT;
 				}
-				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
-				applyReplyFlags( parsed, flags );
+				// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
+				applyComposeFields( parsed, fields );
 				shell.dispatch( parsed );
 			} else {
 				// Tokenize the raw arg tail at the producer boundary.
@@ -70,8 +70,8 @@ export function useDebugGraph(
 
 	// Non-invoke verbs echo + route via sendVerb (path '' — overlay local).
 	const dispatch = useCallback(
-		( echoLine, name, args, flags ) =>
-			sendVerb( echoLine, '', name, args, flags ),
+		( echoLine, name, args, fields ) =>
+			sendVerb( echoLine, '', name, args, fields ),
 		[ sendVerb ]
 	);
 

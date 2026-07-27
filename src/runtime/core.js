@@ -53,6 +53,21 @@ class CoreImpl {
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
 		}
+		this._stderr( line );
+	}
+
+	/**
+	 * Deliver one already-composed line: telemetry, console, REPL sink. The
+	 * counterpart of PHP Core::_stderr — callers that want Shell3's raw
+	 * `print {*STDERR}` (no prefix, no recentLog tail) come straight here.
+	 *
+	 * @param {string} line The exact text to emit.
+	 * @return {void}
+	 */
+	_stderr( line ) {
+		if ( '' === line || null === line || undefined === line ) {
+			return;
+		}
 		// Classify by log convention: WARNING:/ERROR:/else-debug; WARNING wins.
 		const trimmed = line.replace( /\n$/, '' );
 		if ( /\bWARNING:/.test( line ) ) {

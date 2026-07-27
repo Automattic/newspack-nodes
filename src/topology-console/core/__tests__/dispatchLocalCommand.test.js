@@ -20,10 +20,10 @@ describe( 'dispatchLocalCommand', () => {
 		expect( append ).not.toHaveBeenCalled();
 	} );
 
-	it( 'echo: appends a recv entry with the text and returns true', () => {
+	it( 'print: appends a recv entry with the text and returns true', () => {
 		const { append, clear, debugLevelRef } = make();
 		const handled = dispatchLocalCommand( {
-			parsed: { kind: 'local', name: 'echo', text: 'hi there' },
+			parsed: { kind: 'local', name: 'print', text: 'hi there' },
 			append,
 			clear,
 			debugLevelRef,

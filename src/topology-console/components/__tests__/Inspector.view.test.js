@@ -463,13 +463,11 @@ describe( 'Inspector (view mode)', () => {
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		// Pick TM_INFO (tell_node) by its option label, not a fixed index.
-		const selects = document.body.querySelectorAll(
-			'.topology-modal__body select'
-		);
-		const infoOption = Array.from( selects[ 1 ].options ).find( ( o ) =>
+		const typeSelect = document.body.querySelector( '#nodes-compose-type' );
+		const infoOption = Array.from( typeSelect.options ).find( ( o ) =>
 			/TM_INFO/.test( o.textContent )
 		);
-		fireEvent.change( selects[ 1 ], {
+		fireEvent.change( typeSelect, {
 			target: { value: infoOption.value },
 		} );
 		fireEvent.change(
@@ -484,6 +482,10 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'tell', 'echo', 'hi', {
 			response: false,
 			error: false,
+			from: '',
+			id: '',
+			key: '',
+			timestamp: '',
 		} );
 	} );
 
@@ -588,6 +590,86 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
 			response: true,
 			error: true,
+			from: '',
+			id: '',
+			key: '',
+			timestamp: '',
+		} );
+	} );
+
+	it( 'no-node Compose lays its controls out in Message field order', () => {
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		const ids = Array.from(
+			document.body.querySelectorAll(
+				'.topology-modal__body [id^="nodes-compose-"]'
+			)
+		).map( ( el ) => el.id );
+		// TYPE(0) TIMESTAMP(1) FROM(2) TO(3) ID(4) KEY(5) VALUE(6).
+		expect( ids ).toEqual( [
+			'nodes-compose-type',
+			'nodes-compose-response',
+			'nodes-compose-error',
+			'nodes-compose-timestamp',
+			'nodes-compose-from',
+			'nodes-compose-to',
+			'nodes-compose-id',
+			'nodes-compose-key',
+			'nodes-compose-value',
+		] );
+	} );
+
+	it( 'no-node Compose FROM / ID / KEY / TIMESTAMP inputs pass their values through onConfirm', () => {
+		const onAction = jest.fn();
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				onAction={ onAction }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [],
+				} }
+			/>
+		);
+		fireEvent.click( getByText( 'Compose' ) );
+		fireEvent.change(
+			document.body.querySelector( '#nodes-compose-from' ),
+			{ target: { value: 'elsewhere/sink' } }
+		);
+		fireEvent.change( document.body.querySelector( '#nodes-compose-id' ), {
+			target: { value: '4242' },
+		} );
+		fireEvent.change( document.body.querySelector( '#nodes-compose-key' ), {
+			target: { value: 'trace-77' },
+		} );
+		fireEvent.change(
+			document.body.querySelector( '#nodes-compose-timestamp' ),
+			{ target: { value: '1700000000' } }
+		);
+		fireEvent.change(
+			document.body.querySelector( '#nodes-compose-value' ),
+			{ target: { value: 'hi' } }
+		);
+		fireEvent.click(
+			document.body.querySelector(
+				'.topology-modal__actions .button-primary'
+			)
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'hi', {
+			response: false,
+			error: false,
+			from: 'elsewhere/sink',
+			id: '4242',
+			key: 'trace-77',
+			timestamp: '1700000000',
 		} );
 	} );
 
@@ -624,6 +706,10 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenLastCalledWith( 'cmd', 'echo', 'again', {
 			response: false,
 			error: false,
+			from: '',
+			id: '',
+			key: '',
+			timestamp: '',
 		} );
 	} );
 

@@ -11,12 +11,16 @@
  */
 
 import { markLocal } from './command-auth';
+import { Core } from './core';
 import { Node, serializeArg } from './node';
 import {
 	newMessage,
 	TYPE,
 	FROM,
 	TO,
+	ID,
+	KEY,
+	TIMESTAMP,
 	VALUE,
 	TM_COMMAND,
 	TM_PING,
@@ -51,6 +55,31 @@ const VERB_ALIASES = {
  */
 const BUILTIN_VERBS = new Set( [ 'include', 'var' ] );
 
+// `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`.
+const VAR_GRAMMAR =
+	/^([^\s=+\-*/.|]+(?:\.[^\s=+\-*/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*/]=|\+\+|--|=)?([\s\S]*)$/;
+
+/**
+ * Per-quote-type escapes, ported from Shell3's string1/string2/string3
+ * expansion. Double quotes expand sequences; single quotes and backticks stay
+ * literal so a deferred `<token>` survives to its downstream binder. An
+ * unlisted `\X` keeps both characters (Perl leaves it untouched too).
+ */
+const ESCAPES = {
+	'"': {
+		e: '\x1b',
+		n: '\n',
+		r: '\r',
+		t: '\t',
+		'"': '"',
+		'\\': '\\',
+		'<': '<',
+		'>': '>',
+	},
+	"'": { "'": "'", '\\': '\\' },
+	'`': { '`': '`', '\\': '\\' },
+};
+
 /**
  * The one tokenizer state machine ('/"/` + backslash escapes): splits on
  * unquoted whitespace; an empty quoted string still counts as a token. Yields
@@ -72,10 +101,11 @@ export function scanTokens( line ) {
 	for ( let i = 0; i < line.length; i++ ) {
 		const ch = line[ i ];
 		if ( null !== inQuote ) {
-			// Inside a quote, `\` escapes the next char (see serializeArg).
+			// Escapes are quote-typed: only double quotes expand sequences.
 			if ( '\\' === ch && i + 1 < line.length ) {
-				raw += ch + line[ i + 1 ];
-				buf += line[ ++i ];
+				const next = line[ ++i ];
+				raw += ch + next;
+				buf += ESCAPES[ inQuote ][ next ] ?? ch + next;
 				continue;
 			}
 			raw += ch;
@@ -85,6 +115,17 @@ export function scanTokens( line ) {
 				buf += ch;
 			}
 			continue;
+		}
+		// Shell3:411 string4 — `\X` is a literal X; a trailing `\` is skipped.
+		if ( '\\' === ch && i + 1 < line.length ) {
+			raw += ch + line[ i + 1 ];
+			buf += line[ ++i ];
+			inToken = true;
+			continue;
+		}
+		// Shell3:303 — outside a quote, `#` comments out the rest.
+		if ( '#' === ch ) {
+			break;
 		}
 		if ( '"' === ch || "'" === ch || '`' === ch ) {
 			inQuote = ch;
@@ -174,6 +215,15 @@ export function splitStatements( line ) {
 			}
 			continue;
 		}
+		if ( '\\' === ch && i + 1 < line.length ) {
+			buf += ch + line[ ++i ];
+			continue;
+		}
+		// A `;` inside a comment tail must not split the statement.
+		if ( '#' === ch ) {
+			buf += line.slice( i );
+			break;
+		}
 		if ( "'" === ch || '"' === ch || '`' === ch ) {
 			inQuote = ch;
 			buf += ch;
@@ -241,6 +291,18 @@ function splitStatementsIndexed( script ) {
 				}
 				continue;
 			}
+			if ( '\\' === ch && i + 1 < line.length ) {
+				if ( 0 === stmtLine ) {
+					stmtLine = lineNo;
+				}
+				buf += ch + line[ ++i ];
+				continue;
+			}
+			// A `;` inside a comment tail must not split the statement.
+			if ( '#' === ch ) {
+				buf += line.slice( i );
+				break;
+			}
 			if ( "'" === ch || '"' === ch || '`' === ch ) {
 				if ( 0 === stmtLine ) {
 					stmtLine = lineNo;
@@ -289,6 +351,18 @@ function splitStatementsIndexed( script ) {
  * @param {Array<{text: string, line: number}>} indexed Indexed statements.
  * @return {Array<{text: string, line: number}>} Continuation-joined statements.
  */
+/**
+ * A line continues only on an ODD run of trailing backslashes — an even run is
+ * escaped literals (`a\\` is one backslash, a complete line). Mirrors PHP
+ * Shell_Node::is_continuation.
+ *
+ * @param {string} line Statement text.
+ * @return {boolean} True when the next line splices onto this one.
+ */
+function isContinuation( line ) {
+	return 0 !== ( line.length - line.replace( /\\+$/, '' ).length ) % 2;
+}
+
 function joinStatementContinuations( indexed ) {
 	const out = [];
 	let acc = '';
@@ -298,7 +372,7 @@ function joinStatementContinuations( indexed ) {
 			accLine = statement.line;
 		}
 		const { text } = statement;
-		if ( text.endsWith( '\\' ) ) {
+		if ( isContinuation( text ) ) {
 			acc += text.slice( 0, -1 );
 			continue;
 		}
@@ -465,7 +539,7 @@ export class ShellNode extends Node {
 	parse( line ) {
 		let raw = line || '';
 		// Backslash splice first (bash: hi\ + bye = hibye), mirroring PHP.
-		if ( raw.endsWith( '\\' ) && '' === this.quoteContinuation ) {
+		if ( isContinuation( raw ) && '' === this.quoteContinuation ) {
 			this.lineContinuation += raw.slice( 0, -1 );
 			return null;
 		}
@@ -476,6 +550,11 @@ export class ShellNode extends Node {
 		if ( '' !== this.quoteContinuation ) {
 			raw = this.quoteContinuation + '\n' + raw;
 			this.quoteContinuation = '';
+		}
+		// Settle comments first: interpolating an inert line warns spuriously.
+		const trimmedRaw = raw.trim();
+		if ( ! trimmedRaw || '#' === trimmedRaw[ 0 ] ) {
+			return null;
 		}
 		// Interpolate first so `<var>` can expand into leading whitespace.
 		const trimmed = this.interpolate( raw ).trim();
@@ -511,8 +590,9 @@ export class ShellNode extends Node {
 			return { kind: 'local', name: 'clear' };
 		}
 
-		if ( 'echo' === verb ) {
-			return { kind: 'local', name: 'echo', text: join( 0 ) };
+		// Shell3:1363 — verbatim; the newline is the caller's. No `echo`.
+		if ( 'print' === verb ) {
+			return { kind: 'local', name: 'print', text: join( 0 ) };
 		}
 
 		if ( 'show_parse' === verb ) {
@@ -528,26 +608,8 @@ export class ShellNode extends Node {
 			};
 		}
 
-		// `var name=value`: splits on the FIRST `=`; `:` names are reserved.
 		if ( 'var' === verb ) {
-			const assignment = join( 0 );
-			const eq = assignment.indexOf( '=' );
-			if ( -1 === eq ) {
-				return { kind: 'error', text: 'var: expected name=value' };
-			}
-			const name = assignment.slice( 0, eq ).trim();
-			const value = assignment.slice( eq + 1 ).trim();
-			if ( '' === name ) {
-				return { kind: 'error', text: 'var: empty name' };
-			}
-			if ( name.includes( ':' ) ) {
-				return {
-					kind: 'error',
-					text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
-				};
-			}
-			this.vars[ name ] = value;
-			return null;
+			return this.varCommand( join( 0 ) );
 		}
 
 		if ( 'debug_level' === verb ) {
@@ -582,7 +644,15 @@ export class ShellNode extends Node {
 
 		const message = newMessage();
 		const to = args[ 0 ] ?? '';
-		message[ FROM ] = this.replyFrom( names.OUTPUT );
+		// Shell3:2240-2242 — var scope; overriding FROM re-routes the reply.
+		message[ FROM ] =
+			this.vars[ 'message.from' ] || this.replyFrom( names.OUTPUT );
+		message[ KEY ] = this.vars[ 'message.key' ] ?? '';
+		message[ ID ] = this.vars[ 'message.id' ] ?? '';
+		// A forged TIMESTAMP is a debugging tool; unset keeps the mint clock.
+		if ( this.vars[ 'message.timestamp' ] ) {
+			message[ TIMESTAMP ] = this.vars[ 'message.timestamp' ];
+		}
 		message[ TO ] = this.prefix( to );
 
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
@@ -678,6 +748,139 @@ export class ShellNode extends Node {
 	}
 
 	/**
+	 * `var [ <name> [ <op> [ <value> ] ] ]` — port of Shell3's var_assignment,
+	 * mirroring PHP Shell_Node::var_command. Bare lists every var; a name alone
+	 * prints its value and autovivifies it to empty (Shell3.pm:2715); `<name> =`
+	 * with no value DELETES it (Shell3.pm:2839); else the operator set applies.
+	 *
+	 * @param {string} assignment The raw token tail.
+	 * @return {Object|null} A local echo/error signal, or null.
+	 */
+	varCommand( assignment ) {
+		// trimStart only: a trailing whitespace VALUE must reach the grammar.
+		const line = assignment.replace( /^\s+/, '' );
+		if ( '' === line.replace( /\s+$/, '' ) ) {
+			const text = Object.keys( this.vars )
+				.sort()
+				.map(
+					( n ) =>
+						`${ n }=${ String( this.vars[ n ] ).replace(
+							/\n$/,
+							''
+						) }\n`
+				)
+				.join( '' );
+			return '' === text ? null : { kind: 'local', name: 'print', text };
+		}
+
+		const m = VAR_GRAMMAR.exec( line );
+		if ( ! m ) {
+			return {
+				kind: 'error',
+				text: 'var: expected <name> [ <op> [ <value> ] ]',
+			};
+		}
+		const [ , name, op = '', rest = '' ] = m;
+		// Shell3:2825 — a value TOKEN sets (even if blank); none deletes.
+		const hasValue = '' !== rest;
+		if ( name.includes( ':' ) ) {
+			return {
+				kind: 'error',
+				text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
+			};
+		}
+		const value = rest.trim();
+
+		if ( '' === op ) {
+			// Shell3:630 fatals on trailing junk where an operator belongs.
+			if ( '' !== value ) {
+				return {
+					kind: 'error',
+					text: `var: unexpected token in assignment: ${ value }`,
+				};
+			}
+			// Reading defines the key — Shell3's `$hash->{$name} //= q()`.
+			this.vars[ name ] ??= '';
+			const read = String( this.vars[ name ] );
+			// Printed verbatim: an empty value prints nothing at all.
+			return '' === read
+				? null
+				: { kind: 'local', name: 'print', text: read };
+		}
+		return this.operate( name, op, value, hasValue );
+	}
+
+	/**
+	 * Shell3's `operate()` / `operate_with_value()` over one var.
+	 *
+	 * @param {string}  name     Var name.
+	 * @param {string}  op       One of `= .= += -= *= /= //= ||= ++ --`.
+	 * @param {string}  value    Right-hand side, already stripped.
+	 * @param {boolean} hasValue Whether a value token followed the operator;
+	 *                           false selects the delete / `++` / `--` branch.
+	 * @return {Object|null} A local error signal, or null.
+	 */
+	operate( name, op, value, hasValue ) {
+		const exists = name in this.vars;
+		const current = exists ? String( this.vars[ name ] ) : '';
+		// JS prints an integral Number without a fractional part, as Perl does.
+		const num = ( s ) => Number( parseFloat( s ) ) || 0;
+
+		if ( ! hasValue ) {
+			// Valueless: only these three exist; the rest are usage errors.
+			if ( '=' === op ) {
+				delete this.vars[ name ];
+			} else if ( '++' === op ) {
+				this.vars[ name ] = String( num( current ) + 1 );
+			} else if ( '--' === op ) {
+				this.vars[ name ] = String( num( current ) - 1 );
+			} else {
+				return { kind: 'error', text: `var: bad arguments: ${ op }` };
+			}
+			return null;
+		}
+
+		switch ( op ) {
+			case '=':
+				this.vars[ name ] = value;
+				return null;
+			case '.=':
+				this.vars[ name ] = exists ? `${ current } ${ value }` : value;
+				return null;
+			case '//=':
+				if ( ! exists ) {
+					this.vars[ name ] = value;
+				}
+				return null;
+			case '||=':
+				if ( '' === current || '0' === current ) {
+					this.vars[ name ] = value;
+				}
+				return null;
+			case '/=':
+				if ( 0 === num( value ) ) {
+					return { kind: 'error', text: 'var: division by zero' };
+				}
+				this.vars[ name ] = String( num( current ) / num( value ) );
+				return null;
+			case '+=':
+				this.vars[ name ] = String( num( current ) + num( value ) );
+				return null;
+			case '-=':
+				this.vars[ name ] = String( num( current ) - num( value ) );
+				return null;
+			case '*=':
+				this.vars[ name ] = String( num( current ) * num( value ) );
+				return null;
+			default:
+				return {
+					kind: 'error',
+					text: `var: invalid operator: ${ op }`,
+				};
+		}
+	}
+
+	/**
 	 * Quote-aware single-tier interpolation (mirrors PHP Shell_Node::interpolate,
 	 * runs before tokenizing). Outside quotes and inside double quotes: `<name>` →
 	 * vars, `<config:foo>` → config, unknown → ''. Inside single quotes or
@@ -704,6 +907,16 @@ export class ShellNode extends Node {
 				i++;
 				continue;
 			}
+			// An escape pair passes through; tokenize() resolves it later.
+			if ( '\\' === ch && i + 1 < line.length ) {
+				out += ch + line[ i + 1 ];
+				i += 2;
+				continue;
+			}
+			// A comment tail is inert — copy it verbatim, expand nothing.
+			if ( '#' === ch ) {
+				return out + line.slice( i );
+			}
 			if ( "'" === ch || '`' === ch ) {
 				literal = ch;
 				out += ch;
@@ -715,9 +928,18 @@ export class ShellNode extends Node {
 				const m = token.exec( line );
 				if ( m ) {
 					const key = m[ 1 ];
-					out += key.startsWith( 'config:' )
-						? String( this.config[ key.slice( 7 ) ] ?? '' )
-						: String( this.vars[ key ] ?? '' );
+					if ( key.startsWith( 'config:' ) ) {
+						out += String( this.config[ key.slice( 7 ) ] ?? '' );
+					} else {
+						// get_shared: undefined warns, defined-empty is silent.
+						if ( ! ( key in this.vars ) ) {
+							// Raw like Shell3's `print {*STDERR}` — no prefix.
+							Core._stderr(
+								`WARNING: use of uninitialized value <${ key }>\n`
+							);
+						}
+						out += String( this.vars[ key ] ?? '' );
+					}
 					i += m[ 0 ].length;
 					continue;
 				}

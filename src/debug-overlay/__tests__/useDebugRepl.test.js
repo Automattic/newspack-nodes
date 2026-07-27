@@ -250,11 +250,11 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'sendLine `echo hello world` appends a recv entry with that text', () => {
+	it( 'sendLine `print hello world` appends a recv entry with that text', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		act( () => result.current.sendLine( 'echo hello world' ) );
+		act( () => result.current.sendLine( 'print hello world' ) );
 		const recv = result.current.transcript.find(
 			( e ) => e.kind === 'recv'
 		);
@@ -394,7 +394,7 @@ describe( 'useDebugRepl', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		act( () => result.current.sendLine( 'echo one; echo two' ) );
+		act( () => result.current.sendLine( 'print one; print two' ) );
 		const recvs = result.current.transcript
 			.filter( ( e ) => e.kind === 'recv' )
 			.map( ( e ) => e.text );

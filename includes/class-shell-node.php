@@ -99,6 +99,36 @@ class Shell_Node extends Node {
 	private const BUILTIN_VERBS = [ 'include', 'var' ];
 
 	/**
+	 * Per-quote-type escape rules, ported from Shell3's string1/string2/string3
+	 * expansion. Double quotes expand sequences; single quotes and backticks
+	 * stay literal so a deferred `<token>` survives to its downstream binder.
+	 * An unlisted `\X` keeps both characters (Perl leaves it untouched too).
+	 */
+	private const ESCAPES = [
+		'"'  => [
+			'e'    => "\e",
+			'n'    => "\n",
+			'r'    => "\r",
+			't'    => "\t",
+			'"'    => '"',
+			'\\'   => '\\',
+			'<'    => '<',
+			'>'    => '>',
+		],
+		"'"  => [
+			"'"  => "'",
+			'\\' => '\\',
+		],
+		'`'  => [
+			'`'  => '`',
+			'\\' => '\\',
+		],
+	];
+
+	/** `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`. */
+	private const VAR_GRAMMAR = '/^([^\s=+\-*\/.|]+(?:\.[^\s=+\-*\/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*\/]=|\+\+|--|=)?(.*)$/s';
+
+	/**
 	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
 	 * Message and dispatch it. Anything else (a pre-built command from
 	 * dispatch_line, a completion query, an EOF/ping marker) passes straight
@@ -238,6 +268,15 @@ class Shell_Node extends Node {
 					$buf     .= $ch;
 					continue;
 				}
+				if ( '\\' === $ch && $i + 1 < $length ) {
+					$buf .= $ch . $line[ ++$i ];
+					continue;
+				}
+				// A `;` inside a comment tail must not split the statement.
+				if ( '#' === $ch ) {
+					$buf .= \substr( $line, $i );
+					break;
+				}
 				if ( ';' === $ch ) {
 					$trim = \trim( $buf );
 					if ( '' !== $trim ) {
@@ -279,6 +318,15 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * A line continues only on an ODD run of trailing backslashes — an even run
+	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
+	 * now that a backslash escapes outside quotes too.
+	 */
+	private static function is_continuation( string $line ): bool {
+		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
+	}
+
+	/**
 	 * Fold trailing-backslash continuations across the statement stream — the same
 	 * splice parse() performs, applied statelessly. The joined statement keeps the
 	 * FIRST physical line of its run; an unterminated trailing continuation yields
@@ -296,7 +344,7 @@ class Shell_Node extends Node {
 				$acc_line = $statement['line'];
 			}
 			$text = $statement['text'];
-			if ( \str_ends_with( $text, '\\' ) ) {
+			if ( self::is_continuation( $text ) ) {
 				$acc .= \substr( $text, 0, -1 );
 				continue;
 			}
@@ -375,7 +423,7 @@ class Shell_Node extends Node {
 	 */
 	public function parse( string $line ): ?array {
 		// Backslash splice: the \<newline> vanishes (bash: hi\+bye = hibye).
-		if ( \str_ends_with( $line, '\\' ) ) {
+		if ( self::is_continuation( $line ) ) {
 			$this->continuation .= \substr( $line, 0, -1 );
 			if ( '' === $this->prompt_stash ) {
 				$this->prompt_stash = $this->prompt;
@@ -392,6 +440,12 @@ class Shell_Node extends Node {
 			$this->quote_continuation = '';
 		}
 		$raw = $line;
+
+		// Settle comments first: interpolating an inert line warns spuriously.
+		$trimmed_raw = \trim( $line );
+		if ( '' === $trimmed_raw || '#' === $trimmed_raw[0] ) {
+			return null;
+		}
 
 		$line = $this->interpolate( $line );
 
@@ -441,8 +495,9 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		if ( 'echo' === $verb ) {
-			$this->stdout( \implode( ' ', $args ) . "\n" );
+		// Shell3:1363 — verbatim; the newline is the caller's. No `echo`.
+		if ( 'print' === $verb ) {
+			$this->stdout( \implode( ' ', $args ) );
 			return null;
 		}
 
@@ -472,31 +527,22 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		// Var assignment splits on the first equals; colon-names are reserved.
 		if ( 'var' === $verb ) {
-			$assignment = \implode( ' ', $args );
-			$eq         = \strpos( $assignment, '=' );
-			if ( false === $eq ) {
-				$this->stdout( "var: expected name=value\n" );
-				return null;
-			}
-			$name  = \trim( \substr( $assignment, 0, $eq ) );
-			$value = \trim( \substr( $assignment, $eq + 1 ) );
-			if ( '' === $name ) {
-				$this->stdout( "var: empty name\n" );
-				return null;
-			}
-			if ( \str_contains( $name, ':' ) ) {
-				$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
-				return null;
-			}
-			Core::$var[ $name ] = $value;
+			$this->var_command( \implode( ' ', $args ) );
 			return null;
 		}
 
-		// FROM=`_output/$pid` so replies route back to this session's Dumper.
+		// Shell3:2240-2242 — var scope; overriding FROM re-routes the reply.
 		$message                   = Message::new_message();
-		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::FROM ]  = Core::str( Core::$var['message.from'] ?? '', '' )
+			?: Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::KEY ]   = Core::str( Core::$var['message.key'] ?? '', '' );
+		$message[ Message::ID ]    = Core::str( Core::$var['message.id'] ?? '', '' );
+		// A forged TIMESTAMP is a debugging tool; unset keeps the mint clock.
+		$forged                    = Core::str( Core::$var['message.timestamp'] ?? '', '' );
+		if ( '' !== $forged ) {
+			$message[ Message::TIMESTAMP ] = $forged;
+		}
 		// LOCAL taint: in-proc mint, stripped at wire (packed()); local-only.
 		$message[ Message::LOCAL ] = true;
 
@@ -579,6 +625,123 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * `var [ <name> [ <op> [ <value> ] ] ]` — port of Shell3's var_assignment.
+	 *
+	 * Bare lists every var as `name=value`; a name alone prints its value and
+	 * autovivifies it to empty (Shell3.pm:2715); `<name> =` with no value
+	 * DELETES it (Shell3.pm:2839); otherwise the operator set applies.
+	 */
+	private function var_command( string $assignment ): void {
+		// ltrim only: a trailing whitespace VALUE must reach the grammar.
+		$assignment = \ltrim( $assignment );
+		if ( '' === \rtrim( $assignment ) ) {
+			$out = '';
+			$all = Core::$var;
+			\ksort( $all );
+			foreach ( $all as $name => $value ) {
+				$out .= $name . '=' . \rtrim( Core::as_string( $value, '' ), "\n" ) . "\n";
+			}
+			if ( '' !== $out ) {
+				$this->stdout( $out );
+			}
+			return;
+		}
+
+		if ( ! \preg_match( self::VAR_GRAMMAR, $assignment, $m ) ) {
+			$this->stdout( "var: expected <name> [ <op> [ <value> ] ]\n" );
+			return;
+		}
+		[ , $name, $op, $raw_value ] = $m + [ 3 => '' ];
+		// Shell3:2825 — a value TOKEN sets (even if blank); none deletes.
+		$has_value = '' !== $raw_value;
+		$value     = \trim( $raw_value );
+		if ( \str_contains( $name, ':' ) ) {
+			$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
+			return;
+		}
+
+		if ( '' === $op ) {
+			// Shell3:630 fatals on trailing junk where an operator belongs.
+			if ( '' !== $value ) {
+				$this->stdout( "var: unexpected token in assignment: {$value}\n" );
+				return;
+			}
+			// Reading defines the key — Shell3's `$hash->{$name} //= q()`.
+			Core::$var[ $name ] ??= '';
+			$read                 = Core::as_string( Core::$var[ $name ], '' );
+			// Printed verbatim: an empty value prints nothing at all.
+			if ( '' !== $read ) {
+				$this->stdout( $read );
+			}
+			return;
+		}
+
+		$this->operate( $name, $op, $value, $has_value );
+	}
+
+	/** Shell3's `operate()` / `operate_with_value()` over one var. */
+	private function operate( string $name, string $op, string $value, bool $has_value ): void {
+		$current = Core::as_string( Core::$var[ $name ] ?? '', '' );
+		$exists  = \array_key_exists( $name, Core::$var );
+
+		if ( ! $has_value ) {
+			// Valueless: only these three exist; the rest are usage errors.
+			if ( '=' === $op ) {
+				unset( Core::$var[ $name ] );
+			} elseif ( '++' === $op ) {
+				Core::$var[ $name ] = self::format_number( Core::num_float( $current, 0 ) + 1 );
+			} elseif ( '--' === $op ) {
+				Core::$var[ $name ] = self::format_number( Core::num_float( $current, 0 ) - 1 );
+			} else {
+				$this->stdout( "var: bad arguments: {$op}\n" );
+			}
+			return;
+		}
+
+		switch ( $op ) {
+			case '=':
+				Core::$var[ $name ] = $value;
+				return;
+			case '.=':
+				Core::$var[ $name ] = $exists ? $current . ' ' . $value : $value;
+				return;
+			case '//=':
+				if ( ! $exists ) {
+					Core::$var[ $name ] = $value;
+				}
+				return;
+			case '||=':
+				if ( '' === $current || '0' === $current ) {
+					Core::$var[ $name ] = $value;
+				}
+				return;
+			case '/=':
+				if ( 0.0 === Core::num_float( $value, 0 ) ) {
+					$this->stdout( "var: division by zero\n" );
+					return;
+				}
+				Core::$var[ $name ] = self::format_number( Core::num_float( $current, 0 ) / Core::num_float( $value, 0 ) );
+				return;
+			case '+=':
+			case '-=':
+			case '*=':
+				$left               = Core::num_float( $current, 0 );
+				$right              = Core::num_float( $value, 0 );
+				Core::$var[ $name ] = self::format_number(
+					'+=' === $op ? $left + $right : ( '-=' === $op ? $left - $right : $left * $right )
+				);
+				return;
+			default:
+				$this->stdout( "var: invalid operator: {$op}\n" );
+		}
+	}
+
+	/** Perl prints an integral float without its fractional part. */
+	private static function format_number( float $n ): string {
+		return (float) (int) $n === $n ? (string) (int) $n : (string) $n;
+	}
+
+	/**
 	 * Quote-aware single-tier interpolation. Outside quotes and inside double
 	 * quotes: `<ns:key>` → that namespace's registered resolver
 	 * (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
@@ -602,6 +765,16 @@ class Shell_Node extends Node {
 				++$i;
 				continue;
 			}
+			// An escape pair passes through; tokenize() resolves it later.
+			if ( '\\' === $ch && $i + 1 < $length ) {
+				$out .= $ch . $line[ $i + 1 ];
+				$i   += 2;
+				continue;
+			}
+			// A comment tail is inert — copy it verbatim, expand nothing.
+			if ( '#' === $ch ) {
+				return $out . \substr( $line, $i );
+			}
 			if ( "'" === $ch || '`' === $ch ) {
 				$literal = $ch;
 				$out    .= $ch;
@@ -611,9 +784,16 @@ class Shell_Node extends Node {
 			if ( '<' === $ch && \preg_match( '/\G<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/', $line, $m, 0, $i ) ) {
 				$key   = $m[1];
 				$colon = \strpos( $key, ':' );
-				$out  .= ( false !== $colon )
-					? Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) )
-					: ( Core::$var[ $key ] ?? '' );
+				if ( false !== $colon ) {
+					$out .= Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
+				} else {
+					// get_shared: undefined warns, defined-empty is silent.
+					if ( ! \array_key_exists( $key, Core::$var ) ) {
+						// Raw, like Shell3's `print {*STDERR}`: no prefix.
+						Core::_stderr( "WARNING: use of uninitialized value <{$key}>\n", true );
+					}
+					$out .= Core::as_string( Core::$var[ $key ] ?? '', '' );
+				}
 				$i    += \strlen( $m[0] );
 				continue;
 			}
@@ -665,10 +845,11 @@ class Shell_Node extends Node {
 		for ( $i = 0; $i < $length; ++$i ) {
 			$ch = $line[ $i ];
 			if ( null !== $in_quote ) {
-				// Inside a quote, `\` escapes the next char.
+				// Escapes are quote-typed: only double quotes expand sequences.
 				if ( '\\' === $ch && $i + 1 < $length ) {
-					$raw .= $ch . $line[ $i + 1 ];
-					$buf .= $line[ ++$i ];
+					$next  = $line[ ++$i ];
+					$raw  .= $ch . $next;
+					$buf  .= self::ESCAPES[ $in_quote ][ $next ] ?? ( $ch . $next );
 					continue;
 				}
 				$raw .= $ch;
@@ -678,6 +859,17 @@ class Shell_Node extends Node {
 					$buf .= $ch;
 				}
 				continue;
+			}
+			// Shell3:411 — `\X` is literal X; a trailing `\` is skipped.
+			if ( '\\' === $ch && $i + 1 < $length ) {
+				$raw     .= $ch . $line[ $i + 1 ];
+				$buf     .= $line[ ++$i ];
+				$in_token = true;
+				continue;
+			}
+			// Shell3:303 — outside a quote, `#` comments out the rest.
+			if ( '#' === $ch ) {
+				break;
 			}
 			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
 				$in_quote = $ch;

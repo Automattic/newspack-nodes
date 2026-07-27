@@ -1,7 +1,7 @@
 import { resolveSkin, formatSkinList } from './skinCommands';
 
 /**
- * Apply a `parsed.kind === 'local'` REPL builtin (clear/echo/status/debug_level/
+ * Apply a `parsed.kind === 'local'` REPL builtin (clear/print/status/debug_level/
  * show_parse/set_skin/list_skins) — the no-SSE, no-attached-worker dispatch shared
  * by the debug overlay and the topology console. Pure: effects flow through the
  * injected `append` (one transcript entry) / `clear` (wipe transcript) /
@@ -45,7 +45,7 @@ export function dispatchLocalCommand( {
 			kind: 'info',
 			text: `debug_level: ${ debugLevelRef.current }`,
 		} );
-	} else if ( 'echo' === parsed.name ) {
+	} else if ( 'print' === parsed.name ) {
 		append( { kind: 'recv', text: parsed.text } );
 	} else if ( 'status' === parsed.name ) {
 		for ( const line of parsed.lines ) {
