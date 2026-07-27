@@ -153,8 +153,10 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		try {
 			$sink->fill( $message );
-			// SSE_In resume = line's local exclusive end, not remote crumb len.
-			$this->sse_in?->restore_position( $this->cursor_segment, $this->cursor_offset + \strlen( $line ) + 1 );
+			// Remote offset + remote length; crumb-less keeps the prior cursor.
+			if ( null !== $crumb ) {
+				$this->sse_in?->restore_position( $this->cursor_segment, $this->cursor_offset + $crumb['length'] );
+			}
 			// Clear streak on forward itself (cursor at boot); not in crawl.
 			if ( ! $this->crawl && $this->attempts > 1 ) {
 				$this->attempts       = 1;
