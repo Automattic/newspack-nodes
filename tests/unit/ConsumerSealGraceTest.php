@@ -215,7 +215,7 @@ class ConsumerSealGraceTest extends TestCase {
 		$interp->patron( $c );
 
 		$set = $this->read_private( $c, 'interpreter' )->commands()['set_multi_writer'];
-		$this->assertSame( 'ok', $set( $interp, [ 'true' ] ) );
+		$this->assertSame( "ok\n", $set( $interp, [ 'true' ] ) );
 		$prop = new \ReflectionProperty( Consumer_Node::class, 'multi_writer' );
 		$this->assertTrue( $prop->getValue( $c ) );
 

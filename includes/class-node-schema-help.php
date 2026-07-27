@@ -73,7 +73,7 @@ class Node_Schema_Help {
 		if ( ! empty( $registrations ) ) {
 			$out[] = 'REGISTRATIONS: ' . \implode( ', ', \array_map( static fn ( $r ): string => Core::as_string( $r ), $registrations ) );
 		}
-		return \implode( "\n", $out );
+		return \implode( "\n", $out ) . "\n";
 	}
 
 	/**

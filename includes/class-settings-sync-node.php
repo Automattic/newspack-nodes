@@ -187,7 +187,7 @@ class Settings_Sync_Node extends Timer_Node {
 	public function add_setting( array $args ): string {
 		$parts = \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args ) );
 		if ( 3 !== \count( $parts ) ) {
-			return 'error: add_setting requires <local_option> <TO> <remote_option>';
+			return "error: add_setting requires <local_option> <TO> <remote_option>\n";
 		}
 		$spec = [
 			'to'     => $parts[1],
@@ -197,7 +197,7 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( ! \in_array( $spec, $this->registry[ $parts[0] ], true ) ) {
 			$this->registry[ $parts[0] ][] = $spec;
 		}
-		return 'ok';
+		return "ok\n";
 	}
 
 	/** Emit the base config plus one round-trippable `command_node {name}:config add_setting …` per registry mapping. */

@@ -67,6 +67,6 @@ class NodeSchemaHelpTest extends TestCase {
 		// the header + description — no empty section labels.
 		$out = Node_Schema_Help::render( 'Bare', [ 'description' => 'nothing else' ] );
 
-		$this->assertSame( "### Bare ###\nnothing else", $out );
+		$this->assertSame( "### Bare ###\nnothing else\n", $out );
 	}
 }

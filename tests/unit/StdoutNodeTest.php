@@ -17,7 +17,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Stdout_Node::class )]
 class StdoutNodeTest extends TestCase {
 
-	public function test_fill_writes_bytestream_value_with_single_trailing_newline(): void {
+	public function test_fill_writes_the_bytestream_value_verbatim(): void {
 		$mem  = \fopen( 'php://memory', 'r+' );
 		$node = new Stdout_Node( $mem );
 		$m    = Message::new_message();
@@ -25,7 +25,7 @@ class StdoutNodeTest extends TestCase {
 		$m[ Message::VALUE ] = 'hello';
 		$node->fill( $m );
 		\rewind( $mem );
-		$this->assertSame( "hello\n", \stream_get_contents( $mem ) );
+		$this->assertSame( 'hello', \stream_get_contents( $mem ) );
 	}
 
 	public function test_fill_does_not_double_a_trailing_newline(): void {
@@ -39,13 +39,13 @@ class StdoutNodeTest extends TestCase {
 		$this->assertSame( "hello\n", \stream_get_contents( $mem ) );
 	}
 
-	public function test_fill_of_default_empty_value_emits_a_bare_newline(): void {
+	public function test_fill_of_default_empty_value_writes_nothing(): void {
 		$mem  = \fopen( 'php://memory', 'r+' );
 		$node = new Stdout_Node( $mem );
 		$m    = Message::new_message(); // VALUE defaults to '' — the common empty-payload shape.
 		$node->fill( $m );
 		\rewind( $mem );
-		$this->assertSame( "\n", \stream_get_contents( $mem ) );
+		$this->assertSame( '', \stream_get_contents( $mem ) );
 	}
 
 	public function test_fill_writes_non_bytestream_value_with_no_type_dispatch(): void {
@@ -56,7 +56,7 @@ class StdoutNodeTest extends TestCase {
 		$m[ Message::VALUE ] = 'plain';
 		$node->fill( $m );
 		\rewind( $mem );
-		$this->assertSame( "plain\n", \stream_get_contents( $mem ) );
+		$this->assertSame( 'plain', \stream_get_contents( $mem ) );
 	}
 
 	/**
@@ -75,11 +75,11 @@ class StdoutNodeTest extends TestCase {
 	}
 
 	public function test_fill_coerces_null_value_to_a_bare_newline(): void {
-		$this->assertSame( "\n", $this->fill_value( null ) );
+		$this->assertSame( '', $this->fill_value( null ) );
 	}
 
 	public function test_fill_coerces_array_value_to_the_word_Array(): void {
-		$this->assertSame( "Array\n", $this->fill_value( [ 'a', 'b' ] ) );
+		$this->assertSame( 'Array', $this->fill_value( [ 'a', 'b' ] ) );
 	}
 
 	public function test_fill_coerces_stringable_object_via_to_string(): void {
@@ -88,24 +88,24 @@ class StdoutNodeTest extends TestCase {
 				return 'stringy';
 			}
 		};
-		$this->assertSame( "stringy\n", $this->fill_value( $obj ) );
+		$this->assertSame( 'stringy', $this->fill_value( $obj ) );
 	}
 
 	public function test_fill_coerces_non_stringable_object_to_empty(): void {
-		$this->assertSame( "\n", $this->fill_value( new \stdClass() ) );
+		$this->assertSame( '', $this->fill_value( new \stdClass() ) );
 	}
 
 	public function test_fill_coerces_scalar_int_to_its_string_form(): void {
-		$this->assertSame( "42\n", $this->fill_value( 42 ) );
+		$this->assertSame( '42', $this->fill_value( 42 ) );
 	}
 
 	public function test_fill_coerces_scalar_bool_true_to_one(): void {
-		$this->assertSame( "1\n", $this->fill_value( true ) );
+		$this->assertSame( '1', $this->fill_value( true ) );
 	}
 
 	public function test_fill_coerces_non_scalar_resource_to_empty(): void {
 		$res = \fopen( 'php://memory', 'r' );
-		$this->assertSame( "\n", $this->fill_value( $res ) );
+		$this->assertSame( '', $this->fill_value( $res ) );
 		\fclose( $res );
 	}
 }

@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Every producer terminates its own output.** `Stdout_Node`'s write seam used
+  to append `"\n"` when absent, which silently ended everyone's lines — so
+  `print` could never emit a partial one. With the seam writing verbatim
+  (Tachikoma parity: `print foo` leaves the cursor on the line), each producer
+  is now responsible for its own terminator, as Tachikoma's verbs are.
+  `tabulate()` was the biggest offender: it built properly terminated rows and
+  then did `rtrim( $out, "\n" )`, purely because the seam added it back — that
+  one line covered `ls -als`, `help`, `list_timers`, `list_handles` and
+  `status`. Also terminated: `default_help`, `list_nodes`' bare-name path,
+  `remove_node`, `Node_Schema_Help`, the `Message { … }` envelope dump, the
+  debug-level header, the ping round-trip line, and ~50 verb returns across the
+  interpreter, Partition, Topic, Table, Consumer, dead-letter and settings-sync.
+  Internal helpers that merely return strings (`coerce_string`, `graph_for`,
+  `default_offset`, `source_of`) are untouched — only what reaches a terminal.
+- **`TTY_Out_Node` redraws the prompt only after a complete line.** A partial
+  write leaves the cursor mid-line, so re-issuing the prompt behind it would
+  corrupt the display.
+
+### Changed
 - **Root no longer fatals on the runtime-directory ownership gate; it is
   refused writes instead.** `assert_private_to_us()` threw when the directory's
   owner differed from the process uid, which killed the WordPress bootstrap

@@ -185,7 +185,7 @@ class Topic_Node extends Node {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->allow_large_writes( \max( 0, Core::as_int( $args[0] ?? '' ) ) );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -197,7 +197,7 @@ class Topic_Node extends Node {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->void_warranty();
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -209,15 +209,15 @@ class Topic_Node extends Node {
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
 		$args = Core::as_string( $args[0] ?? '' );
 		if ( '' === $args ) {
-			return 'usage: with_index <formatter_name>';
+			return "usage: with_index <formatter_name>\n";
 		}
 		if ( null === Formatters::resolve( $args ) ) {
-			return "unknown formatter: $args";
+			return "unknown formatter: $args\n";
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->with_index( $args );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/** Emit the base config plus the verb-config, from STATE — like Partition's. */

@@ -1328,7 +1328,7 @@ class PartitionTest extends TestCase {
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
 		$result = $sibling->dispatch( 'allow_large_writes' );
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 
 		$dump = $p->dump_config();
 		$this->assertStringContainsString( 'command_node my_part:config allow_large_writes', $dump );
@@ -1350,7 +1350,7 @@ class PartitionTest extends TestCase {
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
 		$result = $sibling->dispatch( 'with_index', [ 'a2-test-formatter' ] );
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 
 		// Verb installs the formatter as the patron's index callback.
 		$ref     = new \ReflectionClass( $p );

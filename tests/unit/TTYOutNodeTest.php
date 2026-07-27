@@ -28,7 +28,7 @@ class TTYOutNodeTest extends TestCase {
 		$node->mark_prompt_displayed();
 		$m = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::VALUE ] = 'async line';
+		$m[ Message::VALUE ] = "async line\n";
 		$node->fill( $m );
 		\rewind( $mem );
 		$this->assertSame( "\r\033[2Kasync line\n/x> ", \stream_get_contents( $mem ) );
@@ -43,7 +43,7 @@ class TTYOutNodeTest extends TestCase {
 		$m[ Message::VALUE ] = 'plain line';
 		$node->fill( $m );
 		\rewind( $mem );
-		$this->assertSame( "plain line\n", \stream_get_contents( $mem ) );
+		$this->assertSame( 'plain line', \stream_get_contents( $mem ) );
 	}
 
 	public function test_async_write_non_readline_mode_uses_save_and_restore_cursor(): void {
@@ -55,7 +55,7 @@ class TTYOutNodeTest extends TestCase {
 		$node->mark_prompt_displayed();
 		$m = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$m[ Message::VALUE ] = 'async line';
+		$m[ Message::VALUE ] = "async line\n";
 		$node->fill( $m );
 		\rewind( $mem );
 		$this->assertSame( "\033[s\r\033[2Kasync line\n/x> \033[u", \stream_get_contents( $mem ) );
@@ -76,7 +76,25 @@ class TTYOutNodeTest extends TestCase {
 		$m[ Message::VALUE ] = 'plain line';
 		$node->fill( $m );
 		\rewind( $mem );
-		$this->assertSame( "plain line\n", \stream_get_contents( $mem ) );
+		$this->assertSame( 'plain line', \stream_get_contents( $mem ) );
+	}
+
+	public function test_a_partial_line_does_not_redraw_the_prompt(): void {
+		// `print foo` emits no terminator, so the cursor stays on the line and
+		// the prompt must not be re-issued behind it (Tachikoma parity).
+		$mem   = \fopen( 'php://memory', 'r+' );
+		$node  = new TTY_Out_Node( $mem, true );
+		$shell = new Shell_Node();
+		$shell->prompt = '/x> ';
+		$node->set_shell( $shell );
+		$node->set_readline_mode( true );
+		$node->mark_prompt_displayed();
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::VALUE ] = 'foo';
+		$node->fill( $m );
+		\rewind( $mem );
+		$this->assertSame( "\r\033[2Kfoo", \stream_get_contents( $mem ) );
 	}
 
 	public function test_write_prompt_writes_the_prompt_and_marks_it_displayed(): void {

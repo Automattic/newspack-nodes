@@ -69,7 +69,7 @@ class Dumper_Node extends Node {
 		if ( $this->debug_level >= 1 ) {
 			$flags = self::format_type_flags( $type );
 			$from  = self::coerce_string( $message[ Message::FROM ] ?? '' );
-			$this->emit( $flags . ' from ' . $from . ':' );
+			$this->emit( $flags . ' from ' . $from . ":\n" );
 		}
 
 		// TM_EOF: drain marker — fire the callback, render nothing.
@@ -108,7 +108,7 @@ class Dumper_Node extends Node {
 		if ( $type & Message::TM_PING ) {
 			$sent = self::coerce_float( $message[ Message::VALUE ] );
 			$rtt  = ( Core::$now - $sent ) * 1000.0;
-			$this->emit( \sprintf( 'round trip time: %.2f ms', $rtt ) );
+			$this->emit( \sprintf( "round trip time: %.2f ms\n", $rtt ) );
 			return;
 		}
 
@@ -186,7 +186,7 @@ class Dumper_Node extends Node {
 			'    value:     ' . self::indent_following_lines( $value, '               ' ),
 			'}',
 		];
-		return \implode( "\n", $lines );
+		return \implode( "\n", $lines ) . "\n";
 	}
 
 	/**

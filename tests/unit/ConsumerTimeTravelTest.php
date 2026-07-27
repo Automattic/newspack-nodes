@@ -364,7 +364,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$c->next_offset( [ 'segment' => 5, 'offset' => 999 ] );
 
 		$result = $c->seek_frame( $segment_id );
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 		$this->assertSame( $frame_cache, $node->restored, 'restore_state got the frame cache' );
 
 		$this->assertSame( 2, $this->read_private( $c, 'cursor_segment' ), 'cursor moved to the record source seg' );
@@ -665,7 +665,7 @@ class ConsumerTimeTravelTest extends TestCase {
 		$this->checkpoint_at( $c, 0, 20 );
 
 		$this->assertNull( $this->read_private( $c, 'rewound_to' ), 'no rewind recorded before a seek' );
-		$this->assertSame( 'ok', $c->seek_frame( $older ) );
+		$this->assertSame( "ok\n", $c->seek_frame( $older ) );
 		$this->assertSame( $older, $this->read_private( $c, 'rewound_to' ), 'a successful seek records the rewind point' );
 	}
 
@@ -770,16 +770,16 @@ class ConsumerTimeTravelTest extends TestCase {
 		$segment_id = $this->newest_segment_id( $c );
 
 		// PAUSE via the config interpreter.
-		$this->assertSame( 'ok', $this->dispatch_command( $c, 'PAUSE' ) );
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'PAUSE' ) );
 		$this->assertFalse( $this->timer_armed( $c ) );
 
 		// SEEK_FRAME <segment-id> — arg parsing casts the one int.
-		$this->assertSame( 'ok', $this->dispatch_command( $c, 'SEEK_FRAME', (string) $segment_id ) );
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'SEEK_FRAME', (string) $segment_id ) );
 		$this->assertSame( 3, $this->read_private( $c, 'cursor_segment' ), 'cursor restored to the record source seg' );
 		$this->assertSame( 77, $this->read_private( $c, 'cursor_offset' ), 'cursor restored to the record source off' );
 
 		// PLAY re-arms.
-		$this->assertSame( 'ok', $this->dispatch_command( $c, 'PLAY' ) );
+		$this->assertSame( "ok\n", $this->dispatch_command( $c, 'PLAY' ) );
 		$this->assertTrue( $this->timer_armed( $c ) );
 	}
 

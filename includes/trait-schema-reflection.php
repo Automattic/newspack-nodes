@@ -165,7 +165,7 @@ trait Schema_Reflection {
 					if ( $patron instanceof static ) {
 						$patron->{"set_{$prop}"}( self::truthy( Core::as_string( $args[0] ?? '' ) ) );
 					}
-					return 'ok';
+					return "ok\n";
 				};
 				continue;
 			}

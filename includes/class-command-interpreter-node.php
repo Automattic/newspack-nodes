@@ -319,7 +319,7 @@ class Command_Interpreter_Node extends Node {
 	protected function default_help(): string {
 		$names = \array_keys( $this->commands() );
 		\sort( $names );
-		return \implode( "\n", $names );
+		return \implode( "\n", $names ) . "\n";
 	}
 
 	/**
@@ -500,14 +500,14 @@ class Command_Interpreter_Node extends Node {
 		$raw     = $args[0] ?? '';
 		if ( '' !== $raw ) {
 			if ( ! \ctype_digit( $raw ) || (int) $raw < 1 ) {
-				return 'invalid secure level';
+				return "invalid secure level\n";
 			}
 			$want = \min( 3, (int) $raw );
 			if ( $want < $current ) {
-				return "cannot lower secure level from {$current}";
+				return "cannot lower secure level from {$current}\n";
 			}
 			if ( $want === $current ) {
-				return "already at secure level {$current}";
+				return "already at secure level {$current}\n";
 			}
 			Core::$secure_level = $want;
 			return '';
@@ -523,7 +523,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_insecure(): string {
 		if ( ( Core::$secure_level ?? 0 ) > 0 ) {
-			return 'process already secured';
+			return "process already secured\n";
 		}
 		Core::$secure_level = -1;
 		return '';
@@ -538,12 +538,12 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_make_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( \count( $args ) < 2 ) {
-			return 'usage: make_node <type> <name> [<args>...]';
+			return "usage: make_node <type> <name> [<args>...]\n";
 		}
 		$type = $args[0];
 		$name = $args[1];
 		$node = $self->make_node( $type, $name, ...\array_slice( $args, 2 ) );
-		return null === $node ? "unknown class: $type" : 'ok';
+		return null === $node ? "unknown class: $type\n" : "ok\n";
 	}
 
 	/**
@@ -556,24 +556,24 @@ class Command_Interpreter_Node extends Node {
 		$path = $args[0] ?? '';
 		$cwd  = '' === $path ? '/' : $path;
 		$from = Core::as_string( $envelope[ Message::FROM ] ?? '' );
-		return ' ' . $cwd . ' -> ' . $from;
+		return ' ' . $cwd . ' -> ' . $from . "\n";
 	}
 
 	/** @param list<string> $args */
 	private static function cmd_set_sink( array $args ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name || '' === $target ) {
-			return 'usage: set_sink <node> <target>';
+			return "usage: set_sink <node> <target>\n";
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		/** @var \Newspack_Nodes\Node|null $dst Target node from the registry. */
 		$dst = Core::node( $target );
 		if ( null === $src || null === $dst ) {
-			return 'unknown node';
+			return "unknown node\n";
 		}
 		$src->sink( $dst );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -583,22 +583,22 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_connect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
-			return 'usage: connect_node <node> [<target>]';
+			return "usage: connect_node <node> [<target>]\n";
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
-			return "unknown node: $name";
+			return "unknown node: $name\n";
 		}
 		// No target defaults to the issuing FROM; tees the node's flow back.
 		if ( '' === $target ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
-				return 'usage: connect_node <node> [<target>]';
+				return "usage: connect_node <node> [<target>]\n";
 			}
 		}
 		$src->connect_node( $target );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -608,22 +608,22 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_disconnect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
-			return 'usage: disconnect_node <node> [<target>]';
+			return "usage: disconnect_node <node> [<target>]\n";
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
-			return "unknown node: $name";
+			return "unknown node: $name\n";
 		}
 		// For a Tee, no target removes the issuing FROM from the fan-out.
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
-				return 'usage: disconnect_node <node> [<target>]';
+				return "usage: disconnect_node <node> [<target>]\n";
 			}
 		}
 		$src->disconnect_node( $target );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -634,20 +634,20 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_register( array $args ): string {
 		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
-			return 'usage: register <source name> <target name> <event>';
+			return "usage: register <source name> <target name> <event>\n";
 		}
 		$node = Core::node( $source );
 		if ( null === $node ) {
-			return "unknown node: $source";
+			return "unknown node: $source\n";
 		}
 		if ( '' === $target ) {
-			return 'usage: register <source name> <target name> <event>';
+			return "usage: register <source name> <target name> <event>\n";
 		}
 		if ( null === Core::node( $target ) ) {
-			return "unknown node: $target";
+			return "unknown node: $target\n";
 		}
 		$node->register( $event, $target );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -658,17 +658,17 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_unregister( array $args ): string {
 		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
-			return 'usage: unregister <source name> <target name> <event>';
+			return "usage: unregister <source name> <target name> <event>\n";
 		}
 		$node = Core::node( $source );
 		if ( null === $node ) {
-			return "unknown node: $source";
+			return "unknown node: $source\n";
 		}
 		if ( '' === $target ) {
-			return 'usage: unregister <source name> <target name> <event>';
+			return "usage: unregister <source name> <target name> <event>\n";
 		}
 		$node->unregister( $event, $target );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -678,7 +678,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_remove_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( empty( $args ) ) {
-			return 'usage: remove_node <node name>';
+			return "usage: remove_node <node name>\n";
 		}
 
 		$list_matches = false;
@@ -687,7 +687,7 @@ class Command_Interpreter_Node extends Node {
 			$list_matches = true;
 			$glob         = $args[1] ?? '';
 			if ( '' === $glob ) {
-				return 'usage: remove_node -a <anchored regex glob>';
+				return "usage: remove_node -a <anchored regex glob>\n";
 			}
 		}
 
@@ -731,9 +731,9 @@ class Command_Interpreter_Node extends Node {
 
 		$out = \implode( "\n", \array_merge( $removed, $errors ) );
 		if ( $list_matches && empty( $removed ) && empty( $errors ) ) {
-			return 'no matches';
+			return "no matches\n";
 		}
-		return '' === $out ? 'ok' : $out;
+		return '' === $out ? "ok\n" : $out . "\n";
 	}
 
 	/**
@@ -794,7 +794,7 @@ class Command_Interpreter_Node extends Node {
 		if ( ! $list_matches && ! empty( $argv ) ) {
 			foreach ( $argv as $name ) {
 				if ( Core::node( $name ) === null ) {
-					return "can't find node \"$name\"";
+					return "can't find node \"$name\"\n";
 				}
 			}
 		}
@@ -858,7 +858,7 @@ class Command_Interpreter_Node extends Node {
 			foreach ( $rows as $r ) {
 				$names[] = $r[0];
 			}
-			return \implode( "\n", $names );
+			return \implode( "\n", $names ) . "\n";
 		}
 		return self::tabulate( $dirs, $header, $rows );
 	}
@@ -894,12 +894,12 @@ class Command_Interpreter_Node extends Node {
 		$parts = $args;
 		$name  = $parts[0] ?? '';
 		if ( '' === $name ) {
-			return 'no node specified';
+			return "no node specified\n";
 		}
 		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $name );
 		if ( null === $node ) {
-			return "can't find node \"$name\"";
+			return "can't find node \"$name\"\n";
 		}
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
@@ -917,7 +917,7 @@ class Command_Interpreter_Node extends Node {
 		if ( ! empty( $wanted ) ) {
 			foreach ( $wanted as $k ) {
 				if ( ! \array_key_exists( $k, $snapshot ) ) {
-					return "can't find key \"$k\"";
+					return "can't find key \"$k\"\n";
 				}
 			}
 			$snapshot = \array_intersect_key( $snapshot, \array_flip( $wanted ) );
@@ -1362,7 +1362,7 @@ class Command_Interpreter_Node extends Node {
 		if ( '' === $first ) {
 			$new = $self->debug_state() > 0 ? 0 : 1;
 			$self->debug_state( $new );
-			return "_command_interpreter debug_state: $new";
+			return "_command_interpreter debug_state: $new\n";
 		}
 
 		if ( '*' === $first ) {
@@ -1376,24 +1376,24 @@ class Command_Interpreter_Node extends Node {
 				$node->debug_state( $new );
 			}
 			// Terse summary, not a per-node roster (ls lists them).
-			return \sprintf( 'debug_state %d on %d nodes', $new, \count( $all_names ) );
+			return \sprintf( "debug_state %d on %d nodes\n", $new, \count( $all_names ) );
 		}
 
 		if ( \ctype_digit( $first ) && '' === $second ) {
 			$self->debug_state( (int) $first );
-			return '_command_interpreter debug_state: ' . $self->debug_state();
+			return '_command_interpreter debug_state: ' . $self->debug_state() . "\n";
 		}
 
 		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $first );
 		if ( null === $node ) {
-			return "unknown node: $first";
+			return "unknown node: $first\n";
 		}
 		$new = '' === $second
 			? ( $node->debug_state() > 0 ? 0 : 1 )
 			: (int) $second;
 		$node->debug_state( $new );
-		return "$first debug_state: " . $node->debug_state();
+		return "$first debug_state: " . $node->debug_state() . "\n";
 	}
 
 	/**
@@ -1408,7 +1408,7 @@ class Command_Interpreter_Node extends Node {
 			// From dispatch table, not help-topic, so aliases offered too.
 			$names = \array_keys( self::$C ?? [] );
 			\sort( $names );
-			return \implode( "\n", $names );
+			return \implode( "\n", $names ) . "\n";
 		}
 		$topic = ( $args[0] ?? '' );
 		if ( '' === $topic ) {
@@ -1445,7 +1445,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null !== $fqcn ) {
 			return Node_Schema_Help::render( $topic, $fqcn::node_schema() );
 		}
-		return "no such topic: \"$topic\"";
+		return "no such topic: \"$topic\"\n";
 	}
 
 	/**
@@ -1538,7 +1538,7 @@ class Command_Interpreter_Node extends Node {
 		foreach ( $rows as $row ) {
 			$out .= $format_row( $row ) . "\n";
 		}
-		return \rtrim( $out, "\n" );
+		return $out;
 	}
 
 	/**
@@ -1556,11 +1556,11 @@ class Command_Interpreter_Node extends Node {
 		$verb      = $args[1] ?? '';
 		$verb_args = \array_slice( $args, 2 );
 		if ( '' === $path || '' === $verb ) {
-			return 'usage: reply_to <node path> <command>';
+			return "usage: reply_to <node path> <command>\n";
 		}
 		// Refuse nested reply_to: FROM is set raw, so recursion is unbounded.
 		if ( 'reply_to' === $verb ) {
-			return 'reply_to cannot invoke reply_to';
+			return "reply_to cannot invoke reply_to\n";
 		}
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_COMMAND;

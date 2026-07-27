@@ -507,7 +507,7 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( 1, $this->count_records( "{$this->tmp}/dlq.p0" ) );
 
 		$result = $d->purge_deadletter();
-		$this->assertSame( 'ok: purged 1 of 1 dead-letter segment(s)', $result );
+		$this->assertSame( "ok: purged 1 of 1 dead-letter segment(s)\n", $result );
 		$this->assertSame( 0, $this->count_records( "{$this->tmp}/dlq.p0" ) );
 		$this->assertSame( [], \glob( "{$this->tmp}/dlq.p0/*.idx" ) ?: [], 'the .idx companions are purged too' );
 	}
@@ -593,7 +593,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
 
-		$this->assertSame( 'error: not a dead-letter node', $result );
+		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
 	public function test_cmd_dl_list_errors_when_patron_is_a_foreign_node(): void {
@@ -602,7 +602,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_list( $interpreter, [] );
 
-		$this->assertSame( 'error: not a dead-letter node', $result );
+		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
 	public function test_cmd_dl_list_returns_the_triage_page_as_json(): void {
@@ -637,7 +637,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_show( $interpreter, [ '0:0:10' ] );
 
-		$this->assertSame( 'error: not a dead-letter node', $result );
+		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
 	public function test_cmd_dl_show_returns_the_decoded_record(): void {
@@ -658,7 +658,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ '0:0:10' ] );
 
-		$this->assertSame( 'error: not a dead-letter node', $result );
+		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
 	public function test_cmd_dl_requeue_writes_to_the_target(): void {
@@ -681,7 +681,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
 
-		$this->assertSame( 'error: not a dead-letter node', $result );
+		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
 	public function test_cmd_dl_purge_removes_segments(): void {
@@ -693,7 +693,7 @@ class DeadLetterQueueTest extends TestCase {
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_purge( $interpreter );
 
-		$this->assertSame( 'ok: purged 1 of 1 dead-letter segment(s)', $result );
+		$this->assertSame( "ok: purged 1 of 1 dead-letter segment(s)\n", $result );
 	}
 
 	/**

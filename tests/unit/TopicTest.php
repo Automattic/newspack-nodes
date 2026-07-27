@@ -532,7 +532,7 @@ class TopicTest extends TestCase {
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
 
-		$this->assertSame( 'ok', $this->verb( $t, 'void_warranty' ) );
+		$this->assertSame( "ok\n", $this->verb( $t, 'void_warranty' ) );
 
 		// A >4KB write only lands if the cap was lifted on the partition the key
 		// routes to — which does not exist yet at the time of the verb.
@@ -556,7 +556,7 @@ class TopicTest extends TestCase {
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
-		$this->assertSame( 'ok', $this->verb( $t, 'allow_large_writes' ) );
+		$this->assertSame( "ok\n", $this->verb( $t, 'allow_large_writes' ) );
 	}
 
 	/** with_index names a line-formatter for each partition's companion index. */
@@ -571,7 +571,7 @@ class TopicTest extends TestCase {
 			$this->verb( $t, 'with_index', 'no-such-formatter' )
 		);
 		$this->assertSame(
-			'ok',
+			"ok\n",
 			$this->verb( $t, 'with_index', 'zebra-index' )
 		);
 	}

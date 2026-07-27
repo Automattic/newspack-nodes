@@ -21,7 +21,7 @@ class SettingsSyncNodeTest extends TestCase {
 
 		$result = $node->add_setting( [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
 
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 
 		$ref      = new \ReflectionProperty( $node, 'registry' );
 		$registry = $ref->getValue( $node );
@@ -82,7 +82,7 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertNotNull( $sibling );
 
 		$result = $sibling->dispatch( 'add_setting', [ 'newspack_nodes_num_partitions', 'settings', 'newspack_nodes_num_partitions' ] );
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 
 		$ref = new \ReflectionProperty( $node, 'registry' );
 		$this->assertArrayHasKey( 'newspack_nodes_num_partitions', $ref->getValue( $node ) );
