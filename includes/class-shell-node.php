@@ -654,7 +654,8 @@ class Shell_Node extends Node {
 		[ , $name, $op, $raw_value ] = $m + [ 3 => '' ];
 		// Shell3:2825 — a value TOKEN sets (even if blank); none deletes.
 		$has_value = '' !== $raw_value;
-		$value     = \trim( $raw_value );
+		// ltrim only: tokenize stripped the edges, so the tail is content.
+		$value     = \ltrim( $raw_value );
 		if ( \str_contains( $name, ':' ) ) {
 			$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
 			return;
@@ -662,7 +663,7 @@ class Shell_Node extends Node {
 
 		if ( '' === $op ) {
 			// Shell3:630 fatals on trailing junk where an operator belongs.
-			if ( '' !== $value ) {
+			if ( '' !== \trim( $value ) ) {
 				$this->stdout( "var: unexpected token in assignment: {$value}\n" );
 				return;
 			}

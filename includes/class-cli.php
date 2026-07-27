@@ -190,10 +190,17 @@ class CLI {
 		}
 	}
 
-	/** The running uid through the seam; -1 when posix is absent. */
+	/**
+	 * The EFFECTIVE uid through the seam; -1 when posix is absent.
+	 *
+	 * Effective, not real: every caller asks "who will own the files I create
+	 * here", and that follows the effective uid (Linux fsuid, which tracks it).
+	 * The two differ under a setuid wrapper, or a process that dropped only its
+	 * effective uid — where the real uid would answer the wrong question.
+	 */
 	public static function uid(): int {
 		$provider = self::$uid_provider
-			?? static fn (): int => \function_exists( 'posix_getuid' ) ? \posix_getuid() : -1;
+			?? static fn (): int => \function_exists( 'posix_geteuid' ) ? \posix_geteuid() : -1;
 		return Core::as_int( $provider(), -1 );
 	}
 
