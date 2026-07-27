@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Root no longer fatals on the runtime-directory ownership gate; it is
+  refused writes instead.** `assert_private_to_us()` threw when the directory's
+  owner differed from the process uid, which killed the WordPress bootstrap
+  before any `wp nodes` verb could run as root — `restart`, `status` and
+  `types` alike died with "There has been a critical error on this website."
+  The gate exists to stop a LOWER-privileged process from racing a predictable
+  path and having its tree adopted, since a planted topology then executes with
+  full interpreter authority. Root is not that threat; it already owns the box,
+  so refusing to boot bought nothing. It is also a false positive wherever the
+  runtime dir is a bind mount that synthesizes ownership (Docker Desktop on
+  macOS reports the same uid no matter who wrote the file).
+- **Root is blocked from writing under the runtime directory**, non-fatally,
+  via `Config::write_denied()`. Root's real hazard is the opposite of the one
+  the gate guards: files it creates are root-owned, and the workers run as the
+  web user, so they are the ones left unable to write — surfacing much later as
+  a worker that cannot claim its IPC directory. The check keys on the PROCESS
+  uid, which is reliable, rather than on file ownership, which is not. Applied
+  at the sites that CREATE things: restart flags (`Lock_Node::request_restart_at`)
+  and the lock / IPC directory `mkdir`s in `Worker_Base` and `Supervisor`.
+  `File_Writer::write_all()` is deliberately NOT gated — a short write there
+  reads to callers as a stall and would trip the dead-letter quarantine.
+  Read-only root commands keep working; a write-shaped one reports doing
+  nothing ("Requested restart for 0 worker(s)") and logs one rate-limited line.
+
 ### Added
 - **`Table` answers `TM_REQUEST GET <key>`**, porting `Tachikoma
   Table.pm:102`. The reply TYPE follows the stored value's shape, so what went

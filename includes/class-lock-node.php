@@ -285,7 +285,7 @@ class Lock_Node extends Node {
 	 */
 	public static function request_restart_at( string $lock_dir ): bool {
 		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) ) {
+		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'restart flag' ) ) {
 			return false;
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents

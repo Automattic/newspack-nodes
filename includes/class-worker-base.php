@@ -181,8 +181,10 @@ class Worker_Base {
 	public function acquire(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
 			// base_dir is operator-configured worker storage, not WP-managed.
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			if ( ! Config::write_denied( 'locks dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			}
 		}
 		// Lifecycle lock, acquired pre-graph: bare new, no interpreter yet.
 		$this->lock = new Lock_Node( $this->lock_path(), $this->stale_timeout );
@@ -369,8 +371,10 @@ class Worker_Base {
 
 		// _repl output Partition: allow_large_writes (dumps exceed PIPE_BUF).
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( "{$ipc_dir}/output", 0755, true );
+			if ( ! Config::write_denied( 'ipc output dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( "{$ipc_dir}/output", 0755, true );
+			}
 		}
 		// Graph via make_node (name -> arguments -> sink=interpreter).
 		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, ...self::ipc_partition_args( "{$ipc_dir}/output" ) );
@@ -419,8 +423,10 @@ class Worker_Base {
 	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
 		$input_dir = "{$ipc_dir}/input";
 		if ( ! \is_dir( $input_dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $input_dir, 0755, true );
+			if ( ! Config::write_denied( 'ipc input dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( $input_dir, 0755, true );
+			}
 		}
 		// Anonymous pure source (never a routed TO); off Core's registry.
 		$consumer = new Consumer_Node();

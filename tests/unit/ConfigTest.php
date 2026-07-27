@@ -13,6 +13,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_Utils;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
 
 #[\PHPUnit\Framework\Attributes\CoversClass( Config::class )]
@@ -438,6 +439,99 @@ class ConfigTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'owned by uid' );
+		Config::ensure_path( $path );
+	}
+
+	/**
+	 * Root is not the threat the ownership gate exists for — an adopter racing
+	 * a predictable path is, and root already owns the box. What root DOES risk
+	 * is writing root-owned files the workers (a lower uid) then cannot write,
+	 * so it warns and proceeds rather than refusing to boot.
+	 */
+	public function test_ensure_path_lets_root_adopt_a_foreign_directory_with_a_warning(): void {
+		$path = $this->temp_dir . '/roots-visit';
+		@\mkdir( $path, 0700, true );
+		@\chown( $path, \fileowner( $this->temp_dir ) );
+		CLI::$uid_provider = static fn (): int => 0;
+
+		$lines = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+
+		$this->assertSame( $path, Config::ensure_path( $path ) );
+		$this->assertNotEmpty(
+			\array_filter( $lines, static fn ( $l ) => \str_contains( $l, 'running as root' ) ),
+			'root gets a warning, not a fatal'
+		);
+	}
+
+	/** A non-root mismatch still refuses: that is the adoption attack. */
+	public function test_ensure_path_still_refuses_a_foreign_directory_for_a_non_root_uid(): void {
+		$path = $this->temp_dir . '/foreign-nonroot';
+		@\mkdir( $path, 0700, true );
+		CLI::$uid_provider = static fn (): int => ( (int) \fileowner( $path ) ) + 1;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'owned by uid' );
+		Config::ensure_path( $path );
+	}
+
+	/** Root creating a FRESH tree is the same hazard, and warns the same way. */
+	public function test_ensure_path_warns_when_root_creates_the_runtime_directory(): void {
+		$path = $this->temp_dir . '/root-made';
+		CLI::$uid_provider = static fn (): int => 0;
+
+		$lines = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+
+		Config::ensure_path( $path );
+		$this->assertNotEmpty(
+			\array_filter( $lines, static fn ( $l ) => \str_contains( $l, 'running as root' ) )
+		);
+	}
+
+	/**
+	 * Root may read and administer, but must never CREATE a file here: the
+	 * workers run as the web user and cannot write what root owns. Denial is
+	 * non-fatal — the caller skips the write and carries on.
+	 */
+	public function test_write_denied_is_true_for_root_and_warns_once(): void {
+		CLI::$uid_provider = static fn (): int => 0;
+		$lines             = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$lines ): void {
+			$lines[] = $line;
+		} );
+
+		$this->assertTrue( Config::write_denied( 'restart flag' ) );
+		$this->assertTrue( Config::write_denied( 'restart flag' ) );
+
+		$hits = \array_filter( $lines, static fn ( $l ) => \str_contains( $l, 'running as root' ) );
+		$this->assertCount( 1, $hits, 'rate-limited: one line, not one per write' );
+	}
+
+	public function test_write_denied_is_false_for_any_non_root_uid(): void {
+		CLI::$uid_provider = static fn (): int => 1000;
+		$this->assertFalse( Config::write_denied( 'anything' ) );
+	}
+
+	/** No posix means no uid to judge; do not block writes on a guess. */
+	public function test_write_denied_is_false_without_a_uid(): void {
+		CLI::$uid_provider = static fn (): int => -1;
+		$this->assertFalse( Config::write_denied( 'anything' ) );
+	}
+
+	/** The root carve-out covers the uid mismatch ONLY; loose modes still refuse. */
+	public function test_ensure_path_refuses_a_world_writable_directory_even_for_root(): void {
+		$path = $this->temp_dir . '/root-loose';
+		@\mkdir( $path, 0777, true );
+		@\chmod( $path, 0777 );
+		CLI::$uid_provider = static fn (): int => 0;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'writable by group or other' );
 		Config::ensure_path( $path );
 	}
 
