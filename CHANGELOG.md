@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Table` answers `TM_REQUEST GET <key>`**, porting `Tachikoma
+  Table.pm:102`. The reply TYPE follows the stored value's shape, so what went
+  in comes back out: an array replies TM_STRUCT, a scalar TM_BYTESTREAM — the
+  same rule as the reference's `send_entry`, and free here because memcached
+  round-trips a PHP array as an array. An absent key replies TM_ERROR
+  `NOT_FOUND`, a deliberate divergence: Tachikoma returns an empty string and
+  cannot distinguish absent from stored-empty. `KEYS` and `STATS` are NOT
+  ported — both enumerate Tachikoma's in-memory buckets, which the memcache
+  backing (the documented divergence) cannot do.
+
 ### Fixed
+- **An empty VALUE deletes the key** (`Table.pm:313` `collect`), instead of
+  storing an empty string. A bare line terminator counts as empty, because
+  `send_node` always appends one where Tachikoma's `send` leaves it to the
+  caller — matching the reference's bytes would have broken its behavior.
+- **A `TM_REQUEST` is no longer stored as a value.** `Table::fill()` wrote
+  whatever arrived with a KEY, so a KEY-bearing `request_node` put the literal
+  request string into the table. Requests are now answered and consumed.
+- **Disabled primary buttons drop `button-primary`.** WordPress core styles
+  `.wp-core-ui .button-primary:disabled` with `!important` on background,
+  border-color, and color, so no selector outranks it — under a dark skin a
+  disabled confirm rendered as a bright #e2e2e2 block, the brightest thing in
+  the dialog. Rather than answer `!important` with `!important`, a disabled
+  button stops claiming to be primary and styles as an ordinary disabled
+  `.button`, which core leaves alone. The rule lives once in
+  `primaryButtonClass()` with its reason, not as six copies of a ternary.
+- **`LogViewer` memoizes `segments`.** The `?? []` minted a new array identity
+  every render and fed the rotation effect's dependency array, so the effect
+  re-ran on each pass. Its length guard made that harmless today; the memo
+  keeps it that way if the guard ever moves.
+
 - **The Inspector's Command button crashed the console to a white page.** It set
   the prompt verb to `command_node` — the shell spelling — where both the modal's
   copy table and the action dispatcher key on `cmd`. The lookup returned

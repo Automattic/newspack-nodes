@@ -63,12 +63,65 @@ class Table_Node extends Node {
 	}
 
 	public function fill( array $message ): void {
+		if ( Core::num_int( $message[ Message::TYPE ] ) & Message::TM_REQUEST ) {
+			$this->handle_request( $message );
+			return;
+		}
 		$key     = Core::as_string( $message[ Message::KEY ], '' );
+		$value   = $message[ Message::VALUE ];
 		$backend = Cache_Backend::shared_first();
 		if ( '' !== $key && null !== $backend ) {
-			$backend->set( self::KEY_PREFIX . "{$this->namespace}:{$key}", $message[ Message::VALUE ], $this->ttl );
+			// Empty deletes (Table.pm:313); a bare terminator counts as empty.
+			$empty = null === $value || [] === $value
+				|| ( \is_string( $value ) && '' === \rtrim( $value, "\r\n" ) );
+			if ( $empty ) {
+				$backend->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
+			} else {
+				$backend->set( self::KEY_PREFIX . "{$this->namespace}:{$key}", $value, $this->ttl );
+			}
 		}
 		parent::fill( $message );
+	}
+
+	/**
+	 * `GET <key>` replies with the stored entry (Tachikoma Table.pm:102).
+	 *
+	 * The reply TYPE follows the stored value's shape, so what went in comes
+	 * back out: an array replies TM_STRUCT, a scalar TM_BYTESTREAM. An absent
+	 * key replies TM_ERROR — a divergence from Tachikoma, which returns an
+	 * empty string and so cannot distinguish absent from stored-empty.
+	 *
+	 * `KEYS` and `STATS` are deliberately not ported: both enumerate
+	 * Tachikoma's in-memory buckets, which the memcache backing cannot do.
+	 *
+	 * @param array<int, mixed> $message The TM_REQUEST.
+	 * @throws \RuntimeException With no wired sink to reply through.
+	 */
+	private function handle_request( array $message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'fill requires a wired sink' );
+		}
+		$request       = \trim( Core::as_string( $message[ Message::VALUE ], '' ) );
+		[ $cmd, $key ] = \array_pad( \explode( ' ', $request, 2 ), 2, '' );
+		if ( 'GET' !== $cmd ) {
+			$this->print_less_often( 'ERROR: bad request: ', $request );
+			return;
+		}
+		$key   = \trim( $key );
+		$value = self::lookup( $this->namespace, $key );
+
+		$reply = Message::new_message();
+		if ( null === $value ) {
+			$reply[ Message::TYPE ]  = Message::TM_ERROR;
+			$reply[ Message::VALUE ] = 'NOT_FOUND';
+		} else {
+			$reply[ Message::TYPE ]  = \is_array( $value ) ? Message::TM_STRUCT : Message::TM_BYTESTREAM;
+			$reply[ Message::VALUE ] = $value;
+		}
+		$reply[ Message::FROM ] = $this->name;
+		$reply[ Message::TO ]   = Core::as_string( $message[ Message::FROM ], '' );
+		$reply[ Message::KEY ]  = $key;
+		$this->sink->fill( $reply );
 	}
 
 	/**
@@ -133,7 +186,13 @@ class Table_Node extends Node {
 					},
 				],
 			],
-			'requests'    => [],
+			'requests'    => [
+				[
+					'name'        => 'GET',
+					'description' => 'Reply with one entry; the reply TYPE follows the stored value shape.',
+					'reply_shape' => 'KEY=<key>, VALUE=<stored>. TYPE is TM_BYTESTREAM for a scalar, TM_STRUCT for an array, or TM_ERROR "NOT_FOUND" when absent.',
+				],
+			],
 			'has_target'  => true,
 		];
 	}
