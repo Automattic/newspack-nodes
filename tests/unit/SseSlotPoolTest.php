@@ -56,6 +56,28 @@ class SseSlotPoolTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The heartbeat verb must apply the SERVER's TTL. It used to take the TTL
+	 * from the client's own argument, so a client could name any lifetime it
+	 * liked — and the 10s-cadence heartbeat re-touched the slot down to 30s,
+	 * quietly undoing the pool's 60s default a few seconds after acquire.
+	 */
+	public function test_heartbeat_applies_the_server_ttl_not_the_client_argument(): void {
+		$slot = SSE_Slot_Pool::acquire( SSE_Slot_Pool::hostname(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), 4, 5 );
+		$this->assertIsInt( $slot );
+
+		// The client asks for 30; the server's own default is 60.
+		\Newspack_Nodes\Rest\Workers_CI_Node::cmd_heartbeat( [ (string) $slot, '30' ] );
+
+		$expiries = \array_values( Core::$memd->expiries() );
+		$this->assertCount( 1, $expiries );
+		$this->assertGreaterThan(
+			\time() + 30,
+			$expiries[0],
+			'the client-supplied TTL must not shorten the slot'
+		);
+	}
+
 	// ── slot algorithm (direct) ──────────────────────────────────────────────
 
 	public function test_acquire_returns_first_free_slot(): void {

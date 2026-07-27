@@ -42,8 +42,6 @@ class Remote_Link_Node extends Timer_Node {
 
 	protected int $last_heartbeat_sent = 0;
 
-	/** Wall-second the heartbeat liveness clock last advanced: a reply, or the first send. */
-	protected int $last_heartbeat_reply = 0;
 
 	protected string $remote_partition = '';
 
@@ -92,7 +90,6 @@ class Remote_Link_Node extends Timer_Node {
 		$type = Core::int( $message[ Message::TYPE ] );
 		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type
 				|| ( Message::TM_COMMAND | Message::TM_ERROR ) === $type ) {
-			$this->last_heartbeat_reply = (int) Core::$now;
 			$this->record_heartbeat_reply();
 			return;
 		}
@@ -159,15 +156,8 @@ class Remote_Link_Node extends Timer_Node {
 		if ( $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
-		// The spoke authorizes this like any command; hold until we can sign.
+		// Silence is not a refusal — HTTP_Out drops the session on a 401.
 		$spoke = $this->http_out->vault_id();
-		// Three cadences of silence: the spoke evicted our session.
-		if ( '' !== $spoke && 0 !== $this->last_heartbeat_reply
-				&& $now - $this->last_heartbeat_reply >= self::HEARTBEAT_INTERVAL * 3 ) {
-			Command_Auth::forget_session( $spoke );
-			// Re-arm, or the next tick forgets the fresh session too.
-			$this->last_heartbeat_reply = $now;
-		}
 		if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
 			// Our only traffic: ask, and spend the cadence (backoff).
 			$this->last_heartbeat_sent = $now;
@@ -175,8 +165,6 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$this->last_heartbeat_sent = $now;
-		// First beat starts the liveness clock; silence is measured from it.
-		$this->last_heartbeat_reply = $this->last_heartbeat_reply ?: $now;
 
 		// ttl must outlive HEARTBEAT_INTERVAL — only client refreshes slot.
 		$message                   = Message::new_message();

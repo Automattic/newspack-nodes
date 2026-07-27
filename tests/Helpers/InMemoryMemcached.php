@@ -37,6 +37,16 @@ class InMemoryMemcached extends \Memcached {
 		return $entry['value'];
 	}
 
+	/**
+	 * Test-only: absolute expiry stamps by key, so a test can assert which TTL
+	 * a caller actually applied (not merely that the key exists).
+	 *
+	 * @return array<string,int>
+	 */
+	public function expiries(): array {
+		return \array_map( static fn ( array $e ): int => $e['expires'], $this->store );
+	}
+
 	public function getResultCode(): int {
 		return $this->result_code;
 	}
