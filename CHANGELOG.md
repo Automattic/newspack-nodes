@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-07-27
+
+### Fixed
+- **A reconnecting `Remote_Source` resumed inside a record, losing exactly one
+  message per reconnect.** The resume offset is in REMOTE coordinates, but was
+  computed as `cursor_offset + strlen( $line ) + 1` — a remote offset plus a
+  LOCAL length. The delivered line is re-stamped in transit and runs longer than
+  the stored record, so every reconnect landed the cursor past the boundary and
+  inside the next record. The spoke then read a tail fragment, failed
+  `Message::unpacked()`, and dead-lettered it; the hub logged the resulting hole
+  as `missing message: expected #406, got #407`. Two production incidents drifted
+  27 bytes each, dropping one firehose record apiece. Now uses `$crumb['length']`
+  — the spoke's own on-disk record size, the only length in remote coordinates.
+  A crumb-less line has no position of its own, so it leaves the cursor on the
+  prior healthy line instead of guessing.
+
 ## [2.2.0] - 2026-07-27
 
 ### Added

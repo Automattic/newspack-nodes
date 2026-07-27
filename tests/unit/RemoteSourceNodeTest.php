@@ -233,6 +233,28 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 0, $frame['attempts'], 'no fair-shot climb — a clean handoff' );
 	}
 
+	public function test_resume_position_uses_the_crumb_length_not_the_local_line(): void {
+		// The resume offset is in REMOTE coordinates, so only the crumb's on-disk
+		// length is authoritative. The delivered line is re-stamped in transit and
+		// runs longer, which pushed the resume INTO the next record: production saw
+		// `57:40959889:177` resumed at 40959916 — 27 bytes in — and the spoke then
+		// dead-lettered a 150-byte tail fragment, losing exactly one record.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		// A fat VALUE so the local line is nowhere near the 177-byte on-disk record.
+		$this->deliver( $sse, '57:40959889:177', '', [ 'pad' => \str_repeat( 'x', 400 ) ] );
+
+		$this->assertSame(
+			40959889 + 177,
+			$sse->position()['offset'],
+			'resume must land on the next record boundary, not inside it'
+		);
+	}
+
 	public function test_crumbless_throw_dead_letters_without_marking_prior_cursor(): void {
 		// Fix #4: a crumb-less throwing message (no parseable ID) has no position of its own — the
 		// cursor still pins the PRIOR healthy line. Marking a quarantine at the cursor would falsely
@@ -709,11 +731,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 2, $spy->captured );
 	}
 
-	public function test_reconnect_resumes_from_last_delivered_exclusive_end(): void {
-		// Fix #2: after a successful forward, the node drives SSE_In's resume position to the
-		// delivered line's exclusive end computed LOCALLY (cursor start + strlen(line) + 1), NOT
-		// the remote-stamped length. A reconnect (stale / SSE_Out recycle) then resumes AFTER the
-		// last delivered line — exactly-once — instead of replaying from the boot cursor.
+	public function test_reconnect_resumes_from_the_crumb_stamped_record_end(): void {
+		// Resume at `crumb offset + crumb length` — exactly-once, no boot replay. Asserted the
+		// reverse until 2.2.1 (local strlen), which mixed a remote offset with a local length and
+		// drifted 27 bytes into the next record on every reconnect.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$captured_urls = [];
 		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$captured_urls ): \CurlHandle {
@@ -725,7 +746,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire(); // first connect: position is boot (0:0) → no `positions` param.
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		// Deliver a line whose stamped length (999) is a LIE — the local computation must ignore it.
+		// The stamp (999) is what the resume must honor — it is the on-disk record size.
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::ID ]    = '7:200:999';
@@ -745,9 +766,9 @@ class RemoteSourceNodeTest extends TestCase {
 		$positions = \json_decode( (string) ( $query['positions'] ?? '' ), true );
 		$this->assertIsArray( $positions, 'the reconnect carries a positions param (not a boot replay)' );
 		$this->assertSame(
-			[ 'segment' => 7, 'offset' => 200 + \strlen( $packed ) + 1 ],
+			[ 'segment' => 7, 'offset' => 200 + 999 ],
 			$positions['firehose.p0'] ?? null,
-			'resume from the last delivered line exclusive END computed LOCALLY (not the remote-stamped 999)'
+			'resume at the crumb-stamped record end, never a locally measured line length'
 		);
 		$this->assertCount( 1, $spy->captured, 'the reconnect itself re-forwards nothing' );
 	}
