@@ -650,8 +650,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( $slot < 0 ) {
 			throw new \RuntimeException( 'slot required' );
 		}
-		$ttl     = isset( $parts[1] ) ? (int) $parts[1] : 10;
-		$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::hostname(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl );
+		// Server owns the TTL; $parts[1] is accepted and ignored (old clients).
+		$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::hostname(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, SSE_Slot_Pool::$ttl );
 		return [ 'success' => $success, 'slot' => $slot ];
 	}
 

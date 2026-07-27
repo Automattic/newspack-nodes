@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.3] - 2026-07-27
+
+### Fixed
+- **The `heartbeat` verb applied the CLIENT's TTL, undoing 2.2.2 seconds after
+  connect.** `cmd_heartbeat` read its lifetime from `$args[1]`, and the client
+  sends `HEARTBEAT_INTERVAL * 3` (30) — so `acquire()` set 60 and the first
+  heartbeat ~10s later touched it back down to 30 and held it there. The 2.2.2
+  bump therefore had no steady-state effect; this is what makes it real. The
+  server now uses `SSE_Slot_Pool::$ttl`, which also closes a slot-exhaustion
+  gap: a client could name any lifetime it wanted. The argument is still
+  accepted on the wire and ignored, so older clients keep working.
+
+### Removed
+- **The three-cadences-of-silence session forget.** `Remote_Link_Node` dropped
+  its session after three unanswered heartbeats, on the theory that silence
+  meant the spoke had evicted it. It doesn't: a slow reply or a dropped POST
+  discards a session that is valid for up to another hour, and because the
+  keepalive is gated on having a session, discarding it suspends the very
+  traffic that holds the slot — losing the stream. The refusal-based path
+  already existed and is the documented contract (`Command_Auth`: "clients
+  re-auth on refusal"): `HTTP_Out` forgets on a 401, which is the only evidence
+  the spoke actually rejected the handle. Also removes `last_heartbeat_reply`
+  and its three maintenance points — the liveness clock had no other reader —
+  along with a near-name collision with `last_heartbeat_response` (the
+  Remote_Source telemetry field) in the same inheritance chain.
+
 ## [2.2.2] - 2026-07-27
 
 ### Changed
