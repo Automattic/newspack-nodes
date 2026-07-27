@@ -789,11 +789,12 @@ export class ShellNode extends Node {
 				text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
 			};
 		}
-		const value = rest.trim();
+		// ltrim only: tokenize stripped the edges, so the tail is content.
+		const value = rest.replace( /^\s+/, '' );
 
 		if ( '' === op ) {
 			// Shell3:630 fatals on trailing junk where an operator belongs.
-			if ( '' !== value ) {
+			if ( '' !== value.trim() ) {
 				return {
 					kind: 'error',
 					text: `var: unexpected token in assignment: ${ value }`,

@@ -134,6 +134,17 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'eggs', $shell->interpolate( '<spam>' ) );
 	}
 
+	public function test_a_quoted_value_keeps_its_trailing_newline(): void {
+		// The tokenizer already stripped surrounding whitespace, so whatever
+		// reaches the value IS the value. Trimming here ate a terminator the
+		// caller had deliberately quoted in.
+		$shell = new Shell_Node();
+
+		$shell->parse( 'var foo = "bar\n"' );
+
+		$this->assertSame( "bar\n", $shell->interpolate( '<foo>' ) );
+	}
+
 	public function test_var_command_accepts_spaced_form_with_multiword_value(): void {
 		$shell = new Shell_Node();
 		$this->assertNull( $shell->parse( 'var greeting = hello there' ) );
