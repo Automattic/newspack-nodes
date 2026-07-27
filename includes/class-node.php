@@ -348,7 +348,6 @@ class Node {
 	 */
 	public function log_midfix( ?string $text = null ): string {
 		$midfix = '';
-		$uptime = (int) ( Core::$now - Core::$init_time );
 		if ( '' !== $this->name
 			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
 			$midfix = $this->name . ': ';
