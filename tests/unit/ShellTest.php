@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -53,6 +54,31 @@ class ShellTest extends TestCase {
 			'single-empty'    => [ [ '' ] ],
 			'plain-path'      => [ [ '/logs/x.p0', '65536', '4' ] ],
 		];
+	}
+
+	/** Double quotes are Shell3's string1: escape SEQUENCES expand. */
+	public function test_double_quotes_expand_escape_sequences(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ "foo\nbar\n" ], $shell->tokenize( '"foo\\nbar\\n"' ) );
+		$this->assertSame( [ "a\tb" ], $shell->tokenize( '"a\\tb"' ) );
+		$this->assertSame( [ "a\rb" ], $shell->tokenize( '"a\\rb"' ) );
+		$this->assertSame( [ "a\033b" ], $shell->tokenize( '"a\\eb"' ) );
+	}
+
+	/** Double quotes still unescape the literal chars: \" \\ \< \>. */
+	public function test_double_quotes_unescape_literal_chars(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ 'say "hi"' ], $shell->tokenize( '"say \\"hi\\""' ) );
+		$this->assertSame( [ 'a\\b' ], $shell->tokenize( '"a\\\\b"' ) );
+		$this->assertSame( [ '<literal>' ], $shell->tokenize( '"\\<literal\\>"' ) );
+	}
+
+	/** Single quotes are string2: ONLY \' and \\ unescape, \n stays literal. */
+	public function test_single_quotes_keep_escape_sequences_literal(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ 'foo\\nbar' ], $shell->tokenize( "'foo\\nbar'" ) );
+		$this->assertSame( [ "it's" ], $shell->tokenize( "'it\\'s'" ) );
+		$this->assertSame( [ 'a\\b' ], $shell->tokenize( "'a\\\\b'" ) );
 	}
 
 	public function test_tokenize_collapses_repeated_whitespace(): void {
@@ -112,6 +138,390 @@ class ShellTest extends TestCase {
 		$shell = new Shell_Node();
 		$this->assertNull( $shell->parse( 'var greeting = hello there' ) );
 		$this->assertSame( 'hello there', $shell->interpolate( '<greeting>' ) );
+	}
+
+	/** `var` with no argument lists every var as `name=value`, sorted. */
+	public function test_bare_var_lists_all_vars_sorted(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+		$shell->parse( 'var zebra = last' );
+		$shell->parse( 'var apple = first' );
+
+		$this->assertNull( $shell->parse( 'var' ) );
+		$this->assertSame( "apple=first\nzebra=last\n", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** `var <name>` prints the value (Shell3.pm:2713-2721). */
+	public function test_var_name_prints_the_value(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+		$shell->parse( 'var foo = bar' );
+
+		$this->assertNull( $shell->parse( 'var foo' ) );
+		// Verbatim, like Shell3 — no newline is appended.
+		$this->assertSame( 'bar', $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** Reading an unset var autovivifies it to empty — Shell3.pm:2715 `//= q()`. */
+	public function test_reading_an_unset_var_defines_it_as_empty(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$shell->parse( 'var ghost' );
+		$this->assertSame( '', Core::$var['ghost'] ?? null, 'read must define the key' );
+
+		// The read itself prints nothing (empty value), so `var` is capture 0.
+		$shell->parse( 'var' );
+		$this->assertStringContainsString( "ghost=\n", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** `print` writes its argument verbatim — the newline is the caller's. */
+	public function test_print_writes_verbatim_without_appending_a_newline(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$shell->parse( 'print hello' );
+		$this->assertSame( 'hello', $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** The newline comes from the value, as Shell3's `print "<msg>\n"` shows. */
+	public function test_print_emits_an_embedded_newline(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$shell->parse( 'print "hello' . '\\n' . '"' );
+		$this->assertSame( "hello\n", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** `echo` is gone — Tachikoma has no such verb. */
+	public function test_echo_is_not_a_builtin(): void {
+		$shell   = new Shell_Node();
+		$message = $shell->parse( 'echo hello' );
+
+		$this->assertNotNull( $message, 'an unknown verb falls through as a command' );
+		$this->assertSame( 'echo', $message[ Message::VALUE ]['name'] );
+	}
+
+	/** A whitespace-only value SETS empty; only a missing value deletes. */
+	public function test_whitespace_only_value_sets_empty_rather_than_deleting(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var foo = bar' );
+
+		$shell->parse( 'var foo = "' . '\\n' . '"' );
+		$this->assertArrayHasKey( 'foo', Core::$var, 'a newline value must not delete' );
+		$this->assertSame( '', Core::$var['foo'] );
+	}
+
+	/** Reading prints the value verbatim — an empty one prints nothing. */
+	public function test_reading_an_empty_var_prints_nothing(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+		$shell->parse( 'var hollow' );
+
+		$shell->parse( 'var hollow' );
+		$this->assertSame( [], $capture->captured, 'an empty value prints nothing at all' );
+	}
+
+	/** An empty var store lists nothing, not a blank line. */
+	public function test_bare_var_with_no_vars_prints_nothing(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$shell->parse( 'var' );
+		$this->assertSame( [], $capture->captured );
+	}
+
+	/** Trailing junk where an operator belongs is an error (Shell3.pm:630). */
+	public function test_name_followed_by_junk_is_rejected(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$shell->parse( 'var greeting hello' );
+		$this->assertArrayNotHasKey( 'greeting', Core::$var );
+		$this->assertStringContainsString( 'unexpected token', $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/** `var <name> =` with no value DELETES the var (Shell3.pm:2839). */
+	public function test_empty_assignment_deletes_the_var(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var doomed = alive' );
+
+		$shell->parse( 'var doomed =' );
+		$this->assertArrayNotHasKey( 'doomed', Core::$var );
+	}
+
+	/** Interpolating an undefined var warns; the result is still empty. */
+	public function test_interpolating_an_undefined_var_warns(): void {
+		$shell   = new Shell_Node();
+		$emitted = [];
+		Core::set_stderr_handler( static function ( string $t ) use ( &$emitted ): void {
+			$emitted[] = $t;
+		} );
+
+		$this->assertSame( 'tell  hello', $shell->interpolate( 'tell <ghost> hello' ) );
+		// Shell3 prints this one raw (`print {*STDERR}`) — no timestamp, no
+		// hostname, no pid, in a worker as much as in the REPL.
+		$this->assertSame( [ "WARNING: use of uninitialized value <ghost>\n" ], $emitted );
+	}
+
+	/** Shell3:303 — an unquoted `#` starts a comment anywhere, not just col 0. */
+	public function test_trailing_comment_is_dropped_from_tokens(): void {
+		$shell = new Shell_Node();
+		$this->assertSame(
+			[ 'make_node', 'Log', 'foo' ],
+			$shell->tokenize( 'make_node Log foo   # the request log' )
+		);
+	}
+
+	/** A `#` inside a quote is content, not a comment. */
+	public function test_hash_inside_quotes_is_content(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ 'send', 'a # b' ], $shell->tokenize( 'send "a # b"' ) );
+		$this->assertSame( [ 'send', '#fff' ], $shell->tokenize( "send '#fff'" ) );
+	}
+
+	/** The ident charset excludes `#`, so it ends the token it interrupts. */
+	public function test_hash_ends_the_token_it_interrupts(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ 'foo' ], $shell->tokenize( 'foo#bar' ) );
+	}
+
+	/** A `<token>` in a trailing comment is inert — it must not interpolate. */
+	public function test_trailing_comment_does_not_interpolate_or_warn(): void {
+		$shell   = new Shell_Node();
+		$emitted = [];
+		Core::set_stderr_handler( static function ( string $t ) use ( &$emitted ): void {
+			$emitted[] = $t;
+		} );
+
+		$this->assertSame( 'tell node hi  # see <id>', $shell->interpolate( 'tell node hi  # see <id>' ) );
+		$this->assertSame( [], $emitted );
+	}
+
+	/** A `;` inside a trailing comment must not split the statement. */
+	public function test_semicolon_inside_a_trailing_comment_does_not_split(): void {
+		$shell = new Shell_Node();
+		$this->assertSame(
+			[ 'make_node Log foo # a; b' ],
+			$shell->split_statements( 'make_node Log foo # a; b' )
+		);
+	}
+
+	/** Shell3:411 string4 — outside a quote, a backslash escapes the next char. */
+	public function test_backslash_escapes_outside_quotes(): void {
+		$shell = new Shell_Node();
+		$bs    = \chr( 92 );
+
+		$this->assertSame( [ 'echo', 'foo', '#', 'bar' ], $shell->tokenize( "echo foo {$bs}# bar" ) );
+		$this->assertSame( [ 'echo', 'a b' ], $shell->tokenize( "echo a{$bs} b" ) );
+		// An escaped backslash collapses to one literal backslash.
+		$this->assertSame( [ 'echo', "a{$bs}b" ], $shell->tokenize( "echo a{$bs}{$bs}b" ) );
+	}
+
+	/** An escaped `<` is not a variable opener. */
+	public function test_escaped_angle_bracket_does_not_interpolate(): void {
+		$shell = new Shell_Node();
+		Core::$var['who'] = 'alice';
+
+		$this->assertSame( 'echo \<who>', $shell->interpolate( 'echo \<who>' ) );
+		$this->assertSame( [ 'echo', '<who>' ], $shell->tokenize( $shell->interpolate( 'echo \<who>' ) ) );
+	}
+
+	/** An escaped `;` is content, not a statement separator. */
+	public function test_escaped_semicolon_does_not_split(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( [ 'echo a\; b' ], $shell->split_statements( 'echo a\; b' ) );
+		$this->assertSame( [ 'echo', 'a;', 'b' ], $shell->tokenize( 'echo a\; b' ) );
+	}
+
+	/** A trailing backslash still continues the line (Shell3 rule order). */
+	public function test_trailing_backslash_is_still_a_continuation(): void {
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( 'tell node \\' ) );
+		$message = $shell->parse( 'hello' );
+
+		$this->assertNotNull( $message, 'the continuation must complete on the next line' );
+		$this->assertSame( 'hello', $message[ Message::VALUE ] );
+	}
+
+	/** An ESCAPED trailing backslash is a literal, not a continuation. */
+	public function test_even_trailing_backslashes_are_not_a_continuation(): void {
+		$shell = new Shell_Node();
+		$bs    = \chr( 92 );
+		// `tell node a\\` — the pair is one literal backslash; the line is complete.
+		$message = $shell->parse( "tell node a{$bs}{$bs}" );
+
+		$this->assertNotNull( $message, 'an escaped backslash must not hold the line' );
+		$this->assertSame( "a{$bs}", $message[ Message::VALUE ] );
+	}
+
+	/** A commented line is inert — its `<tokens>` must not warn (aggregator.tsl). */
+	public function test_comment_line_does_not_interpolate_or_warn(): void {
+		$shell   = new Shell_Node();
+		$emitted = [];
+		Core::set_stderr_handler( static function ( string $t ) use ( &$emitted ): void {
+			$emitted[] = $t;
+		} );
+
+		$this->assertNull( $shell->parse( '#   make_node Remote_Source spoke-<id> <vault-id>' ) );
+		$this->assertSame( [], $emitted, 'a commented example must not warn' );
+	}
+
+	/** An indented comment is still a comment (the aggregator.tsl block is). */
+	public function test_indented_comment_line_does_not_warn(): void {
+		$shell   = new Shell_Node();
+		$emitted = [];
+		Core::set_stderr_handler( static function ( string $t ) use ( &$emitted ): void {
+			$emitted[] = $t;
+		} );
+
+		$this->assertNull( $shell->parse( '    # spoke-<id>' ) );
+		$this->assertSame( [], $emitted );
+	}
+
+	/** Through the REAL default handler, the REPL sink sees it bare. */
+	public function test_uninitialized_warning_reaches_the_repl_unprefixed(): void {
+		$shell   = new Shell_Node();
+		$capture = $this->register_output_capture();
+
+		$shell->interpolate( 'tell <ghost> hello' );
+
+		// Shell3 writes straight to STDERR: no timestamp, no hostname, no pid.
+		$this->assertSame(
+			"WARNING: use of uninitialized value <ghost>\n",
+			$capture->captured[0][ Message::VALUE ]
+		);
+	}
+
+	/** A var defined as empty interpolates silently — defined beats non-empty. */
+	public function test_interpolating_a_defined_empty_var_does_not_warn(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var hollow' );
+		$emitted = [];
+		Core::set_stderr_handler( static function ( string $t ) use ( &$emitted ): void {
+			$emitted[] = $t;
+		} );
+
+		$this->assertSame( 'tell  hello', $shell->interpolate( 'tell <hollow> hello' ) );
+		$this->assertSame( [], $emitted );
+	}
+
+	/** The documented operator set (Shell3.pm `$H{'var'}` + operate_with_value). */
+	public function test_assignment_operators(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var s = ab' );
+		$shell->parse( 'var s .= cd' );
+		$this->assertSame( 'ab cd', Core::$var['s'], '.= joins with a space' );
+
+		$shell->parse( 'var n = 10' );
+		$shell->parse( 'var n += 5' );
+		$this->assertSame( '15', Core::$var['n'] );
+		$shell->parse( 'var n -= 3' );
+		$this->assertSame( '12', Core::$var['n'] );
+		$shell->parse( 'var n *= 2' );
+		$this->assertSame( '24', Core::$var['n'] );
+		$shell->parse( 'var n /= 4' );
+		$this->assertSame( '6', Core::$var['n'] );
+
+		$shell->parse( 'var n ++' );
+		$this->assertSame( '7', Core::$var['n'] );
+		$shell->parse( 'var n --' );
+		$this->assertSame( '6', Core::$var['n'] );
+	}
+
+	/** `//=` fills only an UNSET var; `||=` also fills an empty one. */
+	public function test_defined_or_and_logical_or_assignment(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var a = kept' );
+		$shell->parse( 'var a //= ignored' );
+		$this->assertSame( 'kept', Core::$var['a'] );
+
+		$shell->parse( 'var b =' );
+		$shell->parse( 'var b //= filled' );
+		$this->assertSame( 'filled', Core::$var['b'] );
+
+		$shell->parse( 'var c' );
+		$shell->parse( 'var c //= kept-empty' );
+		$this->assertSame( '', Core::$var['c'], '//= keeps a DEFINED empty value' );
+		$shell->parse( 'var c ||= replaced' );
+		$this->assertSame( 'replaced', Core::$var['c'], '||= replaces an empty value' );
+
+		$shell->parse( 'var d = 0' );
+		$shell->parse( 'var d //= untouched' );
+		$this->assertSame( '0', Core::$var['d'], '//= keeps a defined falsy value' );
+	}
+
+	/** Port of Shell3.pm:2241 — `message.key` is read out of var scope at mint. */
+	public function test_message_key_var_stamps_KEY_on_a_minted_message(): void {
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( 'var message.key = trace-77' ) );
+		$message = $shell->parse( 'send node bytes' );
+
+		$this->assertSame( 'trace-77', $message[ Message::KEY ] );
+	}
+
+	/** Every mint site reads it, not just send_node (Shell3.pm:2241/2275/2307/2342). */
+	public function test_message_key_var_stamps_KEY_on_tell_request_and_command(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var message.key = trace-77' );
+
+		$this->assertSame( 'trace-77', $shell->parse( 'tell node info' )[ Message::KEY ] );
+		$this->assertSame( 'trace-77', $shell->parse( 'request node q' )[ Message::KEY ] );
+		$this->assertSame( 'trace-77', $shell->parse( 'cmd node ls' )[ Message::KEY ] );
+	}
+
+	/** Unset leaves KEY empty — the var is opt-in, never a synthesized default. */
+	public function test_KEY_is_empty_when_no_message_key_var_is_set(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( '', $shell->parse( 'send node bytes' )[ Message::KEY ] );
+	}
+
+	/** ID is var-settable here — a divergence from Shell3, where it is shell-owned. */
+	public function test_message_id_var_stamps_ID_on_a_minted_message(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var message.id = 4242' );
+
+		$this->assertSame( '4242', $shell->parse( 'send node bytes' )[ Message::ID ] );
+	}
+
+	/** Port of Shell3.pm:2240 — `message.from` overrides the session's reply path. */
+	public function test_message_from_var_overrides_the_default_reply_path(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var message.from = elsewhere/sink' );
+
+		$this->assertSame( 'elsewhere/sink', $shell->parse( 'send node bytes' )[ Message::FROM ] );
+	}
+
+	/** Unset falls back to `_output/<pid>` so replies reach this session's Dumper. */
+	public function test_FROM_defaults_to_the_session_output_path(): void {
+		$shell = new Shell_Node();
+
+		$this->assertSame(
+			Node_Names::OUTPUT . '/' . \getmypid(),
+			$shell->parse( 'send node bytes' )[ Message::FROM ]
+		);
+	}
+
+	/** TIMESTAMP is forgeable for the same reason ID is: debugging. */
+	public function test_message_timestamp_var_stamps_TIMESTAMP(): void {
+		$shell = new Shell_Node();
+		$shell->parse( 'var message.timestamp = 1700000000' );
+
+		$this->assertSame( '1700000000', $shell->parse( 'send node bytes' )[ Message::TIMESTAMP ] );
+	}
+
+	/** Unset TIMESTAMP still gets the mint clock, never an empty string. */
+	public function test_TIMESTAMP_defaults_to_the_mint_clock(): void {
+		Core::$now = 1234567890.5;
+		$shell     = new Shell_Node();
+
+		$this->assertSame( 1234567890.5, $shell->parse( 'send node bytes' )[ Message::TIMESTAMP ] );
+	}
+
+	/** Unset ID stays empty — opt-in, never synthesized. */
+	public function test_ID_is_empty_when_no_message_id_var_is_set(): void {
+		$shell = new Shell_Node();
+		$this->assertSame( '', $shell->parse( 'send node bytes' )[ Message::ID ] );
 	}
 
 	public function test_interpolate_does_not_expand_inside_single_quotes(): void {
@@ -450,19 +860,20 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_backslash_continuation_splices_with_nothing_like_bash(): void {
-		// bash + Tachikoma: `echo hi\` + `bye` -> `hibye`, and the pending
+		// bash + Tachikoma: `print hi\` + `bye` -> `hibye`, and the pending
 		// continuation shows a bare `> ` prompt.
 		$capture = $this->register_output_capture();
 		$shell   = new Shell_Node();
 
-		$this->assertNull( $shell->parse( 'echo hi\\' ) );
+		$this->assertNull( $shell->parse( 'print hi\\' ) );
 		$this->assertSame( '> ', $shell->prompt, 'bare continuation prompt while pending' );
 
-		$this->assertNull( $shell->parse( 'bye' ), 'echo is a local builtin' );
+		$this->assertNull( $shell->parse( 'bye' ), 'print is a local builtin' );
 		$this->assertSame( '/> ', $shell->prompt, 'prompt restored' );
 
 		$out = \implode( '', \array_column( $capture->captured, Message::VALUE ) );
-		$this->assertSame( "hibye\n", $out );
+		// `print` appends nothing — the splice itself is what's under test.
+		$this->assertSame( 'hibye', $out );
 	}
 
 	public function test_backslash_continuation_yields_null_until_terminating_line(): void {

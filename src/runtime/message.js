@@ -64,13 +64,32 @@ export function byteLength( str ) {
 	return new Blob( [ str ] ).size;
 }
 
-// Composer reply-flag checkboxes → TYPE bits; mutates `m` in place, returns it.
-export function applyReplyFlags( m, flags ) {
-	if ( ! flags ) {
+/**
+ * Composer inputs → TYPE bits + FROM/ID/KEY/TIMESTAMP, mutating `m` in place.
+ *
+ * One-shot per mint: unlike the Shell's `message.*` vars nothing persists into
+ * the next statement, and a blank input leaves the parsed field as-is.
+ *
+ * @param {Array}  m      Parsed message, mutated.
+ * @param {Object} fields `{ response, error, from, id, key, timestamp }`.
+ * @return {Array} The same message.
+ */
+export function applyComposeFields( m, fields ) {
+	if ( ! fields ) {
 		return m;
 	}
 	m[ TYPE ] |=
-		( flags.response ? TM_RESPONSE : 0 ) | ( flags.error ? TM_ERROR : 0 );
+		( fields.response ? TM_RESPONSE : 0 ) | ( fields.error ? TM_ERROR : 0 );
+	for ( const [ name, index ] of [
+		[ 'from', FROM ],
+		[ 'id', ID ],
+		[ 'key', KEY ],
+		[ 'timestamp', TIMESTAMP ],
+	] ) {
+		if ( fields[ name ] ) {
+			m[ index ] = fields[ name ];
+		}
+	}
 	return m;
 }
 

@@ -7,6 +7,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-27
+
+### Added
+- **`message.from` / `message.key` / `message.id` / `message.timestamp` Shell
+  vars.** Both shells (PHP `Shell_Node`, JS `shell-node.js`) read these out of
+  var scope at the mint and stamp them onto the outgoing message, so `var
+  message.key = trace-77` applies to the
+  `send`/`tell`/`request`/`cmd`/`send_struct`/`send_eof` that follows. Ports
+  Tachikoma `Shell3.pm:2240-2242` (`local message.stream = foo`). ID and
+  TIMESTAMP are settable here, where Shell3 keeps ID as shell-owned correlation
+  state and always stamps its own clock — both are forgeable for the same reason
+  the composer exists at all, which is debugging. Unset leaves KEY/ID empty,
+  FROM at the session reply path, and TIMESTAMP at the mint clock.
+- **Compose modal FROM / TIMESTAMP / ID / KEY inputs.** The console's message
+  composer only ever set four of the seven fields — TO, TYPE, the two reply-flag
+  bits, and VALUE — leaving KEY and ID empty on every message it minted. All
+  four new inputs are optional; blank keeps what the mint stamped. The controls
+  are laid out in Message field order: TYPE(0), TIMESTAMP(1), FROM(2), TO(3),
+  ID(4), KEY(5), VALUE(6).
+- **Tachikoma `var` semantics.** Both shells implement Shell3's
+  `var_assignment`: bare `var` lists every var as `name=value` (sorted), `var
+  <name>` prints the value and autovivifies it to empty (`Shell3.pm:2715`), `var
+  <name> =` with no value DELETES it (`:2839`), and the documented operator set
+  applies — `= .= += -= *= /= //= ||=` plus valueless `++` / `--`. A name
+  followed by junk where an operator belongs is rejected, matching Shell3's
+  `Unexpected token in assignment` fatal (`:630`). Delete-vs-set branches on
+  whether a value TOKEN followed the operator (`:2825`), not on the stripped
+  text, so `var foo = "\n"` SETS foo empty rather than deleting it. A read
+  prints its value verbatim — an empty one prints nothing rather than a blank
+  line — and a bare `var` over an empty store prints nothing at all.
+- **`WARNING: use of uninitialized value <name>`.** Interpolating a var that was
+  never defined now warns; a var defined as empty stays silent. The result is
+  unchanged (still `''`), so this is a diagnostic, not a behavior change.
+  Printed RAW, with no log prefix: Shell3 emits this one with a direct `print
+  {*STDERR}` (`:3303`) rather than through `Node::stderr`, so it carries no
+  timestamp, hostname, or pid even in a worker. `message.*` reads stay silent,
+  the same exemption Shell3 gives them via its silent flag.
+- **Trailing comments.** An unquoted `#` comments out the rest of the line,
+  anywhere — `make_node Log foo /var/log/x.log  # the request log` — matching
+  Shell3's tokenizer (`:303`), where `#` starts a comment wherever a token
+  could. It is recognized before the `;` split, before interpolation, and while
+  tokenizing, so a comment can hold a `;` or a `<token>` without either taking
+  effect. Previously only a whole-line `#` counted, and a trailing one was
+  silently tokenized into extra arguments.
+- **Backslash escapes outside quotes.** `print foo \# bar` emits `foo # bar`:
+  outside a quote `\X` yields a literal X (Shell3's `string4`, `:411`), so `#`,
+  `;`, `<`, and whitespace can all be escaped into content.
+
+### Changed
+- **`echo` is now `print`, and appends nothing.** Tachikoma has no `echo`
+  builtin — only `print`, which writes its argument verbatim (`Shell3.pm:1363`)
+  with a help text of `print "<message>\n"`, i.e. the newline is the caller's.
+  Renamed in both shells along with the `{ kind: 'local', name }` signal the
+  console host dispatches on. A typed `echo` now falls through as a TM_COMMAND
+  like any other unknown verb. No topology used it.
+- **Escapes are quote-typed.** Double quotes are Shell3's `string1` and now
+  expand `\e` `\n` `\r` `\t` alongside `\"` `\\` `\<` `\>`, so
+  `"foo\nbar\n"` yields real newlines instead of `foonbarn`. Single quotes and
+  backticks are `string2`: only `\'` / `` \` `` and `\\` unescape, keeping a
+  deferred `<token>` literal. An unlisted `\X` now keeps both characters instead
+  of dropping the backslash. `serialize_args()` single-quotes and escapes only
+  `\` and `'`, so the tokenizer round-trip is unaffected.
+- **A line continues only on an ODD run of trailing backslashes.** `a\\` is one
+  escaped backslash and a complete line, where before any trailing backslash
+  held the line open. Needed once a backslash escapes outside quotes too.
+- **`applyReplyFlags` → `applyComposeFields`.** Same one-shot post-parse
+  channel, now carrying the composer's FROM/TIMESTAMP/ID/KEY alongside the
+  TM_RESPONSE / TM_ERROR bits. Unlike the Shell vars, nothing persists into the
+  next statement.
+- **`Core::_stderr()` takes `$raw`**, passed through to the stderr handler so a
+  caller that composed its own final line skips the sink's `log_prefix()`.
+  `error_log()` still receives the undecorated text on both paths, so debug.log
+  keeps exactly one timestamp — its own.
+
+### Fixed
+- **A commented TSL line no longer interpolates.** `parse()` expanded `<tokens>`
+  before testing for a leading `#`, so an inert comment was interpolated anyway.
+  Harmless while unknown vars were silent; with the new warning it made the
+  stock `aggregator.tsl` — whose comment block documents `make_node
+  Remote_Source spoke-<id> …` — log `WARNING: use of uninitialized value <id>`
+  at every load. A leading literal `#` survives interpolation, so comments are
+  settled first; the post-interpolation check stays for a var that expands into
+  one.
+
 ## [2.1.5] - 2026-07-26
 
 ### Removed

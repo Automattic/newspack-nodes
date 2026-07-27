@@ -74,7 +74,7 @@ import { getCommandClient } from './utils/commandClient';
 import unwrapCommandResponse from './utils/unwrapCommandResponse';
 import { scopeFromCwd } from './utils/scope';
 import { Core } from '../runtime/core';
-import { TO, applyReplyFlags } from '../runtime/message';
+import { TO, applyComposeFields } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
@@ -713,7 +713,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ scope.key ] );
 
 	const dispatchStatement = useCallback(
-		( statement, flags ) => {
+		( statement, fields ) => {
 			if ( ! shell ) {
 				return;
 			}
@@ -746,8 +746,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					} );
 					return;
 				}
-				// Compose modal's TM_RESPONSE / TM_ERROR checkboxes.
-				applyReplyFlags( parsedLine, flags );
+				// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
+				applyComposeFields( parsedLine, fields );
 				// dispatch (not sink.fill) so useGraphReset's tap sees it.
 				shell.dispatch( parsedLine );
 				return;
@@ -799,12 +799,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Unquoted ';' splits; a held continuation owns the whole next line.
 	const sendLine = useCallback(
-		( line, flags ) => {
+		( line, fields ) => {
 			const stmts = shell?.hasPending()
 				? [ line ]
 				: splitStatements( line );
 			for ( const stmt of stmts ) {
-				dispatchStatement( stmt, flags );
+				dispatchStatement( stmt, fields );
 			}
 			if ( shell?.hasPending() ) {
 				appendTranscript( {
@@ -822,8 +822,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		shell,
 		graph: parsed,
 		catalogClasses: catalog.classes,
-		dispatch: ( echoLine, name, args, flags ) =>
-			sendLine( echoLine, flags ),
+		dispatch: ( echoLine, name, args, fields ) =>
+			sendLine( echoLine, fields ),
 		append: appendTranscript,
 		onDropStage: setPendingDrop,
 		prefix: ( target ) => shell?.prefix( target ),
@@ -833,8 +833,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Route Inspector actions through the shared handler; focus the prompt.
 	const handleInspectorAction = useCallback(
-		( action, nodeId, payload, flags ) => {
-			liveHandlers.onInspectorAction( action, nodeId, payload, flags );
+		( action, nodeId, payload, fields ) => {
+			liveHandlers.onInspectorAction( action, nodeId, payload, fields );
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},

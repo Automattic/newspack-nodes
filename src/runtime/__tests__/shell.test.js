@@ -13,10 +13,15 @@ import {
 	quoteToken,
 } from '../shell-node';
 import { Node, serializeArgs } from '../node';
+import names from '../reserved-node-names.json';
+import { Core } from '../core';
 import {
 	TYPE,
 	FROM,
 	TO,
+	ID,
+	KEY,
+	TIMESTAMP,
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
@@ -85,13 +90,13 @@ describe( 'tokenizeSpans — raw token spans (quote chars intact)', () => {
 describe( 'parse — backslash continuation splices with nothing', () => {
 	it( 'holds the line, then splices bash-style (hi\\ + bye = hibye)', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'echo hi\\' ) ).toBeNull();
+		expect( shell.parse( 'print hi\\' ) ).toBeNull();
 		expect( shell.hasPending() ).toBe( true );
 		expect( shell.pendingPrompt() ).toBe( '> ' );
 		const parsed = shell.parse( 'bye' );
 		expect( parsed ).toEqual( {
 			kind: 'local',
-			name: 'echo',
+			name: 'print',
 			text: 'hibye',
 		} );
 		expect( shell.hasPending() ).toBe( false );
@@ -99,7 +104,7 @@ describe( 'parse — backslash continuation splices with nothing', () => {
 
 	it( 'flushPending reports a held backslash continuation at EOF', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'echo hi\\' ) ).toBeNull();
+		expect( shell.parse( 'print hi\\' ) ).toBeNull();
 		const flushed = shell.flushPending();
 		expect( flushed ).toEqual( {
 			kind: 'error',
@@ -536,11 +541,18 @@ describe( 'Shell node — var + interpolation', () => {
 		expect( filled[ 0 ][ TO ] ).toBe( 'firehose-in' );
 	} );
 
-	it( 'unknown <var> interpolates to empty', () => {
+	it( 'unknown <var> interpolates to empty, warning like Shell3 get_shared', () => {
 		const { shell, filled } = makeShell( { path: '' } );
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
 		shell.fill( 'tell <missing>node hi' );
 		// `<missing>` → '' so the token is `node`.
 		expect( filled[ 0 ][ TO ] ).toBe( 'node' );
+		expect( warn.mock.calls.join( ' ' ) ).toContain(
+			'use of uninitialized value <missing>'
+		);
+		warn.mockRestore();
 	} );
 
 	it( 'does NOT interpolate inside single quotes (literal, quotes preserved)', () => {
@@ -577,11 +589,11 @@ describe( 'Shell node — var + interpolation', () => {
 } );
 
 describe( 'Shell node — echo / status / show_parse', () => {
-	it( 'echo <args> → a local echo signal carrying the joined text', () => {
+	it( 'print <args> → a local print signal carrying the joined text', () => {
 		const { shell, filled } = makeShell();
-		expect( shell.parse( 'echo hello world' ) ).toEqual( {
+		expect( shell.parse( 'print hello world' ) ).toEqual( {
 			kind: 'local',
-			name: 'echo',
+			name: 'print',
 			text: 'hello world',
 		} );
 		expect( filled ).toHaveLength( 0 );
@@ -685,11 +697,11 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		} );
 	} );
 
-	it( 'echo collapses whitespace runs and strips quotes', () => {
+	it( 'print collapses whitespace runs and strips quotes', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'echo a   "b c"' ) ).toEqual( {
+		expect( shell.parse( 'print a   "b c"' ) ).toEqual( {
 			kind: 'local',
-			name: 'echo',
+			name: 'print',
 			text: 'a b c',
 		} );
 	} );
@@ -837,5 +849,314 @@ describe( 'Shell node — undocumented skin builtins', () => {
 			text: 'usage: set_skin <name>',
 		} );
 		expect( filled ).toHaveLength( 0 );
+	} );
+} );
+
+describe( 'Shell node — message.from / message.key / message.id vars', () => {
+	it( 'stamps KEY from the message.key var at mint (Shell3.pm:2241)', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var message.key = trace-77' );
+		expect( shell.parse( 'send node bytes' )[ KEY ] ).toBe( 'trace-77' );
+	} );
+
+	it( 'stamps KEY on every verb that mints, not just send', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var message.key = trace-77' );
+		expect( shell.parse( 'tell node info' )[ KEY ] ).toBe( 'trace-77' );
+		expect( shell.parse( 'request node q' )[ KEY ] ).toBe( 'trace-77' );
+		expect( shell.parse( 'cmd node ls' )[ KEY ] ).toBe( 'trace-77' );
+	} );
+
+	it( 'stamps ID from the message.id var at mint', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var message.id = 4242' );
+		expect( shell.parse( 'send node bytes' )[ ID ] ).toBe( '4242' );
+	} );
+
+	it( 'overrides the reply-path FROM from the message.from var', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var message.from = elsewhere/sink' );
+		expect( shell.parse( 'send node bytes' )[ FROM ] ).toBe(
+			'elsewhere/sink'
+		);
+	} );
+
+	it( 'falls back to the session reply node when message.from is unset', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'send node bytes' )[ FROM ] ).toBe(
+			shell.replyFrom( names.OUTPUT )
+		);
+	} );
+
+	it( 'stamps TIMESTAMP from the message.timestamp var at mint', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var message.timestamp = 1700000000' );
+		expect( shell.parse( 'send node bytes' )[ TIMESTAMP ] ).toBe(
+			'1700000000'
+		);
+	} );
+
+	it( 'keeps the mint clock when message.timestamp is unset', () => {
+		const { shell } = makeShell();
+		const stamped = shell.parse( 'send node bytes' )[ TIMESTAMP ];
+		expect( typeof stamped ).toBe( 'number' );
+		expect( stamped ).toBeGreaterThan( 0 );
+	} );
+
+	it( 'leaves KEY and ID empty when the vars are unset', () => {
+		const { shell } = makeShell();
+		const m = shell.parse( 'send node bytes' );
+		expect( m[ KEY ] ).toBe( '' );
+		expect( m[ ID ] ).toBe( '' );
+	} );
+} );
+
+describe( 'Shell node — Tachikoma var semantics (Shell3 parity)', () => {
+	it( 'bare `var` lists every var as name=value, sorted', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var zebra = last' );
+		shell.parse( 'var apple = first' );
+		expect( shell.parse( 'var' ) ).toEqual( {
+			kind: 'local',
+			name: 'print',
+			text: 'apple=first\nzebra=last\n',
+		} );
+	} );
+
+	it( '`var <name>` prints the value verbatim', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var foo = bar' );
+		expect( shell.parse( 'var foo' ) ).toEqual( {
+			kind: 'local',
+			name: 'print',
+			text: 'bar',
+		} );
+	} );
+
+	it( 'reading an unset var defines it as empty (Shell3.pm:2715)', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var ghost' );
+		expect( shell.vars.ghost ).toBe( '' );
+	} );
+
+	it( '`var <name> =` with no value deletes the var (Shell3.pm:2839)', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var doomed = alive' );
+		shell.parse( 'var doomed =' );
+		expect( 'doomed' in shell.vars ).toBe( false );
+	} );
+
+	it( 'applies the documented operator set', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var s = ab' );
+		shell.parse( 'var s .= cd' );
+		expect( shell.vars.s ).toBe( 'ab cd' );
+
+		shell.parse( 'var n = 10' );
+		shell.parse( 'var n += 5' );
+		expect( shell.vars.n ).toBe( '15' );
+		shell.parse( 'var n -= 3' );
+		expect( shell.vars.n ).toBe( '12' );
+		shell.parse( 'var n *= 2' );
+		expect( shell.vars.n ).toBe( '24' );
+		shell.parse( 'var n /= 4' );
+		expect( shell.vars.n ).toBe( '6' );
+		shell.parse( 'var n ++' );
+		expect( shell.vars.n ).toBe( '7' );
+		shell.parse( 'var n --' );
+		expect( shell.vars.n ).toBe( '6' );
+	} );
+
+	it( '//= fills only an unset var; ||= also replaces an empty one', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var a = kept' );
+		shell.parse( 'var a //= ignored' );
+		expect( shell.vars.a ).toBe( 'kept' );
+
+		shell.parse( 'var c' );
+		shell.parse( 'var c //= kept-empty' );
+		expect( shell.vars.c ).toBe( '' );
+		shell.parse( 'var c ||= replaced' );
+		expect( shell.vars.c ).toBe( 'replaced' );
+	} );
+
+	it( 'a commented line is inert — its <tokens> must not warn', () => {
+		const { shell } = makeShell();
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+
+		expect(
+			shell.parse( '#   make_node Remote_Source spoke-<id> <vault-id>' )
+		).toBeNull();
+		expect( shell.parse( '    # spoke-<id>' ) ).toBeNull();
+		expect( warn ).not.toHaveBeenCalled();
+		warn.mockRestore();
+	} );
+
+	it( 'interpolating an undefined var warns; a defined-empty one is silent', () => {
+		const { shell } = makeShell();
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+
+		expect( shell.interpolate( 'tell <ghost> hello' ) ).toBe(
+			'tell  hello'
+		);
+		// Shell3 prints this one raw — no timestamp, no argv0, no prefix.
+		expect( warn ).toHaveBeenCalledWith(
+			'WARNING: use of uninitialized value <ghost>\n'
+		);
+
+		warn.mockClear();
+		shell.parse( 'var hollow' );
+		expect( shell.interpolate( 'tell <hollow> hello' ) ).toBe(
+			'tell  hello'
+		);
+		expect( warn ).not.toHaveBeenCalled();
+		warn.mockRestore();
+	} );
+} );
+
+describe( 'Shell node — quote-typed escapes (Shell3 string1/string2)', () => {
+	it( 'double quotes expand escape sequences', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( '"foo\\nbar\\n"' ) ).toEqual( [
+			'foo\nbar\n',
+		] );
+		expect( shell.tokenize( '"a\\tb"' ) ).toEqual( [ 'a\tb' ] );
+		expect( shell.tokenize( '"a\\rb"' ) ).toEqual( [ 'a\rb' ] );
+		expect( shell.tokenize( '"a\\eb"' ) ).toEqual( [ 'a\x1bb' ] );
+	} );
+
+	it( 'double quotes unescape the literal chars', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( '"say \\"hi\\""' ) ).toEqual( [ 'say "hi"' ] );
+		expect( shell.tokenize( '"a\\\\b"' ) ).toEqual( [ 'a\\b' ] );
+		expect( shell.tokenize( '"\\<literal\\>"' ) ).toEqual( [
+			'<literal>',
+		] );
+	} );
+
+	it( 'single quotes keep escape sequences literal', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( "'foo\\nbar'" ) ).toEqual( [ 'foo\\nbar' ] );
+		expect( shell.tokenize( "'it\\'s'" ) ).toEqual( [ "it's" ] );
+		expect( shell.tokenize( "'a\\\\b'" ) ).toEqual( [ 'a\\b' ] );
+	} );
+} );
+
+describe( 'Shell node — comments and unquoted escapes (Shell3 parity)', () => {
+	it( 'drops a trailing comment from the tokens', () => {
+		const { shell } = makeShell();
+		expect(
+			shell.tokenize( 'make_node Log foo   # the request log' )
+		).toEqual( [ 'make_node', 'Log', 'foo' ] );
+	} );
+
+	it( 'keeps a `#` inside quotes as content', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( 'send "a # b"' ) ).toEqual( [
+			'send',
+			'a # b',
+		] );
+		expect( shell.tokenize( "send '#fff'" ) ).toEqual( [ 'send', '#fff' ] );
+	} );
+
+	it( 'lets a `#` end the token it interrupts', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( 'foo#bar' ) ).toEqual( [ 'foo' ] );
+	} );
+
+	it( 'does not interpolate a trailing comment', () => {
+		const { shell } = makeShell();
+		const warn = jest
+			.spyOn( Core, 'stderr' )
+			.mockImplementation( () => {} );
+
+		expect( shell.interpolate( 'tell node hi  # see <id>' ) ).toBe(
+			'tell node hi  # see <id>'
+		);
+		expect( warn ).not.toHaveBeenCalled();
+		warn.mockRestore();
+	} );
+
+	it( 'does not split on a `;` inside a trailing comment', () => {
+		expect( splitStatements( 'make_node Log foo # a; b' ) ).toEqual( [
+			'make_node Log foo # a; b',
+		] );
+	} );
+
+	it( 'escapes the next char outside quotes (Shell3 string4)', () => {
+		const { shell } = makeShell();
+		const bs = String.fromCharCode( 92 );
+		expect( shell.tokenize( `echo foo ${ bs }# bar` ) ).toEqual( [
+			'echo',
+			'foo',
+			'#',
+			'bar',
+		] );
+		expect( shell.tokenize( `echo a${ bs } b` ) ).toEqual( [
+			'echo',
+			'a b',
+		] );
+		expect( shell.tokenize( `echo a${ bs }${ bs }b` ) ).toEqual( [
+			'echo',
+			`a${ bs }b`,
+		] );
+	} );
+
+	it( 'does not treat an escaped `<` as a variable opener', () => {
+		const { shell } = makeShell();
+		const bs = String.fromCharCode( 92 );
+		shell.vars.who = 'alice';
+		expect( shell.interpolate( `echo ${ bs }<who>` ) ).toBe(
+			`echo ${ bs }<who>`
+		);
+		expect(
+			shell.tokenize( shell.interpolate( `echo ${ bs }<who>` ) )
+		).toEqual( [ 'echo', '<who>' ] );
+	} );
+
+	it( 'does not split on an escaped `;`', () => {
+		const bs = String.fromCharCode( 92 );
+		expect( splitStatements( `echo a${ bs }; b` ) ).toEqual( [
+			`echo a${ bs }; b`,
+		] );
+	} );
+} );
+
+describe( 'Shell node — var value/print edges (Shell3 parity)', () => {
+	it( 'sets empty for a whitespace-only value instead of deleting', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var foo = bar' );
+		shell.parse( 'var foo = "\\n"' );
+		expect( 'foo' in shell.vars ).toBe( true );
+		expect( shell.vars.foo ).toBe( '' );
+	} );
+
+	it( 'deletes only when no value follows the operator', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var foo = bar' );
+		shell.parse( 'var foo =' );
+		expect( 'foo' in shell.vars ).toBe( false );
+	} );
+
+	it( 'prints a read value verbatim, so an empty one prints nothing', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var foo = bar' );
+		expect( shell.parse( 'var foo' ) ).toEqual( {
+			kind: 'local',
+			name: 'print',
+			text: 'bar',
+		} );
+
+		shell.parse( 'var hollow' );
+		expect( shell.parse( 'var hollow' ) ).toBeNull();
+	} );
+
+	it( 'prints nothing for a bare `var` with an empty store', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'var' ) ).toBeNull();
 	} );
 } );
