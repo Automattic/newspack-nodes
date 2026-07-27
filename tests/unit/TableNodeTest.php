@@ -49,6 +49,92 @@ class TableNodeTest extends TestCase {
 		return $message;
 	}
 
+	private function request( string $value, string $from = 'asker' ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_REQUEST;
+		$message[ Message::FROM ]  = $from;
+		$message[ Message::VALUE ] = $value;
+		return $message;
+	}
+
+	public function test_get_request_replies_bytestream_for_a_scalar_value(): void {
+		[ $table, $sink ] = $this->table();
+		$table->fill( $this->keyed( 'sku-9', "bar\n" ) );
+		$sink->captured = [];
+
+		$table->fill( $this->request( 'GET sku-9' ) );
+
+		$this->assertCount( 1, $sink->captured );
+		$reply = $sink->captured[0];
+		$this->assertSame( Message::TM_BYTESTREAM, $reply[ Message::TYPE ] );
+		$this->assertSame( 'prices:table', $reply[ Message::FROM ] );
+		$this->assertSame( 'asker', $reply[ Message::TO ] );
+		$this->assertSame( 'sku-9', $reply[ Message::KEY ] );
+		$this->assertSame( "bar\n", $reply[ Message::VALUE ] );
+	}
+
+	public function test_get_request_replies_struct_for_an_array_value(): void {
+		[ $table, $sink ] = $this->table();
+		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
+		$sink->captured = [];
+
+		$table->fill( $this->request( 'GET sku-9' ) );
+
+		$reply = $sink->captured[0];
+		$this->assertSame( Message::TM_STRUCT, $reply[ Message::TYPE ] );
+		$this->assertSame( [ 'usd' => 1250 ], $reply[ Message::VALUE ] );
+	}
+
+	public function test_get_request_replies_error_for_an_absent_key(): void {
+		[ $table, $sink ] = $this->table();
+
+		$table->fill( $this->request( 'GET never-stored' ) );
+
+		$reply = $sink->captured[0];
+		$this->assertSame( Message::TM_ERROR, $reply[ Message::TYPE ] );
+		$this->assertSame( 'never-stored', $reply[ Message::KEY ] );
+		$this->assertSame( 'NOT_FOUND', $reply[ Message::VALUE ] );
+	}
+
+	public function test_a_request_is_neither_stored_nor_forwarded(): void {
+		[ $table, $sink ] = $this->table();
+
+		// A KEY-bearing request must not be mistaken for a write.
+		$message                 = $this->request( 'GET sku-9' );
+		$message[ Message::KEY ] = 'sku-9';
+		$table->fill( $message );
+
+		$this->assertFalse( $this->memd->get( 'nodes-table:prices:sku-9' ) );
+		$this->assertCount( 1, $sink->captured, 'only the reply, not the request itself' );
+		$this->assertSame( Message::TM_ERROR, $sink->captured[0][ Message::TYPE ] );
+	}
+
+	public function test_an_empty_value_deletes_the_key(): void {
+		[ $table ] = $this->table();
+		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
+
+		$table->fill( $this->keyed( 'sku-9', '' ) );
+
+		$this->assertNull( Table_Node::lookup( 'prices', 'sku-9' ) );
+	}
+
+	public function test_a_bare_newline_deletes_too_since_send_node_always_appends_one(): void {
+		[ $table ] = $this->table();
+		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
+
+		$table->fill( $this->keyed( 'sku-9', "\n" ) );
+
+		$this->assertNull( Table_Node::lookup( 'prices', 'sku-9' ) );
+	}
+
+	public function test_a_value_that_is_only_terminated_still_stores(): void {
+		[ $table ] = $this->table();
+
+		$table->fill( $this->keyed( 'sku-9', "bar\n" ) );
+
+		$this->assertSame( "bar\n", Table_Node::lookup( 'prices', 'sku-9' ) );
+	}
+
 	public function test_fill_stores_key_value_and_passes_the_message_through(): void {
 		[ $table, $sink ] = $this->table();
 
