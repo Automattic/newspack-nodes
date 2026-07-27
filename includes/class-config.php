@@ -184,34 +184,6 @@ class Config {
 		);
 	}
 
-	/**
-	 * True when this process must not write under the runtime directory.
-	 *
-	 * Root may read and administer freely — it already owns the box, so the
-	 * adoption gate above buys nothing against it. What root must never do is
-	 * CREATE a file here: the workers run as the web user, so every root-owned
-	 * lock, offset or segment is one they can no longer write, and the failure
-	 * surfaces much later as a worker that cannot claim its IPC directory.
-	 *
-	 * Denial is non-fatal by design. A caller skips the write and carries on,
-	 * so read-only root commands (`status`, `types`, `doctor`) keep working
-	 * and a write-shaped one reports doing nothing instead of half-doing it.
-	 *
-	 * @param string $what Short description of the skipped write, for the log.
-	 * @return bool True when the caller must skip its write.
-	 */
-	public static function write_denied( string $what = 'write' ): bool {
-		if ( 0 !== CLI::uid() ) {
-			return false;
-		}
-		Core::print_less_often(
-			'WARNING: running as root; skipping ',
-			$what,
-			' - a root-owned file would be unwritable by the workers'
-		);
-		return true;
-	}
-
 	public static function get_base_directory(): string {
 		if ( null !== self::$validated_base_directory ) {
 			return self::$validated_base_directory;
@@ -366,6 +338,32 @@ class Config {
 	}
 
 	/**
+	 * Register the substrate's `config` topology-token namespace.
+	 *
+	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
+	 * base directory) and every other key straight off load_config(). Called
+	 * once at boot; the app registers its own namespaces for its own keys.
+	 */
+	public static function register_token_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static function ( string $key ) {
+				// Dirs derived from base dir; every other key reads config.
+				$derived = [
+					'logs_dir'       => 'logs',
+					'offsets_dir'    => 'offsets',
+					'deadletter_dir' => 'deadletter',
+				];
+				if ( isset( $derived[ $key ] ) ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
+				}
+				$cfg = self::load_config();
+				return $cfg[ $key ] ?? null;
+			}
+		);
+	}
+
+	/**
 	 * Fail-loud single-key config read: an undeclared key throws instead of
 	 * limping on a `?? default` — that's the guard that catches a renamed or
 	 * typo'd key. A declared key resolves to load_config()[$key] (option overlay
@@ -466,38 +464,40 @@ class Config {
 	}
 
 	/**
-	 * Register the substrate's `config` topology-token namespace.
-	 *
-	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
-	 * base directory) and every other key straight off load_config(). Called
-	 * once at boot; the app registers its own namespaces for its own keys.
-	 */
-	public static function register_token_namespace(): void {
-		Core::register_config_namespace(
-			'config',
-			static function ( string $key ) {
-				// Dirs derived from base dir; every other key reads config.
-				$derived = [
-					'logs_dir'       => 'logs',
-					'offsets_dir'    => 'offsets',
-					'deadletter_dir' => 'deadletter',
-				];
-				if ( isset( $derived[ $key ] ) ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
-				}
-				$cfg = self::load_config();
-				return $cfg[ $key ] ?? null;
-			}
-		);
-	}
-
-	/**
 	 * The configured base path, unvalidated — '' when unset. `wp nodes doctor`
 	 * needs the path ensure_path() REFUSED in order to explain the refusal.
 	 */
 	public static function configured_base_directory(): string {
 		$base_dir = self::load_config()['base_directory'] ?? null;
 		return \is_scalar( $base_dir ) ? (string) $base_dir : '';
+	}
+
+	/**
+	 * True when this process must not write under the runtime directory.
+	 *
+	 * Root may read and administer freely — it already owns the box, so the
+	 * adoption gate above buys nothing against it. What root must never do is
+	 * CREATE a file here: the workers run as the web user, so every root-owned
+	 * lock, offset or segment is one they can no longer write, and the failure
+	 * surfaces much later as a worker that cannot claim its IPC directory.
+	 *
+	 * Denial is non-fatal by design. A caller skips the write and carries on,
+	 * so read-only root commands (`status`, `types`, `doctor`) keep working
+	 * and a write-shaped one reports doing nothing instead of half-doing it.
+	 *
+	 * @param string $what Short description of the skipped write, for the log.
+	 * @return bool True when the caller must skip its write.
+	 */
+	public static function write_denied( string $what = 'write' ): bool {
+		if ( 0 !== CLI::uid() ) {
+			return false;
+		}
+		Core::print_less_often(
+			'WARNING: running as root; skipping ',
+			$what,
+			' - a root-owned file would be unwritable by the workers'
+		);
+		return true;
 	}
 
 	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */

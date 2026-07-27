@@ -318,15 +318,6 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * A line continues only on an ODD run of trailing backslashes — an even run
-	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
-	 * now that a backslash escapes outside quotes too.
-	 */
-	private static function is_continuation( string $line ): bool {
-		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
-	}
-
-	/**
 	 * Fold trailing-backslash continuations across the statement stream — the same
 	 * splice parse() performs, applied statelessly. The joined statement keeps the
 	 * FIRST physical line of its run; an unterminated trailing continuation yields
@@ -622,6 +613,15 @@ class Shell_Node extends Node {
 
 		$this->stamp_noreply( $message );
 		return $message;
+	}
+
+	/**
+	 * A line continues only on an ODD run of trailing backslashes — an even run
+	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
+	 * now that a backslash escapes outside quotes too.
+	 */
+	private static function is_continuation( string $line ): bool {
+		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
 	}
 
 	/**
