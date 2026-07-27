@@ -141,7 +141,6 @@ class Topic_Node extends Node {
 	}
 
 	protected function partition( int $i ): Partition_Node {
-		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
 			$p = new Partition_Node();
 			// Name the sibling `{topic}:p{i}` when the Topic is named.
