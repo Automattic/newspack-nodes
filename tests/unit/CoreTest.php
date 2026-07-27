@@ -480,16 +480,16 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_log_midfix_no_args_returns_process_identity(): void {
-		// log_midfix carries the "<hostname> <$0>[<pid>]: " identity split out of log_prefix.
+		// log_midfix carries the "<hostname> <$0>[<pid>][<uptime>s]: " identity.
 		$midfix = Core::log_midfix();
-		$this->assertMatchesRegularExpression( '/^.+\[\d+\]: $/', $midfix );
+		$this->assertMatchesRegularExpression( '/^.+\[\d+\]\[\d+s\]: $/', $midfix );
 	}
 
 	public function test_log_prefix_and_midfix_compose_the_full_line(): void {
 		// The production line is log_prefix( log_midfix( text ) ): timestamp, then identity,
 		// then the message — the composition the real stderr handler applies.
 		$full = Core::log_prefix( Core::log_midfix( 'a warning' ) );
-		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC .+\[\d+\]: a warning\n$/', $full );
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC .+\[\d+\]\[\d+s\]: a warning\n$/', $full );
 	}
 
 	public function test_log_prefix_prepends_prefix_and_appends_newline(): void {
