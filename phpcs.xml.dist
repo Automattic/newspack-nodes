@@ -31,6 +31,24 @@
 		<exclude name="WordPressVIPMinimum.JS"/>
 	</rule>
 
+	<!-- Unused locals. PHPStan cannot see these at ANY level: it reasons about
+	     types and reachability, not the liveness of locals. VIP-Go silences this
+	     sniff (severity 0, "these don't affect us on VIP Go") — we want it, so it
+	     is re-raised here as an error. Must come AFTER the VIP-Go ref. -->
+	<rule ref="VariableAnalysis.CodeAnalysis.VariableAnalysis">
+		<properties>
+			<property name="allowUnusedCaughtExceptions" value="true"/>
+			<!-- Parameters are fixed by contract (hook callbacks, fill()
+			     implementations that ignore their message): 84 of them, all
+			     legitimate. Locals are the ones that indicate dead code. -->
+			<property name="allowUnusedFunctionParameters" value="true"/>
+		</properties>
+	</rule>
+	<rule ref="VariableAnalysis.CodeAnalysis.VariableAnalysis.UnusedVariable">
+		<severity>5</severity>
+		<type>error</type>
+	</rule>
+
 	<!-- Text domain for translations -->
 	<config name="text_domain" value="newspack-nodes"/>
 
