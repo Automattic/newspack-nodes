@@ -213,8 +213,9 @@ class Core {
 	 * trailing newline.
 	 */
 	public static function log_midfix( ?string $text = null ): string {
+		$uptime = (int) ( Core::$now - Core::$init_time );
 		$midfix = ( \gethostname() ?: 'unknown' ) . ' '
-			. self::argv0() . '[' . \getmypid() . ']: ';
+			. self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ';
 		if ( null === $text ) {
 			return $midfix;
 		}
