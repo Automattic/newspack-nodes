@@ -27,7 +27,7 @@ class SseSlotPoolTest extends TestCase {
 		SSE_Out_Node::$release_slot = null;
 		SSE_Out_Node::$check_slot   = null;
 		SSE_Slot_Pool::$max_slots   = 10;
-		SSE_Slot_Pool::$ttl         = 30;
+		SSE_Slot_Pool::$ttl         = 60;
 		Core::$memd = new InMemoryMemcached();
 	}
 
@@ -37,6 +37,23 @@ class SseSlotPoolTest extends TestCase {
 		SSE_Out_Node::$check_slot   = null;
 		Core::$memd = null;
 		parent::tearDown();
+	}
+
+	/**
+	 * The slot must outlive the client's session-forget threshold, or the moment
+	 * a client starts re-authenticating is the moment its slot lapses — and the
+	 * keepalive is gated on having a session, so it cannot refresh during re-auth.
+	 * Read off the DECLARED default; setUp's fixture value must not mask it.
+	 */
+	public function test_default_ttl_outlives_the_client_session_forget_threshold(): void {
+		$declared = ( new \ReflectionClass( SSE_Slot_Pool::class ) )->getDefaultProperties()['ttl'];
+		$forget   = \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL * 3;
+
+		$this->assertGreaterThan(
+			$forget,
+			$declared,
+			'slot TTL must leave room for a re-auth round trip'
+		);
 	}
 
 	// ── slot algorithm (direct) ──────────────────────────────────────────────
