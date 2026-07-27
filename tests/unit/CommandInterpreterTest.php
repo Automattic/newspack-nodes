@@ -474,7 +474,7 @@ class CommandInterpreterTest extends TestCase {
 		);
 
 		$this->assertSame(
-			"NAME        VALUE\nx           short\nlonger-name v",
+			"NAME        VALUE\nx           short\nlonger-name v\n",
 			$out
 		);
 	}
@@ -644,12 +644,25 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNull( Core::node( 'doomed:config' ), 'the :config sibling must go with it' );
 	}
 
+	public function test_tabulate_terminates_its_last_row(): void {
+		// The write seam no longer appends, so each producer ends its own block
+		// (Tachikoma: every verb is responsible for its trailing newline).
+		$out = Command_Interpreter_Node::tabulate(
+			[ 'l', 'l' ],
+			[ 'NAME', 'SINK' ],
+			[ [ 'alice', '_router' ] ]
+		);
+
+		$this->assertStringEndsWith( "\n", $out );
+		$this->assertStringNotContainsString( "\n\n", $out );
+	}
+
 	public function test_make_node_returns_ok_string(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
 		$result = $interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 	}
 
 	public function test_make_node_sets_arguments_from_trailing_tokens(): void {
@@ -683,7 +696,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$result = $interpreter->dispatch( 'make_node', [ 'Node', 'router' ] );
 
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 		$node = Core::node( 'router' );
 		$this->assertNotNull( $node );
 		$this->assertSame( Node::class, \get_class( $node ) );
@@ -759,10 +772,10 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->assertSame( 0, $interpreter->debug_state() );
 
-		$this->assertSame( '_command_interpreter debug_state: 1', $interpreter->dispatch( 'trace' ) );
+		$this->assertSame( "_command_interpreter debug_state: 1\n", $interpreter->dispatch( 'trace' ) );
 		$this->assertSame( 1, $interpreter->debug_state() );
 
-		$this->assertSame( '_command_interpreter debug_state: 0', $interpreter->dispatch( 'trace' ) );
+		$this->assertSame( "_command_interpreter debug_state: 0\n", $interpreter->dispatch( 'trace' ) );
 		$this->assertSame( 0, $interpreter->debug_state() );
 	}
 
@@ -770,7 +783,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( '_command_interpreter debug_state: 2', $interpreter->dispatch( 'trace', [ '2' ] ) );
+		$this->assertSame( "_command_interpreter debug_state: 2\n", $interpreter->dispatch( 'trace', [ '2' ] ) );
 		$this->assertSame( 2, $interpreter->debug_state() );
 	}
 
@@ -782,10 +795,10 @@ class CommandInterpreterTest extends TestCase {
 		$alice = Core::node( 'alice' );
 		$this->assertSame( 0, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 1', $interpreter->dispatch( 'trace', [ 'alice' ] ) );
+		$this->assertSame( "alice debug_state: 1\n", $interpreter->dispatch( 'trace', [ 'alice' ] ) );
 		$this->assertSame( 1, $alice->debug_state() );
 
-		$this->assertSame( 'alice debug_state: 0', $interpreter->dispatch( 'trace', [ 'alice' ] ) );
+		$this->assertSame( "alice debug_state: 0\n", $interpreter->dispatch( 'trace', [ 'alice' ] ) );
 		$this->assertSame( 0, $alice->debug_state() );
 	}
 
@@ -797,7 +810,7 @@ class CommandInterpreterTest extends TestCase {
 		// Level 2 (distinct from the toggle default 1) over 2 nodes: the
 		// interpreter + alice. The reply is a one-liner, not a per-node roster.
 		$out = $interpreter->dispatch( 'trace', [ '*', '2' ] );
-		$this->assertSame( 'debug_state 2 on 2 nodes', $out );
+		$this->assertSame( "debug_state 2 on 2 nodes\n", $out );
 		$this->assertStringNotContainsString( 'alice debug_state', $out );
 		$this->assertSame( 2, Core::node( 'alice' )->debug_state() );
 		$this->assertSame( 2, $interpreter->debug_state() );
@@ -808,7 +821,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$this->assertSame( 'alice debug_state: 3', $interpreter->dispatch( 'trace', [ 'alice', '3' ] ) );
+		$this->assertSame( "alice debug_state: 3\n", $interpreter->dispatch( 'trace', [ 'alice', '3' ] ) );
 		$this->assertSame( 3, Core::node( 'alice' )->debug_state() );
 	}
 
@@ -816,7 +829,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( 'unknown node: nonexistent', $interpreter->dispatch( 'trace', [ 'nonexistent' ] ) );
+		$this->assertSame( "unknown node: nonexistent\n", $interpreter->dispatch( 'trace', [ 'nonexistent' ] ) );
 	}
 
 	public function test_make_node_propagates_ci_debug_state_to_children(): void {
@@ -934,7 +947,7 @@ class CommandInterpreterTest extends TestCase {
 		$source = $this->emitter_with_event( 'source', 'EVT' );
 		( new Echo_Node() )->name( 'target' );
 
-		$this->assertSame( 'ok', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
+		$this->assertSame( "ok\n", $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 		$this->assertSame( [ 'EVT' => [ 'target' ] ], $source->registered_listeners() );
 	}
 
@@ -943,7 +956,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		( new Echo_Node() )->name( 'target' );
 
-		$this->assertSame( 'unknown node: source', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
+		$this->assertSame( "unknown node: source\n", $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 	}
 
 	public function test_register_unknown_target_returns_error(): void {
@@ -951,14 +964,14 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( 'unknown node: target', $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
+		$this->assertSame( "unknown node: target\n", $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
 	}
 
 	public function test_register_missing_args_returns_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register' ) );
+		$this->assertSame( "usage: register <source name> <target name> <event>\n", $interpreter->dispatch( 'register' ) );
 	}
 
 	public function test_register_missing_target_returns_usage(): void {
@@ -966,7 +979,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register', [ 'source' ] ) );
+		$this->assertSame( "usage: register <source name> <target name> <event>\n", $interpreter->dispatch( 'register', [ 'source' ] ) );
 	}
 
 	public function test_register_undeclared_event_surfaces_as_command_error(): void {
@@ -987,7 +1000,7 @@ class CommandInterpreterTest extends TestCase {
 		( new Echo_Node() )->name( 'target' );
 
 		$interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] );
-		$this->assertSame( 'ok', $interpreter->dispatch( 'unregister', [ 'source', 'target', 'EVT' ] ) );
+		$this->assertSame( "ok\n", $interpreter->dispatch( 'unregister', [ 'source', 'target', 'EVT' ] ) );
 		$this->assertSame( [], $source->registered_listeners() );
 	}
 
@@ -995,7 +1008,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( 'usage: unregister <source name> <target name> <event>', $interpreter->dispatch( 'unregister' ) );
+		$this->assertSame( "usage: unregister <source name> <target name> <event>\n", $interpreter->dispatch( 'unregister' ) );
 	}
 
 	public function test_remove_node_removes_single_node(): void {
@@ -1062,7 +1075,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'remove_node', [ '-a', 'will-never-match' ] );
-		$this->assertSame( 'no matches', $out );
+		$this->assertSame( "no matches\n", $out );
 	}
 
 	public function test_remove_node_unknown_name_reports_error(): void {
@@ -1396,7 +1409,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out   = $interpreter->dispatch( 'help', [], $this->completion_envelope() );
-		$lines = \explode( "\n", $out );
+		// Terminated output: drop the trailing empty element explode leaves.
+		$lines = \explode( "\n", \rtrim( $out, "\n" ) );
 
 		$this->assertContains( 'list_nodes', $lines );
 		$this->assertContains( 'make_node', $lines );
@@ -1434,7 +1448,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$lines = \explode( "\n", $interpreter->dispatch( 'help' ) );
+		// Terminated output: drop the trailing empty element explode leaves.
+		$lines = \explode( "\n", \rtrim( $interpreter->dispatch( 'help' ), "\n" ) );
 		$this->assertSame( '### COMMANDS ###', $lines[0] );
 
 		$grid  = \array_slice( $lines, 1 );
@@ -1467,7 +1482,7 @@ class CommandInterpreterTest extends TestCase {
 		);
 
 		$out   = $interpreter->dispatch( 'help' );
-		$lines = \explode( "\n", $out );
+		$lines = \explode( "\n", \rtrim( $out, "\n" ) );
 		// Sorted verb names, including the injected `help` itself.
 		$this->assertSame( [ 'alpha', 'beta', 'help' ], $lines );
 	}
@@ -2173,7 +2188,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] );
-		$this->assertSame( 'unknown class: NotARegisteredClass', $out );
+		$this->assertSame( "unknown class: NotARegisteredClass\n", $out );
 		$this->assertNull( Core::node( 'alice' ) );
 	}
 
@@ -2205,10 +2220,10 @@ class CommandInterpreterTest extends TestCase {
 		// alice exists, ghost does not — both src and dst lookup go
 		// through Core::node, so either being null yields 'unknown node'.
 		$out = $interpreter->dispatch( 'set_sink', [ 'alice', 'ghost' ] );
-		$this->assertSame( 'unknown node', $out );
+		$this->assertSame( "unknown node\n", $out );
 
 		$out = $interpreter->dispatch( 'set_sink', [ 'ghost', 'alice' ] );
-		$this->assertSame( 'unknown node', $out );
+		$this->assertSame( "unknown node\n", $out );
 	}
 
 	// ── cmd_connect_node error paths + envelope FROM defaulting ──
@@ -2260,7 +2275,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope[ Message::FROM ]      = '_output/4242';
 
 		$out = $interpreter->dispatch( 'connect_node', [ 'alice' ], $envelope );
-		$this->assertSame( 'ok', $out );
+		$this->assertSame( "ok\n", $out );
 		$this->assertSame( '_output/4242', Core::node( 'alice' )->target() );
 	}
 
@@ -2316,7 +2331,7 @@ class CommandInterpreterTest extends TestCase {
 
 		// disconnect with the same envelope — should remove only the FROM.
 		$out = $interpreter->dispatch( 'disconnect_node', [ 'fanout' ], $envelope );
-		$this->assertSame( 'ok', $out );
+		$this->assertSame( "ok\n", $out );
 		$this->assertSame( [ 'other_target' ], \array_values( Core::node( 'fanout' )->target() ) );
 	}
 
@@ -2332,7 +2347,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope[ Message::FROM ] = '_output/abc';
 
 		$out = $interpreter->dispatch( 'pwd', [ '/some/path' ], $envelope );
-		$this->assertSame( ' /some/path -> _output/abc', $out );
+		$this->assertSame( " /some/path -> _output/abc\n", $out );
 	}
 
 	public function test_pwd_empty_cwd_shows_slash(): void {
@@ -2345,7 +2360,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope[ Message::FROM ] = '_output/abc';
 
 		$out = $interpreter->dispatch( 'pwd', [], $envelope );
-		$this->assertSame( ' / -> _output/abc', $out );
+		$this->assertSame( " / -> _output/abc\n", $out );
 	}
 
 	// ── cmd_log ───────────────────────────────────────────────────
@@ -2391,7 +2406,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'dump_node' );
-		$this->assertSame( 'no node specified', $out );
+		$this->assertSame( "no node specified\n", $out );
 	}
 
 	// ── cmd_uptime: clock segment ─────────────────────────────────
@@ -2544,7 +2559,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 
 		$out = $interpreter->dispatch( 'trace', [ '1', '2' ] );
-		$this->assertSame( 'unknown node: 1', $out );
+		$this->assertSame( "unknown node: 1\n", $out );
 	}
 
 	// ── interpret() error wrap & invalid-struct drop ─────────────

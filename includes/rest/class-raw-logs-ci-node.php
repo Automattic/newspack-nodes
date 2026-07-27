@@ -120,7 +120,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		if ( ! $magic
 				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
 					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-			return 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)';
+			return "read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
 		}
 		$base_dir            = RuntimeConfig::get_base_directory();
 		[ $group, $dir_key ] = self::split_group( $log_key );
@@ -142,7 +142,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			$consumer->remove_node();
 		}
 		if ( null === $captured ) {
-			return "read_message: no record at {$log_key} {$position}";
+			return "read_message: no record at {$log_key} {$position}\n";
 		}
 		return [
 			'log_id'  => $log_key,

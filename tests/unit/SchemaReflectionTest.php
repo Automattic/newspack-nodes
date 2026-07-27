@@ -301,7 +301,7 @@ class SchemaReflectionTest extends TestCase {
 		$commands = $interpreter->commands();
 		$this->assertArrayHasKey( 'set_turbo_mode', $commands );
 
-		$this->assertSame( 'ok', $commands['set_turbo_mode']( $interpreter, [ 'yes' ] ) );
+		$this->assertSame( "ok\n", $commands['set_turbo_mode']( $interpreter, [ 'yes' ] ) );
 		$this->assertTrue( $this->read_private( $node, 'turbo_mode' ) );
 
 		$commands['set_turbo_mode']( $interpreter, [ 'off' ] );

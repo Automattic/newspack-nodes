@@ -326,20 +326,20 @@ trait Dead_Letter_Queue {
 	public function requeue_deadletter( string $locator ): string {
 		$deadletter = $this->ensure_deadletter();
 		if ( null === $deadletter ) {
-			return 'error: no dead-letter queue configured';
+			return "error: no dead-letter queue configured\n";
 		}
 		$target = $this->deadletter_requeue_target();
 		if ( null === $target ) {
-			return 'error: requeue unavailable — this node has no local source log to re-inject into';
+			return "error: requeue unavailable — this node has no local source log to re-inject into\n";
 		}
 		$loc = $this->parse_deadletter_locator( $locator );
 		if ( null === $loc ) {
-			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list";
+			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list\n";
 		}
 		[ $segment, $offset, $length ] = $loc;
 		$message = $deadletter->read_message_at( $segment, $offset, $length );
 		if ( null === $message ) {
-			return "error: no dead-letter record at {$locator}";
+			return "error: no dead-letter record at {$locator}\n";
 		}
 		$size = Message::packed_size( $message ) + 1;
 		if ( $size > Partition_Node::MAX_LINE_SIZE ) {
@@ -348,7 +348,7 @@ trait Dead_Letter_Queue {
 		}
 		$target->fill( $message );
 		$target->flush();
-		return "ok: requeued {$locator} ({$size} bytes) into the source";
+		return "ok: requeued {$locator} ({$size} bytes) into the source\n";
 	}
 
 	/**
@@ -360,16 +360,16 @@ trait Dead_Letter_Queue {
 	public function show_deadletter( string $locator ): string {
 		$deadletter = $this->ensure_deadletter();
 		if ( null === $deadletter ) {
-			return 'error: no dead-letter queue configured';
+			return "error: no dead-letter queue configured\n";
 		}
 		$loc = $this->parse_deadletter_locator( $locator );
 		if ( null === $loc ) {
-			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list";
+			return "error: malformed locator '{$locator}' — want segment:offset:length from dl_list\n";
 		}
 		[ $segment, $offset, $length ] = $loc;
 		$message = $deadletter->read_message_at( $segment, $offset, $length );
 		if ( null === $message ) {
-			return "error: no dead-letter record at {$locator}";
+			return "error: no dead-letter record at {$locator}\n";
 		}
 		$type = Core::as_int( $message[ Message::TYPE ] ?? 0 );
 		return (string) \wp_json_encode( [
@@ -393,7 +393,7 @@ trait Dead_Letter_Queue {
 	public function purge_deadletter(): string {
 		$deadletter = $this->ensure_deadletter();
 		if ( null === $deadletter ) {
-			return 'error: no dead-letter queue configured';
+			return "error: no dead-letter queue configured\n";
 		}
 		$removed  = 0;
 		$segments = $deadletter->get_segments( true );
@@ -410,7 +410,7 @@ trait Dead_Letter_Queue {
 		}
 		$deadletter->get_segments( true ); // Re-scan so the warm cache reflects the purge.
 		// "X of Y" surfaces a failed unlink instead of hiding it.
-		return \sprintf( 'ok: purged %d of %d dead-letter segment(s)', $removed, \count( $segments ) );
+		return \sprintf( "ok: purged %d of %d dead-letter segment(s)\n", $removed, \count( $segments ) );
 	}
 
 	/**
@@ -600,7 +600,7 @@ trait Dead_Letter_Queue {
 	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		if ( null === $patron ) {
-			return 'error: not a dead-letter node';
+			return "error: not a dead-letter node\n";
 		}
 		$raw   = Core::as_string( $args[0] ?? '' );
 		$limit = '' === $raw ? self::DEADLETTER_LIST_DEFAULT_LIMIT : \max( 1, Core::as_int( $raw ) );
@@ -615,7 +615,7 @@ trait Dead_Letter_Queue {
 	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		if ( null === $patron ) {
-			return 'error: not a dead-letter node';
+			return "error: not a dead-letter node\n";
 		}
 		return $patron->show_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
@@ -628,7 +628,7 @@ trait Dead_Letter_Queue {
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		if ( null === $patron ) {
-			return 'error: not a dead-letter node';
+			return "error: not a dead-letter node\n";
 		}
 		return $patron->requeue_deadletter( Core::as_string( $args[0] ?? '' ) );
 	}
@@ -637,7 +637,7 @@ trait Dead_Letter_Queue {
 	public static function cmd_dl_purge( Command_Interpreter_Node $interpreter ): string {
 		$patron = self::deadletter_patron( $interpreter );
 		if ( null === $patron ) {
-			return 'error: not a dead-letter node';
+			return "error: not a dead-letter node\n";
 		}
 		return $patron->purge_deadletter();
 	}

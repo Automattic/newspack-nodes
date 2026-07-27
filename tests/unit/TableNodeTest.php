@@ -187,7 +187,7 @@ class TableNodeTest extends TestCase {
 		$ci = Core::node( 'prices:table:config' );
 
 		$this->assertSame( '{"usd":1250}', $ci->dispatch( 'get', [ 'sku-9' ] ) );
-		$this->assertSame( 'ok', $ci->dispatch( 'rm', [ 'sku-9' ] ) );
+		$this->assertSame( "ok\n", $ci->dispatch( 'rm', [ 'sku-9' ] ) );
 		$this->assertSame( 'null', $ci->dispatch( 'get', [ 'sku-9' ] ) );
 	}
 
@@ -206,7 +206,7 @@ class TableNodeTest extends TestCase {
 		$this->assertNotNull( $config, 'make_node Table must wire the :config sibling' );
 		$this->assertSame( $table, $config->patron() );
 		$this->assertSame( '{"eur":8800}', $config->dispatch( 'get', [ 'inv-42' ] ) );
-		$this->assertSame( 'ok', $config->dispatch( 'rm', [ 'inv-42' ] ) );
+		$this->assertSame( "ok\n", $config->dispatch( 'rm', [ 'inv-42' ] ) );
 		$this->assertSame( 'null', $config->dispatch( 'get', [ 'inv-42' ] ) );
 	}
 
@@ -214,8 +214,8 @@ class TableNodeTest extends TestCase {
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( 'stray:config' );
 		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
-		$this->assertSame( 'error: no table patron', $verbs['get']( $ci, [ 'x' ] ) );
-		$this->assertSame( 'error: no table patron', $verbs['rm']( $ci, [ 'x' ] ) );
+		$this->assertSame( "error: no table patron\n", $verbs['get']( $ci, [ 'x' ] ) );
+		$this->assertSame( "error: no table patron\n", $verbs['rm']( $ci, [ 'x' ] ) );
 	}
 
 	public function test_arguments_read_back(): void {
@@ -227,7 +227,7 @@ class TableNodeTest extends TestCase {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', 'gone-soon' ) );
 
-		$this->assertSame( 'ok', $table->rm( 'sku-9' ) );
+		$this->assertSame( "ok\n", $table->rm( 'sku-9' ) );
 		$this->assertNull( Table_Node::lookup( 'prices', 'sku-9' ) );
 	}
 }

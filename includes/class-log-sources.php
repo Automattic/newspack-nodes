@@ -392,11 +392,11 @@ class Log_Sources {
 		if ( ! $magic
 				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
 					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-			return 'taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)';
+			return "taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
 		}
 		if ( ! isset( $registry[ $name ] ) ) {
 			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
 		}
 		$entry    = $registry[ $name ];
 		$captured = null;
@@ -416,7 +416,7 @@ class Log_Sources {
 			$tail->remove_node();
 		}
 		if ( null === $captured ) {
-			return "taillog read: no line at {$name} {$position}";
+			return "taillog read: no line at {$name} {$position}\n";
 		}
 		return [
 			'source'  => $name,

@@ -638,7 +638,7 @@ trait Durable_Reader {
 		// Record the rewind point: PLAY truncates after it to stay monotonic.
 		$this->rewound_to         = $segment;
 		$this->stepped_since_seek = false; // A fresh seek sits ON the keyframe.
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -914,7 +914,7 @@ trait Durable_Reader {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->add_snapshot_node( Core::as_string( $args[0] ?? '' ) );
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -938,7 +938,7 @@ trait Durable_Reader {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->pause();
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**
@@ -950,7 +950,7 @@ trait Durable_Reader {
 		/** @var self $patron */
 		$patron = $interpreter->patron();
 		$patron->play();
-		return 'ok';
+		return "ok\n";
 	}
 
 	/**

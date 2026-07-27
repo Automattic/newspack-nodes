@@ -152,7 +152,7 @@ class Table_Node extends Node {
 	 */
 	public function rm( string $key ): string {
 		Cache_Backend::shared_first()?->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
-		return 'ok';
+		return "ok\n";
 	}
 
 	public static function node_schema(): array {
@@ -171,7 +171,7 @@ class Table_Node extends Node {
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
 						$patron = $interpreter->patron();
 						if ( ! $patron instanceof self ) {
-							return 'error: no table patron';
+							return "error: no table patron\n";
 						}
 						return (string) \wp_json_encode( self::lookup( $patron->namespace, Core::as_string( $args[0] ?? '', '' ) ) );
 					},
@@ -182,7 +182,7 @@ class Table_Node extends Node {
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
 						$patron = $interpreter->patron();
-						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : 'error: no table patron';
+						return $patron instanceof self ? $patron->rm( Core::as_string( $args[0] ?? '', '' ) ) : "error: no table patron\n";
 					},
 				],
 			],

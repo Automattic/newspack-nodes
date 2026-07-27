@@ -165,7 +165,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		// Drift the cursor away, then seek back to the committed frame.
 		$node->next_offset( [ 'segment' => 3, 'offset' => 3 ] );
 		$node->pause();
-		$this->assertSame( 'ok', $node->seek_frame( $segment_id ) );
+		$this->assertSame( "ok\n", $node->seek_frame( $segment_id ) );
 
 		$this->assertSame(
 			[ 'segment' => 7, 'offset' => 128 ],
@@ -288,7 +288,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$cmd[ Message::VALUE ] = [ 'name' => 'PAUSE', 'arguments' => '' ];
 		$interpreter->fill( $cmd );
 
-		$this->assertSame( 'ok', $cap->captured[0][ Message::VALUE ]['payload'] );
+		$this->assertSame( "ok\n", $cap->captured[0][ Message::VALUE ]['payload'] );
 		$this->assertSame( 'inactive', $this->read_private( $node, 'mode' ), 'PAUSE via the interpreter stops the tick' );
 	}
 }

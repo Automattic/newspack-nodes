@@ -462,7 +462,7 @@ class LogSourcesTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$this->assertSame(
-			'taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)',
+			"taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n",
 			Log_Sources::taillog( [ 'read', 'php', 'abc' ] )
 		);
 	}
@@ -476,7 +476,7 @@ class LogSourcesTest extends TestCase {
 
 		$inode = (int) \fileinode( $path );
 		$this->assertSame(
-			"taillog read: no line at php {$inode}:0",
+			"taillog read: no line at php {$inode}:0\n",
 			Log_Sources::taillog( [ 'read', 'php', "{$inode}:0" ] )
 		);
 	}

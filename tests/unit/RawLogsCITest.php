@@ -275,7 +275,7 @@ class RawLogsCITest extends TestCase {
 			[ 'firehose.p0', 'abc' ]
 		);
 
-		$this->assertSame( 'read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)', $bad );
+		$this->assertSame( "read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n", $bad );
 	}
 
 	public function test_read_message_reads_a_grouped_deadletter_key(): void {
@@ -307,7 +307,7 @@ class RawLogsCITest extends TestCase {
 			[ 'firehose.p0', '0:0' ]
 		);
 
-		$this->assertSame( 'read_message: no record at firehose.p0 0:0', $result );
+		$this->assertSame( "read_message: no record at firehose.p0 0:0\n", $result );
 	}
 
 	public function test_log_status_verb_reflects_seeded_segments(): void {
