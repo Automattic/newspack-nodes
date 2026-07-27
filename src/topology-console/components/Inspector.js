@@ -27,6 +27,7 @@ import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from '../utils/draftGraph';
+import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 // A Consumer/Tail node: its dump_metadata carries both `frames` and a `cursor`.
 function isConsumerNode( node ) {
@@ -1101,7 +1102,7 @@ function VerbArgModal( {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( missingRequired ) }
 					onClick={ run }
 					disabled={ missingRequired }
 				>
@@ -1252,7 +1253,7 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( ! event || ! target ) }
 					disabled={ ! event || ! target }
 					onClick={ () => onConfirm( target, event ) }
 				>
@@ -1439,7 +1440,7 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 				</button>
 				<button
 					type="button"
-					className="button button-primary"
+					className={ primaryButtonClass( ! to ) }
 					disabled={ ! to }
 					onClick={ () =>
 						onConfirm( action, to, value, {

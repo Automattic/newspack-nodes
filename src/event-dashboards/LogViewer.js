@@ -10,7 +10,7 @@
  * (no partition column).
  */
 
-import { useCallback, useEffect, useRef } from '@wordpress/element';
+import { useCallback, useEffect, useMemo, useRef } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -82,9 +82,11 @@ export default function LogViewer( { headerControlsSlot } ) {
 		select: selectSource,
 	} );
 
-	// Selection and seek both re-catalog (in the graph hook), so this is fresh.
-	const segments =
-		sources.find( ( s ) => s.name === currentSource )?.segments ?? [];
+	// Memoized: the `?? []` mints a new identity per render, and this is a dep.
+	const segments = useMemo(
+		() => sources.find( ( s ) => s.name === currentSource )?.segments ?? [],
+		[ sources, currentSource ]
+	);
 
 	// Maintain the rail: re-catalog on a cadence while a source streams.
 	useEffect( () => {

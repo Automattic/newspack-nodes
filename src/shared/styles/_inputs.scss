@@ -148,15 +148,10 @@
 				color: var(--on-accent);
 			}
 
-			// A half-opacity accent fill still out-glows every enabled control
-			// on a dark skin. Recede to the surface instead of dimming.
-			&:disabled,
-			&[disabled] {
-				background: var(--paper);
-				border-color: var(--ink-3);
-				color: var(--ink-3);
-				opacity: 1;
-			}
+			// No disabled rule here on purpose: core forces
+			// `.wp-core-ui .button-primary:disabled` with !important, which no
+			// selector outranks. Buttons drop `button-primary` while disabled
+			// instead, so they style as an ordinary disabled `.button`.
 		}
 
 		.button:not(.button-primary):not(.button-link-delete):not(
