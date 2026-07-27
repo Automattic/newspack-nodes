@@ -186,13 +186,6 @@ class Table_Node extends Node {
 					},
 				],
 			],
-			'requests'    => [
-				[
-					'name'        => 'GET',
-					'description' => 'Reply with one entry; the reply TYPE follows the stored value shape.',
-					'reply_shape' => 'KEY=<key>, VALUE=<stored>. TYPE is TM_BYTESTREAM for a scalar, TM_STRUCT for an array, or TM_ERROR "NOT_FOUND" when absent.',
-				],
-			],
 			'has_target'  => true,
 		];
 	}
