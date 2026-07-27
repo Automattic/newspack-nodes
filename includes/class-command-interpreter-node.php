@@ -290,11 +290,21 @@ class Command_Interpreter_Node extends Node {
 
 		// Tachikoma sequence; object deps public props set post-construction.
 		$node = new $fqcn();
-		$node->name( $name );
-		$node->arguments( $arg_tokens );
-		$node->sink( $this );
-		if ( $this->debug_state() > 0 ) {
-			$node->debug_state( $this->debug_state() );
+		try {
+			$node->name( $name );
+			$node->arguments( $arg_tokens );
+			$node->sink( $this );
+			if ( $this->debug_state() > 0 ) {
+				$node->debug_state( $this->debug_state() );
+			}
+		} catch ( \Throwable $e ) {
+			// name() registers first, so a reject orphans. Tachikoma CI:2701.
+			try {
+				$node->remove_node();
+			} catch ( \Throwable $cleanup ) {
+				Core::print_less_often( 'ERROR: ', "can't remove_node {$name}: ", $cleanup->getMessage() );
+			}
+			throw $e;
 		}
 		return $node;
 	}

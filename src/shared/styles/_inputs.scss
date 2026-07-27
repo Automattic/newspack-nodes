@@ -141,11 +141,21 @@
 			box-shadow: none;
 			text-shadow: none;
 
-			&:hover,
-			&:focus {
+			&:hover:not(:disabled):not([disabled]),
+			&:focus:not(:disabled):not([disabled]) {
 				background: var(--cyan-dark);
 				border-color: var(--cyan-dark);
 				color: var(--on-accent);
+			}
+
+			// A half-opacity accent fill still out-glows every enabled control
+			// on a dark skin. Recede to the surface instead of dimming.
+			&:disabled,
+			&[disabled] {
+				background: var(--paper);
+				border-color: var(--ink-3);
+				color: var(--ink-3);
+				opacity: 1;
 			}
 		}
 

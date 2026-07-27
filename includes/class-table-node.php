@@ -30,6 +30,12 @@ class Table_Node extends Node {
 	private string $namespace = '';
 	private int $ttl          = 0;
 
+	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter that serves `get` / `rm`. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
 	/**
 	 * `<namespace> [ttl]` — namespace is required (it scopes lookup());
 	 * ttl in seconds, 0 (default) = no expiry.

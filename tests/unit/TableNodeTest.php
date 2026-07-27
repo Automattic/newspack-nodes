@@ -97,14 +97,31 @@ class TableNodeTest extends TestCase {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
 
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( 'prices:table:config' );
-		$ci->patron( $table );
-		$verbs = array_column( \Newspack_Nodes\Table_Node::node_schema()['commands'], 'handler', 'name' );
+		// The node names its own sibling; naming a second one here would collide.
+		$ci = Core::node( 'prices:table:config' );
 
-		$this->assertSame( '{"usd":1250}', $verbs['get']( $ci, [ 'sku-9' ] ) );
-		$this->assertSame( 'ok', $verbs['rm']( $ci, [ 'sku-9' ] ) );
-		$this->assertSame( 'null', $verbs['get']( $ci, [ 'sku-9' ] ) );
+		$this->assertSame( '{"usd":1250}', $ci->dispatch( 'get', [ 'sku-9' ] ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'rm', [ 'sku-9' ] ) );
+		$this->assertSame( 'null', $ci->dispatch( 'get', [ 'sku-9' ] ) );
+	}
+
+	public function test_make_node_wires_the_config_sibling_that_serves_the_verbs(): void {
+		// The hand-built interpreter above proves the handlers work; this proves
+		// anything can REACH them. Without auto_wire_interpreter() the verbs are
+		// declared in the schema and dispatchable from nowhere.
+		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+		$ci->sink( new Capture_Sink_Node() );
+
+		$table = $ci->make_node( 'Table', 'ledger', 'invoices' );
+		$table->fill( $this->keyed( 'inv-42', [ 'eur' => 8800 ] ) );
+
+		$config = Core::node( 'ledger:config' );
+		$this->assertNotNull( $config, 'make_node Table must wire the :config sibling' );
+		$this->assertSame( $table, $config->patron() );
+		$this->assertSame( '{"eur":8800}', $config->dispatch( 'get', [ 'inv-42' ] ) );
+		$this->assertSame( 'ok', $config->dispatch( 'rm', [ 'inv-42' ] ) );
+		$this->assertSame( 'null', $config->dispatch( 'get', [ 'inv-42' ] ) );
 	}
 
 	public function test_verbs_refuse_a_foreign_patron(): void {

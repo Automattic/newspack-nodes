@@ -2184,7 +2184,7 @@ export default function Inspector( {
 					<button
 						type="button"
 						className="button is-compact"
-						onClick={ () => setPromptVerb( 'command_node' ) }
+						onClick={ () => setPromptVerb( 'cmd' ) }
 						title={ __(
 							'Send a TM_COMMAND payload to this node via `command_node <name> <phrase>`',
 							'newspack-nodes'
