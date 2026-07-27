@@ -59,6 +59,15 @@ class Settings_Schema {
 					render: [ Admin::class, 'num_partitions_callback' ],
 				),
 				new Field(
+					key: 'segment_size',
+					type: 'int',
+					label: static fn(): string => \__( 'Segment Size', 'newspack-nodes' ),
+					section: $storage,
+					restart: [ 'Partition', 'Topic', 'Log' ],
+					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
+					render: [ Admin::class, 'segment_size_callback' ],
+				),
+				new Field(
 					key: 'min_segments',
 					type: 'int',
 					label: static fn(): string => \__( 'Min Segments', 'newspack-nodes' ),
@@ -76,14 +85,15 @@ class Settings_Schema {
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
 					render: [ Admin::class, 'num_segments_callback' ],
 				),
+				// True hard cap; 0 = auto (2x num_segments).
 				new Field(
-					key: 'segment_size',
+					key: 'max_segments',
 					type: 'int',
-					label: static fn(): string => \__( 'Segment Size', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Max Segments (hard cap)', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
-					render: [ Admin::class, 'segment_size_callback' ],
+					render: [ Admin::class, 'max_segments_callback' ],
 				),
 				new Field(
 					key: 'min_lifetime',
@@ -102,16 +112,6 @@ class Settings_Schema {
 					restart: [ 'Partition', 'Topic', 'Log' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
 					render: [ Admin::class, 'lifetime_callback' ],
-				),
-				// True hard cap; 0 = auto (2x num_segments).
-				new Field(
-					key: 'max_segments',
-					type: 'int',
-					label: static fn(): string => \__( 'Max Segments (hard cap)', 'newspack-nodes' ),
-					section: $storage,
-					restart: [ 'Partition', 'Topic', 'Log' ],
-					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
-					render: [ Admin::class, 'max_segments_callback' ],
 				),
 				// Display-only readout (no option, no reset).
 				new Field(
@@ -154,16 +154,6 @@ class Settings_Schema {
 				),
 				// Remote storage geometry; registered + resettable.
 				new Field(
-					key: 'remote_num_segments',
-					type: 'int',
-					label: static fn(): string => \__( 'Remote Num Segments', 'newspack-nodes' ),
-					section: $remote,
-					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
-					render: [ Admin::class, 'remote_num_segments_callback' ],
-					register_args: [ 'type' => 'string' ],
-				),
-				new Field(
 					key: 'remote_segment_size',
 					type: 'int',
 					label: static fn(): string => \__( 'Remote Segment Size', 'newspack-nodes' ),
@@ -184,23 +174,13 @@ class Settings_Schema {
 					register_args: [ 'type' => 'string' ],
 				),
 				new Field(
-					key: 'remote_lifetime',
+					key: 'remote_num_segments',
 					type: 'int',
-					label: static fn(): string => \__( 'Remote Max Retention', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Remote Num Segments', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_lifetime' ],
-					render: [ Admin::class, 'remote_lifetime_callback' ],
-					register_args: [ 'type' => 'string' ],
-				),
-				new Field(
-					key: 'remote_min_lifetime',
-					type: 'int',
-					label: static fn(): string => \__( 'Remote Min Retention', 'newspack-nodes' ),
-					section: $remote,
-					restart: [],
-					sanitize: [ Admin::class, 'sanitize_remote_min_lifetime' ],
-					render: [ Admin::class, 'remote_min_lifetime_callback' ],
+					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
+					render: [ Admin::class, 'remote_num_segments_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				// Remote hard cap for spokes; 0 = spoke derives 2x its count.
@@ -212,6 +192,26 @@ class Settings_Schema {
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_remote_max_segments' ],
 					render: [ Admin::class, 'remote_max_segments_callback' ],
+					register_args: [ 'type' => 'string' ],
+				),
+				new Field(
+					key: 'remote_min_lifetime',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Min Lifetime', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_min_lifetime' ],
+					render: [ Admin::class, 'remote_min_lifetime_callback' ],
+					register_args: [ 'type' => 'string' ],
+				),
+				new Field(
+					key: 'remote_lifetime',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Lifetime', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_lifetime' ],
+					render: [ Admin::class, 'remote_lifetime_callback' ],
 					register_args: [ 'type' => 'string' ],
 				),
 				// Fleet-alert thresholds; read live by Alerts, no restart.
