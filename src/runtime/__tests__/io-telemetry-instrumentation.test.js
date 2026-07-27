@@ -57,15 +57,16 @@ describe( 'SseIn feeds IoTelemetry "in"', () => {
 		expect( snap.errors ).toBe( 0 );
 	} );
 
-	test( 'a TM_ERROR frame also bumps the error count', () => {
-		expectConsoleWarn( 'ERROR: SseInNode: stream error frame' );
+	test( 'a TM_ERROR frame counts as inbound, not as a telemetry error', () => {
+		// The error counter is fed by Core's stderr chain; SseIn reports a
+		// stream error through set_state instead, so nothing logs it here.
 		const s = makeConnector();
 		s.start();
 		const frame = pack( [ TM_ERROR, 1, 'p.p0', '', '0:1', '', 'boom' ] );
 		FakeEventSource.last.dispatch( 'msg', frame );
 		const snap = IoTelemetry.snapshot();
 		expect( snap.msgsIn ).toBe( 1 );
-		expect( snap.errors ).toBe( 1 );
+		expect( snap.errors ).toBe( 0 );
 	} );
 
 	test( 'the connected snoop envelope is not counted (metadata, not a frame)', () => {

@@ -202,8 +202,6 @@ export class SseInNode extends Node {
 						? message[ VALUE ]
 						: 'stream error';
 				this.setState( 'ERROR', errText );
-				// Stable rate-limit key; errText rides the ERROR state.
-				Core.printLessOften( 'ERROR: SseInNode: stream error frame' );
 			}
 			super.fill( message );
 		} );

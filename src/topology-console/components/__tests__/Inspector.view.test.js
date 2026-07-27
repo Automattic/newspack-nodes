@@ -1190,6 +1190,21 @@ describe( 'Inspector (view mode)', () => {
 		expect( tapAction ).toHaveBeenCalledWith( 'tail', 'tap_a' );
 	} );
 
+	it( 'opens a Command modal and fires onAction("cmd", id, phrase) when confirmed', () => {
+		const onAction = jest.fn();
+		const { getByText, getByDisplayValue } = renderNode( { onAction } );
+		fireEvent.click( getByText( 'Command' ) );
+		const input = document.body.querySelector( '.topology-modal__input' );
+		expect( input ).not.toBeNull();
+		fireEvent.change( input, { target: { value: 'get foo' } } );
+		fireEvent.click(
+			getByDisplayValue( 'get foo' )
+				.closest( '.topology-modal' )
+				.querySelector( '.button-primary' )
+		);
+		expect( onAction ).toHaveBeenCalledWith( 'cmd', 'echo', 'get foo' );
+	} );
+
 	it( 'opens a send modal and fires onAction("send", id, payload) when confirmed', () => {
 		const onAction = jest.fn();
 		const { getByText, getByDisplayValue } = renderNode( {

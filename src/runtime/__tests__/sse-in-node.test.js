@@ -431,9 +431,6 @@ test( 'a TM_ERROR frame sets ERROR state, warns, and is still forwarded', () => 
 	m[ VALUE ] = 'boom';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 	expect( sse.setStateCache.ERROR ).toBe( 'boom' );
-	expect( warn ).toHaveBeenCalledWith(
-		'ERROR: SseInNode: stream error frame'
-	);
 	expect( routed ).toHaveLength( 1 ); // snooped, but still forwarded
 	warn.mockRestore();
 } );

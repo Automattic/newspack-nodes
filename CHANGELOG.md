@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The Inspector's Command button crashed the console to a white page.** It set
+  the prompt verb to `command_node` — the shell spelling — where both the modal's
+  copy table and the action dispatcher key on `cmd`. The lookup returned
+  undefined and reading `.noun` off it threw during render, taking the whole app
+  down. Had it rendered it would still have been inert: no dispatch branch
+  matches `command_node`. Send / Request / Tell / Struct each had a test; Command
+  did not, which is how it shipped.
+- **A failed `make_node` left a sink-less orphan in the graph.** `name()`
+  registers the node before `arguments()` gets a chance to reject it, so a node
+  that refuses its arguments — `make_node Table t` with no namespace — stayed in
+  the registry with no sink: visible in `ls`, unable to forward anything, and
+  blocking its own name from being reused. `make_node` now rolls the half-built
+  node back out and re-raises the original error, as Tachikoma's
+  `CommandInterpreter.pm:2701` does.
+- **`Table` never wired its `:config` sibling.** It declares `get` and `rm` in
+  `node_schema()` but skipped the `auto_wire_interpreter()` call every other
+  verb-bearing node makes, so `command_node <table>:config get <key>` answered
+  `NOT_AVAILABLE` — the interpreter the verbs dispatch through did not exist. The
+  suite missed it by hand-building an interpreter and hand-naming it `:config`,
+  proving the handlers work but never that anything could reach them.
+
+### Changed
+- **`SSE_In` no longer logs a stream-error frame.** The line said nothing the
+  `ERROR` state it sits beside doesn't already carry, and repeated per frame.
+  Because the console's error tally is fed by the stderr chain, a TM_ERROR frame
+  now counts as inbound traffic only — set_state remains the dashboard path.
+- **Disabled primary buttons recede instead of dimming.** Under the decorative
+  skins a disabled confirm kept the accent fill at half opacity, which on a dark
+  background still out-glowed every enabled control in the dialog. It now drops
+  to the surface with muted text and border, matching what the Newspack skin
+  already did. Tokens are per-skin, so CRT / neotokyo / nord each get their own.
+
 ## [2.2.3] - 2026-07-27
 
 ### Fixed

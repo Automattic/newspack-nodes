@@ -622,6 +622,28 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( $interpreter, $bob->sink() );
 	}
 
+	public function test_make_node_unregisters_the_node_when_arguments_throws(): void {
+		// name() registers before arguments() can reject; without the rollback a
+		// failed make_node leaves a sink-less orphan in the graph that every
+		// later `ls` shows and no message can leave. Table is a real class whose
+		// arguments() throws (namespace is required).
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$threw = false;
+		try {
+			$interpreter->make_node( 'Table', 'doomed' );
+		} catch ( \InvalidArgumentException $e ) {
+			$threw = true;
+		}
+
+		$this->assertTrue( $threw, 'make_node must propagate the arguments() failure' );
+		$this->assertNull( Core::node( 'doomed' ), 'a failed make_node must leave no node registered' );
+		// name() registers the sibling too, so the rollback has to take both —
+		// a bare unregister would leave `doomed:config` squatting the name.
+		$this->assertNull( Core::node( 'doomed:config' ), 'the :config sibling must go with it' );
+	}
+
 	public function test_make_node_returns_ok_string(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
