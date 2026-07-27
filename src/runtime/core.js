@@ -56,6 +56,25 @@ class CoreImpl {
 		this._stderr( line );
 	}
 
+	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
+	log_prefix( msg = null ) {
+		const ts = new Date( this.now() * 1000 )
+			.toISOString()
+			.slice( 0, 19 )
+			.replace( 'T', ' ' );
+		const prefix = `${ ts } UTC ${ this.argv0() }: `;
+		if ( null === msg || undefined === msg ) {
+			return prefix;
+		}
+		const chomped = msg.replace( /\n+$/, '' );
+		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
+	}
+
+	// Per-process identity for log_prefix (Perl $0 / PHP SAPI); fixed label.
+	argv0() {
+		return 'browser';
+	}
+
 	/**
 	 * Deliver one already-composed line: telemetry, console, REPL sink. The
 	 * counterpart of PHP Core::_stderr — callers that want Shell3's raw
@@ -94,25 +113,6 @@ class CoreImpl {
 				}
 			}
 		}
-	}
-
-	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
-	log_prefix( msg = null ) {
-		const ts = new Date( this.now() * 1000 )
-			.toISOString()
-			.slice( 0, 19 )
-			.replace( 'T', ' ' );
-		const prefix = `${ ts } UTC ${ this.argv0() }: `;
-		if ( null === msg || undefined === msg ) {
-			return prefix;
-		}
-		const chomped = msg.replace( /\n+$/, '' );
-		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
-	}
-
-	// Per-process identity for log_prefix (Perl $0 / PHP SAPI); fixed label.
-	argv0() {
-		return 'browser';
 	}
 
 	node( name ) {

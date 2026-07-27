@@ -378,6 +378,29 @@ class Core {
 	}
 
 	/**
+	 * Options for the fire-and-forget spawn POST. Split out so the option set is
+	 * assertable without a transport seam.
+	 *
+	 * @param string $url    Target URL.
+	 * @param string $fields Already query-encoded body.
+	 * @return array<int, mixed>
+	 */
+	private static function post_curl_options( string $url, string $fields ): array {
+		return [
+			\CURLOPT_URL               => $url,
+			\CURLOPT_POST              => true,
+			\CURLOPT_POSTFIELDS        => $fields,
+			\CURLOPT_NOSIGNAL          => true,
+			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
+			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
+			\CURLOPT_RETURNTRANSFER    => false,
+			\CURLOPT_HEADER            => false,
+			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
+			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
+		];
+	}
+
+	/**
 	 * Classify a fire-and-forget result. Split out so the rule is assertable
 	 * without a transport seam, as post_curl_options is for the option set.
 	 *
@@ -401,29 +424,6 @@ class Core {
 			return $pretransfer > 0.0 ? null : 'timed out before the request was sent: ' . $error;
 		}
 		return $error;
-	}
-
-	/**
-	 * Options for the fire-and-forget spawn POST. Split out so the option set is
-	 * assertable without a transport seam.
-	 *
-	 * @param string $url    Target URL.
-	 * @param string $fields Already query-encoded body.
-	 * @return array<int, mixed>
-	 */
-	private static function post_curl_options( string $url, string $fields ): array {
-		return [
-			\CURLOPT_URL               => $url,
-			\CURLOPT_POST              => true,
-			\CURLOPT_POSTFIELDS        => $fields,
-			\CURLOPT_NOSIGNAL          => true,
-			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
-			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
-			\CURLOPT_RETURNTRANSFER    => false,
-			\CURLOPT_HEADER            => false,
-			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
-			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
-		];
 	}
 
 	/** True while the stderr handler is on the stack; pump() reads it to skip a log-write stop. */
