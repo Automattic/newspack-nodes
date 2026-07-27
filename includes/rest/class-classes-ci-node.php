@@ -75,22 +75,22 @@ class Classes_CI_Node extends Service_CI_Node {
 				$seen[ $fqcn ]   = true;
 				$schema_commands = $schema['commands'] ?? [];
 				$classes[]       = [
-					'shell_name'   => \substr( $short, 0, -\strlen( '_Node' ) ),
-					'fqcn'         => $fqcn,
-					'category'     => $cat,
-					'description'  => $schema['description'] ?? '',
-					'arguments'    => $schema['arguments']   ?? [],
+					'shell_name'     => \substr( $short, 0, -\strlen( '_Node' ) ),
+					'fqcn'           => $fqcn,
+					'category'       => $cat,
+					'description'    => $schema['description'] ?? '',
+					'arguments'      => $schema['arguments']   ?? [],
 					// Strip non-serializable handler; keep palette fields.
-					'commands'        => self::strip_commands( Core::arr( $schema_commands ) ),
-					'requests'     => $schema['requests'] ?? [],
+					'commands'       => self::strip_commands( Core::arr( $schema_commands ) ),
+					'requests'       => $schema['requests'] ?? [],
 					// Valid register events; inspector UI lists them per node.
-					'registrations' => $schema['registrations'] ?? [],
-					'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
-					'has_target'   => (bool) ( $schema['has_target']   ?? true ),
+					'registrations'  => $schema['registrations'] ?? [],
+					'accepts_fill'   => (bool) ( $schema['accepts_fill'] ?? true ),
+					'has_target'     => (bool) ( $schema['has_target']   ?? true ),
 					// Interpreter node → bare target, else <name>:config.
 					'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
 					// Fan-out (target LIST) → multi-chip editor + tail.
-					'fans_out'         => Core::class_fans_out( $fqcn ),
+					'fans_out'       => Core::class_fans_out( $fqcn ),
 				];
 			}
 		}
