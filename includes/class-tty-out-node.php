@@ -75,8 +75,9 @@ class TTY_Out_Node extends Stdout_Node {
 			return;
 		}
 
-		if ( ! \str_ends_with( $text, "\n" ) ) {
-			$text .= "\n";
+		$prompt = '';
+		if ( \str_ends_with( $text, "\n" ) ) {
+			 $prompt = $this->shell->prompt;
 		}
 
 		// stdout/stderr are the cli's own terminal streams, not WP-Filesystem.
@@ -85,7 +86,7 @@ class TTY_Out_Node extends Stdout_Node {
 			// Empty prompt; skip readline_redisplay (flips to incr-search).
 			\fwrite(
 				$this->stdout,
-				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt
+				self::ANSI_CR_CLEAR_LINE . $text . $prompt
 			);
 			return;
 		}
@@ -95,7 +96,7 @@ class TTY_Out_Node extends Stdout_Node {
 			self::ANSI_SAVE_CURSOR
 				. self::ANSI_CR_CLEAR_LINE
 				. $text
-				. $this->shell->prompt
+				. $prompt
 				. self::ANSI_RESTORE_CURSOR
 		);
 		// phpcs:enable

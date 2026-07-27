@@ -77,8 +77,10 @@ class Supervisor extends Supervisor_Base {
 		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
 			// base_dir is operator-configured under /tmp/ — not WP-managed.
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			if ( ! Config::write_denied( 'locks dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			}
 		}
 		// Lifecycle primitive: bare new, no interpreter yet (see Worker_Base).
 		$lock           = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
@@ -479,8 +481,10 @@ class Supervisor extends Supervisor_Base {
 	/** @api Test hook: install the supervisor's own lock without entering the run loop. */
 	public function init_lock_for_test(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			if ( ! Config::write_denied( 'locks dir' ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+				@\mkdir( "{$this->base_dir}/locks", 0755, true );
+			}
 		}
 		// Lifecycle primitive (see run()): bare new (no-interpreter exception).
 		$this->own_lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );

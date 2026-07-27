@@ -129,7 +129,13 @@ class Config {
 	 * Skipped without posix (no uid to compare); the symlink and traversal
 	 * checks stand on their own there.
 	 *
-	 * @throws \RuntimeException When another uid owns it, or group/other can write.
+	 * Root is exempt from the refusal. The gate defends against a LOWER-
+	 * privileged adopter racing a predictable path, and root already owns the
+	 * box — refusing to boot buys nothing. Root's real hazard is the opposite
+	 * direction: files it writes here are root-owned, and the workers run as
+	 * the web user, so they are the ones left unable to write. That warns.
+	 *
+	 * @throws \RuntimeException When another NON-ROOT uid owns it, or group/other can write.
 	 */
 	private static function assert_private_to_us( string $real ): void {
 		$uid   = CLI::uid();
@@ -137,7 +143,9 @@ class Config {
 		if ( $uid < 0 || false === $owner ) {
 			return;
 		}
-		if ( $owner !== $uid ) {
+		if ( 0 === $uid ) {
+			self::warn_root_writes( $real );
+		} elseif ( $owner !== $uid ) {
 			throw new \RuntimeException(
 				\esc_html(
 					\sprintf(
@@ -161,6 +169,47 @@ class Config {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Rate-limited notice that this root process may strand the workers.
+	 *
+	 * @param string $real Resolved runtime directory.
+	 */
+	private static function warn_root_writes( string $real ): void {
+		Core::print_less_often(
+			'WARNING: running as root; refusing writes under ',
+			$real,
+			' - they would be root-owned and unwritable by the workers'
+		);
+	}
+
+	/**
+	 * True when this process must not write under the runtime directory.
+	 *
+	 * Root may read and administer freely — it already owns the box, so the
+	 * adoption gate above buys nothing against it. What root must never do is
+	 * CREATE a file here: the workers run as the web user, so every root-owned
+	 * lock, offset or segment is one they can no longer write, and the failure
+	 * surfaces much later as a worker that cannot claim its IPC directory.
+	 *
+	 * Denial is non-fatal by design. A caller skips the write and carries on,
+	 * so read-only root commands (`status`, `types`, `doctor`) keep working
+	 * and a write-shaped one reports doing nothing instead of half-doing it.
+	 *
+	 * @param string $what Short description of the skipped write, for the log.
+	 * @return bool True when the caller must skip its write.
+	 */
+	public static function write_denied( string $what = 'write' ): bool {
+		if ( 0 !== CLI::uid() ) {
+			return false;
+		}
+		Core::print_less_often(
+			'WARNING: running as root; skipping ',
+			$what,
+			' - a root-owned file would be unwritable by the workers'
+		);
+		return true;
 	}
 
 	public static function get_base_directory(): string {

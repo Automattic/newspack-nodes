@@ -28,13 +28,10 @@ class Stdout_Node extends Node {
 	}
 
 	/**
-	 * Write seam. Appends "\n" only if absent, then fwrites to the owned stream.
+	 * Write seam. fwrites to the owned stream.
 	 * Overridden by TTY_Out_Node for terminal-aware rendering.
 	 */
 	protected function write( string $text ): void {
-		if ( ! \str_ends_with( $text, "\n" ) ) {
-			$text .= "\n";
-		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->stdout, $text );
 	}
