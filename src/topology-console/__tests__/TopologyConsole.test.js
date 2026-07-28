@@ -153,7 +153,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// Boot stream + force connected pid 1234 (fake ES sends none).
 				remote.connect();
 				remote.sseIn._applyConnected(
-					'PID 1234 SLOT 1 SUBSCRIPTIONS demo.p0 INTERVAL 2000'
+					'PID 1234 SLOT 1 OWNER 9007199254740993 ' +
+						'SUBSCRIPTIONS demo.p0 INTERVAL 2000'
 				);
 				const shell = new ShellNode();
 				shell.path = reader;

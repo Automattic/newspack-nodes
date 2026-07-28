@@ -37,6 +37,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private const PUMP_DISARM_BYTES = 524288; // 512 KB.
 
 	private int $last_heartbeat_response = 0;
+	private ?string $last_heartbeat_error = null;
 
 	/**
 	 * True once restore_position() has read the durable frame + seeded the cursor. Makes
@@ -416,9 +417,25 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		$now                           = (int) Core::$now;
 		$this->last_heartbeat_response = $now;
+		$this->last_heartbeat_error    = null;
+		$connection_error = null !== $this->sse_in
+			? $this->sse_in->connection()['last_error']
+			: null;
 		$this->write_status( [
 			'last_heartbeat_response' => $now,
 			'last_heartbeat_rtt'      => $now - $this->last_heartbeat_sent,
+			'last_error'              => $connection_error,
+		] );
+	}
+
+	/** Clear a prior success immediately and retain the spoke's safe failure reason. */
+	protected function record_heartbeat_failure( string $reason ): void {
+		$this->last_heartbeat_response = 0;
+		$this->last_heartbeat_error    = 'Client heartbeat failed: ' . $reason;
+		$this->write_status( [
+			'last_heartbeat_response' => null,
+			'last_heartbeat_rtt'      => null,
+			'last_error'              => $this->last_heartbeat_error,
 		] );
 	}
 
@@ -436,7 +453,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
 			'last_http_code'          => $conn['last_http_code'],
-			'last_error'              => $conn['last_error'],
+			'last_error'              => $conn['last_error'] ?? $this->last_heartbeat_error,
 			'current_backoff'         => $conn['current_backoff'],
 			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
 		];

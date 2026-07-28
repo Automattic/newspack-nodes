@@ -34,6 +34,8 @@ import {
 import names from '../reserved-node-names.json';
 import { forgetSession } from '../command-auth';
 
+const LEASE_OWNER = '9007199254740993';
+
 class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
@@ -77,12 +79,14 @@ function makeRemoteIpc( reader, interpreter ) {
 	return node;
 }
 
-// Drive a flat `connected` frame through a composed SseIn → CONNECTED bridge.
-function dispatchConnected( node, { pid, slot } ) {
+// Drive a complete `connected` lease through the SseIn → CONNECTED bridge.
+function dispatchConnected( node, { pid, slot, owner = LEASE_OWNER } ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
-	m[ VALUE ] = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS x INTERVAL 2000`;
+	m[ VALUE ] =
+		`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+		'SUBSCRIPTIONS x INTERVAL 2000';
 	node.sseIn._es.dispatch( 'connected', JSON.stringify( m ) );
 }
 

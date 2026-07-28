@@ -7,10 +7,10 @@
  *   {name}:http       HttpOut   — outbound /command POST boundary
  *   {name}:heartbeat  Heartbeat — slot keepalive, poking `workers` via {name}:http
  *
- * plus the `connected → slot` bridge (the SseIn's connect handshake carries the
- * slot the Heartbeat must keep alive). A dashboard makes ONE RemoteLink instead
- * of three nodes + a bridge registration; RemoteIpc extends it with the
- * worker-relay send and the single-connection steal.
+ * plus the `connected → lease` bridge (the SseIn's connect handshake carries
+ * the exact slot + lease owner the Heartbeat must keep alive). A dashboard
+ * makes ONE RemoteLink instead of three nodes + a bridge registration;
+ * RemoteIpc extends it with the worker-relay send and single-connection steal.
  *
  * Mirrors the PHP Remote_Source_Node, which is a patron owning an SSE_In_Node +
  * HTTP_Out_Node. The durable offsetlog that distinguishes aggregation is a
@@ -71,7 +71,9 @@ export class RemoteLinkNode extends Node {
 	// Tear down OUR SseIn — close() first (removeNode won't close the stream).
 	removeNode() {
 		this.close();
+		this.sseIn?.unregister( 'CONNECTING', this.name );
 		this.sseIn?.unregister( 'CONNECTED', this.name );
+		this.sseIn?.unregister( 'DISCONNECTED', this.name );
 		this.sseIn?.removeNode();
 		this.sseIn = null;
 		this.httpOut = null;
@@ -126,15 +128,28 @@ export class RemoteLinkNode extends Node {
 		http.client = this.client || CommandClient.fromGlobal();
 		this.httpOut = http;
 
-		// Not armed here: the CONNECTED slot bridge below arms/stops it.
+		// Not armed here: the connection lifecycle below arms/stops it.
 		const hb = Core.node( names.HEARTBEAT );
 		this.heartbeat = hb;
 
-		// Slot bridge: SseIn's `connected` carries the slot Heartbeat keeps.
+		// Each opening/closed stream has no valid lease until CONNECTED.
+		const clearLease = () => {
+			hb.clearSlot( this );
+			return true;
+		};
+		sse.register( 'CONNECTING', this.name, clearLease );
+		sse.register( 'DISCONNECTED', this.name, clearLease );
+
+		// Lease bridge: keep link identity separate from the wire owner token.
 		sse.register( 'CONNECTED', this.name, ( payload ) => {
 			const slot = sse.slot();
-			if ( Number.isInteger( slot ) && slot >= 0 ) {
-				hb.setSlot( slot, this );
+			const leaseOwner = sse.leaseOwner();
+			if (
+				Number.isInteger( slot ) &&
+				slot >= 0 &&
+				'string' === typeof leaseOwner
+			) {
+				hb.setSlot( slot, leaseOwner, this );
 			} else {
 				hb.clearSlot( this );
 			}

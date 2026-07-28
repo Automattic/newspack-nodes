@@ -70,9 +70,11 @@ function makeLink( subscribe = 'raw-logs' ) {
 	return { link, posted };
 }
 
-// SseIn splits the flat `connected` string into sessionPid / sessionSlot.
-const connectedRaw = ( { pid = 4242, slot = 3 } = {} ) =>
-	`PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS raw-logs INTERVAL 2000`;
+// Deliberately exceeds Number.MAX_SAFE_INTEGER: lease owners stay strings.
+const LEASE_OWNER = '9007199254740995';
+const connectedRaw = ( { pid = 4242, slot = 3, owner = LEASE_OWNER } = {} ) =>
+	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+	'SUBSCRIPTIONS raw-logs INTERVAL 2000';
 function dispatchConnected( link, opts ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -303,11 +305,41 @@ describe( 'RemoteLinkNode', () => {
 		);
 	} );
 
-	it( 'bridges the SseIn connected slot into the shared Heartbeat', () => {
+	it( 'bridges the exact SseIn slot + lease owner into the shared Heartbeat', () => {
 		const { link } = makeLink();
 		link.connect();
-		dispatchConnected( link, { pid: 7, slot: 3 } );
-		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 3 );
+		dispatchConnected( link, {
+			pid: 7,
+			slot: 3,
+			owner: LEASE_OWNER,
+		} );
+		const heartbeat = Core.node( names.HEARTBEAT );
+		expect( heartbeat.slot ).toBe( 3 );
+		expect( heartbeat.leaseOwner ).toBe( LEASE_OWNER );
+	} );
+
+	it( 'does not arm the Heartbeat when the connected owner is missing', () => {
+		const warn = jest
+			.spyOn( Core, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const { link } = makeLink();
+		link.connect();
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ KEY ] = 'connected';
+		m[ VALUE ] = 'PID 7007 SLOT 7 SUBSCRIPTIONS raw-logs INTERVAL 2000';
+
+		FakeEventSource.last.listeners.connected[ 0 ]( {
+			data: JSON.stringify( m ),
+		} );
+
+		const heartbeat = Core.node( names.HEARTBEAT );
+		expect( heartbeat.slot ).toBeNull();
+		expect( heartbeat.leaseOwner ).toBeNull();
+		expect( warn ).toHaveBeenCalledWith(
+			'ERROR: SseInNode: connected envelope missing or invalid OWNER'
+		);
+		warn.mockRestore();
 	} );
 
 	it( 'delegates pid() to its composed SseIn', () => {

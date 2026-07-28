@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **SSE slot leases are now fenced by their acquiring connection.** Every
+  check, heartbeat, and release requires the exact slot-owner pair, so a stale
+  stream cannot delete or extend a replacement stream's lease. Shared
+  Memcached is preferred over process-local APCu when available, heartbeat
+  failures no longer appear successful, and deliberate server lease loss now
+  reaches the client as an explicit disconnect reason. Endpoint diagnostics
+  distinguish missing pointers, ownership mismatches, missing liveness, and
+  backend read errors; unexplained clean HTTP 200 stream endings report the
+  remote PID and connected duration without claiming the server endpoint
+  closed them. This is a coordinated wire cutover: deploy Nodes 2.2.4 and every
+  consumer bundle that inlines its runtime together, then restart the affected
+  workers and aggregators. Mixed old/new runtimes cannot sustain heartbeats.
+
 ### Changed
 - **Every producer terminates its own output.** `Stdout_Node`'s write seam used
   to append `"\n"` when absent, which silently ended everyone's lines — so

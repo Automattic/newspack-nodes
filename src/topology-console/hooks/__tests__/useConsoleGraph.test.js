@@ -85,9 +85,10 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			super.close();
 		}
 		emitConnected( pid ) {
-			// Flat envelope; _applyConnected parses pid+slot, fires CONNECTED.
+			// Complete lease envelope; _applyConnected fires CONNECTED.
 			this._applyConnected(
-				`PID ${ pid } SLOT 1 SUBSCRIPTIONS x INTERVAL 2000`
+				`PID ${ pid } SLOT 1 OWNER 9007199254740993 ` +
+					'SUBSCRIPTIONS x INTERVAL 2000'
 			);
 		}
 	}

@@ -5,38 +5,69 @@
  * batched POST as the canvas polls (one request per tick) instead of its own
  * setInterval. The reply is consumed by `fill()` — never routed to the transcript.
  *
- * The slot is refreshed EXCLUSIVELY by this client poke (the server's check_slot
- * never refreshes); without it the worker-partition slot TTLs out and the browser
- * reconnects every ~minute. Poke at half the TTL so one missed poke survives.
+ * The exact slot lease is refreshed EXCLUSIVELY by this client poke (the
+ * server's check_slot never refreshes it); without it the worker-partition slot
+ * TTLs out and the browser reconnects. The server owns the TTL.
  */
 
 import { TimerNode } from './timer-node';
+import { Core } from './core';
+import { TYPE, VALUE, TM_ERROR, TM_RESPONSE } from './message';
 
-// Slot TTL (s) per poke; throttle is half the TTL so a missed tick survives.
-const SLOT_TTL_S = 10;
+const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 const POKE_INTERVAL_MS = 5000;
 
 export class HeartbeatNode extends TimerNode {
 	constructor() {
 		super();
-		// SSE slot to refresh; null until stream connects, cleared on close.
+		// Most recently connected lease, retained for node status/debugging.
 		this.slot = null;
-		this._slots = new Map();
+		this.leaseOwner = null;
+		// Stream identity is the map key; wire lease owner lives in the value.
+		this._leases = new Map();
+		this.lastHeartbeatResponse = null;
+		this.lastHeartbeatError = null;
 	}
 
-	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
+	// Consume replies; errors clear prior green status and remain inspectable.
 	fill( message ) {
 		this.counter++;
-		void message;
-	}
-
-	// Router TIMER subscriber: fire() pokes the slot, only while one is held.
-	fire() {
-		if ( 0 === this._slots.size || ! this.sink ) {
+		const type = message[ TYPE ];
+		if ( ! ( type & ( TM_RESPONSE | TM_ERROR ) ) ) {
 			return;
 		}
-		for ( const slot of this._slots.values() ) {
-			const m = this._pollMessage( slot );
+		const response = message[ VALUE ];
+		const payload =
+			response && 'object' === typeof response && 'payload' in response
+				? response.payload
+				: response;
+		if ( type & TM_ERROR ) {
+			this._recordFailure(
+				this._safeError( payload, 'Heartbeat command failed' )
+			);
+			return;
+		}
+		if (
+			! payload ||
+			'object' !== typeof payload ||
+			true !== payload.success
+		) {
+			this._recordFailure(
+				this._safeError( payload, 'Heartbeat rejected' )
+			);
+			return;
+		}
+		this.lastHeartbeatResponse = Core.now();
+		this.lastHeartbeatError = null;
+	}
+
+	// Router TIMER subscriber: fire() pokes each complete live lease.
+	fire() {
+		if ( 0 === this._leases.size || ! this.sink ) {
+			return;
+		}
+		for ( const lease of this._leases.values() ) {
+			const m = this._pollMessage( lease );
 			if ( ! m ) {
 				return; // unauthenticated: the next tick carries it
 			}
@@ -46,33 +77,68 @@ export class HeartbeatNode extends TimerNode {
 	}
 
 	// Poke TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
-	_pollMessage( slot ) {
-		return this.command( 'heartbeat', [
-			String( slot ),
-			String( SLOT_TTL_S ),
-		] );
+	_pollMessage( { slot, leaseOwner } ) {
+		return this.command( 'heartbeat', [ String( slot ), leaseOwner ] );
 	}
 
-	// Record the slot the live SSE stream acquired; holding one arms the poke.
-	setSlot( slot, owner = null ) {
-		this._slots.set( owner ?? this, slot );
+	// Record one stream's exact lease; a missing owner is a protocol error.
+	setSlot( slot, leaseOwner, streamOwner = this ) {
+		if ( ! Number.isInteger( slot ) || slot < 0 ) {
+			throw new Error( 'Heartbeat slot must be a non-negative integer' );
+		}
+		if (
+			'string' !== typeof leaseOwner ||
+			! LEASE_OWNER_RE.test( leaseOwner )
+		) {
+			throw new Error(
+				'Heartbeat lease owner must be a canonical positive decimal string'
+			);
+		}
+		this._leases.set( streamOwner, { slot, leaseOwner } );
 		this.slot = slot;
+		this.leaseOwner = leaseOwner;
+		this.lastHeartbeatResponse = null;
+		this.lastHeartbeatError = null;
 		this.setTimer( POKE_INTERVAL_MS );
 	}
 
-	// Forget one owner's slot, or every slot for a legacy unowned clear.
-	clearSlot( owner = null ) {
-		if ( null === owner ) {
-			this._slots.clear();
-		} else if ( ! this._slots.delete( owner ) ) {
+	// Forget one stream identity's lease, or every lease on graph teardown.
+	clearSlot( streamOwner = null ) {
+		if ( null === streamOwner ) {
+			this._leases.clear();
+		} else if ( ! this._leases.delete( streamOwner ) ) {
 			return false;
 		}
-		const remaining = [ ...this._slots.values() ];
-		this.slot = remaining.at( -1 ) ?? null;
+		const remaining = [ ...this._leases.values() ];
+		const latest = remaining.at( -1 ) ?? null;
+		this.slot = latest?.slot ?? null;
+		this.leaseOwner = latest?.leaseOwner ?? null;
 		if ( 0 === remaining.length ) {
 			this.stopTimer();
 		}
 		return true;
+	}
+
+	_recordFailure( error ) {
+		this.lastHeartbeatResponse = null;
+		this.lastHeartbeatError = error;
+	}
+
+	// Read only known scalar error fields; never retain/stringify a raw body.
+	_safeError( payload, fallback ) {
+		const candidates =
+			payload && 'object' === typeof payload
+				? [ payload.error, payload.message, payload.reason ]
+				: [ payload ];
+		const detail = candidates.find(
+			( value ) => 'string' === typeof value && '' !== value.trim()
+		);
+		return detail
+			? detail
+					.trim()
+					.replace( /[\r\n]+/g, ' ' )
+					.slice( 0, 512 )
+			: fallback;
 	}
 
 	static nodeSchema() {

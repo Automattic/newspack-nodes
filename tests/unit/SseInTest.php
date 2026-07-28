@@ -8,6 +8,7 @@ use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( SSE_In_Node::class )]
 class SseInTest extends TestCase {
@@ -57,6 +58,15 @@ class SseInTest extends TestCase {
 		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
+	/** Build a terminal `disconnect` SSE frame. */
+	private function disconnect_frame( string $key, string $value ): string {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_ERROR;
+		$m[ Message::KEY ]   = $key;
+		$m[ Message::VALUE ] = $value;
+		return "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n";
+	}
+
 	public function test_bytes_read_accumulates_received_wire_bytes(): void {
 		[ $node ] = $this->configured_node();
 		$chunk1   = "event: heartbeat\ndata: {}\n\n";
@@ -97,7 +107,7 @@ class SseInTest extends TestCase {
 		// `msg` branch, so neither may inflate the message counter.
 		[ $node ] = $this->configured_node();
 		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9 SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
 		$this->assertSame( 0, $node->counter(), 'heartbeat/connected frames do not bump the message counter' );
 	}
 
@@ -160,24 +170,75 @@ class SseInTest extends TestCase {
 		$this->assertSame( '{not a message}', $captured, 'raw torn frame handed to the delivery seam' );
 	}
 
-	public function test_connected_handshake_consumed_and_captures_slot(): void {
+	public function test_connected_handshake_consumed_and_captures_exact_lease(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( 'PID 9 SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 7, $node->slot() );
+		$this->assertTrue( \method_exists( $node, 'owner' ), 'SSE_In must expose the parsed lease owner' );
+		$this->assertSame( 42424243, $node->owner() );
 		$this->assertTrue( $node->connection()['connected'] );
 	}
 
 	public function test_connected_handshake_without_pid_is_error_not_connected(): void {
 		[ $node, $sink ] = $this->configured_node();
 
-		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'SLOT 7 OWNER 42424243' ) );
 
 		$this->assertCount( 0, $sink->captured );
 		$this->assertNull( $node->pid() );
 		$this->assertFalse( $node->connection()['connected'] );
+	}
+
+	public function test_disconnect_frame_is_consumed_and_retains_machine_key_and_display_value(): void {
+		[ $node, $sink ] = $this->configured_node();
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+
+		$this->assertTrue(
+			$node->process_sse_chunk(
+				$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+			)
+		);
+
+		$this->assertCount( 0, $sink->captured, 'terminal control frames are consumed' );
+		$this->assertTrue(
+			\property_exists( $node, 'terminal_disconnect_key' ),
+			'SSE_In must retain the terminal event machine key separately'
+		);
+		$this->assertSame( 'slot_lease_lost', $this->read_private( $node, 'terminal_disconnect_key' ) );
+		$this->assertSame(
+			'SSE slot lease lost',
+			$this->read_private( $node, 'terminal_disconnect_reason' )
+		);
+	}
+
+	/**
+	 * @return array<string,array{0:string}>
+	 */
+	public static function malformed_connected_leases(): array {
+		return [
+			'missing owner'       => [ 'PID 9007 SLOT 7' ],
+			'non-decimal owner'   => [ 'PID 9007 SLOT 7 OWNER 42424243x' ],
+			'zero owner'          => [ 'PID 9007 SLOT 7 OWNER 0' ],
+			'negative owner'      => [ 'PID 9007 SLOT 7 OWNER -42424243' ],
+			'non-canonical owner' => [ 'PID 9007 SLOT 7 OWNER 042424243' ],
+			'owner out of range'  => [ 'PID 9007 SLOT 7 OWNER ' . \PHP_INT_MAX . '0' ],
+			'missing slot'        => [ 'PID 9007 OWNER 42424243' ],
+		];
+	}
+
+	#[DataProvider( 'malformed_connected_leases' )]
+	public function test_malformed_connected_lease_never_arms_heartbeat( string $value ): void {
+		[ $node, $sink ] = $this->configured_node();
+
+		$node->process_sse_chunk( $this->connected_frame( $value ) );
+
+		$this->assertCount( 0, $sink->captured );
+		$this->assertNull( $node->slot() );
+		$this->assertFalse( $node->connection()['connected'] );
+		$this->assertNotNull( $node->connection()['last_error'] );
 	}
 
 	public function test_heartbeat_frame_recorded_not_forwarded(): void {
@@ -342,9 +403,9 @@ class SseInTest extends TestCase {
 		[ $node ] = $this->configured_node();
 		$this->assertNull( $node->pid() );
 
-		$node->process_sse_chunk( $this->connected_frame( 'PID 4242 SLOT 7' ) );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
 
-		$this->assertSame( 4242, $node->pid() );
+		$this->assertSame( 9007, $node->pid() );
 	}
 
 	public function test_node_schema_is_hidden_io(): void {

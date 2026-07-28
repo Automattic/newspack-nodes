@@ -5,8 +5,8 @@
  *
  * RemoteLink composes an UNNAMED per-link SseIn (held as `link.sseIn`, NOT
  * registered in Core — no canvas churn) and SHARES the reserved-name `_http`
- * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the `connected → slot`
- * bridge to that shared heartbeat. The bespoke `partition:route` /
+ * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the connected lease
+ * to that shared heartbeat. The bespoke `partition:route` /
  * `partition:transform` nodes are gone — envelope→row shaping is inlined into the
  * view itself.
  *
@@ -76,6 +76,7 @@ const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
 const VIEW = 'partition:view';
 const TEE = 'partition:stream';
+const LEASE_OWNER = '9007199254740993';
 
 // CommandClient double: postBatch returns reply Messages addressed along FROM.
 function makeFakeClient( payloadByVerb = {} ) {
@@ -112,8 +113,14 @@ function makeFakeClient( payloadByVerb = {} ) {
 }
 
 // Build a connected envelope as a flat string (TM_INFO values are strings).
-function connectedEnvelope( { pid = 4242, slot = 3 } = {} ) {
-	const value = `PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS firehose.p0 INTERVAL 2000`;
+function connectedEnvelope( {
+	pid = 4242,
+	slot = 3,
+	owner = LEASE_OWNER,
+} = {} ) {
+	const value =
+		`PID ${ pid } SLOT ${ slot } OWNER ${ owner } ` +
+		'SUBSCRIPTIONS firehose.p0 INTERVAL 2000';
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
@@ -309,6 +316,9 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	test( 'a `connected` envelope with no slot leaves heartbeat slot null', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
+		expectConsoleWarn(
+			'ERROR: SseInNode: connected envelope missing or invalid SLOT'
+		);
 		FakeEventSource.last.dispatch(
 			'connected',
 			pack( connectedEnvelope( { pid: 7, slot: -1 } ) )
@@ -340,7 +350,7 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
 				);
 			expect( poke ).toBeTruthy();
-			expect( poke[ VALUE ].arguments ).toEqual( [ '5', '10' ] );
+			expect( poke[ VALUE ].arguments ).toEqual( [ '5', LEASE_OWNER ] );
 		} finally {
 			jest.useRealTimers();
 		}

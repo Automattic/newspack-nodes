@@ -26,6 +26,7 @@ namespace Newspack_Nodes;
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_setopt_array
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo
 // phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_error
+// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_strerror
 // cURL is required for SSE multiplexing — wp_remote_get() can't do it.
 
 class SSE_In_Node extends Node {
@@ -74,6 +75,7 @@ class SSE_In_Node extends Node {
 
 	private string $buffer              = '';
 	private bool   $connected           = false;
+	private ?float $connected_at        = null;
 	private int    $current_backoff     = self::INITIAL_BACKOFF;
 	/** @var array{event:string, data:string} Current SSE event accumulator. */
 	private array  $current_event       = [ 'event' => '', 'data' => '' ];
@@ -89,9 +91,13 @@ class SSE_In_Node extends Node {
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
 	private bool  $require_ssl          = false;
+	/** Lease owner captured from the `connected` handshake. */
+	private ?int  $owner                = null;
 	/** Session pid snooped from the `connected` handshake; scopes a reply-FROM. */
 	private ?int  $session_pid          = null;
 	private ?int  $slot                 = null;
+	private ?string $terminal_disconnect_key    = null;
+	private ?string $terminal_disconnect_reason = null;
 
 	private bool $verify_ssl            = true;
 
@@ -206,7 +212,12 @@ class SSE_In_Node extends Node {
 		$this->last_sse_heartbeat = null;
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
+		$this->connected_at       = null;
+		$this->owner              = null;
+		$this->session_pid        = null;
 		$this->slot               = null;
+		$this->terminal_disconnect_key    = null;
+		$this->terminal_disconnect_reason = null;
 		Event_Framework::instance()->register_curl_easy( $this, $ch );
 		// Opened; awaiting 'connected' handshake (CONNECTED replaces this).
 		$this->set_state( 'CONNECTING', $this->subscribe );
@@ -258,17 +269,33 @@ class SSE_In_Node extends Node {
 			return;
 		}
 
-		$result               = $info['result'] ?? \CURLE_OK;
-		$http_code            = \curl_getinfo( $handle, \CURLINFO_HTTP_CODE );
-		$err                  = \curl_error( $handle );
-		$this->last_http_code = $http_code > 0 ? $http_code : null;
+		$result             = $info['result'] ?? \CURLE_OK;
+		$observed_http_code = \curl_getinfo( $handle, \CURLINFO_HTTP_CODE );
+		if ( $observed_http_code > 0 ) {
+			$this->last_http_code = $observed_http_code;
+		}
+		$http_code = $this->last_http_code ?? 0;
 
-		if ( \CURLE_OK !== $result ) {
-			$this->last_error = "cURL error {$result}: {$err}";
-		} elseif ( 200 !== $http_code && 0 !== $http_code ) {
-			$this->last_error = "HTTP {$http_code}";
-		} else {
-			$this->last_error = 'Connection closed by server';
+		// Keep local parser/size errors ahead of transport errors.
+		if ( null === $this->last_error ) {
+			if (
+				null !== $this->terminal_disconnect_key
+				&& null !== $this->terminal_disconnect_reason
+			) {
+				$this->last_error = 'Server closed stream: ' . $this->terminal_disconnect_reason;
+			} elseif ( \CURLE_OK !== $result ) {
+				$curl_description = \curl_strerror( $result );
+				$description      = self::safe_diagnostic_text(
+					null === $curl_description ? 'Unknown cURL error' : $curl_description
+				);
+				$detail           = self::safe_diagnostic_text( \curl_error( $handle ) );
+				$this->last_error = "cURL error {$result} ({$description})"
+					. ( '' !== $detail ? ": {$detail}" : '' );
+			} elseif ( 200 !== $http_code ) {
+				$this->last_error = "HTTP {$http_code}";
+			} else {
+				$this->last_error = $this->clean_eof_error();
+			}
 		}
 
 		$this->stderr( "ERROR: disconnected - {$this->last_error}" );
@@ -291,11 +318,12 @@ class SSE_In_Node extends Node {
 		$this->buffer     .= $bytes;
 
 		if ( \strlen( $this->buffer ) > self::MAX_BUFFER_SIZE ) {
-			$this->last_error = 'Buffer overflow (no newline in ' . self::MAX_BUFFER_SIZE . ' bytes)';
+			$error            = 'Buffer overflow (no newline in ' . self::MAX_BUFFER_SIZE . ' bytes)';
+			$this->last_error = $error;
 			$this->buffer     = '';
-			$this->connected  = false;
-			$this->set_state( 'ERROR', $this->last_error );
-			$this->stderr( "ERROR: {$this->last_error}" );
+			$this->retire_lease();
+			$this->set_state( 'ERROR', $error );
+			$this->stderr( "ERROR: {$error}" );
 			return false;
 		}
 
@@ -334,11 +362,12 @@ class SSE_In_Node extends Node {
 			case 'data':
 				$this->current_event['data'] .= $value;
 				if ( \strlen( $this->current_event['data'] ) > self::MAX_EVENT_SIZE ) {
-					$this->last_error    = 'Event data overflow (' . self::MAX_EVENT_SIZE . ' bytes)';
+					$error               = 'Event data overflow (' . self::MAX_EVENT_SIZE . ' bytes)';
+					$this->last_error    = $error;
 					$this->current_event = [ 'event' => '', 'data' => '' ];
-					$this->connected     = false;
-					$this->set_state( 'ERROR', $this->last_error );
-					$this->stderr( "ERROR: {$this->last_error}" );
+					$this->retire_lease();
+					$this->set_state( 'ERROR', $error );
+					$this->stderr( "ERROR: {$error}" );
 					return false;
 				}
 				break;
@@ -371,12 +400,46 @@ class SSE_In_Node extends Node {
 			try {
 				$message = Message::unpacked( $raw_data );
 			} catch ( \InvalidArgumentException $e ) {
-				$this->last_error = 'unparseable connected frame';
-				$this->set_state( 'ERROR', $this->last_error );
-				$this->stderr( "ERROR: {$this->last_error}" );
-				return true;
+				return $this->reject_connected( 'unparseable connected frame' );
 			}
 			return $this->handle_connected( $message );
+		}
+
+		// Retain the terminal machine key + display reason; consume the event.
+		if ( 'disconnect' === $type ) {
+			try {
+				$message = Message::unpacked( $raw_data );
+			} catch ( \InvalidArgumentException $e ) {
+				$error            = 'unparseable disconnect frame';
+				$this->last_error = $error;
+				$this->retire_lease();
+				$this->set_state( 'ERROR', $error );
+				$this->stderr( "ERROR: {$error}" );
+				return false;
+			}
+			$key    = $message[ Message::KEY ];
+			$reason = $message[ Message::VALUE ];
+			if (
+				! \is_string( $key )
+				|| '' === \trim( $key )
+				|| ! \is_string( $reason )
+				|| '' === \trim( $reason )
+			) {
+				$error            = 'malformed disconnect envelope';
+				$this->last_error = $error;
+				$this->retire_lease();
+				$this->set_state( 'ERROR', $error );
+				$this->stderr( "ERROR: {$error}" );
+				return false;
+			}
+			$terminal_key    = self::safe_diagnostic_text( $key );
+			$terminal_reason = self::safe_diagnostic_text( $reason );
+
+			$this->terminal_disconnect_key    = $terminal_key;
+			$this->terminal_disconnect_reason = $terminal_reason;
+			$this->retire_lease();
+			$this->set_state( 'DISCONNECTING', $terminal_reason );
+			return true;
 		}
 
 		// 'msg' hands RAW payload to owner; its forward_line owns unparse/DLQ.
@@ -394,9 +457,9 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Handle the substrate's bookkeeping `connected` handshake — its own SSE event
-	 * type (mirrors `heartbeat`). Capture slot + session pid from the flat
-	 * `KEY VALUE` envelope, mark connected, and do NOT forward. A missing PID or a
-	 * non-string VALUE is a malformed handshake: report it and stay disconnected.
+	 * type (mirrors `heartbeat`). Capture slot, owner, and session pid from the flat
+	 * `KEY VALUE` envelope, mark connected, and do NOT forward. Required numeric
+	 * values use canonical decimal form so the owner cannot be lossy-coerced.
 	 *
 	 * @param array<int,mixed> $message 7-field Message array.
 	 * @return bool
@@ -404,28 +467,89 @@ class SSE_In_Node extends Node {
 	private function handle_connected( array $message ): bool {
 		$value = $message[ Message::VALUE ];
 		if ( ! \is_string( $value ) ) {
-			// TM_INFO VALUEs are strings; non-string = malformed, report it.
-			$this->last_error = 'malformed connected envelope (non-string value)';
-			$this->set_state( 'ERROR', $this->last_error );
-			$this->stderr( "ERROR: {$this->last_error}" );
-			return true;
+			return $this->reject_connected( 'malformed connected envelope (non-string value)' );
 		}
-		$pairs             = \array_chunk( \explode( ' ', $value ), 2 );
-		$info              = \array_column( $pairs, 1, 0 );
-		$slot_raw          = $info['SLOT'] ?? null;
-		$this->slot        = \is_scalar( $slot_raw ) ? (int) $slot_raw : null;
-		$pid_raw           = $info['PID'] ?? null;
-		$this->session_pid = \is_scalar( $pid_raw ) ? (int) $pid_raw : null;
-		// No PID = malformed handshake; don't connect (reply-FROM needs pid).
-		if ( null === $this->session_pid ) {
-			$this->last_error = 'connected envelope missing PID';
-			$this->set_state( 'ERROR', $this->last_error );
-			$this->stderr( "ERROR: {$this->last_error}" );
-			return true;
+		$tokens = \preg_split( '/ +/', \trim( $value ) );
+		if ( false === $tokens || 0 !== \count( $tokens ) % 2 ) {
+			return $this->reject_connected( 'malformed connected envelope' );
 		}
-		$this->connected = true;
-		$this->set_state( 'CONNECTED', $value );
+		$info = [];
+		for ( $i = 0, $count = \count( $tokens ); $i < $count; $i += 2 ) {
+			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
+		}
+
+		$slot = self::canonical_decimal( $info['SLOT'] ?? null, true );
+		if ( null === $slot ) {
+			return $this->reject_connected( 'connected envelope missing or invalid SLOT' );
+		}
+		$owner = self::canonical_decimal( $info['OWNER'] ?? null, false );
+		if ( null === $owner ) {
+			return $this->reject_connected( 'connected envelope missing or invalid OWNER' );
+		}
+		$pid = self::canonical_decimal( $info['PID'] ?? null, false );
+		if ( null === $pid ) {
+			return $this->reject_connected( 'connected envelope missing or invalid PID' );
+		}
+
+		$this->slot        = $slot;
+		$this->owner       = $owner;
+		$this->session_pid = $pid;
+		$this->connected   = true;
+		$this->connected_at = Core::$now ?: Core::right_now();
+		// OWNER is a fencing token; omit it from debug/state payloads and logs.
+		$this->set_state( 'CONNECTED', "PID {$pid} SLOT {$slot}" );
 		return true;
+	}
+
+	/** Reject a malformed connected handshake without retaining a partial lease. */
+	private function reject_connected( string $reason ): bool {
+		$this->session_pid = null;
+		$this->connected_at = null;
+		$this->retire_lease();
+		$this->last_error  = $reason;
+		$this->set_state( 'ERROR', $reason );
+		$this->stderr( "ERROR: {$reason}" );
+		return false;
+	}
+
+	/**
+	 * Parse a PHP-range canonical decimal token without lossy integer coercion.
+	 */
+	private static function canonical_decimal( ?string $value, bool $allow_zero ): ?int {
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+		if ( null === $value || 1 !== \preg_match( $pattern, $value ) ) {
+			return null;
+		}
+		$max = (string) \PHP_INT_MAX;
+		if (
+			\strlen( $value ) > \strlen( $max )
+			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
+		) {
+			return null;
+		}
+		return (int) $value;
+	}
+
+	/** Single-line, bounded text safe for operator diagnostics. */
+	private static function safe_diagnostic_text( string $text ): string {
+		$clean = \preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $text );
+		$clean = \trim( null === $clean ? '' : $clean );
+		if ( \strlen( $clean ) > 512 ) {
+			$clean = \substr( $clean, 0, 509 ) . '...';
+		}
+		return $clean;
+	}
+
+	/** Factual clean-EOF message, augmented only by a valid handshake's context. */
+	private function clean_eof_error(): string {
+		$error = 'HTTP 200 SSE stream ended without a server disconnect reason';
+		if ( null === $this->session_pid || null === $this->connected_at ) {
+			return $error;
+		}
+		$now      = Core::$now ?: Core::right_now();
+		$duration = \max( 0.0, $now - $this->connected_at );
+		return $error . ' (remote PID ' . $this->session_pid
+			. ', connected ' . \number_format( $duration, 2, '.', '' ) . 's)';
 	}
 
 	// --- Stale check ---
@@ -482,12 +606,18 @@ class SSE_In_Node extends Node {
 	 */
 	private function detach_handle(): void {
 		$handle = $this->handle;
-		if ( ! ( $handle instanceof \CurlHandle ) ) {
-			return;
+		if ( $handle instanceof \CurlHandle ) {
+			Event_Framework::instance()->unregister_curl_easy( $handle );
+			$this->handle = null;
 		}
-		Event_Framework::instance()->unregister_curl_easy( $handle );
-		$this->handle    = null;
+		$this->retire_lease();
+	}
+
+	/** Make a disconnected stream's lease immediately ineligible for heartbeat. */
+	private function retire_lease(): void {
 		$this->connected = false;
+		$this->owner     = null;
+		$this->slot      = null;
 	}
 
 	/**
@@ -584,6 +714,15 @@ class SSE_In_Node extends Node {
 	 */
 	public function slot(): ?int {
 		return $this->slot;
+	}
+
+	/**
+	 * Lease owner captured from the `connected` handshake.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function owner(): ?int {
+		return $this->owner;
 	}
 
 	/**

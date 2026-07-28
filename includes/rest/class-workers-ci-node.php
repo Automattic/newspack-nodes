@@ -21,6 +21,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
@@ -642,17 +643,40 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_heartbeat( array $args ): array {
-		if ( null === Core::$memd ) {
+		if ( 2 !== \count( $args ) ) {
+			throw new \RuntimeException( 'heartbeat requires exactly <slot> <owner>' );
+		}
+		$slot = self::canonical_decimal( $args[0], true );
+		if ( null === $slot ) {
+			throw new \RuntimeException( 'invalid heartbeat slot' );
+		}
+		$owner = self::canonical_decimal( $args[1], false );
+		if ( null === $owner ) {
+			throw new \RuntimeException( 'invalid heartbeat owner' );
+		}
+		if ( null === Cache_Backend::shared_first() ) {
 			throw new \RuntimeException( 'cache not configured' );
 		}
-		$parts = $args;
-		$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
-		if ( $slot < 0 ) {
-			throw new \RuntimeException( 'slot required' );
+		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::hostname(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $owner, SSE_Slot_Pool::$ttl ) ) {
+			throw new \RuntimeException( 'SSE slot lease not owned' );
 		}
-		// Server owns the TTL; $parts[1] is accepted and ignored (old clients).
-		$success = SSE_Slot_Pool::touch( SSE_Slot_Pool::hostname(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, SSE_Slot_Pool::$ttl );
-		return [ 'success' => $success, 'slot' => $slot ];
+		return [ 'success' => true, 'slot' => $slot ];
+	}
+
+	/** Parse a PHP-range canonical decimal argument without lossy coercion. */
+	private static function canonical_decimal( string $value, bool $allow_zero ): ?int {
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+		if ( 1 !== \preg_match( $pattern, $value ) ) {
+			return null;
+		}
+		$max = (string) \PHP_INT_MAX;
+		if (
+			\strlen( $value ) > \strlen( $max )
+			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
+		) {
+			return null;
+		}
+		return (int) $value;
 	}
 
 	public static function node_schema(): array {
@@ -694,7 +718,7 @@ class Workers_CI_Node extends Service_CI_Node {
 					'description' => "Refresh this session's SSE slot TTL.",
 					'args'        => [
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
+						[ 'name' => 'owner', 'type' => 'string', 'required' => true ],
 					],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_heartbeat( self::arg_strings( $args ) ),
 				],

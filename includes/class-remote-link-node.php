@@ -90,7 +90,13 @@ class Remote_Link_Node extends Timer_Node {
 		$type = Core::int( $message[ Message::TYPE ] );
 		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type
 				|| ( Message::TM_COMMAND | Message::TM_ERROR ) === $type ) {
-			$this->record_heartbeat_reply();
+			$failure = self::heartbeat_failure( $message );
+			if ( null === $failure ) {
+				$this->record_heartbeat_reply();
+			} else {
+				$this->stderr( 'ERROR: client heartbeat failed - ' . $failure );
+				$this->record_heartbeat_failure( $failure );
+			}
 			return;
 		}
 		$this->send( $message );
@@ -140,16 +146,17 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
-	 * (FROM=<this node>, TO=workers, args `<slot> <ttl>`) and fill it into the
-	 * patron HTTP_Out. Skips until SSE_In reports a slot. The slot pool keys on
-	 * (user, ip, slot) — no partition.
+	 * (FROM=<this node>, TO=workers, args `<slot> <owner>`) and fill it into the
+	 * patron HTTP_Out. Skips until SSE_In reports the complete lease. The slot
+	 * pool keys on (user, ip, slot, owner) — no partition.
 	 */
 	private function maybe_send_heartbeat(): void {
 		if ( null === $this->sse_in || null === $this->http_out ) {
 			return;
 		}
-		$slot = $this->sse_in->slot();
-		if ( null === $slot || $slot < 0 ) {
+		$slot  = $this->sse_in->slot();
+		$owner = $this->sse_in->owner();
+		if ( null === $slot || $slot < 0 || null === $owner || $owner <= 0 ) {
 			return;
 		}
 		$now = (int) Core::$now;
@@ -166,14 +173,13 @@ class Remote_Link_Node extends Timer_Node {
 		}
 		$this->last_heartbeat_sent = $now;
 
-		// ttl must outlive HEARTBEAT_INTERVAL — only client refreshes slot.
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		$message[ Message::FROM ]  = $this->name;
 		$message[ Message::TO ]    = 'workers';
 		$message[ Message::VALUE ] = [
 			'name'      => 'heartbeat',
-			'arguments' => [ (string) $slot, (string) ( self::HEARTBEAT_INTERVAL * 3 ) ],
+			'arguments' => [ (string) $slot, (string) $owner ],
 		];
 		Command_Auth::sign_for( $spoke, $message );
 		++$this->counter;
@@ -192,6 +198,56 @@ class Remote_Link_Node extends Timer_Node {
 
 	/** Record a heartbeat reply's round-trip into the status snapshot (Remote_Source overrides). */
 	protected function record_heartbeat_reply(): void {}
+
+	/** Clear successful heartbeat status and retain a failure (Remote_Source overrides). */
+	protected function record_heartbeat_failure( string $reason ): void {}
+
+	/**
+	 * Return null only for an explicit successful heartbeat response.
+	 *
+	 * @param array<int,mixed> $message Command response/error envelope.
+	 */
+	private static function heartbeat_failure( array $message ): ?string {
+		$type  = Core::int( $message[ Message::TYPE ] );
+		$value = $message[ Message::VALUE ];
+		$payload = \is_array( $value ) && \array_key_exists( 'payload', $value )
+			? $value['payload']
+			: $value;
+
+		if ( $type & Message::TM_ERROR ) {
+			return self::heartbeat_failure_reason( $payload, 'heartbeat command failed' );
+		}
+		if (
+			! \is_array( $payload )
+			|| ! \array_key_exists( 'success', $payload )
+			|| true !== $payload['success']
+		) {
+			return self::heartbeat_failure_reason( $payload, 'heartbeat response was not successful' );
+		}
+		return null;
+	}
+
+	/** Extract only a bounded single-line reason, never a raw response body. */
+	private static function heartbeat_failure_reason( mixed $payload, string $fallback ): string {
+		$reason = \is_string( $payload ) ? $payload : '';
+		if ( \is_array( $payload ) ) {
+			foreach ( [ 'error', 'message', 'reason' ] as $key ) {
+				if ( isset( $payload[ $key ] ) && \is_string( $payload[ $key ] ) ) {
+					$reason = $payload[ $key ];
+					break;
+				}
+			}
+		}
+		$clean = \preg_replace( '/[\x00-\x1F\x7F]+/', ' ', $reason );
+		$clean = \trim( null === $clean ? '' : $clean );
+		if ( '' === $clean ) {
+			return $fallback;
+		}
+		if ( \strlen( $clean ) > 512 ) {
+			return \substr( $clean, 0, 509 ) . '...';
+		}
+		return $clean;
+	}
 
 	/**
 	 * Open the inbound stream (children built lazily). Mirrors JS RemoteLink.connect.

@@ -72,6 +72,21 @@ class SseInCoverageTest extends TestCase {
 		return "event: connected\ndata: " . Message::packed( $m ) . "\n\n";
 	}
 
+	/** A terminal `disconnect` SSE frame. */
+	private function disconnect_frame( string $key, string $value ): string {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_ERROR;
+		$m[ Message::KEY ]   = $key;
+		$m[ Message::VALUE ] = $value;
+		return "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n";
+	}
+
+	/** Seed the HTTP status observed while response bytes were arriving. */
+	private function set_http_code( SSE_In_Node $node, int $code ): void {
+		$property = new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' );
+		$property->setValue( $node, $code );
+	}
+
 	// ----- fill -----
 
 	public function test_fill_is_source_noop_but_increments_counter(): void {
@@ -208,19 +223,120 @@ class SseInCoverageTest extends TestCase {
 
 		$this->assertNull( $node->test_get_handle() );
 		$this->assertFalse( $node->connection()['connected'] );
-		$this->assertStringContainsString( 'cURL error', (string) $node->connection()['last_error'] );
+		$this->assertSame(
+			'cURL error 7 (Could not connect to server)',
+			$node->connection()['last_error']
+		);
 		$this->assertSame( 2, $node->connection()['current_backoff'] );
 	}
 
-	public function test_on_curl_message_clean_close_reports_server_closed(): void {
+	public function test_on_curl_message_includes_safe_libcurl_detail_when_available(): void {
 		[ $node ] = $this->configured_node();
 		$handle   = $this->connect( $node );
+		Event_Framework::instance()->unregister_curl_easy( $handle );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_setopt
+		\curl_setopt( $handle, \CURLOPT_URL, '://bad' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_exec
+		\curl_exec( $handle );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_error
+		$detail = \curl_error( $handle );
+		$this->assertNotSame( '', $detail, 'fixture must produce a real libcurl detail' );
 
-		// Idle handle reports HTTP_CODE 0 + CURLE_OK -> "Connection closed by server".
-		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_URL_MALFORMAT ] );
+
+		$this->assertSame(
+			'cURL error 3 (URL using bad/illegal format or missing URL): ' . $detail,
+			$node->connection()['last_error']
+		);
+	}
+
+	public function test_terminal_server_reason_wins_over_curl_failure(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$node->process_sse_chunk(
+			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+		);
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
 
 		$this->assertFalse( $node->connection()['connected'] );
-		$this->assertSame( 'Connection closed by server', $node->connection()['last_error'] );
+		$this->assertSame(
+			'Server closed stream: SSE slot lease lost',
+			$node->connection()['last_error']
+		);
+	}
+
+	public function test_parser_error_wins_over_server_and_curl_reasons(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$node->process_sse_chunk( \str_repeat( 'x', SSE_In_Node::MAX_BUFFER_SIZE + 1 ) );
+		$node->process_sse_chunk(
+			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+		);
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+
+		$this->assertSame(
+			'Buffer overflow (no newline in ' . SSE_In_Node::MAX_BUFFER_SIZE . ' bytes)',
+			$node->connection()['last_error']
+		);
+	}
+
+	public function test_non_200_http_status_is_reported_after_clean_transport(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$this->set_http_code( $node, 503 );
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$this->assertSame( 'HTTP 503', $node->connection()['last_error'] );
+	}
+
+	public function test_clean_http_200_eof_reports_pid_and_connected_duration(): void {
+		[ $node ]  = $this->configured_node();
+		Core::$now = 1748960000.25;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk(
+			$this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' )
+		);
+		$this->set_http_code( $node, 200 );
+		Core::$now = 1748960012.59;
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$this->assertSame(
+			'HTTP 200 SSE stream ended without a server disconnect reason (remote PID 9007, connected 12.34s)',
+			$node->connection()['last_error']
+		);
+	}
+
+	public function test_reconnect_resets_complete_per_connection_state(): void {
+		[ $node ]  = $this->configured_node();
+		Core::$now = 1748960000.25;
+		$this->connect( $node );
+		$node->process_sse_chunk(
+			$this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' )
+		);
+		$node->process_sse_chunk( "event: heartbeat\ndata: {}\n\n" );
+		$node->process_sse_chunk(
+			$this->disconnect_frame( 'slot_lease_lost', 'SSE slot lease lost' )
+		);
+		$node->disconnect();
+		Core::$now = 1748960002.25;
+
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertNull( $node->slot() );
+		$this->assertNull( $node->pid() );
+		$this->assertTrue( \method_exists( $node, 'owner' ), 'SSE_In must expose the parsed lease owner' );
+		$this->assertNull( $node->owner() );
+		$this->assertNull( $node->connection()['last_error'] );
+		$this->assertNull( $node->connection()['last_sse_heartbeat'] );
+		$this->assertTrue( \property_exists( $node, 'connected_at' ) );
+		$this->assertNull( $this->read_private( $node, 'connected_at' ) );
+		$this->assertTrue( \property_exists( $node, 'terminal_disconnect_key' ) );
+		$this->assertNull( $this->read_private( $node, 'terminal_disconnect_key' ) );
+		$this->assertTrue( \property_exists( $node, 'terminal_disconnect_reason' ) );
+		$this->assertNull( $this->read_private( $node, 'terminal_disconnect_reason' ) );
 	}
 
 	// ----- SSE parsing edge cases -----

@@ -1,15 +1,16 @@
 /**
  * SseInNode tests — the SSE receive-ingress node (formerly the SseConnector,
  * now merged in: SseInNode extends Node directly). It opens an EventSource,
- * snoops the `connected` handshake string for `pid()` + `sessionSlot`, runs the
- * heartbeat watchdog / reconnect logic, and forwards each parsed positional
- * Message into its sink. Composed UNNAMED by RemoteLink; receive-only (inbound
- * frames route via the EventSource listener → `super.fill`).
+ * snoops the `connected` handshake string for `pid()` + the complete slot
+ * lease, runs the heartbeat watchdog / reconnect logic, and forwards each
+ * parsed positional Message into its sink. Composed UNNAMED by RemoteLink;
+ * receive-only (inbound frames route via the EventSource listener →
+ * `super.fill`).
  *
  * Lifecycle + errors surface via set_state STRING payloads (CONNECTING →
  * CONNECTED → DISCONNECTED / RECONNECTING / ERROR); every error path also
- * `printLessOften`s. The `connected` envelope is the flat `PID n SLOT n
- * SUBSCRIPTIONS csv INTERVAL n` string (no partition).
+ * `printLessOften`s. The `connected` envelope is the flat `PID n SLOT n OWNER
+ * n SUBSCRIPTIONS csv INTERVAL n` string (no partition).
  */
 
 import { SseInNode } from '../sse-in-node';
@@ -229,9 +230,13 @@ function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	return { sse, routed };
 }
 
-// SseIn splits the flat `connected` string chunk-by-2 into pid / slot.
-const connectedRaw = ( { pid = 7777, slot = 3 } = {} ) =>
-	`PID ${ pid } SLOT ${ slot } SUBSCRIPTIONS x INTERVAL 2000`;
+// Owner intentionally exceeds Number.MAX_SAFE_INTEGER: it must stay a string.
+const LEASE_OWNER = '9007199254740993';
+const SECOND_LEASE_OWNER = '9007199254740995';
+
+// SseIn splits the flat `connected` string into pid + the complete slot lease.
+const connectedRaw = ( { pid = 7777, slot = 3, owner = LEASE_OWNER } = {} ) =>
+	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } SUBSCRIPTIONS x INTERVAL 2000`;
 function connectedFrame( opts ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -321,24 +326,29 @@ test( 'an EventSource-closed disconnect clears the SSE connect time', () => {
 	warn.mockRestore();
 } );
 
-test( 'a connected envelope parses pid + slot into plain fields', () => {
+test( 'a connected envelope preserves a greater-than-2^53 lease owner byte-for-byte', () => {
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { pid: 7777, slot: 3 } )
+		connectedFrame( { pid: 7777, slot: 3, owner: LEASE_OWNER } )
 	);
 	expect( sse.pid() ).toBe( 7777 );
 	expect( sse.slot() ).toBe( 3 );
+	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 } );
 
 test( 'the connected envelope is cached as the raw CONNECTED state string', () => {
 	const { sse } = makeSseIn();
 	sse.start();
-	const raw = connectedRaw( { pid: 7777, slot: 3 } );
+	const raw = connectedRaw( {
+		pid: 7777,
+		slot: 3,
+		owner: LEASE_OWNER,
+	} );
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { pid: 7777, slot: 3 } )
+		connectedFrame( { pid: 7777, slot: 3, owner: LEASE_OWNER } )
 	);
 	expect( sse.setStateCache.CONNECTED ).toBe( raw );
 } );
@@ -352,7 +362,8 @@ test( 'a connected envelope with no PID sets ERROR state and warns', () => {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
-	m[ VALUE ] = 'SLOT 1 SUBSCRIPTIONS x INTERVAL 2000';
+	m[ VALUE ] =
+		`SLOT 1 OWNER ${ LEASE_OWNER } ` + 'SUBSCRIPTIONS x INTERVAL 2000';
 	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
 	expect( sse.pid() ).toBeNull();
 	expect( sse.setStateCache.ERROR ).toContain( 'missing PID' );
@@ -362,6 +373,147 @@ test( 'a connected envelope with no PID sets ERROR state and warns', () => {
 		expect.stringContaining( 'connected envelope missing PID' )
 	);
 	warn.mockRestore();
+} );
+
+test.each( [
+	[ 'missing', 'PID 7777 SLOT 7 SUBSCRIPTIONS x INTERVAL 2000' ],
+	[ 'zero', 'PID 7777 SLOT 7 OWNER 0 SUBSCRIPTIONS x INTERVAL 2000' ],
+	[
+		'negative',
+		'PID 7777 SLOT 7 OWNER -42424243 SUBSCRIPTIONS x INTERVAL 2000',
+	],
+	[
+		'leading-zero',
+		'PID 7777 SLOT 7 OWNER 042424243 SUBSCRIPTIONS x INTERVAL 2000',
+	],
+	[
+		'non-decimal',
+		'PID 7777 SLOT 7 OWNER lease-42424243 SUBSCRIPTIONS x INTERVAL 2000',
+	],
+] )( 'a %s lease owner rejects the connected handshake', ( _case, raw ) => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'connected';
+	m[ VALUE ] = raw;
+
+	FakeEventSource.last.dispatch( 'connected', JSON.stringify( m ) );
+
+	expect( sse.pid() ).toBeNull();
+	expect( sse.slot() ).toBeNull();
+	expect( sse.leaseOwner() ).toBeNull();
+	expect( sse.setStateCache.CONNECTED ).toBeUndefined();
+	expect( sse.setStateCache.ERROR ).toBe(
+		'connected envelope missing or invalid OWNER'
+	);
+	expect( warn ).toHaveBeenCalledWith(
+		'ERROR: SseInNode: connected envelope missing or invalid OWNER'
+	);
+	expect( warn.mock.calls.flat().join( ' ' ) ).not.toContain( raw );
+	warn.mockRestore();
+} );
+
+test( 'a terminal disconnect retains its key/value reason over the generic close error', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	sse.start();
+	const stream = FakeEventSource.last;
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'slot_lease_lost';
+	m[ VALUE ] = 'SSE slot lease lost';
+
+	stream.dispatch( 'disconnect', JSON.stringify( m ) );
+	expect( sse.terminalDisconnect ).toEqual( {
+		reason: 'slot_lease_lost',
+		message: 'SSE slot lease lost',
+	} );
+
+	stream.dispatchError( FakeEventSource.CLOSED );
+
+	expect( sse.setStateCache.DISCONNECTED ).toBe(
+		'Server closed stream: SSE slot lease lost'
+	);
+	expect( warn ).toHaveBeenCalledWith(
+		'ERROR: SseInNode: disconnected - Server closed stream: SSE slot lease lost'
+	);
+	expect( warn ).not.toHaveBeenCalledWith(
+		expect.stringContaining( 'EventSource closed by browser' )
+	);
+	warn.mockRestore();
+	sse.close();
+} );
+
+test( 'a terminal disconnect without a machine key is rejected', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	sse.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ VALUE ] = 'Lease revoked by reviewer sentinel 7319';
+
+	FakeEventSource.last.dispatch( 'disconnect', JSON.stringify( m ) );
+
+	expect( sse.terminalDisconnect ).toBeNull();
+	expect( sse.setStateCache.ERROR ).toBe( 'malformed disconnect envelope' );
+	expect( warn ).toHaveBeenCalledWith(
+		'ERROR: SseInNode: dropped a malformed disconnect envelope'
+	);
+	warn.mockRestore();
+	sse.close();
+} );
+
+test( 'a valid in-place EventSource retry handshake clears the prior terminal reason', () => {
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const { sse } = makeSseIn();
+	try {
+		sse.start();
+		const stream = FakeEventSource.last;
+		const terminal = newMessage();
+		terminal[ TYPE ] = TM_INFO;
+		terminal[ KEY ] = 'initial_lease_retired';
+		terminal[ VALUE ] = 'Initial lease retired at owner handoff';
+		stream.dispatch( 'disconnect', JSON.stringify( terminal ) );
+
+		stream.dispatchError( FakeEventSource.CONNECTING );
+		stream.dispatch(
+			'connected',
+			connectedFrame( {
+				pid: 8888,
+				slot: 5,
+				owner: SECOND_LEASE_OWNER,
+			} )
+		);
+		const reusedStream = FakeEventSource.last === stream;
+		const terminalAfterHandshake = sse.terminalDisconnect;
+		const callsBeforeFinalClose = warn.mock.calls.length;
+
+		stream.dispatchError( FakeEventSource.CLOSED );
+		const finalCloseCalls = warn.mock.calls.slice( callsBeforeFinalClose );
+
+		expect( reusedStream ).toBe( true );
+		expect( terminalAfterHandshake ).toBeNull();
+		expect( sse.setStateCache.DISCONNECTED ).toBe( 'EventSource closed' );
+		expect( finalCloseCalls ).toContainEqual( [
+			'ERROR: SseInNode: disconnected - EventSource closed by browser',
+		] );
+		expect( sse.setStateCache.DISCONNECTED ).not.toContain(
+			'Initial lease retired'
+		);
+	} finally {
+		sse.close();
+		warn.mockRestore();
+	}
 } );
 
 test( 'msg event forwards parsed message into sink', () => {
@@ -489,17 +641,25 @@ test( 'close() closes the EventSource', () => {
 	expect( FakeEventSource.last.closed ).toBe( true );
 } );
 
-test( 'close() forgets the session pid so a reopen does not report a stale one', () => {
+test( 'close() forgets the complete session lease so a reopen cannot reuse it', () => {
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
-		connectedFrame( { pid: 4242, slot: 1 } )
+		connectedFrame( {
+			pid: 4242,
+			slot: 1,
+			owner: LEASE_OWNER,
+		} )
 	);
 	expect( sse.pid() ).toBe( 4242 );
+	expect( sse.slot() ).toBe( 1 );
+	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 	sse.close();
-	// After the stream closes, a reopen must NOT report the prior pid.
+	// After the stream closes, a reopen must NOT report the prior lease.
 	expect( sse.pid() ).toBeNull();
+	expect( sse.slot() ).toBeNull();
+	expect( sse.leaseOwner() ).toBeNull();
 } );
 
 test( 'start() called twice closes the first EventSource before opening the second', () => {

@@ -100,7 +100,9 @@ function connectedEnvelope() {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
 	m[ KEY ] = 'connected';
-	m[ VALUE ] = 'PID 4242 SLOT 3 SUBSCRIPTIONS access INTERVAL 2000';
+	m[ VALUE ] =
+		'PID 4242 SLOT 3 OWNER 9007199254740993 ' +
+		'SUBSCRIPTIONS access INTERVAL 2000';
 	return m;
 }
 
