@@ -113,9 +113,6 @@ class Command_Interpreter_Node extends Node {
 	 */
 	protected ?array $commands = null;
 
-	/** Set when drop_message logs during interpret(); squelches the redundant unauthorized. */
-	private bool $reason_logged = false;
-
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
@@ -153,16 +150,12 @@ class Command_Interpreter_Node extends Node {
 		$cmd_args  = \is_array( $args_raw ) ? \array_values( \array_map( static fn ( $v ): string => Core::as_string( $v ), $args_raw ) ) : [];
 
 		// Authorize every command (LOCAL taint client-side, HMAC on verifiers).
-		$this->reason_logged = false;
 		$authorize = $this->authorize ?? self::$default_authorize
 			?? static fn ( self $ci, array $m ): bool => isset( $m[ Message::LOCAL ] );
 		if ( ! $authorize( $this, $message ) ) {
 			$result    = 'unauthorized: ' . $cmd_name;
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			// authorize may have logged the reason; skip the generic one.
-			if ( ! $this->logged_a_reason() ) {
-				$this->drop_message( $message, $result );
-			}
 		} else {
 			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR for cli.
 			try {
@@ -209,22 +202,6 @@ class Command_Interpreter_Node extends Node {
 			];
 			$this->sink->fill( $response );
 		}
-	}
-
-	/**
-	 * Record that a reason was logged this interpret() so authorize's specific
-	 * "verification failed" isn't followed by a redundant generic "unauthorized".
-	 *
-	 * @param array<int, mixed> $message Message being dropped.
-	 */
-	public function drop_message( array $message, string $error ): void {
-		$this->reason_logged = true;
-		parent::drop_message( $message, $error );
-	}
-
-	/** Whether drop_message logged a reason since the last interpret() reset (opaque to flow analysis). */
-	private function logged_a_reason(): bool {
-		return $this->reason_logged;
 	}
 
 	/**

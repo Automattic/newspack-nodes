@@ -297,7 +297,6 @@ class Command_Auth {
 		} else {
 			$key = self::load_session( Core::as_string( $handle ) );
 			if ( null === $key ) {
-				$interpreter?->drop_message( $message, 'verification failed: unknown or expired session' );
 				return false;
 			}
 		}
