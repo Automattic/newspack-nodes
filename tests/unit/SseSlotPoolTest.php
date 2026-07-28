@@ -661,6 +661,18 @@ class SseSlotPoolTest extends TestCase {
 
 	// ── failure-only lease inspection ─────────────────────────────────────────
 
+	public function test_inspect_reports_an_unavailable_backend_when_no_cache_exists(): void {
+		Core::$memd = null;
+
+		$this->assertSame(
+			[
+				'backend'    => 'unavailable',
+				'lease_state' => 'backend_read_error',
+			],
+			$this->inspect_lease( 73737379 )
+		);
+	}
+
 	public function test_inspect_distinguishes_a_missing_pointer(): void {
 		$this->assertSame(
 			[
