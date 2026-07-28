@@ -77,7 +77,7 @@ class Message {
 		}
 		// Residual failure: log loudly, never emit '' (see class docblock).
 		$reason = \json_last_error_msg();
-		\error_log( 'Message::packed(): wp_json_encode failed: ' . $reason ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		Core::stderr( 'Message::packed(): wp_json_encode failed: ' . $reason );
 		$error_message                 = self::new_message();
 		$error_message[ self::TYPE ]   = self::TM_ERROR;
 		$error_message[ self::VALUE ]  = 'Message::packed(): ' . $reason;

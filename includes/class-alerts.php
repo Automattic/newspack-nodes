@@ -109,8 +109,7 @@ class Alerts {
 				);
 			}
 		} catch ( \Throwable $e ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Alerts::emit journal write failed: ' . $e->getMessage() );
+			Core::stderr( 'Alerts::emit journal write failed: ' . $e->getMessage() );
 		}
 	}
 
