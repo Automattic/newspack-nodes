@@ -37,8 +37,7 @@ class Job_Delay {
 		try {
 			self::sweep();
 		} catch ( \Throwable $e ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Job_Delay::sweep failed: ' . $e->getMessage() );
+			Core::stderr( 'Job_Delay::sweep failed: ' . $e->getMessage() );
 		}
 	}
 

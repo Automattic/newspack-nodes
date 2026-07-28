@@ -762,8 +762,7 @@ class SSE_Out_Node extends Node {
 		if ( false === $json ) {
 			throw new \RuntimeException( 'Could not encode SSE stream diagnostic context.' );
 		}
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		\error_log( '[newspack-nodes] SSE stream closed ' . $json );
+		$this->stderr( 'SSE stream closed ' . $json );
 	}
 
 	/**
