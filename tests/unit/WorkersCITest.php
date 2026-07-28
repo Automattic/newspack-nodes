@@ -19,11 +19,13 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( Workers_CI_Node::class )]
 class WorkersCITest extends TestCase {
 
 	private ?string $tmp = null;
+	private int $slot_ttl = 60;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -33,6 +35,7 @@ class WorkersCITest extends TestCase {
 		// global segment_size for logs that should carry a literal override.
 		// Matches the pattern in TopologyLoaderTest / CliWorkerCommandTest.
 		\Newspack_Nodes\Topology_Registry::reset();
+		$this->slot_ttl                       = \Newspack_Nodes\SSE_Slot_Pool::$ttl;
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$GLOBALS['_wp_actions']               = [];
@@ -40,6 +43,7 @@ class WorkersCITest extends TestCase {
 
 	protected function tearDown(): void {
 		VerbHarness::reset();
+		\Newspack_Nodes\SSE_Slot_Pool::$ttl   = $this->slot_ttl;
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$GLOBALS['_wp_actions']               = [];
@@ -461,19 +465,33 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
-		// Heartbeat refreshes the SSE slot through Sse_Slot_Pool::touch, keyed
-		// off the shared Core::$memd handle. Seed a held slot then heartbeat it.
-		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		// The client sends only the exact lease pair; the server applies its own
+		// deliberately non-default TTL (47), not a client-provided fallback.
+		$memd                            = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd      = $memd;
+		\Newspack_Nodes\SSE_Slot_Pool::$ttl = 47;
 		$user_id = \get_current_user_id();
 		$ip_hash = \Newspack_Nodes\SSE_Slot_Pool::ip_hash();
-		$slot    = \Newspack_Nodes\SSE_Slot_Pool::acquire( \Newspack_Nodes\SSE_Slot_Pool::hostname(), $user_id, $ip_hash, 8, 30 );
-		$this->assertSame( 0, $slot, 'first acquire claims slot 0' );
+		$lease   = \Newspack_Nodes\SSE_Slot_Pool::acquire( \Newspack_Nodes\SSE_Slot_Pool::hostname(), $user_id, $ip_hash, 8, 83 );
+		$this->assertIsArray( $lease );
+		$this->assertSame( 0, $lease['slot'], 'first acquire claims slot 0' );
 
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', (string) $slot );
+		$result = VerbHarness::fire(
+			$interpreter,
+			'workers',
+			'heartbeat',
+			[ (string) $lease['slot'], (string) $lease['owner'] ]
+		);
 
 		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
+		$lease_key = \array_values( \array_filter(
+			$memd->keys(),
+			static fn ( string $key ): bool => \str_ends_with( $key, ':lease:' . $lease['owner'] )
+		) )[0];
+		$this->assertGreaterThanOrEqual( \time() + 46, $memd->expiries()[ $lease_key ] );
+		$this->assertLessThanOrEqual( \time() + 47, $memd->expiries()[ $lease_key ] );
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
@@ -490,23 +508,65 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', '7' );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', [ '7', '42424243' ] );
 
 		$this->assertSame( 'cache not configured', $result );
 	}
 
-	public function test_heartbeat_verb_errors_when_slot_is_missing_or_negative(): void {
-		// `slot` is required and must be non-negative — the pool keys it
-		// per-(user,ip,slot), so a -1 slot would silently collide across
-		// browser sessions. Guard fires before the touch.
+	/**
+	 * @return array<string,array{0:list<string>,1:string}>
+	 */
+	public static function malformed_heartbeat_arguments(): array {
+		return [
+			'missing owner'       => [ [ '7' ], 'heartbeat requires exactly <slot> <owner>' ],
+			'extra client ttl'    => [ [ '7', '42424243', '89' ], 'heartbeat requires exactly <slot> <owner>' ],
+			'negative slot'       => [ [ '-7', '42424243' ], 'invalid heartbeat slot' ],
+			'non-decimal slot'    => [ [ '7x', '42424243' ], 'invalid heartbeat slot' ],
+			'non-canonical slot'  => [ [ '07', '42424243' ], 'invalid heartbeat slot' ],
+			'zero owner'          => [ [ '7', '0' ], 'invalid heartbeat owner' ],
+			'negative owner'      => [ [ '7', '-42424243' ], 'invalid heartbeat owner' ],
+			'non-decimal owner'   => [ [ '7', '42424243x' ], 'invalid heartbeat owner' ],
+			'non-canonical owner' => [ [ '7', '042424243' ], 'invalid heartbeat owner' ],
+			'owner out of range'  => [ [ '7', \PHP_INT_MAX . '0' ], 'invalid heartbeat owner' ],
+		];
+	}
+
+	#[DataProvider( 'malformed_heartbeat_arguments' )]
+	public function test_heartbeat_verb_rejects_malformed_lease( array $args, string $expected ): void {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', '' );  // no slot
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', $args );
 
-		$this->assertSame( 'slot required', $result );
+		$this->assertSame( $expected, $result );
 		\Newspack_Nodes\Core::$memd = null;
+	}
+
+	public function test_heartbeat_verb_throws_on_owner_mismatch(): void {
+		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
+			\Newspack_Nodes\SSE_Slot_Pool::hostname(),
+			\get_current_user_id(),
+			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			8,
+			83
+		);
+		$this->assertIsArray( $lease );
+		$wrong_owner = \PHP_INT_MAX === $lease['owner']
+			? $lease['owner'] - 1
+			: $lease['owner'] + 1;
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result = VerbHarness::fire(
+			$interpreter,
+			'workers',
+			'heartbeat',
+			[ (string) $lease['slot'], (string) $wrong_owner ]
+		);
+
+		$this->assertSame( 'SSE slot lease not owned', $result );
 	}
 
 	// ── cleanup_status verb ─────────────────────────────────────────────────

@@ -1277,15 +1277,15 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $http, 'batch' ) );
 	}
 
-	public function test_heartbeat_command_filled_into_http_out_when_slot_known(): void {
+	public function test_heartbeat_command_contains_exact_slot_and_owner(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote( 'remote-austin' );
 		$node->fire();
 
-		// Give the SSE_In a slot via the connected handshake.
+		// Give the SSE_In a complete lease via the connected handshake.
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
+		$this->set_slot( $sse, 7, 42424243 );
 
 		// Advance clock past the heartbeat interval (16s) but under the stale timeout (45s).
 		Core::$now = \microtime( true ) + 16;
@@ -1300,11 +1300,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'workers', $envelope[ Message::TO ] );
 		$value = $envelope[ Message::VALUE ];
 		$this->assertSame( 'heartbeat', $value['name'] );
-		// args: [ <slot>, <ttl> ] — ttl must outlive the heartbeat interval.
-		$this->assertIsArray( $value['arguments'] );
-		[ $slot, $ttl ] = $value['arguments'];
-		$this->assertSame( '5', $slot );
-		$this->assertGreaterThan( Remote_Source_Node::HEARTBEAT_INTERVAL, (int) $ttl );
+		$this->assertSame( [ '7', '42424243' ], $value['arguments'] );
 	}
 
 	public function test_heartbeat_reply_into_fill_records_rtt_and_response(): void {
@@ -1320,10 +1316,13 @@ class RemoteSourceNodeTest extends TestCase {
 		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
 		// interpreter wraps a command response as TM_COMMAND|TM_RESPONSE; fill()
 		// records the RTT for that type and relays anything else to HTTP_Out.
-		$reply                  = Message::new_message();
-		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$reply[ Message::TO ]   = 'remote-austin';
-		$reply[ Message::VALUE ] = [ 'success' => true ];
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::TO ]    = 'remote-austin';
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
 		$node->fill( $reply );
 
 		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
@@ -1331,6 +1330,88 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
 		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
 		$this->assertNotNull( $status['last_heartbeat_response'] );
+	}
+
+	public function test_heartbeat_command_error_clears_prior_success_and_records_reason(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		Core::$now = 1748960000.0;
+		$node->fire();
+
+		$success                   = Message::new_message();
+		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$success[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+		$node->fill( $success );
+		$this->assertNotNull(
+			Core::$memd->get( 'np:remote:remote-austin:firehose.p0' )['last_heartbeat_response']
+		);
+
+		$lines = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$lines ): void {
+				$lines[] = $line;
+			}
+		);
+		$error                   = Message::new_message();
+		$error[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$error[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => 'SSE slot lease not owned',
+		];
+		$node->fill( $error );
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertSame(
+			'Client heartbeat failed: SSE slot lease not owned',
+			$status['last_error']
+		);
+		$this->assertStringContainsString( 'SSE slot lease not owned', \implode( '', $lines ) );
+		$this->assertStringNotContainsString( '42424243', \implode( '', $lines ) );
+	}
+
+	public function test_heartbeat_success_false_clears_prior_success_and_records_reason(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$this->set_slot( Core::node( 'remote-austin:sse-in' ), 7, 42424243 );
+		Core::$now = 1748960000.0;
+		$node->fire();
+
+		$success                   = Message::new_message();
+		$success[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$success[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
+		$node->fill( $success );
+
+		$rejected                   = Message::new_message();
+		$rejected[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$rejected[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [
+				'success' => false,
+				'error'   => 'slot lease ownership mismatch',
+			],
+		];
+		$node->fill( $rejected );
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertNull( $status['last_heartbeat_response'] );
+		$this->assertNull( $status['last_heartbeat_rtt'] );
+		$this->assertSame(
+			'Client heartbeat failed: slot lease ownership mismatch',
+			$status['last_error']
+		);
 	}
 
 	public function test_publish_status_ages_out_stale_heartbeat_response(): void {
@@ -1346,7 +1427,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::TO ]    = 'remote-austin';
-		$reply[ Message::VALUE ] = [ 'success' => true ];
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
 		$node->fill( $reply ); // records last_heartbeat_response at t=1000
 
 		// A tick right after the reply keeps the fresh response in the snapshot.
@@ -1496,13 +1580,13 @@ class RemoteSourceNodeTest extends TestCase {
 		};
 	}
 
-	/** Push a slot into an SSE_In via its `connected` handshake parser. */
-	private function set_slot( SSE_In_Node $sse, int $slot ): void {
+	/** Push an exact slot lease into an SSE_In via its `connected` handshake parser. */
+	private function set_slot( SSE_In_Node $sse, int $slot, int $owner = 42424243 ): void {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::ID ]    = '';
 		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
+		$m[ Message::VALUE ] = "PID 9007 SLOT {$slot} OWNER {$owner}";
 		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 

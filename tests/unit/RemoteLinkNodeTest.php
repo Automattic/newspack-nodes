@@ -57,13 +57,22 @@ class RemoteLinkNodeTest extends TestCase {
 		};
 	}
 
-	/** Push a slot into an SSE_In via its `connected` handshake parser. */
-	private function set_slot( SSE_In_Node $sse, int $slot ): void {
+	/** Push an exact slot lease into an SSE_In via its `connected` handshake parser. */
+	private function set_slot( SSE_In_Node $sse, int $slot, int $owner = 42424243 ): void {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_STRUCT;
 		$m[ Message::KEY ]   = 'connected';
-		$m[ Message::VALUE ] = "PID 1 SLOT {$slot}";
+		$m[ Message::VALUE ] = "PID 9007 SLOT {$slot} OWNER {$owner}";
 		$sse->process_sse_chunk( "event: connected\ndata: " . Message::packed( $m ) . "\n\n" );
+	}
+
+	/** Push a terminal `disconnect` frame into an SSE_In. */
+	private function disconnect_sse( SSE_In_Node $sse, string $key, string $value ): void {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_ERROR;
+		$m[ Message::KEY ]   = $key;
+		$m[ Message::VALUE ] = $value;
+		$sse->process_sse_chunk( "event: disconnect\ndata: " . Message::packed( $m ) . "\n\n" );
 	}
 
 	/**
@@ -221,7 +230,10 @@ class RemoteLinkNodeTest extends TestCase {
 		$reply                   = Message::new_message();
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::TO ]    = 'link-austin';
-		$reply[ Message::VALUE ] = [ 'success' => true ];
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 7 ],
+		];
 		$node->fill( $reply );
 
 		// A reply is RTT bookkeeping — it neither relays nor creates patrons.
@@ -235,6 +247,10 @@ class RemoteLinkNodeTest extends TestCase {
 		$reply                  = Message::new_message();
 		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_ERROR;
 		$reply[ Message::TO ]   = 'link-austin';
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => 'SSE slot lease not owned',
+		];
 		$node->fill( $reply );
 
 		$this->assertNull( Core::node( 'link-austin:http-out' ) );
@@ -283,14 +299,34 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertCount( 0, $this->read_private( $http, 'batch' ) );
 	}
 
-	public function test_heartbeat_minted_into_http_out_when_slot_known(): void {
+	public function test_heartbeat_skipped_when_owner_unknown_even_if_slot_is_present(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
 
 		$sse = Core::node( 'link-austin:sse-in' );
-		$this->set_slot( $sse, 5 );
+		$this->set_slot( $sse, 7 );
+		$owner = new \ReflectionProperty( SSE_In_Node::class, 'owner' );
+		$owner->setValue( $sse, null );
+
+		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' )
+		);
+	}
+
+	public function test_heartbeat_minted_with_exact_slot_and_owner(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'link-austin:sse-in' );
+		$this->set_slot( $sse, 7, 42424243 );
 
 		// Past the heartbeat interval, under the stale timeout.
 		Core::$now = \microtime( true ) + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
@@ -304,10 +340,54 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( 'workers', $envelope[ Message::TO ] );
 		$value = $envelope[ Message::VALUE ];
 		$this->assertSame( 'heartbeat', $value['name'] );
-		$this->assertIsArray( $value['arguments'] );
-		[ $slot, $ttl ] = $value['arguments'];
-		$this->assertSame( '5', $slot );
-		$this->assertGreaterThan( Remote_Link_Node::HEARTBEAT_INTERVAL, (int) $ttl );
+		$this->assertSame( [ '7', '42424243' ], $value['arguments'] );
+	}
+
+	public function test_terminal_disconnect_retires_lease_before_blocked_reconnect_heartbeat(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		Core::$now = 1000.0;
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'link-austin:sse-in' );
+		$this->set_slot( $sse, 7, 42424243 );
+		$this->disconnect_sse( $sse, 'slot_lease_lost', 'SSE slot lease lost' );
+
+		Core::$now = 1000.0 + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ),
+			'a terminal stream cannot heartbeat its retired lease while reconnect is blocked'
+		);
+		$this->assertNull( $sse->slot(), 'a terminal stream must not expose a stale slot' );
+		$this->assertNull( $sse->owner(), 'a terminal stream must not expose a stale owner' );
+	}
+
+	public function test_clean_detach_retires_lease_before_failed_reconnect_heartbeat(): void {
+		$this->seed_vault();
+		$this->stub_sse_connect();
+		Core::$now = 2000.0;
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$sse = Core::node( 'link-austin:sse-in' );
+		$this->set_slot( $sse, 8, 51515153 );
+		$sse->disconnect();
+		SSE_In_Node::$curl_dispatch = static fn ( array $opts ): bool => false;
+
+		Core::$now = 2000.0 + Remote_Link_Node::HEARTBEAT_INTERVAL + 1;
+		$node->fire();
+
+		$this->assertCount(
+			0,
+			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ),
+			'a failed reconnect cannot heartbeat the detached stream lease'
+		);
+		$this->assertNull( $sse->slot(), 'a detached stream must not expose a stale slot' );
+		$this->assertNull( $sse->owner(), 'a detached stream must not expose a stale owner' );
 	}
 
 	/**
@@ -428,8 +508,12 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->fire();
 
 		Core::$now = Core::$now + ( Remote_Link_Node::HEARTBEAT_INTERVAL * 3 ) + 1;
-		$reply                  = Message::new_message();
-		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => [ 'success' => true, 'slot' => 5 ],
+		];
 		$node->fill( $reply );
 		$node->fire();
 

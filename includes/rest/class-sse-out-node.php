@@ -30,6 +30,7 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -47,6 +48,12 @@ class SSE_Out_Node extends Node {
 	/** @var non-falsy-string Late-static-bound so a subclass overrides just the route. */
 	public const ROUTE = '/messages/stream';
 
+	/** Explicit sentinel lease for direct, unmetered test/default streams. */
+	private const UNMETERED_LEASE = [
+		'slot'  => -1,
+		'owner' => 93939397,
+	];
+
 	/**
 	 * Allow-list of event names emitted without sanitization (O(1) hot-path).
 	 *
@@ -57,33 +64,51 @@ class SSE_Out_Node extends Node {
 		'msg'       => 1,
 		'heartbeat' => 1,
 		'connected' => 1,
+		'disconnect' => 1,
 		'timeout'   => 1,
 	];
 
 	/**
 	 * SSE slot-pool seams. The application wires these in to gate concurrent
-	 * SSE connections; unset → acquire returns slot 1, release/check are no-ops.
+	 * SSE connections; unset → acquire returns an explicit unmetered lease,
+	 * release/check are no-ops.
 	 *
-	 * acquire: `function ( int $partition ): int|false` (-1 shared browser
+	 * acquire: `function ( int $partition ): array|false` (-1 shared browser
 	 * pool, >=0 per-partition; false → HTTP 429 before headers).
 	 *
-	 * @var \Closure(int): (int|false)|null
+	 * @var \Closure(int): (array{slot:int,owner:int}|false)|null
 	 */
 	public static ?\Closure $acquire_slot = null;
 
 	/**
-	 * check: `function ( int $slot, int $partition ): bool` (false aborts).
+	 * check: `function ( array $lease, int $partition ): bool` (false aborts).
 	 *
-	 * @var \Closure(int, int): bool|null
+	 * @var \Closure(array{slot:int,owner:int}, int): bool|null
 	 */
 	public static ?\Closure $check_slot   = null;
 
 	/**
-	 * release: `function ( int $slot, int $partition ): void` (drain `finally`).
+	 * release: `function ( array $lease, int $partition ): void` (drain `finally`).
 	 *
-	 * @var \Closure(int, int): void|null
+	 * @var \Closure(array{slot:int,owner:int}, int): void|null
 	 */
 	public static ?\Closure $release_slot = null;
+
+	/**
+	 * Failure-only inspection:
+	 * `function ( array $lease, int $partition ): array`.
+	 *
+	 * @var \Closure(array{slot:int,owner:int}, int): array<string,int|string>|null
+	 */
+	public static ?\Closure $inspect_slot = null;
+
+	/**
+	 * Narrow log seam for asserting the exact redacted context in tests.
+	 * Production leaves it null and writes one JSON-encoded error-log line.
+	 *
+	 * @var \Closure(array<string,mixed>): void|null
+	 */
+	public static ?\Closure $diagnostic_log = null;
 
 	/** Has anything been emitted since the last flush? */
 	protected bool $needs_flush = false;
@@ -114,19 +139,16 @@ class SSE_Out_Node extends Node {
 		$interval      = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
-		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int => 1;
-		$slot      = $acquire( $partition );
-		if ( false === $slot ) {
+		$acquire   = self::$acquire_slot ?? static fn ( int $_partition ): array => self::UNMETERED_LEASE;
+		$lease     = $acquire( $partition );
+		if ( false === $lease ) {
 			return new \WP_Error(
 				'too_many_connections',
 				'Maximum concurrent SSE streams reached. Close other tabs or wait.',
 				[ 'status' => 429 ]
 			);
 		}
-
-		\set_time_limit( 0 );
-		$this->init_sse_headers();
-		$this->run_stream_loop( $subs, $positions, $interval, $slot, $partition );
+		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, true );
 		exit;
 	}
 
@@ -179,6 +201,27 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
+	 * Require the coordinated two-field lease shape; no slot-only fallback.
+	 *
+	 * @return array{slot:int,owner:int}
+	 */
+	private static function require_lease( mixed $lease ): array {
+		if (
+			! \is_array( $lease )
+			|| 2 !== \count( $lease )
+			|| ! \array_key_exists( 'slot', $lease )
+			|| ! \is_int( $lease['slot'] )
+			|| $lease['slot'] < -1
+			|| ! \array_key_exists( 'owner', $lease )
+			|| ! \is_int( $lease['owner'] )
+			|| $lease['owner'] <= 0
+		) {
+			throw new \UnexpectedValueException( 'SSE slot acquisition did not return a complete lease.' );
+		}
+		return $lease;
+	}
+
+	/**
 	 * Drain loop body — split out from `stream()` so tests can call without
 	 * the headers / exit. Emits the `connected` envelope, builds the
 	 * SSE-process substrate graph, opens one-or-more Consumers per
@@ -186,20 +229,59 @@ class SSE_Out_Node extends Node {
 	 * Cleanup in `finally` removes every node. The drain predicate consults
 	 * `$check_slot` each iteration; `finally` calls `$release_slot`.
 	 *
+	 * A hard PHP/server/process termination can bypass the terminal event,
+	 * diagnostic log, and finally block; the client must retain a distinct
+	 * unexplained-EOF path for those failures.
+	 *
 	 * @param array<int,string>             $subs      Subscription names.
 	 * @param array<array-key, mixed>|null  $positions Per-subscription saved positions.
 	 * @param int                      $interval  Heartbeat / flush cadence ms.
-	 * @param int                      $slot      Acquired slot index (default 1 = unmetered).
-	 * @param int                      $partition Slot-pool partition (-1 = shared browser).
+	 * @param array{slot:int,owner:int} $lease     Acquired lease (default slot -1 = unmetered).
+	 * @param int                       $partition Slot-pool partition (-1 = shared browser).
+	 *
+	 * @api Direct loop runner for tests that must not send HTTP headers or exit.
 	 */
-	public function run_stream_loop( array $subs, ?array $positions, int $interval, int $slot = 1, int $partition = -1 ): void {
-		// connected emits outside try (no nodes yet); own SSE event type.
-		$this->send_sse_event( 'connected', $this->build_connected_msg( $slot, $subs, $interval ) );
-		// A bare flush() doesn't clear proxy buffers; FLUSH_SIZE padding does.
-		$this->flush_if_needed();
+	public function run_stream_loop(
+		array $subs,
+		?array $positions,
+		int $interval,
+		array $lease = self::UNMETERED_LEASE,
+		int $partition = -1
+	): void {
+		$this->run_acquired_stream( $subs, $positions, $interval, $lease, $partition, false );
+	}
 
-		$consumers = [];
+	/**
+	 * Protect every operation after acquisition with one diagnostic and cleanup
+	 * lifetime. The REST handler includes response setup; direct loop tests do not.
+	 *
+	 * @param array<int,string>            $subs
+	 * @param array<array-key,mixed>|null $positions
+	 * @param mixed                        $lease Raw acquire result; validated inside the protected lifetime.
+	 */
+	private function run_acquired_stream(
+		array $subs,
+		?array $positions,
+		int $interval,
+		mixed $lease,
+		int $partition,
+		bool $initialize_stream
+	): void {
+		$active_lease       = null;
+		$consumers          = [];
+		$diagnostic_written = false;
 		try {
+			$active_lease = self::require_lease( $lease );
+			if ( $initialize_stream ) {
+				\set_time_limit( 0 );
+				\ignore_user_abort( true );
+				$this->init_sse_headers();
+			}
+
+			$this->send_sse_event( 'connected', $this->build_connected_msg( $active_lease, $subs, $interval ) );
+			// Padding clears proxy buffers; a bare flush does not.
+			$this->flush_if_needed();
+
 			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
 
@@ -251,9 +333,15 @@ class SSE_Out_Node extends Node {
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = Core::right_now();
 			Event_Framework::instance()->drain(
-				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, $glob_subs, $default_route, $heartbeat_interval, $slot, $partition ): bool {
+				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $active_lease, $partition, $subs ): bool {
 					$check = self::$check_slot;
-					if ( null !== $check && ! $check( $slot, $partition ) ) {
+					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
+						$this->send_sse_event( 'disconnect', $this->build_disconnect_msg() );
+						$this->flush_if_needed();
+						$this->write_diagnostic(
+							$this->lease_loss_context( $active_lease, $partition, $subs )
+						);
+						$diagnostic_written = true;
 						return false;
 					}
 					if ( \connection_aborted() ) {
@@ -273,6 +361,24 @@ class SSE_Out_Node extends Node {
 					return true;
 				}
 			);
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			if ( ! $diagnostic_written ) {
+				$diagnostic_written = true;
+				$context = null === $active_lease
+					? [
+						'reason'        => 'unexpected_exception',
+						'pid'           => \getmypid(),
+						'partition'     => $partition,
+						'subscriptions' => \array_values( $subs ),
+					]
+					: $this->stream_context( 'unexpected_exception', $active_lease, $partition, $subs );
+				$context['exception_class']   = $e::class;
+				$context['exception_message'] = $e->getMessage();
+				$this->write_diagnostic( $context );
+			}
+			throw $e;
 		} finally {
 			foreach ( $consumers as $c ) {
 				$c->remove_node();
@@ -296,8 +402,8 @@ class SSE_Out_Node extends Node {
 			// Drop the _sse egress name mapping (controller instance persists).
 			Core::unregister_node( Node_Names::SSE );
 			$release = self::$release_slot;
-			if ( null !== $release ) {
-				$release( $slot, $partition );
+			if ( null !== $release && null !== $active_lease ) {
+				$release( $active_lease, $partition );
 			}
 		}
 	}
@@ -319,7 +425,7 @@ class SSE_Out_Node extends Node {
 		// SSE wire must reach the client byte-for-byte; escaping corrupts it.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo $payload;
-		@\flush();
+		\flush();
 		$this->needs_flush = true;
 	}
 
@@ -535,10 +641,11 @@ class SSE_Out_Node extends Node {
 	 * session pid (attached-command FROM stamp), slot index, the opened
 	 * subscriptions (echoed back), and the heartbeat/flush interval.
 	 *
-	 * @param array<int,string> $subs
+	 * @param array{slot:int,owner:int} $lease
+	 * @param array<int,string>         $subs
 	 * @return array<int, mixed> The 7-field positional Message.
 	 */
-	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
+	private function build_connected_msg( array $lease, array $subs, int $interval ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain seeds Core::$now; take a fresh read.
@@ -548,7 +655,8 @@ class SSE_Out_Node extends Node {
 		// TM_INFO values are STRINGS: flat KEY VALUE, space-free tokens.
 		$message[ Message::VALUE ]     = \implode( ' ', [
 			'PID',           (string) \getmypid(),
-			'SLOT',          (string) $slot,
+			'SLOT',          (string) $lease['slot'],
+			'OWNER',         (string) $lease['owner'],
 			'SUBSCRIPTIONS', \implode( ',', $subs ),
 			'INTERVAL',      (string) $interval,
 		] );
@@ -570,14 +678,102 @@ class SSE_Out_Node extends Node {
 		return $message;
 	}
 
+	/** @return array<int,mixed> Terminal application-directed disconnect Message. */
+	private function build_disconnect_msg(): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::KEY ]   = 'slot_lease_lost';
+		$message[ Message::VALUE ] = 'SSE slot lease lost';
+		return $message;
+	}
+
+	/**
+	 * Base redacted context shared by deliberate closes and exceptions.
+	 *
+	 * @param array{slot:int,owner:int} $lease
+	 * @param array<int,string>         $subs
+	 * @return array<string,mixed>
+	 */
+	private function stream_context( string $reason, array $lease, int $partition, array $subs ): array {
+		return [
+			'reason'        => $reason,
+			'pid'           => \getmypid(),
+			'slot'          => $lease['slot'],
+			'partition'     => $partition,
+			'subscriptions' => \array_values( $subs ),
+		];
+	}
+
+	/**
+	 * Add one failure-only, whitelisted lease inspection to the close context.
+	 *
+	 * @param array{slot:int,owner:int} $lease
+	 * @param array<int,string>         $subs
+	 * @return array<string,mixed>
+	 */
+	private function lease_loss_context( array $lease, int $partition, array $subs ): array {
+		$inspect    = self::$inspect_slot;
+		$inspection = null === $inspect
+			? [ 'backend' => 'unavailable', 'lease_state' => 'backend_read_error' ]
+			: $inspect( $lease, $partition );
+		if (
+			! isset( $inspection['backend'], $inspection['lease_state'] )
+			|| ! \is_string( $inspection['backend'] )
+			|| ! \is_string( $inspection['lease_state'] )
+		) {
+			throw new \UnexpectedValueException( 'SSE lease inspection did not return backend and lease_state strings.' );
+		}
+
+		$context                = $this->stream_context( 'slot_lease_lost', $lease, $partition, $subs );
+		$context['backend']     = $inspection['backend'];
+		$context['lease_state'] = $inspection['lease_state'];
+		$string_fields          = [ 'memcached_result_message' ];
+		$integer_fields         = [
+			'memcached_result_code',
+			'apcu_expunges',
+			'apcu_available_memory_bytes',
+		];
+		foreach ( $string_fields as $field ) {
+			if ( isset( $inspection[ $field ] ) && \is_string( $inspection[ $field ] ) ) {
+				$context[ $field ] = $inspection[ $field ];
+			}
+		}
+		foreach ( $integer_fields as $field ) {
+			if ( isset( $inspection[ $field ] ) && \is_int( $inspection[ $field ] ) ) {
+				$context[ $field ] = $inspection[ $field ];
+			}
+		}
+		return $context;
+	}
+
+	/**
+	 * Write exactly one structured line, or hand the redacted context to tests.
+	 *
+	 * @param array<string,mixed> $context Redacted diagnostic fields.
+	 */
+	private function write_diagnostic( array $context ): void {
+		$diagnostic_log = self::$diagnostic_log;
+		if ( null !== $diagnostic_log ) {
+			$diagnostic_log( $context );
+			return;
+		}
+		$json = \wp_json_encode( $context, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
+		if ( false === $json ) {
+			throw new \RuntimeException( 'Could not encode SSE stream diagnostic context.' );
+		}
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		\error_log( '[newspack-nodes] SSE stream closed ' . $json );
+	}
+
 	/**
 	 * Disable every buffering layer between PHP and the browser so SSE events
 	 * stream incrementally (output buffers, zlib, mod_deflate, nginx).
 	 */
 	protected function init_sse_headers(): void {
 		// phpcs:disable WordPress.PHP.IniSet.Risky
-		@\ini_set( 'zlib.output_compression', false );
-		@\ini_set( 'implicit_flush', true );
+		\ini_set( 'zlib.output_compression', false );
+		\ini_set( 'implicit_flush', true );
 		// phpcs:enable
 
 		while ( \ob_get_level() > 0 ) {
@@ -586,7 +782,7 @@ class SSE_Out_Node extends Node {
 
 		if ( \function_exists( 'apache_setenv' ) ) {
 			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_apache_setenv
-			@\apache_setenv( 'no-gzip', '1' );
+			\apache_setenv( 'no-gzip', '1' );
 		}
 
 		\header( 'Content-Type: text/event-stream' );
@@ -610,7 +806,7 @@ class SSE_Out_Node extends Node {
 		// SSE comment line — must reach the client byte-for-byte.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo ':' . \str_repeat( '.', self::FLUSH_SIZE - 3 ) . "\n\n";
-		@\flush();
+		\flush();
 		$this->needs_flush = false;
 	}
 

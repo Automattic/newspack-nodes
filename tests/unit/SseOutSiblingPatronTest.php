@@ -36,18 +36,27 @@ class SseOutSiblingPatronTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		SSE_Out_Node::$acquire_slot = null;
-		SSE_Out_Node::$release_slot = null;
-		SSE_Out_Node::$check_slot   = null;
+		SSE_Out_Node::$acquire_slot  = null;
+		SSE_Out_Node::$release_slot  = null;
+		SSE_Out_Node::$check_slot    = null;
+		SSE_Out_Node::$inspect_slot  = null;
+		SSE_Out_Node::$diagnostic_log = null;
 		\Newspack_Nodes\Event_Framework::reset();
 		parent::tearDown();
 	}
 
 	public function test_sse_drain_siblings_are_patron_linked_to_the_sse_egress(): void {
-		$captured = [];
+		$lease             = [ 'slot' => 6, 'owner' => 62626263 ];
+		$partition         = 5;
+		$captured          = [];
+		$checked_lease     = null;
+		$checked_partition = null;
+		$diagnostics       = [];
 		// $check_slot runs inside the drain predicate AFTER the graph is built
 		// and BEFORE the finally tear-down; snapshot each sibling's patron there.
-		SSE_Out_Node::$check_slot = static function () use ( &$captured ): bool {
+		SSE_Out_Node::$check_slot = static function ( array $actual_lease, int $actual_partition ) use ( &$captured, &$checked_lease, &$checked_partition ): bool {
+			$checked_lease     = $actual_lease;
+			$checked_partition = $actual_partition;
 			$egress = Core::node( Node_Names::SSE );
 
 			$output = Core::node( Node_Names::OUTPUT );
@@ -65,6 +74,13 @@ class SseOutSiblingPatronTest extends TestCase {
 			$captured['egress'] = $egress;
 			return false; // stop after one inspection pass
 		};
+		SSE_Out_Node::$inspect_slot = static fn (): array => [
+			'backend'    => 'memcached',
+			'lease_state' => 'pointer_owner_mismatch',
+		];
+		SSE_Out_Node::$diagnostic_log = static function ( array $context ) use ( &$diagnostics ): void {
+			$diagnostics[] = $context;
+		};
 
 		$base = $this->make_temp_dir( 'sse-sibling-patron-' );
 		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
@@ -74,8 +90,16 @@ class SseOutSiblingPatronTest extends TestCase {
 		// it terminates the drain — no separate iteration bound needed.
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, 1, -1 );
-		\ob_get_clean();
+		try {
+			$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, $partition );
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertSame( $lease, $checked_lease );
+		$this->assertSame( $partition, $checked_partition );
+		$this->assertCount( 1, $diagnostics );
+		$this->assertSame( 'slot_lease_lost', $diagnostics[0]['reason'] );
 
 		$this->assertTrue( $captured['output_is_filter'] ?? false, '_output sibling must be the HTTP filter' );
 		$this->assertTrue( $captured['default_is_node'] ?? false, '_default_route sibling must exist' );

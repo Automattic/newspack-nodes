@@ -15,6 +15,8 @@ import { RemoteIpcNode } from '../remote-ipc-node';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
 import { newMessage, TYPE, TO, VALUE, LOCAL, TM_COMMAND } from '../message';
 
+const LEASE_OWNER = '9007199254740993';
+
 describe( 'local mints carry a signature', () => {
 	beforeEach( async () => {
 		forgetSession();
@@ -37,7 +39,10 @@ describe( 'local mints carry a signature', () => {
 		node.name = '_heartbeat';
 		node.connectNode( 'workers' );
 
-		const m = node._pollMessage( 0 );
+		const m = node._pollMessage( {
+			slot: 0,
+			leaseOwner: LEASE_OWNER,
+		} );
 
 		expect( m[ LOCAL ] ).toBe( true );
 		expect( m[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
@@ -127,7 +132,9 @@ describe( 'polls hold until authenticated', () => {
 		node.name = '_heartbeat_gate';
 		node.connectNode( 'workers' );
 		node.sink = { fill: ( m ) => sent.push( m ) };
-		node._slots = new Map( [ [ 'a', 0 ] ] );
+		node.setTimer = jest.fn();
+		const linkIdentity = {};
+		node.setSlot( 0, LEASE_OWNER, linkIdentity );
 
 		node.fire();
 		expect( sent ).toHaveLength( 0 );

@@ -173,9 +173,9 @@ Beyond the service CIs, the root (empty-TO) base `Command_Interpreter_Node` answ
 
 Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
 
-**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (e.g. `workers restart`'s `partition` and `workers heartbeat`'s `ttl` args carry one). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
+**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (for example, `workers restart`'s optional `partition`). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
-**Every verb reads from the `arguments` token array.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read `$args[0]` straight from the inner envelope's `arguments` list, so they're typeable in the REPL (e.g. `command_node topologies get Home`). Structured verbs read from the same list: `topologies save` / `layouts save` take `[ name, body ]` via `Service_CI_Node::split_first_token` (`$args[0]` is the name, `$args[1]` carries the whole TSL body or positions JSON — newlines included — as one discrete token, no rest-of-line splitting to guess at); option-flag verbs like `workers restart` classify `<type>… [--partition=<n>]` via `Command_Args::parse( list<string> $args )`, which sorts `--key=value` / bare `--key` flags out of the positional tokens. There is no `payload` input slot.
+**Every verb reads from the `arguments` token array.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), and `raw-logs log_status` (a log key) — read `$args[0]` straight from the inner envelope's `arguments` list, so they're typeable in the REPL (e.g. `command_node topologies get Home`). The ownership-fenced `workers heartbeat` verb instead requires exactly `[ slot, owner ]`: both are canonical decimal tokens from the current SSE `connected` handshake, and the server—not the client—owns the lease TTL. Structured verbs read from the same list: `topologies save` / `layouts save` take `[ name, body ]` via `Service_CI_Node::split_first_token` (`$args[0]` is the name, `$args[1]` carries the whole TSL body or positions JSON — newlines included — as one discrete token, no rest-of-line splitting to guess at); option-flag verbs like `workers restart` classify `<type>… [--partition=<n>]` via `Command_Args::parse( list<string> $args )`, which sorts `--key=value` / bare `--key` flags out of the positional tokens. There is no `payload` input slot.
 
 Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`, where `$args` is the pre-split token array (`list<string>` argv; each handler normalizes via `arg_strings()`). The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
 
@@ -206,7 +206,30 @@ Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_
 
 ### Response
 
-Standard SSE stream (`Content-Type: text/event-stream`). The application controls slot gating via three optional Closure seams on `SSE_Out_Node` (`$acquire_slot`, `$release_slot`, `$check_slot`); unwired the endpoint allows a single shared slot. When the application's `$acquire_slot` returns `false`, the controller responds `429 Too Many Requests` before sending any SSE headers.
+Standard SSE stream (`Content-Type: text/event-stream`). The application
+controls slot gating via four optional Closure seams on `SSE_Out_Node`:
+`$acquire_slot( $partition )` returns a complete
+`{slot: int, owner: positive-int}` lease or `false`;
+`$check_slot( $lease, $partition )` verifies that exact lease;
+`$release_slot( $lease, $partition )` releases only that owner; and
+`$inspect_slot( $lease, $partition )` returns failure-only diagnostic fields.
+Unwired, the endpoint uses an explicit unmetered sentinel lease and the other
+seams are no-ops. When `$acquire_slot` returns `false`, the controller responds
+`429 Too Many Requests` before sending any SSE headers.
+
+The first application frame is `event: connected`. Its packed TM_INFO Message
+has `KEY=connected` and a flat VALUE of
+`PID <pid> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms>`.
+OWNER is an opaque positive decimal token: clients retain it exactly as text
+instead of converting it through a precision-limited numeric type. The matching
+`workers heartbeat` command sends exactly `[ slot, owner ]`; the server owns the
+lease TTL.
+
+When a drain check proves that exact lease is gone, the endpoint first emits
+`event: disconnect` and flushes it, then closes the stream. The packed TM_INFO
+Message has a non-empty machine KEY (`slot_lease_lost`) and a safe display VALUE
+(`SSE slot lease lost`). Clients consume this control frame and retain its
+reason so the later transport close cannot replace it with a generic message.
 
 ## Log Stream
 

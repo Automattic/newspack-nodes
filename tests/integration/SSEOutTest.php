@@ -32,7 +32,12 @@ class SSEOutTest extends TestCase {
 
 	/** check_slot is process-static; clear it so a bounded closure doesn't leak into another test's drain. */
 	protected function tearDown(): void {
-		SSE_Out_Node::$check_slot = null;
+		SSE_Out_Node::$check_slot   = null;
+		SSE_Out_Node::$release_slot = null;
+		SSE_Out_Node::$inspect_slot = null;
+		if ( \property_exists( SSE_Out_Node::class, 'diagnostic_log' ) ) {
+			SSE_Out_Node::$diagnostic_log = null;
+		}
 		parent::tearDown();
 	}
 
@@ -275,6 +280,212 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	public function test_failed_lease_check_emits_one_terminal_disconnect_and_one_redacted_apcu_diagnostic(): void {
+		$lease       = [ 'slot' => 7, 'owner' => 42424243 ];
+		$checks      = 0;
+		$inspections = 0;
+		$logged      = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot = static function ( array $actual_lease, int $partition ) use ( &$checks, $lease ): bool {
+			++$checks;
+			return $lease !== $actual_lease || 3 !== $partition;
+		};
+		SSE_Out_Node::$inspect_slot = static function ( array $actual_lease, int $partition ) use ( &$inspections, $lease ): array {
+			++$inspections;
+			return [
+				'backend'                    => 'apcu',
+				'lease_state'                 => 'liveness_missing',
+				'apcu_expunges'               => 17,
+				'apcu_available_memory_bytes' => 7654321,
+				'owner'                      => $actual_lease['owner'],
+				'cache_key'                  => "secret-cache-key-{$partition}",
+			];
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-lease-lost-' ) );
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*', 'errors.p3' ], null, 500, $lease, 3 );
+		$out = (string) \ob_get_clean();
+
+		$events      = $this->split_sse_events( $out );
+		$disconnects = \array_values( \array_filter( $events, static fn ( array $event ): bool => 'disconnect' === $event['event'] ) );
+		$this->assertSame( 1, $checks );
+		$this->assertSame( 1, $inspections );
+		$this->assertCount( 1, $disconnects );
+		$this->assertSame( $disconnects[0], $events[ \count( $events ) - 1 ], 'disconnect must be the terminal event' );
+		$message = \json_decode( $disconnects[0]['data'], true );
+		$this->assertSame( 'slot_lease_lost', $message[ Message::KEY ] );
+		$this->assertSame( 'SSE slot lease lost', $message[ Message::VALUE ] );
+		$disconnect_offset = \strpos( $out, 'event: disconnect' );
+		$this->assertNotFalse( $disconnect_offset );
+		$this->assertStringContainsString(
+			':' . \str_repeat( '.', 200 ),
+			\substr( $out, $disconnect_offset ),
+			'terminal disconnect must be padded and flushed immediately'
+		);
+
+		$this->assertSame(
+			[
+				[
+					'reason'                      => 'slot_lease_lost',
+					'pid'                         => \getmypid(),
+					'slot'                        => 7,
+					'partition'                   => 3,
+					'subscriptions'               => [ 'firehose.*', 'errors.p3' ],
+					'backend'                     => 'apcu',
+					'lease_state'                  => 'liveness_missing',
+					'apcu_expunges'                => 17,
+					'apcu_available_memory_bytes'  => 7654321,
+				],
+			],
+			$logged
+		);
+		$this->assertStringNotContainsString( '42424243', \wp_json_encode( $logged ) );
+		$this->assertStringNotContainsString( 'secret-cache-key', \wp_json_encode( $logged ) );
+	}
+
+	public function test_failed_lease_check_logs_memcached_read_error_details(): void {
+		$lease  = [ 'slot' => 7, 'owner' => 42424243 ];
+		$logged = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot = static fn ( array $actual_lease, int $partition ): bool => false;
+		SSE_Out_Node::$inspect_slot = static fn ( array $actual_lease, int $partition ): array => [
+			'backend'                   => 'memcached',
+			'lease_state'                => 'backend_read_error',
+			'memcached_result_code'      => \Memcached::RES_TIMEOUT,
+			'memcached_result_message'   => 'READ TIMED OUT 731',
+		];
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-backend-error-' ) );
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, 3 );
+		\ob_get_clean();
+
+		$this->assertCount( 1, $logged );
+		$this->assertSame( 'memcached', $logged[0]['backend'] );
+		$this->assertSame( 'backend_read_error', $logged[0]['lease_state'] );
+		$this->assertSame( \Memcached::RES_TIMEOUT, $logged[0]['memcached_result_code'] );
+		$this->assertSame( 'READ TIMED OUT 731', $logged[0]['memcached_result_message'] );
+	}
+
+	public function test_healthy_check_does_not_collect_backend_diagnostics(): void {
+		$checks      = 0;
+		$inspections = 0;
+		$logged      = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot = static function () use ( &$checks ): bool {
+			return 1 === ++$checks;
+		};
+		SSE_Out_Node::$inspect_slot = static function () use ( &$inspections ): array {
+			++$inspections;
+			return [
+				'backend'    => 'memcached',
+				'lease_state' => 'pointer_missing',
+			];
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-failure-only-inspect-' ) );
+		\ob_start();
+		$ctrl->run_stream_loop(
+			[ 'firehose.*' ],
+			null,
+			500,
+			[ 'slot' => 7, 'owner' => 42424243 ],
+			3
+		);
+		\ob_get_clean();
+
+		$this->assertSame( 2, $checks );
+		$this->assertSame( 1, $inspections, 'only the rejected check may inspect the backend' );
+		$this->assertCount( 1, $logged );
+	}
+
+	public function test_unexpected_exception_logs_once_cleans_up_releases_and_rethrows_the_original(): void {
+		$lease    = [ 'slot' => 7, 'owner' => 42424243 ];
+		$failure  = new \RuntimeException( 'distinct drain failure 90210' );
+		$logged   = [];
+		$released = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot = static function () use ( $failure ): bool {
+			throw $failure;
+		};
+		SSE_Out_Node::$inspect_slot = static function (): array {
+			throw new \LogicException( 'exception path must not inspect the cache' );
+		};
+		SSE_Out_Node::$release_slot = static function ( array $actual_lease, int $partition ) use ( &$released ): void {
+			$released[] = [ $actual_lease, $partition ];
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-exception-' ) );
+		$caught = null;
+		try {
+			\ob_start();
+			$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500, $lease, 3 );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertSame( $failure, $caught, 'the original exception must escape unchanged' );
+		$this->assertSame( [ [ $lease, 3 ] ], $released );
+		$this->assertCount( 1, $logged );
+		$this->assertSame(
+			[
+				'reason'            => 'unexpected_exception',
+				'pid'               => \getmypid(),
+				'slot'              => 7,
+				'partition'         => 3,
+				'subscriptions'     => [ 'firehose.*' ],
+				'exception_class'   => \RuntimeException::class,
+				'exception_message' => 'distinct drain failure 90210',
+			],
+			$logged[0]
+		);
+		$this->assertNull( Core::node( Node_Names::ROUTER ) );
+		$this->assertNull( Core::node( Node_Names::COMMAND_INTERPRETER ) );
+		$this->assertNull( Core::node( Node_Names::OUTPUT ) );
+		$this->assertNull( Core::node( Node_Names::SSE ) );
+	}
+
+	public function test_inspection_exception_is_logged_once_and_rethrown_after_release(): void {
+		$lease    = [ 'slot' => 7, 'owner' => 42424243 ];
+		$failure  = new \LogicException( 'distinct inspection failure 731' );
+		$logged   = [];
+		$released = [];
+		$this->capture_diagnostics( $logged );
+		SSE_Out_Node::$check_slot   = static fn (): bool => false;
+		SSE_Out_Node::$inspect_slot = static function () use ( $failure ): array {
+			throw $failure;
+		};
+		SSE_Out_Node::$release_slot = static function ( array $actual_lease, int $partition ) use ( &$released ): void {
+			$released[] = [ $actual_lease, $partition ];
+		};
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-inspection-exception-' ) );
+		$caught = null;
+		try {
+			\ob_start();
+			$ctrl->run_stream_loop( [ 'errors.p3' ], null, 500, $lease, 3 );
+		} catch ( \Throwable $e ) {
+			$caught = $e;
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertSame( $failure, $caught );
+		$this->assertSame( [ [ $lease, 3 ] ], $released );
+		$this->assertCount( 1, $logged );
+		$this->assertSame( 'unexpected_exception', $logged[0]['reason'] );
+		$this->assertSame( \LogicException::class, $logged[0]['exception_class'] );
+		$this->assertSame( 'distinct inspection failure 731', $logged[0]['exception_message'] );
+	}
+
 	/**
 	 * Parse `event: X\ndata: Y\n\n` SSE chunks from a captured stdout
 	 * buffer. Skips empty chunks and comment-only flush filler lines.
@@ -308,6 +519,14 @@ class SSEOutTest extends TestCase {
 		return $out;
 	}
 
+	/** @param array<int,array<string,mixed>> $logged */
+	private function capture_diagnostics( array &$logged ): void {
+		$this->assertTrue( \property_exists( SSE_Out_Node::class, 'diagnostic_log' ), 'diagnostic log seam is missing' );
+		SSE_Out_Node::$diagnostic_log = static function ( array $context ) use ( &$logged ): void {
+			$logged[] = $context;
+		};
+	}
+
 	public function test_stream_self_heals_when_a_partition_dir_appears_and_vanishes(): void {
 		// A live glob stream picks up a partition dir created mid-drain, then drops
 		// the Consumer when the dir is removed (partitions increasing AND decreasing).
@@ -337,7 +556,7 @@ class SSEOutTest extends TestCase {
 		};
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 1, 1, -1 );
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 1, [ 'slot' => 7, 'owner' => 42424243 ], 3 );
 		\ob_get_clean();
 
 		$this->assertLessThan( 2000, $ticks, 'self-heal added then removed the partition before the cap' );

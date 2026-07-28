@@ -19,8 +19,15 @@ import {
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
+	TM_ERROR,
 	TM_RESPONSE,
 } from '../message';
+
+const LEASE_OWNER = '9007199254740993';
+const SECOND_LEASE_OWNER = '9007199254740995';
+const LONG_NON_BOOLEAN_ERROR =
+	'Heartbeat reply used a non-boolean success marker 619: ' +
+	'x'.repeat( 600 );
 
 describe( 'Heartbeat node', () => {
 	afterEach( () => {
@@ -44,24 +51,37 @@ describe( 'Heartbeat node', () => {
 		const node = new HeartbeatNode();
 		expect( node.pollTo ).toBeUndefined();
 		expect( node.slot ).toBeNull();
+		expect( node.leaseOwner ).toBeNull();
 	} );
 
 	describe( 'fire() poll emission', () => {
-		it( 'emits a heartbeat command addressed to this.target when a slot is held', () => {
+		it( 'emits the exact slot + greater-than-2^53 owner without a client TTL', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 3 );
+			node.setSlot( 7, LEASE_OWNER );
 			node.fire();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
 			expect( m[ VALUE ].name ).toBe( 'heartbeat' );
-			expect( m[ VALUE ].arguments ).toEqual( [ '3', '10' ] );
+			expect( m[ VALUE ].arguments ).toEqual( [ '7', LEASE_OWNER ] );
 			expect( m[ TO ] ).toBe( '_sse/workers' );
 			expect( m[ FROM ] ).toBe( '_heartbeat' );
 			expect( m[ LOCAL ] ).toBe( true );
 		} );
+
+		it.each( [ undefined, '', '0', '-42424243', '042424243', 'owner-7' ] )(
+			'rejects a missing or non-canonical lease owner (%s)',
+			( leaseOwner ) => {
+				const { node } = build();
+				expect( () => node.setSlot( 7, leaseOwner ) ).toThrow(
+					'Heartbeat lease owner must be a canonical positive decimal string'
+				);
+				expect( node.slot ).toBeNull();
+				expect( node.leaseOwner ).toBeNull();
+			}
+		);
 
 		it( 'emits nothing when no slot has been acquired', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
@@ -76,7 +96,7 @@ describe( 'Heartbeat node', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1 );
+			node.setSlot( 1, LEASE_OWNER );
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
@@ -89,7 +109,7 @@ describe( 'Heartbeat node', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1 );
+			node.setSlot( 1, LEASE_OWNER );
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
@@ -102,7 +122,7 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 1 );
+			node.setSlot( 1, LEASE_OWNER );
 			node.clearSlot();
 			node.fire();
 			expect( sent ).toHaveLength( 0 );
@@ -112,29 +132,31 @@ describe( 'Heartbeat node', () => {
 			const { node } = build();
 			const inactive = { name: 'inactive-link-349' };
 			const active = { name: 'active-link-947' };
-			node.setSlot( 47, active );
+			node.setSlot( 47, LEASE_OWNER, active );
 
 			node.clearSlot( inactive );
 			expect( node.slot ).toBe( 47 );
+			expect( node.leaseOwner ).toBe( LEASE_OWNER );
 
 			node.clearSlot( active );
 			expect( node.slot ).toBeNull();
+			expect( node.leaseOwner ).toBeNull();
 		} );
 
-		it( 'keeps every live owner slot armed independently', () => {
+		it( 'keeps every stream identity mapped to its own exact lease pair', () => {
 			const { node, sent } = build();
 			node.target = '_sse/workers';
 			const first = { name: 'first-link-349' };
 			const second = { name: 'second-link-947' };
-			node.setSlot( 13, first );
-			node.setSlot( 47, second );
+			node.setSlot( 13, LEASE_OWNER, first );
+			node.setSlot( 47, SECOND_LEASE_OWNER, second );
 
 			node.fire();
 			expect(
 				sent.map( ( message ) => message[ VALUE ].arguments )
 			).toEqual( [
-				[ '13', '10' ],
-				[ '47', '10' ],
+				[ '13', LEASE_OWNER ],
+				[ '47', SECOND_LEASE_OWNER ],
 			] );
 
 			node.clearSlot( second );
@@ -142,15 +164,16 @@ describe( 'Heartbeat node', () => {
 			node.fire();
 			expect(
 				sent.map( ( message ) => message[ VALUE ].arguments )
-			).toEqual( [ [ '13', '10' ] ] );
+			).toEqual( [ [ '13', LEASE_OWNER ] ] );
 			expect( node.slot ).toBe( 13 );
+			expect( node.leaseOwner ).toBe( LEASE_OWNER );
 		} );
 
 		it( 'does not throw when there is no sink', () => {
 			const { node } = build();
 			node.sink = null;
 			node.target = '_sse/workers';
-			node.setSlot( 1 );
+			node.setSlot( 1, LEASE_OWNER );
 			expect( () => node.fire() ).not.toThrow();
 		} );
 	} );
@@ -164,7 +187,7 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent, router } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 7 );
+			node.setSlot( 7, LEASE_OWNER );
 			expect( node.mode ).toBe( 'router' );
 			router.notifyTimer();
 			expect( sent ).toHaveLength( 1 );
@@ -176,7 +199,7 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent, router } = build();
 			node.target = '_sse/workers';
-			node.setSlot( 7 );
+			node.setSlot( 7, LEASE_OWNER );
 			node.clearSlot();
 			expect( node.mode ).toBe( 'inactive' );
 			router.notifyTimer();
@@ -185,7 +208,7 @@ describe( 'Heartbeat node', () => {
 
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
 			const { node, router } = build();
-			node.setSlot( 1 );
+			node.setSlot( 1, LEASE_OWNER );
 			node.removeNode();
 			expect( '_heartbeat' in router.registrations.TIMER ).toBe( false );
 			expect( () => router.notifyTimer() ).not.toThrow();
@@ -193,17 +216,136 @@ describe( 'Heartbeat node', () => {
 	} );
 
 	describe( 'fill (reply intake)', () => {
-		it( 'consumes a heartbeat reply without publishing to any transcript', () => {
+		it( 'records a successful heartbeat reply without publishing a transcript', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 4242.43 );
 			const node = new HeartbeatNode();
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 			m[ VALUE ] = {
 				name: 'heartbeat',
-				payload: { success: true, slot: 1 },
+				arguments: [ '7', LEASE_OWNER ],
+				payload: {
+					success: true,
+					slot: 7,
+					owner: LEASE_OWNER,
+				},
 			};
 			expect( () => node.fill( m ) ).not.toThrow();
 			expect( node.counter ).toBe( 1 );
+			expect( node.lastHeartbeatResponse ).toBe( 4242.43 );
+			expect( node.lastHeartbeatError ).toBeNull();
 		} );
+
+		it( 'a command transport error clears a prior success and retains its safe reason', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 5151.53 );
+			const node = new HeartbeatNode();
+			const success = newMessage();
+			success[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			success[ VALUE ] = {
+				name: 'heartbeat',
+				arguments: [ '7', LEASE_OWNER ],
+				payload: { success: true },
+			};
+			node.fill( success );
+			expect( node.lastHeartbeatResponse ).toBe( 5151.53 );
+
+			const failed = newMessage();
+			failed[ TYPE ] = TM_COMMAND | TM_ERROR;
+			failed[ VALUE ] = {
+				name: 'heartbeat',
+				arguments: [ '7', LEASE_OWNER ],
+				payload: 'SSE slot lease ownership mismatch',
+			};
+			node.fill( failed );
+
+			expect( node.lastHeartbeatResponse ).toBeNull();
+			expect( node.lastHeartbeatError ).toBe(
+				'SSE slot lease ownership mismatch'
+			);
+		} );
+
+		it( 'a success:false application reply clears a prior success and retains its error', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 6262.67 );
+			const node = new HeartbeatNode();
+			const success = newMessage();
+			success[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			success[ VALUE ] = {
+				name: 'heartbeat',
+				arguments: [ '7', LEASE_OWNER ],
+				payload: { success: true },
+			};
+			node.fill( success );
+			expect( node.lastHeartbeatResponse ).toBe( 6262.67 );
+
+			const failed = newMessage();
+			failed[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			failed[ VALUE ] = {
+				name: 'heartbeat',
+				arguments: [ '7', LEASE_OWNER ],
+				payload: {
+					success: false,
+					error: 'SSE slot lease lost',
+				},
+			};
+			node.fill( failed );
+
+			expect( node.lastHeartbeatResponse ).toBeNull();
+			expect( node.lastHeartbeatError ).toBe( 'SSE slot lease lost' );
+		} );
+
+		it.each( [
+			[ 'null payload', null, 'Heartbeat rejected' ],
+			[
+				'non-object payload',
+				'Heartbeat reply was scalar 947',
+				'Heartbeat reply was scalar 947',
+			],
+			[
+				'missing success',
+				{ error: 'Heartbeat reply omitted success 863' },
+				'Heartbeat reply omitted success 863',
+			],
+			[
+				'non-boolean success',
+				{
+					success: 'accepted-619',
+					error: LONG_NON_BOOLEAN_ERROR,
+				},
+				LONG_NON_BOOLEAN_ERROR.slice( 0, 512 ),
+			],
+		] )(
+			'a %s clears prior success and records a bounded failure',
+			( _case, payload, expectedError ) => {
+				const now = jest.spyOn( Core, 'now' );
+				const node = new HeartbeatNode();
+				const success = newMessage();
+				success[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+				success[ VALUE ] = {
+					name: 'heartbeat',
+					arguments: [ '7', LEASE_OWNER ],
+					payload: { success: true },
+				};
+				now.mockReturnValue( 7373.79 );
+				node.fill( success );
+				expect( node.lastHeartbeatResponse ).toBe( 7373.79 );
+
+				const invalid = newMessage();
+				invalid[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+				invalid[ VALUE ] = {
+					name: 'heartbeat',
+					arguments: [ '7', SECOND_LEASE_OWNER ],
+					payload,
+				};
+				now.mockReturnValue( 8484.89 );
+				node.fill( invalid );
+
+				expect( node.lastHeartbeatResponse ).toBeNull();
+				expect( node.lastHeartbeatError ).toBe( expectedError );
+				expect( node.lastHeartbeatError.length ).toBeLessThanOrEqual(
+					512
+				);
+			}
+		);
 
 		it( 'works as a real router sink target (router → heartbeat.fill)', () => {
 			const node = new HeartbeatNode();

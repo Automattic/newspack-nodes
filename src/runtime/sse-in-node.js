@@ -29,6 +29,7 @@ import {
 	FROM,
 	TO,
 	ID,
+	KEY,
 	VALUE,
 	TM_ERROR,
 	TM_UNTYPED,
@@ -37,6 +38,9 @@ import {
 
 // ID is the `segment:offset:length` breadcrumb; FROM carries the producer path.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
+
+// PHP lease owners travel as canonical decimals; never convert them to Number.
+const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 
 // PHP Log_Discovery::GROUPS prefixed roots: positions key on the FULL stamp.
 const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
@@ -72,15 +76,20 @@ export class SseInNode extends Node {
 		this._watchdog = null;
 		this._lastForce = 0;
 		this._mayRenewNonce = true;
-		// Session identity from `connected` envelope; PLAIN fields (pid, slot).
+		// Session identity from `connected`; lease owner remains a string.
 		this.sessionPid = null;
 		this.sessionSlot = null;
+		this.sessionLeaseOwner = null;
+		// Last terminal server control event for this EventSource connection.
+		this.terminalDisconnect = null;
 		this._handleVisibilityChange = () => {
 			if ( 'visible' === document.visibilityState && this._es ) {
 				this._restart( 'visibility', true );
 			}
 		};
+		this.registrations.CONNECTING = {};
 		this.registrations.CONNECTED = {};
+		this.registrations.DISCONNECTED = {};
 	}
 
 	get arguments() {
@@ -121,6 +130,7 @@ export class SseInNode extends Node {
 			) }`;
 		}
 		// Lifecycle: opening; CONNECTED on handshake, then DISCONNECTED/ERROR.
+		delete this.setStateCache.CONNECTED;
 		this.setState( 'CONNECTING', this.subscribe.join( ',' ) );
 		const es = new EventSource( url, { withCredentials: true } );
 		this._es = es;
@@ -140,11 +150,12 @@ export class SseInNode extends Node {
 				return;
 			}
 			if ( EventSource.CLOSED === es.readyState ) {
-				this.setState( 'DISCONNECTED', 'EventSource closed' );
-				IoTelemetry.markSseDisconnected();
-				Core.printLessOften(
-					'ERROR: SseInNode: disconnected - EventSource closed by browser'
-				);
+				if ( ! this.terminalDisconnect ) {
+					this._reportDisconnected(
+						'EventSource closed',
+						'EventSource closed by browser'
+					);
+				}
 				this._recoverConnection();
 			}
 		} );
@@ -162,6 +173,49 @@ export class SseInNode extends Node {
 			}
 			this.lastEventTime = Date.now();
 			this._applyConnected( unpack( e.data )[ VALUE ] );
+		} );
+		// Deliberate server termination: consume and retain its safe reason.
+		es.addEventListener( 'disconnect', ( e ) => {
+			if ( stale() ) {
+				return;
+			}
+			this.lastEventTime = Date.now();
+			const message = unpack( e.data );
+			if (
+				message[ TYPE ] & TM_UNTYPED ||
+				! message[ TYPE ] ||
+				'string' !== typeof message[ VALUE ] ||
+				'' === message[ VALUE ].trim()
+			) {
+				this.setState( 'ERROR', 'unparseable disconnect frame' );
+				Core.printLessOften(
+					'ERROR: SseInNode: dropped an unparseable disconnect frame'
+				);
+				return;
+			}
+			if (
+				'string' !== typeof message[ KEY ] ||
+				'' === message[ KEY ].trim()
+			) {
+				this.setState( 'ERROR', 'malformed disconnect envelope' );
+				Core.printLessOften(
+					'ERROR: SseInNode: dropped a malformed disconnect envelope'
+				);
+				return;
+			}
+			const reason = message[ KEY ].trim()
+				.replace( /[\r\n]+/g, ' ' )
+				.slice( 0, 512 );
+			const displayMessage = message[ VALUE ].trim()
+				.replace( /[\r\n]+/g, ' ' )
+				.slice( 0, 512 );
+			this.terminalDisconnect = {
+				reason,
+				message: displayMessage,
+			};
+			this._reportDisconnected(
+				`Server closed stream: ${ displayMessage }`
+			);
 		} );
 		es.addEventListener( 'msg', ( e ) => {
 			if ( stale() ) {
@@ -216,24 +270,49 @@ export class SseInNode extends Node {
 			info[ parts[ i ] ] = parts[ i + 1 ];
 		}
 		const pid = Number( info.PID );
-		this.sessionPid = Number.isFinite( pid ) ? pid : null;
-		const slot = Number( info.SLOT );
-		this.sessionSlot = Number.isFinite( slot ) ? slot : null;
-		if ( null === this.sessionPid ) {
-			this.setState(
-				'ERROR',
-				`connected envelope missing PID: ${ raw }`
-			);
-			// Stable rate-limit key; no CONNECTED on a malformed handshake.
-			Core.printLessOften(
-				'ERROR: SseInNode: connected envelope missing PID'
-			);
+		if ( ! Number.isFinite( pid ) ) {
+			this._rejectConnected( 'missing PID' );
 			return;
 		}
+		const slot = Number( info.SLOT );
+		if ( ! Number.isInteger( slot ) || slot < 0 ) {
+			this._rejectConnected( 'missing or invalid SLOT' );
+			return;
+		}
+		const leaseOwner = info.OWNER;
+		if (
+			'string' !== typeof leaseOwner ||
+			! LEASE_OWNER_RE.test( leaseOwner )
+		) {
+			this._rejectConnected( 'missing or invalid OWNER' );
+			return;
+		}
+		this.terminalDisconnect = null;
+		this.sessionPid = pid;
+		this.sessionSlot = slot;
+		this.sessionLeaseOwner = leaseOwner;
 		this.setState( 'CONNECTED', raw );
 		this._mayRenewNonce = true;
 		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();
+	}
+
+	_rejectConnected( reason ) {
+		this.sessionPid = null;
+		this.sessionSlot = null;
+		this.sessionLeaseOwner = null;
+		const message = `connected envelope ${ reason }`;
+		this.setState( 'ERROR', message );
+		this.setState( 'DISCONNECTED', message );
+		Core.printLessOften( `ERROR: SseInNode: ${ message }` );
+	}
+
+	_reportDisconnected( stateMessage, logMessage = stateMessage ) {
+		this.setState( 'DISCONNECTED', stateMessage );
+		IoTelemetry.markSseDisconnected();
+		Core.printLessOften(
+			`ERROR: SseInNode: disconnected - ${ logMessage }`
+		);
 	}
 
 	// Remember a record's `{segment,offset}` keyed by its partition DIRECTORY.
@@ -335,8 +414,11 @@ export class SseInNode extends Node {
 		this._es = null;
 		// A closed stream has no liveness — hide 'Xs ago' until a reopen frame.
 		this.lastEventTime = null;
-		// Forget the session pid so pid() won't report a stale one.
+		// Forget this connection's complete session lease and terminal event.
 		this.sessionPid = null;
+		this.sessionSlot = null;
+		this.sessionLeaseOwner = null;
+		this.terminalDisconnect = null;
 	}
 
 	// baseUrl/nonce fall back to the localized global when not set explicitly.
@@ -363,6 +445,11 @@ export class SseInNode extends Node {
 	// Session slot from the `connected` envelope; RemoteLink's bridge reads it.
 	slot() {
 		return this.sessionSlot ?? null;
+	}
+
+	// Canonical decimal owner from `connected`; never a JavaScript Number.
+	leaseOwner() {
+		return this.sessionLeaseOwner ?? null;
 	}
 
 	static nodeSchema() {

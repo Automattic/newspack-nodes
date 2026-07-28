@@ -4,6 +4,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.2.4
+
+- **SSE leases now carry an opaque owner token.** The `connected` envelope adds
+  `OWNER <positive-decimal>`, and `workers heartbeat` now requires exactly
+  `[ slot, owner ]`; the old client-supplied TTL argument is gone. Custom
+  `SSE_Out_Node` slot seams must pass the complete `{slot, owner}` lease to
+  check, release, and failure inspection. Custom clients must retain OWNER
+  exactly as text and send it back with SLOT.
+- **This cutover has no mixed-protocol compatibility mode.** A new client
+  rejects an old ownerless handshake, while a new server reads an old
+  heartbeat's TTL as a non-matching owner. Deploy Nodes 2.2.4 and every plugin
+  bundle that inlines its runtime in the same maintenance window, then restart
+  the affected workers and aggregators so every connection reconnects on the
+  new protocol.
+- **A deliberate lease-loss close now sends a terminal `disconnect` SSE
+  event.** Its packed Message carries a non-empty machine key and a safe display
+  reason; consume that frame and prefer its reason over the transport's later
+  generic close event.
+
 ## 0.51.0
 
 - **`set_snapshot_node` deleted; `add_snapshot_node` replaces it.** A Consumer now
