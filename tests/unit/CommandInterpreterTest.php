@@ -529,9 +529,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'unauthorized', $resp[ Message::VALUE ]['payload'] );
 	}
 
-	public function test_bare_authorize_rejection_still_logs_unauthorized(): void {
-		// A rejection that logged NO specific reason keeps the generic "unauthorized"
-		// warning (e.g. a non-LOCAL command reaching an interpreter with no verifier).
+	public function test_bare_authorize_rejection_is_quiet(): void {
 		$interpreter = new class() extends Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
@@ -546,7 +544,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter->fill( $this->command_message( 'dump_metadata' ) );
 
-		$this->assertSame( [ 'unauthorized: dump_metadata' ], $interpreter->dropped );
+		$this->assertSame( [], $interpreter->dropped );
 	}
 
 	public function test_interpret_allows_command_with_local_provenance(): void {

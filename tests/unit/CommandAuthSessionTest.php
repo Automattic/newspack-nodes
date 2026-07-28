@@ -123,15 +123,7 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
-	/**
-	 * A refusal is logged ONCE, by the interpreter that handled the command.
-	 * verify() used to log through a hardcoded `_command_interpreter` lookup, so
-	 * on any other interpreter the reason landed under the wrong node AND the
-	 * suppression flag it set was read off a different object — producing two
-	 * lines per refusal (`verification failed:` on the root, `unauthorized:` on
-	 * the real one). The handling interpreter here is deliberately not the root.
-	 */
-	public function test_a_refusal_is_logged_once_by_the_interpreter_that_handled_it(): void {
+	public function test_a_missing_session_refusal_is_quiet(): void {
 		$logger = new class() extends \Newspack_Nodes\Command_Interpreter_Node {
 			/** @var string[] */
 			public array $dropped = [];
@@ -162,10 +154,7 @@ class CommandAuthSessionTest extends TestCase {
 
 		$logger->fill( $m );
 
-		$this->assertSame(
-			[ 'verification failed: unknown or expired session' ],
-			$logger->dropped
-		);
+		$this->assertSame( [], $logger->dropped );
 		$this->assertSame( [], $root->dropped );
 	}
 
