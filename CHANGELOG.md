@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.4] - 2026-07-28
+
 ### Fixed
 - **SSE slot leases are now fenced by their acquiring connection.** Every
   check, heartbeat, and release requires the exact slot-owner pair, so a stale
