@@ -10,12 +10,10 @@
  *   memory; a CLI process (own APCu segment, usually disabled) falls
  *   through to memcached automatically.
  * - `shared_first()` — memcached, else APCu. For cross-process sources of
- *   truth (SSE slots, tables, batch counters, stats): configured memcached
- *   keeps its scope; a host without it (stock Atomic posture) stays
- *   FUNCTIONAL on APCu instead of failing closed, trading CLI visibility.
- * - `shared_only()`  — memcached, else null. For state a worker or a second
- *   host MUST resolve (command sessions): the APCu fallback would be a
- *   silent dead end, so there isn't one.
+ *   truth (command sessions, SSE slots, tables, batch counters, stats):
+ *   configured memcached keeps its scope; a host without it (stock Atomic
+ *   posture) stays FUNCTIONAL on APCu instead of failing closed, trading
+ *   CLI visibility.
  *
  * Null = nothing available; callers keep their fail-closed behavior.
  * Ops mirror the \Memcached subset the substrate uses; the APCu arm
@@ -86,16 +84,6 @@ final class Cache_Backend {
 			return new self( Core::$memd );
 		}
 		return self::apcu() ? new self( null ) : null;
-	}
-
-	/**
-	 * Memcached → null. No per-host fallback, for state that is worthless unless
-	 * every process can see it: a command session minted in a web request must
-	 * resolve in a worker, whose APCu segment is separate and usually disabled.
-	 * Refusing beats storing somewhere the verifier will never look.
-	 */
-	public static function shared_only(): ?self {
-		return null !== Core::$memd ? new self( Core::$memd ) : null;
 	}
 
 	/** Atomic claim: false when the key already exists. */

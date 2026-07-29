@@ -6,7 +6,7 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 |---|---|
 | `wp nodes status` (alias `ls`) | Fleet overview: supervisor + every active topology's per-partition state (live/stale/down, heartbeat age, uptime), then the consumer-lag table. `--format=table\|json\|csv\|yaml`. |
 | `wp nodes types` | The active topology groups the supervisor will spawn — names, partition counts, stale timeouts, topology paths. |
-| `wp nodes doctor` | Environment preflight: memcache, WP-Cron, shared filesystem, base-dir ownership. Each failing leg prints the concrete degradation it causes; non-zero exit when anything fails. |
+| `wp nodes doctor` | Canonical seven-check health report: cache backend, filesystem, ownership, worker liveness, supervisor liveness, consumer lag, and dead letters. Cache is probed in the web runtime; recommendations warn and exit 0, while critical results exit 1. |
 | `wp nodes run <type> [--partition=<N>]` | Run one worker in the foreground (no spawn endpoint) and block until it exits; prints the worker's own exit reason. The debugging tool for "spawns but immediately exits". |
 | `wp nodes restart <type\|all> [--partition=<N>] [--all-partitions]` | Drop a restart flag; the holder exits cleanly and the supervisor (or self-respawn) starts fresh. Required after deploying new code. |
 | `wp nodes activate <topology>` / `deactivate <topology>` | Add/remove a catalog topology from the active set and spawn/drain its fleet now. Same primitive as the Topologies settings UI. |
@@ -19,8 +19,8 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 **Is the fleet healthy?**
 
 ```bash
-wp nodes doctor        # environment legs first
-wp nodes status        # then the fleet
+wp nodes doctor        # canonical environment + fleet health report
+wp nodes status        # detailed fleet and consumer tables
 ```
 
 **Deploying new worker code** — workers are long-lived processes; the old class stays in memory until they restart:
@@ -50,6 +50,33 @@ wp nodes ingest firehose {base_dir}/deadletter/<reader>/*.log
 ```
 
 `<topic>` is either a bare log name (expanded to `<config:logs_dir>/<name>.p<partition>`) or a full dir-template carrying a `<partition>` token; `--dry-run` samples record sizes first and tells you whether you need `--allow_large_writes`.
+
+## Doctor health report
+
+`wp nodes doctor` renders exactly seven canonical rows, in this order:
+
+1. `cache-backend`
+2. `filesystem`
+3. `ownership`
+4. `worker-liveness`
+5. `supervisor-liveness`
+6. `consumer-lag`
+7. `dead-letters`
+
+Each row starts with `ok`, `WARN`, or `FAIL`. A report containing only `ok`
+rows exits 0. `WARN` is a recommendation and also exits 0; any `FAIL` is
+critical and exits 1.
+
+The cache row comes from a bounded, purpose-HMAC-authenticated loopback request
+to the web runtime, not from WP-CLI's separate APCu lifetime. The response is
+strictly validated before terminal output. If the loopback result cannot be
+verified, doctor reports `WARN` because cache health is unknown; a proven
+missing or failed selected backend reports `FAIL`. The other six rows are
+evaluated locally from the same canonical evaluator Site Health uses.
+
+WP-Cron configuration is not one of the seven Nodes checks. Nodes reports
+actual worker and supervisor liveness instead of treating `DISABLE_WP_CRON` as
+a proxy for failure.
 
 ## Run-as-user rule
 

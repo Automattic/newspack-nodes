@@ -5,9 +5,8 @@
  *
  * Asserts value-equivalence with the legacy `get_status()` payload — same
  * status / runtime_version / num_partitions / topologies / cache_available /
- * timestamp fields, same defaults, same Throwable-swallow behavior on the
- * cache probe. Substrate config is seeded via `TestCase::use_base_dir()`,
- * mirroring AggregatorCITest.
+ * timestamp fields and the same defaults. Substrate config is seeded via
+ * `TestCase::use_base_dir()`, mirroring AggregatorCITest.
  *
  * @package Newspack_Nodes
  */
@@ -18,6 +17,7 @@ use Newspack_Nodes\Rest\Status_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
@@ -105,12 +105,24 @@ class StatusCITest extends TestCase {
 	}
 
 	public function test_cache_unavailable_reports_false_when_memd_null(): void {
-		Core::$memd = null;
-		$interpreter         = new Status_CI_Node();
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$interpreter                = new Status_CI_Node();
 
 		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
 
 		$this->assertFalse( $result['cache_available'] );
+		$this->assertSame( 'ok', $result['status'] );
+	}
+
+	public function test_cache_available_reports_true_with_apcu_only(): void {
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => true;
+		$interpreter                = new Status_CI_Node();
+
+		$result = VerbHarness::fire( $interpreter, 'status', 'get' );
+
+		$this->assertTrue( $result['cache_available'] );
 		$this->assertSame( 'ok', $result['status'] );
 	}
 

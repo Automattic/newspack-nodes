@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.5] - 2026-07-28
+
+### Added
+
+- **One seven-check Nodes health report for Site Health and `wp nodes doctor`.** Both surfaces now report cache backend, filesystem, ownership, worker liveness, supervisor liveness, consumer lag, and dead letters from the same evaluator. Doctor checks cache in the web runtime through a narrow purpose-HMAC-authenticated loopback route, validates the response before terminal output, treats unverifiable loopback state as a warning, and exits nonzero only for a critical result.
+
+### Changed
+
+- **APCu-only single-host deployments are healthy and retain full normal-worker console access.** Command sessions now use the Memcached-preferred/APCu-fallback backend, status reports APCu as available, and the obsolete Memcached-only selector is gone. Memcached remains required across hosts or separate web APCu domains.
+- **Doctor no longer treats `DISABLE_WP_CRON` as a failure.** Platforms may invoke `wp-cron.php` externally; WordPress core Site Health checks actual missed/late events, while Nodes reports worker and supervisor liveness directly.
+- **Health diagnostics remain reachable when the runtime base directory is invalid.** Site Health, `wp nodes doctor`, and the internal cache-health route now initialize only their non-storage dependencies before reporting the refused path; normal runtime entry points still validate storage lazily and fail loudly.
+
 ## [2.2.4] - 2026-07-28
 
 ### Fixed

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Live-investigation reference for the substrate: the REPL, worker health, log paths, and the failure modes we actually hit. For the conceptual model behind all of it, read [architecture-guide.md](architecture-guide.md); for the environment preflight, run `wp nodes doctor` (see [cli.md](cli.md)).
+Live-investigation reference for the substrate: the REPL, worker health, log paths, and the failure modes we actually hit. For the conceptual model behind all of it, read [architecture-guide.md](architecture-guide.md); for the canonical environment and fleet health report, run `wp nodes doctor` (see [cli.md](cli.md)).
 
 Reach for this page when:
 
@@ -77,13 +77,19 @@ The non-readline path is fgets-based. On stdin EOF, the cli emits a TM_EOF Messa
 ## Worker health
 
 ```bash
-wp nodes doctor                     # environment preflight: memcache, WP-Cron, filesystem, ownership
+wp nodes doctor                     # seven environment + fleet checks; WARN exits 0, FAIL exits 1
 wp nodes types                      # worker types discoverable from topology files (no liveness info)
 wp nodes status                     # active workers + last heartbeat age (live vs stale); --format=json for scripts
 wp nodes run <type> [--partition=<N>]   # run a worker in the foreground — boot errors hit your terminal
 wp nodes restart all --all-partitions   # force-restart every type, every partition
 wp nodes restart <type> --partition=<N> # one type, one partition
 ```
+
+Doctor does not treat `DISABLE_WP_CRON` or the presence of a particular
+supervisor event as a health result. A platform may invoke `wp-cron.php`
+externally, so those settings are unreliable proxies. WordPress core Site
+Health checks actual missed or late scheduled events; Nodes reports actual
+worker and supervisor liveness in its own seven-check report.
 
 `wp nodes run` is the tool for "worker spawns but immediately exits" — the process stays attached, and on exit it prints the worker's own reason (`restart flag`, `max_runtime`, memory watermark, …).
 

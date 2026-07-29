@@ -11,6 +11,7 @@
 namespace Newspack_Nodes;
 
 use Newspack_Nodes\Rest\Auth_Controller;
+use Newspack_Nodes\Rest\Health_Cache_Controller;
 use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
@@ -18,10 +19,16 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * @phpstan-import-type HealthResult from Health_Checks
+ */
 class Bootstrap {
 
 	/** Site Health test id (also the `test` field WP echoes back on the result). */
 	public const SITE_HEALTH_TEST = 'newspack_nodes_fleet';
+
+	/** @var (\Closure(): list<HealthResult>)|null */
+	public static ?\Closure $health_report_evaluator = null;
 
 	/**
 	 * `\Memcached`-construction seam. Lazily-defaulted to a closure that builds
@@ -60,6 +67,9 @@ class Bootstrap {
 
 	/** Guards ensure_runtime_wired() so repeat entry-point calls in one request are no-ops. */
 	private static bool $runtime_wired = false;
+
+	/** Guards ensure_diagnostics_wired() so admin + runtime entry points cannot duplicate its filter. */
+	private static bool $diagnostics_wired = false;
 
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_supervisor = false;
@@ -101,16 +111,15 @@ class Bootstrap {
 
 	/**
 	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
-	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
+	 * namespace, and the stock + configured topology directories.
 	 *
-	 * Idempotent and lazy — called from the entry points that actually use the
-	 * node graph / cache (`rest_api_init`, admin, WP-CLI, the supervisor tick),
-	 * NOT at plugin-file scope. A plain frontend page view touches none of these,
-	 * so it no longer autoloads the Config System + Command_Interpreter_Node +
-	 * Topology_Registry or builds a `\Memcached` connection it never uses. This is
-	 * the per-request hot-path the v0.13.0 Config System regressed.
+	 * Idempotent and lazy — diagnostic entry points wire only their non-storage
+	 * dependencies, while node-graph/storage entry points call this method and
+	 * still fail loudly on an unusable base. A plain frontend page view touches
+	 * neither tier.
 	 */
 	public static function ensure_runtime_wired(): void {
+		self::ensure_diagnostics_wired();
 		if ( self::$runtime_wired ) {
 			return;
 		}
@@ -118,24 +127,51 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
-		// Declared-but-unset must VERIFY; casting null is fail-open.
-		Core::$verify_spawn_tls = (bool) ( Config::value( 'spawn_verify_ssl' ) ?? true );
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
 		// Self-respawn tokens must be minted at POST time, not worker boot.
 		Worker_Base::$token_provider ??= static fn (): string => self::supervisor()->generate_spawn_token( \time() );
-		// Fleet alerting: Site Health test + rate-limited alert emission.
-		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
+		// Fleet alerting: rate-limited alert emission.
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Alerts::class, 'emit' ] );
 		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
 		\add_action( 'newspack_nodes/supervisor_periodic', [ Job_Delay::class, 'sweep_action' ] );
 		// A re-credentialed or removed spoke invalidates its command session.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'forget_command_session' ] );
+		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
+	}
+
+	/**
+	 * Register diagnostics that must remain available when runtime storage is
+	 * misconfigured. This path may read non-storage config and initialize the
+	 * selected cache being probed, but must not resolve the base directory.
+	 */
+	public static function ensure_diagnostics_wired(): void {
+		if ( self::$diagnostics_wired ) {
+			return;
+		}
+		// Declared-but-unset must VERIFY; casting null is fail-open.
+		Core::$verify_spawn_tls = (bool) ( Config::value( 'spawn_verify_ssl' ) ?? true );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
 		}
-		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
+		\add_filter( 'site_status_tests', [ self::class, 'register_site_health_tests' ] );
+		self::$diagnostics_wired = true;
+	}
+
+	/**
+	 * Whether the configured runtime base can be resolved at a diagnostic
+	 * lifecycle boundary. Only that expected refusal is converted; failures
+	 * from the runtime wiring that follows still surface.
+	 */
+	private static function runtime_base_is_available(): bool {
+		try {
+			self::base_dir();
+			return true;
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often( 'runtime wiring unavailable: ', $e->getMessage() );
+			return false;
+		}
 	}
 
 	/** Build a Supervisor keyed on wp_salt('nonce') (factory seam for tests). */
@@ -270,6 +306,9 @@ class Bootstrap {
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
 	public static function self_heal_supervisor_cron(): void {
 		if ( ! self::is_supervisor_enabled() ) {
+			return;
+		}
+		if ( ! self::runtime_base_is_available() ) {
 			return;
 		}
 		if ( empty( self::get_topologies() ) ) {
@@ -462,6 +501,17 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
+		/**
+		 * Register the cache probe first so REST initialization completes even
+		 * when the runtime base is refused.
+		 */
+		( new Health_Cache_Controller( \wp_salt( 'nonce' ) ) )->register_routes();
+		self::ensure_diagnostics_wired();
+		if ( ! self::runtime_base_is_available() ) {
+			return;
+		}
+		self::ensure_runtime_wired();
+
 		// Slot-pool seams here, not ensure_runtime_wired: SSE_Out is REST-only.
 		SSE_Slot_Pool::wire();
 		( new Spawn_Controller( self::supervisor() ) )->register_routes();
@@ -544,7 +594,8 @@ class Bootstrap {
 
 	/**
 	 * Register the substrate's ONE `direct` Site Health test. Direct (not async):
-	 * the check is a handful of filemtime/glob reads, no HTTP.
+	 * the evaluator performs local cache/filesystem probes and fleet snapshot
+	 * reads, not a loopback HTTP request.
 	 *
 	 * @param array<string,mixed> $tests WP Site Health tests (`direct`/`async` buckets).
 	 * @return array<string,mixed>
@@ -554,50 +605,54 @@ class Bootstrap {
 			$tests['direct'] = [];
 		}
 		$tests['direct'][ self::SITE_HEALTH_TEST ] = [
-			'label' => \__( 'Newspack Nodes fleet health', 'newspack-nodes' ),
+			'label' => \__( 'Newspack Nodes health', 'newspack-nodes' ),
 			'test'  => [ self::class, 'run_workers_health_test' ],
 		];
 		return $tests;
 	}
 
 	/**
-	 * Run the fleet Site Health test: map the Alerts evaluator's worst severity
-	 * to a WP Site Health status (critical → critical, warning → recommended,
-	 * none → good) and list every alert message in the description.
+	 * Run the canonical seven-result health report once and render every result.
 	 *
 	 * @return array<string,mixed> WP Site Health result.
 	 */
 	public static function run_workers_health_test(): array {
-		$alerts = Alerts::evaluate();
-		$worst  = Alerts::worst_severity( $alerts );
-		$status = [
-			Alerts::SEVERITY_CRITICAL => 'critical',
-			Alerts::SEVERITY_WARNING  => 'recommended',
-		][ $worst ] ?? 'good';
+		$evaluate = self::$health_report_evaluator ?? static fn (): array => Health_Checks::evaluate();
+		$results  = $evaluate();
+		$status   = Health_Checks::worst_status( $results );
+		$items    = '';
 
-		if ( empty( $alerts ) ) {
-			$description = '<p>' . \esc_html__( 'All workers are heartbeating, consumers are keeping up, and no messages are quarantined.', 'newspack-nodes' ) . '</p>';
-			$label       = \__( 'Newspack Nodes fleet is healthy', 'newspack-nodes' );
-		} else {
-			$items = '';
-			foreach ( $alerts as $alert ) {
-				$items .= '<li>' . \esc_html( Core::as_string( $alert['message'] ?? '' ) ) . '</li>';
+		foreach ( $results as $result ) {
+			$marker = match ( $result['status'] ) {
+				Health_Checks::STATUS_GOOD => 'OK',
+				Health_Checks::STATUS_RECOMMENDED => 'WARN',
+				Health_Checks::STATUS_CRITICAL => 'FAIL',
+			};
+			$messages = '';
+			foreach ( $result['messages'] as $message ) {
+				$messages .= '<div>' . \esc_html( $message ) . '</div>';
 			}
-			$description = '<ul>' . $items . '</ul>';
-			$label       = \__( 'Newspack Nodes fleet has alerts', 'newspack-nodes' );
+			$items .= '<li><strong>'
+				. \esc_html( "{$marker} {$result['label']}" )
+				. '</strong>'
+				. $messages
+				. '</li>';
 		}
 
 		return [
-			'label'       => $label,
+			'label'       => Health_Checks::STATUS_GOOD === $status
+				? \__( 'Newspack Nodes is healthy', 'newspack-nodes' )
+				: \__( 'Newspack Nodes has health alerts', 'newspack-nodes' ),
 			'status'      => $status,
 			'badge'       => [
 				'label' => \__( 'Newspack Nodes', 'newspack-nodes' ),
-				'color' => [
-					'good'        => 'blue',
-					'recommended' => 'orange',
-				][ $status ] ?? 'red',
+				'color' => match ( $status ) {
+					Health_Checks::STATUS_GOOD => 'blue',
+					Health_Checks::STATUS_RECOMMENDED => 'orange',
+					Health_Checks::STATUS_CRITICAL => 'red',
+				},
 			],
-			'description' => $description,
+			'description' => '<ul>' . $items . '</ul>',
 			'test'        => self::SITE_HEALTH_TEST,
 		];
 	}

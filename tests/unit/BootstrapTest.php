@@ -1016,6 +1016,14 @@ class BootstrapTest extends TestCase {
 		// (count >= 5 controllers worth of registrations).
 		$paths = \array_column( $routes, 'route' );
 		$this->assertContains( '/workers/spawn', $paths, 'spawn route must be registered' );
+		$health_routes = \array_values(
+			\array_filter(
+				$routes,
+				static fn ( array $route ): bool => '/health/cache' === $route['route']
+			)
+		);
+		$this->assertCount( 1, $health_routes, 'exactly one cache-health route must be registered' );
+		$this->assertSame( 'POST', $health_routes[0]['args']['methods'] );
 		// All routes are namespaced under newspack-nodes/v1.
 		foreach ( $routes as $route ) {
 			$this->assertSame( 'newspack-nodes/v1', $route['namespace'] );
@@ -1242,18 +1250,22 @@ class BootstrapTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 		$saved_memd    = Core::$memd;
 		$saved_factory = Bootstrap::$memcached_factory;
-		$wired_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$saved_wired = $wired_ref->getValue();
+		$wired_ref       = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$diagnostics_ref = new \ReflectionProperty( Bootstrap::class, 'diagnostics_wired' );
+		$saved_wired     = $wired_ref->getValue();
+		$saved_diagnostics = $diagnostics_ref->getValue();
 
 		Bootstrap::$memcached_factory = static fn (): \Memcached => new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		Core::$memd                   = null;
 
 		try {
 			$wired_ref->setValue( null, false );
+			$diagnostics_ref->setValue( null, false );
 			Bootstrap::ensure_runtime_wired();
 			$this->assertInstanceOf( \Memcached::class, Core::$memd );
 		} finally {
 			$wired_ref->setValue( null, $saved_wired );
+			$diagnostics_ref->setValue( null, $saved_diagnostics );
 			Core::$memd                   = $saved_memd;
 			Bootstrap::$memcached_factory = $saved_factory;
 			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
@@ -1308,14 +1320,25 @@ class BootstrapTest extends TestCase {
 	 * Unset must mean verify.
 	 */
 	public function test_spawn_tls_verification_defaults_on_when_unset(): void {
-		Core::$verify_spawn_tls = false;
-		// ensure_runtime_wired is idempotent-guarded and has already run.
-		$wired = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
-		$wired->setValue( null, false );
+		$runtime_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$diagnostics_ref = new \ReflectionProperty( Bootstrap::class, 'diagnostics_wired' );
+		$saved_runtime   = $runtime_ref->getValue();
+		$saved_diagnostics = $diagnostics_ref->getValue();
+		$saved_verify    = Core::$verify_spawn_tls;
 
-		Bootstrap::ensure_runtime_wired();
+		try {
+			Core::$verify_spawn_tls = false;
+			$runtime_ref->setValue( null, false );
+			$diagnostics_ref->setValue( null, false );
 
-		$this->assertTrue( Core::$verify_spawn_tls );
+			Bootstrap::ensure_runtime_wired();
+
+			$this->assertTrue( Core::$verify_spawn_tls );
+		} finally {
+			$runtime_ref->setValue( null, $saved_runtime );
+			$diagnostics_ref->setValue( null, $saved_diagnostics );
+			Core::$verify_spawn_tls = $saved_verify;
+		}
 	}
 
 }

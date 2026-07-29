@@ -15,7 +15,7 @@
  *         surface without making a dozen separate calls.
  *
  * The substrate Config is a global accessed directly. `cache_available`
- * reflects whether the shared `Core::$memd` handle is configured.
+ * reflects whether `Cache_Backend::shared_first()` selects a live backend.
  *
  * @package Newspack_Nodes
  */
@@ -23,9 +23,9 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
-use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
@@ -38,7 +38,7 @@ class Status_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed> Health snapshot.
 	 */
 	public static function cmd_get(): array {
-		$cache_available = null !== Core::$memd;
+		$cache_available = null !== Cache_Backend::shared_first();
 		/** @var int|float|string|bool|null $num_partitions */
 		$num_partitions = RuntimeConfig::value( 'num_partitions' );
 

@@ -195,7 +195,7 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( $expected, $actual );
 	}
 	/**
-	 * Bootstrap reads this at `ensure_runtime_wired()`, and `Config::value()`
+	 * Bootstrap reads these during diagnostic/runtime wiring, and `Config::value()`
 	 * throws on an undeclared key — so a key declared only in
 	 * `newspack-nodes-config.php` fatals plugin load in a real install, because
 	 * that file is NOT in the release archive. The schema is the durable

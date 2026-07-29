@@ -512,6 +512,8 @@ class Admin {
 	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
 	 */
 	public function register_topology_console_tab_bundle( array $bundles ): array {
+		Bootstrap::ensure_runtime_wired();
+
 		// Per-topology partition counts for the React dropdown.
 		$topology_workers = [];
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
