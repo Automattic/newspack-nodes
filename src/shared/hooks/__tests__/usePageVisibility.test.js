@@ -4,6 +4,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { useEffect } from '@wordpress/element';
 import usePageVisibility from '../usePageVisibility';
 
 describe( 'usePageVisibility', () => {
@@ -34,6 +35,36 @@ describe( 'usePageVisibility', () => {
 		} );
 		const { result } = renderHook( () => usePageVisibility() );
 		expect( result.current ).toBe( false );
+	} );
+
+	it( 'reconciles a visibility transition immediately before listener registration', () => {
+		let state = 'visible';
+		const observed = [];
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			get: () => state,
+		} );
+		const addEventListener = document.addEventListener.bind( document );
+		const spy = jest
+			.spyOn( document, 'addEventListener' )
+			.mockImplementation( ( type, listener, options ) => {
+				if ( 'visibilitychange' === type ) {
+					state = 'hidden';
+				}
+				addEventListener( type, listener, options );
+			} );
+
+		const { result } = renderHook( () => {
+			const isVisible = usePageVisibility();
+			useEffect( () => {
+				observed.push( isVisible );
+			}, [ isVisible ] );
+			return isVisible;
+		} );
+		spy.mockRestore();
+
+		expect( result.current ).toBe( false );
+		expect( observed ).toEqual( [ false ] );
 	} );
 
 	it( 'updates when visibility flips to hidden', () => {

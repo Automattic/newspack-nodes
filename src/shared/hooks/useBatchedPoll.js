@@ -42,10 +42,15 @@
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { mountExospine, CommandClient } from '@newspack-nodes/runtime';
+import {
+	mountExospine,
+	CommandClient,
+	hasSession,
+} from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
+const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
 
 // Arm the Timer's router-TIMER hitchhike: >1000 throttles, else every tick.
 function armTimer( timer, intervalMs ) {
@@ -53,6 +58,21 @@ function armTimer( timer, intervalMs ) {
 		timer.setTimer( intervalMs );
 	} else {
 		timer.setTimer();
+	}
+}
+
+function isFirstLoadPending( timer ) {
+	return Object.prototype.hasOwnProperty.call(
+		timer.registrations.FIRE,
+		FIRST_LOAD_LISTENER
+	);
+}
+
+function syncTimer( timer, isPageVisible, paused, intervalMs ) {
+	if ( isPageVisible && ( ! paused || isFirstLoadPending( timer ) ) ) {
+		armTimer( timer, intervalMs );
+	} else {
+		timer.stopTimer();
 	}
 }
 
@@ -70,7 +90,6 @@ export function useBatchedPoll( opts ) {
 
 	// Fire ONE batched tick (lock → fire → flush), captured during build.
 	const fireTickRef = useRef( null );
-	const firstLoadDoneRef = useRef( false );
 
 	// Pause polling while the tab is hidden.
 	const isPageVisible = usePageVisibility();
@@ -92,8 +111,6 @@ export function useBatchedPoll( opts ) {
 
 			const timer = interpreter.makeNode( 'Timer', timerName );
 			timer.connectNode( teeName );
-			// intervalMs > 1000 throttles in fireCb(); else fires every tick.
-			armTimer( timer, optsRef.current.intervalMs );
 			timerRef.current = timer;
 
 			interpreterRef.current = interpreter;
@@ -110,11 +127,31 @@ export function useBatchedPoll( opts ) {
 			};
 			fireTickRef.current = fireTick;
 
-			// First paint: fire ONE tick on mount, gated on visibility only.
-			if ( 'visible' === document.visibilityState ) {
+			/**
+			 * A first load is delivered only when its Timer fires with a live
+			 * command session.
+			 */
+			timer.register( 'FIRE', FIRST_LOAD_LISTENER, () => {
+				if ( ! hasSession() ) {
+					return;
+				}
+				if ( optsRef.current.paused ) {
+					timer.stopTimer();
+				}
+				return false;
+			} );
+
+			const visible = 'visible' === document.visibilityState;
+			if ( visible ) {
 				fireTick();
-				firstLoadDoneRef.current = true;
 			}
+			// Paused still rides the router until one signed first load fires.
+			syncTimer(
+				timer,
+				visible,
+				optsRef.current.paused,
+				optsRef.current.intervalMs
+			);
 
 			// Re-render so each widget's useNodeState rebinds to the new view.
 			bumpBuild( ( n ) => n + 1 );
@@ -136,22 +173,21 @@ export function useBatchedPoll( opts ) {
 		return teardown;
 	}, [] );
 
-	// Poll only when visible and not paused; re-arm at the current intervalMs.
+	// Sync visibility/pause/cadence; a pending first load overrides pause.
 	useEffect( () => {
 		const timer = timerRef.current;
 		if ( ! timer ) {
 			return;
 		}
-		// Deliver the one-time load when the tab shows, even while paused.
-		if ( isPageVisible && ! firstLoadDoneRef.current ) {
+		// Deliver the one-time load immediately when a hidden tab shows.
+		if (
+			isPageVisible &&
+			isFirstLoadPending( timer ) &&
+			'inactive' === timer.mode
+		) {
 			fireTickRef.current?.();
-			firstLoadDoneRef.current = true;
 		}
-		if ( isPageVisible && ! opts.paused ) {
-			armTimer( timer, opts.intervalMs );
-		} else {
-			timer.stopTimer();
-		}
+		syncTimer( timer, isPageVisible, opts.paused, opts.intervalMs );
 	}, [ isPageVisible, opts.paused, opts.intervalMs ] );
 
 	return { interpreterRef };

@@ -9,6 +9,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { useEffect } from '@wordpress/element';
 import {
 	Core,
 	Node,
@@ -17,9 +18,12 @@ import {
 	FROM,
 	VALUE,
 	TYPE,
+	TIMESTAMP,
 	TM_COMMAND,
 	TM_RESPONSE,
 	CommandInterpreterNode,
+	forgetSession,
+	__setAuthFetch,
 	newMessage,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../../helpers/addSliceFetcher';
@@ -116,12 +120,39 @@ function renderPoll( opts = {} ) {
 	);
 }
 
+const VISIBILITY_RACE_INTERVAL_MS = 4321;
+
+function useObservedVisibilityRace( client, observations ) {
+	const poll = useBatchedPoll( {
+		build: buildSlices,
+		timerName: 'visibility-race:timer',
+		teeName: 'visibility-race:tee',
+		commandClient: client,
+		intervalMs: VISIBILITY_RACE_INTERVAL_MS,
+	} );
+	useEffect( () => {
+		const timer = Core.node( 'visibility-race:timer' );
+		observations.push( {
+			batches: client.batches.length,
+			mode: timer.mode,
+			intervalMs: timer.interval_ms,
+		} );
+	}, [ client, observations ] );
+	return poll;
+}
+
 beforeEach( () => {
 	Core.reset();
 	Object.defineProperty( document, 'visibilityState', {
 		configurable: true,
 		get: () => 'visible',
 	} );
+} );
+
+afterEach( () => {
+	jest.restoreAllMocks();
+	forgetSession();
+	__setAuthFetch( null );
 } );
 
 describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
@@ -218,6 +249,60 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		expect( client.batches.length ).toBe( 1 );
 	} );
 
+	test( 'keeps a paused first poll eligible until deferred authentication can sign it', async () => {
+		const session = {
+			handle: 'd3f3aa11d3f3bb22d3f3cc33d3f3dd44',
+			key: 'deferred-first-poll-key-8391',
+			expires_in: 7319,
+			now: 2123456789,
+		};
+		let resolveAuth;
+		const auth = new Promise( ( resolve ) => {
+			resolveAuth = resolve;
+		} );
+		forgetSession();
+		__setAuthFetch( () => auth );
+		const nowSpy = jest
+			.spyOn( Date, 'now' )
+			.mockReturnValue( 1912345678000 );
+		const client = makeFakeClient();
+
+		renderPoll( { commandClient: client, paused: true } );
+		await act( async () => {} );
+		expect( client.batches ).toHaveLength( 0 );
+
+		await act( async () => {
+			resolveAuth( session );
+			await auth;
+			await Promise.resolve();
+		} );
+		const router = Core.node( ROUTER );
+		const timer = Core.node( 'insights:timer' );
+		await act( async () => {
+			router.fireCb();
+		} );
+		nowSpy.mockRestore();
+
+		expect( client.batches ).toHaveLength( 1 );
+		expect( client.batches[ 0 ] ).toHaveLength( 3 );
+		for ( const message of client.batches[ 0 ] ) {
+			expect( message[ TIMESTAMP ] ).toBe( session.now );
+			expect( message[ VALUE ].auth ).toEqual(
+				expect.objectContaining( {
+					handle: session.handle,
+					sig: expect.stringMatching( /^[0-9a-f]{64}$/ ),
+				} )
+			);
+		}
+
+		await act( async () => {
+			router.fireCb();
+			router.fireCb();
+		} );
+		expect( client.batches ).toHaveLength( 1 );
+		expect( timer.mode ).toBe( 'inactive' );
+	} );
+
 	test( 'a hidden+paused mount still delivers the first load when the tab becomes visible (deep-link opened in a background tab)', async () => {
 		// Spinner repro: hidden+paused mount must still fire the first load.
 		Object.defineProperty( document, 'visibilityState', {
@@ -282,6 +367,34 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 } );
 
 describe( 'useBatchedPoll — page-visibility gate', () => {
+	test( 'a same-commit transition to hidden neither polls nor arms the Timer', async () => {
+		let state = 'visible';
+		Object.defineProperty( document, 'visibilityState', {
+			configurable: true,
+			get: () => state,
+		} );
+		const addEventListener = document.addEventListener.bind( document );
+		jest.spyOn( document, 'addEventListener' ).mockImplementation(
+			( type, listener, options ) => {
+				if ( 'visibilitychange' === type ) {
+					state = 'hidden';
+				}
+				addEventListener( type, listener, options );
+			}
+		);
+		const client = makeFakeClient();
+		const observations = [];
+
+		renderHook( () => useObservedVisibilityRace( client, observations ) );
+		await act( async () => {} );
+
+		expect( observations ).toEqual( [
+			{ batches: 0, mode: 'inactive', intervalMs: 0 },
+		] );
+		expect( client.batches ).toHaveLength( 0 );
+		expect( Core.node( 'visibility-race:timer' ).mode ).toBe( 'inactive' );
+	} );
+
 	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {
 		const client = makeFakeClient();
 		renderPoll( { commandClient: client } );

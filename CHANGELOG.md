@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboards no longer remain on their first-load spinner after navigation-time authentication or visibility races.** Batched polls retain their owned Timer through a paused, unauthenticated first attempt and retire it only after emitting the first signed batch. Visibility is subscribed and reconciled before passive dashboard effects, so polling and streaming views cannot miss a tab transition; visible graph builds poll exactly once, while hidden builds wait for focus.
+
 ## [2.2.8] - 2026-07-29
 
 ### Fixed
