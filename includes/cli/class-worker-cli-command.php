@@ -16,25 +16,27 @@ namespace Newspack_Nodes;
 class Worker_CLI_Command {
 
 	/**
-	 * Request a worker restart by writing a `restart` flag into its lock dir.
+	 * Request a supervisor or worker restart by writing a `restart` flag into its lock dir.
 	 *
 	 * The current holder polls `should_restart()` from its drain loop and exits
 	 * cleanly. The supervisor (or self-respawn path) starts a fresh process.
 	 *
 	 * ## OPTIONS
 	 *
-	 * <type>
-	 * : Worker type to restart, or `all` for all types.
+	 * <target>
+	 * : Worker type to restart, `supervisor` for the singleton runtime process,
+	 * or `all` for all worker types.
 	 *
 	 * [--partition=<partition>]
-	 * : Partition number (0-based).
+	 * : Partition number for a worker target (0-based).
 	 *
 	 * [--all-partitions]
-	 * : Apply across every partition for the matched type(s).
+	 * : Apply across every partition for the matched worker type(s).
 	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes restart firehose-workers --partition=0
+	 *     wp nodes restart supervisor
 	 *     wp nodes restart all --all-partitions
 	 *
 	 * @when after_wp_load
@@ -43,24 +45,35 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function restart( array $args, array $assoc_args ): void {
-		$workers = $this->workers();
-		$valid   = \array_unique( \array_column( $workers, 'type' ) );
+		$target = $args[0] ?? '';
+		if ( '' === $target ) {
+			\WP_CLI::error( 'Restart target required. Use: wp nodes restart <target>' );
+		}
+		if ( 'supervisor' === $target ) {
+			if ( isset( $assoc_args['partition'] ) || isset( $assoc_args['all-partitions'] ) ) {
+				\WP_CLI::error( 'The supervisor is a singleton and does not accept --partition or --all-partitions.' );
+			}
+			if ( ! $this->cli()->restart_supervisor() ) {
+				\WP_CLI::error( 'Unable to request supervisor restart.' );
+			}
+			\WP_CLI::success( 'Requested supervisor restart.' );
+			return;
+		}
 
-		$type           = $args[0] ?? '';
+		$workers        = $this->workers();
+		$valid          = \array_unique( \array_column( $workers, 'type' ) );
 		$all_partitions = isset( $assoc_args['all-partitions'] );
 		$partition      = $all_partitions ? -1 : self::entry_int( $assoc_args, 'partition', -1 );
 
-		if ( '' === $type ) {
-			\WP_CLI::error( 'Worker type required. Use: wp nodes restart <type>' );
-		}
-		if ( 'all' !== $type && ! \in_array( $type, $valid, true ) ) {
-			\WP_CLI::error( 'Invalid worker type: ' . $type . '. Available: ' . \implode( ', ', $valid ) . ', all' );
+		if ( 'all' !== $target && ! \in_array( $target, $valid, true ) ) {
+			$available = \array_merge( $valid, [ 'supervisor', 'all' ] );
+			\WP_CLI::error( 'Invalid restart target: ' . $target . '. Available: ' . \implode( ', ', $available ) );
 		}
 		if ( ! $all_partitions && $partition < 0 ) {
 			\WP_CLI::error( 'Specify --partition=<N> or --all-partitions.' );
 		}
 
-		$filter    = ( 'all' === $type ) ? [] : [ $type => true ];
+		$filter    = ( 'all' === $target ) ? [] : [ $target => true ];
 		$cli       = $this->cli();
 		$restarted = $cli->restart_workers( $workers, $filter, $partition );
 
@@ -361,8 +374,9 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * List active worker topology groups — the same set the supervisor will
-	 * spawn (`Bootstrap::get_topologies()`), so this agrees with `wp nodes status`.
+	 * List the singleton supervisor runtime process separately, followed by the
+	 * active worker topology groups it will spawn (`Bootstrap::get_topologies()`),
+	 * so this agrees with `wp nodes status`.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -374,6 +388,9 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function types( array $args, array $assoc_args ): void {
+		\WP_CLI::log( 'Runtime processes:' );
+		\WP_CLI::log( '  - supervisor (singleton runtime process)' );
+
 		$topologies = Bootstrap::get_topologies();
 
 		if ( empty( $topologies ) ) {

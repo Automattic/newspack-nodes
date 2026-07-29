@@ -78,11 +78,12 @@ The non-readline path is fgets-based. On stdin EOF, the cli emits a TM_EOF Messa
 
 ```bash
 wp nodes doctor                     # seven environment + fleet checks; WARN exits 0, FAIL exits 1
-wp nodes types                      # worker types discoverable from topology files (no liveness info)
+wp nodes types                      # singleton supervisor + topology groups (no liveness info)
 wp nodes status                     # active workers + last heartbeat age (live vs stale); --format=json for scripts
 wp nodes run <type> [--partition=<N>]   # run a worker in the foreground — boot errors hit your terminal
-wp nodes restart all --all-partitions   # force-restart every type, every partition
+wp nodes restart all --all-partitions   # force-restart every worker topology; excludes supervisor
 wp nodes restart <type> --partition=<N> # one type, one partition
+wp nodes restart supervisor             # restart the singleton; no partition flags
 ```
 
 Doctor does not treat `DISABLE_WP_CRON` or the presence of a particular
@@ -93,7 +94,12 @@ worker and supervisor liveness in its own seven-check report.
 
 `wp nodes run` is the tool for "worker spawns but immediately exits" — the process stays attached, and on exit it prints the worker's own reason (`restart flag`, `max_runtime`, memory watermark, …).
 
-The visible-dashboard restart (Workers_CI over REST) additionally accepts a `supervisor` filter target that restarts the supervisor itself; the `wp nodes restart` verb only targets worker types.
+The visible-dashboard restart (Workers_CI over REST) and
+`wp nodes restart supervisor` both request a clean restart of the singleton
+supervisor. `wp nodes types` exposes that singleton separately from the active
+topology groups. It is a lifecycle target, not a topology: it cannot be passed
+to `wp nodes run`, has no partitions, and is not included in
+`wp nodes restart all`.
 
 A worker reports State `live` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`; `stale` means the supervisor will respawn it on the next minute-cron tick, and `down` means an active topology has no lock dir at all (the rescue case). Uptime reads the lock dir's `started` file.
 

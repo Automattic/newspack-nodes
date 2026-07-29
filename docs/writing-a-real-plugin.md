@@ -534,11 +534,26 @@ Skip the build and your live `wp nodes` runs the *old* code — and because the 
 
 **After adding node classes, regenerate the autoloader.** The classmap is what `make_node` resolves against and what `Classes_CI` scans to populate the console palette. For local container testing run `composer dump-autoload -o` after adding or renaming a node. (The release zip is already optimized, so a freshly-built zip needs no separate dump.)
 
-**Restart workers after deploy.** A running worker holds the old class in its PHP process for the rest of its ~10-minute lifespan. Force the refresh:
+**Restart long-lived processes after the complete deploy.** A running worker
+holds the old class in its PHP process for the rest of its ~10-minute lifespan.
+Wait until all topology-provider plugins have been installed and activated as
+WordPress plugins, then refresh the workers first and the singleton supervisor
+last:
 
 ```bash
-docker exec eve-pyrobase1-1 wp nodes restart all --all-partitions --allow-root --path=/var/www/html
+docker exec -u bend eve-pyrobase1-1 wp nodes restart all --all-partitions --path=/var/www/html
+docker exec -u bend eve-pyrobase1-1 wp nodes restart supervisor --path=/var/www/html
 ```
+
+Run both commands as the worker's OS user: Nodes ownership-guards the runtime
+tree where those restart flags are written.
+
+The first command restarts every worker topology so it loads the new PHP;
+`restart all` deliberately excludes the supervisor. The second requests a
+clean supervisor turnover with a fresh WordPress bootstrap, rebuilding its
+process-local topology catalog from the complete provider set. Without that
+final restart, a supervisor born while a provider's plugin directory was
+temporarily absent can remain blind to the provider until its natural turnover.
 
 **Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes `newspack-intelligence.tsl` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate it from the console's Topology Manager or with `topologies activate <name>`, then confirm:
 
