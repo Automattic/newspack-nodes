@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: WordPress-internal node-graph runtime for composable services.
- * Version: 2.2.4
+ * Version: 2.2.5
  * Author: Automattic
  * License: GPL-2.0-or-later
  * Requires PHP: 8.2
@@ -15,7 +15,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '2.2.4' );
+	\define( 'NEWSPACK_NODES_VERSION', '2.2.5' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
@@ -28,12 +28,12 @@ if ( ! \defined( 'NEWSPACK_NODES_URL' ) && \function_exists( 'plugin_dir_url' ) 
 require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
-	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
+	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
 	new \Newspack_Nodes\Admin\Admin();
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
-	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
+	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();
 	// PHP 8 rejects array callables here (wp-cli#5472); use shared instances.
 	$nodes_worker_cli   = new \Newspack_Nodes\Worker_CLI_Command();
 	$nodes_ingest_cli   = new \Newspack_Nodes\Ingest_CLI_Command();
@@ -50,7 +50,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
 }
 
-// Runtime wiring: ensure_runtime_wired(), not file scope (frontend skips it).
+// Storage-backed runtime wiring stays lazy; only diagnostics wire above.
 
 /**
  * Service-CommandInterpreter (CI) mounting.
@@ -96,8 +96,6 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 
 // Wire WP integration (REST, supervisor cron, activation); skipped in tests.
 if ( \function_exists( 'add_action' ) ) {
-	// Wire runtime before REST callbacks (priority 1, ahead of routes at 10).
-	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'ensure_runtime_wired' ], 1 );
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );

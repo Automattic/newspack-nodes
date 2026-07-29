@@ -121,17 +121,18 @@ class Job_Intake {
 	/**
 	 * Write multiple jobs in a batch.
 	 *
-	 * With a `$batch` id, every entry is tagged and an atomic memcache counter
-	 * is seeded to the valid-job count BEFORE writing — the Job_Worker
-	 * decrements it per settled job and the decrement that reaches 0 signals
-	 * completion (`newspack_nodes/job_worker/batch_complete` + an alerts.p0
-	 * row). A write that fails after seeding leaves the batch open; compare
-	 * the return value against your job count.
+	 * An atomic counter in the selected cache backend tracks a `$batch`. It is
+	 * seeded to the valid-job count BEFORE writing, and every entry is tagged.
+	 * The Job_Worker decrements it per settled job; the decrement that reaches 0
+	 * signals completion (`newspack_nodes/job_worker/batch_complete` + an
+	 * alerts.p0 row). A write that fails after seeding leaves the batch open;
+	 * compare the return value against your job count.
 	 *
 	 * @api Used by external plugins.
 	 * @param array<int, array<string, mixed>> $jobs  Zero-indexed list of ['handler' => string, 'parameters' => array].
 	 * @param string|null                      $key   Optional partition key for all jobs.
-	 * @param string|null                      $batch Optional fan-in batch id (requires memcached).
+	 * @param string|null                      $batch Optional fan-in batch id (requires a selected
+	 *                                                cache backend: Memcached or APCu).
 	 * @return int Number of jobs successfully written.
 	 * @throws \LogicException When $batch is given with no claim store (memcached or APCu).
 	 * @throws \RuntimeException When the batch id is already active.
@@ -196,7 +197,8 @@ class Job_Intake {
 	 * @param array<string, mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
 	 *                                (seconds) schedules the job via jobdelay.p0; `retries` (int)
 	 *                                opts into Job_Worker backoff retries; `unique` + `unique_ttl`
-	 *                                dedups the enqueue within the ttl window (requires memcached);
+	 *                                dedups the enqueue within the ttl window (requires a selected
+	 *                                cache backend: Memcached or APCu);
 	 *                                `attempt`/`batch` are internal passthrough fields.
 	 * @return bool True on success, false on validation failure, lock unavailable,
 	 *              write error, or a duplicate `unique` enqueue inside its window.
@@ -296,9 +298,10 @@ class Job_Intake {
 	}
 
 	/**
-	 * Atomically claim the unique-enqueue slot for this window. The memcache
-	 * `add()` is the same claim idiom the command nonce and SSE slot pool use:
-	 * it fails iff the key already exists, so exactly one enqueue wins the ttl.
+	 * Atomically claim the unique-enqueue slot for this window. The selected cache
+	 * backend's atomic `add()` is the same claim idiom the command nonce and SSE
+	 * slot pool use. Exactly one successful add wins the ttl; false means either a
+	 * duplicate claim or a backend failure, and the caller fails closed on either.
 	 *
 	 * LogicException family throughout: static queue() swallows RuntimeException
 	 * (its lock-contention boolean contract) and misuse must stay loud through it.
@@ -309,7 +312,7 @@ class Job_Intake {
 	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
 	 * @return bool True when this enqueue won the slot.
 	 * @throws \InvalidArgumentException Without a positive unique_ttl.
-	 * @throws \LogicException Without memcached.
+	 * @throws \LogicException When no selected cache backend is available.
 	 */
 	private function claim_unique( string $handler, array $options ): bool {
 		$ttl = Core::as_int( $options['unique_ttl'] ?? 0, 0 );

@@ -1,7 +1,7 @@
 <?php
 /**
- * Tests for `wp nodes doctor` — the four-leg environment preflight (memcache,
- * WP-Cron, shared filesystem, user ownership) with per-miss degradation text.
+ * Tests for `wp nodes doctor` as the presentation layer for the canonical
+ * seven-result Nodes health report.
  *
  * @package Newspack_Nodes
  */
@@ -9,9 +9,13 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
-use Newspack_Nodes\Core;
-use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
+use Newspack_Nodes\Config;
+use Newspack_Nodes\Health_Checks;
+use Newspack_Nodes\Health_Probe_Client;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_CLI_Command;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -20,38 +24,196 @@ require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 
 #[CoversClass( Worker_CLI_Command::class )]
 class CliDoctorCommandTest extends TestCase {
+	private const CACHE_MESSAGE = 'Cache backend APCu add/read/delete round trip succeeded.';
+
 	private string $tmp;
+
+	private ?\Closure $topology_filter = null;
+
+	private int $http_calls = 0;
+
+	/** @var list<string> */
+	private static array $lifecycle_before = [];
+
+	public static function setUpBeforeClass(): void {
+		parent::setUpBeforeClass();
+		self::$lifecycle_before = self::doctor_temp_directories();
+	}
+
+	public static function tearDownAfterClass(): void {
+		$lifecycle_after = self::doctor_temp_directories();
+		parent::tearDownAfterClass();
+
+		self::assertSame(
+			[],
+			\array_values( \array_diff( $lifecycle_after, self::$lifecycle_before ) ),
+			'Doctor tests must remove every scratch directory they create.'
+		);
+		self::assertSame(
+			[],
+			$lifecycle_after,
+			'Doctor tests must leave no newspack-nodes-doctor-test-* scratch tree.'
+		);
+	}
 
 	protected function setUp(): void {
 		parent::setUp();
+
+		Health_Probe_Client::$http_call = null;
+		Health_Probe_Client::$clock     = null;
+		Health_Checks::$remove_probe    = null;
+		Health_Checks::$evaluate_alerts = null;
+
+		$GLOBALS['_test_wp_cli_logs']         = [];
+		$GLOBALS['_test_wp_cli_warns']        = [];
+		$GLOBALS['_test_wp_cli_errors']       = [];
+		$GLOBALS['_test_wp_cli_success']      = [];
+		$GLOBALS['_wp_test_next_scheduled']   = false;
+		$this->http_calls                     = 0;
+
+		Topology_Registry::reset();
 		$this->tmp = $this->make_temp_dir( 'newspack-nodes-doctor-test-' );
-		$this->use_base_dir( $this->tmp );
+		$this->use_base_dir(
+			$this->tmp,
+			[
+				'num_partitions'             => 1,
+				'alert_lag_threshold'        => 12_345_678,
+				'alert_deadletter_threshold' => 5,
+			]
+		);
 
-		$GLOBALS['_test_wp_cli_logs']    = [];
-		$GLOBALS['_test_wp_cli_warns']   = [];
-		$GLOBALS['_test_wp_cli_errors']  = [];
-		$GLOBALS['_test_wp_cli_success'] = [];
+		$owner = \fileowner( $this->tmp );
+		if ( false === $owner ) {
+			throw new \RuntimeException( 'Doctor fixture base-directory owner could not be read.' );
+		}
+		CLI::$uid_provider = static fn (): int => $owner;
 
-		// Healthy baseline: every leg passes; each test breaks exactly one.
-		Core::$memd                         = new InMemoryMemcached();
-		$GLOBALS['_wp_test_next_scheduled'] = \time() + 42;
-		CLI::$uid_provider                  = fn (): int => (int) \fileowner( $this->tmp );
+		$this->seed_healthy_worker();
+		$this->use_cache_result( Health_Checks::STATUS_GOOD, self::CACHE_MESSAGE );
 	}
 
 	protected function tearDown(): void {
-		Core::$memd        = null;
-		CLI::$uid_provider = null;
-		unset( $GLOBALS['_wp_test_next_scheduled'] );
-		\chmod( $this->tmp, 0755 );
+		if ( null !== $this->topology_filter ) {
+			\remove_action( 'newspack_nodes/topologies', $this->topology_filter );
+			$this->topology_filter = null;
+		}
+
+		Health_Probe_Client::$http_call = null;
+		Health_Probe_Client::$clock     = null;
+		Health_Checks::$remove_probe    = null;
+		Health_Checks::$evaluate_alerts = null;
+		CLI::$uid_provider              = null;
+		Topology_Registry::reset();
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+
+		unset(
+			$GLOBALS['_test_wp_cli_logs'],
+			$GLOBALS['_test_wp_cli_warns'],
+			$GLOBALS['_test_wp_cli_errors'],
+			$GLOBALS['_test_wp_cli_success'],
+			$GLOBALS['_wp_test_next_scheduled']
+		);
+
+		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
 
-	private function run_doctor_expecting_error(): void {
+	/** @return list<string> */
+	private static function doctor_temp_directories(): array {
+		$temp_root = \realpath( \sys_get_temp_dir() );
+		if ( false === $temp_root ) {
+			throw new \RuntimeException( 'The system temporary directory must resolve for doctor lifecycle checks.' );
+		}
+		$directories = \glob(
+			$temp_root . '/newspack-nodes-test/newspack-nodes-doctor-test-*',
+			\GLOB_ONLYDIR
+		);
+		if ( false === $directories ) {
+			throw new \RuntimeException( 'Doctor scratch directories could not be listed.' );
+		}
+		\sort( $directories );
+		return $directories;
+	}
+
+	private function seed_healthy_worker(): void {
+		$type                  = 'doctor-healthy-7319';
+		$this->topology_filter = static function ( array $topologies ) use ( $type ): array {
+			$topologies[ $type ] = [
+				'topology'       => $type,
+				'num_partitions' => 1,
+				'stale_timeout'  => 7_319,
+			];
+			return $topologies;
+		};
+		\add_filter( 'newspack_nodes/topologies', $this->topology_filter );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ $type ];
+
+		$lock_dir = "{$this->tmp}/locks/{$type}.p0.lock.d";
+		if ( ! \mkdir( $lock_dir, 0700, true ) || ! \touch( "{$lock_dir}/heartbeat" ) ) {
+			throw new \RuntimeException( 'Healthy doctor worker fixture could not be created.' );
+		}
+
+		Config::reset();
+		Topology_Registry::reset();
+	}
+
+	private function seed_consumer_probe( string $reader, string $source, int $distance ): void {
+		$dir = "{$this->tmp}/logs/topicprobe.p0";
+		if ( ! \is_dir( $dir ) && ! \mkdir( $dir, 0700, true ) ) {
+			throw new \RuntimeException( 'Doctor consumer-probe fixture directory could not be created.' );
+		}
+
+		$record                                 = [];
+		$record[ Probe_Record::SOURCE ]         = $source;
+		$record[ Probe_Record::READER ]         = $reader;
+		$record[ Probe_Record::CURSOR_SEGMENT ] = 0;
+		$record[ Probe_Record::CURSOR_OFF ]     = 0;
+		$record[ Probe_Record::END_SEGMENT ]    = 0;
+		$record[ Probe_Record::END_SIZE ]       = 0;
+		$record[ Probe_Record::DISTANCE ]       = $distance;
+		$record[ Probe_Record::MSGS ]           = 8_843;
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $record;
+		$written                   = \file_put_contents(
+			"{$dir}/0.log",
+			Message::packed( $message ) . "\n",
+			\FILE_APPEND
+		);
+		if ( false === $written ) {
+			throw new \RuntimeException( 'Doctor consumer-probe fixture could not be written.' );
+		}
+	}
+
+	private function use_cache_result( string $status, string $message ): void {
+		$body = \wp_json_encode(
+			[
+				'id'       => Health_Checks::CACHE_ID,
+				'label'    => Health_Checks::CACHE_LABEL,
+				'status'   => $status,
+				'messages' => [ $message ],
+			]
+		);
+		if ( ! \is_string( $body ) ) {
+			throw new \RuntimeException( 'Doctor cache-response fixture could not be encoded.' );
+		}
+
+		Health_Probe_Client::$clock     = static fn (): int => 1_756_423_719;
+		Health_Probe_Client::$http_call = function ( string $_url, array $_args ) use ( $body ): array {
+			++$this->http_calls;
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => $body,
+			];
+		};
+	}
+
+	private function run_doctor_expecting_exit_zero(): void {
 		try {
 			( new Worker_CLI_Command() )->doctor( [], [] );
-			$this->fail( 'Expected WP_CLI::error for a failing check.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'checks failed', $e->getMessage() );
+		} catch ( \Throwable $e ) {
+			$this->fail( $e->getMessage() . "\n" . $this->log_haystack() );
 		}
 	}
 
@@ -59,96 +221,79 @@ class CliDoctorCommandTest extends TestCase {
 		return \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 	}
 
-	public function test_all_checks_pass(): void {
-		( new Worker_CLI_Command() )->doctor( [], [] );
+	public function test_clean_report_renders_exactly_seven_canonical_ok_rows_and_exits_zero(): void {
+		$this->run_doctor_expecting_exit_zero();
 
-		$haystack = $this->log_haystack();
-		$this->assertStringContainsString( 'memcache', $haystack );
-		$this->assertStringContainsString( 'wp-cron', $haystack );
-		$this->assertStringContainsString( 'filesystem', $haystack );
-		$this->assertStringContainsString( 'ownership', $haystack );
-		$this->assertStringNotContainsString( 'FAIL', $haystack );
-		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
-		$this->assertStringContainsString( '4', $GLOBALS['_test_wp_cli_success'][0] );
-	}
-
-	public function test_missing_memcache_handle_fails_with_degradation(): void {
-		Core::$memd = null;
-
-		$this->run_doctor_expecting_error();
-
-		$haystack = $this->log_haystack();
-		$this->assertStringContainsString( 'FAIL memcache', $haystack );
-		$this->assertStringContainsString( 'dark', $haystack );
-		$this->assertStringContainsString( 'HMAC', $haystack );
-		$this->assertStringContainsString( 'SSE', $haystack );
-	}
-
-	public function test_broken_memcache_roundtrip_fails(): void {
-		Core::$memd = new class() extends InMemoryMemcached {
-			public function get( string $key, ?callable $cache_cb = null, int $get_flags = 0 ): mixed {
-				return false;
-			}
-		};
-
-		$this->run_doctor_expecting_error();
-
-		$this->assertStringContainsString( 'FAIL memcache', $this->log_haystack() );
-	}
-
-	public function test_unscheduled_supervisor_cron_fails_with_degradation(): void {
-		$GLOBALS['_wp_test_next_scheduled'] = false;
-
-		$this->run_doctor_expecting_error();
-
-		$haystack = $this->log_haystack();
-		$this->assertStringContainsString( 'FAIL wp-cron', $haystack );
-		$this->assertStringContainsString( 'newspack_nodes/supervisor', $haystack );
-		$this->assertStringContainsString( 'safety net', $haystack );
-		$this->assertStringContainsString( 'manual restart', $haystack );
-	}
-
-	public function test_unwritable_base_directory_fails_with_degradation(): void {
-		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->markTestSkipped( 'permission checks are moot as root' );
+		$ids = [
+			'cache-backend',
+			'filesystem',
+			'ownership',
+			'worker-liveness',
+			'supervisor-liveness',
+			'consumer-lag',
+			'dead-letters',
+		];
+		$this->assertCount( 7, $GLOBALS['_test_wp_cli_logs'] );
+		foreach ( $ids as $index => $id ) {
+			$this->assertStringStartsWith( "ok   {$id} — ", $GLOBALS['_test_wp_cli_logs'][ $index ] );
+			$this->assertSame( 1, \substr_count( $this->log_haystack(), " {$id} — " ), $id );
 		}
-		\chmod( $this->tmp, 0555 );
-
-		$this->run_doctor_expecting_error();
-
-		$haystack = $this->log_haystack();
-		$this->assertStringContainsString( 'FAIL filesystem', $haystack );
-		$this->assertStringContainsString( 'nothing runs', $haystack );
+		$this->assertSame( 7, \count( \preg_grep( '/^ok   /', $GLOBALS['_test_wp_cli_logs'] ) ) );
+		$this->assertSame( 'ok   cache-backend — ' . self::CACHE_MESSAGE, $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertStringNotContainsString( 'wp-cron', $this->log_haystack() );
+		$this->assertSame( [ 'All 7 Nodes health checks passed.' ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( 1, $this->http_calls );
 	}
 
-	public function test_foreign_owner_fails_with_chown_recovery(): void {
-		CLI::$uid_provider = fn (): int => (int) \fileowner( $this->tmp ) + 40000;
+	public function test_recommendation_renders_warn_summary_and_exits_zero(): void {
+		$message = 'Web cache probe recommendation 8843.';
+		$this->use_cache_result( Health_Checks::STATUS_RECOMMENDED, $message );
 
-		$this->run_doctor_expecting_error();
+		$this->run_doctor_expecting_exit_zero();
 
-		$haystack = $this->log_haystack();
-		$this->assertStringContainsString( 'FAIL ownership', $haystack );
-		$this->assertStringContainsString( 'chown -R', $haystack );
+		$this->assertSame( "WARN cache-backend — {$message}", $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertSame( [ '1 of 7 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( 1, $this->http_calls );
 	}
 
-	public function test_indeterminate_uid_passes_ownership(): void {
-		CLI::$uid_provider = static fn (): int => -1;
+	public function test_critical_result_renders_fail_summary_and_exits_one(): void {
+		$message = 'Web cache probe critical result 6421.';
+		$this->use_cache_result( Health_Checks::STATUS_CRITICAL, $message );
 
-		( new Worker_CLI_Command() )->doctor( [], [] );
-
-		$this->assertStringNotContainsString( 'FAIL', $this->log_haystack() );
-		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
-	}
-
-	public function test_multiple_failures_are_counted(): void {
-		Core::$memd                         = null;
-		$GLOBALS['_wp_test_next_scheduled'] = false;
-
+		$thrown = null;
 		try {
 			( new Worker_CLI_Command() )->doctor( [], [] );
-			$this->fail( 'Expected WP_CLI::error for failing checks.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( '2 of 4', $e->getMessage() );
+		} catch ( \Throwable $e ) {
+			$thrown = $e;
 		}
+
+		$this->assertInstanceOf( \RuntimeException::class, $thrown );
+		$this->assertSame( "FAIL cache-backend — {$message}", $GLOBALS['_test_wp_cli_logs'][0] );
+		$this->assertSame( [ '1 of 7 Nodes health checks failed.' ], $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( 1, $this->http_calls );
+	}
+
+	public function test_additional_alert_messages_render_as_indented_continuations(): void {
+		$this->seed_consumer_probe( 'doctor-reader-a-7319.p0', 'doctor-source-a-7319.p0', 12_345_679 );
+		$this->seed_consumer_probe( 'doctor-reader-b-7319.p0', 'doctor-source-b-7319.p0', 12_345_681 );
+
+		$this->run_doctor_expecting_exit_zero();
+
+		$this->assertContains(
+			'WARN consumer-lag — Consumer doctor-reader-a-7319.p0 is 12345679 bytes behind on doctor-source-a-7319.p0.',
+			$GLOBALS['_test_wp_cli_logs']
+		);
+		$this->assertContains(
+			'     Consumer doctor-reader-b-7319.p0 is 12345681 bytes behind on doctor-source-b-7319.p0.',
+			$GLOBALS['_test_wp_cli_logs']
+		);
+		$this->assertSame( [ '1 of 7 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
 	}
 }

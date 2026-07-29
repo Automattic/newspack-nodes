@@ -64,6 +64,7 @@ class CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function cli( array $args, array $assoc_args ): void {
+		Bootstrap::ensure_runtime_wired();
 		[ $shell, $dumper, $stdout ] = $this->prepare_repl( $args );
 		$this->run_repl( $shell, $dumper, $stdout );
 	}

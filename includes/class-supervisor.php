@@ -27,7 +27,7 @@ class Supervisor extends Supervisor_Base {
 	public const SUPERVISOR_STALE_TIMEOUT = 60;
 
 	/** Endpoint accepts current + previous for race tolerance. */
-	public const TOKEN_WINDOW_S = 10;
+	public const TOKEN_WINDOW_S = Internal_Request_Token::WINDOW_S;
 
 	/** @var array<string,int> type ⇒ max-partition-count, rebuilt each check_config tick (active fleet). */
 	private array $active_types = [];
@@ -306,8 +306,11 @@ class Supervisor extends Supervisor_Base {
 
 	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
 	public function generate_spawn_token( int $now ): string {
-		$window = (int) \floor( $now / self::TOKEN_WINDOW_S );
-		return \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
+		return Internal_Request_Token::generate(
+			Internal_Request_Token::PURPOSE_SPAWN,
+			$now,
+			$this->nonce_salt
+		);
 	}
 
 	/** Reap ipc dirs for workers no longer in the fleet (a live worker's lock defers its own). */
@@ -445,10 +448,12 @@ class Supervisor extends Supervisor_Base {
 
 	/** Validate a token against the current AND previous window (don't tighten — straddle tolerance). */
 	public function validate_spawn_token( string $token, int $now ): bool {
-		$window   = (int) \floor( $now / self::TOKEN_WINDOW_S );
-		$current  = \hash_hmac( 'sha256', "newspack_nodes_spawn:{$window}", $this->nonce_salt );
-		$previous = \hash_hmac( 'sha256', "newspack_nodes_spawn:" . ( $window - 1 ), $this->nonce_salt );
-		return \hash_equals( $current, $token ) || \hash_equals( $previous, $token );
+		return Internal_Request_Token::validate(
+			Internal_Request_Token::PURPOSE_SPAWN,
+			$token,
+			$now,
+			$this->nonce_salt
+		);
 	}
 
 	/**

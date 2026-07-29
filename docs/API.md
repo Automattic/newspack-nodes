@@ -1,6 +1,10 @@
 # Newspack Nodes REST API
 
-The runtime ships three REST endpoints — the worker spawn handler, the unified command-dispatch endpoint, and a server-sent-events stream. Application plugins register their own endpoints (dashboards, additional streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready` hook.
+The runtime ships a small REST surface for worker lifecycle, command dispatch,
+streams, and an internal web-runtime cache-health probe. Application plugins
+register their own endpoints (dashboards, additional streams, etc.) on top,
+plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's
+graph via the `newspack_nodes/request_graph_ready` hook.
 
 For the full architecture and rationale, see [architecture-guide.md](architecture-guide.md).
 
@@ -68,6 +72,68 @@ The spawn endpoint uses dual-mode auth (`Spawn_Controller::check_permission`):
 Both paths require the `nonce` field; only the validator differs. There is no env-var bypass — `NEWSPACK_NODES_WORKER_TYPE` / `_PARTITION` are written to `$_SERVER` *after* auth passes (see [Worker Identity Tags](#worker-identity-tags)) and are not consulted during permission checks.
 
 Application plugins that add their own REST endpoints typically use `current_user_can( 'manage_options' )` for human-facing endpoints and a separate HMAC scheme (or capability + nonce combo) for machine-facing endpoints. See `newspack-event-logger-nodes/docs/API.md` for the application-side auth patterns.
+
+## Internal Cache Health
+
+```
+POST  /newspack-nodes/v1/health/cache
+```
+
+Narrow internal loopback endpoint used by `wp nodes doctor` to test the cache
+backend selected by the web runtime. It is not a general cache API and is not
+for public callers. Under WordPress's default REST prefix, its full URL path is
+`/wp-json/newspack-nodes/v1/health/cache`.
+
+### Request
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `token` | string | yes | A lowercase 64-character HMAC-SHA256 token for the `health-cache` purpose. |
+
+The body is form-encoded and contains only `token`. The token is
+`hash_hmac( 'sha256', "newspack_nodes_health-cache:{$window}", wp_salt( 'nonce' ) )`,
+where `$window = floor( time() / 10 )`. The endpoint accepts the current and
+immediately previous 10-second windows for race tolerance. Purpose separation
+means a spawn token cannot authorize this route, and a health-cache token
+cannot authorize worker spawn.
+
+WordPress REST enforces the required `token` argument. Omitting it returns HTTP
+`400` with code `rest_missing_callback_param`; this happens before the
+permission callback or `Bootstrap::fleet_gate()`, so controller token validation
+does not run either.
+
+When a token is supplied, `Bootstrap::fleet_gate()` applies before controller
+token validation: on multisite, only the main fleet site may use the route. A
+subsite receives `403 Forbidden`. On the fleet site, a supplied malformed,
+expired, future-window, or wrong-purpose token receives `403 Forbidden` with
+code `invalid_health_token`.
+
+The route accepts no caller-selected cache key or value. Extra `key` or `value`
+input is never used by the probe and is never returned; the server generates
+and removes its own random probe entry.
+
+### Response
+
+After permission succeeds, the route always returns HTTP `200` with exactly one
+canonical cache result:
+
+```json
+{
+  "id": "cache-backend",
+  "label": "Cache backend",
+  "status": "good",
+  "messages": [
+    "Cache backend APCu add/read/delete round trip succeeded."
+  ]
+}
+```
+
+The four fields are fixed: `id`, `label`, `status`, and `messages`. This local
+probe returns `good` or `critical`, and `messages` contains one non-empty
+diagnostic string. (`wp nodes doctor` may synthesize `recommended` when the
+loopback result cannot be verified.) A proven missing or failed backend is a
+canonical `critical` result in the same HTTP `200` response; health severity is
+payload state, not an HTTP transport failure.
 
 ## Worker Identity Tags
 

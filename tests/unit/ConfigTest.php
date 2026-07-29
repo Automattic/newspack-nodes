@@ -226,7 +226,7 @@ class ConfigTest extends TestCase {
 
 	public function test_declare_action_pulls_a_consumer_that_hooks_after_the_first_read(): void {
 		// Load order: newspack-nodes' own file scope reads a key on an admin request
-		// (is_admin → ensure_runtime_wired → init_memcached → value('memcache_servers')),
+		// (is_admin → ensure_diagnostics_wired → init_memcached → value('memcache_servers')),
 		// which happens BEFORE a consumer sorting after it (pyrobase) has hooked
 		// DECLARE_ACTION. A one-shot pull would lock that consumer's keys out for the
 		// whole request, so a miss must re-pull before it becomes a throw.

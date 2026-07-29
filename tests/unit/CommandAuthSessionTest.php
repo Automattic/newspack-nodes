@@ -17,6 +17,8 @@ class CommandAuthSessionTest extends TestCase {
 
 	private const HANDLE = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 
+	private const APCU_HANDLE = '7319cafebabefeed0123456789abcdef';
+
 	/** Distinct from anything secret() could produce. */
 	private const KEY   = 'first-key-4242-4242-4242-4242-4242';
 	private const OTHER = 'second-key-9999-9999-9999-9999-99';
@@ -69,12 +71,14 @@ class CommandAuthSessionTest extends TestCase {
 	}
 
 	public function test_load_session_returns_null_when_no_store_is_available(): void {
-		Core::$memd = null;
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$this->assertNull( Command_Auth::load_session( self::HANDLE ) );
 	}
 
 	public function test_store_session_fails_closed_when_no_store_is_available(): void {
-		Core::$memd = null;
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$this->assertFalse( Command_Auth::store_session( self::HANDLE, self::KEY, self::TTL ) );
 	}
 
@@ -101,7 +105,8 @@ class CommandAuthSessionTest extends TestCase {
 	}
 
 	public function test_mint_session_throws_rather_than_hand_back_an_unstored_key(): void {
-		Core::$memd = null;
+		Core::$memd                 = null;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
 
 		$this->expectException( \RuntimeException::class );
 		Command_Auth::mint_session();
@@ -252,15 +257,31 @@ class CommandAuthSessionTest extends TestCase {
 		$this->assertNull( Command_Auth::load_session( self::HANDLE ) );
 	}
 
-	/**
-	 * Sessions must never land in per-host APCu: the verifier is usually a worker
-	 * or another host. Refusing loudly beats minting a key that resolves nowhere.
-	 */
-	public function test_session_storage_refuses_the_per_host_tier(): void {
-		Core::$memd = null;
-		Cache_Backend::$apcu_usable = static fn (): bool => true;
+	public function test_apcu_session_store_load_sign_and_verify_round_trip(): void {
+		if ( ! \function_exists( 'apcu_enabled' ) || ! \apcu_enabled() ) {
+			$this->markTestSkipped( 'APCu not usable in this SAPI (needs apc.enable_cli=1)' );
+		}
 
-		$this->assertFalse( Command_Auth::store_session( self::HANDLE, self::KEY, self::TTL ) );
+		$remote                      = 'apcu-spoke-7319';
+		$address                     = $this->session_address( self::APCU_HANDLE );
+		Core::$memd                  = null;
+		Cache_Backend::$apcu_usable  = null;
+		\apcu_delete( $address );
+
+		try {
+			$this->assertTrue( Command_Auth::store_session( self::APCU_HANDLE, self::KEY, self::TTL ) );
+			$this->assertSame( self::KEY, Command_Auth::load_session( self::APCU_HANDLE ) );
+			Command_Auth::remember_session( $remote, self::APCU_HANDLE, self::KEY );
+
+			$message = $this->command();
+			Command_Auth::sign_for( $remote, $message );
+
+			$this->assertSame( self::APCU_HANDLE, $message[ Message::VALUE ]['auth']['handle'] );
+			$this->assertTrue( Command_Auth::verify( $message, 1000 ) );
+		} finally {
+			Command_Auth::forget_session( $remote );
+			\apcu_delete( $address );
+		}
 	}
 
 	public function test_remember_session_rejects_empty_required_inputs(): void {
@@ -323,5 +344,10 @@ class CommandAuthSessionTest extends TestCase {
 
 		$this->assertSame( 'continuation-7', $m[ Message::ID ] );
 		$this->assertNotSame( $session['handle'], $m[ Message::ID ] );
+	}
+
+	private function session_address( string $handle ): string {
+		$method = new \ReflectionMethod( Command_Auth::class, 'session_address' );
+		return $method->invoke( null, $handle );
 	}
 }

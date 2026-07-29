@@ -43,8 +43,8 @@ class Command_Auth {
 	 * Single-use claim seam. `function ( string $nonce, int $ttl ): bool` — true
 	 * when the nonce is newly claimed (first use), false on replay OR when no
 	 * store is available (fail closed). Lazily-defaulted at the call site to an
-	 * atomic `Core::$memd->add()`. Tests reassign to exercise the window/HMAC
-	 * logic without a real memcache, and to drive the replay path.
+	 * atomic `Cache_Backend::local_first()->add()`. Tests reassign to exercise
+	 * the window/HMAC logic without a real cache, and to drive the replay path.
 	 *
 	 * @var \Closure(string, int): bool|null
 	 */
@@ -55,7 +55,7 @@ class Command_Auth {
 	 * entries may share a host with different credentials, and a url can be
 	 * edited while the id stays — both would alias one session across two
 	 * authorization contexts. Lost on worker restart,
-	 * which costs one re-auth. The verifier's own copy lives in the shared cache.
+	 * which costs one re-auth. The verifier's own copy lives in the selected cache.
 	 *
 	 * @var array<string,array{handle:string,key:string}>
 	 */
@@ -81,7 +81,6 @@ class Command_Auth {
 	/**
 	 * Stamp an `auth` envelope under $key. No-op unless TYPE is a request command
 	 * — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY rides along fine).
-	 * The HMAC covers TYPE, so the signer's flags must match the verifier's.
 	 *
 	 * $handle names the session the verifier must resolve $key from; null means
 	 * the per-site secret. It is deliberately outside `canonical()`: repointing
@@ -213,7 +212,7 @@ class Command_Auth {
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
 		if ( ! self::store_session( $handle, $key, self::SESSION_TTL_S ) ) {
-			throw new \RuntimeException( 'Command_Auth: could not persist the session (no shared store, or handle taken)' );
+			throw new \RuntimeException( 'Command_Auth: could not persist the session (no cache backend, or handle taken)' );
 		}
 		return [
 			'handle'     => $handle,
@@ -227,17 +226,16 @@ class Command_Auth {
 	/**
 	 * Store a session key under its handle. `add()`, never `set()`: a handle can
 	 * never displace a live session, so a colliding mint fails rather than
-	 * fixating someone else's. False when the handle is taken or no shared store
+	 * fixating someone else's. False when the handle is taken or no cache backend
 	 * exists (fail closed).
 	 *
-	 * `shared_only()` — not the `local_first()` the nonce claim uses, and not
-	 * `shared_first()` either: a session minted in a web request has to resolve
-	 * in a worker, and the APCu arm both of those can fall back to is per-host
-	 * and usually disabled under CLI. Storing there would succeed and then
-	 * verify nowhere.
+	 * `shared_first()` prefers configured memcached, preserving shared scope.
+	 * Without it, the WordPress web pool can mint and verify through its one APCu
+	 * cache domain. This deliberately differs from the nonce claim's
+	 * `local_first()` ordering.
 	 */
 	public static function store_session( string $handle, string $key, int $ttl ): bool {
-		$backend = Cache_Backend::shared_only();
+		$backend = Cache_Backend::shared_first();
 		return null !== $backend && $backend->add( self::session_address( $handle ), $key, $ttl );
 	}
 
@@ -327,7 +325,7 @@ class Command_Auth {
 
 	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
 	public static function load_session( string $handle ): ?string {
-		$backend = Cache_Backend::shared_only();
+		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return null;
 		}

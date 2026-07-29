@@ -24,8 +24,9 @@ abstract class TestCase extends PHPUnitTestCase {
 	private string $temp_root = '';
 
 	protected function setUp(): void {
-		// Pin the tier resolver to memcached-only: tests that seed Core::$memd
-		// must see their claims land there even where CLI APCu is enabled.
+		// Keep APCu pinned off so Memcached fixtures remain deterministic: tests
+		// that seed Core::$memd must see their claims land there even when CLI
+		// APCu is enabled.
 		if ( \class_exists( '\\Newspack_Nodes\\Cache_Backend' ) ) {
 			\Newspack_Nodes\Cache_Backend::$apcu_usable = static fn (): bool => false;
 		}
@@ -86,6 +87,7 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Bootstrap::$supervisor_factory          = null;
 			\Newspack_Nodes\Bootstrap::$supervisor_enabled_override = null;
 		}
+		$this->reset_health_test_state();
 
 		// Resolve the temp root HERE, not lazily in make_temp_dir(): reading the
 		// base directory warms Config's cache, and a test that seeds options
@@ -149,7 +151,28 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Config' ) ) {
 			\Newspack_Nodes\Config::reset();
 		}
+		$this->reset_health_test_state();
 		parent::tearDown();
+	}
+
+	/** Clear health-report seams and restore the default single-site posture. */
+	private function reset_health_test_state(): void {
+		if ( \class_exists( '\Newspack_Nodes\Health_Checks' ) ) {
+			\Newspack_Nodes\Health_Checks::$remove_probe    = null;
+			\Newspack_Nodes\Health_Checks::$evaluate_alerts = null;
+		}
+		if ( \class_exists( '\Newspack_Nodes\Health_Probe_Client' ) ) {
+			\Newspack_Nodes\Health_Probe_Client::$http_call = null;
+			\Newspack_Nodes\Health_Probe_Client::$clock     = null;
+		}
+		if ( \class_exists( '\Newspack_Nodes\Rest\Health_Cache_Controller' ) ) {
+			\Newspack_Nodes\Rest\Health_Cache_Controller::$clock = null;
+		}
+		if ( \class_exists( '\Newspack_Nodes\Bootstrap' ) ) {
+			\Newspack_Nodes\Bootstrap::$health_report_evaluator = null;
+		}
+		$GLOBALS['_wp_test_is_multisite'] = false;
+		$GLOBALS['_wp_test_is_main_site'] = true;
 	}
 
 	/**

@@ -420,10 +420,10 @@ class Config {
 	 * plugin declares its own.
 	 *
 	 * Declaration is PULLED, not pushed, because push has no safe moment to happen:
-	 * ensure_runtime_wired() runs on admin / REST / WP-CLI / supervisor entry points
-	 * only (never a frontend page view), and a consumer sorting before newspack-nodes
-	 * can't touch this class at its own file scope — so both hung declaration off
-	 * something that fires AFTER the first read (the firehose reads num_partitions at
+	 * Bootstrap wiring runs on diagnostic and storage-backed entry points only (never
+	 * a frontend page view), and a consumer sorting before newspack-nodes can't touch
+	 * this class at its own file scope — so both hung declaration off something that
+	 * fires AFTER the first read (the firehose reads num_partitions at
 	 * plugins_loaded:-10001) and the fail-loud value() gate threw on a real key.
 	 * Pulling it here means the keys exist by construction whenever anyone asks.
 	 *
