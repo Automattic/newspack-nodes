@@ -5,10 +5,11 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 | Verb | What it does |
 |---|---|
 | `wp nodes status` (alias `ls`) | Fleet overview: supervisor + every active topology's per-partition state (live/stale/down, heartbeat age, uptime), then the consumer-lag table. `--format=table\|json\|csv\|yaml`. |
-| `wp nodes types` | The active topology groups the supervisor will spawn — names, partition counts, stale timeouts, topology paths. |
+| `wp nodes types` | The singleton supervisor, reported separately, plus the active topology groups it will spawn — names, partition counts, stale timeouts, topology paths. The supervisor is a lifecycle target, not a runnable topology. |
 | `wp nodes doctor` | Canonical seven-check health report: cache backend, filesystem, ownership, worker liveness, supervisor liveness, consumer lag, and dead letters. Cache is probed in the web runtime; recommendations warn and exit 0, while critical results exit 1. |
 | `wp nodes run <type> [--partition=<N>]` | Run one worker in the foreground (no spawn endpoint) and block until it exits; prints the worker's own exit reason. The debugging tool for "spawns but immediately exits". |
-| `wp nodes restart <type\|all> [--partition=<N>] [--all-partitions]` | Drop a restart flag; the holder exits cleanly and the supervisor (or self-respawn) starts fresh. Required after deploying new code. |
+| `wp nodes restart <type\|all> [--partition=<N>] [--all-partitions]` | Drop worker restart flags; the holders exit cleanly and the supervisor (or self-respawn) starts them fresh. `restart all` means all worker topologies and does not restart the supervisor. |
+| `wp nodes restart supervisor` | Request a clean restart of the singleton supervisor. It has no partitions, so partition flags are not accepted. |
 | `wp nodes activate <topology>` / `deactivate <topology>` | Add/remove a catalog topology from the active set and spawn/drain its fleet now. Same primitive as the Topologies settings UI. |
 | `wp nodes cli [<reader>.p<N>]` | The REPL. Bare (no arg) runs a local interpreter; with a worker id it pivots into that live worker over IPC. Refuses root. See [troubleshooting.md](troubleshooting.md) for the in-REPL verb table. |
 | `wp nodes scaffold <plugin\|node\|topology> <name>` | Generate a working starting point: a whole consumer plugin directory, a single Node class, or a `.tsl` topology — the shapes from [writing-a-plugin.md](writing-a-plugin.md). Never overwrites. |
@@ -26,8 +27,13 @@ wp nodes status        # detailed fleet and consumer tables
 **Deploying new worker code** — workers are long-lived processes; the old class stays in memory until they restart:
 
 ```bash
-wp nodes restart all --all-partitions
+wp nodes restart all --all-partitions   # all worker topologies
+wp nodes restart supervisor             # singleton; no partition flags
 ```
+
+Restarting the supervisor gives it a fresh WordPress bootstrap. Run that command
+after all topology-provider plugins have been installed and activated so its
+process-local catalog includes the complete plugin set.
 
 **Debugging one worker** — foreground run shows boot errors and the exit reason; the REPL inspects a live graph without disturbing it:
 

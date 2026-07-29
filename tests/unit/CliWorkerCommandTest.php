@@ -108,6 +108,13 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'No active topologies', $GLOBALS['_test_wp_cli_warns'][0] );
 	}
 
+	public function test_types_lists_supervisor_without_active_topologies(): void {
+		( new Worker_CLI_Command() )->types( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'supervisor (singleton runtime process)', $haystack );
+	}
+
 	public function test_types_lists_registered_groups(): void {
 		$this->register_topology( 'firehose-workers', 4 );
 		$this->register_topology( 'aggregator', 1 );
@@ -125,15 +132,22 @@ class CliWorkerCommandTest extends TestCase {
 	// restart
 	// -------------------------------------------------------------------------
 
-	public function test_restart_requires_type_arg(): void {
+	public function test_restart_requires_target_arg(): void {
 		$this->expectException( \RuntimeException::class );
 		( new Worker_CLI_Command() )->restart( [], [] );
 	}
 
-	public function test_restart_rejects_invalid_type(): void {
+	public function test_restart_rejects_invalid_target(): void {
 		$this->register_topology( 'firehose-workers', 2 );
-		$this->expectException( \RuntimeException::class );
-		( new Worker_CLI_Command() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] );
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] );
+			$this->fail( 'Expected invalid restart target to fail.' );
+		} catch ( \RuntimeException ) {
+			$this->assertSame(
+				[ 'Invalid restart target: no-such-type. Available: firehose-workers, supervisor, all' ],
+				$GLOBALS['_test_wp_cli_errors']
+			);
+		}
 	}
 
 	public function test_restart_requires_partition_or_all_partitions(): void {
@@ -141,6 +155,61 @@ class CliWorkerCommandTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		// No --partition, no --all-partitions => error.
 		( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [] );
+	}
+
+	public function test_restart_supervisor_bypasses_worker_catalog_and_writes_flag(): void {
+		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function (): array {
+				throw new \LogicException( 'Supervisor restart must not resolve worker topologies.' );
+			}
+		);
+
+		( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
+
+		$this->assertTrue( Lock_Node::is_restart_pending( $lock_dir ) );
+		$this->assertSame( [ 'Requested supervisor restart.' ], $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	public function test_restart_supervisor_fails_when_request_cannot_be_written(): void {
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Unable to request supervisor restart.' );
+
+		( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
+	}
+
+	public function test_restart_supervisor_rejects_partition_option(): void {
+		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [ 'partition' => 7 ] );
+			$this->fail( 'Expected supervisor partition option to fail.' );
+		} catch ( \RuntimeException ) {
+			$this->assertSame(
+				[ 'The supervisor is a singleton and does not accept --partition or --all-partitions.' ],
+				$GLOBALS['_test_wp_cli_errors']
+			);
+		}
+		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
+	}
+
+	public function test_restart_supervisor_rejects_all_partitions_option(): void {
+		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [ 'all-partitions' => true ] );
+			$this->fail( 'Expected supervisor all-partitions option to fail.' );
+		} catch ( \RuntimeException ) {
+			$this->assertSame(
+				[ 'The supervisor is a singleton and does not accept --partition or --all-partitions.' ],
+				$GLOBALS['_test_wp_cli_errors']
+			);
+		}
+		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
 	}
 
 	public function test_restart_writes_flag_for_specific_partition(): void {
@@ -183,11 +252,13 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'aggregator', 1 );
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
+		\mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
 
 		( new Worker_CLI_Command() )->restart( [ 'all' ], [ 'all-partitions' => true ] );
 
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );
+		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/locks/supervisor.lock.d" ) );
 	}
 
 	// -------------------------------------------------------------------------
