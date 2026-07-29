@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.8] - 2026-07-29
+
 ### Fixed
 
 - **Fresh topology consoles now adopt the current server-saved layout without requiring Reset Layout.** A late server map atomically replaces an untouched browser layout while preserving a dirty browser map, and fetch/save results remain owned by the topology that initiated them so stale async completions cannot replace or stall the active canvas.
