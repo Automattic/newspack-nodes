@@ -4095,6 +4095,145 @@ describe( 'TopologyConsole boot', () => {
 		expect( stored.modified ).toBe( false );
 	} );
 
+	it( 'ignores an out-of-order layout response from the previous topology', async () => {
+		const pendingLayouts = {};
+		const stalePosition = { x: -377, y: 1093 };
+		const currentPosition = { x: 841, y: -619 };
+		lastCanvasProps = null;
+		hooks.catalog = {
+			partitions: { demo: 1, other: 1 },
+			active: [ 'demo', 'other' ],
+			entries: [],
+		};
+		hooks.fetchLayout.mockImplementation(
+			( name ) =>
+				new Promise( ( resolve ) => {
+					pendingLayouts[ name ] = resolve;
+				} )
+		);
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		expect( hooks.fetchLayout ).toHaveBeenCalledWith( 'demo' );
+
+		await act( async () => {
+			lastHeaderProps.onPathChange( 'other.p0' );
+		} );
+		expect( hooks.fetchLayout ).toHaveBeenCalledWith( 'other' );
+		await publishMeta();
+
+		await act( async () => {
+			pendingLayouts.demo( {
+				positions: {
+					n1: [ stalePosition.x, stalePosition.y ],
+				},
+			} );
+			await Promise.resolve();
+		} );
+		expect( lastCanvasProps?.positionOverrides.n1 ).toBeUndefined();
+
+		await act( async () => {
+			pendingLayouts.other( {
+				positions: {
+					n1: [ currentPosition.x, currentPosition.y ],
+				},
+			} );
+			await Promise.resolve();
+		} );
+		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+			currentPosition
+		);
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:other.p0' )
+		);
+		expect( stored.positions.n1 ).toEqual( currentPosition );
+	} );
+
+	it( 'keeps the current layout when a previous topology save resolves late', async () => {
+		const pendingLayouts = {};
+		const initialPosition = { x: -263, y: 647 };
+		const draggedPosition = { x: -419, y: 1207 };
+		const currentPosition = { x: 887, y: -653 };
+		const staleSavePosition = { x: -977, y: 1559 };
+		let resolveSave;
+		lastCanvasProps = null;
+		hooks.catalog = {
+			partitions: { demo: 1, other: 1 },
+			active: [ 'demo', 'other' ],
+			entries: [],
+		};
+		hooks.fetchLayout.mockImplementation( ( name ) => {
+			if ( 'demo' === name ) {
+				return Promise.resolve( {
+					positions: {
+						n1: [ initialPosition.x, initialPosition.y ],
+					},
+				} );
+			}
+			return new Promise( ( resolve ) => {
+				pendingLayouts[ name ] = resolve;
+			} );
+		} );
+		hooks.saveLayout.mockImplementation(
+			() =>
+				new Promise( ( resolve ) => {
+					resolveSave = resolve;
+				} )
+		);
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByTestId } = render( <TopologyConsole /> );
+		await act( async () => {
+			await Promise.resolve();
+		} );
+		await publishMeta();
+		await act( async () => {
+			lastCanvasProps.onPositionChange( 'n1', draggedPosition );
+		} );
+		act( () => {
+			fireEvent.click( getByText( 'save-layout' ) );
+		} );
+		expect( hooks.saveLayout ).toHaveBeenCalledWith( {
+			name: 'demo',
+			positions: {
+				n1: [ draggedPosition.x, draggedPosition.y ],
+			},
+		} );
+
+		await act( async () => {
+			lastHeaderProps.onPathChange( 'other.p0' );
+		} );
+		await publishMeta();
+		await act( async () => {
+			pendingLayouts.other( {
+				positions: {
+					n1: [ currentPosition.x, currentPosition.y ],
+				},
+			} );
+			await Promise.resolve();
+		} );
+		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
+		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+			currentPosition
+		);
+
+		await act( async () => {
+			resolveSave( {
+				name: 'demo',
+				positions: {
+					n1: [ staleSavePosition.x, staleSavePosition.y ],
+				},
+			} );
+			await Promise.resolve();
+		} );
+		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
+		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+			currentPosition
+		);
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:other.p0' )
+		);
+		expect( stored.positions.n1 ).toEqual( currentPosition );
+	} );
+
 	describe( 'edit mode: topology includes', () => {
 		function mockTopologyGet( name, tsl, extra = {} ) {
 			hooks.fetchTopology.mockResolvedValueOnce( {

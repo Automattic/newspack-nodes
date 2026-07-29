@@ -443,20 +443,38 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	useEffect( () => {
 		if ( ! effectiveTopologyName ) {
 			setSavedLayout( null );
-			return;
+			return undefined;
 		}
+		const requestedTopologyName = effectiveTopologyName;
+		let active = true;
 		// Null while fetching so init can't lock in stale positions.
 		setSavedLayout( null );
-		fetchLayout( effectiveTopologyName )
+		fetchLayout( requestedTopologyName )
 			.then( ( resp ) => {
+				if ( ! active ) {
+					return;
+				}
 				setSavedLayout( {
+					name: requestedTopologyName,
 					positions: resp?.positions || null,
 				} );
 			} )
 			.catch( () => {
-				setSavedLayout( { positions: null } );
+				if ( ! active ) {
+					return;
+				}
+				setSavedLayout( {
+					name: requestedTopologyName,
+					positions: null,
+				} );
 			} );
+		return () => {
+			active = false;
+		};
 	}, [ effectiveTopologyName, fetchLayout ] );
+
+	const currentSavedLayout =
+		savedLayout?.name === effectiveTopologyName ? savedLayout : null;
 
 	const [ resetConfirm, setResetConfirm ] = useState( null );
 
@@ -486,8 +504,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ effectiveTopologyName, scope.key, mode ] );
 
 	const serverPositionsMap = useMemo(
-		() => savedPositionsToOverrides( savedLayout ),
-		[ savedLayout, savedPositionsToOverrides ]
+		() => savedPositionsToOverrides( currentSavedLayout ),
+		[ currentSavedLayout, savedPositionsToOverrides ]
 	);
 
 	// Graph canvas renders: frozen draft in edit, live metadata in view.
@@ -501,7 +519,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// VIEW waits for a REAL node; scaffolding-only layout tucks everything.
-	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null;
+	const serverFetchResolved =
+		! effectiveTopologyName || currentSavedLayout !== null;
 	const graphHasContent =
 		mode === 'edit' ? layoutGraph.nodes.length > 0 : parsedHasNodes;
 	const layoutReady =
@@ -542,7 +561,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Save Layout chip gate: positions diverge from the server's saved layout.
 	const layoutDivergesFromSaved = useMemo( () => {
-		const saved = ( savedLayout && savedLayout.positions ) || null;
+		const saved =
+			( currentSavedLayout && currentSavedLayout.positions ) || null;
 		// Only ids still on the canvas; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const overrideIds = Object.keys( positionOverrides ).filter( ( id ) =>
@@ -566,7 +586,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 		}
 		return false;
-	}, [ positionOverrides, savedLayout, layoutGraph ] );
+	}, [ positionOverrides, currentSavedLayout, layoutGraph ] );
 
 	// Reset Layout chip gating differs by mode (edit / server / local).
 	const editLayoutIsAutoLayout = serverSeedBlocked && ! canReset;
@@ -602,6 +622,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! effectiveTopologyName ) {
 			return;
 		}
+		const savedTopologyName = effectiveTopologyName;
 		// Only serialize canvas ids; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const positions = {};
@@ -617,10 +638,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 		try {
 			const resp = await saveLayout( {
-				name: effectiveTopologyName,
+				name: savedTopologyName,
 				positions,
 			} );
-			setSavedLayout( { positions: resp.positions || null } );
+			setSavedLayout( ( currentLayout ) =>
+				currentLayout && currentLayout.name !== savedTopologyName
+					? currentLayout
+					: {
+							name: savedTopologyName,
+							positions: resp.positions || null,
+					  }
+			);
 			setToast( {
 				kind: 'success',
 				text: sprintf(

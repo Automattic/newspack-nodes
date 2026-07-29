@@ -7,6 +7,15 @@ const GRAPH_AB = {
 	nodes: [ { id: 'a' }, { id: 'b' } ],
 	edges: [ { from: 'a', to: 'b' } ],
 };
+const GRAPH_ABC = {
+	nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
+	edges: [ { from: 'a', to: 'b' } ],
+};
+
+const serverLayout = () => ( {
+	a: { x: 741, y: -389 },
+	b: { x: -263, y: 947 },
+} );
 
 function render( props ) {
 	return renderHook( ( p ) => useCanvasLayout( p ), {
@@ -103,6 +112,148 @@ describe( 'useCanvasLayout', () => {
 			b: { x: 8, y: 8 },
 		} );
 		expect( result.current.canReset ).toBe( false );
+	} );
+
+	it( 'replaces malformed stored coordinates with a valid server layout', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: {
+					a: null,
+					b: { x: 117, y: -233 },
+				},
+				viewportDelta: null,
+				modified: false,
+			} )
+		);
+
+		const saved = serverLayout();
+		const { result } = render( { serverLayout: saved } );
+
+		expect( result.current.positions ).toEqual( saved );
+		expect( JSON.parse( window.localStorage.getItem( KEY ) ) ).toEqual( {
+			positions: saved,
+			viewportDelta: null,
+			modified: false,
+		} );
+	} );
+
+	it( 'replaces a clean fallback with a complete late server layout', () => {
+		const { result, rerender } = render( { graph: GRAPH_ABC } );
+		act( () => jest.advanceTimersByTime( 300 ) );
+		expect( result.current.positions ).toEqual( {
+			a: { x: 60, y: 80 },
+			b: { x: 300, y: 80 },
+			c: { x: 300, y: 190 },
+		} );
+		expect( result.current.canReset ).toBe( false );
+		expect(
+			JSON.parse( window.localStorage.getItem( KEY ) ).modified
+		).toBe( false );
+
+		const viewport = { x: 11, y: 22, w: 333, h: 444 };
+		const viewportDelta = { dcx: 55, dcy: -66, zoom: 1.75 };
+		act( () => result.current.onViewportChange( viewport, viewportDelta ) );
+
+		rerender( {
+			storageKey: KEY,
+			graph: GRAPH_ABC,
+			ready: true,
+			serverLayout: serverLayout(),
+		} );
+
+		const expected = {
+			...serverLayout(),
+			c: { x: -263, y: 1057 },
+		};
+		expect( result.current.positions ).toEqual( expected );
+		expect( result.current.viewport ).toBe( viewport );
+		expect( result.current.viewportDelta ).toBe( viewportDelta );
+		expect( result.current.canReset ).toBe( false );
+		expect( JSON.parse( window.localStorage.getItem( KEY ) ) ).toEqual( {
+			positions: expected,
+			viewportDelta,
+			modified: false,
+		} );
+	} );
+
+	it( 'preserves the complete dirty browser layout over a late server layout', () => {
+		const { result, rerender } = render();
+		act( () => jest.advanceTimersByTime( 300 ) );
+		act( () =>
+			result.current.onPositionChange( 'a', {
+				x: 1237,
+				y: -561,
+			} )
+		);
+		const browserPositions = result.current.positions;
+		expect( browserPositions ).toEqual( {
+			a: { x: 1237, y: -561 },
+			b: { x: 300, y: 80 },
+		} );
+
+		rerender( {
+			storageKey: KEY,
+			graph: GRAPH_AB,
+			ready: true,
+			serverLayout: serverLayout(),
+		} );
+
+		expect( result.current.positions ).toBe( browserPositions );
+		expect( result.current.canReset ).toBe( true );
+		expect( JSON.parse( window.localStorage.getItem( KEY ) ) ).toEqual( {
+			positions: browserPositions,
+			viewportDelta: null,
+			modified: true,
+		} );
+	} );
+
+	it( 'clears dirty when a late server layout acknowledges the browser map', () => {
+		const { result, rerender } = render();
+		act( () => jest.advanceTimersByTime( 300 ) );
+		const saved = serverLayout();
+		act( () => {
+			for ( const [ id, position ] of Object.entries( saved ) ) {
+				result.current.onPositionChange( id, position );
+			}
+		} );
+		const browserPositions = result.current.positions;
+		expect( browserPositions ).toEqual( saved );
+		expect( result.current.canReset ).toBe( true );
+
+		rerender( {
+			storageKey: KEY,
+			graph: GRAPH_AB,
+			ready: true,
+			serverLayout: serverLayout(),
+		} );
+
+		expect( result.current.positions ).toBe( browserPositions );
+		expect( result.current.canReset ).toBe( false );
+		expect( JSON.parse( window.localStorage.getItem( KEY ) ) ).toEqual( {
+			positions: saved,
+			viewportDelta: null,
+			modified: false,
+		} );
+	} );
+
+	it( 'keeps an already-applied matching clean server map by reference', () => {
+		const { result, rerender } = render( {
+			serverLayout: serverLayout(),
+		} );
+		const appliedPositions = result.current.positions;
+		const persisted = window.localStorage.getItem( KEY );
+
+		rerender( {
+			storageKey: KEY,
+			graph: GRAPH_AB,
+			ready: true,
+			serverLayout: serverLayout(),
+		} );
+
+		expect( result.current.positions ).toBe( appliedPositions );
+		expect( result.current.canReset ).toBe( false );
+		expect( window.localStorage.getItem( KEY ) ).toBe( persisted );
 	} );
 
 	it( 'onPositionChange updates the entry, sets canReset, persists', () => {

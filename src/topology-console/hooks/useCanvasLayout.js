@@ -66,10 +66,51 @@ function visiblePositions( positions, nodes ) {
 	return out;
 }
 
+function materializeServerPositions( serverLayout, nodes ) {
+	const positions = { ...serverLayout };
+	const visible = visiblePositions( positions, nodes );
+	for ( const n of nodes ) {
+		if ( ! positions[ n.id ] ) {
+			const position = placeBelow( visible );
+			positions[ n.id ] = position;
+			visible[ n.id ] = position;
+		}
+	}
+	return positions;
+}
+
+function isPosition( value ) {
+	return (
+		value !== null &&
+		typeof value === 'object' &&
+		Number.isFinite( value.x ) &&
+		Number.isFinite( value.y )
+	);
+}
+
+function positionsEqual( left, right ) {
+	const leftIds = Object.keys( left );
+	const rightIds = Object.keys( right );
+	return (
+		leftIds.length === rightIds.length &&
+		leftIds.every( ( id ) => {
+			const leftPosition = left[ id ];
+			const rightPosition = right[ id ];
+			return (
+				isPosition( leftPosition ) &&
+				isPosition( rightPosition ) &&
+				leftPosition.x === rightPosition.x &&
+				leftPosition.y === rightPosition.y
+			);
+		} )
+	);
+}
+
 /**
  * The canvas position map: built once (autoLayout / server layout) when the
- * complete graph is ready, then mutated only by drags, drops, and new-node
- * tucks. autoLayout never re-runs except via resetLayout.
+ * complete graph is ready, then reconciled with a late server layout or mutated
+ * by drags, drops, and new-node tucks. autoLayout never re-runs except via
+ * resetLayout.
  *
  * @param {Object}  opts
  * @param {string}  opts.storageKey     localStorage key (scope-scoped).
@@ -102,7 +143,7 @@ export function useCanvasLayout( {
 		setState( load( storageKey ) );
 	}, [ storageKey ] );
 
-	// One-shot init; the prev.key guard lets a concurrent key-change win.
+	// One-shot init / late server reconcile; a concurrent key-change wins.
 	useEffect( () => {
 		if ( ! ready ) {
 			return undefined;
@@ -111,27 +152,33 @@ export function useCanvasLayout( {
 		if ( nodes.length === 0 ) {
 			return undefined;
 		}
-		// Already initialized for this scope — graph growth is the tuck job.
-		if ( state.positions !== null && state.key === storageKey ) {
-			return undefined;
-		}
 
-		// Server-seeded scopes arrive complete — adopt the saved layout now.
+		// Dirty browser positions win until the complete server map matches.
 		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
+			const serverPositions = materializeServerPositions(
+				serverLayout,
+				nodes
+			);
 			setState( ( prev ) => {
-				if ( prev.positions !== null || prev.key !== storageKey ) {
+				if ( prev.key !== storageKey ) {
 					return prev;
 				}
-				const positions = { ...serverLayout };
-				for ( const n of nodes ) {
-					if ( ! positions[ n.id ] ) {
-						positions[ n.id ] = placeBelow(
-							visiblePositions( positions, nodes )
-						);
+				const matches =
+					prev.positions !== null &&
+					positionsEqual( prev.positions, serverPositions );
+				if ( prev.positions !== null && prev.modified && ! matches ) {
+					return prev;
+				}
+				if ( matches ) {
+					if ( ! prev.modified ) {
+						return prev;
 					}
+					const acknowledged = { ...prev, modified: false };
+					persist( storageKey, acknowledged );
+					return acknowledged;
 				}
 				const next = {
-					positions,
+					positions: serverPositions,
 					viewport: prev.viewport,
 					viewportDelta: prev.viewportDelta,
 					modified: false,
@@ -140,6 +187,11 @@ export function useCanvasLayout( {
 				persist( storageKey, next );
 				return next;
 			} );
+			return undefined;
+		}
+
+		// Already initialized for this scope — graph growth is the tuck job.
+		if ( state.positions !== null && state.key === storageKey ) {
 			return undefined;
 		}
 
