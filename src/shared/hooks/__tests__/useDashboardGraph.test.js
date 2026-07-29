@@ -6,14 +6,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { Core } from '@newspack-nodes/runtime';
-
-// global (not a module-scoped var) so jest.mock's hoisted factory may read it.
-global.__pageVisible = true;
-jest.mock( '../usePageVisibility', () => ( {
-	__esModule: true,
-	default: () => global.__pageVisible,
-} ) );
+import { Core, useNodeState } from '@newspack-nodes/runtime';
 
 import { useDashboardGraph, makeOpId } from '../useDashboardGraph';
 
@@ -21,10 +14,27 @@ const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
 const VIEW = 'test:view';
+const REFRESH_MS = 4321;
+const RETIMED_REFRESH_MS = 8765;
+
+function setVisibility( state ) {
+	Object.defineProperty( document, 'visibilityState', {
+		configurable: true,
+		get: () => state,
+	} );
+	document.dispatchEvent( new Event( 'visibilitychange' ) );
+}
 
 beforeEach( () => {
-	global.__pageVisible = true;
 	Core.reset();
+	Object.defineProperty( document, 'visibilityState', {
+		configurable: true,
+		get: () => 'visible',
+	} );
+} );
+
+afterEach( () => {
+	jest.restoreAllMocks();
 } );
 
 describe( 'useDashboardGraph — mount', () => {
@@ -108,17 +118,17 @@ describe( 'useDashboardGraph — poll', () => {
 				useDashboardGraph( {
 					mountNodes: () => {},
 					poll: ( i ) => calls.push( i ),
-					refreshMs: 4000,
+					refreshMs: REFRESH_MS,
 				} )
 			);
 			const afterMount = calls.length;
 			expect( afterMount ).toBe( 1 );
 			act( () => {
-				jest.advanceTimersByTime( 4000 );
+				jest.advanceTimersByTime( REFRESH_MS );
 			} );
 			expect( calls.length ).toBe( afterMount + 1 );
 			act( () => {
-				jest.advanceTimersByTime( 4000 );
+				jest.advanceTimersByTime( REFRESH_MS );
 			} );
 			expect( calls.length ).toBe( afterMount + 2 );
 		} finally {
@@ -126,8 +136,8 @@ describe( 'useDashboardGraph — poll', () => {
 		}
 	} );
 
-	test( 'does not poll on interval while the page is hidden', () => {
-		global.__pageVisible = false;
+	test( 'does not poll while initially hidden, then polls immediately on becoming visible', () => {
+		setVisibility( 'hidden' );
 		jest.useFakeTimers();
 		try {
 			const calls = [];
@@ -135,47 +145,26 @@ describe( 'useDashboardGraph — poll', () => {
 				useDashboardGraph( {
 					mountNodes: () => {},
 					poll: ( i ) => calls.push( i ),
-					refreshMs: 4000,
+					refreshMs: REFRESH_MS,
 				} )
 			);
-			// The immediate mount poll still fires; the interval does not.
-			const baseline = calls.length;
+			expect( calls ).toHaveLength( 0 );
 			act( () => {
-				jest.advanceTimersByTime( 12000 );
+				jest.advanceTimersByTime( REFRESH_MS * 3 );
 			} );
-			expect( calls.length ).toBe( baseline );
+			expect( calls ).toHaveLength( 0 );
+
+			act( () => {
+				setVisibility( 'visible' );
+			} );
+			expect( calls ).toHaveLength( 1 );
+			expect( calls[ 0 ] ).toBe( Core.node( INTERPRETER ) );
 		} finally {
 			jest.useRealTimers();
 		}
 	} );
 
-	test( 'fires an immediate poll when the page becomes visible again (no full-interval stale gap)', () => {
-		global.__pageVisible = false;
-		jest.useFakeTimers();
-		try {
-			const calls = [];
-			const { rerender } = renderHook( () =>
-				useDashboardGraph( {
-					mountNodes: () => {},
-					poll: ( i ) => calls.push( i ),
-					refreshMs: 4000,
-				} )
-			);
-			// Hidden: drain any mount poll into the baseline.
-			const hiddenBaseline = calls.length;
-
-			// Becoming visible must refresh immediately, no tick wait.
-			global.__pageVisible = true;
-			act( () => {
-				rerender();
-			} );
-			expect( calls.length ).toBe( hiddenBaseline + 1 );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'does not double-poll on initial mount (mount poll + visibility poll)', () => {
+	test( 'does not double-poll when real visibility reconciles false to true on mount', () => {
 		jest.useFakeTimers();
 		try {
 			const calls = [];
@@ -183,11 +172,122 @@ describe( 'useDashboardGraph — poll', () => {
 				useDashboardGraph( {
 					mountNodes: () => {},
 					poll: ( i ) => calls.push( i ),
-					refreshMs: 4000,
+					refreshMs: REFRESH_MS,
 				} )
 			);
-			// Exactly ONE poll on mount; visibility effect adds no second poll.
-			expect( calls.length ).toBe( 1 );
+			expect( calls ).toHaveLength( 1 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 're-times the interval and polls once immediately when refreshMs changes', () => {
+		jest.useFakeTimers();
+		try {
+			const calls = [];
+			const { rerender } = renderHook(
+				( { refreshMs } ) =>
+					useDashboardGraph( {
+						mountNodes: () => {},
+						poll: ( i ) => calls.push( i ),
+						refreshMs,
+					} ),
+				{ initialProps: { refreshMs: REFRESH_MS } }
+			);
+			expect( calls ).toHaveLength( 1 );
+
+			act( () => {
+				jest.advanceTimersByTime( REFRESH_MS - 1 );
+				rerender( { refreshMs: RETIMED_REFRESH_MS } );
+			} );
+			expect( calls ).toHaveLength( 2 );
+
+			act( () => {
+				jest.advanceTimersByTime( REFRESH_MS );
+			} );
+			expect( calls ).toHaveLength( 2 );
+
+			act( () => {
+				jest.advanceTimersByTime( RETIMED_REFRESH_MS - REFRESH_MS );
+			} );
+			expect( calls ).toHaveLength( 3 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'keeps interval polls paused without re-timing the interval', () => {
+		jest.useFakeTimers();
+		try {
+			const calls = [];
+			const { rerender } = renderHook(
+				( { paused } ) =>
+					useDashboardGraph( {
+						mountNodes: () => {},
+						poll: ( i ) => calls.push( i ),
+						paused,
+						refreshMs: REFRESH_MS,
+					} ),
+				{ initialProps: { paused: false } }
+			);
+			expect( calls ).toHaveLength( 1 );
+
+			act( () => {
+				rerender( { paused: true } );
+			} );
+			act( () => {
+				jest.advanceTimersByTime( REFRESH_MS );
+			} );
+			expect( calls ).toHaveLength( 1 );
+
+			act( () => {
+				rerender( { paused: false } );
+			} );
+			act( () => {
+				jest.advanceTimersByTime( REFRESH_MS );
+			} );
+			expect( calls ).toHaveLength( 2 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'polls once and rebinds consumer node state after a visible graph rebuild', () => {
+		jest.useFakeTimers();
+		try {
+			const calls = [];
+			const { result } = renderHook( () => {
+				const graph = useDashboardGraph( {
+					mountNodes: ( interpreter ) =>
+						interpreter.makeNode( 'Tee', VIEW ),
+					poll: ( i ) => calls.push( i ),
+					refreshMs: REFRESH_MS,
+				} );
+				const view = useNodeState( VIEW, 'view' );
+				return { ...graph, view };
+			} );
+			expect( calls ).toHaveLength( 1 );
+
+			const firstView = Core.node( VIEW );
+			act( () => {
+				firstView.setState( 'view', 'before-rebuild' );
+			} );
+			expect( result.current.view ).toBe( 'before-rebuild' );
+
+			calls.length = 0;
+			act( () => {
+				Core.bumpGraphGeneration();
+			} );
+
+			const rebuiltView = Core.node( VIEW );
+			expect( rebuiltView ).not.toBe( firstView );
+			expect( calls ).toHaveLength( 1 );
+			expect( calls[ 0 ] ).toBe( Core.node( INTERPRETER ) );
+
+			act( () => {
+				rebuiltView.setState( 'view', 'after-rebuild' );
+			} );
+			expect( result.current.view ).toBe( 'after-rebuild' );
 		} finally {
 			jest.useRealTimers();
 		}

@@ -4,7 +4,11 @@
  * Tracks whether the page/tab is visible to pause refreshes when hidden.
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useLayoutEffect, useState } from '@wordpress/element';
+
+function getSnapshot() {
+	return 'visible' === document.visibilityState;
+}
 
 /**
  * Hook to track page visibility state.
@@ -12,16 +16,16 @@ import { useState, useEffect } from '@wordpress/element';
  * @return {boolean} True if page is visible, false if hidden.
  */
 export default function usePageVisibility() {
-	const [ isVisible, setIsVisible ] = useState(
-		() => document.visibilityState === 'visible'
-	);
+	// Hidden until the layout subscription reconciles the live snapshot.
+	const [ isVisible, setIsVisible ] = useState( false );
 
-	useEffect( () => {
+	useLayoutEffect( () => {
 		const handleVisibilityChange = () => {
-			setIsVisible( document.visibilityState === 'visible' );
+			setIsVisible( getSnapshot() );
 		};
 
 		document.addEventListener( 'visibilitychange', handleVisibilityChange );
+		handleVisibilityChange();
 		return () =>
 			document.removeEventListener(
 				'visibilitychange',
