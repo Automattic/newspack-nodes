@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`wp nodes restart supervisor` no longer reports a transient error during a healthy supervisor handoff.** When the singleton lock disappears between generations, the command waits one second and accepts a reappeared live heartbeat as successful turnover. A missing or stale successor and failures against an existing lock still fail loudly, and the command never queues a second restart.
+
 ## [2.2.6] - 2026-07-28
 
 ### Added
