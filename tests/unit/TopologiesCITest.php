@@ -485,6 +485,9 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'too large', $result );
 	}
 
+	/**
+	 * @medium
+	 */
 	public function test_save_accepts_large_body_under_one_mib(): void {
 		// A real captured graph (hundreds of KiB of make_node lines) is well
 		// over the old 64 KiB guard but under the 1 MiB cap — it must save.
