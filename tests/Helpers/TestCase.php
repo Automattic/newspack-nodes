@@ -151,6 +151,9 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Config' ) ) {
 			\Newspack_Nodes\Config::reset();
 		}
+		if ( \class_exists( '\Newspack_Nodes\CLI', false ) ) {
+			\Newspack_Nodes\CLI::$sleep = null;
+		}
 		$this->reset_health_test_state();
 		parent::tearDown();
 	}

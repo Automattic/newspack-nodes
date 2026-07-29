@@ -324,6 +324,52 @@ class CliTest extends TestCase {
 		$this->assertFileExists( "{$this->tmp}/locks/supervisor.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
+	public function test_restart_supervisor_accepts_live_lock_that_reappears_during_handoff(): void {
+		$lock_dir    = "{$this->tmp}/locks/supervisor.lock.d";
+		$started_at  = \time() - 137;
+		$heartbeat_at = \time() - 7;
+		$waits       = [];
+
+		CLI::$sleep = static function ( int $seconds ) use ( $lock_dir, $started_at, $heartbeat_at, &$waits ): void {
+			$waits[] = $seconds;
+			\mkdir( $lock_dir, 0755, true );
+			\file_put_contents( "{$lock_dir}/heartbeat", '7391' );
+			\touch( "{$lock_dir}/heartbeat", $heartbeat_at );
+			\file_put_contents( "{$lock_dir}/started", (string) $started_at );
+		};
+
+		$result = ( new CLI( $this->tmp ) )->restart_supervisor();
+
+		$this->assertTrue( $result, 'a live successor appearing during the handoff is a successful restart' );
+		$this->assertSame( [ 1 ], $waits, 'the handoff check waits exactly one second' );
+		$this->assertFileDoesNotExist(
+			"{$lock_dir}/" . Lock_Node::RESTART_FLAG,
+			'the successor must not receive a second restart request'
+		);
+		$status = ( new CLI( $this->tmp ) )->supervisor_status();
+		$this->assertNotNull( $status );
+		$this->assertFalse( $status['stale'] );
+		$this->assertSame( $started_at, $status['started_at'] );
+	}
+
+	public function test_restart_supervisor_rejects_stale_lock_that_reappears_during_handoff(): void {
+		$lock_dir     = "{$this->tmp}/locks/supervisor.lock.d";
+		$heartbeat_at = \time() - 137;
+		$waits        = [];
+		CLI::$sleep   = static function ( int $seconds ) use ( $lock_dir, $heartbeat_at, &$waits ): void {
+			$waits[] = $seconds;
+			\mkdir( $lock_dir, 0755, true );
+			\file_put_contents( "{$lock_dir}/heartbeat", '9151' );
+			\touch( "{$lock_dir}/heartbeat", $heartbeat_at );
+		};
+
+		$result = ( new CLI( $this->tmp ) )->restart_supervisor();
+
+		$this->assertFalse( $result, 'a stale successor heartbeat is not a successful restart' );
+		$this->assertSame( [ 1 ], $waits );
+		$this->assertFileDoesNotExist( "{$lock_dir}/" . Lock_Node::RESTART_FLAG );
+	}
+
 	// ── read_probe_index() ───────────────────────────────────────────────────────
 
 	/** Append a positional Probe_Record snapshot to logs/topicprobe.p0/0.log. */

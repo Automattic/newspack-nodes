@@ -173,11 +173,44 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertSame( [ 'Requested supervisor restart.' ], $GLOBALS['_test_wp_cli_success'] );
 	}
 
-	public function test_restart_supervisor_fails_when_request_cannot_be_written(): void {
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'Unable to request supervisor restart.' );
+	public function test_restart_supervisor_fails_when_successor_does_not_reappear(): void {
+		$waits      = [];
+		CLI::$sleep = static function ( int $seconds ) use ( &$waits ): void {
+			$waits[] = $seconds;
+		};
 
-		( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
+			$this->fail( 'Expected a missing supervisor successor to fail.' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'Unable to request supervisor restart.', $e->getMessage() );
+		}
+
+		$this->assertSame( [ 1 ], $waits );
+		$this->assertSame( [ 'Unable to request supervisor restart.' ], $GLOBALS['_test_wp_cli_errors'] );
+	}
+
+	public function test_restart_supervisor_keeps_existing_lock_write_denial_loud(): void {
+		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+		\file_put_contents( "{$lock_dir}/heartbeat", '8117' );
+		CLI::$uid_provider = static fn (): int => 0;
+		CLI::$sleep        = static function (): void {
+			throw new \LogicException( 'An existing-lock failure must not enter the handoff wait.' );
+		};
+
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
+			$this->fail( 'Expected an existing-lock write denial to fail.' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'Unable to request supervisor restart.', $e->getMessage() );
+		} finally {
+			CLI::$uid_provider = null;
+		}
+
+		$this->assertSame( [ 'Unable to request supervisor restart.' ], $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
 	}
 
 	public function test_restart_supervisor_rejects_partition_option(): void {

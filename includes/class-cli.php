@@ -22,6 +22,14 @@ class CLI {
 	 */
 	public static ?\Closure $uid_provider = null;
 
+	/**
+	 * Sleep seam for the supervisor handoff check.
+	 * Signature: `function (int $seconds): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $sleep = null;
+
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
@@ -238,12 +246,33 @@ class CLI {
 	}
 
 	/**
-	 * Drop a restart flag at the supervisor's singleton lock dir.
+	 * Drop a restart flag at the supervisor's singleton lock dir, or recognize
+	 * a live successor that appears during the normal lock handoff.
 	 *
-	 * @return bool True when the flag was written.
+	 * @return bool True when the flag was written or the handoff completed.
 	 */
 	public function restart_supervisor(): bool {
-		return Lock_Node::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
+		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
+		\clearstatcache( true, $lock_dir );
+		if ( \is_dir( $lock_dir ) ) {
+			if ( Lock_Node::request_restart_at( $lock_dir ) ) {
+				return true;
+			}
+			\clearstatcache( true, $lock_dir );
+			if ( \is_dir( $lock_dir ) ) {
+				return false;
+			}
+		}
+
+		$sleep = self::$sleep ?? static function ( int $seconds ): void {
+			\sleep( $seconds );
+		};
+		$sleep( 1 );
+
+		\clearstatcache( true, $lock_dir );
+		\clearstatcache( true, "{$lock_dir}/heartbeat" );
+		$status = $this->supervisor_status();
+		return null !== $status && ! $status['stale'];
 	}
 
 	/**
