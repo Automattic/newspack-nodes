@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.6] - 2026-07-28
+
 ### Added
 
 - **`wp nodes restart supervisor` now restarts the singleton supervisor directly.** The command bypasses topology resolution so it remains usable while plugins are being deployed, fails loudly when no restart can be requested, and `wp nodes types` lists the supervisor separately from partitioned topology groups.
