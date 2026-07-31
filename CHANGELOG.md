@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The `fleet_site()` boundary now covers the admin surface, not just REST.**
+  The 2026-07-25 audit closed this for the four REST routes via
+  `Bootstrap::fleet_gate()` and never swept the admin path, where two callers
+  reach the network-global lock tree: `updated_option` →
+  `Restart_Planner::request_restarts()`, and the explicit
+  `CLI::restart_workers()`. Because `base_directory` is read per-site and a
+  subsite that never set it falls back to the same shipped default, a subsite
+  Administrator could restart the main site's entire fleet — from any settings
+  save, or from event-logger-nodes' Flush Cache button. Both now no-op on a
+  subsite.
+
+  The guard went into the two shared resolvers rather than onto each admin
+  handler, so consumer plugins inherit it with no change of their own; that was
+  the audit's own lesson about guards drifting when they live at call sites.
+
 ### Added
 
 - **ADR-15 — command authorization.** The `LOCAL` in-process tier, HMAC on the

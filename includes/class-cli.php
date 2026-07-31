@@ -221,6 +221,9 @@ class CLI {
 	 * @return int Number of restart-flag files written.
 	 */
 	public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
+		if ( ! Bootstrap::fleet_site() ) {
+			return 0;
+		}
 		$restarted = 0;
 		$wildcard  = empty( $filter ) || isset( $filter['all'] );
 
