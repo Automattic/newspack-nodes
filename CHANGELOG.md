@@ -7,84 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Cleared the CodeQL code-quality findings — three dead branches and 27 calls
-  passing an argument nothing reads.** None changed behaviour; each was code
-  asserting something untrue, which misleads the next reader.
-
-  `Header.js` guarded NEW and OPEN on `! onClose` from inside the *else* branch
-  of `{ onClose ? … : … }`, where it is true by construction; the ternary already
-  hid them, and the tests that prove it ("hides the live NEW button in the debug
-  overlay", "the debug overlay has no editor") pass unchanged. `command-args.js`
-  chose `raw ? 'true' : 'false'` after the `true === raw` case had already
-  `continue`d, so the `'true'` branch was unreachable — the wire form is
-  unchanged (bare `--key` for true, `--key=false` for false).
-
-  In tests, 22 `coerceValue( type, raw, prev )` calls passed a third argument the
-  function has never accepted — the signature is two parameters in every revision
-  of `CtorField.js`, so this encoded a previous-value behaviour that never
-  existed. Five `rootClass( container )` calls passed a container to a helper that
-  reads `document.documentElement` by design ("the skin is now the global
-  `<html>.theme-<slug>` class"), making the assertions look scoped when they are
-  not.
-
-### Security
-
-- **Dev-dependency advisories cleared where a fix exists.** `js-yaml` to 4.3.1
-  and `brace-expansion` to 1.1.18 / 2.1.4, closing GHSA-52cp-r559-cp3m and
-  GHSA-3jxr-9vmj-r5cp. All are development scope — `build-release.sh` excludes
-  `node_modules` and PHP installs `--no-dev`, so none of this ships.
-
-  **GHSA-mh99-v99m-4gvg (brace-expansion) is deliberately left open.** It covers
-  every version `<= 5.0.7`, so the fix is 5.0.8 — and 5.0.8 changed the CommonJS
-  export from a bare function to `{ EXPANSION_MAX, EXPANSION_MAX_LENGTH, expand }`,
-  which every `minimatch` below 10 calls as a function. An override to 5.0.8 or
-  5.0.9 breaks eslint with `TypeError: expand is not a function`. `npm audit fix
-  --force` clears it only by taking eslint 10 AND downgrading jest 30 to 25 and
-  babel-jest 30 to 23. The residual risk is a DoS reachable only by feeding a
-  hostile glob to our own build tooling, which a hostile PR could not do without
-  already being able to run code in CI.
-
-### Fixed
-
-- **No runtime node may leave a timer armed past its test, and the harness now
-  enforces it.** A node holding a real interval that outlives its test fires
-  against a jumped clock inside somebody else's test — which is how a leaked
-  `SseInNode` watchdog read a fake-timer advance as stream silence, reconnected,
-  and printed, failing whichever test happened to be running. Fixing the leaking
-  suites one at a time missed the next one twice.
-
-  Teardown and a standing leak guard moved into
-  `src/build-kit/jest-node-timers.js`, which `createJestConfig` loads ahead of
-  each consumer's own `jest.setup.js`. Every plugin composing runtime nodes
-  inherits one copy: event-logger-nodes was leaking 229 intervals across 7
-  suites and newspack-nodes 160 across 17, both now zero, with no file changed
-  in either consumer repo. The guard fails a suite that leaves one armed and
-  names the class and site.
-
-  Two ordering constraints are load-bearing and commented as such: the interval
-  accounting installs before the teardown captures `clearInterval` (capture the
-  raw one and disposal goes unrecorded, so every disposed timer reads as a
-  leak), and the teardown must never call `useRealTimers()` — `timer-node.test`
-  installs fake timers once at module scope.
-
-### Security
-
-- **The `fleet_site()` boundary now covers the admin surface, not just REST.**
-  The 2026-07-25 audit closed this for the four REST routes via
-  `Bootstrap::fleet_gate()` and never swept the admin path, where two callers
-  reach the network-global lock tree: `updated_option` →
-  `Restart_Planner::request_restarts()`, and the explicit
-  `CLI::restart_workers()`. Because `base_directory` is read per-site and a
-  subsite that never set it falls back to the same shipped default, a subsite
-  Administrator could restart the main site's entire fleet — from any settings
-  save, or from event-logger-nodes' Flush Cache button. Both now no-op on a
-  subsite.
-
-  The guard went into the two shared resolvers rather than onto each admin
-  handler, so consumer plugins inherit it with no change of their own; that was
-  the audit's own lesson about guards drifting when they live at call sites.
+## [2.3.3] - 2026-07-31
 
 ### Added
 
@@ -109,6 +32,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it re-throws the throwable `outranks()` selects.
 
 ### Fixed
+
+- **Cleared the CodeQL code-quality findings — three dead branches and 27 calls
+  passing an argument nothing reads.** None changed behaviour; each was code
+  asserting something untrue, which misleads the next reader.
+
+  `Header.js` guarded NEW and OPEN on `! onClose` from inside the *else* branch
+  of `{ onClose ? … : … }`, where it is true by construction; the ternary already
+  hid them, and the tests that prove it ("hides the live NEW button in the debug
+  overlay", "the debug overlay has no editor") pass unchanged. `command-args.js`
+  chose `raw ? 'true' : 'false'` after the `true === raw` case had already
+  `continue`d, so the `'true'` branch was unreachable — the wire form is
+  unchanged (bare `--key` for true, `--key=false` for false).
+
+  In tests, 22 `coerceValue( type, raw, prev )` calls passed a third argument the
+  function has never accepted — the signature is two parameters in every revision
+  of `CtorField.js`, so this encoded a previous-value behaviour that never
+  existed. Five `rootClass( container )` calls passed a container to a helper that
+  reads `document.documentElement` by design ("the skin is now the global
+  `<html>.theme-<slug>` class"), making the assertions look scoped when they are
+  not.
+
+- **No runtime node may leave a timer armed past its test, and the harness now
+  enforces it.** A node holding a real interval that outlives its test fires
+  against a jumped clock inside somebody else's test — which is how a leaked
+  `SseInNode` watchdog read a fake-timer advance as stream silence, reconnected,
+  and printed, failing whichever test happened to be running. Fixing the leaking
+  suites one at a time missed the next one twice.
+
+  Teardown and a standing leak guard moved into
+  `src/build-kit/jest-node-timers.js`, which `createJestConfig` loads ahead of
+  each consumer's own `jest.setup.js`. Every plugin composing runtime nodes
+  inherits one copy: event-logger-nodes was leaking 229 intervals across 7
+  suites and newspack-nodes 160 across 17, both now zero, with no file changed
+  in either consumer repo. The guard fails a suite that leaves one armed and
+  names the class and site.
+
+  Two ordering constraints are load-bearing and commented as such: the interval
+  accounting installs before the teardown captures `clearInterval` (capture the
+  raw one and disposal goes unrecorded, so every disposed timer reads as a
+  leak), and the teardown must never call `useRealTimers()` — `timer-node.test`
+  installs fake timers once at module scope.
 
 - **`test_debounced_oversize_drop_still_arms_the_release_timer` tested the write
   path.** Its payload was a literal 11 MB, which stopped being oversize when the
@@ -140,6 +104,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unexpected console output as a failure. The harness now owns teardown: nodes
   register on construction and an `afterEach` restores real timers, then closes
   them. `io-telemetry-instrumentation` leaked four the same way.
+
+### Security
+
+- **Dev-dependency advisories cleared where a fix exists.** `js-yaml` to 4.3.1
+  and `brace-expansion` to 1.1.18 / 2.1.4, closing GHSA-52cp-r559-cp3m and
+  GHSA-3jxr-9vmj-r5cp. All are development scope — `build-release.sh` excludes
+  `node_modules` and PHP installs `--no-dev`, so none of this ships.
+
+  **GHSA-mh99-v99m-4gvg (brace-expansion) is deliberately left open.** It covers
+  every version `<= 5.0.7`, so the fix is 5.0.8 — and 5.0.8 changed the CommonJS
+  export from a bare function to `{ EXPANSION_MAX, EXPANSION_MAX_LENGTH, expand }`,
+  which every `minimatch` below 10 calls as a function. An override to 5.0.8 or
+  5.0.9 breaks eslint with `TypeError: expand is not a function`. `npm audit fix
+  --force` clears it only by taking eslint 10 AND downgrading jest 30 to 25 and
+  babel-jest 30 to 23. The residual risk is a DoS reachable only by feeding a
+  hostile glob to our own build tooling, which a hostile PR could not do without
+  already being able to run code in CI.
+
+- **The `fleet_site()` boundary now covers the admin surface, not just REST.**
+  The 2026-07-25 audit closed this for the four REST routes via
+  `Bootstrap::fleet_gate()` and never swept the admin path, where two callers
+  reach the network-global lock tree: `updated_option` →
+  `Restart_Planner::request_restarts()`, and the explicit
+  `CLI::restart_workers()`. Because `base_directory` is read per-site and a
+  subsite that never set it falls back to the same shipped default, a subsite
+  Administrator could restart the main site's entire fleet — from any settings
+  save, or from event-logger-nodes' Flush Cache button. Both now no-op on a
+  subsite.
+
+  The guard went into the two shared resolvers rather than onto each admin
+  handler, so consumer plugins inherit it with no change of their own; that was
+  the audit's own lesson about guards drifting when they live at call sites.
 
 ## [2.3.2] - 2026-07-31
 
