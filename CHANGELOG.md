@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-07-31
+
 ### Added
 
 - **`wp nodes gc [--force]`** — sweep orphan log + offsetlog dirs on demand
@@ -17,14 +19,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--force` drops that wait to zero, for reclaiming a topology you just tore
   down. `Log_Cleaner::cleanup_orphan_partitions()` takes the grace as a second
   parameter, defaulted to the constant, so the supervisor path is unchanged.
-
-
-### Fixed
-
 - **`Topology_Registry::includes()`** — the transitive include set of one
   topology. "Does this deployment run X?" cannot be answered from the ACTIVE
   topology NAMES: a deployment routinely runs a stock topology through a
   locally-named wrapper, whose name says nothing about what it composes.
+- A `lint-docs` assertion for the retired
+  `newspack_event_logger_nodes_rules_schema_version` option, so the prose
+  cannot drift back to naming it.
+
+### Fixed
+
+- **The spawn POST budget is 250ms, up from 50ms** (`SPAWN_POST_TIMEOUT_MS`).
+  The budget only has to cover WRITING the request — the reply is never
+  awaited — but 50ms could still abort mid-TLS-handshake on a slower site, and
+  the failure is silent: nothing reaches the access log and
+  `CURLE_OPERATION_TIMEDOUT` counts as success, so the fleet simply never
+  starts.
 
 ### Changed
 
