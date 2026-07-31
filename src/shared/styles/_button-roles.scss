@@ -39,10 +39,7 @@
 		);
 		color: var(
 			--button-secondary-hover-color,
-			var(
-				--button-secondary-color,
-				var(--ink, var(--np-text))
-			)
+			var(--button-secondary-color, var(--ink, var(--np-text)))
 		);
 	}
 }

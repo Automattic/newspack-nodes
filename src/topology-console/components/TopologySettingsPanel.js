@@ -151,7 +151,7 @@ export default function TopologySettingsPanel( {
 				<span>{ __( 'Topology settings', 'newspack-nodes' ) }</span>
 				<button
 					type="button"
-					className="button button-small topology-settings-panel__close"
+					className="button is-plain topology-settings-panel__close"
 					onClick={ onClose }
 					aria-label={ __( 'Close', 'newspack-nodes' ) }
 				>

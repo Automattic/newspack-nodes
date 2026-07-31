@@ -653,7 +653,7 @@ describe( 'Inspector (edit mode)', () => {
 				onUpdateArgs={ onUpdateArgs }
 			/>
 		);
-		const clear = container.querySelector( '.topology-edit-row__clear' );
+		const clear = container.querySelector( '.topology-edit-row__reset' );
 		fireEvent.click( clear );
 		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ '' ] );
 	} );
@@ -1081,5 +1081,20 @@ describe( 'Inspector (edit mode)', () => {
 			/>
 		);
 		expect( container.textContent ).toMatch( /No other nodes to wire/ );
+	} );
+
+	// The include tree is FILE-scoped ("the authoritative include structure for
+	// the file being edited"); a node selection is a different scope.
+	it( 'leaves the file-scoped include tree out of a node-selected panel', () => {
+		render(
+			<Inspector
+				{ ...baseProps }
+				tree={ { performance: { echo: {} } } }
+				includes={ [ 'performance' ] }
+				onRemoveInclude={ () => {} }
+			/>
+		);
+
+		expect( screen.queryByText( 'Includes' ) ).toBeNull();
 	} );
 } );

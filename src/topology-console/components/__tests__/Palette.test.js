@@ -102,6 +102,11 @@ describe( 'Palette', () => {
 				has_target: false,
 			},
 			{ shell_name: 'Both', category: 'Generic' }, // both default true
+			{
+				shell_name: 'Fanny',
+				category: 'Routing',
+				fans_out: true,
+			},
 		];
 		const { container } = render(
 			<Palette classes={ classes } loading={ false } />
@@ -126,6 +131,11 @@ describe( 'Palette', () => {
 		);
 		// Default (both connectors): no modifier.
 		expect( glyphOf( 'Both' ).className ).toBe( 'topology-palette__glyph' );
+		// Fan-out is derived from the Fanout_Targets trait, not a name list.
+		expect( glyphOf( 'Fanny' ).className ).toContain(
+			'topology-palette__glyph--fanout'
+		);
+		expect( glyphOf( 'Both' ).className ).not.toContain( '--fanout' );
 	} );
 
 	it( 'the drag ghost renders the actual node card with schema-correct ports', () => {

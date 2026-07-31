@@ -125,10 +125,10 @@ describe( 'InspectorTab registration + render', () => {
 		expect( getByTestId( 'inspector-tab' ) ).not.toBeNull();
 	} );
 
-	it( 'is Overview-only when buildRepl is false (no infra; points at the Console)', () => {
+	function renderReplOff() {
 		mountExospine();
 		const InspectorTab = require( '../tabs/InspectorTab' ).default;
-		const { getByText } = render(
+		return render(
 			<InspectorTab
 				host="overlay"
 				storageKey="newspack-nodes:debug"
@@ -137,9 +137,23 @@ describe( 'InspectorTab registration + render', () => {
 				buildRepl={ false }
 			/>
 		);
+	}
+
+	it( 'is Overview-only when buildRepl is false (no infra; points at the Console)', () => {
+		const { getByTestId } = renderReplOff();
 		// No overlay infra: Console tab owns `_output`; a second collides.
 		expect( Core.node( '_output' ) ).toBeNull();
-		expect( getByText( /Console tab itself/i ) ).not.toBeNull();
+		expect( getByTestId( 'inspector-tab' ).textContent ).toBe(
+			"The graph and REPL live in this page's own Console tab. " +
+				"Switch to Overview to watch this browser's I/O."
+		);
+	} );
+
+	it( 'holds I/O on one line so it cannot orphan across the slash', () => {
+		const { container } = renderReplOff();
+		const nowrap = container.querySelector( '.nodes-debug__nowrap' );
+		expect( nowrap ).not.toBeNull();
+		expect( nowrap.textContent ).toBe( 'I/O' );
 	} );
 } );
 

@@ -4,8 +4,8 @@
  * A hull is a COMPOSITION BOUNDARY, not a node, so this panel deliberately shows
  * what the canvas cannot: the recursion we flattened out of the drawing, the
  * diamond nodes that are only visible as an overlap, and the edges crossing the
- * boundary — the borrowed subsystem's interface. The action is to OPEN it: the
- * hull is the handle for drilling into the topology it stands for.
+ * boundary — the borrowed subsystem's interface. It is the handle for drilling
+ * into the topology it stands for, and for removing the include that brings it.
  */
 
 import { __, sprintf, _n } from '@wordpress/i18n';
@@ -117,7 +117,9 @@ export default function HullPanel( {
 	rateSeries,
 	editMode = false,
 	includeTree = {},
+	includes = [],
 	onOpenTopology,
+	onRemoveHull,
 } ) {
 	const nodes = hullNodes( parsed.nodes, hulls, include );
 	const members = new Set( nodes.map( ( n ) => n.id ) );
@@ -172,6 +174,18 @@ export default function HullPanel( {
 							__( 'Open %s.tsl', 'newspack-nodes' ),
 							include
 						) }
+					</button>
+				) }
+
+				{ /* Only a DIRECTLY-declared include has a line here to remove. */ }
+				{ editMode && onRemoveHull && includes.includes( include ) && (
+					<button
+						type="button"
+						data-testid="hull-remove"
+						className="button button-small button-link-delete topology-hull-panel__remove"
+						onClick={ () => onRemoveHull( include ) }
+					>
+						{ __( 'Remove include', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>

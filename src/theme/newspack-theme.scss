@@ -71,10 +71,8 @@
 	--np-radius-lg: 16px;
 	--np-radius-full: 9999px;
 	--np-modal-radius: var(--np-radius-md);
-	--np-modal-shadow:
-		0 5px 15px rgba(0, 0, 0, 0.08),
-		0 15px 27px rgba(0, 0, 0, 0.07),
-		0 30px 36px rgba(0, 0, 0, 0.04),
+	--np-modal-shadow: 0 5px 15px rgba(0, 0, 0, 0.08),
+		0 15px 27px rgba(0, 0, 0, 0.07), 0 30px 36px rgba(0, 0, 0, 0.04),
 		0 50px 43px rgba(0, 0, 0, 0.02);
 	--np-space-xs: 4px;
 	--np-space-sm: 8px;

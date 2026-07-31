@@ -295,7 +295,7 @@
 	.newspack-nodes-table {
 		width: 100%;
 		border-collapse: collapse;
-		background: var(--paper, var(--np-surface));
+		background: var(--paper-2, var(--np-surface-subtle));
 		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		font-size: 13px;
 
@@ -316,19 +316,13 @@
 			color: var(--ink, var(--np-text));
 		}
 
-		tbody tr:nth-child(odd) {
-			background: var(--paper-2, var(--np-surface-subtle));
-		}
-
 		&[role="row"] [role="columnheader"] {
 			color: var(--ink, var(--np-text));
 			font-weight: 600;
 		}
 
-		&[role="rowgroup"] [role="row"].row-odd {
-			background: var(--paper-2, var(--np-surface-subtle));
-		}
-
+		// One stripe formula for both markups: the table's own surface, darkened.
+		tbody tr:nth-child(even):not(.newspack-nodes-table__details),
 		&[role="rowgroup"] [role="row"].row-even {
 			background: color-mix(
 				in srgb,
@@ -349,6 +343,9 @@
 	// Native lists migrated from WP widefat retain its quiet row rhythm without
 	// changing the denser canonical tables used elsewhere.
 	.newspack-nodes-table--undivided {
+		background: transparent;
+		border: 0;
+
 		thead th {
 			font-weight: 400;
 		}
@@ -360,13 +357,8 @@
 			line-height: 1.5;
 		}
 
-		.newspack-nodes-table--undivided {
+		tbody tr {
 			background: transparent;
-			border: 0;
-
-			tbody tr:nth-child(odd) {
-				background: transparent;
-			}
 		}
 	}
 
@@ -414,6 +406,7 @@
 		font-family: var(--font-mono, var(--np-font-mono));
 		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 
+		// Restates the table surface: the contrast audits resolve one per state.
 		&.row-odd {
 			background: var(--paper-2, var(--np-surface-subtle));
 		}
@@ -518,6 +511,11 @@
 			font-size: 14px;
 			text-transform: none;
 			letter-spacing: normal;
+		}
+
+		// Adjacent inline spans; without this they read as one token.
+		.newspack-nodes-stat-value + .newspack-nodes-stat-label {
+			margin-left: $space-sm;
 		}
 	}
 
@@ -699,6 +697,14 @@
 // WordPress owns `.widefat` with rooted wp-admin selectors. Keep only this
 // stock-table bridge above that specificity; custom roles stay consumer-level.
 .newspack-nodes-ui.newspack-nodes-ui {
+	// The box model is ours, not the host page's: this used to arrive only via
+	// `.topology-app`, so a dashboard without it fell back to content-box.
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
 	.widefat {
 		background: var(--paper, var(--np-surface));
 		color: var(--ink, var(--np-text));

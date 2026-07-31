@@ -64,6 +64,7 @@
 			color: var(--ink, var(--np-text));
 		}
 
+		// Out-specifies the Emotion rules WordPress injects inside a modal.
 		.components-base-control__label,
 		.components-input-control__label {
 			color: var(--ink, var(--np-text));

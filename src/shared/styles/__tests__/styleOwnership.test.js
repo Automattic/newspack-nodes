@@ -92,6 +92,7 @@ const CANONICAL_BUTTON_CLASSES = new Set( [
 	'newspack-nodes-log-browser__mode',
 	'newspack-nodes-log-browser__mode--live',
 	'newspack-nodes-log-browser__mode--replay',
+	'newspack-nodes-log-browser__item',
 	'newspack-nodes-modal__close',
 	'newspack-nodes-disclosure',
 	'newspack-nodes-rail-toggle',
@@ -1383,22 +1384,22 @@ describe( 'canonical appearance ownership', () => {
 			[
 				'topology-console/styles/graph-view.scss',
 				'topology-tt__empty',
-				{ padding: '4px 0', 'text-align': 'left' },
+				{ padding: '4px', 'text-align': 'left' },
 			],
 			[
 				'topology-console/styles/graph-view.scss',
 				'topology-edit-empty',
-				{ padding: '4px 0', 'text-align': 'left' },
+				{ padding: '4px', 'text-align': 'left' },
 			],
 			[
 				'topology-console/components/triage-view.scss',
 				'triage-view__empty',
-				{ padding: '12px 0', 'text-align': 'left' },
+				{ padding: '12px', 'text-align': 'left' },
 			],
 			[
 				'topology-console/components/timeline-view.scss',
 				'timeline-view__empty',
-				{ margin: '12px 0 0', padding: '0', 'text-align': 'left' },
+				{ padding: '12px', 'text-align': 'left' },
 			],
 		];
 
@@ -1510,18 +1511,6 @@ describe( 'canonical appearance ownership', () => {
 					'vertical-align': 'baseline',
 				},
 			],
-			[
-				'shared/components/LogBrowser.scss',
-				'newspack-nodes-log-browser__item',
-				{
-					'min-height': '0',
-					height: 'auto',
-					padding: '6px 10px',
-					'line-height': '1.45',
-					'margin-bottom': '0',
-					'vertical-align': 'baseline',
-				},
-			],
 		];
 
 		for ( const [ relativeFile, className, expected ] of cases ) {
@@ -1578,7 +1567,7 @@ describe( 'canonical appearance ownership', () => {
 
 		const graphButtonHeights = [
 			[ 'topology-canvas__layout-chip', 'auto' ],
-			[ 'topology-edit-row__clear', 'auto' ],
+			[ 'topology-edit-row__reset', 'auto' ],
 			[ 'topology-hull-panel__open', 'auto' ],
 			[ 'topology-edit-verb__remove', '20px' ],
 			[ 'topology-field-row__nav', 'auto' ],
@@ -1844,5 +1833,244 @@ describe( 'canonical appearance ownership', () => {
 				padding: '24px',
 			} )
 		);
+	} );
+
+	// auto-fit, so the lone Open button still fills the row when the panel
+	// offers no removal (view mode, or an include this file doesn't declare).
+	it( 'sizes the hull panel actions as one even row', () => {
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-hull-panel__actions'
+			)
+		).toEqual(
+			expect.objectContaining( {
+				display: 'grid',
+				'grid-template-columns': 'repeat(auto-fit, minmax(0, 1fr))',
+				gap: '8px',
+			} )
+		);
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-hull-panel__open'
+			)
+		).not.toHaveProperty( 'width' );
+
+		// Both halves need the same WordPress-geometry neutralization, or the
+		// pair renders at two different heights.
+		const neutralizedProps = ( className ) => {
+			const props = new Set();
+			graphStylesheet.walkRules( ( rule ) => {
+				if ( ! rule.selector.includes( className ) ) {
+					return;
+				}
+				rule.walkDecls( ( decl ) => props.add( decl.prop ) );
+			} );
+			return props;
+		};
+		for ( const prop of [ 'min-height', 'line-height' ] ) {
+			expect(
+				neutralizedProps( '.topology-hull-panel__remove' )
+			).toContain( prop );
+		}
+	} );
+
+	// Clearing a value restores a default; it destroys nothing. Only the glyphs
+	// that actually remove something carry the danger role, as a red circle.
+	it( 'reserves the danger role for controls that destroy something', () => {
+		const CLEARS = [
+			'topology-edit-row__reset',
+			'topology-palette__search-clear',
+			'topology-edit-chip__clear',
+			'topology-settings-panel__close',
+		];
+		const DESTROYS = [
+			'topology-edit-verb__remove',
+			'topology-insp__listener-x',
+		];
+		const seen = new Set();
+
+		for ( const record of jsxClassRecords() ) {
+			for ( const className of CLEARS ) {
+				if ( ! record.tokens.has( className ) ) {
+					continue;
+				}
+				seen.add( className );
+				expect( [ className, [ ...record.tokens ] ] ).toEqual( [
+					className,
+					expect.arrayContaining( [ 'is-plain' ] ),
+				] );
+				expect( record.tokens.has( 'button-link-delete' ) ).toBe(
+					false
+				);
+			}
+			for ( const className of DESTROYS ) {
+				if ( ! record.tokens.has( className ) ) {
+					continue;
+				}
+				seen.add( className );
+				expect( [ className, [ ...record.tokens ] ] ).toEqual( [
+					className,
+					expect.arrayContaining( [
+						'button-link-delete',
+						'is-circle',
+					] ),
+				] );
+			}
+		}
+
+		expect( [ ...seen ].sort() ).toEqual(
+			[ ...CLEARS, ...DESTROYS ].sort()
+		);
+	} );
+
+	// The dashboards inherited their box model from wp-admin's html/inherit
+	// chain; when that stopped reaching a card, min-width became a content
+	// width and every card grew by its padding.
+	it( 'owns its own box model rather than inheriting the host page', () => {
+		expect(
+			declarationsForSelector(
+				compile( UI_ENTRY ),
+				'.newspack-nodes-ui.newspack-nodes-ui *'
+			)
+		).toEqual( expect.objectContaining( { 'box-sizing': 'border-box' } ) );
+	} );
+
+	// A table is a content surface like a card, not an elevated one.
+	it( 'seats a table on the same surface as a card', () => {
+		const ui = compile( UI_ENTRY );
+		expect(
+			declarationsForSelector(
+				ui,
+				':where(.newspack-nodes-ui) .newspack-nodes-table'
+			).background
+		).toBe(
+			declarationsForSelector(
+				ui,
+				':where(.newspack-nodes-ui) .newspack-nodes-card'
+			).background
+		);
+	} );
+
+	// Both table paths stripe with one formula, and no row is painted the
+	// table's own surface — that renders as no stripe at all.
+	it( 'stripes plain tables and ARIA grids identically', () => {
+		const ui = compile( UI_ENTRY );
+		const base = declarationsForSelector(
+			ui,
+			':where(.newspack-nodes-ui) .newspack-nodes-table'
+		).background;
+		const stripes = [];
+		ui.walkRules( ( rule ) => {
+			if (
+				! rule.selector.includes( '.newspack-nodes-table' ) ||
+				// The undivided variant deliberately cancels the stripe.
+				rule.selector.includes( '--undivided' )
+			) {
+				return;
+			}
+			if ( ! /nth-child|row-odd|row-even/.test( rule.selector ) ) {
+				return;
+			}
+			rule.walkDecls( 'background', ( decl ) =>
+				stripes.push( decl.value )
+			);
+		} );
+
+		// A row may restate the table's own surface (the contrast audits resolve
+		// a background per row state); what must not vary is the stripe itself.
+		const tinted = [ ...new Set( stripes ) ].filter(
+			( value ) => value !== base
+		);
+		expect( tinted ).toHaveLength( 1 );
+	} );
+
+	it( 'draws a destructive glyph as a circle', () => {
+		expect(
+			declarationsForSelector(
+				compile( UI_ENTRY ),
+				'.newspack-nodes-ui.newspack-nodes-ui .button.is-circle'
+			)
+		).toEqual(
+			expect.objectContaining( {
+				'border-radius': '50%',
+				'aspect-ratio': '1',
+			} )
+		);
+	} );
+
+	// outline + box-shadow paint OUTSIDE the border box, so a clipping ancestor
+	// erases the focus ring on every button in the group.
+	it( 'does not clip the focus ring off the header mode buttons', () => {
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-mode' )
+		).not.toHaveProperty( 'overflow' );
+	} );
+
+	// A long topology list must scroll inside the dialog, and the dialog must
+	// clear the page header rather than sit under it.
+	it( 'caps the modal below the header and scrolls its body', () => {
+		expect(
+			parseInt(
+				declarationsForSelector(
+					graphStylesheet,
+					'.topology-modal-backdrop'
+				).padding,
+				10
+			)
+		).toBeGreaterThan( 0 );
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-modal' )
+		).toEqual(
+			expect.objectContaining( {
+				'max-height': '100%',
+				display: 'flex',
+				'flex-direction': 'column',
+			} )
+		);
+		expect(
+			declarationsForSelector( graphStylesheet, '.topology-modal__body' )
+		).toEqual(
+			expect.objectContaining( {
+				'overflow-y': 'auto',
+				'min-height': '0',
+			} )
+		);
+	} );
+
+	// Proximity has to group a heading with the section BELOW it, so the space
+	// above must beat the space below (padding-bottom + the first item's pad).
+	// The gap lives on the section wrapper: every heading is the first child of
+	// its own wrapper, so a `:first-child` margin on the heading zeroes them all.
+	it( 'sets a palette section heading apart from the group above it', () => {
+		const group = declarationsForSelector(
+			graphStylesheet,
+			'.topology-palette__group'
+		);
+		const below =
+			parseInt( group[ 'padding-bottom' ], 10 ) +
+			parseInt(
+				declarationsForSelector(
+					graphStylesheet,
+					'.topology-palette__item'
+				).padding.split( /\s+/ )[ 0 ],
+				10
+			);
+		const gap = parseInt(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-palette__section + .topology-palette__section'
+			)[ 'margin-top' ],
+			10
+		);
+
+		expect( gap ).toBeGreaterThan( below );
+		expect(
+			declarationsForSelector(
+				graphStylesheet,
+				'.topology-palette__group:first-child'
+			)
+		).toBeUndefined();
 	} );
 } );

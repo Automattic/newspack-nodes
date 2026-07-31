@@ -31,6 +31,12 @@
 	input.topology-repl__input:focus {
 		@include focus.no-ring;
 	}
+
+	// Segmented row: without this the next sibling paints over the ring.
+	.topology-mode__btn:focus {
+		position: relative;
+		z-index: 1;
+	}
 }
 
 .newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {

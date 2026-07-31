@@ -7,9 +7,12 @@ import { JSDOM } from 'jsdom';
 const ROOT = path.resolve( __dirname, '../../..' );
 const UI_SCSS = path.join( ROOT, 'src/ui/newspack-nodes-ui.scss' );
 const FOCUS_COLOR = '#123456';
+// The halo that separates the ring from whatever the control is filled with.
+const HALO_COLOR = '#0f9d58';
 const compiledUi = sass
 	.compile( UI_SCSS )
-	.css.replaceAll( 'var(--ink, var(--np-text, currentcolor))', FOCUS_COLOR );
+	.css.replaceAll( 'var(--ink, var(--np-text, currentcolor))', FOCUS_COLOR )
+	.replaceAll( 'var(--paper, var(--np-surface))', HALO_COLOR );
 
 const focusPaths = {
 	pointer: ( window, element ) => {
@@ -99,7 +102,7 @@ describe( 'focused canonical UI DOM', () => {
 				const after = ringGeometry( dom.window, element );
 				expect( after.outline ).toBe( `2px solid ${ FOCUS_COLOR }` );
 				expect( after.outlineOffset ).toBe( '1px' );
-				expect( after.boxShadow ).toBe( 'none' );
+				expect( after.boxShadow ).toBe( `0 0 0 1px ${ HALO_COLOR }` );
 				expect( after.border ).toBe( unfocused.border );
 				expect( after.borderColor ).toBe( unfocused.borderColor );
 				dom.window.close();
@@ -135,7 +138,9 @@ describe( 'focused canonical UI DOM', () => {
 			const inputAfter = ringGeometry( dom.window, input );
 			expect( wrapperAfter.outline ).toBe( `2px solid ${ FOCUS_COLOR }` );
 			expect( wrapperAfter.outlineOffset ).toBe( '1px' );
-			expect( wrapperAfter.boxShadow ).toBe( 'none' );
+			expect( wrapperAfter.boxShadow ).toBe(
+				`0 0 0 1px ${ HALO_COLOR }`
+			);
 			expect( wrapperAfter.border ).toBe( wrapperUnfocused.border );
 			expect( wrapperAfter.borderColor ).toBe(
 				wrapperUnfocused.borderColor

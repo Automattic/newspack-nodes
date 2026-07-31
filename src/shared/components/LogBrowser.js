@@ -87,7 +87,7 @@ export default function LogBrowser( {
 							<li key={ key }>
 								<button
 									type="button"
-									className={ `button newspack-nodes-log-browser__item${
+									className={ `newspack-nodes-log-browser__item${
 										active ? ' is-active' : ''
 									}` }
 									onClick={ () => onSelectItem( item ) }

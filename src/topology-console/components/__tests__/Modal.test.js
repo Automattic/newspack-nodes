@@ -107,7 +107,11 @@ describe( 'ModalShell', () => {
 		);
 		const dialog = document.body.querySelector( '.topology-modal' );
 		expect( dialog.style.position ).toBe( 'absolute' );
-		expect( dialog.style.transform ).toContain( 'translate' );
+		expect( dialog.style.transform ).toContain( 'translateX' );
+		// Horizontal only: a vertical anchor puts a tall dialog's head above
+		// the fixed backdrop, where nothing can scroll to it.
+		expect( dialog.style.left ).not.toBe( '' );
+		expect( dialog.style.top ).toBe( '' );
 		panel.remove();
 	} );
 } );

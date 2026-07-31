@@ -1,7 +1,8 @@
+// The halo fills the offset gap, so the ring reads on a saturated fill.
 @mixin ring {
 	outline: 2px solid var(--ink, var(--np-text, currentcolor));
 	outline-offset: 1px;
-	box-shadow: none;
+	box-shadow: 0 0 0 1px var(--paper, var(--np-surface));
 }
 
 @mixin no-ring {

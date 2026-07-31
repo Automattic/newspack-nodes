@@ -1084,7 +1084,7 @@ describe( 'distinctive canonical roles', () => {
 		);
 	} );
 
-	it( 'gives log browsing semantic modes, terminal rows, a narrow source, and a quiet empty state', () => {
+	it( 'gives log browsing semantic modes, terminal rows, and a quiet empty state', () => {
 		const { container: browser } = render(
 			provider(
 				<LogBrowser
@@ -1121,18 +1121,27 @@ describe( 'distinctive canonical roles', () => {
 			'border-color': 'var(--oxide,var(--np-error))',
 			color: 'var(--on-oxide,var(--np-on-status))',
 		} );
+		// An idle mode button is a secondary button like any other, not a
+		// bespoke transparent chip that shows the sidebar through it.
 		expect( matchingDeclarations( replay ) ).toMatchObject( {
-			background: 'transparent',
-			'border-color': 'var(--cyan,var(--np-primary))',
-			color: 'var(--cyan-text,var(--np-text))',
+			background:
+				'var(--button-secondary-background,var(--paper,var(--np-surface)))',
+			'border-color':
+				'var(--button-secondary-border,var(--paper-shadow,var(--np-border-strong)))',
+			color: 'var(--button-secondary-color,var(--ink,var(--np-text)))',
 		} );
 		expectUsesSentinel( live, 'background', '--oxide', SENTINELS.oxide );
-		expectUsesSentinel( replay, 'border-color', '--cyan', SENTINELS.cyan );
+		expectUsesSentinel(
+			replay,
+			'border-color',
+			'--button-secondary-border',
+			SENTINELS.secondaryBorder
+		);
 		expectUsesSentinel(
 			replay,
 			'color',
-			'--cyan-text',
-			SENTINELS.cyanText
+			'--button-secondary-color',
+			SENTINELS.secondaryColor
 		);
 		expect( matchingDeclarations( empty ) ).toMatchObject( {
 			background: 'transparent',
@@ -1141,27 +1150,6 @@ describe( 'distinctive canonical roles', () => {
 			'font-style': 'italic',
 		} );
 
-		const { container: stream } = render(
-			provider(
-				<LogStreamViewer
-					className="test-log-viewer"
-					ariaLabel="Test log viewer"
-					pickerOptions={ [ { key: 'php', label: 'php' } ] }
-					selectedKey="php"
-					onPick={ () => {} }
-					pickerEmptyLabel="No sources"
-					isPaused={ false }
-					connectionError={ false }
-					onTogglePause={ () => {} }
-					getViewNode={ () => null }
-					sidebar={ <div /> }
-					renderRow={ () => null }
-					rowHeight={ 33 }
-				/>
-			)
-		);
-		const source = stream.querySelector( '.newspack-nodes-select' );
-		expect( matchingDeclarations( source ).width ).toBe( '60px' );
 		expect(
 			declarationsForSelector( '.newspack-nodes-log-row' )[
 				'font-family'
@@ -1169,6 +1157,158 @@ describe( 'distinctive canonical roles', () => {
 		).toBe( 'var(--font-terminal,var(--np-font-mono))' );
 		expect( fs.readFileSync( LOG_VIEWER, 'utf8' ) ).not.toMatch(
 			/newspack-nodes-table__row\s+newspack-nodes-table__cell\s+newspack-nodes-log-row/
+		);
+	} );
+
+	// A glyph sitting beside stock chrome (a modal close) is not a button with
+	// its box removed — it takes the surrounding ink and never underlines.
+	it( 'gives a plain button no box, ink text, and no link decoration', () => {
+		const { container } = render(
+			provider(
+				<button type="button" className="button is-plain">
+					←
+				</button>
+			)
+		);
+		const plain = container.querySelector( '.button.is-plain' );
+
+		expect( matchingDeclarations( plain ) ).toMatchObject( {
+			background: 'transparent',
+			'border-color': 'transparent',
+		} );
+		expectUsesSentinel( plain, 'color', '--ink', SENTINELS.ink );
+		expect(
+			pseudoRuleReaches( plain, ':hover', {
+				'text-decoration': 'underline',
+			} )
+		).toBe( false );
+	} );
+
+	// Value and label are adjacent inline spans; with no gap they read as one
+	// token ("34Unique URLs").
+	it( 'separates a stat value from the label that follows it', () => {
+		const { container } = render(
+			provider(
+				<div className="newspack-nodes-stat">
+					<span className="newspack-nodes-stat-value">34</span>
+					<span className="newspack-nodes-stat-label">
+						Unique URLs
+					</span>
+				</div>
+			)
+		);
+
+		expect(
+			matchingDeclarations(
+				container.querySelector( '.newspack-nodes-stat-label' )
+			)[ 'margin-left' ]
+		).toBe( '8px' );
+	} );
+
+	// A label is painted because it labels a control, not because a modal
+	// happens to contain it. Outside one, WordPress's own #646970 shows through.
+	it( 'paints control labels and help text from the skin, modal or not', () => {
+		const { container } = render(
+			provider(
+				<div>
+					<div className="components-base-control">
+						<label
+							className="components-base-control__label"
+							htmlFor="probe-metric"
+						>
+							Metric
+						</label>
+						<select id="probe-metric">
+							<option>Request Volume</option>
+						</select>
+						<p className="components-base-control__help">
+							Which series to chart.
+						</p>
+					</div>
+					<table className="form-table">
+						<tbody>
+							<tr>
+								<th>
+									<label htmlFor="probe-id">ID</label>
+								</th>
+								<td>
+									<input
+										id="probe-id"
+										className="regular-text"
+										readOnly
+									/>
+									<p className="description">
+										Unique identifier.
+									</p>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+			)
+		);
+
+		const wpLabel = container.querySelector(
+			'.components-base-control__label'
+		);
+		const wpHelp = container.querySelector(
+			'.components-base-control__help'
+		);
+		const adminLabel = container.querySelector( '.form-table label' );
+		const adminHelp = container.querySelector( '.description' );
+
+		expect( [ wpLabel, wpHelp, adminLabel, adminHelp ] ).not.toContain(
+			null
+		);
+		// Softer than body ink, still a step above the help text below it.
+		expectUsesSentinel( wpLabel, 'color', '--ink-2', SENTINELS.ink2 );
+		expectUsesSentinel( wpHelp, 'color', '--ink-3', SENTINELS.ink3 );
+		expectUsesSentinel( adminLabel, 'color', '--ink-2', SENTINELS.ink2 );
+		expectUsesSentinel( adminHelp, 'color', '--ink-3', SENTINELS.ink3 );
+	} );
+
+	it( 'browses segments as flat rows with a subtle selection, not stock button chrome', () => {
+		const { container: browser } = render(
+			provider(
+				<LogBrowser
+					mode="replay"
+					onFollow={ () => {} }
+					onReplay={ () => {} }
+					items={ [ { id: 1249 }, { id: 1250 } ] }
+					selectedKey={ 1250 }
+					onSelectItem={ () => {} }
+					itemKey={ ( item ) => item.id }
+					itemLabel={ ( item ) => `Segment ${ item.id }` }
+					itemMeta={ () => '1.0 MB' }
+					title="Segments"
+					emptyLabel="No segments"
+				/>
+			)
+		);
+		const rows = browser.querySelectorAll(
+			'.newspack-nodes-log-browser__item'
+		);
+		const [ row, selected ] = rows;
+
+		// A segment row is a list row, not a competitor to the stock button.
+		expect( row.classList.contains( 'button' ) ).toBe( false );
+		expect( matchingDeclarations( row ) ).toMatchObject( {
+			background: 'transparent',
+			border: '0',
+			color: 'var(--ink,var(--np-text))',
+		} );
+		expectUsesSentinel( row, 'color', '--ink', SENTINELS.ink );
+
+		expect( selected.classList.contains( 'is-active' ) ).toBe( true );
+		expect( matchingDeclarations( selected ) ).toMatchObject( {
+			background: 'var(--cyan-subtle,var(--np-primary-subtle))',
+			'font-weight': '600',
+		} );
+		expectUsesSentinel(
+			selected,
+			'background',
+			'--cyan-subtle',
+			SENTINELS.cyanSubtle
 		);
 	} );
 

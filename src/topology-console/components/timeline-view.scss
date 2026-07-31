@@ -106,13 +106,12 @@
 	}
 
 	&__empty {
-		margin: 12px 0 0;
+		padding: 12px;
 	}
 }
 
 .newspack-nodes-empty-state.timeline-view__empty {
-	margin: 12px 0 0;
-	padding: 0;
+	padding: 12px;
 	text-align: left;
 
 	&::before {

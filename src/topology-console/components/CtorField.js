@@ -1,7 +1,7 @@
 /**
  * CtorField — one schema-driven constructor-argument input, shared by the
  * edit-mode Inspector and the live-drop NewNodeModal so both render the same
- * node_schema-enriched widgets (formatter/node pickers, typed text, clear-×).
+ * node_schema-enriched widgets (formatter/node pickers, typed text, reset-↺).
  */
 
 import { __, sprintf } from '@wordpress/i18n';
@@ -243,15 +243,15 @@ export function CtorField( {
 				{ hasContent && (
 					<button
 						type="button"
-						className="button button-small button-link-delete topology-edit-row__clear"
+						className="button is-plain topology-edit-row__reset"
 						aria-label={ sprintf(
 							// translators: %s: constructor-argument name.
-							__( 'Clear %s', 'newspack-nodes' ),
+							__( 'Reset %s to its default', 'newspack-nodes' ),
 							spec.name
 						) }
 						onClick={ () => onChange( '' ) }
 					>
-						×
+						↺
 					</button>
 				) }
 			</div>
