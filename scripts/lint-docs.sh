@@ -3,10 +3,12 @@
 # runtime. Cheap enough to run on EVERY push (docs-only included) from
 # scripts/pre-push. What it checks:
 #
-#   1. No retired retention axis name (max_lifetime / max_lifespan) outside
-#      CHANGELOG.md + docs/upgrading.md, which document the rename. The live
-#      axes are segment_size / min_segments / num_segments / min_lifetime /
-#      lifetime / max_segments.
+#   1. No retired retention axis as a CONFIG TOKEN (<config:max_lifetime> /
+#      <config:max_lifespan>) outside docs/upgrading.md, which documents the
+#      rename. The live axes are segment_size / min_segments / num_segments /
+#      min_lifetime / lifetime / max_segments. Scoped to the token form on
+#      purpose: `max_lifespan` is also event-logger-nodes' live memcache-TTL
+#      property, so matching the bare word libels ~15 correct lines there.
 #   2. No newspack-ai-newsletter slug in docs/ or README.md — the real sibling
 #      plugin is newspack-intelligence. (example-ai-newsletter is a different,
 #      legitimate name and is intentionally NOT matched.)
@@ -23,10 +25,10 @@ cd "$(git rev-parse --show-toplevel)"
 fail=0
 report() { printf '\342\234\227 lint-docs: %s\n' "$1" >&2; fail=1; }
 
-# 1. retired retention axis names (upgrading.md documents the rename).
-hits=$(grep -rnE 'max_lifetime|max_lifespan' docs README.md AGENTS.md .claude/skills \
+# 1. retired retention axis as a config token (upgrading.md documents the rename).
+hits=$(grep -rnE '<config:(max_lifetime|max_lifespan)>' docs README.md AGENTS.md .claude/skills \
 	--include='*.md' 2>/dev/null | grep -v '^docs/upgrading.md:' || true)
-[ -n "$hits" ] && report "retired axis name — use lifetime / num_segments / max_segments:"$'\n'"$hits"
+[ -n "$hits" ] && report "retired axis token — use <config:lifetime> / <config:num_segments> / <config:max_segments>:"$'\n'"$hits"
 
 # 2. stale plugin slug (example-ai-newsletter is not matched by this pattern).
 hits=$(grep -rn 'newspack-ai-newsletter' docs README.md --include='*.md' 2>/dev/null || true)
