@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **No runtime node may leave a timer armed past its test, and the harness now
+  enforces it.** A node holding a real interval that outlives its test fires
+  against a jumped clock inside somebody else's test — which is how a leaked
+  `SseInNode` watchdog read a fake-timer advance as stream silence, reconnected,
+  and printed, failing whichever test happened to be running. Fixing the leaking
+  suites one at a time missed the next one twice.
+
+  Teardown and a standing leak guard moved into
+  `src/build-kit/jest-node-timers.js`, which `createJestConfig` loads ahead of
+  each consumer's own `jest.setup.js`. Every plugin composing runtime nodes
+  inherits one copy: event-logger-nodes was leaking 229 intervals across 7
+  suites and newspack-nodes 160 across 17, both now zero, with no file changed
+  in either consumer repo. The guard fails a suite that leaves one armed and
+  names the class and site.
+
+  Two ordering constraints are load-bearing and commented as such: the interval
+  accounting installs before the teardown captures `clearInterval` (capture the
+  raw one and disposal goes unrecorded, so every disposed timer reads as a
+  leak), and the teardown must never call `useRealTimers()` — `timer-node.test`
+  installs fake timers once at module scope.
+
 ### Security
 
 - **The `fleet_site()` boundary now covers the admin surface, not just REST.**

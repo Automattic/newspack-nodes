@@ -9,7 +9,10 @@ describe( 'createJestConfig', () => {
 	test( 'sets the standalone jsdom defaults', () => {
 		const cfg = createJestConfig( { aliasBase } );
 		expect( cfg.testEnvironment ).toBe( 'jsdom' );
+		// Shared node-timer teardown precedes the consumer's own setup, so a
+		// suite that installs fake timers sees the accounting wrapper already in.
 		expect( cfg.setupFilesAfterEnv ).toEqual( [
+			path.join( aliasBase, 'build-kit/jest-node-timers.js' ),
 			'<rootDir>/jest.setup.js',
 		] );
 		expect( cfg.testMatch ).toEqual( [
