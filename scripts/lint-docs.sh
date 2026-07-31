@@ -15,6 +15,7 @@
 #   4. Retention arity proxy: every doc make_node line passing
 #      <config:segment_size> also passes <config:min_segments> (the new tail
 #      always pairs them; the old 3-arg form did not).
+#   5. newspack_event_logger_nodes_rules_schema_version - deleted.
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -40,6 +41,11 @@ hits=$(grep -n 'Aggregator_CI_Node' docs/API.md 2>/dev/null | grep -E '`(status|
 hits=$(grep -rn '<config:segment_size>' docs --include='*.md' 2>/dev/null \
 	| grep -v '<config:min_segments>' || true)
 [ -n "$hits" ] && report "retention arg list missing <config:min_segments> (stale arity):"$'\n'"$hits"
+
+# 5.  newspack_event_logger_nodes_rules_schema_version wp option
+hits=$(grep -rnE 'newspack_event_logger_nodes_rules_schema_version' docs README.md AGENTS.md .claude/skills \
+	--include='*.md' 2>/dev/null | grep -v '^docs/upgrading.md:' || true)
+[ -n "$hits" ] && report "retired option — newspack_event_logger_nodes_rules_schema_version:"$'\n'"$hits"
 
 [ "$fail" -eq 0 ] && printf '\342\234\223 lint-docs: docs in sync with the runtime\n' >&2
 exit "$fail"
