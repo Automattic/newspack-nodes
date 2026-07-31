@@ -60,7 +60,11 @@ function createJestConfig( {
 
 	const config = {
 		testEnvironment: 'jsdom',
-		setupFilesAfterEnv: [ '<rootDir>/jest.setup.js' ],
+		// Node-timer teardown first: it installs the accounting wrapper.
+		setupFilesAfterEnv: [
+			path.join( aliasBase, 'build-kit/jest-node-timers.js' ),
+			'<rootDir>/jest.setup.js',
+		],
 		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
 		moduleNameMapper,
 		// babel-jest over .mjs so its node: imports resolve.
