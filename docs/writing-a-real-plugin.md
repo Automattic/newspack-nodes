@@ -1,6 +1,6 @@
 # Writing a *Real* Nodes Plugin
 
-You've finished [writing-a-plugin.md](writing-a-plugin.md). You built the toy AI-newsletter — two canned sources, a template summarizer, a markdown digest — watched items flow through `fill()`, turned the by-hand session into a topology, and stood it up as a live worker. That guide's **§7, "Make it real — the short hop"**, promised the production version is just two method bodies away:
+You've finished [writing-a-plugin.md](writing-a-plugin.md). You built the toy AI-newsletter — two canned sources, a template summarizer, a markdown digest — watched items flow through `fill()`, turned the by-hand session into a topology, and stood it up as a live worker. That guide's **§7, "Make it real — the short hop"**, promised the production version is two method bodies away:
 
 ```php
 // toy
@@ -21,7 +21,7 @@ The finished code is in the sibling [`newspack-intelligence/`](../../newspack-in
 
 ## 0. What changed — the same graph, real ends
 
-The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. Here's the production topology (`topologies/newspack-intelligence.tsl`):
+The toy graph and the real graph are the same boxes and arrows, plus a durable **ingest** layer the toy didn't need. Here's the production topology:
 
 ```
 github ┐
@@ -29,15 +29,18 @@ linear ┼─ ingest:partition                                 (durable raw-item
 feed   ┘
 ingest:consumer ─ summarizer ─ scorer ─ scored:partition   (durable `scored` log)
 scored:consumer ─ digest ─ digest:tee ─ digest:log
+gate:consumer ─ gate ─ gate:tojson ─ gate:log              (observer, own cursor)
 ```
+
+It ships as five `.tsl` files, not one. `topologies/newspack-intelligence.tsl` is an aggregator that `include`s a file per stage — `-ingest`, `-summary`, `-digest`, and `-gate` — so a stage can also run as a fleet of its own. Every file opens with `var num_partitions = 1` and `include topic-probe`, and closes with `secure`, which climbs the security ratchet one level: at level 1 `make_node` is refused, so the built graph can no longer be rebuilt from the wire.
 
 Three connector **sources** fan into the `ingest` partition (fan-in, exactly as Ben's community source fanned into the summarizer in the toy — the target is a partition now, not the summarizer). What's genuinely new from the toy's perspective is concentrated at the two ends, plus that new partition in the middle:
 
 - **The source end.** The toy's `items()` returned a literal array. The real sources `fetch()` over HTTP, normalize wildly different payloads (GitHub REST, Linear GraphQL, RSS/Atom XML) into one item shape, dedup against what they've already emitted, and need credentials.
-- **The credentials.** A real source is useless without a token. The secret lives in the substrate's **Vault** (the devtools-hub's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). No WordPress Settings page, no per-plugin options.
+- **The credentials.** A real source is useless without a token. The secret lives in the substrate's **Vault** (the devtools-hub's *Vault* tab), and the topology carries only a *pointer* to it — a `set_vault_id <id>` verb on the node's `.tsl` line, resolved to the raw secret at `config()`. The rest of a source's config is topology verbs too (`add_repo`, `add_url`, `set_model`, …). None of it lives in a WordPress Settings page or an options row.
 - **The ingest partition.** A source TICK writes raw items to a durable log — a *fast* append, no per-item LLM work — so the worker keeps heartbeating during a collect. The `ingest:consumer` then paces those items through the blocking summarizer/scorer LLM calls one read-block per drain, spreading the enrich across drain cycles. The partition is the buffer between the bursty sources and the slow enrich.
 
-The middle — summarizer, scorer, the two partitions, consumers, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit); this guide stays at the source end, the ingest buffer, and the credentials, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
+The middle — summarizer, scorer, the two partitions, consumers, digest — is its own story (the LLM seam, the durable `scored` log, the snapshot co-commit), and so is the gate observer hanging off `ingest`. This guide stays at the source end, the ingest buffer, and the credentials, because that's the part the toy guide explicitly deferred. We'll write it in the order you'd discover it: the contract first, then the base that implements it, then the three connectors, then the credentials that feed them, then wiring and ship.
 
 ---
 
@@ -48,7 +51,7 @@ The toy's "seam" was a `protected function items(): array` you'd override. That'
 `includes/interface-source.php`:
 
 ```php
-namespace Newspack_AI_Newsletter;
+namespace Newspack_Intelligence;
 
 interface Source {
 	/**
@@ -83,7 +86,9 @@ The call site resolves the seam lazily, with a ternary — null means "use the r
 ```php
 $response = null !== self::$http_get ? ( self::$http_get )( $url, $args ) : \wp_remote_get( $url, $args );
 if ( \is_wp_error( $response ) ) {
-	$this->print_less_often( 'GitHub fetch failed: ' . $response->get_error_message() );
+	// print_less_often keys on the FIRST argument only; pass the varying
+	// message as a second one or a per-repo string defeats the rate limiting.
+	$this->print_less_often( 'GitHub fetch failed: ', $response->get_error_message() );
 	return [];
 }
 if ( 200 !== (int) \wp_remote_retrieve_response_code( $response ) ) {
@@ -93,9 +98,9 @@ $decoded = \json_decode( \wp_remote_retrieve_body( $response ), true );
 return Core::arr( $decoded );
 ```
 
-**Why a closure property and not a `protected function http_get()` you override in a test subclass?** This is the rule from `~/.claude/rules/test-seams.md`: always use the static `\Closure` property form, never the protected-helper-with-subclass-override form. The difference is coverage. A test reassigns `Github_Source_Node::$http_get = fn( $url, $args ) => [ 'response' => [ 'code' => 200 ], 'body' => $canned_json ];` and substitutes *only* the one transport call — header assembly, the `is_wp_error` branch, the non-200 branch, `json_decode`, and the whole per-endpoint normalization all run as **real production code under coverage**. A subclass override would mark `http_get()` "covered" while the production body — the part where the actual bugs live — never executes in any test. The seam substitutes the side effect and exercises everything around it.
+**Why a closure property and not a `protected function http_get()` you override in a test subclass?** Coverage. The standing rule across these plugins is the static `\Closure` property form, never the protected-helper-with-subclass-override form. A test reassigns `Github_Source_Node::$http_get = fn( $url, $args ) => [ 'response' => [ 'code' => 200 ], 'body' => $canned_json ];` and substitutes *only* the transport call — header assembly, the `is_wp_error` branch, the non-200 branch, `json_decode`, and the whole per-endpoint normalization then run as **real production code under coverage**. A subclass override would mark `http_get()` covered while the production body — where the bugs live — never executed in any test. The seam replaces the side effect and exercises everything around it.
 
-> **Fetches block — and that's fine.** `wp_remote_get` with a 15-second timeout is a synchronous, blocking call; so is the Linear GraphQL POST. In a web request that would be unacceptable. But connector fetches don't run in a web request — they run inside a background **worker** process (that's why the file carries `phpcs:ignore` notes for the VIP remote-request rules: *"connector fetches run in a background worker, not a VIP web request"*). The same reasoning licenses the LLM calls downstream. Blocking is acceptable here precisely because the worker is the isolation boundary — exactly the [Tachikoma](https://github.com/datapoke/tachikoma) "process isolation for blocking ops" pattern, ported to WordPress workers.
+> **Fetches block — and that's fine.** `wp_remote_get` with a 15-second timeout is a synchronous, blocking call; so is the Linear GraphQL POST. In a web request that would be unacceptable. But connector fetches don't run in a web request — they run inside a background **worker** process (that's why the file carries `phpcs:ignore` notes for the VIP remote-request rules: *"connector fetches run in a background worker, not a VIP web request"*). The same reasoning licenses the LLM calls downstream. Blocking is acceptable here precisely because the worker is the isolation boundary.
 
 ---
 
@@ -107,6 +112,7 @@ In the toy, *every* source hand-rolled its own `fill()` and its own `handle_requ
 
 ```php
 abstract class Source_Node extends Node implements Source {
+	use Schema_Reflection;
 
 	/** Cap on the remembered emitted-id set — bounds memory on a long-lived worker. */
 	private const MAX_SEEN = 2000;
@@ -114,7 +120,13 @@ abstract class Source_Node extends Node implements Source {
 	/** @var array<string,bool> Emitted item ids (insertion-ordered), for cross-tick dedup. */
 	protected array $seen = [];
 
-	/** The first seam: per-connector config (Settings reads) passed to fetch(). */
+	/** No-arg ctor, as make_node requires. Mounts the `:config` sibling. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
+
+	/** The first seam: per-connector config (Vault + verb reads) passed to fetch(). */
 	abstract protected function config(): array;
 
 	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
@@ -126,9 +138,11 @@ abstract class Source_Node extends Node implements Source {
 	}
 ```
 
+That constructor is what makes §4's `cmd github:config set_vault_id …` lines work. `Schema_Reflection::auto_wire_interpreter()` reads `node_schema()['commands']` and mounts a sibling `Command_Interpreter_Node` named `{node}:config`, so every connector gets its config verbs without wiring one by hand ([ADR-11](architecture-decisions.md#adr-11-make_node-construction-sequence)).
+
 The base owns four things the toy duplicated:
 
-**TICK handling.** `fill()` branches on `TM_REQUEST` and calls `handle_request()` — once, in the base. (Note: unlike the toy, the production source does *not* send a `{ emitted }` reply; per-item emit is pure fire-and-forget. But it *does* close every TICK with one terminal `DONE` — see below.)
+**TICK handling.** `fill()` branches on `TM_REQUEST` and calls `handle_request()` — once, in the base. Unlike the toy, the production source sends no `{ emitted }` reply to its caller. It closes every TICK with a terminal `DONE` instead, which travels *downstream* to the digest rather than back to whoever ticked it — see below.
 
 **Dedup by item `id`, then a terminal `DONE`.** A real source is polled on a timer; each TICK re-fetches the same window and would re-emit items the digest already has. So the base keeps a bounded `$seen` set and drops anything it's emitted before — then, in a `finally`, emits one `TM_INFO` `DONE` so the digest can count collection progress (§5 spells out the auto-compose it drives):
 
@@ -168,11 +182,11 @@ private function remember( string $id ): void {
 }
 ```
 
-`fetch()` is synchronous, so the `DONE` is minted *after* every item this TICK produced — and because it's a normal message it rides the same `ingest → … → scored → digest` path in order, reaching the digest after all the items it follows. The `finally` guarantees a `DONE` even when `fetch()` throws, so a single failing source can never stall the collect. The digest counts distinct `DONE` sources and auto-composes once all of them have reported ([§5](#5-wiring-real-sources-into-the-topology)) — there is no manual flush.
+`fetch()` is synchronous, so the `DONE` is minted *after* every item this TICK produced; being an ordinary message, it then rides the same ingest-to-scored-to-digest path in order and reaches the digest behind all the items it follows. The digest counts distinct `DONE` sources and auto-composes once every one has reported ([§5](#5-wiring-real-sources-into-the-topology)) — there is no manual flush.
 
-An item with no string `id` is skipped — no id means no dedup key, and the contract requires one. The set is capped at `MAX_SEEN = 2000` and evicts oldest-first with `array_slice`, so a worker that lives ten minutes and ticks repeatedly never grows the set without bound. (This is the Tachikoma "sliding-window expiration / bounded state" discipline: constant memory regardless of message rate.)
+An item with no string `id` is skipped: no id means no dedup key, and the contract requires one. The set is capped at `MAX_SEEN = 2000` and evicts oldest-first with `array_slice`, so a worker that lives ten minutes and ticks repeatedly never grows it without bound: constant memory regardless of message rate.
 
-**Fire-and-forget emit.** Each new item goes out via `parent::fill( $response )` — the §2-of-the-toy emit pattern: build the message, let the base `Node::fill()` stamp `TO` from the `connect_node`-wired target and forward to the sink. No reply, no `TM_PERSIST` ack ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)); the single-threaded drain is the backpressure.
+**Fire-and-forget emit.** Each new item goes out via `parent::fill( $response )` — the emit pattern from §2 of the toy guide: build the message, let the base `Node::fill()` stamp `TO` from the `connect_node`-wired target and forward to the sink. No reply, no `TM_PERSIST` ack ([ADR-3](architecture-decisions.md#adr-3-fire-and-forget-messaging)); the single-threaded drain is the backpressure.
 
 **Shared `normalize_item()` and `source_schema()`.** Three connectors, three radically different payloads, but exactly one output shape. The base coerces and guards every field once:
 
@@ -207,15 +221,15 @@ protected static function source_schema( string $description, string $tick_descr
 }
 ```
 
-`Source_Node` is `abstract` and declares no `node_schema()` of its own — you never `make_node Source_Node`. Each concrete connector supplies its own one-liner.
+`Source_Node` is `abstract` and declares no `node_schema()` of its own — you never `make_node Source_Node`, and `make_node` returns `null` rather than fataling if you try. Each concrete connector calls `source_schema()` and adds its own verbs.
 
-This is force #7, **uniform interface**, taken one level up from the toy. In the toy each node hand-rolled `fill()`. Here, a *category* of nodes — connectors — share one implementation of the contract, and a new connector supplies only `fetch()` + `config()`. The base is the connector; the subclass is the wiring to a specific API.
+This is the uniform-`fill()` contract ([ADR-1](architecture-decisions.md#adr-1-uniform-fill-contract)) taken one level up from the toy. In the toy each node hand-rolled `fill()`. Here a whole *category* of nodes — connectors — shares one implementation of the contract, and a new connector supplies only `fetch()` and `config()`. The base is the connector; the subclass is the wiring to a specific API.
 
 ---
 
 ## 3. The three real connectors
 
-Three APIs, three payload shapes, three auth schemes. Each subclass is small precisely because the base did the heavy lifting — each adds only `config()`, `fetch()`, and a one-line `node_schema()`.
+Three APIs, three payload shapes, three auth schemes. Each subclass is small precisely because the base did the heavy lifting — each adds only `config()`, `fetch()`, its verb handlers, and a `source_schema()`-based `node_schema()`.
 
 ### GitHub — three endpoints, per-endpoint isolation
 
@@ -270,7 +284,7 @@ if ( '' !== $token ) {
 }
 ```
 
-The crucial robustness property: **a failed repo or endpoint contributes nothing and never throws.** `get_json()` returns `[]` on a `WP_Error`, a non-200, or a non-array body — the caller treats "no items" and "fetch failed" identically. One unreachable repo, one rate-limited endpoint, can't sink the whole batch. That's graceful degradation (force #12) at the granularity of a single HTTP call.
+The crucial robustness property: **a failed repo or endpoint contributes nothing and never throws.** `get_json()` returns `[]` on a `WP_Error`, a non-200, or a non-array body — the caller treats "no items" and "fetch failed" identically. One unreachable repo, one rate-limited endpoint, can't sink the whole batch. That's graceful degradation at the granularity of a single HTTP call.
 
 ### Linear — GraphQL, raw-token auth
 
@@ -309,9 +323,7 @@ Each node's `identifier` (e.g. `ENG-123`) is the stable per-item id; a node with
 
 ```php
 $prev = \libxml_use_internal_errors( true );
-// LIBXML_NONET: a third-party feed body is untrusted — never let a DTD/xinclude
-// SYSTEM reference fetch a URL. (libxml 2.9+ already disables external entity
-// substitution by default, since we don't pass LIBXML_NOENT.)
+// LIBXML_NONET: untrusted feed body — no SYSTEM ref may fetch a URL.
 $xml = \simplexml_load_string( $body, \SimpleXMLElement::class, LIBXML_NONET );
 \libxml_clear_errors();
 \libxml_use_internal_errors( $prev );
@@ -334,7 +346,7 @@ The two formats have their own field-mapping quirks:
       $when = (string) $item->children( self::DC_NS )->date;
   }
   ```
-- **Atom.** Entries at `entry`; id prefers `<id>`, else the link. Body prefers `<summary>`, else `<content>`. And the link itself is non-trivial — an entry can carry several `<link rel="…">` elements, and you want the `rel="alternate"` (the human-readable page), not a leading `rel="self"`/`rel="edit"`:
+- **Atom.** Entries at `entry`, read through the Atom namespace (`children( self::ATOM_NS )->entry`); id prefers `<id>`, else the link. Body prefers `<summary>`, else `<content>`. And the link itself is non-trivial — an entry can carry several `<link rel="…">` elements, and you want the `rel="alternate"` (the human-readable page), not a leading `rel="self"`/`rel="edit"`:
   ```php
   $rel = (string) ( $link->attributes()->rel ?? '' );
   if ( '' === $rel || 'alternate' === $rel ) {   // "" means alternate by Atom default
@@ -408,7 +420,7 @@ protected function resolve_vault_secret( string $vault_id ): string {
 
 That soft failure is the whole no-creds-no-emit story: a source whose `vault_id` resolves to `''` fetches with no token and returns `[]` — the TICK is a silent no-op, which is the correct default for a freshly-activated topology (§5).
 
-The verb also carries a typed schema arg, `type: 'vault_id'` — that type is what makes the topology console render a **Vault-entry dropdown** for the field instead of a free-text box, so an operator picks an existing entry rather than typing a raw id:
+The verb also carries a typed schema arg, `type: 'vault_id'` — that type is what makes the topology console render a **Vault-entry dropdown** for the field instead of a free-text box, so an operator picks an existing entry rather than typing a raw id. (With no entries registered yet it falls back to a text input, so a fresh install isn't a dead end.)
 
 ```php
 [
@@ -421,7 +433,7 @@ The verb also carries a typed schema arg, `type: 'vault_id'` — that type is wh
 ],
 ```
 
-A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance verb methods below (`set_vault_id`, `add_repo`) take a single `string` because each expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
+A schema `handler` is a dispatch closure — it receives the pre-split **token array** `array $args` (`list<string>` argv), not a string. The static `cmd_set_vault_id` resolves the patron node and delegates the first token to the string instance method: `$patron->set_vault_id( Core::as_string( $args[0] ?? '' ) )`. The instance verb methods (`set_vault_id`, `add_repo`) each take a single `string` because each expects one scalar token — the array-to-scalar seam lives in the dispatch closure.
 
 ### Repos and feeds are ordered verbs, not options
 
@@ -446,7 +458,7 @@ You set these in the topology console (or as `cmd <node>:config …` lines in th
 
 ## 5. Wiring real sources into the topology
 
-The production `.tsl` is the toy topology with real source nodes swapped in, the durable **ingest** buffer added at the front, and the scored/durable middle behind it. The sources fan into the `ingest` partition (not the summarizer); a consumer paces `ingest` through the enrich; each source also carries its `:config` verbs inline. Trimmed to the shape:
+The production topology is the toy one with real source nodes swapped in, the durable **ingest** buffer added at the front, and the scored/durable middle behind it. The sources fan into the `ingest` partition (not the summarizer); a consumer paces `ingest` through the enrich; each source also carries its `:config` verbs inline. Here it is with the stage files flattened and trimmed to the shape — in the repo the first block is `newspack-intelligence-ingest.tsl`, the next `-summary.tsl`, and the last `-digest.tsl`:
 
 ```
 make_node Github_Source  github
@@ -463,15 +475,15 @@ cmd feed:config add_url https://wordpress.org/news/feed/
 # so a TICK's fetch+write is fast and the per-item enrich is paced by the consumer.
 make_node Partition ingest:partition <config:logs_dir>/ingest.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>
 cmd ingest:partition:config void_warranty
-make_node Consumer  ingest:consumer  <config:logs_dir>/ingest.p<partition> <config:offsets_dir>/ingest.p<partition>
+make_node Consumer  ingest:consumer  <config:logs_dir>/ingest.p<partition> <config:offsets_dir>/ingest.p<partition> <config:deadletter_dir>/ingest.p<partition>
 cmd ingest:consumer:config set_line_mode true
 
 make_node Summarizer     summarizer
 make_node Scorer         scorer
 make_node Partition      scored:partition ...
 make_node Consumer       scored:consumer  ...
-# The digest's sole arg is the progress denominator (done/total) — it MUST equal the
-# source count (count(Insights_CI_Node::SOURCE_NODES) === 3).
+# Two args: the scored Partition to nudge on RESET, then the progress denominator
+# (done/total), which MUST equal the source count (count(Insights_CI_Node::SOURCE_NODES) === 3).
 make_node Digest_Builder digest scored:partition 3
 
 connect_node github          ingest:partition
@@ -483,7 +495,11 @@ connect_node scorer          scored:partition
 connect_node scored:consumer digest
 ```
 
-Three sources, one partition, one wire each — fan-in needs no special node, just like Ben's community source, except the shared target is now a durable log. **Why the partition sits between the sources and the summarizer:** a source TICK's job is a fast *fetch-and-append*, with no per-item LLM call on the hot path, so the worker keeps heartbeating while it collects; the `ingest:consumer` then tails one read-block per drain into the blocking summarizer → scorer, spreading the enrich across drain cycles instead of stalling the whole collect on the network. `void_warranty` lifts the partition's 4 KB PIPE_BUF write cap ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)) because a raw item can exceed it.
+Those `<config:…>` tokens are resolved before the node ever sees them. `Config::register_token_namespace()` registers the `config` namespace at boot; `Topology_Loader` binds `<partition>` and `<topology>`, then runs the file through a `Shell`, whose interpolation replaces every `<ns:key>` and every bare `<var>`. A `make_node` line therefore reaches the node with plain strings, which is how a `Partition` can name its whole retention policy without hard-coding a number.
+
+The same token syntax works in a `node_schema()` argument **default** — every retention argument on `Log_Node` and `Partition_Node` declares one — but it gets there by a different route: a default lives in PHP and never passes through the Shell, so `Schema_Reflection::parse_schema_args()` resolves it itself, strictly (an unresolvable token throws rather than silently becoming `''`). Omit a positional argument and you get the runtime's configured value; supply one and it wins.
+
+Three sources, one partition, one wire each — fan-in needs no special node, just like Ben's community source, except the shared target is now a durable log. **Why the partition sits between the sources and the summarizer:** a source TICK's job is a fast *fetch-and-append*, with no per-item LLM call on the hot path, so the worker keeps heartbeating while it collects; the `ingest:consumer` then tails one read-block per drain into the blocking summarizer and scorer, spreading the enrich across drain cycles instead of stalling the whole collect on the network. `void_warranty` lifts the partition's 4 KB PIPE_BUF write cap ([ADR-4](architecture-decisions.md#adr-4-pipe_buf-atomic-writes)) because a raw item can exceed it.
 
 The other new substrate behavior at the source end is that the sources **emit nothing until configured**: a `Linear_Source` whose `set_vault_id` resolves to no token returns `[]` from `fetch()` and the TICK is a silent no-op. So a freshly-activated topology is live but silent, and stays silent until you add the Vault entry and the `:config` verbs — which is the correct default.
 
@@ -502,17 +518,19 @@ if ( "DONE\n" === $value ) {
 }
 ```
 
-`$total` is the `make_node Digest_Builder digest scored:partition 3` argument — the source count. Counting *distinct* `FROM` names (not raw signals) keeps it idempotent across re-ticks and replays, so a stale `DONE` can't overshoot. Because `DONE` rides the `ingest → scored → digest` path in order, it lands after every item it follows, so the compose sees a complete cycle.
+`$total` is the digest's **second** `make_node` argument — `make_node Digest_Builder digest scored:partition 3`, where `3` is the source count. Counting *distinct* `FROM` names (not raw signals) keeps it idempotent across re-ticks and replays, so a stale `DONE` can't overshoot. And because `DONE` rides the same `ingest`-to-`scored`-to-`digest` path in order, it lands after every item it follows, so the compose sees a complete cycle.
 
 So driving it by hand is a **RESET, then a TICK per source** — the dashboard's *Collect* button does exactly this:
 
 ```
-> request_node digest RESET        # zero the per-cycle DONE tally (and empty the accumulator)
+> request_node digest RESET        # empty the accumulator, zero the per-cycle DONE tally
 > request_node github TICK
 > request_node linear TICK
 > request_node feed   TICK
 # …the third DONE reaches the digest and it composes + writes digest:log automatically.
 ```
+
+RESET also explains the digest's *first* argument. Emptying the accumulator changes this node's state but not the consumer's cursor, so the offsetlog would keep the stale item list and a restart would reload it. RESET therefore appends one throwaway message to the named `scored:partition`, which advances `scored:consumer` and makes its next checkpoint co-commit the emptied snapshot.
 
 The only manual compose verb is `REGENERATE`, which recomposes a draft from the items *already* collected (no re-fetch). With no creds the TICKs emit nothing, the three `DONE`s still arrive, and the digest composes an empty draft — add a Vault entry + an `add_repo` and re-collect to see items flow.
 
@@ -555,11 +573,12 @@ process-local topology catalog from the complete provider set. Without that
 final restart, a supervisor born while a provider's plugin directory was
 temporarily absent can remain blind to the provider until its natural turnover.
 
-**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes `newspack-intelligence.tsl` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate it from the console's Topology Manager or with `topologies activate <name>`, then confirm:
+**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes every `.tsl` in `topologies/` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate the aggregator — the four stage files are `include`d by it, so they need no activation of their own — from the Overview tab of the **Nodes** admin page or from the CLI, then confirm:
 
 ```bash
+docker exec eve-pyrobase1-1 wp nodes activate newspack-intelligence --allow-root --path=/var/www/html
 docker exec eve-pyrobase1-1 wp nodes status --allow-root --path=/var/www/html
-#   newspack-intelligence  0  live  3s ago  2m 10s
+#   newspack-intelligence.p0  live  3s ago  2m 10s
 ```
 
 **Tests run in the container, from `/services`, no network.** The closure-HTTP seam is what makes the connector suites hermetic — tests set `$http_get`/`$http_post` to return canned bodies, so nothing leaves the box:
@@ -577,9 +596,9 @@ Lint to the same bar as the substrate — `npm run lint:php` (phpcs, VIP Go) and
 
 The toy guide's punchline was *Ana and Ben never met* — capability added by wiring a node, not editing a system. Going real didn't change that bet; it cashed it in.
 
-You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one is only `config()` + `fetch()` + a one-line `node_schema()`, because the new **`Source_Node`** base absorbed every connector concern the toy used to copy per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three wildly different payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the connectors have credentials to fetch with.
+You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one supplies only `config()`, `fetch()`, its `:config` verb handlers, and a `node_schema()` built from the shared `source_schema()`, because the new **`Source_Node`** base absorbed every connector concern the toy used to copy per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three wildly different payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the connectors have credentials to fetch with.
 
-And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body }` exactly as before. The router, the worker lifecycle, the supervisor, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
+And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body, timestamp }` exactly as before. The router, the worker lifecycle, the supervisor, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
 
 That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a Vault-backed credential pointer, and a test seam. The intent really was small. The plumbing is what the substrate lets you write once and stop thinking about.
 
@@ -591,5 +610,5 @@ That was the short hop the toy guide promised — `items()` → `fetch()`. It tu
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — this guide's sibling: the production console/dashboard surfaces (palette vs inspector, measured transcript ceilings, the icons build gotcha) and the *insights out* half §4 deferred.
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the original toy Publisher Insights React dashboard walkthrough.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
-- **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (fire-and-forget §3, PIPE_BUF §4, lazy init §5).
-- **[`../../newspack-intelligence/`](../../newspack-intelligence/)** — the complete production plugin: `includes/`, `topologies/newspack-intelligence.tsl`, the PHPUnit suite.
+- **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-5 lazy init).
+- **[`../../newspack-intelligence/`](../../newspack-intelligence/)** — the complete production plugin: `includes/`, the five composed `.tsl` files under `topologies/`, the PHPUnit suite.

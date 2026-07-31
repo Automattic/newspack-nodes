@@ -1,6 +1,6 @@
 # Newspack Nodes — Documentation Map
 
-Thirteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
+Fourteen docs, three reading orders. New here? Read **Start here** top to bottom. Shipping something? Jump to **Take it to production**. Need a fact? Go straight to **Reference**.
 
 ## Start here
 
@@ -24,11 +24,12 @@ Facts, not tutorials.
 
 - **[architecture-guide.md](architecture-guide.md)** — read when you need the full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — read when you want to change a load-bearing behavior: the ADRs, why each was chosen, and the condition that would reopen it.
-- **[API.md](API.md)** — read when you're calling the runtime over HTTP: the three REST endpoints and their request/response shapes.
+- **[API.md](API.md)** — read when you're calling the runtime over HTTP: the REST endpoints, command signing, and their request/response shapes.
 - **[cli.md](cli.md)** — read when you need a `wp nodes` verb: the one-page reference for every subcommand and the common flows.
 - **[troubleshooting.md](troubleshooting.md)** — read when something live is misbehaving: the REPL, worker health, log paths, and the failure modes we actually hit.
-- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen 1.0 surfaces, the deprecation policy, and what stays internal.
+- **[stability.md](stability.md)** — read when you need to know what you can build on: the frozen surfaces, the deprecation policy, and what stays internal.
 - **[upgrading.md](upgrading.md)** — read when you're moving a consumer plugin across substrate versions: the breaking changes, with the fix beside each.
+- **[tachikoma-lineage.md](tachikoma-lineage.md)** — read when you need the Perl this runtime varies from: what came from where, file and symbol, and why each deliberate difference was chosen.
 
 ## Glossary
 

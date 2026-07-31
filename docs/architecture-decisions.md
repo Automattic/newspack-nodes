@@ -24,6 +24,7 @@ Don't renumber — supersede.
 | [12](#adr-12-dead-letter-poison--crash-lifecycle) | Dead-letter poison / crash lifecycle |
 | [13](#adr-13-fill-returns-nothing) | `fill()` returns nothing |
 | [14](#adr-14-cooperative-stop-propagates-through-broad-catches) | Cooperative-stop propagates through broad catches |
+| [15](#adr-15-command-authorization-local-taint--the-minter-signs) | Command authorization: LOCAL taint + the minter signs |
 
 ---
 
@@ -72,6 +73,12 @@ of the array — the wire shape IS the memory shape. There is **no** object form
 one it is a bug to delete. Deliberate Tachikoma divergences: KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1.
 `TM_BYTESTREAM` (string VALUE) and `TM_STRUCT` (array VALUE) are mutually exclusive;
 array-VALUE consumers gate on TM_STRUCT.
+
+One field sits outside the seven: `LOCAL` at index 7, the in-process provenance taint a
+Shell stamps on a command it mints. It is appended AFTER the canonical fields and both
+ports slice it off in `packed()` / `pack()`, so it cannot cross a process boundary — which
+is exactly what makes it usable as an authorization signal (ADR-15). Nothing else may be
+appended on that basis.
 
 **Alternatives considered:** Associative array / value object — rejected:
 `$message['type']` silently coerces to index 0 and corrupts TYPE with no error, and an
@@ -135,6 +142,9 @@ interleave — which lets the firehose skip a lock on the common path.
   `{partition_dir}/write.lock.d/`. Acquisition retries up to `max_wait_ms` (default 65s,
   deliberately longer than the lock's 60s stale window: a dead predecessor's lock goes stale
   mid-wait and is stolen; only a live second writer throws, at timeout — never immediately).
+  An optional `debounce_ms` takes the lock per write burst and frees it after that much
+  quiet instead of holding it for the partition's lifetime — still enforced, just yielded
+  between bursts so intermittent large writers can take turns.
 - **`void_warranty()`** — ASSERTED exclusivity: lifts the cap and skips the write/rotate
   locks on the caller's assertion that it is the sole writer. For partitions already inside a
   single-writer boundary (a worker's own offsetlog under its topology lock, a per-worker
@@ -259,12 +269,14 @@ sets none is unaffected. `SSE_In` is deliberately exempt: a subscribed `_repl` s
 - **One chokepoint.** Everything passes the Router — one place for NOT_AVAILABLE and the
   routing counter.
 - **Unaddressability is a security boundary — the one property only the physical plane can
-  express.** `Stdin_Node` and `Shell_Node` (`wp nodes cli`, and the JS `Shell_Node`) are
-  deliberately UNNAMED: absent from the registry, unreachable by any TO path. The Shell is
-  the privilege point (it marks commands `LOCAL` / signs them); if a crafted TM_BYTESTREAM
-  could route TO a Shell, unsigned bytes would become authorized commands. Unnamed +
-  sink-wired-only means the only way in is the physical input path (stdin → Shell →
-  interpreter). No name, no attack surface — security by construction, not by checks.
+  express.** The stdin reader and the `Shell_Node` (`wp nodes cli`, and the JS `Shell_Node`)
+  are deliberately UNNAMED: absent from the registry, unreachable by any TO path. The Shell
+  is the privilege point (it marks commands `LOCAL` and signs them); if a crafted
+  TM_BYTESTREAM could route TO a Shell, unsigned bytes would become authorized commands.
+  `Shell_Node::name()` throws on any argument so the rule cannot be violated by a later
+  caller; the reader is simply never named. Unnamed + sink-wired-only means the only way in
+  is the physical input path (stdin → Shell → interpreter). No name, no attack surface —
+  security by construction, not by checks.
 
 **The two-properties argument:** each plane expresses a property the other cannot.
 All-logical routing loses structural unaddressability (every node must have an address to
@@ -330,8 +342,10 @@ unavailable; the substrate's own Supervisor is itself a capped request under the
 rule, which is exactly why it needs a tier above it (WP-Cron).
 
 **Consequences:** Three independent spawners (worker `finally`, supervisor tick, cron),
-bounded against respawn storms by the 15s `is_recently_spawned` throttle (persisted via
-memcache). Worst-case revival latency is cron cadence.
+bounded against respawn storms by the 15s `is_recently_spawned` throttle. The spawn
+ENDPOINT is where that throttle is enforced and recorded, because it is the one gate all
+three cross; the record persists through `Cache_Backend::shared_first()`, falling back to a
+transient. Worst-case revival latency is cron cadence.
 
 **Revisit if:** an OS-level process supervisor becomes available — the tiered self-revival
 collapses into it.
@@ -343,7 +357,7 @@ collapses into it.
 **Status:** Accepted
 
 **Context:** Topologies and the REPL refer to node types by short name. Resolution needs a
-rule sibling and third-party plugins can extend without a central registry.
+rule that sibling and third-party plugins can extend without a central registry.
 
 **Decision:** Every PHP class is `Word_Word` (acronyms `HTTP` / `SSE` / `CLI` / `LRU` / `CI`
 stay all-caps). Node subclasses end `_Node`; non-node helpers don't (`Event_Framework`,
@@ -378,9 +392,9 @@ order and a config representation that survives the trip.
 **Decision:** The v0.6.0 Tachikoma sequence: no-arg ctor → `name()` → `arguments()` →
 `sink()`. `make_node` instantiates `new $fqcn()`, then `name()`, then `arguments( $arg_tokens )`
 — where `$arg_tokens` is the scalar positional args `array_map`ped to strings (`array_filter(
-$ctor_args, '\is_scalar' )`, re-indexed) — then `sink( $this )`. As of the args-array migration,
-`arguments()` takes and returns a **flat token array** (`list<string>` argv), NOT a space-joined
-string: `Node::arguments( ?array $args = null ): array`. Tokens are carried verbatim; the ONLY
+$ctor_args, '\is_scalar' )`, re-indexed) — then `sink( $this )`. `arguments()` takes and returns
+a **flat token array** (`list<string>` argv), NOT a space-joined string:
+`Node::arguments( ?array $args = null ): array`. Tokens are carried verbatim; the ONLY
 place they re-join into a single line is the serialization anchor `Node::serialize_args( array
 $tokens ): string` (used by `dump_config()`), which single-quotes any token bearing whitespace /
 quote / backtick / backslash / emptiness and escapes `\` and `'` so the round-trip is lossless
@@ -395,6 +409,11 @@ filesystem-root junk. Derived state (Partition's `partition_dir`) computes after
 `parse_schema_args()` returns. Programmatic dependencies (e.g. `Workers_CI_Node::$cli`) are
 public properties assigned AFTER `make_node`; object args are filtered (`is_scalar`) because
 they can't round-trip.
+
+Re-declaring a name is decided by the same tokens: identical class AND tokens return the
+existing node (so replaying a dump, or including a topology twice, is idempotent), anything
+else throws `make_node conflict`. And a node that throws while being named or configured is
+removed rather than left half-built in the registry.
 
 **Alternatives considered:** A parsing constructor with typed args — rejected: breaks the
 round-trippable single-string config and diverges from the Tachikoma sequence. Object args
@@ -413,7 +432,7 @@ that must build a bare node before configuring it.
 ## ADR-12: Dead-letter poison / crash lifecycle
 
 **Status:** Accepted. Shared by `Consumer_Node` and `Remote_Source_Node` via the
-`Dead_Letter_Queue` / `Offsetlog_Cursor` traits. Roadmap item [42] (the "(dead-letter [42])"
+`Dead_Letter_Queue` and `Durable_Reader` traits. Roadmap item [42] (the "(dead-letter [42])"
 CHANGELOG tags).
 
 **Context:** A durable reader (Consumer tailing a Partition; Remote_Source relaying a remote
@@ -437,9 +456,9 @@ graceful handoff (misreading a strike as quarantined would silently drop a messa
 still had fair shots left).
 
 - **Caught-throw poison: quarantined ON SIGHT, identically in both readers.** The throw is
-  caught at the emit seam (`Consumer::forward_line`, `Remote_Source::forward_line`),
-  the message is `dead_letter()`ed to the `:deadletter` sibling (replayable via
-  `wp nodes ingest`). Consumer's chop advances past it locally; Remote_Source stays pinned
+  caught at the shared emit seam (`Durable_Reader::forward_line`, which Consumer inherits
+  and Remote_Source overrides for its crumb-derived cursor), and the message is
+  `dead_letter()`ed to the `:deadletter` sibling (replayable via `wp nodes ingest`). Consumer's chop advances past it locally; Remote_Source stays pinned
   at its start with the marker, so an idle tail's re-pull on the next recycle drops silently
   instead of duplicating the DLQ entry. No retry, no head-block: a transient downstream
   failure is recovered by operator replay, not by automatic retry. Unparseable lines are
@@ -469,10 +488,12 @@ still had fair shots left).
 
 The reusable core (`attempts` accounting, `record_poison_strike`,
 `resume_attempts_from_frame`, `crawl_interval_elapsed` / `exit_crawl`, `dead_letter`, the
-`CRASH_MAX_ATTEMPTS` / `COOP_MAX_ATTEMPTS` / `CHECKPOINT_INTERVAL_S` thresholds) lives in
-`Dead_Letter_Queue` (plus the `quarantined` seal and the boot skip's drop/DLQ disposition);
-each reader keeps its own read-loop shape — Consumer's byte-measured chop, Remote_Source's
-commit-on-arrival at crumb starts. The crumb still STAMPS `segment:offset:length` for wire
+`CRASH_MAX_ATTEMPTS = 5` / `COOP_MAX_ATTEMPTS = 2` / `CHECKPOINT_INTERVAL_S = 30`
+thresholds) lives in `Dead_Letter_Queue` (plus the `quarantined` seal and the boot skip's
+drop/DLQ disposition); each reader keeps its own read-loop shape — Consumer's byte-measured
+chop, Remote_Source's commit-on-arrival at crumb starts. `Partition_Node` uses the same
+trait for a third case with no cursor at all: a short write or a failed segment open
+quarantines the messages that never landed. The crumb still STAMPS `segment:offset:length` for wire
 compatibility (SSE_In's eager reconnect reads it), but cursor management consumes only the
 start; readers accept a two-part `segment:offset` crumb.
 
@@ -588,14 +609,129 @@ at each site:
   recorded in `tests/unit/TeeStopPrecedenceTest.php`.
 - **Post-success `finally` (`Job_Worker::after_job`).** Swallows everything, WSS included: the
   handler already succeeded, so propagating anything from post-success cleanup would false-poison
-  a completed job (the drain would quarantine an already-processed message — see ADR-12).
+  a completed job (the drain would quarantine an already-processed message — see ADR-12). Its
+  `before_job` counterpart is NOT a carve-out — it follows the rule, re-throwing WSS first and
+  swallowing only a listener's own error, which skips that one job instead of killing the batch.
 
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
-— premature: `Worker_Should_Stop` is the only control-flow exception today. A second one can
-share the explicit-first-catch pattern, or introduce the base then.
+— premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
+`Worker_Should_Stop_Clean`, so one explicit-first catch on the parent already covers both. A
+third, unrelated one can share that pattern, or introduce the base then.
 
 **Consequences:** Cooperative stop is guaranteed on every drain path, not just the direct
 firehose write. Broad catches stay legal for real errors but must front the WSS re-throw.
 
 **Revisit if:** a second control-flow exception appears (introduce a shared base and catch it),
 or a carve-out's rationale stops holding.
+
+---
+
+## ADR-15: Command authorization: LOCAL taint + the minter signs
+
+**Status:** Accepted
+
+**Context:** A command is graph construction with full interpreter authority — `make_node`,
+`connect_node`, the config verbs. The *same* `Command_Interpreter_Node` class runs in two
+trust roles: in-process, where the browser console and the bare `wp nodes cli` mint their own
+commands, and over the wire, where a worker reads them off an IPC partition and the
+`/command` request-scope CI reads them out of an HTTP body. WordPress authentication answers
+"who is this request?" at the REST boundary. It cannot answer "who minted this message?",
+and the two come apart the moment a message crosses an IPC partition into a worker that has
+no request context at all. In-process provenance is free — a Shell knows what it minted.
+Across a process boundary nothing survives that a sender could not equally forge.
+
+**Decision:** Two tiers, keyed to whether an interpreter can trust its own process. The gate
+is a per-instance `authorize` closure (`$this->authorize ?? self::$default_authorize`),
+checked for EVERY command in `interpret()`; a refusal returns `unauthorized: <verb>` instead
+of dispatching.
+
+- **Client tier** — `Message::LOCAL` (index 7), set by a `Shell_Node` on a command it mints
+  in-process. The default policy is `isset( $message[ Message::LOCAL ] )`. Both ports slice
+  `packed()` / `pack()` to `LAST_VALUE_INDEX + 1` and PHP's `unpacked()` rejects an 8-field
+  line, so LOCAL cannot cross a boundary — which is precisely what makes its presence mean
+  something.
+- **Server tier** — verifier processes install `Command_Auth::verifier()`, which accepts a
+  LOCAL command OR one carrying a valid HMAC envelope at `VALUE['auth']`. The envelope rides
+  INSIDE VALUE so it survives IPC, unlike the stripped LOCAL.
+
+**The minter signs; the ingress only verifies.** A client first establishes a session:
+`POST /newspack-nodes/v1/auth` (fleet-site gate + `manage_options`) returns
+`{ handle, key, expires_in, now }` — a random 16-byte handle and 32-byte key, stored under a
+site-namespaced address with `add()`, never `set()`, for a fixed `SESSION_TTL_S = 3600`. The
+response is the only place the key is ever disclosed; `now` lets the client align its
+TIMESTAMP to the minter's clock. `add()` means a colliding handle fails instead of displacing
+a live session, and the TTL is never slid on use, so a leaked handle expires on a bounded
+schedule no matter how busy it is.
+
+The canonical signing string is `JSON.stringify([ ts, name, arguments, nonce ])` — semantics
+only. Never TO or FROM, which Router peels and nodes stamp in transit; never TYPE, which is
+envelope too, and whose exclusion is what lets a mint sign at build time before flags are
+OR'd in. PHP encodes it with `JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE` to match
+`JSON.stringify` byte-for-byte, and `tests/fixtures/signatures.json` pins that parity from
+both languages.
+
+Two keys exist, and **which key signs IS the destination binding**. `Command_Auth::sign()`
+uses the per-site secret (`hash_hmac( 'sha256', 'nodes-command-v1', wp_salt('nonce') )`) and
+stamps no handle — that is the attached cli's Shell, same host, over a filesystem-gated IPC
+partition. `sign_for( $destination )` signs under the session established with one remote and
+stamps its handle; a signature under one remote's key verifies only there, which pins a
+command to its destination without signing TO. No session means no signature: a minter waits
+rather than emitting something that will be refused.
+
+Freshness is an age/skew check (`MAX_PAST_S = 20`, `MAX_FUTURE_S = 10`). Replay protection
+claims the nonce with an atomic `add()` at `NONCE_TTL_S = 60`. The two claims deliberately
+choose different cache tiers: nonces via `Cache_Backend::local_first()`, because a claim only
+has to be unique to the process that verifies it and APCu is the faster host-local answer;
+sessions via `shared_first()`, because a session minted in a web request MUST resolve in a
+worker. Every failure — bad envelope, stale or skewed timestamp, signature mismatch, replayed
+nonce, unavailable backend — refuses and logs through the *handling* interpreter's
+`drop_message`. `HTTP_In` installs a fresh verifier per request and latches any refusal, so a
+batch containing one answers **401** rather than a reassuring 202.
+
+Stated non-goal: **HMAC-SHA256 at every tier; no asymmetric signing anywhere.**
+
+**Alternatives considered:**
+
+- **Sign at the ingress** — the original design, where `HTTP_In` conferred authority on
+  arrival after WordPress auth. Rejected: it makes the boundary an ORACLE. Anything reaching
+  it acquires authority regardless of what put it there, so a wire-arrived frame routed into
+  the egress node would go back out signed. Moving the signature to the mint is what closes
+  that; the ingress now signs nothing.
+- **LOCAL alone, everywhere** — rejected: LOCAL cannot cross a process boundary, which is
+  what makes it trustworthy in-process and useless for a worker that legitimately receives
+  commands over IPC.
+- **One shared site secret for every client** — rejected for browsers: anything shipped to
+  wp-admin is readable by whoever is sitting there, so a shared secret there is not secret. A
+  session key is a capability scoped to one session with a bounded lifetime. The per-site
+  secret survives only where the signer is already inside the trust boundary (same-host IPC).
+- **Signing TO / FROM / TYPE** — rejected: Router peels TO and nodes stamp FROM in transit,
+  so a signature covering them would break in flight. This substrate is a variant of
+  Tachikoma, whose `Command.pm::sign` covers `id:timestamp:name:arguments:payload` for the
+  same reason.
+- **Asymmetric signing (Ed25519)** — previously deferred "until cross-server command
+  authority exists". That authority now exists (hub → spoke via `sign_for()`) and HMAC covers
+  it, because both ends of a session are the same trust domain: the site that minted the key
+  is the site that verifies it. Public-key signing buys non-repudiation and third-party
+  verification; no consumer needs either, and it costs a key-distribution problem we do not
+  otherwise have.
+- **`crypto.subtle` in the browser** — rejected: it returns promises, and awaiting one makes
+  the Shell's dispatch async, moving every graph mutation a microtask later. Synchronous
+  `@noble/hashes` instead.
+- **Filesystem permissions alone for IPC** — rejected as *sufficient*: they gate the
+  directory, not the message. They remain the first gate; the signature is what makes a
+  command believable however it reached the partition.
+
+**Consequences:** `Message::LOCAL` at index 7 is the one field outside ADR-2's seven, and it
+exists solely for this decision — nothing else may be appended on that basis, and nothing may
+rely on it surviving a boundary. The envelope change was breaking and forced the 2.0.0 major.
+A client must establish a session before it can mint at all, and a minter without one skips
+instead of emitting. Cross-port canonical parity becomes a standing maintenance obligation:
+each language's own suite stays green through a drift only the shared fixture catches. A
+re-credentialed or removed Vault entry must forget its session
+(`newspack_nodes/vault/changed`), or the next command signs under a key the far side has
+already forgotten.
+
+**Revisit if:** a party that cannot hold the signing key must verify a command — that is what
+asymmetric signing buys, and it would earn its keep then — **or** a command must be
+authorized between two sites that share no secret, **or** session state needs to outlive the
+cache tier it lives in.

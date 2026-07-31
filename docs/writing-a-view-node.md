@@ -36,12 +36,11 @@ from `@newspack-nodes/runtime`) — and React reads it with
    It receives, parses, publishes, stops. If you catch yourself forwarding out
    of a view, it isn't a view — it's a `Tee` or a transform.
 
-2. **You never fetch your own data; a reply is *delivered* to you by the
-   `TO = FROM` reply.** Upstream, a `Timer → Tee → Fetcher` poll sends your slice
-   verb to the service CI, stamping **`FROM = your receiver`**. The server replies
-   **`TO = FROM`** — the universal TO=FROM reply — so the reply routes back to your
-   receiver `Tee`, which fans it to your view. Your `fill()` only ever *handles
-   the arriving reply*; it never sends the request.
+2. **You never fetch your own data — the `TO = FROM` reply delivers it.**
+   Upstream, a `Timer → Tee → Fetcher` poll sends your slice verb to the service
+   CI, stamping **`FROM = your receiver`**. The server replies **`TO = FROM`**, so
+   the reply routes back to your receiver `Tee`, which fans it to your view. Your
+   `fill()` handles the arriving reply; it never sends the request.
 
 3. **One slice per view — replies never cross.** Each slice verb has its own
    Fetcher → receiver → view path, so the `counts` reply lands ONLY on
@@ -63,8 +62,8 @@ this.setState( 'view', this.model );
   reply is valid (the base does this). A shaped `{ loading: true }` beats
   `undefined`.
 - **`setState`, not `notify`.** `setState` caches the latest payload, so a widget
-  that mounts *after* the reply still gets the current model, not nothing (a late
-  `register()` replays the cache).
+  that mounts *after* the reply still gets the current model (a late `register()`
+  replays the cache).
 
 ## No throw from `fill()`
 

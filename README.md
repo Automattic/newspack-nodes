@@ -1,14 +1,14 @@
 # Newspack Nodes
 
-A node-graph runtime for composable services, built as WordPress plugin infrastructure. Nodes pass messages and sink into one another; underneath them the runtime is WordPress — config in the options table, the supervisor on WP-Cron, worker spawn and commands over the REST API, position and stats in memcache. WordPress-internal, not a standalone PHP bus.
+A node-graph runtime for composable services, built as WordPress plugin infrastructure. Nodes pass messages and sink into one another; underneath them the runtime is WordPress — config in the options table, the supervisor on WP-Cron, worker spawn and commands over the REST API, position and stats in memcache. It is WordPress-internal, not a standalone PHP bus.
 
 ## Why
 
 The traditional WordPress plugin shape — singletons, hooks-as-coupling, monolithic worker classes — makes composition hard. Each plugin grows its own private bus, its own private worker lifecycle, its own private read/write paths. Sharing pieces between plugins means cut-paste-modify, not Lego.
 
-Newspack Nodes is a different bet. The substrate gives you one contract — every node receives messages via `fill( array $message )`, every node sinks into another node — and that's it. With that uniformity, composition just works: any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
+Newspack Nodes is a different bet. The substrate gives you one contract: every node receives messages via `fill( array $message )`, and every node sinks into another node. That uniformity is what makes composition work — any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
 
-The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks), and `topologies/settings-sync.tsl`, the single-instance settings-sync control plane. But the lifecycle underneath is all WordPress: config lives in the options table, the supervisor's safety net runs on WP-Cron, workers spawn and take commands over the REST API behind HMAC + nonce auth, and live position/stats ride in memcache. So "application-independent" is the honest claim; "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
+The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific. The four stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks); `topologies/job-intake.tsl`, which drains the large-write job ingress on substrate-only installs; `topologies/settings-sync.tsl`, the single-instance settings-sync control plane; and `topologies/topic-probe.tsl`, the per-worker consumer-stats sweep. But every part of the lifecycle underneath belongs to WordPress, so "application-independent" is the honest claim and "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
 This is the Lego-bricks architecture pitched at the team meetup, brought to PHP/WordPress — and running in production on WordPress.com Atomic.
 
@@ -16,17 +16,17 @@ This is the Lego-bricks architecture pitched at the team meetup, brought to PHP/
 
 Job queues exist. These don't, anywhere else in WordPress:
 
-- **A live topology console.** A real graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it back to its `.tsl` — from the browser.
-- **An attached REPL.** `wp nodes cli <worker>.p0` pivots into a live worker over IPC: `dump_node`, `trace`, `stats`, rewire sinks, send test messages — no restart, no redeploy.
+- **A live topology console.** A graph editor over the running fleet: see every node and edge with live message counts, rewire a graph, save it back to its `.tsl` — from the browser.
+- **An attached REPL.** `wp nodes cli <worker>.p0` pivots into a live worker over IPC: inspect with `dump_node`, `trace`, and `stats`, rewire sinks, send test messages — no restart, no redeploy.
 - **Time-travel debugging.** Readers checkpoint durable cursors, so a Consumer can pause, single-step, and seek back through the log's history while you watch downstream react.
 - **A Jobs dashboard.** Per-handler throughput, failures, run duration, queue latency, and backlog — replayed 24 hours deep from the durable jobstats log the workers already write.
 - **Errors as docs.** Runtime errors name their fix; `help <NodeType>` in the REPL renders any node's schema, arguments, and verbs from the class itself.
-- **An infra-free test suite.** 3,200+ tests on a bare laptop — no containers, no database, no memcached, under a minute.
+- **An infra-free test suite.** 3,400+ tests on a bare laptop — no containers, no database, no memcached, under a minute.
 - **Written-down architecture.** Fourteen ADRs with context, alternatives, and the condition that would reopen each ([architecture-decisions.md](docs/architecture-decisions.md)).
 
 ## When NOT to use Nodes
 
-Nodes is a runtime, and a runtime you don't need is pure overhead. Reach for the
+Nodes is a runtime, and a runtime you don't need is overhead. Reach for the
 incumbent when it already fits:
 
 - **One background job, now and then** — [Action Scheduler](https://actionscheduler.org/)
@@ -34,14 +34,15 @@ incumbent when it already fits:
   install a node-graph runtime to send a welcome email.
 - **A scheduled task that tolerates drift** — `wp_schedule_event()` is free. WP-Cron's
   known weakness (it fires on traffic, so quiet sites drift) is only worth solving when
-  it is actually your problem.
+  it is your problem.
 - **Request-scope glue** — actions and filters compose fine at request scale; that's
   what they're for.
 
 Nodes earns its keep when the shape of the problem is a **pipeline**: durable ordered
 logs you can replay, long-lived workers that hold state between messages, graphs you
 rewire in a topology file instead of code, and a REPL/dashboard view into all of it.
-The event logger (a firehose → routing → aggregation graph) is the native case.
+The event logger — a firehose that fans out into routing and aggregation — is the
+native case.
 
 And one honest middle case: `newspack-cache-cozy` uses Nodes for a single
 Timer-enqueues-one-job loop — incumbent-shaped work — because the substrate was
@@ -63,6 +64,8 @@ New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — r
 - **[architecture-guide.md](docs/architecture-guide.md)** — full substrate design: message format, node contracts, drain loop, REPL.
 - **[architecture-decisions.md](docs/architecture-decisions.md)** — the load-bearing ADRs and the conditions that would reopen them.
 - **[API.md](docs/API.md)** — REST endpoint reference.
+- **[cli.md](docs/cli.md)** — every `wp nodes` subcommand and the flows they combine into.
+- **[troubleshooting.md](docs/troubleshooting.md)** — the REPL, worker health, log paths, and the failure modes we actually hit.
 
 The complete code lives in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/).
 
@@ -90,10 +93,14 @@ To get workers running, install an application plugin that registers a topology 
 - **Router** — path-based dispatch. Splits TO on `/`, looks up the leading segment, forwards remainder.
 - **Topic** — multi-Partition wrapper, KEY-routed via CRC32.
 - **Partition** — file-segmented append-only log. Storage primitive AND Node.
-- **Tee** — fan-out. Per-target try/catch isolates failures; dead targets pruned at fill.
+- **Tee** — fan-out. Attempts every target, then re-throws the one deferred failure, so a late target still receives the message before the poison path advances the cursor. Dead targets pruned at fill.
 - **Tail** — line-oriented file follower; inode + size-shrink rotation detection.
 - **Log** — file writer (inverse of Tail). Append/overwrite, optional size-based auto-rotate, retention pruning.
 - **Consumer** — Partition reader with offsetlog checkpointing.
+- **Table** — keyed store backed by memcache, so any process reads a value via `Table_Node::lookup()`. Write-through, so it composes mid-graph.
+- **Grep**, **Age_Sieve**, **Value_Timeout** — filters. Grep forwards VALUEs matching a regex; Age_Sieve drops messages older than `max_age`; Value_Timeout dedups by VALUE within a timeout window.
+- **TopicProbe**, **Job_Probe** — periodic stats sweeps. TopicProbe logs each Consumer's cursor distance; Job_Probe logs one cumulative-counter record per job identity. Both feed the dashboards.
+- **Null** — counts and discards. The destination for traffic that must go somewhere and do nothing.
 - **Job_Worker** — generic async-job dispatch; local/remote handler maps via the `newspack_nodes/{job,remote_job}_handlers` filters, with per-job context delivered through the `newspack_nodes/job_worker/{before,after}_job` actions. Ships `topologies/job-worker.tsl`.
 - **Echo** — routing helper that re-addresses on the way through (path-prepend, return-to-sender).
 - **Callback** — closure-as-Node adapter for inline transforms.
@@ -107,12 +114,15 @@ For the full mental model, see [architecture-guide.md](docs/architecture-guide.m
 
 ## REST API
 
-The runtime ships three REST endpoints — the worker spawn handler, a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI), and a server-sent-events stream (`SSE_Out_Node`, drains log/IPC partitions to dashboards). Application plugins register their own endpoints (status, dashboards, additional streams, etc.) on top.
+The runtime ships six REST endpoints: the worker spawn handler; a session issuer that hands a client the key it signs commands with; a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI); two server-sent-events streams (`SSE_Out_Node` drains partitions to dashboards, `Log_Stream_Out_Node` tails a named log source); and an internal loopback probe that reports the web runtime's cache posture to `wp nodes doctor`. Application plugins register their own endpoints (status, dashboards, additional streams, etc.) on top.
 
 ```
 POST  /wp-json/newspack-nodes/v1/workers/spawn
+POST  /wp-json/newspack-nodes/v1/auth
 POST  /wp-json/newspack-nodes/v1/command
+POST  /wp-json/newspack-nodes/v1/health/cache
 GET   /wp-json/newspack-nodes/v1/messages/stream
+GET   /wp-json/newspack-nodes/v1/log/stream
 ```
 
 See [API.md](docs/API.md) for the request/response shapes.
@@ -123,7 +133,7 @@ GPL-2.0-or-later
 
 ## Testing
 
-The full suite — 3,000+ tests — runs on plain `phpunit` with WP stubs and an
+The full suite — 3,400+ tests — runs on plain `phpunit` with WP stubs and an
 in-memory memcache double: no containers, no database, no memcached server, no
 WordPress install. `npm install && composer install && npm run build` sets
 up a fresh clone. `composer install && cd tests && ../vendor/bin/phpunit
@@ -132,4 +142,4 @@ under a minute.
 
 ## Status
 
-1.0: the load-bearing names are frozen. **[docs/stability.md](docs/stability.md)** is the contract — which surfaces are frozen (the node contract, the message, TSL, the CLI, REST, hooks), the deprecation policy, and what stays internal. Breaking changes are curated with their fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. Four production plugins build on the substrate, `newspack-event-logger-nodes` first among them.
+1.0: the load-bearing names are frozen. **[docs/stability.md](docs/stability.md)** is the contract — which surfaces are frozen (the node contract, the message, TSL, the CLI, REST, hooks), the deprecation policy, and what stays internal. Breaking changes are curated with their fix in [docs/upgrading.md](docs/upgrading.md) (start at your installed version, apply everything above it); [CHANGELOG.md](CHANGELOG.md) has the full story per release. Five production plugins declare `Requires Plugins: newspack-nodes`, `newspack-event-logger-nodes` first among them.
