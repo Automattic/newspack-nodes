@@ -1,0 +1,17 @@
+#!/bin/sh
+#
+# pre-commit — refresh the shared tooling, then run the staged-file gates.
+#
+# Wired by `git config core.hooksPath scripts`, so the hook itself is version
+# controlled rather than living only in each clone's .git/hooks. `composer
+# install` sets that config; a clone that has never run it has no hooks at all.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd || exit 1)"
+
+"$SCRIPT_DIR/sync-shared-scripts.sh"
+
+[ -x ./node_modules/.bin/lint-staged ] || exit 0
+
+exec ./node_modules/.bin/lint-staged

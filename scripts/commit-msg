@@ -1,0 +1,13 @@
+#!/bin/sh
+#
+# commit-msg — conventional-commit check.
+#
+# Skips cleanly where commitlint isn't installed, so a plugin without the JS
+# toolchain (or a fresh clone before `npm install`) commits normally rather than
+# failing on a missing binary.
+
+set -e
+
+[ -x ./node_modules/.bin/commitlint ] || exit 0
+
+exec ./node_modules/.bin/commitlint --edit "$1"

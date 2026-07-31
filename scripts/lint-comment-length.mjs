@@ -14,7 +14,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 const MAX_COLS = 80;
 const TAB_WIDTH = 4;
@@ -148,7 +148,10 @@ const SKIP_DIRS = new Set( [
 	'release',
 	'.git',
 ] );
-const isSourceFile = ( p ) => /\.[cm]?jsx?$/.test( p );
+// Shared dev tooling keeps the commentary it was authored with.
+const SKIP_FILES = new Set( [ 'reorder-node-methods.js' ] );
+const isSourceFile = ( p ) =>
+	/\.[cm]?jsx?$/.test( p ) && ! SKIP_FILES.has( basename( p ) );
 
 function* walkFiles( dir ) {
 	for ( const entry of readdirSync( dir, { withFileTypes: true } ) ) {

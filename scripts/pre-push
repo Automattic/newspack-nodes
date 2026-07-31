@@ -16,8 +16,8 @@
 # tweaks (the JS tests still run). Skip the whole gate with `git push
 # --no-verify` when you know it's fine (in-flight WIP branches, etc.).
 #
-# Wired via composer.json `extra.hooks.pre-push`; cghooks installs to
-# .git/hooks/pre-push on `composer install`.
+# Wired by `git config core.hooksPath scripts`, which `composer install` sets;
+# a clone that has never run it has no hooks at all.
 
 set -euo pipefail
 

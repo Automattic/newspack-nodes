@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.13] - 2026-07-31
+
+### Added
+
+- **`scripts/` is the authoritative home for the shared tooling.** The version
+  bump flow (`scripts/bump-version.sh` + `scripts/lib/`), both
+  `reorder-node-methods` twins, and their test moved out of dndocker's `tools/`
+  and into this plugin, so a standalone clone carries everything it needs. Every
+  sibling plugin vendors a copy; `scripts/sync-shared-scripts.sh` refreshes it
+  from here on each `pre-commit` when `../newspack-nodes` exists, and stages what
+  it refreshed. Its ONLY path assumption is that the substrate is a sibling
+  checkout. It replaces itself with a temp-then-rename so the running shell keeps
+  reading the inode it started on, then re-execs the new copy.
+- **`scripts/commit-msg`** — the conventional-commit gate, now a tracked hook.
+  It skips cleanly where commitlint isn't installed.
+
+### Changed
+
+- **Git hooks come from `core.hooksPath`, not `.git/hooks`.** `composer install`
+  now points git at `scripts/`, so the hooks are version controlled and reviewed
+  with the code they gate. A clone that has never run `composer install` has no
+  hooks at all.
+- `scripts/bump-version.sh` replaces dndocker's `tools/bump-nodes-version.sh`.
+  Behavior is unchanged; the shared flow lives in `scripts/lib/bump-version.sh`
+  and the wrapper is only the per-plugin knobs.
+
+### Fixed
+
+- **The reorder-node-methods test had been red since field sorting became
+  opt-in.** Three field-ordering assertions drove the tool without
+  `--sort-fields` and had failed silently in dndocker's `tools/` for two weeks.
+
+### Removed
+
+- `brainmaestro/composer-git-hooks` — `core.hooksPath` does the job with no
+  dependency, and cghooks-installed `.git/hooks` files are now dead files git
+  ignores.
+
+
 ## [2.2.12] - 2026-07-31
 
 ### Removed
