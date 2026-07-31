@@ -40,6 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `wp nodes scaffold` template — so every scaffolded plugin shipped a wrong
   description of what `register_plugin()` does.
 
+- **Leaked SseIn watchdogs are now closed by the harness, in every suite.** A
+  started `SseInNode` holds a real 2s watchdog interval; one left open outlives
+  its test, and when a later test advances a fake clock past `FORCE_AFTER_MS` the
+  zombie reads the jump as stream silence, reconnects, and prints — failing
+  whichever test happens to be running, since `jest.setup.js` treats unexpected
+  console output as a failure. Fixing the two suites that were known to leak left
+  three more (`remote-link`, `remote-ipc`, `TopologyConsole`, 172 zombies between
+  them), so teardown moved into `jest.setup.js` where it covers every suite.
+  It cancels the handle with the `clearInterval` captured before any fake timers
+  are installed, and deliberately does NOT call `useRealTimers()`:
+  `timer-node.test.js` installs fake timers once at module scope, so uninstalling
+  them between tests breaks every later `advanceTimersByTime`.
 - **The SseIn suite flaked because 34 of its 48 nodes were never closed.** A
   started `SseInNode` holds a real 2s watchdog interval; a test that ended
   without `close()` left it running. When a later test installed fake timers and
