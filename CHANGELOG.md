@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The SseIn suite flaked because 34 of its 48 nodes were never closed.** A
+  started `SseInNode` holds a real 2s watchdog interval; a test that ended
+  without `close()` left it running. When a later test installed fake timers and
+  advanced the clock past `FORCE_AFTER_MS`, the zombie read the jump as stream
+  silence, logged `reconnecting - SSE silent past timeout`, and reopened a
+  stream — failing whichever test was running, since `jest.setup.js` treats
+  unexpected console output as a failure. The harness now owns teardown: nodes
+  register on construction and an `afterEach` restores real timers, then closes
+  them. `io-telemetry-instrumentation` leaked four the same way.
+
 ## [2.3.2] - 2026-07-31
 
 ### Changed

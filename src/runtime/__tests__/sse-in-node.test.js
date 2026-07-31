@@ -56,9 +56,26 @@ FakeEventSource.CONNECTING = 0;
 FakeEventSource.OPEN = 1;
 FakeEventSource.CLOSED = 2;
 
+// A started node holds a real 2s watchdog; one left open outlives its test and
+// reconnects inside a later fake-timer test, whose advanced clock reads as
+// silence. The harness owns teardown so no test can leak one.
+const live = [];
+function newSseIn() {
+	const sse = new SseInNode();
+	live.push( sse );
+	return sse;
+}
+
 beforeEach( () => {
 	Core.reset();
 	global.EventSource = FakeEventSource;
+} );
+
+afterEach( () => {
+	// Real first: useRealTimers discards fake-scheduled watchdogs, and only the
+	// real clearInterval can cancel a real one.
+	jest.useRealTimers();
+	live.splice( 0 ).forEach( ( sse ) => sse.close() );
 } );
 
 test( 'a visible event directly reopens a stream whose hidden event was frozen', () => {
@@ -116,7 +133,7 @@ test( 'a terminal EventSource failure refreshes the REST nonce before reopening'
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
-	const sse = new SseInNode();
+	const sse = newSseIn();
 	sse.arguments = [ 'completed.p17' ];
 	try {
 		sse.start();
@@ -163,7 +180,7 @@ test( 'a renewed stream gets no second nonce renewal until it connects', async (
 	const warn = jest
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
-	const sse = new SseInNode();
+	const sse = newSseIn();
 	sse.arguments = [ 'completed.p29' ];
 
 	try {
@@ -221,7 +238,7 @@ test( 'a grouped stamp keys resume positions by its full offsets/<dir> key', () 
 } );
 
 function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
-	const sse = new SseInNode();
+	const sse = newSseIn();
 	sse.arguments = [ subscribe.join( ',' ) ];
 	sse.baseUrl = baseUrl;
 	sse.nonce = nonce;
@@ -950,7 +967,7 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 			nonce: 'NONCE',
 		};
 		// A bare palette-drop configures only subscribe; no nonce is threaded in.
-		const sse = new SseInNode();
+		const sse = newSseIn();
 		sse.arguments = [ 'firehose,errors' ];
 		sse.start();
 		expect( FakeEventSource.last.url ).toBe(

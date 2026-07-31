@@ -38,10 +38,16 @@ beforeEach( () => {
 	global.EventSource = FakeEventSource;
 } );
 
+// A started node holds a real 2s watchdog; the harness owns teardown so none
+// outlives its test.
+const live = [];
+afterEach( () => live.splice( 0 ).forEach( ( s ) => s.close() ) );
+
 function makeConnector() {
 	const s = new SseInNode();
 	s.arguments = [ 'x' ];
 	s.sink = { fill: () => {} };
+	live.push( s );
 	return s;
 }
 
