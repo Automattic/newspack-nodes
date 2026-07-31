@@ -619,23 +619,44 @@ class CoreTest extends TestCase {
 	 * phase means it never left, and reporting that as success is what let a
 	 * 10ms budget silently strand three sites: no access-log line because
 	 * nothing was sent, and no error-log line because the timeout "succeeded".
-	 * `pretransfer` is 0 until connect + TLS complete, so it draws that line.
+	 * Bytes uploaded draws that line: zero means it never left.
 	 */
 	public function test_a_timeout_before_the_request_was_sent_is_an_error(): void {
 		$classify = new \ReflectionMethod( Core::class, 'classify_post_result' );
 
 		$this->assertNotNull(
-			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 0.0, 'Operation timed out' ),
-			'a timeout with no pretransfer never reached the server'
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 0, 96, 'Operation timed out' ),
+			'a timeout having uploaded nothing never reached the server'
 		);
 		$this->assertNull(
-			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 0.019, 'Operation timed out' ),
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 96, 96, 'Operation timed out' ),
 			'a timeout after the request went out is the contract working'
 		);
-		$this->assertNull( $classify->invoke( null, 0, 0.0, '' ), 'no error is no error' );
+		$this->assertNull( $classify->invoke( null, 0, 0, 96, '' ), 'no error is no error' );
 		$this->assertSame(
 			'Could not resolve host',
-			$classify->invoke( null, \CURLE_COULDNT_RESOLVE_HOST, 0.0, 'Could not resolve host' )
+			$classify->invoke( null, \CURLE_COULDNT_RESOLVE_HOST, 0, 96, 'Could not resolve host' )
+		);
+	}
+
+	/**
+	 * `pretransfer` marks the START of the transfer, not its completion, so a
+	 * timeout that fires between the first byte and the last still reports
+	 * success — the body never fully left, nothing reaches the access log, and
+	 * nothing reaches the error log. That is datapoke2: a 50ms budget, a
+	 * handshake landing near it, and a fleet that stayed down for days in
+	 * silence. Bytes UPLOADED is the honest test of delivery.
+	 */
+	public function test_a_timeout_that_uploaded_a_partial_body_is_an_error(): void {
+		$classify = new \ReflectionMethod( Core::class, 'classify_post_result' );
+
+		$this->assertNotNull(
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 41, 96, 'Operation timed out' ),
+			'a timeout partway through the body never delivered the request'
+		);
+		$this->assertNull(
+			$classify->invoke( null, \CURLE_OPERATION_TIMEDOUT, 96, 96, 'Operation timed out' ),
+			'a timeout once the whole body is on the wire is the contract working'
 		);
 	}
 

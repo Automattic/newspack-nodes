@@ -364,13 +364,15 @@ class Core {
 		if ( false === $ch ) {
 			return 'curl_init failed';
 		}
-		\curl_setopt_array( $ch, self::post_curl_options( $url, \http_build_query( $body ) ) );
+		$fields = \http_build_query( $body );
+		\curl_setopt_array( $ch, self::post_curl_options( $url, $fields ) );
 		// Default ignores $body (in POSTFIELDS); arg only matters to mocks.
 		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
 		$err = self::classify_post_result(
 			\curl_errno( $ch ),
-			\curl_getinfo( $ch, \CURLINFO_PRETRANSFER_TIME ),
+			\curl_getinfo( $ch, \CURLINFO_SIZE_UPLOAD_T ),
+			\strlen( $fields ),
 			\curl_error( $ch )
 		);
 		// phpcs:enable WordPress.WP.AlternativeFunctions
@@ -404,24 +406,29 @@ class Core {
 	 * Classify a fire-and-forget result. Split out so the rule is assertable
 	 * without a transport seam, as post_curl_options is for the option set.
 	 *
-	 * A timeout counts as success only once the request is on the wire — hanging
-	 * up then is the entire contract. Timing out during the connect phase means
-	 * it never left, and calling that success is how a too-small budget strands a
-	 * whole fleet in silence: nothing in the access log because nothing was sent,
-	 * nothing in the error log because the timeout "worked". `pretransfer` stays
-	 * 0 until connect and TLS complete, so it draws exactly that line.
+	 * A timeout counts as success only once the WHOLE body is on the wire —
+	 * hanging up then is the entire contract. Timing out before that means the
+	 * request never landed, and calling it success is how a too-small budget
+	 * strands a fleet in silence: nothing in the access log because nothing
+	 * arrived, nothing in the error log because the timeout "worked". Elapsed
+	 * time cannot draw that line — `pretransfer` marks where the transfer STARTS,
+	 * so it reads a half-sent body as delivered. Bytes uploaded can.
 	 *
-	 * @param int    $errno       curl_errno().
-	 * @param float  $pretransfer CURLINFO_PRETRANSFER_TIME; 0.0 while still connecting.
-	 * @param string $error       curl_error().
+	 * @param int    $errno    curl_errno().
+	 * @param int    $uploaded CURLINFO_SIZE_UPLOAD_T; body bytes actually sent.
+	 * @param int    $expected Body length that had to go out.
+	 * @param string $error    curl_error().
 	 * @return string|null Error string on failure, null on success.
 	 */
-	private static function classify_post_result( int $errno, float $pretransfer, string $error ): ?string {
+	private static function classify_post_result( int $errno, int $uploaded, int $expected, string $error ): ?string {
 		if ( 0 === $errno ) {
 			return null;
 		}
 		if ( \CURLE_OPERATION_TIMEDOUT === $errno ) {
-			return $pretransfer > 0.0 ? null : 'timed out before the request was sent: ' . $error;
+			// Partway is not delivery; only a whole body honors the contract.
+			return $uploaded >= $expected
+				? null
+				: \sprintf( 'timed out after %d of %d bytes were sent: %s', $uploaded, $expected, $error );
 		}
 		return $error;
 	}

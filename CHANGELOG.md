@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A spawn POST that timed out mid-body reported success.** The classifier drew
+  its "did this leave?" line at `CURLINFO_PRETRANSFER_TIME`, which marks where
+  the transfer STARTS — so a timeout between the first byte and the last read as
+  delivered. Nothing reached the access log because nothing arrived, and nothing
+  reached the error log because the timeout "worked": a fleet stayed down for
+  days in complete silence on a host whose handshake sat near the budget. It now
+  compares `CURLINFO_SIZE_UPLOAD_T` against the body length, so a partial send is
+  reported as `timed out after N of M bytes were sent`.
+
+
 ## [2.3.0] - 2026-07-31
 
 ### Added
