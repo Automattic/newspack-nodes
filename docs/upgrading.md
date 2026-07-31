@@ -23,6 +23,21 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   reason; consume that frame and prefer its reason over the transport's later
   generic close event.
 
+## 2.0.0
+
+- **A command sent to `/command` must be signed; the REST boundary no longer
+  signs on your behalf.** Before 2.0.0, `HTTP_In` signed whatever request
+  passed `manage_options` — reaching the endpoint was enough. As of 2.0.0,
+  ingress signs nothing: an unsigned command is refused
+  (`verification failed: bad envelope`), and a batch with any refusal answers
+  **401** instead of 202. Fix: mint a session first
+  (`POST /wp-json/newspack-nodes/v1/auth`), then sign every command with the
+  session key before sending it. The runtime's own Shell and dashboard hooks
+  already do this via `Node.command()` (JS) or `Command_Auth::sign()` /
+  `sign_for()` (PHP) — a hand-built `TM_COMMAND` message that skips this step
+  is constructed but never delivered. See
+  [API.md → Command Signing](API.md#command-signing).
+
 ## 0.51.0
 
 - **`set_snapshot_node` deleted; `add_snapshot_node` replaces it.** A Consumer now

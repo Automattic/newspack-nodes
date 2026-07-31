@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ADR-15 — command authorization.** The `LOCAL` in-process tier, HMAC on the
+  wire, and the minter-signs model now have a decision record. The alternative it
+  rejects was previously recorded only in a code comment: an ingress that confers
+  authority on arrival becomes an oracle, since anything reaching it acquires
+  authority regardless of what put it there.
+- **`docs/tachikoma-lineage.md`** collects what came from Tachikoma and the ten
+  deliberate divergences, each with the reason it was chosen. The substrate is a
+  **variant** of Tachikoma, not a port — under "port" every difference reads as an
+  infidelity rather than a design decision.
+
+### Changed
+
+- **Documentation accuracy pass over every doc.** Corrections include: `docs/API.md`
+  never documented command signing and stated there is no rate-limit gate on
+  `/command` (there is — 30/s per user, then 429); `docs/cli.md` omitted `wp nodes
+  gc`; `AGENTS.md` was missing 20 files from its layout table and credited
+  `Job_Worker_Node` with a memory-watermark self-restart that lives in
+  `Worker_Base`; `README.md` described Tee as isolating per-target failures when
+  it re-throws the throwable `outranks()` selects.
+
 ### Fixed
+
+- **`test_debounced_oversize_drop_still_arms_the_release_timer` tested the write
+  path.** Its payload was a literal 11 MB, which stopped being oversize when the
+  large-write cap rose to 32 MiB, so the drop branch never ran and the test passed
+  for the wrong reason. It now sizes off `MAX_LARGE_LINE_SIZE` and asserts no
+  segment file was written.
+- **Thirteen code comments contradicted the code they documented**, including the
+  `wp nodes scaffold` template — so every scaffolded plugin shipped a wrong
+  description of what `register_plugin()` does.
 
 - **The SseIn suite flaked because 34 of its 48 nodes were never closed.** A
   started `SseInNode` holds a real 2s watchdog interval; a test that ended

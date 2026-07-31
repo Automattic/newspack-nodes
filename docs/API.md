@@ -1,10 +1,11 @@
 # Newspack Nodes REST API
 
-The runtime ships a small REST surface for worker lifecycle, command dispatch,
-streams, and an internal web-runtime cache-health probe. Application plugins
-register their own endpoints (dashboards, additional streams, etc.) on top,
-plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's
-graph via the `newspack_nodes/request_graph_ready` hook.
+The runtime ships a small REST surface for worker lifecycle, session auth,
+command dispatch, streams, and an internal web-runtime cache-health probe.
+Application plugins register their own endpoints (dashboards, additional
+streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into
+the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready`
+hook.
 
 For the full architecture and rationale, see [architecture-guide.md](architecture-guide.md).
 
@@ -63,6 +64,9 @@ Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the
 Returned when the `nonce` does not validate against either the current or previous 10s HMAC window. This is the normal response for unauthenticated callers — the supervisor regenerates the token each tick.
 
 ## Authentication
+
+This section covers the spawn endpoint only; `/command`'s per-command signing
+model is [Command Signing](#command-signing) below.
 
 The spawn endpoint uses dual-mode auth (`Spawn_Controller::check_permission`):
 
@@ -159,9 +163,56 @@ The spawn endpoint applies a 2-second per-user rate limit (`Spawn_Controller::RA
 - `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key (`Supervisor_Base::MIN_SPAWN_INTERVAL_S`).
 - Tracked in `Supervisor_Base::$last_spawn_time`; updated after every spawn attempt (success or failure).
 
-The `/command` endpoint applies its own per-user burst limit (`HTTP_In_Node::permission_callback`): `RATE_LIMIT_BURST = 30` POSTs per `RATE_LIMIT_WINDOW_S = 1` second per user, bucketed by clock-second (transient-backed), returning `429 Too Many Requests` on overflow. The burst budget is tunable via the `newspack_nodes/command_rate_limit` filter (clamped to a minimum of 1).
+The `/command` endpoint applies its own per-user burst limit (`HTTP_In_Node::check_permission`): `RATE_LIMIT_BURST = 30` POSTs per `RATE_LIMIT_WINDOW_S = 1` second per user, bucketed by clock-second (transient-backed), returning `429 Too Many Requests` on overflow. The burst budget is tunable via the `newspack_nodes/command_rate_limit` filter (clamped to a minimum of 1).
 
 Application plugins that add public-facing endpoints should layer their own rate limits on top.
+
+## Command Signing
+
+Passing `/command`'s permission callback authenticates the *request*; it signs nothing. Every command inside the batch must carry its own HMAC, stamped by the node that minted it, or the runtime refuses it. Ingress does not sign on a caller's behalf — that oracle (arrival implies authority) was removed; only the minter's own signature counts.
+
+### Establishing a session
+
+```
+POST  /wp-json/newspack-nodes/v1/auth
+```
+
+Issues a session: a random key under a random handle (`Command_Auth::mint_session()`). Gated by `Bootstrap::fleet_gate()` then `current_user_can('manage_options')` — no separate rate limit. The caller supplies nothing; both handle and key are generated server-side, since caller entropy is unverifiable and a caller-chosen handle could collide with or fixate a live session.
+
+#### Response
+
+```json
+{
+  "handle": "5f2b...(32 hex chars)",
+  "key": "9ac4...(64 hex chars)",
+  "expires_in": 3600,
+  "now": 1735689600
+}
+```
+
+The key is disclosed only in this response. `expires_in` is the session's fixed lifetime (`Command_Auth::SESSION_TTL_S`, 3600s) — never slid on use, so a leaked handle expires on schedule no matter how busy it is. `now` is the server clock; the client aligns its signed TIMESTAMP to it rather than trusting its own.
+
+### Signing a command
+
+The minting node signs before the command leaves the process — the browser's Shell, a dashboard hook, or a PHP caller of `Command_Auth::sign()` / `sign_for()`. The signature covers the command's semantics, never its routing: `JSON.stringify([ TIMESTAMP, name, arguments, nonce ])`, HMAC-SHA256 under the session key. TO and FROM are excluded because Router peels and nodes stamp them in transit. The result rides under `VALUE.auth`:
+
+```json
+{ "auth": { "nonce": "b91e...(32 hex chars)", "sig": "7cd0...(64-char hex HMAC)", "handle": "5f2b...(session handle)" } }
+```
+
+Omitting `handle` signs under the per-site secret instead of a session — a same-process path, not one a browser client uses. A command whose VALUE can't be JSON-encoded is left unsigned on purpose, so the verifier refuses it rather than fall back to signing an empty string.
+
+### Verification
+
+The `/command` request process installs `Command_Auth::verifier()` as every interpreter's authorize policy. A command passes only when:
+
+1. its TIMESTAMP sits within `MAX_PAST_S` (20s) behind or `MAX_FUTURE_S` (10s) ahead of the verifier's clock;
+2. `auth.sig` matches the HMAC recomputed over the same canonical string, under the resolved key (a session key by `handle`, or the per-site secret with no `handle`); and
+3. `auth.nonce` claims successfully as single-use (`NONCE_TTL_S` = 60s) — a replayed nonce fails even under a valid signature.
+
+A command already marked `LOCAL` — minted in this process and never crossed the wire — skips verification: `LOCAL` cannot survive `Message::packed()` / `unpacked()`, so only the process's own commands ever carry it.
+
+A refused command never disappears silently: it replies `TM_COMMAND|TM_ERROR` with a `verification failed: …` reason through the normal TO=FROM path, and the containing `/command` batch answers **401** instead of 202 or 200 (see [Command Dispatch](#command-dispatch) below).
 
 ## Command Dispatch
 
@@ -171,7 +222,7 @@ POST  /wp-json/newspack-nodes/v1/command
 
 Unified non-streaming dispatch endpoint. The browser POSTs a TM_COMMAND envelope; the controller routes it through the request-scope `_router` to the named CI; the CI's reply walks back via `TO=FROM` through `_output` (an `HTTP_In_Node` — a double-duty class that is BOTH the `/command` REST controller and the egress Node registered as `_output`, i.e. `Node_Names::OUTPUT`) which writes the packed Message directly to the HTTP response body. (The JS runtime uses `_http` as its egress/Shell.path name, and the SSE process's `HTTP_Filter` egress is also named `_output` — but the PHP `/command` egress is `_output`.)
 
-Permission callback: `current_user_can('manage_options')`. Application CIs may layer additional per-verb capability checks on top — that's an application concern, not the substrate's.
+Permission callback (`HTTP_In_Node::check_permission`): the fleet gate, then `current_user_can('manage_options')`, then the per-user rate limit below. This authenticates the request; it does not sign any command inside it — see [Command Signing](#command-signing) above. Application CIs may layer additional per-verb capability checks on top — that's an application concern, not the substrate's.
 
 ### Request
 
@@ -187,7 +238,7 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
 | `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
-| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell/`CommandClient` tokenizes ONCE at the producer boundary and the tokens ride verbatim through the envelope, interpreter, and `make_node`. Every verb (scalar and structured alike) reads its data from that token array (`$args[0]`, `$args[1]`, …). (The request-side `payload` slot was removed in 0.6.0.) |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell/`CommandClient` tokenizes ONCE at the producer boundary and the tokens ride verbatim through the envelope, interpreter, and `make_node`. Every verb (scalar and structured alike) reads its data from that token array (`$args[0]`, `$args[1]`, …). (The request-side `payload` slot was removed in 0.6.0.) VALUE also carries `auth` — the HMAC envelope every minter must stamp; see [Command Signing](#command-signing). |
 
 The browser's `CommandClient` and the attached `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
@@ -204,6 +255,10 @@ The CI's `interpret()` produced a reply; `HTTP_In_Node::fill()` (the egress side
 ```
 
 Returned when `Router_Node::fill()` returned without the `HTTP_In_Node` egress seeing a reply — typically because the message was routed to a per-worker `Partition` Node and is being delivered via disk IPC. Real replies arrive through the SSE stream the browser already has open.
+
+#### 401 Unauthorized
+
+Sent when any command in the batch failed `Command_Auth` verification — a batch shares one signing handle and one clock, so a single refusal condemns the whole POST. Each refused command still replies `TM_COMMAND|TM_ERROR` with a `verification failed: …` reason through the normal per-command TO=FROM path; the 401 status is the fast signal a client checks before it parses the body. See [Command Signing](#command-signing).
 
 #### 500 Internal Server Error
 
@@ -224,7 +279,7 @@ The substrate plugin mounts 9 service CIs via `newspack_nodes/request_graph_read
 | `classes` | `Classes_CI_Node` | `list` |
 | `layouts` | `Layouts_CI_Node` | `get`, `save` |
 | `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `activate`, `deactivate`, `expand`, `connect_worker_input` |
-| `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status` |
+| `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status`, `read_message` |
 | `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `restart`, `heartbeat` |
 | `vault` | `Vault_CI_Node` | `list`, `get`, `add`, `update`, `delete`, `test` |
 | `aggregator` | `Aggregator_CI_Node` | `summary`, `servers_status`, `probe` (on-demand per-spoke deep roll-up) |
@@ -241,13 +296,13 @@ Application plugins layer additional CIs onto the same endpoint (the first being
 
 **`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (for example, `workers restart`'s optional `partition`). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
-**Every verb reads from the `arguments` token array.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), and `raw-logs log_status` (a log key) — read `$args[0]` straight from the inner envelope's `arguments` list, so they're typeable in the REPL (e.g. `command_node topologies get Home`). The ownership-fenced `workers heartbeat` verb instead requires exactly `[ slot, owner ]`: both are canonical decimal tokens from the current SSE `connected` handshake, and the server—not the client—owns the lease TTL. Structured verbs read from the same list: `topologies save` / `layouts save` take `[ name, body ]` via `Service_CI_Node::split_first_token` (`$args[0]` is the name, `$args[1]` carries the whole TSL body or positions JSON — newlines included — as one discrete token, no rest-of-line splitting to guess at); option-flag verbs like `workers restart` classify `<type>… [--partition=<n>]` via `Command_Args::parse( list<string> $args )`, which sorts `--key=value` / bare `--key` flags out of the positional tokens. There is no `payload` input slot.
+**Every verb reads from the `arguments` token array.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), and `raw-logs log_status` (a log key) — read `$args[0]` straight from the inner envelope's `arguments` list, so they're typeable in the REPL (e.g. `command_node topologies get Home`). `raw-logs read_message` reads two positional tokens the same way (`$args[0]` the log key, `$args[1]` the position). The ownership-fenced `workers heartbeat` verb instead requires exactly `[ slot, owner ]`: both are canonical decimal tokens from the current SSE `connected` handshake, and the server—not the client—owns the lease TTL. Structured verbs read from the same list: `topologies save` / `layouts save` take `[ name, body ]` via `Service_CI_Node::split_first_token` (`$args[0]` is the name, `$args[1]` carries the whole TSL body or positions JSON — newlines included — as one discrete token, no rest-of-line splitting to guess at); option-flag verbs like `workers restart` classify `<type>… [--partition=<n>]` via `Command_Args::parse( list<string> $args )`, which sorts `--key=value` / bare `--key` flags out of the positional tokens. There is no `payload` input slot.
 
 Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, array $args, array $envelope = [] )`, where `$args` is the pre-split token array (`list<string>` argv; each handler normalizes via `arg_strings()`). The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [architecture-guide.md → Completion-query mode](architecture-guide.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
+Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above) AND a valid command signature (see [Command Signing](#command-signing)), and per-verb application-side caps are an application concern.
 
 ### Test mode
 

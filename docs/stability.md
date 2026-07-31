@@ -1,8 +1,11 @@
 # Stability Contract
 
-What 1.0 means: the names below are **frozen** — code written against them keeps
-working across every 1.x release. Everything else is internal and may change in
-any release without notice.
+The names below are **frozen** for the current major version — code written
+against them keeps working across every release in that major. Everything
+else is internal and may change in any release without notice. A major bump
+is the only place a frozen name may break (see Versioning below); the last
+one landed at 2.0.0, which is why some entries below date from before it and
+some after.
 
 ## Frozen surfaces
 
@@ -14,18 +17,20 @@ any release without notice.
 2. **The message.** The 7-field positional layout (`Message::TYPE … VALUE`), the
    `TM_*` type flags, and the positional-JSON wire format (`packed()` /
    `unpacked()`) — [ADR-2](architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array).
-   On-disk Partition segments written by any 1.x remain readable by every later 1.x.
+   On-disk Partition segments written by any release in the current major
+   remain readable by every later release in that major.
 3. **TSL.** The statement grammar (`Shell_Node::parse_statements()` semantics),
    the stock verbs (`make_node`, `connect_node`, `disconnect_node`, `remove_node`,
    `command_node` (alias `cmd`), `var`, `include`), and `<config:KEY>` token
-   resolution. A `.tsl` that
-   loads on 1.0 loads on every 1.x.
+   resolution. A `.tsl` that loads on one release loads on every later release
+   in the same major.
 4. **Stock node types.** The registered names and documented constructor-argument
    shapes (`node_schema()` is the authority) of every node the palette lists.
 5. **CLI.** The `wp nodes` verbs and their documented arguments and output
    contracts (`--format=json` shapes included).
-6. **REST.** The three routes (`/workers/spawn`, `/command`, `/messages/stream`)
-   and their envelope shapes ([API.md](API.md)).
+6. **REST.** The routes and their envelope shapes ([API.md](API.md)):
+   `/workers/spawn`, `/auth`, `/command`, `/messages/stream`, `/log/stream`,
+   and the internal `/health/cache` probe.
 7. **Hooks.** Every `newspack_nodes/*` action and filter name and signature.
 8. **Config_System.** The public API of `Field`, `Schema`, `Options_Overlay`,
    `Reset_Gate`, `Field_Reset_Assets` — and the guarantee that those five stay
@@ -41,7 +46,7 @@ not by this contract.
 
 ## Deprecation policy
 
-A frozen name is never removed or re-shaped inside 1.x. When a better shape
+A frozen name is never removed or re-shaped inside a major version. When a better shape
 arrives, the new name ships alongside the old; the old keeps working for **at
 least one minor release**, marked deprecated in its docblock with its
 replacement documented in [upgrading.md](upgrading.md). Removal happens only in
