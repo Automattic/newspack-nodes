@@ -108,7 +108,7 @@ class Core {
 	 * the TLS handshake finished around 17ms, so curl aborted mid-handshake and
 	 * the fleet never started. It failed in total silence, because nothing
 	 * reached the access log and CURLE_OPERATION_TIMEDOUT counts as success.
-	 * The abort at 50ms is the design working: the request is already delivered
+	 * The abort at 250ms is the design working: the request is already delivered
 	 * and the server runs on under ignore_user_abort.
 	 */
 	private const SPAWN_POST_TIMEOUT_MS = 250;
