@@ -412,7 +412,7 @@ export class SseInNode extends Node {
 			this._es.close();
 		}
 		this._es = null;
-		// A closed stream has no liveness — hide 'Xs ago' until a reopen frame.
+		// A later stream starts with no frame timestamp from this connection.
 		this.lastEventTime = null;
 		// Forget this connection's complete session lease and terminal event.
 		this.sessionPid = null;

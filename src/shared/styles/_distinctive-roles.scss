@@ -1,0 +1,420 @@
+/**
+ * Canonical paint for Nodes controls that are intentionally not stock
+ * WordPress buttons/cards. The component stylesheets retain their layout;
+ * these semantic roles own the visual language in every host.
+ */
+
+:where(.newspack-nodes-ui) {
+	.newspack-nodes-disclosure {
+		appearance: none;
+		background: transparent;
+		border: 0;
+		border-radius: 4px;
+		box-shadow: none;
+		color: var(--ink-3, var(--np-text-secondary));
+		cursor: pointer;
+		font-family: inherit;
+		font-size: 12px;
+
+		&:hover {
+			background: var(--hover, var(--np-surface-muted));
+			color: var(--ink, var(--np-text));
+		}
+	}
+
+	.nodes-devtools__tabbar {
+		background: var(--paper-2, var(--np-surface-subtle));
+		border-bottom: 1px solid
+			var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.nodes-devtools__tab {
+		appearance: none;
+		background: transparent;
+		border: 0;
+		border-bottom-color: transparent;
+		border-bottom-style: solid;
+		border-bottom-width: 2px;
+		box-shadow: none;
+		color: color-mix(
+			in srgb,
+			var(--nodes-devtools-fg, var(--ink, var(--np-text))) 60%,
+			transparent
+		);
+		cursor: pointer;
+		font: inherit;
+		font-size: 13px;
+		padding: 6px 14px;
+		transition:
+			color 0.15s,
+			border-color 0.15s;
+
+		&:hover {
+			color: color-mix(
+				in srgb,
+				var(--nodes-devtools-fg, var(--ink, var(--np-text))) 88%,
+				transparent
+			);
+		}
+
+		&.is-active {
+			border-bottom-color: var(--cyan, var(--np-primary));
+			color: var(
+				--nodes-devtools-fg,
+				var(--ink, var(--np-text))
+			);
+			font-weight: 600;
+		}
+	}
+
+	.nodes-devtools__tab-content {
+		background: var(--paper-3, var(--np-surface-muted));
+	}
+
+	.topology-header {
+		background: var(--paper-2, var(--np-surface-subtle));
+		border-bottom: 1px solid
+			var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.topology-brand {
+		color: var(--ink, var(--np-text));
+		font-family: var(--font-display-brand, var(--np-font));
+		font-size: 19px;
+		letter-spacing: 0.04em;
+
+		&__colon {
+			color: var(--oxide-text, var(--np-text));
+		}
+	}
+
+	.topology-subtitle {
+		border-left: 1px solid var(--ink-4, var(--np-border-strong));
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 10px;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+	}
+
+	.topology-ctl-label {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 9px;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+	}
+
+	.newspack-nodes-log-browser {
+		border-right: 1px solid
+			var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.newspack-nodes-log-browser__title {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.newspack-nodes-log-browser__mode {
+		appearance: none;
+		background: transparent;
+		border-color: var(--cyan, var(--np-primary));
+		border-style: solid;
+		border-width: 1px;
+		border-radius: var(--button-radius, 5px);
+		box-shadow: none;
+		color: var(--cyan-text, var(--np-text));
+		cursor: pointer;
+		font: inherit;
+	}
+
+	.newspack-nodes-log-browser__mode--live.is-active {
+		background: var(--oxide, var(--np-error));
+		border-color: var(--oxide, var(--np-error));
+		color: var(--on-oxide, var(--np-on-status));
+	}
+
+	.newspack-nodes-log-browser__mode--replay.is-active {
+		background: var(--cyan, var(--np-primary));
+		color: var(--on-cyan, var(--np-on-primary));
+	}
+
+	.newspack-nodes-empty-state.is-quiet {
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+		color: var(--ink-3, var(--np-text-secondary));
+		font-style: italic;
+
+		&::before {
+			display: none;
+		}
+	}
+
+	.newspack-nodes-log-row {
+		font-family: var(--font-terminal, var(--np-font-mono));
+	}
+
+	.newspack-nodes-rail-toggle {
+		appearance: none;
+		background: var(--paper-2, var(--np-surface-subtle));
+		border-color: var(--ink-4, var(--np-text-secondary));
+		border-radius: 2px;
+		border-style: solid;
+		border-width: 1px;
+		box-shadow: none;
+		color: var(--ink, var(--np-text));
+		cursor: pointer;
+		font-family: var(--font-mono, var(--np-font-mono));
+		font-size: 12px;
+		font-weight: 700;
+		line-height: 1;
+
+		&:hover {
+			background: var(--hover, var(--np-surface-muted));
+		}
+	}
+
+	.nodes-debug__fab {
+		appearance: none;
+		background: var(--repl-bg, var(--np-text));
+		border: 1px solid var(--repl-bg, var(--np-text));
+		border-radius: 50%;
+		box-sizing: border-box;
+		box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+		color: var(--repl-fg, var(--np-surface));
+		cursor: pointer;
+	}
+
+	.nodes-debug__panel {
+		--nodes-devtools-fg: var(--ink, var(--np-text));
+		background: var(--paper-3, var(--np-surface-muted));
+		border: 1px solid
+			var(--paper-shadow, var(--np-border-strong));
+		border-radius: 10px;
+		box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+
+		&.is-maximized {
+			border-radius: 0;
+		}
+
+		&.is-dragging {
+			box-shadow: none;
+		}
+	}
+
+	.topology-mode {
+		border: 1px solid var(--ink, var(--np-text));
+	}
+
+	.topology-mode__btn {
+		appearance: none;
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+		color: var(--ink-3, var(--np-text-secondary));
+		cursor: pointer;
+		font: 700 10px var(--font-mono, var(--np-font-mono));
+		letter-spacing: 0.16em;
+		padding: 7px 14px;
+		transition:
+			background 100ms ease,
+			color 100ms ease;
+
+		&:disabled {
+			cursor: not-allowed;
+			opacity: 0.5;
+		}
+
+		&.is-active {
+			background: var(--ink, var(--np-text));
+			color: var(--paper, var(--np-surface));
+		}
+
+		&--live.is-active {
+			background: var(--oxide, var(--np-error));
+			color: var(--on-oxide, var(--np-on-status));
+		}
+
+		&--new {
+			background: var(--brass, var(--np-warning));
+			border-right: 1px solid var(--ink, var(--np-text));
+			color: var(--on-brass, var(--np-text));
+
+			&:hover {
+				background: var(--brass-dark, var(--np-warning));
+			}
+		}
+
+		&--open {
+			background: var(--cyan, var(--np-primary));
+			border-right: 1px solid var(--ink, var(--np-text));
+			color: var(--on-cyan, var(--np-on-primary));
+
+			&:hover {
+				background: var(--cyan-dark, var(--np-primary-hover));
+			}
+		}
+
+		&--save {
+			background: var(--sage, var(--np-success));
+			border-right: 1px solid var(--ink, var(--np-text));
+			color: var(--on-sage, var(--np-on-status));
+
+			&:hover {
+				background: var(--sage-dark, var(--np-success));
+			}
+		}
+
+		&--delete {
+			background: var(--oxide, var(--np-error));
+			border-right: 1px solid var(--ink, var(--np-text));
+			color: var(--on-oxide, var(--np-on-status));
+
+			&:hover {
+				background: var(--oxide-dark, var(--np-error));
+			}
+		}
+
+		&--close {
+			color: var(--ink, var(--np-text));
+			font-size: 18px;
+
+			&:hover {
+				background: var(--oxide, var(--np-error));
+				color: var(--on-oxide, var(--np-on-status));
+			}
+		}
+	}
+
+	.topology-repl__toggle,
+	.topology-repl__clear {
+		appearance: none;
+		background: var(--repl-bg, var(--np-text));
+		border-color: color-mix(
+			in srgb,
+			var(--repl-fg, var(--np-surface)) 25%,
+			transparent
+		);
+		border-style: solid;
+		border-width: 1px;
+		border-radius: 0;
+		box-shadow: none;
+		color: color-mix(
+			in srgb,
+			var(--repl-fg, var(--np-surface)) 55%,
+			transparent
+		);
+		cursor: pointer;
+		font: 700 11px var(--font-mono, var(--np-font-mono));
+		transition:
+			border-color 100ms ease,
+			color 100ms ease;
+
+		&:hover {
+			border-color: var(--brass, var(--np-warning));
+			color: var(--brass, var(--np-warning));
+		}
+	}
+
+	.topology-repl__clear:hover {
+		border-color: var(--oxide, var(--np-error));
+		color: var(--oxide, var(--np-error));
+	}
+}
+
+.theme-newspack :where(.newspack-nodes-ui),
+.theme-newspack-brand :where(.newspack-nodes-ui) {
+	.topology-brand {
+		display: flex;
+		align-items: center;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+
+		&::before {
+			content: "N";
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 24px;
+			height: 24px;
+			margin-right: 9px;
+			border-radius: 6px;
+			background: var(--cyan, var(--np-primary));
+			color: var(--on-cyan, var(--np-on-primary));
+			font-size: 16px;
+			font-weight: 800;
+		}
+	}
+}
+
+.theme-newspack :where(.newspack-nodes-ui) .topology-brand__colon {
+	color: var(--cyan, var(--np-primary));
+}
+
+.theme-newspack-brand :where(.newspack-nodes-ui) .topology-brand__colon {
+	color: var(--sage, var(--np-success));
+}
+
+.theme-blueprint :where(.newspack-nodes-ui) .topology-brand {
+	font-weight: 700;
+	letter-spacing: 0.04em;
+}
+
+.theme-crt :where(.newspack-nodes-ui) .topology-brand {
+	filter: drop-shadow(0 0 2px var(--ink))
+		drop-shadow(
+			0 0 8px color-mix(in srgb, var(--ink) 45%, transparent)
+		);
+	font-size: 24px;
+}
+
+.theme-swiss :where(.newspack-nodes-ui) .topology-header {
+	border-bottom-width: 2px;
+}
+
+.theme-synthwave :where(.newspack-nodes-ui) .topology-brand {
+	filter: drop-shadow(0 0 4px currentcolor);
+}
+
+.theme-aurora :where(.newspack-nodes-ui) .topology-header {
+	background: rgba(255, 255, 255, 0.06);
+	backdrop-filter: blur(9px);
+	-webkit-backdrop-filter: blur(9px);
+}
+
+.theme-neotokyo :where(.newspack-nodes-ui) {
+	.topology-header {
+		border-bottom: 3px solid transparent;
+		border-image: repeating-linear-gradient(
+				45deg,
+				#ffd500 0 9px,
+				#0a0a0c 9px 18px
+			)
+			3;
+	}
+
+	.topology-subtitle::after {
+		content: " / ノードグラフ";
+		color: var(--cyan-text, var(--np-primary));
+	}
+
+	.topology-brand {
+		filter: drop-shadow(
+			0 0 3px color-mix(in srgb, var(--ink) 55%, transparent)
+		);
+	}
+}
+
+.theme-scada :where(.newspack-nodes-ui) .topology-header {
+	background: linear-gradient(180deg, #2a3036, #1d2227);
+	border-bottom: 3px solid transparent;
+	border-image: repeating-linear-gradient(
+			45deg,
+			#ff7a18 0 10px,
+			#15191c 10px 20px
+		)
+		3;
+}

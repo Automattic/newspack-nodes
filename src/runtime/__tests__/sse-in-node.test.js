@@ -625,7 +625,7 @@ test( 'a heartbeat event stamps lastEventTime even with no data frames', () => {
 	expect( typeof sse.lastEventTime ).toBe( 'number' );
 } );
 
-test( 'close() clears lastEventTime (a closed/paused stream shows no staleness)', () => {
+test( 'close() clears the prior connection timestamp', () => {
 	const { sse } = makeSseIn();
 	sse.start();
 	FakeEventSource.last.dispatch( 'heartbeat', JSON.stringify( { ts: 1.5 } ) );

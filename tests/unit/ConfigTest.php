@@ -55,29 +55,27 @@ class ConfigTest extends TestCase {
 		parent::tearDown();
 	}
 
-	// ── correct_option_autoload: one-time sweep ────────────────────────────
-
-	public function test_correct_option_autoload_sets_hot_path_keys_autoloaded(): void {
-		// One-time sweep flips existing installs so the per-request substrate
-		// scalars ride the single alloptions query. Every schema key is a
-		// small hot-path value → autoload=true.
-		$GLOBALS['_wp_set_option_autoload'] = [];
-		$GLOBALS['_wp_options']             = [];
-
-		Config::correct_option_autoload();
-
-		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_num_partitions'] );
-		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_segment_size'] );
-		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_topologies'] );
+	public function test_completed_migration_surface_is_absent(): void {
+		$this->assertFalse( \method_exists( Config::class, 'correct_option_autoload' ) );
+		$this->assertFalse( \class_exists( '\\Newspack_Nodes\\Remote_Settings_Migration' ) );
+		$this->assertFalse( \class_exists( '\\Newspack_Nodes\\Retention_Settings_Migration' ) );
+		$this->assertFalse( \class_exists( '\\Newspack_Nodes\\Vault_Migration' ) );
 	}
 
-	public function test_correct_option_autoload_runs_once(): void {
-		// Guarded by a marker so it doesn't re-sweep on every admin pageview.
-		$GLOBALS['_wp_options'] = [];
-		Config::correct_option_autoload();
-		$GLOBALS['_wp_set_option_autoload'] = [];
-		Config::correct_option_autoload();
-		$this->assertSame( [], $GLOBALS['_wp_set_option_autoload'] );
+	public function test_activation_hooks_exclude_completed_migrations(): void {
+		$callbacks = \array_column( $GLOBALS['_wp_test_activation_hooks'] ?? [], 'callback' );
+		$this->assertContains( [ '\\Newspack_Nodes\\Bootstrap', 'activate' ], $callbacks );
+
+		foreach (
+			[
+				[ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ],
+				[ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ],
+				[ '\\Newspack_Nodes\\Retention_Settings_Migration', 'migrate' ],
+				[ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ],
+			] as $completed_migration
+		) {
+			$this->assertNotContains( $completed_migration, $callbacks );
+		}
 	}
 
 	// ── load_config: shape + caching ───────────────────────────────────────

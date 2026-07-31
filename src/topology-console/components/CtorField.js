@@ -243,7 +243,7 @@ export function CtorField( {
 				{ hasContent && (
 					<button
 						type="button"
-						className="topology-edit-row__clear"
+						className="button button-small button-link-delete topology-edit-row__clear"
 						aria-label={ sprintf(
 							// translators: %s: constructor-argument name.
 							__( 'Clear %s', 'newspack-nodes' ),

@@ -16,7 +16,10 @@ export default function ConnectionBanner( { connectionError, message } ) {
 		return null;
 	}
 	return (
-		<div className="newspack-nodes-connection-banner" role="status">
+		<div
+			className="newspack-nodes-error-banner newspack-nodes-connection-banner"
+			role="status"
+		>
 			{ message || DEFAULT_MESSAGE }
 		</div>
 	);

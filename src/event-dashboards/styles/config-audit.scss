@@ -19,9 +19,15 @@
 .nodes-config-audit__empty {
 	padding: 24px;
 	text-align: center;
-	color: var(--ink-3);
-	background: var(--paper-2);
-	border-radius: var(--np-radius-md);
+}
+
+.newspack-nodes-empty-state.nodes-config-audit__empty {
+	padding: 24px;
+	text-align: center;
+
+	&::before {
+		display: none;
+	}
 }
 
 .nodes-config-audit__table {

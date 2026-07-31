@@ -228,14 +228,6 @@ describe( 'RemoteLinkNode', () => {
 		} );
 	} );
 
-	it( 'lastEventTime() passes through the composed SseIn freshness clock (null before connect)', () => {
-		const { link } = makeLink( 'errors' );
-		expect( link.lastEventTime() ).toBeNull(); // no SseIn composed yet
-		link.connect();
-		link.sseIn.lastEventTime = 1717000000000;
-		expect( link.lastEventTime() ).toBe( 1717000000000 );
-	} );
-
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {
 		const { link } = makeLink( 'errors' );
 		link.connect();

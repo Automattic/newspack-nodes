@@ -1,78 +1,53 @@
-/**
- * The plugin's ONE focus-ring policy. Every interactive element in every surface
- * this plugin renders gets the identical treatment: a visible ring ONLY on
- * `:focus-visible` (keyboard / programmatic focus), and NO ring on a plain mouse
- * `:focus` — which also suppresses wp-admin's / emotion's blue glow. This is the
- * single source; no component defines a focus ring of its own. Import it into
- * every entry stylesheet the repo ships.
- *
- * Scoped under the plugin's root containers so wp-admin chrome OUTSIDE our
- * surfaces is untouched. Exhaustive root list (one per surface):
- *   .topology-app                     console, debug overlay, hub shell, event
- *                                      dashboards, and every modal (all carry it)
- *   .newspack-nodes-theme             the shared in-product theme root
- *   .nodes-devtools-hub               the devtools hub shell
- *   .nodes-devtools__tabbar           the shared devtools tab host
- *   .newspack-nodes-connection-banner the shared connection banner
- *   .aggregator-status-dashboard      the event aggregator tab
- *   .event-aggregator-servers-admin   the vault tab
- *   .nodes-vault__modal               the vault modal (portaled)
- *   .newspack-nodes-settings-wrap     the admin settings page
- *
- * Ring color: `var(--ink, currentColor)`. --ink is each skin's readable
- * foreground, so it is guaranteed high-contrast against that skin's own
- * background on every theme (light and dark) — unlike an accent (--oxide /
- * --cyan), which is tuned for emphasis, not ring contrast. currentColor is the
- * fallback that keeps the ring visible on any root that has not set --ink.
- */
+@use "focus-mixins" as focus;
 
-@mixin nodes-focus-policy {
-	a[href],
-	button,
-	input,
-	select,
+.newspack-nodes-ui.newspack-nodes-ui {
+	input:not(.components-input-control__input, .topology-repl__input),
+	select:not(.components-input-control__input),
 	textarea,
+	button {
+		&:focus {
+			@include focus.ring;
+		}
+	}
+
+	a[href],
 	summary,
-	[tabindex] {
-		// Plain mouse focus: no ring (also kills wp-admin's / emotion's glow).
+	[tabindex]:not(input, select, textarea, button) {
 		&:focus:not(:focus-visible) {
-			outline: none;
-			box-shadow: none;
+			@include focus.no-ring;
 		}
 
-		// Keyboard / programmatic focus: the one shared ring.
 		&:focus-visible {
-			outline: 2px solid var(--ink, currentColor);
-			outline-offset: 1px;
-			box-shadow: none;
+			@include focus.ring;
 		}
 	}
 
-	// Ring exemption ONLY (glow-kill above still applies): the REPL prompt is
-	// terminal idiom — the caret is its focus indicator, never a ring.
-	input.topology-repl__input:focus-visible {
-		outline: none;
-		box-shadow: none;
+	.components-input-control__container:has(
+			.components-input-control__input:focus
+		) {
+		@include focus.ring;
+	}
+
+	input.topology-repl__input:focus {
+		@include focus.no-ring;
 	}
 }
 
-// Themed surfaces carry BOTH `.topology-app` and `.newspack-nodes-theme`. Anchor
-// the policy there the way shared/styles/_controls.scss does — doubling
-// `.topology-app` for a 3-class base — so the ring + glow-kill out-specify
-// @wordpress emotion's own tripled-class focus box-shadow.
-.topology-app.topology-app.newspack-nodes-theme {
-	@include nodes-focus-policy;
-}
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	.components-button:focus,
+	.components-button.is-primary:focus:not(:disabled),
+	.components-button.is-secondary:focus:not(:disabled),
+	.components-button.is-tertiary:focus:not(:disabled),
+	.components-button.is-destructive:not(.is-primary):not(.is-secondary):not(
+			.is-tertiary
+		):not(.is-link):focus,
+	.newspack-nodes-modal
+		.components-modal__header
+		> .components-button:focus:not(:disabled) {
+		@include focus.ring;
+	}
 
-// Every surface root (including the standalone ones without emotion controls).
-$nodes-focus-roots: ".topology-app", ".newspack-nodes-theme",
-	".nodes-devtools-hub", ".nodes-devtools__tabbar",
-	".newspack-nodes-connection-banner", ".aggregator-status-dashboard",
-	".event-aggregator-servers-admin", ".nodes-vault__modal",
-	".newspack-nodes-settings-wrap";
-
-@each $root in $nodes-focus-roots {
-	#{$root} {
-		@include nodes-focus-policy;
+	.components-input-control__input:focus {
+		@include focus.no-ring;
 	}
 }

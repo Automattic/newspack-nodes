@@ -509,13 +509,23 @@ describe( 'DevtoolsTabHost', () => {
 } );
 
 describe( 'DevtoolsTabHost styles', () => {
-	it( 'reskin off the universal --cyan accent, not fixed --np-*', () => {
-		// The SCSS reads the universal --cyan accent, never the fixed --np-*.
+	it( 'leaves tab paint and geometry to the canonical semantic role', () => {
 		const scss = fs.readFileSync(
 			path.join( __dirname, '..', 'DevtoolsTabHost.scss' ),
 			'utf8'
 		);
-		expect( scss ).not.toMatch( /var\(\s*--np-/ );
-		expect( scss ).toMatch( /var\(\s*--cyan/ );
+		const canonicalRoles = fs.readFileSync(
+			path.join(
+				__dirname,
+				'..',
+				'..',
+				'styles',
+				'_distinctive-roles.scss'
+			),
+			'utf8'
+		);
+
+		expect( scss ).not.toMatch( /\.nodes-devtools__tab\s*\{/ );
+		expect( canonicalRoles ).toMatch( /\.nodes-devtools__tab\s*\{/ );
 	} );
 } );

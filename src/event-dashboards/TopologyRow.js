@@ -43,12 +43,22 @@ const SOURCE_LABELS = {
 	user: __( 'user only', 'newspack-nodes' ),
 	both: __( 'user ▸ shadows stock', 'newspack-nodes' ),
 };
+const SOURCE_TONES = {
+	stock: 'is-info',
+	user: 'is-neutral',
+	both: 'is-warning',
+};
 
 // Rolled-up topology health → heading label (dot + text via the scss).
 const HEALTH_LABELS = {
 	ok: __( 'ok', 'newspack-nodes' ),
 	behind: __( 'behind', 'newspack-nodes' ),
 	stalled: __( 'stalled', 'newspack-nodes' ),
+};
+const HEALTH_TONES = {
+	ok: 'is-success',
+	behind: 'is-warning',
+	stalled: 'is-error',
 };
 
 // Build the `TopologySection` model for one active topology's live status.
@@ -120,7 +130,7 @@ const TopologyRow = memo( function TopologyRow( {
 
 	return (
 		<div
-			className={ `nodes-tm__topology${
+			className={ `newspack-nodes-card nodes-tm__topology${
 				isDragging ? ' is-dragging' : ''
 			}` }
 			data-topology-row={ name }
@@ -142,7 +152,9 @@ const TopologyRow = memo( function TopologyRow( {
 				<button
 					type="button"
 					className={
-						folded ? 'nodes-tm__expand' : 'nodes-tm__collapse'
+						folded
+							? 'newspack-nodes-disclosure nodes-tm__expand'
+							: 'newspack-nodes-disclosure nodes-tm__collapse'
 					}
 					title={
 						folded
@@ -176,7 +188,7 @@ const TopologyRow = memo( function TopologyRow( {
 							className="topology-partition"
 						>
 							<span
-								className={ `worker-status-badge compact ${ p.status }` }
+								className={ `newspack-nodes-status-badge worker-status-badge compact ${ p.status }` }
 							>
 								P{ p.partition }
 							</span>
@@ -212,17 +224,17 @@ const TopologyRow = memo( function TopologyRow( {
 				{ /* Fixed-width slot so health lines up across rows. */ }
 				<span className="nodes-tm__liveness">
 					{ allRunning && (
-						<span className="worker-status-badge running small">
+						<span className="newspack-nodes-status-badge worker-status-badge running small">
 							{ __( 'ALL RUN', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ allDead && (
-						<span className="worker-status-badge dead small">
+						<span className="newspack-nodes-status-badge worker-status-badge dead small">
 							{ __( 'ALL DEAD', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ parts.length > 0 && ! allRunning && ! allDead && (
-						<span className="worker-status-badge small">
+						<span className="newspack-nodes-status-badge worker-status-badge small">
 							{ sprintf(
 								// translators: %1$d: running partitions; %2$d: total.
 								__( '%1$d/%2$d up', 'newspack-nodes' ),
@@ -235,7 +247,7 @@ const TopologyRow = memo( function TopologyRow( {
 				{ /* Health sits after the liveness badge; ETA next to it. */ }
 				{ active && (
 					<span
-						className={ `nodes-tm__health nodes-tm__health--${ health }` }
+						className={ `newspack-nodes-status newspack-nodes-status-indicator ${ HEALTH_TONES[ health ] } nodes-tm__health nodes-tm__health--${ health }` }
 					>
 						{ HEALTH_LABELS[ health ] ?? health }
 					</span>
@@ -261,7 +273,7 @@ const TopologyRow = memo( function TopologyRow( {
 				{ /* Provenance pill pushed to the right, by the controls. */ }
 				<span className="nodes-tm__badge-cell">
 					<span
-						className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
+						className={ `newspack-nodes-status-badge is-pill ${ SOURCE_TONES[ source ] } nodes-tm__badge nodes-tm__badge--${ source }` }
 					>
 						{ SOURCE_LABELS[ source ] ?? source }
 					</span>

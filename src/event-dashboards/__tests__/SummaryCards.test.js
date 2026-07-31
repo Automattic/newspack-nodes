@@ -26,6 +26,18 @@ function renderCards( props = {} ) {
 	return render( <SummaryCards { ...base } { ...props } /> );
 }
 
+it( 'marks every fleet metric as a canonical card surface', () => {
+	const { container } = renderCards();
+	const cards = [ ...container.querySelectorAll( '.nodes-card' ) ];
+
+	expect( cards ).toHaveLength( 12 );
+	expect(
+		cards.every( ( item ) =>
+			item.classList.contains( 'newspack-nodes-card' )
+		)
+	).toBe( true );
+} );
+
 it( 'shows the topology + active counts', () => {
 	const { container } = renderCards();
 	expect( card( container, 'topologies' ) ).toContain( '2' );

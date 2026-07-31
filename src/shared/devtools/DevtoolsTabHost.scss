@@ -1,45 +1,7 @@
-@use "@newspack-nodes/shared/styles/focus";
-
 .nodes-devtools__tabbar {
 	display: flex;
 	gap: 4px;
 	padding: 6px 10px 0;
-	border-bottom: 1px solid
-		color-mix(in srgb, var(--nodes-devtools-fg, #fff) 12%, transparent);
-}
-
-// Labels derive from --nodes-devtools-fg — the host (DevToolsHub) sets it to the
-// active WP admin scheme's bar text color so the tabs match the chrome. Falls
-// back to white for the standalone overlay, which has no host var and sits on
-// its own dark surface.
-.nodes-devtools__tab {
-	border: 0;
-	border-bottom: 2px solid transparent;
-	background: transparent;
-	padding: 6px 14px;
-	cursor: pointer;
-	font: inherit;
-	font-size: 13px;
-	color: color-mix(in srgb, var(--nodes-devtools-fg, #fff) 60%, transparent);
-	transition:
-		color 0.15s,
-		border-color 0.15s;
-
-	&:hover {
-		color: color-mix(
-			in srgb,
-			var(--nodes-devtools-fg, #fff) 88%,
-			transparent
-		);
-	}
-
-	&.is-active {
-		color: var(--nodes-devtools-fg, #fff);
-		font-weight: 600;
-		// Universal --cyan accent underline (= Cobalt under Newspack); falls back to
-		// the prior green for a host without the token sheet (the standalone overlay).
-		border-bottom-color: var(--cyan, #3fb950);
-	}
 }
 
 // The active tab's content region. Scrolls vertically by default so a long
@@ -51,10 +13,6 @@
 	min-height: 0;
 	overflow-y: auto;
 	overflow-x: hidden;
-	// The overview content bg — the darkest/base surface everything sits on.
-	// The full-bleed console tab covers this with its own canvas.
-	background: var(--paper-3);
-
 	&.is-full-bleed {
 		overflow: hidden;
 		display: flex;

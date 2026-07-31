@@ -61,6 +61,9 @@ class Admin {
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
 		// Priority 1: register the token sheet before any dashboard deps on it.
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'register_graph_style' ], 3 );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_settings_style' ], 4 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
@@ -140,8 +143,8 @@ class Admin {
 		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
 
 		if ( \file_exists( "{$dir}/index.css" ) ) {
-			// Depend on the token sheet so var(--np-*) references resolve.
-			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-theme' ];
+				// Canonical appearance also provides the token sheet.
+			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-ui' ];
 			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
 			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
 			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
@@ -234,11 +237,12 @@ class Admin {
 	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
 			[
-				'handle'   => 'newspack-nodes-devtools-hub',
-				'page'     => self::HUB_MENU_SLUG,
-				'dir'      => self::build_dir( 'devtools-hub' ),
-				'url'      => self::build_url( 'devtools-hub' ),
-				'localize' => [
+				'handle'     => 'newspack-nodes-devtools-hub',
+				'page'       => self::HUB_MENU_SLUG,
+				'dir'        => self::build_dir( 'devtools-hub' ),
+				'url'        => self::build_url( 'devtools-hub' ),
+				'style_deps' => [ 'wp-components', 'newspack-nodes-graph' ],
+				'localize'   => [
 					'tree'    => 'devtools-hub',
 					'version' => \NEWSPACK_NODES_VERSION,
 				],
@@ -689,7 +693,7 @@ class Admin {
 			? \admin_url( 'admin-post.php' )
 			: '/wp-admin/admin-post.php';
 		?>
-		<div class="wrap newspack-nodes-settings-wrap">
+		<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">
 			<h1><?php \esc_html_e( 'Nodes Runtime Settings', 'newspack-nodes' ); ?></h1>
 			<form method="post" action="options.php">
 				<?php
@@ -870,31 +874,79 @@ class Admin {
 	}
 
 	/**
-	 * Register the canonical Newspack theme stylesheet — the `newspack-nodes-theme`
-	 * handle that ships the `--np-*` design tokens. Dashboards (this plugin's and
-	 * the sibling plugins') enqueue it as a style dependency and carry the
-	 * `.newspack-nodes-theme` root class, then reference `var(--np-*)`. Idempotent
-	 * so the multiple consumers registering it (each plugin defensively) collapse
-	 * to one registration.
+	 * Register one built stylesheet and its RTL replacement.
+	 *
+	 * @param string   $handle Style handle.
+	 * @param string   $subdir Build subdirectory.
+	 * @param string[] $deps   Style dependencies.
 	 */
-	public function register_theme_style(): void {
+	private function register_built_style(
+		string $handle,
+		string $subdir,
+		array $deps
+	): void {
 		if (
 			! \function_exists( 'wp_register_style' )
-			|| \wp_style_is( 'newspack-nodes-theme', 'registered' )
+			|| \wp_style_is( $handle, 'registered' )
 		) {
 			return;
 		}
-		$dir = self::build_dir( 'theme' );
-		$url = self::build_url( 'theme' );
+
+		$dir = self::build_dir( $subdir );
+		$url = self::build_url( $subdir );
 		$css = "{$dir}/index.css";
 		if ( ! \file_exists( $css ) ) {
 			return;
 		}
-		$version = (string) ( \filemtime( $css ) ?: \NEWSPACK_NODES_VERSION );
-		\wp_register_style( 'newspack-nodes-theme', "{$url}/index.css", [], $version );
+
+		$version = self::css_cache_version( $css, \NEWSPACK_NODES_VERSION );
+		\wp_register_style( $handle, "{$url}/index.css", $deps, $version );
 		if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
-			\wp_style_add_data( 'newspack-nodes-theme', 'rtl', 'replace' );
+			\wp_style_add_data( $handle, 'rtl', 'replace' );
 		}
+	}
+
+	/**
+	 * Register the public product-token stylesheet.
+	 */
+	public function register_theme_style(): void {
+		$this->register_built_style( 'newspack-nodes-theme', 'theme', [] );
+	}
+
+	/**
+	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
+	 */
+	public function register_ui_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-ui',
+			'ui',
+			[ 'newspack-nodes-theme' ]
+		);
+	}
+
+	/**
+	 * Register graph-only artwork and layout after canonical UI appearance.
+	 */
+	public function register_graph_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-graph',
+			'graph',
+			[ 'newspack-nodes-ui' ]
+		);
+	}
+
+	/**
+	 * Enqueue canonical UI appearance on the server-rendered Nodes settings page.
+	 *
+	 * @param string $hook Current admin-page hook suffix.
+	 */
+	public function enqueue_settings_style( string $hook = '' ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( self::MENU_SLUG !== $page ) {
+			return;
+		}
+		\wp_enqueue_style( 'newspack-nodes-ui' );
 	}
 
 	/**

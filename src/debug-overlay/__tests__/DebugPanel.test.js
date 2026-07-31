@@ -37,6 +37,34 @@ test( 'renders ONE shared header above the tab content, with the close button', 
 	).toBeTruthy();
 } );
 
+test( 'inherits one non-graph skin provider without nesting another', () => {
+	const { container, getByTestId } = render(
+		<div className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">
+			<DebugPanel storageKey="k" onClose={ () => {} } />
+		</div>
+	);
+	const provider = container.firstElementChild;
+	const panel = getByTestId( 'debug-panel' );
+
+	expect( provider.className ).toBe(
+		'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+	);
+	expect( panel.closest( '.newspack-nodes-theme' ) ).toBe( provider );
+	expect(
+		provider.querySelectorAll( '.newspack-nodes-skin-root' )
+	).toHaveLength( 0 );
+} );
+
+test( 'preserves the outer display-contents DOM wrapper without adding a provider', () => {
+	const { getByTestId } = render(
+		<DebugPanel storageKey="k" onClose={ () => {} } />
+	);
+	const wrapper = getByTestId( 'debug-panel' ).parentElement;
+
+	expect( wrapper.style.display ).toBe( 'contents' );
+	expect( wrapper.className ).toBe( '' );
+} );
+
 test( 'the shared header close button invokes onClose', () => {
 	const onClose = jest.fn();
 	const { getByLabelText } = render(

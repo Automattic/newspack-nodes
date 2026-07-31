@@ -714,7 +714,7 @@ function enqueue_insights_assets(): void {
 		'dir'              => __DIR__ . '/build/dashboard',
 		'url'              => \plugins_url( 'build/dashboard', __FILE__ ),
 		'version_fallback' => '0.1.0',
-		'style_deps'       => [],
+		'style_deps'       => [ 'wp-components', 'newspack-nodes-graph' ],
 	] );
 }
 
@@ -725,6 +725,8 @@ if ( \is_admin() ) {
 ```
 
 A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's "Nodes" menu, which is for Nodes' own tools (the Console, the DevTools hub). If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab (the hub's tab API) rather than an `add_submenu_page` under `Admin::MENU_SLUG`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
+
+This example mounts `DebugOverlay` in §9, so its stylesheet explicitly depends on `newspack-nodes-graph` (which brings the canonical UI and theme handles with it). `GraphView` deliberately has no stylesheet side-effect import: every host that renders the graph owns this dependency, keeping the graph CSS in one build asset instead of copying it into each consumer bundle.
 
 > **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS `CommandClient` reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 

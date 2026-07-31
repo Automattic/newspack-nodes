@@ -6,6 +6,7 @@
  */
 
 import { useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 
 // Categories kept in the catalog but NOT draggable (Service CIs are mounted).
@@ -155,13 +156,17 @@ export default function Palette( {
 		}
 	};
 	// One toggle box for both states; glyph + labels flip on `collapsed`.
+	const toggleLabel = collapsed
+		? __( 'Expand palette', 'newspack-nodes' )
+		: __( 'Collapse palette', 'newspack-nodes' );
 	const toggle = onToggle && (
 		<button
 			type="button"
-			className="topology-palette__toggle"
+			className="newspack-nodes-rail-toggle topology-palette__toggle"
 			onClick={ onToggle }
-			aria-label={ collapsed ? 'Expand palette' : 'Collapse palette' }
-			title={ collapsed ? 'Expand palette' : 'Collapse palette' }
+			aria-label={ toggleLabel }
+			aria-expanded={ ! collapsed }
+			title={ toggleLabel }
 		>
 			{ collapsed ? '›' : '‹' }
 		</button>
@@ -179,7 +184,9 @@ export default function Palette( {
 			<div className="topology-palette-dock">
 				{ toggle }
 				<aside className="topology-palette">
-					<div className="topology-palette__footer">Loading…</div>
+					<div className="newspack-nodes-status topology-palette__footer">
+						Loading…
+					</div>
 				</aside>
 			</div>
 		);
@@ -221,7 +228,7 @@ export default function Palette( {
 					{ query.length > 0 && (
 						<button
 							type="button"
-							className="topology-palette__search-clear"
+							className="button button-small button-link-delete topology-palette__search-clear"
 							onClick={ clearQuery }
 							aria-label="Clear filter"
 							title="Clear filter"

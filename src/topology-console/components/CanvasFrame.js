@@ -45,7 +45,7 @@ export default function CanvasFrame( {
 				{ editMode && onSaveLayout && (
 					<button
 						type="button"
-						className="topology-canvas__layout-chip"
+						className="button button-small topology-canvas__layout-chip"
 						onClick={ onSaveLayout }
 						title={ __(
 							"Save current node positions as this topology's default layout",
@@ -58,7 +58,7 @@ export default function CanvasFrame( {
 				{ onResetLayout && (
 					<button
 						type="button"
-						className="topology-canvas__layout-chip"
+						className="button button-small topology-canvas__layout-chip"
 						onClick={ onResetLayout }
 						title={ __(
 							"Revert to this topology's saved layout (or auto-layout if none)",
@@ -71,7 +71,7 @@ export default function CanvasFrame( {
 				{ onResetGraph && (
 					<button
 						type="button"
-						className="topology-canvas__layout-chip"
+						className="button button-small topology-canvas__layout-chip"
 						onClick={ onResetGraph }
 						title={ __(
 							'Tear down + rebuild the browser console graph (recover from a self-inflicted edit) — does not reload the page',

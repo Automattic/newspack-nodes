@@ -40,12 +40,65 @@ describe( 'DebugOverlay', () => {
 
 	it( 'shows a toggle FAB when enabled, and opens the panel on click', () => {
 		mountExospine();
-		const { getByRole, queryByTestId } = render(
+		const { container, getByRole, queryByTestId } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
+		const provider = container.querySelector( '.nodes-debug' );
+		const fab = getByRole( 'button', { name: /debug/i } );
+		expect( provider.className ).toBe(
+			'nodes-debug newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+		);
+		expect( fab.closest( '.newspack-nodes-ui' ) ).toBe( provider );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-skin-root' )
+		).toHaveLength( 1 );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-ui' )
+		).toHaveLength( 1 );
 		expect( queryByTestId( 'debug-panel' ) ).toBeNull();
-		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		fireEvent.click( fab );
 		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+		expect(
+			container.querySelectorAll( '.newspack-nodes-skin-root' )
+		).toHaveLength( 1 );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-ui' )
+		).toHaveLength( 1 );
+		expect(
+			queryByTestId( 'debug-panel' ).closest( '.newspack-nodes-ui' )
+		).toBe( provider );
+	} );
+
+	it( 'inherits a host provider without nesting another root', () => {
+		mountExospine();
+		const { container, getByRole, queryByTestId } = render(
+			<div className="host newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui">
+				<DebugOverlay search="?nodes-debug=1" />
+			</div>
+		);
+		const host = container.querySelector( '.host' );
+		const overlay = container.querySelector( '.nodes-debug' );
+		const fab = getByRole( 'button', { name: /debug/i } );
+
+		expect( overlay.className ).toBe( 'nodes-debug' );
+		expect( fab.closest( '.newspack-nodes-ui' ) ).toBe( host );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-skin-root' )
+		).toHaveLength( 1 );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-ui' )
+		).toHaveLength( 1 );
+		fireEvent.click( fab );
+		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+		expect(
+			container.querySelectorAll( '.newspack-nodes-skin-root' )
+		).toHaveLength( 1 );
+		expect(
+			container.querySelectorAll( '.newspack-nodes-ui' )
+		).toHaveLength( 1 );
+		expect(
+			queryByTestId( 'debug-panel' ).closest( '.newspack-nodes-ui' )
+		).toBe( host );
 	} );
 
 	it( 'eats wheel scrolls so the page behind the overlay does not scroll', () => {

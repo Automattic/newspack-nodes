@@ -1373,7 +1373,15 @@ describe( 'TopologyConsole boot', () => {
 	it( 'the inspector column is always reserved (rail or panel)', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
 		await publishMeta();
-		const cls = () => container.querySelector( '.topology-app' ).className;
+		const root = container.querySelector( '.topology-app' );
+		const cls = () => root.className;
+		expect( root.classList.contains( 'newspack-nodes-theme' ) ).toBe(
+			true
+		);
+		expect( root.classList.contains( 'newspack-nodes-ui' ) ).toBe( true );
+		expect( root.classList.contains( 'newspack-nodes-skin-root' ) ).toBe(
+			false
+		);
 		expect( cls() ).toContain( 'is-inspector-open' );
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( cls() ).toContain( 'is-inspector-open' );

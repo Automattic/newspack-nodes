@@ -44,7 +44,11 @@ it( 'renders a title heading when given one', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } title="Request Log" />
 	);
+	const header = container.querySelector( '.test-viewer__header' );
 	expect( container.querySelector( 'h1' ).textContent ).toBe( 'Request Log' );
+	expect(
+		header.classList.contains( 'newspack-nodes-request-stream-header' )
+	).toBe( true );
 } );
 
 it( 'renders toolbarExtras before Clear and belowToolbar after the banner', () => {
@@ -155,6 +159,10 @@ describe( 'rail toggle', () => {
 		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
 		const toggle = container.querySelector( '.newspack-nodes-rail-toggle' );
 		expect( toggle ).not.toBeNull();
+		expect( toggle.getAttribute( 'aria-label' ) ).toBe(
+			'Hide the browse rail'
+		);
+		expect( toggle.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
 
 		fireEvent.click( toggle );
 		expect( container.querySelector( '.the-rail' ) ).toBeNull();
@@ -162,9 +170,12 @@ describe( 'rail toggle', () => {
 			window.localStorage.getItem( 'newspack-nodes-rail:test-viewer' )
 		).toBe( 'closed' );
 
-		fireEvent.click(
-			container.querySelector( '.newspack-nodes-rail-toggle' )
+		const reopen = container.querySelector( '.newspack-nodes-rail-toggle' );
+		expect( reopen.getAttribute( 'aria-label' ) ).toBe(
+			'Show the browse rail'
 		);
+		expect( reopen.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
+		fireEvent.click( reopen );
 		expect( container.querySelector( '.the-rail' ) ).not.toBeNull();
 	} );
 
@@ -192,14 +203,13 @@ describe( 'rail toggle', () => {
 	} );
 } );
 
-it( 'the rate line always renders (0.0 included) and there is no heartbeat', () => {
+it( 'the rate line always renders (0.0 included)', () => {
 	const { container } = render( <LogStreamViewer { ...BASE } /> );
 	// Zero rate still occupies its line, so the header height never shifts.
 	expect(
 		container.querySelector( '.newspack-nodes-toolbar-stats__rps' )
 			.textContent
 	).toContain( '0.0' );
-	expect( container.querySelector( '.newspack-nodes-staleness' ) ).toBeNull();
 } );
 
 it( 'the list keeps ONE tree position across the debug toggle', () => {

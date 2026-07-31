@@ -114,9 +114,9 @@ export function SparklineRow( { label, history, currentValue, format } ) {
 				<span className="topology-insp__spark-label">{ label }</span>
 				<span className="topology-insp__spark-vals">
 					<span
-						className={ `topology-insp__spark-val${
+						className={ `newspack-nodes-stat-value topology-insp__spark-val${
 							currentValue > 0
-								? ''
+								? ' is-accent'
 								: ' topology-insp__spark-val--dim'
 						}` }
 					>
@@ -214,41 +214,41 @@ export function ProcessStatsView( {
 				<FieldRow
 					k="msgs in"
 					v={ totals.msgsIn.toLocaleString() }
-					vClass="topology-field-row__val--num"
+					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
 					k="msgs out"
 					v={ totals.msgsOut.toLocaleString() }
-					vClass="topology-field-row__val--num"
+					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
 					k="bytes read"
 					v={ formatBytes( totals.bytesRead ) }
-					vClass="topology-field-row__val--num"
+					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
 					k="bytes written"
 					v={ formatBytes( totals.bytesWritten ) }
-					vClass="topology-field-row__val--num"
+					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 			</Section>
 			{ levels && (
 				<div className="topology-insp__levels">
-					<span className="topology-insp__level topology-insp__level--error">
+					<span className="newspack-nodes-status is-error topology-insp__level topology-insp__level--error">
 						{ sprintf(
 							// translators: %d: error line count.
 							__( '%d err', 'newspack-nodes' ),
 							levels.errors
 						) }
 					</span>
-					<span className="topology-insp__level topology-insp__level--warn">
+					<span className="newspack-nodes-status is-accent topology-insp__level topology-insp__level--warn">
 						{ sprintf(
 							// translators: %d: warning line count.
 							__( '%d warn', 'newspack-nodes' ),
 							levels.warnings
 						) }
 					</span>
-					<span className="topology-insp__level topology-insp__level--debug">
+					<span className="newspack-nodes-status topology-insp__level topology-insp__level--debug">
 						{ sprintf(
 							// translators: %d: debug line count.
 							__( '%d dbg', 'newspack-nodes' ),

@@ -1,0 +1,127 @@
+@use "button-roles" as role;
+
+.newspack-nodes-ui.newspack-nodes-ui {
+	.button-link {
+		appearance: none;
+		margin: 0;
+		padding: 0;
+		background: transparent;
+		border: 0;
+		border-radius: 0;
+		box-shadow: none;
+		color: var(--cyan-text, var(--np-text));
+		cursor: pointer;
+		font: inherit;
+		text-align: left;
+		text-decoration: none;
+		text-shadow: none;
+
+		&:hover,
+		&:active {
+			color: var(--cyan-text, var(--np-text));
+			text-decoration: underline;
+		}
+	}
+
+	.button {
+		appearance: none;
+		border: 1px solid transparent;
+		border-radius: var(--button-radius, 5px);
+		box-sizing: border-box;
+		box-shadow: none;
+		cursor: pointer;
+		text-shadow: none;
+	}
+
+	.button.is-compact {
+		font-family: var(--font-mono, var(--np-font-mono));
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+	}
+
+	.button:not(.button-primary, .button-link-delete) {
+		@include role.secondary;
+	}
+
+	.button.button-primary {
+		@include role.primary;
+	}
+
+	.button.button-link-delete,
+	.button.is-danger {
+		@include role.danger;
+	}
+
+	.button.is-active {
+		@include role.toggle-active;
+	}
+
+	.button.is-paused {
+		@include role.paused;
+	}
+
+	.button[role="switch"] {
+		background: var(--ink-3, var(--np-text-secondary));
+		border-color: var(--ink-3, var(--np-text-secondary));
+		border-radius: 999px;
+
+		&::after {
+			content: "";
+			position: absolute;
+			top: 1px;
+			bottom: 1px;
+			left: 1px;
+			aspect-ratio: 1;
+			background: var(--paper, var(--np-surface));
+			border-radius: 50%;
+			box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+		}
+
+		&[aria-checked="true"] {
+			background: var(--sage, var(--np-success));
+			border-color: var(--sage, var(--np-success));
+
+			&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+				background: var(--sage, var(--np-success));
+				border-color: var(--sage, var(--np-success));
+			}
+
+			&::after {
+				right: 1px;
+				left: auto;
+			}
+		}
+	}
+}
+
+// WordPress component buttons receive runtime Emotion rules with a generated
+// class repeated three times. A tripled UI root wins that cascade without
+// changing the lower-specificity native `.button` contract.
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	.components-button {
+		appearance: none;
+		border: 1px solid transparent;
+		border-radius: var(--button-radius, 5px);
+		box-sizing: border-box;
+		box-shadow: none;
+		cursor: pointer;
+		text-shadow: none;
+	}
+
+	.components-button.is-secondary,
+	.components-button.is-tertiary {
+		@include role.secondary;
+	}
+
+	.components-button.is-primary {
+		@include role.primary;
+	}
+
+	.components-button.is-destructive,
+	.components-button.is-destructive:not(.is-primary):not(.is-secondary):not(
+			.is-tertiary
+		):not(.is-link) {
+		@include role.danger;
+	}
+}

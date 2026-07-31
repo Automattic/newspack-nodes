@@ -25,17 +25,12 @@
 	&__topology {
 		// No row margin — the Overview's `.nodes-overview__rows` flex `gap`
 		// owns the (small) inter-row spacing; a margin here double-stacked it.
-		// A clean white card on the subtle page; the heading is transparent (part
-		// of the card) so a collapsed row reads as one white card, not a band.
-		background: var(--paper-2);
-		border: 1px solid var(--paper-shadow);
-		border-radius: var(--np-radius-md);
+		padding: 1px;
 		overflow: hidden;
 
 		// The row being pointer-dragged: lifted + dimmed for live feedback.
 		&.is-dragging {
 			opacity: 0.55;
-			border-color: var(--ink-3);
 		}
 	}
 
@@ -94,19 +89,8 @@
 	&__collapse,
 	&__expand {
 		flex: 0 0 auto;
-		font-size: 12px;
 		line-height: 1;
 		padding: 2px 6px;
-		border: 0;
-		border-radius: 4px;
-		background: transparent;
-		color: var(--ink-3);
-		cursor: pointer;
-
-		&:hover {
-			color: var(--ink);
-			background: var(--hover);
-		}
 	}
 
 	// Drag handle for row reorder (pointer-events drag). touch-action:none so a
@@ -168,73 +152,16 @@
 	}
 
 	&__badge {
-		display: inline-block;
-		font-size: 10px;
-		padding: 2px 8px;
-		border-radius: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
 		white-space: nowrap;
-
-		// Light Newspack provenance chips — Cobalt (stock), neutral (user),
-		// amber (user shadows stock).
-		&--stock {
-			background: var(--cyan-subtle);
-			color: var(--cyan);
-		}
-
-		&--user {
-			background: var(--paper-3);
-			color: var(--ink-3);
-		}
-
-		&--both {
-			background: var(--brass-subtle);
-			color: var(--brass);
-		}
 	}
 
 	&__health {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
 		// Fixed slot so ok/behind/stalled don't shift the toggle + restart.
 		min-width: 64px;
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		text-transform: uppercase;
-		color: var(--ink-3);
-
-		&::before {
-			content: "";
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			background: currentcolor;
-			flex: 0 0 auto;
-		}
-
-		&--ok {
-			color: var(--sage);
-		}
-
-		&--behind {
-			color: var(--brass);
-		}
-
-		&--stalled {
-			color: var(--oxide);
-		}
 	}
 
-	// The expanded detail tree. The divider lives here (not on the heading) so a
-	// COLLAPSED row stays a clean borderless white card — the rule only appears
-	// when there's a body to separate.
 	&__body {
 		padding: 8px 14px 14px;
-		border-top: 1px solid var(--paper-shadow);
 	}
 
 	&__stopped {
@@ -257,27 +184,18 @@
 	&__alert {
 		width: 360px;
 		max-width: calc(100vw - 40px);
-		background: var(--paper-2);
-		border: 1px solid var(--paper-shadow);
-		border-radius: 8px;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 		overflow: hidden;
 	}
 
 	&__alert-title {
 		padding: 12px 16px;
-		font-weight: 600;
 		font-size: 14px;
-		color: var(--ink);
-		background: var(--paper-2);
-		border-bottom: 1px solid var(--paper-shadow);
 	}
 
 	&__alert-body {
 		padding: 16px;
 		font-size: 13px;
 		line-height: 1.5;
-		color: var(--ink);
 	}
 
 	&__alert-actions {

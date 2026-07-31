@@ -159,12 +159,35 @@ describe( 'PartitionViewer', () => {
 		expect( window.location.search ).toContain( 'log=errors' );
 	} );
 
-	it( 'toggles pause through the graph callback', async () => {
-		registerViewFixture( { logs: [], paused: false } );
+	it( 'marks only the paused control and toggles both stream states', async () => {
+		const node = registerViewFixture( { logs: [], paused: false } );
 		const { container } = await renderViewer();
-		const pause = container.querySelector( '.button.is-paused, .button' );
-		fireEvent.click( pause );
+
+		const running = container.querySelector(
+			'button[title="Pause streaming"]'
+		);
+		expect( running ).not.toBeNull();
+		expect( running.classList.contains( 'is-paused' ) ).toBe( false );
+		expect( container.querySelectorAll( 'button.is-paused' ) ).toHaveLength(
+			0
+		);
+		fireEvent.click( running );
 		expect( setPaused ).toHaveBeenCalledWith( true );
+
+		act( () => {
+			node.setState( 'view', {
+				...node.setStateCache.view,
+				paused: true,
+			} );
+		} );
+
+		const pausedButtons = container.querySelectorAll( 'button.is-paused' );
+		expect( pausedButtons ).toHaveLength( 1 );
+		const [ paused ] = pausedButtons;
+		expect( paused ).not.toBeNull();
+		expect( paused.getAttribute( 'title' ) ).toBe( 'Resume streaming' );
+		fireEvent.click( paused );
+		expect( setPaused ).toHaveBeenLastCalledWith( false );
 	} );
 
 	it( 'wires LogRowList getNode at the live partition:view node', async () => {

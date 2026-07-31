@@ -125,7 +125,7 @@ export default function Jobs() {
 			</div>
 
 			{ 0 === rows.length ? (
-				<p className="nodes-jobs__empty">
+				<p className="newspack-nodes-empty-state nodes-jobs__empty">
 					{ __( 'No job activity yet.', 'newspack-nodes' ) }
 				</p>
 			) : (
@@ -169,7 +169,7 @@ export default function Jobs() {
 									<td>{ formatMs( w.avgQueueMs ) }</td>
 									<td>
 										<span
-											className={ `nodes-jobs__status is-${ l.lastStatus }` }
+											className={ `newspack-nodes-status-badge nodes-jobs__status is-${ l.lastStatus }` }
 										>
 											{ l.lastStatus }
 										</span>

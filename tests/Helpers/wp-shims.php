@@ -394,25 +394,12 @@ if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $key, mixed $default = false ): mixed {
 		return $GLOBALS['_wp_options'][ $key ] ?? $default;
 	}
-	// Records the autoload arg per option so tests can assert autoload
-	// hygiene. Mirrors WP's 3-arg signature; `null` = caller unspecified.
-	$GLOBALS['_wp_option_autoload'] = [];
 	function update_option( string $key, mixed $value, $autoload = null ): bool {
-		$GLOBALS['_wp_options'][ $key ]         = $value;
-		$GLOBALS['_wp_option_autoload'][ $key ] = $autoload;
+		$GLOBALS['_wp_options'][ $key ] = $value;
 		return true;
 	}
 	function delete_option( string $key ): bool {
 		unset( $GLOBALS['_wp_options'][ $key ] );
-		return true;
-	}
-	// WP 6.6+ autoload setter. Records the requested flag so the one-time
-	// autoload-correction sweep can be asserted; also mirrors it into the
-	// general autoload-capture map.
-	$GLOBALS['_wp_set_option_autoload'] = [];
-	function wp_set_option_autoload( string $option, $autoload ): bool {
-		$GLOBALS['_wp_set_option_autoload'][ $option ] = $autoload;
-		$GLOBALS['_wp_option_autoload'][ $option ]     = $autoload;
 		return true;
 	}
 	// WP 6.4+ bulk option-cache primer. Records the primed option names so tests
@@ -648,6 +635,31 @@ if ( ! function_exists( 'wp_enqueue_style' ) ) {
 			'deps'    => $deps,
 			'version' => $ver,
 		];
+	}
+}
+if ( ! function_exists( 'wp_register_style' ) ) {
+	function wp_register_style(
+		string $handle,
+		string $src = '',
+		array $deps = [],
+		$ver = false
+	): bool {
+		$GLOBALS['_registered_styles'][ $handle ] = [
+			'src'     => $src,
+			'deps'    => $deps,
+			'version' => $ver,
+		];
+		$GLOBALS['_wp_register_style_calls'][ $handle ] =
+			( $GLOBALS['_wp_register_style_calls'][ $handle ] ?? 0 ) + 1;
+		return true;
+	}
+}
+if ( ! function_exists( 'wp_style_is' ) ) {
+	function wp_style_is( string $handle, string $status = 'enqueued' ): bool {
+		if ( 'registered' === $status ) {
+			return isset( $GLOBALS['_registered_styles'][ $handle ] );
+		}
+		return isset( $GLOBALS['_enqueued_styles'][ $handle ] );
 	}
 }
 if ( ! function_exists( 'wp_localize_script' ) ) {

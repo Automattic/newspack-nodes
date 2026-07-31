@@ -88,7 +88,10 @@ export function Grid( { testid, cols, rows, sort, onSort, rowClass, footer } ) {
 		return 'asc' === sort.dir ? ' ▲' : ' ▼';
 	};
 	return (
-		<table className="nodes-runtime__grid" data-testid={ testid }>
+		<table
+			className="newspack-nodes-table nodes-runtime__grid"
+			data-testid={ testid }
+		>
 			<thead>
 				<tr>
 					{ cols.map( ( c ) => (

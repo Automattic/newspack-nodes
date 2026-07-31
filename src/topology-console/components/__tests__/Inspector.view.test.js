@@ -83,6 +83,14 @@ describe( 'Inspector (view mode)', () => {
 		const stats = getByTestId( 'inspector-process-stats' ).textContent;
 		expect( stats ).toContain( '10' );
 		expect( stats ).toContain( '7' );
+		for ( const total of getByTestId(
+			'inspector-process-stats'
+		).querySelectorAll( '.topology-field-row__val--num' ) ) {
+			expect(
+				total.classList.contains( 'newspack-nodes-stat-value' )
+			).toBe( true );
+			expect( total.classList.contains( 'is-accent' ) ).toBe( true );
+		}
 	} );
 
 	it( 'shows the current msg + byte /s rates in the no-node process header [98]', () => {
@@ -125,6 +133,14 @@ describe( 'Inspector (view mode)', () => {
 		expect( stats ).toContain( '2.0 /s' ); // msgs out
 		expect( stats ).toContain( '2.0 K/s' ); // bytes read (2048 B/s)
 		expect( stats ).toContain( '512 B/s' ); // bytes written
+		for ( const current of header.querySelectorAll(
+			'.topology-insp__spark-val'
+		) ) {
+			expect(
+				current.classList.contains( 'newspack-nodes-stat-value' )
+			).toBe( true );
+			expect( current.classList.contains( 'is-accent' ) ).toBe( true );
+		}
 	} );
 
 	it( 'sources the no-node header from IoTelemetry for the browser/local scope (matches the Overview tab)', () => {
@@ -170,6 +186,18 @@ describe( 'Inspector (view mode)', () => {
 		expect( levels.textContent ).toMatch( /2 err/ );
 		expect( levels.textContent ).toMatch( /1 warn/ );
 		expect( levels.textContent ).toMatch( /3 dbg/ );
+		const [ error, warning, debug ] = levels.querySelectorAll(
+			'.topology-insp__level'
+		);
+		for ( const level of [ error, warning, debug ] ) {
+			expect( level.classList.contains( 'newspack-nodes-status' ) ).toBe(
+				true
+			);
+		}
+		expect( error.classList.contains( 'is-error' ) ).toBe( true );
+		expect( error.classList.contains( 'is-accent' ) ).toBe( false );
+		expect( warning.classList.contains( 'is-accent' ) ).toBe( true );
+		expect( debug.classList.contains( 'is-accent' ) ).toBe( false );
 		// Four Activity sparkline rows render even pre-data (flat baseline).
 		expect(
 			header.querySelectorAll( '.topology-insp__spark-row' ).length
@@ -769,7 +797,77 @@ describe( 'Inspector (view mode)', () => {
 		expect(
 			container.querySelector( '.topology-insp__title' ).textContent
 		).toBe( 'echo' );
+		const type = container.querySelector( '.topology-insp__type' );
+		expect( type.classList.contains( 'newspack-nodes-status' ) ).toBe(
+			true
+		);
+		expect( type.classList.contains( 'is-accent' ) ).toBe( true );
 		expect( container.textContent ).toMatch( /LIVE/ );
+	} );
+
+	it( 'keeps zero selected-node throughput muted while accenting nonzero totals', () => {
+		const { container } = renderNode();
+		const throughputValues = ( root ) =>
+			Object.fromEntries(
+				[ ...root.querySelectorAll( '.topology-field-row' ) ].map(
+					( row ) => [
+						row.querySelector( '.topology-field-row__key' )
+							?.textContent,
+						row.querySelector( '.topology-field-row__val' ),
+					]
+				)
+			);
+		const values = throughputValues( container );
+
+		for ( const key of [ 'counter', 'lgst_msg', 'written' ] ) {
+			expect(
+				values[ key ].classList.contains( 'newspack-nodes-stat-value' )
+			).toBe( true );
+			expect( values[ key ].classList.contains( 'is-accent' ) ).toBe(
+				true
+			);
+			expect(
+				values[ key ].classList.contains(
+					'topology-field-row__val--dim'
+				)
+			).toBe( false );
+		}
+
+		const zeroNode = {
+			...node,
+			count: 73,
+			lgstMsg: 0,
+			bytesRead: 0,
+			bytesWritten: 0,
+		};
+		const { container: zeroContainer } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="echo"
+				parsed={ { nodes: [ zeroNode ], edges: [] } }
+				nodeIds={ new Set( [ 'echo' ] ) }
+				rateInfo={ { rate: 0 } }
+			/>
+		);
+		const zeroValues = throughputValues( zeroContainer );
+
+		for ( const key of [ 'rate', 'lgst_msg', 'read', 'written' ] ) {
+			expect(
+				zeroValues[ key ].classList.contains(
+					'newspack-nodes-stat-value'
+				)
+			).toBe( true );
+			expect(
+				zeroValues[ key ].classList.contains(
+					'topology-field-row__val--dim'
+				)
+			).toBe( true );
+			expect( zeroValues[ key ].classList.contains( 'is-accent' ) ).toBe(
+				false
+			);
+		}
+
+		expect( zeroValues.read.textContent ).toBe( '0 B' );
 	} );
 
 	it( 'shows status uppercased when streamStatus is not open', () => {

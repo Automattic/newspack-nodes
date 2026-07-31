@@ -24,8 +24,9 @@ function register_insights_admin_page(): void {
 	if ( ! \function_exists( 'add_menu_page' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
 		return;
 	}
-	// Honor the substrate's access gate (manage_options + allowed_users whitelist),
-	// since the dashboard reads substrate-managed pipeline state.
+	/**
+	 * Honor the substrate access gate because this reads pipeline state.
+	 */
 	if ( ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
 		return;
 	}
@@ -58,7 +59,7 @@ function enqueue_insights_assets( string $hook = '' ): void {
 			'dir'              => __DIR__ . '/build/dashboard',
 			'url'              => \plugins_url( 'build/dashboard', __FILE__ ),
 			'version_fallback' => '0.1.0',
-			'style_deps'       => [],
+			'style_deps'       => [ 'wp-components', 'newspack-nodes-graph' ],
 		]
 	);
 }
@@ -81,29 +82,31 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 	$base_interpreter->make_node( 'Insights_CI_Demo', 'insights-demo' );
 }
 
-// Load after newspack-nodes (its own deferred loader runs at plugins_loaded:11).
+// Load after the newspack-nodes deferred loader at plugins_loaded:11.
 \add_action(
 	'plugins_loaded',
 	static function (): void {
 		if ( ! \class_exists( '\Newspack_Nodes\Topology_Registry' ) ) {
 			return;
 		}
-		// Composer classmap autoload (run `composer dump-autoload -o` after
-		// adding/renaming a node). This is also what puts the node classes in
-		// the classmap that Classes_CI scans, so their node_schema() verbs show
-		// up in the topology-console palette + per-node Inspector.
+		/**
+		 * Load the optimized classmap after adding or renaming a node.
+		 *
+		 * Classes_CI scans this map for node_schema() verbs.
+		 */
 		require_once __DIR__ . '/vendor/autoload.php';
 
-		// One call wires it all: the Example_AI_Newsletter\ namespace (so
-		// make_node resolves *_Node classes), the topologies/ stock dir, a
-		// catalog entry for every *.tsl in it (just example-ai-newsletter.tsl here), and a
-		// guarded spawn handler. That's the whole "register a Nodes plugin" story.
+		/**
+		 * Register the namespace, stock topologies, catalog, and spawn handler.
+		 */
 		\Newspack_Nodes\Topology_Registry::register_plugin(
 			'Example_AI_Newsletter\\',
 			__DIR__ . '/topologies'
 		);
 
-		// Mount the Insights service CI into each request graph so the dashboard can poll it.
+		/**
+		 * Mount the service interpreter for dashboard polling.
+		 */
 		\add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insights_ci' );
 	},
 	12

@@ -40,7 +40,7 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 		: undefined;
 	return createPortal(
 		<div
-			className="topology-app newspack-nodes-theme"
+			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
 		>
 			<div
@@ -53,7 +53,7 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 				} }
 			>
 				<div
-					className={ `topology-modal${
+					className={ `topology-modal newspack-nodes-modal${
 						wide ? ' topology-modal--large' : ''
 					}` }
 					ref={ ref }
@@ -62,11 +62,13 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 					aria-label={ title }
 					style={ modalStyle }
 				>
-					<header className="topology-modal__header">
-						<span className="topology-modal__title">{ title }</span>
+					<header className="topology-modal__header newspack-nodes-modal__header">
+						<span className="topology-modal__title newspack-nodes-modal__title">
+							{ title }
+						</span>
 						<button
 							type="button"
-							className="topology-modal__close"
+							className="topology-modal__close newspack-nodes-modal__close"
 							aria-label={ __( 'Close', 'newspack-nodes' ) }
 							onClick={ onDismiss }
 						>

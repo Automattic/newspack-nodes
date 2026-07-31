@@ -131,7 +131,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			// A topology save restarts nothing (supervisor pulls it).
 			$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 			// An unknown option (e.g. an internal bookkeeping key) classifies as no-restart.
-			$this->assertSame( [], $schema->restart_for( 'autoload_fixed' ) );
+			$this->assertSame( [], $schema->restart_for( 'internal_bookkeeping_7319' ) );
 		}
 
 		public function test_restart_for_returns_node_type_list_and_all_verbatim(): void {

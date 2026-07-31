@@ -1,0 +1,83 @@
+@mixin disabled {
+	&:disabled,
+	&[disabled],
+	&[aria-disabled="true"] {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+}
+
+@mixin primary {
+	background: var(--cyan, var(--np-primary));
+	color: var(--on-cyan, var(--np-on-primary));
+	border-color: var(--cyan, var(--np-primary));
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(--cyan-dark, var(--np-primary-hover));
+		border-color: var(--cyan-dark, var(--np-primary-hover));
+		color: var(--on-cyan-dark, var(--np-on-primary));
+	}
+}
+
+@mixin secondary {
+	background: var(
+		--button-secondary-background,
+		var(--paper, var(--np-surface))
+	);
+	color: var(--button-secondary-color, var(--ink, var(--np-text)));
+	border-color: var(
+		--button-secondary-border,
+		var(--paper-shadow, var(--np-border-strong))
+	);
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(
+			--button-secondary-hover-background,
+			var(--hover, var(--np-surface-muted))
+		);
+		color: var(
+			--button-secondary-hover-color,
+			var(
+				--button-secondary-color,
+				var(--ink, var(--np-text))
+			)
+		);
+	}
+}
+
+@mixin danger {
+	background: var(--oxide, var(--np-error));
+	color: var(--on-oxide, var(--np-on-status));
+	border-color: var(--oxide-dark, var(--np-error));
+	@include disabled;
+
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(--oxide-dark, var(--np-error));
+		color: var(--on-oxide-dark, var(--np-on-status));
+	}
+}
+
+@mixin toggle-active {
+	background: var(--cyan, var(--np-primary));
+	color: var(--on-cyan, var(--np-on-primary));
+	border-color: var(--cyan, var(--np-primary));
+
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(--cyan-dark, var(--np-primary-hover));
+		border-color: var(--cyan-dark, var(--np-primary-hover));
+		color: var(--on-cyan-dark, var(--np-on-primary));
+	}
+}
+
+@mixin paused {
+	background: var(--brass, var(--np-warning));
+	color: var(--on-brass, var(--np-text));
+	border-color: var(--brass, var(--np-warning));
+
+	&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+		background: var(--brass-dark, var(--np-warning));
+		color: var(--on-brass-dark, var(--np-text));
+	}
+}

@@ -36,10 +36,14 @@ test( 'renders the metric cards and both rate-chart panels', () => {
 		...container.querySelectorAll( '.nodes-topics__title' ),
 	].map( ( el ) => el.textContent );
 	expect( titles ).toEqual( [ 'Message Rate', 'Byte Rate' ] );
-	// Cards use the shared `.nodes-card` class (no overlay-specific styles).
-	expect( container.querySelectorAll( '.nodes-card' ) ).toHaveLength(
-		ids.length
-	);
+	// Cards keep their layout hook and consume the canonical surface role.
+	const cards = [ ...container.querySelectorAll( '.nodes-card' ) ];
+	expect( cards ).toHaveLength( ids.length );
+	expect(
+		cards.every( ( card ) =>
+			card.classList.contains( 'newspack-nodes-card' )
+		)
+	).toBe( true );
 } );
 
 test( 'shows a client uptime card (time since the page loaded)', () => {

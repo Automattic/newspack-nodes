@@ -193,7 +193,7 @@ export default function TriageView( { node, onAction } ) {
 			</div>
 
 			{ parseError && (
-				<div className="triage-view__status is-error">
+				<div className="newspack-nodes-status triage-view__status is-error">
 					{ __(
 						'Could not read the dead-letter queue.',
 						'newspack-nodes'
@@ -203,7 +203,7 @@ export default function TriageView( { node, onAction } ) {
 
 			{ status && (
 				<div
-					className={ `triage-view__status${
+					className={ `newspack-nodes-status triage-view__status${
 						status.isError ? ' is-error' : ''
 					}` }
 				>
@@ -212,14 +212,14 @@ export default function TriageView( { node, onAction } ) {
 			) }
 
 			{ ! loading && ! parseError && 0 === rows.length && (
-				<div className="triage-view__empty">
+				<div className="newspack-nodes-empty-state triage-view__empty">
 					{ __( 'No quarantined records.', 'newspack-nodes' ) }
 				</div>
 			) }
 
 			{ rows.length > 0 && (
 				<table
-					className="nodes-runtime__grid triage-view__grid"
+					className="newspack-nodes-table nodes-runtime__grid triage-view__grid"
 					data-testid="triage-grid"
 				>
 					<thead>

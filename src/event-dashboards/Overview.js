@@ -411,7 +411,7 @@ export default function Overview( { headerControlsSlot } ) {
 					{ stopped.map( ( t ) => (
 						<span
 							key={ t.name }
-							className="nodes-overview__stopped-item"
+							className="newspack-nodes-badge nodes-overview__stopped-item"
 						>
 							<span className="nodes-overview__name">
 								{ t.name }

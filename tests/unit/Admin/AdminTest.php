@@ -47,9 +47,13 @@ class AdminTest extends TestCase {
 		$GLOBALS['_admin_submenu_pages']         = [];
 		$GLOBALS['_enqueued_scripts']            = [];
 		$GLOBALS['_enqueued_styles']             = [];
+		$GLOBALS['_registered_styles']           = [];
+		$GLOBALS['_wp_register_style_calls']     = [];
 		$GLOBALS['_localized_scripts']           = [];
+		$GLOBALS['_style_data']                  = [];
 		$GLOBALS['_wp_options']                  = [];
 		$GLOBALS['_wp_actions']                  = [];
+		$GLOBALS['_wp_action_registrations']     = [];
 		$GLOBALS['_wp_test_current_user_can']    = [ 'manage_options' => true ];
 		$GLOBALS['_wp_test_current_user_login']  = '';
 		$GLOBALS['_last_redirect']               = null;
@@ -516,6 +520,22 @@ class AdminTest extends TestCase {
 
 		// Submit + reset buttons present.
 		$this->assertStringContainsString( '<input type="submit"', $html );
+	}
+
+	public function test_render_settings_page_uses_the_standalone_ui_provider_contract(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+
+		\ob_start();
+		$admin->render_settings_page();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString(
+			'<div class="wrap newspack-nodes-settings-wrap newspack-nodes-theme newspack-nodes-ui">',
+			$html
+		);
+		$this->assertStringNotContainsString( 'newspack-nodes-skin-root', $html );
+		$this->assertStringNotContainsString( 'topology-app', $html );
 	}
 
 	public function test_render_settings_page_blocks_unauthorized_user(): void {
@@ -1298,6 +1318,166 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( '.is-marked [data-nn-reset-toggle]', $html );
 	}
 
+	// ---- canonical stylesheet registration -------------------------------
+
+	public function test_registers_theme_ui_and_graph_styles_with_own_versions_and_rtl(): void {
+		$methods = [
+			'register_theme_style',
+			'register_ui_style',
+			'register_graph_style',
+		];
+		foreach ( $methods as $method ) {
+			$this->assertTrue(
+				\method_exists( Admin::class, $method ),
+				"Admin::{$method}() must exist"
+			);
+		}
+
+		$assets = [
+			'newspack-nodes-theme' => [
+				'subdir' => 'theme',
+				'deps'   => [],
+			],
+			'newspack-nodes-ui'    => [
+				'subdir' => 'ui',
+				'deps'   => [ 'newspack-nodes-theme' ],
+			],
+			'newspack-nodes-graph' => [
+				'subdir' => 'graph',
+				'deps'   => [ 'newspack-nodes-ui' ],
+			],
+		];
+		foreach ( $assets as $handle => $asset ) {
+			$css = \NEWSPACK_NODES_DIR . "build/{$asset['subdir']}/index.css";
+			$this->assertFileExists(
+				$css,
+				"{$handle} build asset missing — run `npm run build`"
+			);
+		}
+
+		$admin = new Admin();
+		$admin->register_theme_style();
+		$admin->register_ui_style();
+		$admin->register_graph_style();
+
+		foreach ( $assets as $handle => $asset ) {
+			$css = \NEWSPACK_NODES_DIR . "build/{$asset['subdir']}/index.css";
+			$this->assertArrayHasKey( $handle, $GLOBALS['_registered_styles'] );
+			$this->assertSame(
+				$asset['deps'],
+				$GLOBALS['_registered_styles'][ $handle ]['deps']
+			);
+			$this->assertSame(
+				\md5_file( $css ),
+				$GLOBALS['_registered_styles'][ $handle ]['version']
+			);
+			$this->assertNotSame(
+				\NEWSPACK_NODES_VERSION,
+				$GLOBALS['_registered_styles'][ $handle ]['version']
+			);
+			$this->assertSame(
+				'replace',
+				$GLOBALS['_style_data'][ $handle ]['rtl'] ?? null
+			);
+		}
+	}
+
+	public function test_style_registration_is_idempotent(): void {
+		$this->assertTrue(
+			\method_exists( Admin::class, 'register_ui_style' ),
+			'Admin::register_ui_style() must exist'
+		);
+		if ( ! \method_exists( Admin::class, 'register_ui_style' ) ) {
+			return;
+		}
+
+		$admin = new Admin();
+		$admin->register_ui_style();
+		$first = $GLOBALS['_registered_styles']['newspack-nodes-ui'] ?? null;
+		$admin->register_ui_style();
+
+		$this->assertNotNull( $first );
+		$this->assertSame(
+			$first,
+			$GLOBALS['_registered_styles']['newspack-nodes-ui'] ?? null
+		);
+		$this->assertSame(
+			1,
+			$GLOBALS['_wp_register_style_calls']['newspack-nodes-ui'] ?? 0
+		);
+	}
+
+	public function test_hooks_styles_in_dependency_order_before_settings_enqueue(): void {
+		$GLOBALS['_wp_record_registrations'] = true;
+		try {
+			new Admin();
+		} finally {
+			$GLOBALS['_wp_record_registrations'] = false;
+		}
+
+		$registrations = $GLOBALS['_wp_action_registrations']['admin_enqueue_scripts'] ?? [];
+		$priorities    = [];
+		foreach ( $registrations as $registration ) {
+			$callback = $registration['callback'];
+			if ( \is_array( $callback ) && \is_string( $callback[1] ?? null ) ) {
+				$priorities[ $callback[1] ] = $registration['priority'];
+			}
+		}
+
+		$this->assertSame(
+			[
+				'register_theme_style'  => 1,
+				'register_ui_style'     => 2,
+				'register_graph_style'  => 3,
+				'enqueue_settings_style' => 4,
+			],
+			\array_intersect_key(
+				$priorities,
+				\array_flip(
+					[
+						'register_theme_style',
+						'register_ui_style',
+						'register_graph_style',
+						'enqueue_settings_style',
+					]
+				)
+			)
+		);
+	}
+
+	public function test_enqueue_settings_style_enqueues_ui_on_nodes_page(): void {
+		$this->assertTrue(
+			\method_exists( Admin::class, 'enqueue_settings_style' ),
+			'Admin::enqueue_settings_style() must exist'
+		);
+		if ( ! \method_exists( Admin::class, 'enqueue_settings_style' ) ) {
+			return;
+		}
+
+		$_GET = [ 'page' => Admin::MENU_SLUG ];
+		( new Admin() )->enqueue_settings_style();
+
+		$this->assertSame(
+			[ 'newspack-nodes-ui' ],
+			\array_keys( $GLOBALS['_enqueued_styles'] )
+		);
+	}
+
+	public function test_enqueue_settings_style_skips_other_pages(): void {
+		$this->assertTrue(
+			\method_exists( Admin::class, 'enqueue_settings_style' ),
+			'Admin::enqueue_settings_style() must exist'
+		);
+		if ( ! \method_exists( Admin::class, 'enqueue_settings_style' ) ) {
+			return;
+		}
+
+		$_GET = [ 'page' => 'not-newspack-nodes' ];
+		( new Admin() )->enqueue_settings_style();
+
+		$this->assertEmpty( $GLOBALS['_enqueued_styles'] );
+	}
+
 	// ---- register_event_dashboard_pages ----------------------------------
 
 	public function test_register_event_dashboard_pages_registers_no_standalone_submenu(): void {
@@ -1396,6 +1576,10 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
 		$this->assertStringEndsWith( 'build/devtools-hub/index.js', (string) $enq['src'] );
+		$this->assertSame(
+			[ 'wp-components', 'newspack-nodes-graph' ],
+			$GLOBALS['_enqueued_styles'][ $handle ]['deps'] ?? null
+		);
 
 		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
 		$this->assertSame( 'devtools-hub', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );

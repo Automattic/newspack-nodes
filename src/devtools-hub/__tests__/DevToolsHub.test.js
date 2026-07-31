@@ -59,6 +59,27 @@ describe( 'DevToolsHub', () => {
 		expect( page.style.bottom ).toBe( '0px' );
 	} );
 
+	it( 'owns one non-graph skin provider without repeating provider classes on the hub', () => {
+		registerDevtoolsTab( {
+			id: 'demo',
+			label: 'Demo',
+			host: 'hub',
+			component: () => <div data-testid="demo" />,
+		} );
+		const { container } = render( <DevToolsHub /> );
+		const provider = container.firstElementChild;
+		const hub = container.querySelector( '.nodes-devtools-hub' );
+
+		expect( provider.className ).toBe(
+			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+		);
+		expect( hub.className ).toBe( 'nodes-devtools-hub' );
+		expect( hub.closest( '.newspack-nodes-theme' ) ).toBe( provider );
+		expect( hub.querySelectorAll( '.newspack-nodes-theme' ) ).toHaveLength(
+			0
+		);
+	} );
+
 	it( 'renders the console first and topologies second when both are registered', () => {
 		registerDevtoolsTab( {
 			id: 'topology-manager',

@@ -14,7 +14,7 @@
 // Dark theme error banner
 @mixin dark-error-banner {
 	background: $error-bg;
-	color: $white;
+	color: var(--on-oxide, var(--np-on-status));
 	padding: $space-sm $space-md;
 	border-radius: $border-radius-sm;
 	margin-bottom: $space-md;
@@ -85,24 +85,6 @@
 	justify-content: center;
 	color: var(--ink-3);
 	font-style: italic;
-}
-
-@mixin sortable-header-button {
-	background: none;
-	border: none;
-	padding: 0;
-	font: inherit;
-	font-weight: 600;
-	cursor: pointer;
-	user-select: none;
-	text-align: left;
-	// A bare <button> doesn't inherit color (UA ButtonText), so set it to the
-	// skin ink explicitly — otherwise the header reads black on a dark surface.
-	color: var(--ink);
-
-	&:hover {
-		color: $wp-link;
-	}
 }
 
 /**

@@ -13,9 +13,6 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Config {
 
-	/** XXX: One-time marker so `correct_option_autoload()` sweeps once per install. */
-	public const AUTOLOAD_FIXED_OPTION = 'newspack_nodes_autoload_fixed';
-
 	/**
 	 * Action fired while deriving the declared set; consumer plugins declare their keys here.
 	 *
@@ -498,21 +495,6 @@ class Config {
 			' - a root-owned file would be unwritable by the workers'
 		);
 		return true;
-	}
-
-	/** One-time sweep flipping every schema key to autoloaded (admin_init; no-op on WP < 6.6). */
-	public static function correct_option_autoload(): void {
-		if ( ! \function_exists( 'wp_set_option_autoload' ) ) {
-			return;
-		}
-		if ( ! empty( \get_option( self::AUTOLOAD_FIXED_OPTION ) ) ) {
-			return;
-		}
-		$schema = Settings_Schema::get();
-		foreach ( $schema->overlay_keys() as $key ) {
-			\wp_set_option_autoload( $schema->prefix() . $key, true );
-		}
-		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
 	}
 
 	/** Reset cached config; fires `newspack_nodes/config_reset` so dependent Configs invalidate too. */

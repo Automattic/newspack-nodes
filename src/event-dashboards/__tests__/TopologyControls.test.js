@@ -20,7 +20,8 @@ it( 'active: toggle is on, restart shown, edit links', () => {
 	const { container } = setup( { active: true } );
 	const toggle = container.querySelector( '.nodes-ctl__toggle' );
 	expect( toggle.getAttribute( 'aria-checked' ) ).toBe( 'true' );
-	expect( toggle.className ).toContain( 'is-on' );
+	expect( toggle.classList.contains( 'button' ) ).toBe( true );
+	expect( toggle.classList.contains( 'is-active' ) ).toBe( false );
 	expect( container.querySelector( '.nodes-ctl__restart' ) ).toBeTruthy();
 	expect(
 		container.querySelector( '.nodes-ctl__edit' ).getAttribute( 'href' )

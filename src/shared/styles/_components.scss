@@ -4,305 +4,736 @@
  * state, the stats grid, the admin wrapper + error banner, the shared refresh
  * select, the section header, and the `.entry-*` log-row cells.
  *
- * Pure dedup: rules + values are the event-dashboards originals, byte-for-byte,
- * emitted in the same source order so the compiled CSS is unchanged.
+ * Layout and dimensions retain the original dashboard contracts. Appearance
+ * resolves through the active skin first and the product theme second.
  */
 
 @use "tokens" as *;
-@use "mixins" as *;
 
-// Loading container
-.newspack-nodes-performance-loading {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	min-height: 200px;
-	gap: 16px;
-}
+:where(.newspack-nodes-ui).newspack-nodes-theme {
+	font-family: var(--np-font);
+	color: var(--np-text);
 
-// Skeleton loading animation
-@keyframes skeleton-pulse {
-	0% {
-		background-position: -200% 0;
-	}
-
-	100% {
-		background-position: 200% 0;
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6 {
+		color: var(--np-text);
 	}
 }
 
-.newspack-nodes-skeleton {
-	background: linear-gradient(
-		90deg,
-		var(--paper-2) 25%,
-		var(--paper-shadow) 50%,
-		var(--paper-2) 75%
-	);
-	background-size: 200% 100%;
-	animation: skeleton-pulse 1.5s ease-in-out infinite;
-	border-radius: $border-radius-sm;
-}
-
-.newspack-nodes-skeleton--text {
-	height: 16px;
-	width: 100%;
-	max-width: 200px;
-}
-
-.newspack-nodes-skeleton--card {
-	height: 100px;
-	width: 100%;
-}
-
-.newspack-nodes-skeleton--circle {
-	width: 40px;
-	height: 40px;
-	border-radius: 50%;
-}
-
-// Empty states
-.newspack-nodes-empty-state,
-.newspack-nodes-no-selection {
-	color: var(--ink-3);
-	text-align: center;
-	padding: $space-xl $space-lg;
-	background: var(--paper-2);
-	border-radius: $border-radius-lg;
-	border: 1px dashed var(--ink-3);
-
-	&::before {
-		content: "";
-		display: block;
-		width: 48px;
-		height: 48px;
-		margin: 0 auto $space-lg;
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23757575' stroke-width='1.5'%3E%3Cpath d='M20 13V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7m16 0v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-5m16 0h-2.586a1 1 0 0 0-.707.293l-2.414 2.414a1 1 0 0 1-.707.293h-3.172a1 1 0 0 1-.707-.293l-2.414-2.414A1 1 0 0 0 6.586 13H4'/%3E%3C/svg%3E");
-		background-size: contain;
-		background-repeat: no-repeat;
-		opacity: 0.6;
-	}
-}
-
-// Canonical themed dashboard table. Replaces the WP-core
-// `.wp-list-table.widefat.striped` trio, which hardcodes a light surface that
-// ignores the --paper/--ink theme tokens (so it renders light under a dark skin).
-// One class, applied verbatim; per-table BEM modifiers keep their column bits.
-.newspack-nodes-table {
-	width: 100%;
-	border-collapse: collapse;
-	background: var(--paper);
-	border: 1px solid var(--paper-shadow);
+:where(.newspack-nodes-ui).topology-app,
+:where(.newspack-nodes-ui).newspack-nodes-skin-root {
+	font-family: var(--font-mono, var(--np-font-mono));
 	font-size: 13px;
+	line-height: 1.45;
+	color: var(--ink, var(--np-text));
+	--nodes-devtools-fg: var(--ink, var(--np-text));
 
-	th,
-	td {
-		padding: $space-sm 10px;
-		text-align: left;
-		border-bottom: 1px solid var(--paper-shadow);
+	h1,
+	h2,
+	h3,
+	h4,
+	h5,
+	h6 {
+		color: var(--ink, var(--np-text));
+	}
+}
+
+:where(.newspack-nodes-ui) {
+	.newspack-nodes-card,
+	&.newspack-nodes-card {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+		border: 0;
+		border-radius: var(--np-radius-md);
+		box-shadow: inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong));
 	}
 
-	th {
-		color: var(--ink);
+	.newspack-nodes-card--elevated,
+	&.newspack-nodes-card--elevated {
+		background: var(--paper, var(--np-surface));
+		box-shadow:
+			inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong)),
+			0 1px 3px rgb(0 0 0 / 6%);
+	}
+
+	.newspack-nodes-card--hoverable,
+	&.newspack-nodes-card--hoverable {
+		transition: box-shadow 0.15s ease;
+
+		&:hover {
+			box-shadow:
+				inset 0 0 0 1px var(--ink-3, var(--np-text-secondary)),
+				0 2px 8px rgb(0 0 0 / 8%);
+		}
+	}
+
+	.newspack-dashboard-title {
+		margin: 0;
+		padding: 0;
+		font-size: 23px;
+		font-weight: 400;
+		line-height: 1.3;
+		color: var(--ink, var(--np-text));
+	}
+
+	.newspack-nodes-status {
+		color: var(--status-text, var(--np-text-secondary));
+
+		&.is-info {
+			color: var(--cyan-text, var(--np-text));
+		}
+
+		&.is-success {
+			color: var(--sage-text, var(--np-text));
+		}
+
+		&.is-warning {
+			color: var(--brass-text, var(--np-text));
+		}
+
+		&.is-error {
+			color: var(--oxide-text, var(--np-text));
+		}
+
+		&.is-muted {
+			color: var(--muted-text, var(--np-text-secondary));
+		}
+
+		&.is-accent {
+			color: var(--oxide-text, var(--np-text));
+		}
+	}
+
+	.newspack-nodes-status-badge {
+		display: inline-block;
+		padding: 2px 8px;
+		border-radius: var(--np-radius-sm);
+		font-size: 10px;
 		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+
+		&.is-pill {
+			border-radius: var(--np-radius-full);
+		}
+
+		&.is-info {
+			background: var(--cyan-subtle, var(--np-primary-subtle));
+			color: var(--cyan-text, var(--np-text));
+		}
+
+		&.is-success,
+		&.running {
+			background: var(--sage-subtle, var(--np-success-subtle));
+			color: var(--sage-text, var(--np-text));
+		}
+
+		&.is-warning {
+			background: var(--brass-subtle, var(--np-warning-subtle));
+			color: var(--brass-text, var(--np-text));
+		}
+
+		&.is-error,
+		&.dead {
+			background: var(--oxide-subtle, var(--np-error-subtle));
+			color: var(--oxide-text, var(--np-text));
+		}
+
+		&.is-neutral,
+		&.idle {
+			background: var(--paper-3, var(--np-surface-muted));
+			color: var(--ink-3, var(--np-text-secondary));
+		}
+
+		&.small {
+			padding: 2px 6px;
+			font-size: 9px;
+		}
+
+		&.compact {
+			padding: 1px 6px;
+			font-size: 9px;
+		}
 	}
 
-	td {
-		color: var(--ink);
+	.newspack-nodes-status-indicator {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.3px;
+		text-transform: uppercase;
+
+		&::before {
+			content: "";
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			flex: 0 0 auto;
+		}
+
+		&.is-success {
+			color: var(--sage-text, var(--np-text));
+
+			&::before {
+				background: var(--sage, var(--np-success));
+			}
+		}
+
+		&.is-warning {
+			color: var(--brass-text, var(--np-text));
+
+			&::before {
+				background: var(--brass, var(--np-warning));
+			}
+		}
+
+		&.is-error {
+			color: var(--oxide-text, var(--np-text));
+
+			&::before {
+				background: var(--oxide, var(--np-error));
+			}
+		}
 	}
 
-	tbody tr:nth-child(odd) {
-		background: var(--paper-2);
+	.newspack-nodes-badge {
+		background: var(--paper, var(--np-surface));
+		color: var(--ink, var(--np-text));
+		border: 0;
+		border-radius: var(--np-radius-sm);
+		box-shadow: inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong));
 	}
-}
 
-// Stats grid
-.newspack-nodes-stats-grid {
-	display: grid;
-	grid-template-columns: repeat(4, 1fr);
-	gap: $space-lg;
-}
+	.newspack-nodes-section-heading {
+		color: var(--ink, var(--np-text));
+	}
 
-.newspack-nodes-stat {
+	// Loading container
+	.newspack-nodes-performance-loading {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		min-height: 200px;
+		gap: 16px;
+		color: var(--ink-3, var(--np-text-secondary));
+	}
+
+	// Skeleton loading animation
+	@keyframes skeleton-pulse {
+		0% {
+			background-position: -200% 0;
+		}
+
+		100% {
+			background-position: 200% 0;
+		}
+	}
+
+	.newspack-nodes-skeleton {
+		background: linear-gradient(
+			90deg,
+			var(--paper-2, var(--np-surface-subtle)) 25%,
+			var(--paper-shadow, var(--np-border-strong)) 50%,
+			var(--paper-2, var(--np-surface-subtle)) 75%
+		);
+		background-size: 200% 100%;
+		animation: skeleton-pulse 1.5s ease-in-out infinite;
+		border-radius: $border-radius-sm;
+	}
+
+	.newspack-nodes-skeleton--text {
+		height: 16px;
+		width: 100%;
+		max-width: 200px;
+	}
+
+	.newspack-nodes-skeleton--card {
+		height: 100px;
+		width: 100%;
+	}
+
+	.newspack-nodes-skeleton--circle {
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+	}
+
+	// Empty states
+	.newspack-nodes-empty-state,
+	.newspack-nodes-no-selection {
+		color: var(--ink-3, var(--np-text-secondary));
+		text-align: center;
+		padding: $space-xl $space-lg;
+		background: var(--paper-2, var(--np-surface-subtle));
+		border-radius: $border-radius-lg;
+		border: 1px dashed var(--ink-3, var(--np-text-secondary));
+
+		&::before {
+			content: "";
+			display: block;
+			width: 48px;
+			height: 48px;
+			margin: 0 auto $space-lg;
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23757575' stroke-width='1.5'%3E%3Cpath d='M20 13V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7m16 0v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-5m16 0h-2.586a1 1 0 0 0-.707.293l-2.414 2.414a1 1 0 0 1-.707.293h-3.172a1 1 0 0 1-.707-.293l-2.414-2.414A1 1 0 0 0 6.586 13H4'/%3E%3C/svg%3E");
+			background-size: contain;
+			background-repeat: no-repeat;
+			opacity: 0.6;
+		}
+	}
+
+	// Canonical themed dashboard table. Replaces the WP-core
+	// `.wp-list-table.widefat.striped` trio, which hardcodes a light surface that
+	// ignores the --paper/--ink theme tokens (so it renders light under a dark skin).
+	// One class, applied verbatim; per-table BEM modifiers keep their column bits.
+	.newspack-nodes-table {
+		width: 100%;
+		border-collapse: collapse;
+		background: var(--paper, var(--np-surface));
+		border: 1px solid var(--paper-shadow, var(--np-border-strong));
+		font-size: 13px;
+
+		th,
+		td {
+			padding: $space-sm 10px;
+			text-align: left;
+			border-bottom: 1px solid
+				var(--paper-shadow, var(--np-border-strong));
+		}
+
+		th {
+			color: var(--ink, var(--np-text));
+			font-weight: 600;
+		}
+
+		td {
+			color: var(--ink, var(--np-text));
+		}
+
+		tbody tr:nth-child(odd) {
+			background: var(--paper-2, var(--np-surface-subtle));
+		}
+
+		&[role="row"] [role="columnheader"] {
+			color: var(--ink, var(--np-text));
+			font-weight: 600;
+		}
+
+		&[role="rowgroup"] [role="row"].row-odd {
+			background: var(--paper-2, var(--np-surface-subtle));
+		}
+
+		&[role="rowgroup"] [role="row"].row-even {
+			background: color-mix(
+				in srgb,
+				var(--ink, var(--np-text)) 8%,
+				var(--paper-2, var(--np-surface-subtle))
+			);
+		}
+
+		&[role="rowgroup"] [role="row"]:hover {
+			background: color-mix(
+				in srgb,
+				var(--cyan, var(--np-primary)) 15%,
+				var(--paper-2, var(--np-surface-subtle))
+			);
+		}
+	}
+
+	// Native lists migrated from WP widefat retain its quiet row rhythm without
+	// changing the denser canonical tables used elsewhere.
+	.newspack-nodes-table--undivided {
+		thead th {
+			font-weight: 400;
+		}
+
+		tbody > tr > td,
+		tfoot > tr > td {
+			border-bottom: 0;
+			font-size: 13px;
+			line-height: 1.5;
+		}
+
+		.newspack-nodes-table--undivided {
+			background: transparent;
+			border: 0;
+
+			tbody tr:nth-child(odd) {
+				background: transparent;
+			}
+		}
+	}
+
+	// Exact machine-data cells opt into the active terminal face. All other
+	// table text inherits the active UI/skin face.
+	.newspack-nodes-table__terminal-data {
+		font-family: var(--font-terminal, var(--np-font-mono));
+	}
+
+	.newspack-nodes-table__details {
+		background: var(--paper-2, var(--np-surface-subtle));
+	}
+
+	.newspack-nodes-table__summary {
+		background: var(--paper-2, var(--np-surface-subtle));
+		font-weight: 700;
+	}
+
+	// Geometry-neutral roles for virtualized table-shaped views whose rows are
+	// divs rather than native table elements. The header draws only the top and
+	// side cap; the rowgroup's existing 1px top border is the single seam.
+	.newspack-nodes-table__header {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+		box-shadow:
+			inset 1px 0 var(--paper-shadow, var(--np-border-strong)),
+			inset -1px 0 var(--paper-shadow, var(--np-border-strong)),
+			inset 0 1px var(--paper-shadow, var(--np-border-strong));
+
+		.newspack-nodes-table__cell {
+			color: var(--ink-3, var(--np-text-secondary));
+			cursor: default;
+			font-weight: 600;
+			letter-spacing: 0.5px;
+			text-transform: uppercase;
+		}
+	}
+
+	.newspack-nodes-table__header + .newspack-nodes-table[role="rowgroup"] {
+		border-top-color: var(--paper-shadow, var(--np-border-strong));
+	}
+
+	.newspack-nodes-table__row {
+		color: var(--ink, var(--np-text));
+		font-family: var(--font-mono, var(--np-font-mono));
+		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
+
+		&.row-odd {
+			background: var(--paper-2, var(--np-surface-subtle));
+		}
+
+		&.row-even {
+			background: color-mix(
+				in srgb,
+				var(--ink, var(--np-text)) 8%,
+				var(--paper-2, var(--np-surface-subtle))
+			);
+		}
+
+		&:hover {
+			background: color-mix(
+				in srgb,
+				var(--cyan, var(--np-primary)) 15%,
+				var(--paper-2, var(--np-surface-subtle))
+			);
+		}
+
+		&.is-selected {
+			background: var(--cyan-subtle, var(--np-primary-subtle));
+		}
+	}
+
+	.newspack-nodes-table__cell {
+		color: inherit;
+
+		&.is-muted {
+			color: var(--ink-3, var(--np-text-secondary));
+		}
+
+		&.is-secondary {
+			color: var(--ink-2, var(--np-text-secondary));
+		}
+	}
+
+	// Sortable table cells are native buttons without stock WordPress button
+	// paint. Match the header-cell specificity and follow it in source order so
+	// the interactive cursor wins without escalating the cascade.
+	.newspack-nodes-table__header .newspack-nodes-sortable-header-button {
+		background: transparent;
+		border: 0;
+		padding: 0;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+		user-select: none;
+		letter-spacing: normal;
+		text-transform: none;
+		color: var(--ink, var(--np-text));
+
+		&:hover {
+			color: var(--cyan-text, var(--np-text));
+		}
+	}
+
+	// Geometry-neutral selectable rows. Consumers own their layout; this role
+	// owns only the shared surface and interaction feedback.
+	.newspack-nodes-interactive-row {
+		background: var(--paper, var(--np-surface));
+		color: var(--ink, var(--np-text));
+
+		&:hover {
+			background: var(--hover, var(--np-surface-muted));
+		}
+
+		&.is-selected {
+			background: var(--cyan-subtle, var(--np-primary-subtle));
+		}
+	}
+
+	// Stats grid
+	.newspack-nodes-stats-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: $space-lg;
+	}
+
 	.newspack-nodes-stat-value {
-		font-size: 28px;
-		font-weight: 600;
-		color: var(--ink);
+		color: var(--ink, var(--np-text));
+
+		&.is-accent {
+			color: var(--oxide-text, var(--np-text));
+		}
 	}
 
 	.newspack-nodes-stat-label {
-		color: var(--ink-3);
-		font-size: 14px;
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 9px;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
 	}
-}
 
-// Interactive card link
-.newspack-nodes-card-link {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 10px 14px;
-	background: var(--paper-2);
-	border-radius: $border-radius-sm;
-	border-left: 3px solid transparent;
-	text-decoration: none;
-	color: inherit;
-	transition:
-		background 0.2s ease,
-		transform 0.2s ease,
-		box-shadow 0.2s ease,
-		border-color 0.2s ease;
+	.newspack-nodes-stat {
+		.newspack-nodes-stat-value {
+			font-size: 28px;
+			font-weight: 600;
+		}
 
-	&:hover {
-		background: var(--hover);
+		.newspack-nodes-stat-label {
+			font-size: 14px;
+			text-transform: none;
+			letter-spacing: normal;
+		}
+	}
+
+	// Interactive card link
+	.newspack-nodes-card-link {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 10px 14px;
+		background: var(--paper-2, var(--np-surface-subtle));
+		border-radius: $border-radius-sm;
+		border-left: 3px solid transparent;
 		text-decoration: none;
-		transform: translateY(-2px);
-		box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-		border-left-color: $focus-color;
+		color: inherit;
+		transition:
+			background 0.2s ease,
+			transform 0.2s ease,
+			box-shadow 0.2s ease,
+			border-color 0.2s ease;
+
+		&:hover {
+			background: var(--hover, var(--np-surface-muted));
+			text-decoration: none;
+			transform: translateY(-2px);
+			box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+			border-left-color: var(--cyan, var(--np-primary));
+		}
+
+		&:active {
+			transform: translateY(0);
+			box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+		}
+
+		.newspack-nodes-card-link-name {
+			font-weight: 500;
+			color: var(--ink, var(--np-text));
+		}
+
+		.newspack-nodes-card-link-count {
+			color: var(--ink-3, var(--np-text-secondary));
+			font-size: 12px;
+			margin-left: $space-sm;
+		}
 	}
 
-	&:active {
-		transform: translateY(0);
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	// Admin wrapper
+	.newspack-nodes-admin-wrap {
+		max-width: 95vw;
 	}
 
-	.newspack-nodes-card-link-name {
-		font-weight: 500;
-		color: var(--ink);
+	.newspack-nodes-admin-app {
+		margin-top: 16px;
 	}
 
-	.newspack-nodes-card-link-count {
-		color: var(--ink-3);
+	.newspack-nodes-error-banner {
+		background: var(--oxide, var(--np-error));
+		color: var(--on-oxide, var(--np-on-status));
+		padding: $space-sm $space-md;
+		border-radius: $border-radius-sm;
+		margin-bottom: $space-md;
 		font-size: 12px;
-		margin-left: $space-sm;
 	}
-}
 
-// Admin wrapper
-.newspack-nodes-admin-wrap {
-	max-width: 95vw;
-}
+	// Shared dashboard section header.
+	.newspack-nodes-inflight-header,
+	.newspack-nodes-request-stream-header,
+	.worker-status-full .worker-status-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		min-height: 40px;
+		margin-bottom: 12px;
+		padding-bottom: 12px;
+		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 
-.newspack-nodes-admin-app {
-	margin-top: 16px;
-}
+		h2,
+		h3 {
+			margin: 0;
+			font-size: 14px;
+			font-weight: 600;
+			color: var(--ink, var(--np-text));
+		}
+	}
 
-// Shared error banner style (dark theme)
-.newspack-nodes-error-banner {
-	@include dark-error-banner;
-}
+	// Shared entry cell styles (used by Request Log and Gyroscope)
+	.entry-time {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 11px;
+	}
 
-// Shared dashboard section header.
-.newspack-nodes-inflight-header,
-.newspack-nodes-request-stream-header,
-.worker-status-full .worker-status-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	min-height: 40px;
-	margin-bottom: 12px;
-	padding-bottom: 12px;
-	border-bottom: 1px solid var(--paper-shadow);
-
-	h2,
-	h3 {
-		margin: 0;
-		font-size: 14px;
+	.entry-duration {
 		font-weight: 600;
-		color: var(--ink);
+		text-align: right;
+	}
+
+	.entry-method {
+		color: var(--cyan-text, var(--np-text));
+		font-weight: 500;
+		text-transform: uppercase;
+		font-size: 11px;
+	}
+
+	.entry-status {
+		text-align: center;
+		font-size: 11px;
+
+		&[data-status^="2"] {
+			color: var(--sage-text, var(--np-text));
+		}
+
+		&[data-status^="3"] {
+			color: var(--brass-text, var(--np-text));
+		}
+
+		&[data-status^="4"] {
+			color: var(--oxide-text, var(--np-text));
+		}
+
+		&[data-status^="5"] {
+			color: var(--oxide-text, var(--np-text));
+		}
+	}
+
+	.entry-url {
+		color: var(--ink, var(--np-text));
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 11px;
+	}
+
+	.entry-rid {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--cyan-text, var(--np-text));
+		text-decoration: none;
+
+		&:hover {
+			color: var(--cyan-text, var(--np-text));
+			text-decoration: underline;
+		}
+	}
+
+	.entry-url-link {
+		color: var(--ink, var(--np-text));
+		text-decoration: none;
+
+		&:hover {
+			color: var(--cyan-text, var(--np-text));
+			text-decoration: underline;
+		}
+	}
+
+	.entry-ip {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 11px;
+	}
+
+	.entry-ua {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 10px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.entry-partition {
+		color: var(--ink-3, var(--np-text-secondary));
+		font-size: 10px;
+		text-align: center;
+	}
+
+	.entry-default {
+		color: var(--ink-3, var(--np-text-secondary));
 	}
 }
 
-// Shared entry cell styles (used by Request Log and Gyroscope)
-.entry-time {
-	color: var(--ink-3);
-	font-size: 11px;
-}
+// WordPress owns `.widefat` with rooted wp-admin selectors. Keep only this
+// stock-table bridge above that specificity; custom roles stay consumer-level.
+.newspack-nodes-ui.newspack-nodes-ui {
+	.widefat {
+		background: var(--paper, var(--np-surface));
+		color: var(--ink, var(--np-text));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		box-shadow: none;
 
-.entry-duration {
-	font-weight: 600;
-	text-align: right;
-}
+		th,
+		td {
+			color: var(--ink, var(--np-text));
+			border-color: var(--paper-shadow, var(--np-border-strong));
+		}
 
-.entry-method {
-	color: var(--cyan);
-	font-weight: 500;
-	text-transform: uppercase;
-	font-size: 11px;
-}
-
-.entry-status {
-	text-align: center;
-	font-size: 11px;
-
-	&[data-status^="2"] {
-		color: $status-2xx;
-	}
-
-	&[data-status^="3"] {
-		color: $status-3xx;
-	}
-
-	&[data-status^="4"] {
-		color: $status-4xx;
-	}
-
-	&[data-status^="5"] {
-		color: $status-5xx;
+		tbody tr:nth-child(odd) {
+			background: var(--paper-2, var(--np-surface-subtle));
+		}
 	}
 }
 
-.entry-url {
-	color: var(--ink);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-size: 11px;
-}
-
-.entry-rid {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	// The request-id link sits on the dark log surface, so lighten the accent to read on it, and FLOOR on Cobalt — standalone dashboard pages don't load the topology-console theme that defines --cyan, so a bare var(--cyan) would go invalid and the link would inherit the dark background (invisible).
-	color: color-mix(in srgb, var(--cyan, #003da5) 58%, white);
-	text-decoration: none;
-
-	&:hover {
-		color: color-mix(in srgb, var(--cyan, #003da5) 78%, white);
-		text-decoration: underline;
+// Stock Card and Surface components are painted by runtime Emotion selectors
+// with three repeated generated classes. Keep their canonical override above
+// that specificity without raising the native role selectors beside them.
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	.components-card,
+	.components-surface {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+		border-color: var(--paper-shadow, var(--np-border-strong));
+		box-shadow: none;
 	}
-}
 
-.entry-url-link {
-	color: var(--ink);
-	text-decoration: none;
-
-	&:hover {
-		color: var(--cyan);
-		text-decoration: underline;
+	.components-card__header,
+	.components-card__body,
+	.components-card__footer,
+	.components-card__divider {
+		background: transparent;
+		border-color: var(--paper-shadow, var(--np-border-strong));
 	}
-}
-
-.entry-ip {
-	color: var(--ink-3);
-	font-size: 11px;
-}
-
-.entry-ua {
-	color: var(--ink-3);
-	font-size: 10px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.entry-partition {
-	color: var(--ink-3);
-	font-size: 10px;
-	text-align: center;
-}
-
-.entry-default {
-	color: var(--ink-3);
 }

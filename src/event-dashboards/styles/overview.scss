@@ -75,10 +75,6 @@
 		gap: 8px;
 		font-size: 12px;
 		padding: 4px 10px;
-		border-radius: 6px;
-		background: var(--paper-2);
-		border: 1px solid var(--paper-shadow);
-		color: var(--ink-3);
 
 		.nodes-overview__name {
 			flex: 0 0 auto;
@@ -99,11 +95,7 @@
 
 .nodes-topics {
 	position: relative;
-	// Light Newspack chart panel — a white card on the subtle hub backdrop.
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	border-radius: var(--np-radius-md);
-	padding: 8px 10px;
+	padding: 9px 11px;
 
 	&__title {
 		font-size: 12px;
@@ -131,14 +123,8 @@
 	&__tooltip {
 		display: none;
 		position: absolute;
-		background: var(--paper);
-		color: var(--ink);
-		border: 1px solid var(--paper-shadow);
-		box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
-		padding: 6px 10px;
-		border-radius: 4px;
+		padding: 7px 11px;
 		font-size: 11px;
-		font-family: var(--np-font-mono);
 		pointer-events: none;
 		white-space: nowrap;
 		z-index: 10;

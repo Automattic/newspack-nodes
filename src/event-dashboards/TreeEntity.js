@@ -28,7 +28,7 @@ const NodeRow = memo( function NodeRow( { entity, byteRates } ) {
 				return (
 					<span key={ wkr.partition } className="connector-partition">
 						<span
-							className={ `worker-status-badge compact ${ wkr.status }` }
+							className={ `newspack-nodes-status-badge worker-status-badge compact ${ wkr.status }` }
 						>
 							P{ wkr.partition }
 						</span>
@@ -163,7 +163,7 @@ const TreeEntity = memo( function TreeEntity( props ) {
 			<div className="tree-ent" style={ { marginLeft: depth * 14 } }>
 				<div className="row">
 					<span
-						className="caret"
+						className="newspack-nodes-disclosure caret"
 						role="button"
 						tabIndex={ 0 }
 						onClick={ () => onToggle( entity.key ) }

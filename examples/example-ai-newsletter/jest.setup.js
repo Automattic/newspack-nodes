@@ -62,3 +62,35 @@ afterEach( () => {
 		throw captured[ 0 ];
 	}
 } );
+
+/**
+ * jsdom ships neither TextEncoder nor WebCrypto's subtle, both of which the
+ * command signer needs. Node has real implementations — use those rather than a
+ * stub, so the suite exercises the same primitives the browser will.
+ */
+const { TextEncoder, TextDecoder } = require( 'util' );
+const { webcrypto } = require( 'crypto' );
+global.TextEncoder = global.TextEncoder || TextEncoder;
+global.TextDecoder = global.TextDecoder || TextDecoder;
+if ( ! global.crypto?.subtle ) {
+	// jsdom exposes crypto as a read-only accessor, so plain assignment no-ops.
+	Object.defineProperty( global, 'crypto', {
+		value: webcrypto,
+		configurable: true,
+		writable: true,
+	} );
+}
+
+// Every emitter holds until authenticated, which is what production does — so
+// the harness authenticates too, or every poll test asserts silence.
+const auth = require( '../../src/runtime/command-auth' );
+beforeEach( async () => {
+	auth.forgetSession();
+	auth.__setAuthFetch( async () => ( {
+		handle: 'e2e11111e2e22222e2e33333e2e44444',
+		key: 'jest-harness-session-key',
+		expires_in: 3600,
+		now: Math.floor( Date.now() / 1000 ),
+	} ) );
+	await auth.ensureSession();
+} );

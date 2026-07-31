@@ -10,12 +10,15 @@
  */
 export default function LogListHeader( { columns } ) {
 	return (
-		<div className="newspack-nodes-log-header" role="row">
+		<div
+			className="newspack-nodes-table__header newspack-nodes-log-header"
+			role="row"
+		>
 			{ columns.map( ( column ) => (
 				<span
 					key={ column.key }
 					role="columnheader"
-					className={ `newspack-nodes-log-header__th ${
+					className={ `newspack-nodes-table__cell newspack-nodes-log-header__th ${
 						column.className ?? ''
 					}` }
 					title={ column.tooltip }

@@ -26,7 +26,9 @@ import './styles/summary-cards.scss';
 // One card: a big value + a muted label, keyed by `mod` for styling/tests.
 function Card( { mod, value, label, extraClass = '' } ) {
 	return (
-		<div className={ `nodes-card nodes-card--${ mod }${ extraClass }` }>
+		<div
+			className={ `newspack-nodes-card nodes-card nodes-card--${ mod }${ extraClass }` }
+		>
 			<span className="nodes-card__value">{ value }</span>
 			<span className="nodes-card__label">{ label }</span>
 		</div>

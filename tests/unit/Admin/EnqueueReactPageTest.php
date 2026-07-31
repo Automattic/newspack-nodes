@@ -145,7 +145,10 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertArrayHasKey( 'test-handle', $GLOBALS['_enqueued_styles'] );
 			$css = $GLOBALS['_enqueued_styles']['test-handle'];
 			$this->assertSame( 'http://example.test/build/tree/index.css', $css['src'] );
-			$this->assertSame( [ 'wp-components', 'newspack-nodes-theme' ], $css['deps'] );
+			$this->assertSame(
+				[ 'wp-components', 'newspack-nodes-ui' ],
+				$css['deps']
+			);
 		}
 
 		public function test_skips_index_css_when_absent(): void {

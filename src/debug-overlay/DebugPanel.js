@@ -91,11 +91,7 @@ export default function DebugPanel( {
 	}, [] );
 
 	return (
-		// display:contents host so panel chrome resolves the live skin tokens.
-		<div
-			className="topology-app newspack-nodes-theme"
-			style={ { display: 'contents' } }
-		>
+		<div style={ { display: 'contents' } }>
 			<div
 				ref={ setPanelRef }
 				className={ `nodes-debug__panel${

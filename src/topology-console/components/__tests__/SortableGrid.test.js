@@ -24,7 +24,9 @@ test( 'renders no tfoot when no footer prop is passed', () => {
 			onSort={ () => {} }
 		/>
 	);
-	expect( getByTestId( 'grid' ).querySelector( 'tfoot' ) ).toBeNull();
+	const grid = getByTestId( 'grid' );
+	expect( grid.classList.contains( 'newspack-nodes-table' ) ).toBe( true );
+	expect( grid.querySelector( 'tfoot' ) ).toBeNull();
 } );
 
 test( 'renders the footer as a tfoot row aligned to the columns, never in the tbody', () => {

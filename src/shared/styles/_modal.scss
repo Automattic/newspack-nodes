@@ -1,0 +1,76 @@
+:where(.newspack-nodes-ui) {
+	&.newspack-nodes-modal,
+	.newspack-nodes-modal {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+		border: 1px solid var(--paper-shadow, var(--np-border-strong));
+		border-radius: var(--modal-radius, var(--np-modal-radius));
+		box-shadow: var(--modal-shadow, var(--np-modal-shadow));
+
+		.newspack-nodes-modal__header {
+			background: var(--paper-2, var(--np-surface-subtle));
+			border-bottom: 1px solid
+				var(--paper-shadow, var(--np-border-strong));
+		}
+
+		.newspack-nodes-modal__title {
+			color: var(--ink, var(--np-text));
+		}
+
+		.newspack-nodes-modal__close {
+			background: transparent;
+			border: 1px solid transparent;
+			border-radius: var(--button-radius, 5px);
+			color: var(--ink, var(--np-text));
+			cursor: pointer;
+			font-family: var(--font-mono, var(--np-font-mono));
+			transition:
+				color 0.1s,
+				border-color 0.1s,
+				background 0.1s;
+
+			&:hover {
+				background: var(--oxide, var(--np-error));
+				border-color: var(--oxide, var(--np-error));
+				color: var(--on-oxide, var(--np-on-status));
+			}
+		}
+	}
+}
+
+// WordPress modal chrome is also emitted by runtime Emotion. The repeated root
+// keeps the stock frame/header paint deterministic while plain canonical
+// modal roles retain the lower specificity above.
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	&.newspack-nodes-modal.components-modal__frame,
+	.newspack-nodes-modal.components-modal__frame {
+		background: var(--paper-2, var(--np-surface-subtle));
+		color: var(--ink, var(--np-text));
+		border: 1px solid var(--paper-shadow, var(--np-border-strong));
+		border-radius: var(--modal-radius, var(--np-modal-radius));
+		box-shadow: var(--modal-shadow, var(--np-modal-shadow));
+	}
+
+	&.newspack-nodes-modal,
+	.newspack-nodes-modal {
+		.components-modal__header {
+			background: var(--paper-2, var(--np-surface-subtle));
+			border-bottom: 1px solid
+				var(--paper-shadow, var(--np-border-strong));
+		}
+
+		.components-modal__header-heading,
+		.components-modal__header > button {
+			color: var(--ink, var(--np-text));
+		}
+
+		.components-base-control__label,
+		.components-input-control__label {
+			color: var(--ink, var(--np-text));
+		}
+
+		.components-base-control__help {
+			color: var(--ink-3, var(--np-text-secondary));
+		}
+	}
+}

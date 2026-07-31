@@ -29,12 +29,14 @@ function ModalShell( { title, onDismiss, children } ) {
 			} }
 		>
 			<div
-				className="topology-modal topology-modal--wide"
+				className="topology-modal topology-modal--wide newspack-nodes-modal"
 				role="dialog"
 				aria-modal="true"
 				aria-label={ title }
 			>
-				<header className="topology-modal__header">{ title }</header>
+				<header className="topology-modal__header newspack-nodes-modal__header">
+					{ title }
+				</header>
 				{ children }
 			</div>
 		</div>
@@ -65,17 +67,17 @@ export default function OpenTopologyModal( {
 		>
 			<div className="topology-modal__body">
 				{ loading && (
-					<div className="topology-edit-empty">
+					<div className="newspack-nodes-performance-loading topology-edit-empty">
 						{ __( 'Loading…', 'newspack-nodes' ) }
 					</div>
 				) }
 				{ error && (
-					<div className="topology-edit-empty topology-edit-empty--error">
+					<div className="newspack-nodes-error-banner topology-edit-empty topology-edit-empty--error">
 						{ __( 'Failed to load list.', 'newspack-nodes' ) }
 					</div>
 				) }
 				{ ! loading && ! error && ! topologies.length && (
-					<div className="topology-edit-empty">
+					<div className="newspack-nodes-empty-state topology-edit-empty">
 						{ __( 'No topologies registered.', 'newspack-nodes' ) }
 					</div>
 				) }
@@ -95,7 +97,7 @@ export default function OpenTopologyModal( {
 									<li key={ t.name }>
 										<button
 											type="button"
-											className="topology-open-item"
+											className="button topology-open-item"
 											onMouseDown={ () =>
 												onPick( t.name )
 											}
@@ -104,7 +106,7 @@ export default function OpenTopologyModal( {
 												{ t.name }
 											</span>
 											{ t.active && (
-												<span className="topology-open-item__badge">
+												<span className="newspack-nodes-badge topology-open-item__badge">
 													{ __(
 														'active',
 														'newspack-nodes'

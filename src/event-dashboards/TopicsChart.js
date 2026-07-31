@@ -44,7 +44,7 @@ export const TopicsChart = memo( function TopicsChart( {
 
 	// Anchor in the themed cascade so series colors re-skin with the theme.
 	const themeRef = useRef( null );
-	const theme = useThemeToken( themeRef );
+	const theme = useThemeToken();
 
 	const renderFn = useCallback(
 		( refs ) => {
@@ -169,10 +169,13 @@ export const TopicsChart = memo( function TopicsChart( {
 	const { containerRef, tooltipRef } = useTimeChart( renderFn );
 
 	return (
-		<div ref={ themeRef } className="nodes-topics">
+		<div ref={ themeRef } className="newspack-nodes-card nodes-topics">
 			<div className="nodes-topics__title">{ title }</div>
 			<div ref={ containerRef } className="nodes-topics__chart" />
-			<div ref={ tooltipRef } className="nodes-topics__tooltip" />
+			<div
+				ref={ tooltipRef }
+				className="newspack-nodes-card newspack-nodes-card--elevated nodes-topics__tooltip"
+			/>
 		</div>
 	);
 } );

@@ -47,13 +47,15 @@ const EMPTY_VIEW = {
 const renderPartitionRow = ( row ) => (
 	<div
 		key={ row.id }
-		className={ `newspack-nodes-log-row ${
+		className={ `newspack-nodes-table__row newspack-nodes-log-row ${
 			row.isEven ? 'row-even' : 'row-odd'
 		}` }
 		data-p={ row.partition }
 	>
-		<span className="newspack-nodes-log-row__key">{ row.key || '' }</span>
-		<span className="newspack-nodes-log-row__value">
+		<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
+			{ row.key || '' }
+		</span>
+		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
 			{ row.value ?? row.content }
 		</span>
 	</div>

@@ -36,9 +36,13 @@ it( 'lists each item with its label and meta', () => {
 	const items = container.querySelectorAll(
 		'.newspack-nodes-log-browser__item'
 	);
+	const meta = container.querySelector(
+		'.newspack-nodes-log-browser__item-meta'
+	);
 	expect( items.length ).toBe( 3 );
 	expect( container.textContent ).toMatch( /segment 8/ );
 	expect( container.textContent ).toMatch( /50 B/ );
+	expect( meta.classList.contains( 'newspack-nodes-status' ) ).toBe( true );
 } );
 
 it( 'marks Live active and calls onFollow when clicked', () => {

@@ -38,7 +38,7 @@ export default function TopologyControls( {
 				type="button"
 				role="switch"
 				aria-checked={ active }
-				className={ `nodes-ctl__toggle${ active ? ' is-on' : '' }` }
+				className="button button-small nodes-ctl__toggle"
 				title={
 					active
 						? __( 'Deactivate', 'newspack-nodes' )

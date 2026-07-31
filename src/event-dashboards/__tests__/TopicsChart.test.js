@@ -153,6 +153,27 @@ describe( 'TopicsChart', () => {
 		).toBe( 'Rate' );
 	} );
 
+	it( 'keeps the chart panel base and elevates only its tooltip', () => {
+		const { container } = render(
+			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />
+		);
+		const panel = container.querySelector( '.nodes-topics' );
+		const tooltip = container.querySelector( '.nodes-topics__tooltip' );
+
+		expect( panel.classList.contains( 'newspack-nodes-card' ) ).toBe(
+			true
+		);
+		expect(
+			panel.classList.contains( 'newspack-nodes-card--elevated' )
+		).toBe( false );
+		expect( tooltip.classList.contains( 'newspack-nodes-card' ) ).toBe(
+			true
+		);
+		expect(
+			tooltip.classList.contains( 'newspack-nodes-card--elevated' )
+		).toBe( true );
+	} );
+
 	it( 'draws a legend ranked by max desc (busiest topic first) + a hover tooltip', () => {
 		render(
 			<TopicsChart title="Rate" series={ series } formatValue={ fmt } />

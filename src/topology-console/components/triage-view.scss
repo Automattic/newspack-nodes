@@ -22,7 +22,7 @@
 
 	&__node {
 		font-weight: 700;
-		color: var(--oxide);
+		color: var(--oxide-text);
 	}
 
 	&__total {
@@ -38,14 +38,13 @@
 		background: color-mix(in srgb, var(--oxide) 10%, transparent);
 
 		&.is-error {
-			color: var(--oxide);
+			color: var(--oxide-text);
 			background: color-mix(in srgb, var(--oxide) 16%, transparent);
 		}
 	}
 
 	&__empty {
 		padding: 12px 0;
-		color: var(--ink-3);
 	}
 
 	&__footer {
@@ -64,13 +63,25 @@
 	}
 }
 
+.newspack-nodes-empty-state.triage-view__empty {
+	padding: 12px 0;
+	text-align: left;
+
+	&::before {
+		display: none;
+	}
+}
+
 // Row Requeue buttons read as inline controls, not full-width rail cells (mirrors
 // the nodes-stats toolbar override); focus rings stay the global policy's job.
-.topology-app .triage-view__grid .button.is-compact {
+:is(.topology-app, .topology-modal) .triage-view__grid .button.is-compact {
 	width: auto;
 	text-align: center;
 }
 
-.topology-app .triage-view__grid .button.is-compact + .button.is-compact {
+:is(.topology-app, .topology-modal)
+	.triage-view__grid
+	.button.is-compact
+	+ .button.is-compact {
 	margin-left: 6px;
 }

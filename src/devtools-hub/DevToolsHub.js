@@ -7,10 +7,9 @@
  * Console's path/edit/LIVE cluster) stay inside that tab. Empty state until a
  * plugin registers a hub tab. Capability-gating is the admin page's concern.
  *
- * Themed via the global skin: the hub is wrapped in a `.topology-app` token
- * context, and the live skin is the single `theme-<slug>` class on `<html>`
- * (see shared/theme.js), so its chrome reads --paper / --ink from the CSS
- * `.theme-<slug> .topology-app` scope — a `set_skin` on ANY surface re-skins it.
+ * Themed via the global skin: the hub is wrapped in the canonical non-graph
+ * skin/UI provider, and the live skin is the single `theme-<slug>` class on
+ * `<html>` (see shared/theme.js).
  */
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
@@ -34,13 +33,13 @@ export default function DevToolsHub() {
 	const [ controlsSlot, setControlsSlot ] = useState( null );
 
 	return (
-		// display:contents token host so the hub chrome resolves the live skin.
+		// Boxless provider: skin tokens + shared UI, without graph layout.
 		<div
-			className="topology-app newspack-nodes-theme"
+			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
 		>
 			<div
-				className="nodes-devtools-hub newspack-nodes-theme"
+				className="nodes-devtools-hub"
 				style={ {
 					position: 'fixed',
 					top: '32px',
@@ -70,7 +69,7 @@ export default function DevToolsHub() {
 						headerControlsSlot: controlsSlot,
 					} }
 					emptyState={
-						<p className="nodes-devtools__empty">
+						<p className="newspack-nodes-empty-state nodes-devtools__empty">
 							{ __(
 								'No tools registered yet.',
 								'newspack-nodes'

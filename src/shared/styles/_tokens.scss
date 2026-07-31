@@ -7,28 +7,28 @@
  */
 
 // Status colors (HTTP) — functional.
-$status-2xx: color-mix(in srgb, var(--sage) 62%, white);
-$status-3xx: var(--brass);
-$status-4xx: color-mix(in srgb, var(--oxide) 72%, white);
-$status-5xx: var(--oxide);
+$status-2xx: var(--sage-text);
+$status-3xx: var(--brass-text);
+$status-4xx: var(--oxide-text);
+$status-5xx: var(--oxide-text);
 
 // Semantic colors.
 $error-bg: var(--oxide);
-$error-text: var(--oxide);
+$error-text: var(--oxide-text);
 $error-surface: var(--oxide-subtle);
 $success-bg: var(--sage);
 $success-border: var(--sage);
 $dead-bg: var(--oxide);
 $idle-bg: var(--ink-3);
-$warning-color: var(--brass);
-$recommended-color: var(--brass);
+$warning-color: var(--brass-text);
+$recommended-color: var(--brass-text);
 $discovered-bg: var(--brass-subtle);
 $discovered-hover: var(--brass-subtle);
 $discovered-hooks: var(--paper-2);
 
 // Focus/interactive — Cobalt.
 $focus-color: var(--cyan);
-$wp-link: var(--cyan);
+$wp-link: var(--cyan-text);
 
 // Pure colors
 $white: #fff;
