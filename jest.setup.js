@@ -129,3 +129,37 @@ if ( 'undefined' !== typeof window ) {
 		await auth.ensureSession();
 	} );
 }
+
+// @longform
+// A started SseInNode holds a real 2s watchdog interval. One left open outlives
+// its test; when a later test installs fake timers and advances the clock past
+// FORCE_AFTER_MS, the zombie reads the jump as stream silence, reconnects, and
+// prints — failing whichever test happens to be running, since unexpected
+// console output is a failure here. Three suites leaked one before this existed
+// (remote-link, remote-ipc, TopologyConsole), and fixing them one at a time
+// missed the next one. The harness owns teardown so no suite can leak one.
+if ( 'undefined' !== typeof window ) {
+	const { SseInNode } = require( './src/runtime/sse-in-node' );
+	const started = new Set();
+	const start = SseInNode.prototype.start;
+	SseInNode.prototype.start = function ( ...args ) {
+		started.add( this );
+		return start.apply( this, args );
+	};
+	// Captured before any suite installs fake timers: close() reaches for
+	// whichever clearInterval is current, which cannot cancel a real handle
+	// while fake timers are installed. Never call useRealTimers() here —
+	// timer-node.test.js installs fake timers once at module scope, so
+	// uninstalling them between tests breaks every later advanceTimersByTime.
+	const realClearInterval = global.clearInterval;
+	afterEach( () => {
+		started.forEach( ( node ) => {
+			const handle = node._watchdog;
+			node.close();
+			if ( handle ) {
+				realClearInterval( handle );
+			}
+		} );
+		started.clear();
+	} );
+}
