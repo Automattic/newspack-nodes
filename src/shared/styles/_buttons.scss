@@ -61,6 +61,26 @@
 		@include role.paused;
 	}
 
+	// Destructive glyph: the danger fill as a disc rather than a slab.
+	.button.is-circle {
+		border-radius: 50%;
+		aspect-ratio: 1;
+	}
+
+	// Bare glyph beside stock chrome: no box, surrounding ink, no underline.
+	.button.is-plain {
+		background: transparent;
+		border-color: transparent;
+		color: var(--ink, var(--np-text));
+
+		&:hover:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+			background: transparent;
+			border-color: transparent;
+			color: var(--ink, var(--np-text));
+			text-decoration: none;
+		}
+	}
+
 	.button[role="switch"] {
 		background: var(--ink-3, var(--np-text-secondary));
 		border-color: var(--ink-3, var(--np-text-secondary));

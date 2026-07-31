@@ -218,18 +218,20 @@
 		line-height: 1;
 	}
 
+	// The gap belongs to the section, not the heading: every heading is the
+	// first child of its own wrapper, so `:first-child` here zeroes them all.
+	&__section + &__section {
+		margin-top: 24px;
+	}
+
 	&__group {
-		margin: 14px 16px 8px;
+		margin: 0 16px 8px;
 		font: 700 9px/1 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
 		color: var(--ink-3);
 		border-bottom: 1px dotted var(--ink-4);
 		padding-bottom: 8px;
-
-		&:first-child {
-			margin-top: 0;
-		}
 	}
 
 	&__item {
@@ -318,13 +320,8 @@
 	// Variant glyphs — keyed on the data-type attribute the React
 	// component sets, exposed here through chained BEM class names.
 	// stylelint-disable no-descending-specificity
-	&__item--tee &__glyph::after {
-		box-shadow:
-			0 8px 0 var(--ink-2),
-			0 -8px 0 var(--ink-2);
-	}
-
-	&__item--tap &__glyph::after {
+	// Fan-out: one in, many out — the extra pair of output dots.
+	&__glyph--fanout::after {
 		box-shadow:
 			0 8px 0 var(--ink-2),
 			0 -8px 0 var(--ink-2);
@@ -683,11 +680,14 @@
 // The hull inspector: a composition boundary, not a node.
 .topology-hull-panel {
 	&__actions {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+		gap: 8px;
 		margin: 8px 0 12px;
 	}
 
-	&__open {
-		width: 100%;
+	&__open,
+	&__remove {
 		padding: 5px 8px;
 		font-size: 11px;
 	}
@@ -1403,7 +1403,7 @@
 
 .topology-tt__empty {
 	font-size: 10px;
-	padding: 4px 0;
+	padding: 4px;
 }
 
 // Transport bar: rewind / pause / step / play / fast-forward.
@@ -1458,8 +1458,9 @@
 .newspack-nodes-ui.newspack-nodes-ui {
 	.button:where(
 			.topology-canvas__layout-chip,
-			.topology-edit-row__clear,
+			.topology-edit-row__reset,
 			.topology-hull-panel__open,
+			.topology-hull-panel__remove,
 			.topology-edit-verb__remove,
 			.topology-field-row__nav,
 			.topology-edit-chip__clear,
@@ -1477,7 +1478,7 @@
 
 	.button:where(
 			.topology-canvas__layout-chip,
-			.topology-edit-row__clear,
+			.topology-edit-row__reset,
 			.topology-edit-verb__remove,
 			.topology-edit-chip__clear,
 			.topology-insp__listener-x,
@@ -1488,6 +1489,7 @@
 
 	.button:where(
 			.topology-hull-panel__open,
+			.topology-hull-panel__remove,
 			.topology-field-row__nav,
 			.topology-edit-delete,
 			.topology-edit-verb__add,
@@ -1496,7 +1498,7 @@
 		line-height: 1.45;
 	}
 
-	.button:where(.topology-edit-row__clear, .topology-palette__search-clear) {
+	.button:where(.topology-edit-row__reset, .topology-palette__search-clear) {
 		width: 22px;
 	}
 
@@ -1534,7 +1536,7 @@
 	}
 
 	.button:where(
-			.topology-edit-row__clear,
+			.topology-edit-row__reset,
 			.topology-edit-verb__remove,
 			.topology-palette__search-clear
 		) {
@@ -1552,7 +1554,7 @@
 
 .newspack-nodes-empty-state.topology-tt__empty,
 .newspack-nodes-empty-state.topology-edit-empty {
-	padding: 4px 0;
+	padding: 4px;
 	text-align: left;
 
 	&::before {
@@ -1702,13 +1704,13 @@
 	padding-right: 22px;
 }
 
-.topology-edit-row__clear {
+.topology-edit-row__reset {
 	position: absolute;
 	right: 0;
 	top: 0;
 	bottom: 0;
 	width: 22px;
-	font-size: 14px;
+	font-size: 16px;
 	line-height: 1;
 }
 
@@ -1900,7 +1902,6 @@
 
 .topology-mode {
 	display: inline-flex;
-	overflow: hidden;
 	margin-left: 4px;
 
 	&__btn {
@@ -2483,6 +2484,8 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	// 97px of header (32px admin bar + 65px hub) + the bottom's 24px gap.
+	padding: 121px 16px 24px;
 	// Above the overlay panel (z-index:999998): ModalShell portals to <body>, so the
 	// fixed full-viewport backdrop dims the whole page and sits over the panel.
 	z-index: 1000000;
@@ -2491,6 +2494,9 @@
 .topology-modal {
 	min-width: 360px;
 	max-width: 560px;
+	max-height: 100%;
+	display: flex;
+	flex-direction: column;
 }
 
 .topology-modal__header {
@@ -2523,6 +2529,8 @@
 	padding: 16px 14px;
 	font-size: 13px;
 	line-height: 1.5;
+	overflow-y: auto;
+	min-height: 0;
 }
 
 // NewNodeModal stacks two labeled inputs ("name" above "arguments").

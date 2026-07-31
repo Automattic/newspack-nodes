@@ -372,7 +372,7 @@ function VerbRow( {
 					</span>
 					<button
 						type="button"
-						className="button button-small button-link-delete topology-edit-verb__remove"
+						className="button button-small button-link-delete is-circle topology-edit-verb__remove"
 						aria-label={ `Remove ${ spec.name }` }
 						onClick={ onRemove }
 					>
@@ -606,7 +606,7 @@ function RoutingChip( { label, virtual, onClear } ) {
 			{ onClear && ! virtual && (
 				<button
 					type="button"
-					className="button button-small button-link-delete topology-edit-chip__clear"
+					className="button is-plain topology-edit-chip__clear"
 					aria-label={ sprintf(
 						// translators: %s: target node name to remove.
 						__( 'Remove %s', 'newspack-nodes' ),
@@ -689,7 +689,7 @@ function LockedMultipleVerb( { spec, invocations } ) {
 }
 
 // Borrowed node: config is immutable here — wiring stays editable on canvas.
-function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
+function LockedForm( { node, catalog } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
 	const ctorArgs = absorbTrailingArgs(
@@ -769,12 +769,6 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 					) }
 				</Section>
 			) }
-			<IncludeTree
-				tree={ tree }
-				includes={ includes }
-				selectedOrigin={ node.origin }
-				onRemove={ onRemoveInclude }
-			/>
 		</aside>
 	);
 }
@@ -1490,6 +1484,7 @@ export default function Inspector( {
 	tree = {},
 	includes = [],
 	onRemoveInclude,
+	onRemoveHull,
 } ) {
 	// Which value-taking verb's prompt modal is open, or null (shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
@@ -1528,8 +1523,9 @@ export default function Inspector( {
 				rateSeries={ hullRateSeries }
 				editMode={ editMode }
 				includeTree={ tree }
+				includes={ includes }
 				onOpenTopology={ onOpenTopology }
-				onRemoveInclude={ onRemoveInclude }
+				onRemoveHull={ onRemoveHull }
 			/>
 		);
 	}
@@ -1826,38 +1822,22 @@ export default function Inspector( {
 
 	if ( editMode ) {
 		if ( isBorrowed( node ) ) {
-			return (
-				<LockedForm
-					node={ node }
-					catalog={ catalog }
-					tree={ tree }
-					includes={ includes }
-					onRemoveInclude={ onRemoveInclude }
-				/>
-			);
+			return <LockedForm node={ node } catalog={ catalog } />;
 		}
 		return (
-			<>
-				<EditForm
-					node={ node }
-					catalog={ catalog }
-					formatters={ formatters }
-					vaults={ vaults }
-					parsed={ parsed }
-					onUpdateArgs={ onUpdateArgs }
-					onUpdateVerbs={ onUpdateVerbs }
-					onRemoveNode={ onRemoveNode }
-					onRenameNode={ onRenameNode }
-					onRemoveEdge={ onRemoveEdge }
-					onConnect={ onConnect }
-				/>
-				<IncludeTree
-					tree={ tree }
-					includes={ includes }
-					selectedOrigin={ null }
-					onRemove={ onRemoveInclude }
-				/>
-			</>
+			<EditForm
+				node={ node }
+				catalog={ catalog }
+				formatters={ formatters }
+				vaults={ vaults }
+				parsed={ parsed }
+				onUpdateArgs={ onUpdateArgs }
+				onUpdateVerbs={ onUpdateVerbs }
+				onRemoveNode={ onRemoveNode }
+				onRenameNode={ onRenameNode }
+				onRemoveEdge={ onRemoveEdge }
+				onConnect={ onConnect }
+			/>
 		);
 	}
 
@@ -2393,7 +2373,7 @@ export default function Inspector( {
 										</span>
 										<button
 											type="button"
-											className="button button-small button-link-delete topology-insp__listener-x"
+											className="button button-small button-link-delete is-circle topology-insp__listener-x"
 											aria-label={ sprintf(
 												// translators: %1$s: listener node; %2$s: event.
 												__(

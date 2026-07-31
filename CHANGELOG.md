@@ -7,6 +7,139 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.11] - 2026-07-31
+
+### Added
+
+- **A selected topology can be removed from its own inspector.** Delete and
+  Backspace already removed a selected hull, but `HullPanel` had no removal
+  affordance at all, so the action was keyboard-only while every node panel
+  showed a Delete button. The panel now offers **Remove include** beside
+  **Open**, gated exactly as the key handler is — edit mode, and only for an
+  include this file declares directly, since a transitively-included topology
+  has no line here to remove. Both triggers run one `handleRemoveHull` in
+  `GraphView`, so removal and deselection can't drift apart. **Open** and
+  **Remove include** share one even row — an `auto-fit` grid, so the lone
+  **Open** button still fills the width when the panel offers no removal.
+
+### Changed
+
+- **The include tree stays file-scoped.** It rendered under the node inspector
+  too, appending a list of the file's includes below fields that describe one
+  node. It now appears only where the panel is about the file — the
+  nothing-selected edit panel and the hull panel. This also fixes its
+  alignment: in the node panel it was a sibling of `EditForm`'s `<aside>`, so
+  it fell outside that element's padding and hung left of every other section.
+
+
+- **The danger role is reserved for controls that destroy something.** Every
+  glyph control in the console wore `button-link-delete`, so clearing a
+  constructor argument, clearing the palette filter, clearing a target chip and
+  dismissing the settings panel all rendered as filled red slabs stretched to
+  the field's full height — a column of red outweighing the values it sat
+  beside. Clearing restores a default; it destroys nothing. Those four now use
+  the new `is-plain` role (no fill, no border, surrounding ink) at a larger
+  glyph size, and the constructor-argument control takes the `↺` the settings
+  screen already uses for reset-to-default, since that is what it does — its
+  class renamed `topology-edit-row__clear` → `__reset` to match. The two
+  glyphs that genuinely remove — a verb/include row and a listener
+  unregistration — keep the danger role and take the new `is-circle` role, so
+  destruction reads as a red disc rather than a slab.
+
+### Fixed
+
+- **Control labels and help text take the skin's ink everywhere, not just
+  inside a modal.** The canonical layer painted `.components-base-control__label`
+  and `.components-base-control__help` in exactly one place — a rule scoped to
+  `.newspack-nodes-modal` — so a label got a skin color only when a modal
+  happened to contain it. Everywhere else WordPress kept ownership: the Overview
+  filter row's `SERVER` / `METRIC` / `BREAKDOWN` sat at wp-admin's default grey,
+  and the Vault form's `p.description` at `#646970`, both nearly unreadable on a
+  dark skin. `_controls.scss` now owns the page-wide pair, covering the raw
+  wp-admin markup (`.form-table label`, `p.description`) the substrate's own
+  screens use — those set color on the element, so inherited skin color could
+  never win. Labels take `--ink-2` rather than full body ink: soft enough to
+  sit under the values they caption, a step above the `--ink-3` help below. The modal rule stays: it out-specifies the Emotion styles
+  WordPress injects inside `components-modal`, which the page-wide rule cannot
+  reach.
+- **The focus ring is visible on a saturated button.** It was a single 2px
+  `--ink` outline held 1px off the control, so on the console header's filled
+  actions — the blue OPEN, the red LIVE — a dark ring sat against a dark fill
+  with nothing between them and you could not tell which button had focus. A
+  1px `--paper` halo now fills the offset gap, so the pair reads as
+  fill / paper / ink against any background. When the ring appears is
+  unchanged: still `:focus`, still one stable ring through the pointer and
+  keyboard paths.
+- **The header mode buttons show their focus ring at all.** `.topology-mode`
+  carried `overflow: hidden` while `outline` and `box-shadow` both paint
+  outside the border box, so the ring was clipped away on every button in the
+  strip — NEW, OPEN, SAVE, EDIT, LIVE. The group has no radius to protect, so
+  the clip is gone; a focused button also lifts to `z-index: 1` so the next
+  segment doesn't paint over its ring.
+- **The Open dialog clears the page header.** The backdrop centred the dialog
+  on the full viewport, so a tall one reached up under the header and its title
+  row was covered. The backdrop now reserves that band — 32px wp-admin bar plus
+  65px hub header — and the dialog sizes to what remains. `ModalShell`'s panel anchor also became horizontal-only —
+  anchoring a tall dialog to a panel's vertical midpoint moved it independently
+  of the viewport.
+- **The fan-out glyph comes from the node, not its class name.** `Settings_Sync`
+  and `Discovery_Collector` fan one input out to every connected spoke exactly
+  as `Tee` does, but the palette's extra output dots were declared per class
+  name, so only `Tee` and `Tap` had them. The palette now reads the classes
+  catalog's existing `fans_out`, which `Core::class_fans_out()` derives from the
+  `Fanout_Targets` trait — so any fan-out node gets the glyph with nothing to
+  declare and nothing to keep in sync.
+- **The Open dialog fits the viewport.** The modal had no height bound and its
+  body no overflow, so a long topology list ran off the bottom of the screen
+  with no way to reach the end. The backdrop reserves the header band, the
+  panel sizes to what remains, and its body scrolls.
+- **Palette section headings read as headings.** `MONITOR`, `ROUTING`,
+  `SOURCE` and the rest sat tight against the group above them, so proximity
+  attached each one to the section it followed rather than the one it
+  introduces. The heading's own `margin-top` could never fix this: each
+  heading is the first child of its section wrapper, so the
+  `.topology-palette__group:first-child { margin-top: 0 }` rule — written when
+  the headings were direct siblings — zeroed every one of them. The gap now
+  lives where it belongs, between adjacent section wrappers.
+- **Tables sit on the same surface as cards, and stripe one way.**
+  `.newspack-nodes-table` was the only content surface still at `--paper`, so a
+  table read as elevated beside the `--paper-2` cards around it; it is now
+  pinned to the card's surface by test. The two markups it supports had also
+  drifted into different striping schemes — a plain `<table>` alternated
+  `--paper` with `--paper-2` while an ARIA grid alternated `--paper-2` with a
+  darkened `--paper-2` — so moving the base left the plain path striping
+  against its own surface. Both now share the one darkened-surface formula, and
+  the `--undivided` variant cancels it on any row rather than a fixed index.
+- **The Live/Replay pair matches every other button again.** Their canonical
+  role painted an idle mode button `transparent` with a cyan border and cyan
+  text, so `Replay` showed the sidebar through itself and looked nothing like
+  the secondary buttons beside it. It now `@include`s the same `role.secondary`
+  mixin every stock button uses — one source, so the two cannot drift — and
+  only the active Live/Replay fills stay bespoke.
+- **Dashboard cards stopped growing by their own padding.** `box-sizing:
+  border-box` reached the dashboards only through `.topology-app`; a root
+  without that class fell back to the initial `content-box`, so
+  `.nodes-card`'s `min-width: 104px` became a CONTENT width and every summary
+  card rendered 30px wider than its floor (104px → 134px). The canonical UI
+  root now guarantees its own box model instead of depending on a console-only
+  class being present.
+- **A stat value no longer runs into its label.** The two are adjacent inline
+  spans with nothing between them, so the Overview read `34Unique URLs`.
+- **Log and Partition Viewer segments read as list rows again.** The dashboard
+  normalization had adopted them into the stock `button` role, so every segment
+  in the browse sidebar rendered as a bordered blue button and the list read as
+  a stack of controls rather than a list. `newspack-nodes-log-browser__item` is
+  now a canonical role of its own — flat, transparent, with a muted hover and a
+  subtle `--cyan-subtle` selection tint — painted in `_distinctive-roles.scss`
+  with geometry left in `LogBrowser.scss`. The row keeps its native `<button>`
+  element and its click and focus behavior.
+- **The overlay Console empty state no longer orphans the "O" of "I/O".**
+  Browsers take the slash as a line-breaking opportunity, so the notice wrapped
+  mid-token; `I/O` now renders inside a `nodes-debug__nowrap` span via
+  `createInterpolateElement`, which keeps the sentence one translatable string.
+  The copy also no longer points at "the Console tab itself here" from inside a
+  panel tab that is also called Console.
+
 ## [2.2.10] - 2026-07-30
 
 ### Changed

@@ -1,4 +1,5 @@
 import {
+	createInterpolateElement,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -270,9 +271,12 @@ export default function InspectorTab( {
 				data-testid="inspector-tab"
 			>
 				<p className="nodes-debug__repl-off">
-					{ __(
-						"The graph and REPL live in the Console tab itself here. Switch to the Overview tab to watch this browser's own I/O.",
-						'newspack-nodes'
+					{ createInterpolateElement(
+						__(
+							"The graph and REPL live in this page's own Console tab. Switch to Overview to watch this browser's <nb>I/O</nb>.",
+							'newspack-nodes'
+						),
+						{ nb: <span className="nodes-debug__nowrap" /> }
 					) }
 				</p>
 			</div>

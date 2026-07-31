@@ -71,10 +71,13 @@ export default function Palette( {
 	// accepts_fill/has_target default true; glyph marks only an ABSENT port.
 	const acceptsFillOf = ( c ) => c.accepts_fill !== false;
 	const hasTargetOf = ( c ) => c.has_target !== false;
-	const glyphClass = ( acceptsFill, hasTarget ) =>
+	const fansOut = ( c ) => true === c.fans_out;
+	const glyphClass = ( acceptsFill, hasTarget, fanOut ) =>
 		`topology-palette__glyph${
 			acceptsFill ? '' : ' topology-palette__glyph--no-in'
-		}${ hasTarget ? '' : ' topology-palette__glyph--no-out' }`;
+		}${ hasTarget ? '' : ' topology-palette__glyph--no-out' }${
+			fanOut ? ' topology-palette__glyph--fanout' : ''
+		}`;
 
 	const onItemPointerDown = ( e, c ) => {
 		e.preventDefault();
@@ -228,7 +231,7 @@ export default function Palette( {
 					{ query.length > 0 && (
 						<button
 							type="button"
-							className="button button-small button-link-delete topology-palette__search-clear"
+							className="button is-plain topology-palette__search-clear"
 							onClick={ clearQuery }
 							aria-label="Clear filter"
 							title="Clear filter"
@@ -238,7 +241,7 @@ export default function Palette( {
 					) }
 				</div>
 				{ editMode && shownTopologies.length > 0 && (
-					<div>
+					<div className="topology-palette__section">
 						<h3 className="topology-palette__group">Topologies</h3>
 						{ shownTopologies.map( ( t ) => {
 							const disabled =
@@ -278,7 +281,7 @@ export default function Palette( {
 					</div>
 				) }
 				{ Object.entries( grouped ).map( ( [ group, items ] ) => (
-					<div key={ group }>
+					<div key={ group } className="topology-palette__section">
 						<h3 className="topology-palette__group">{ group }</h3>
 						{ items.map( ( c ) => (
 							<div
@@ -296,7 +299,8 @@ export default function Palette( {
 								<div
 									className={ glyphClass(
 										acceptsFillOf( c ),
-										hasTargetOf( c )
+										hasTargetOf( c ),
+										fansOut( c )
 									) }
 								/>
 								<div className="topology-palette__name">

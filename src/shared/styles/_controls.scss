@@ -11,7 +11,7 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			.components-input-control__input
 		):not(.topology-repl__input),
 	select:not(.components-input-control__input),
-		textarea {
+	textarea {
 		appearance: none;
 		background-color: var(--np-field-surface);
 		border: 1px solid var(--np-field-border);
@@ -28,6 +28,18 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			-webkit-text-fill-color: var(--np-field-muted);
 			opacity: 1;
 		}
+	}
+
+	// wp-admin sets these on the element, so inherited skin color never wins.
+	.components-base-control__label,
+	.components-input-control__label,
+	.form-table label {
+		color: var(--ink-2, var(--np-text));
+	}
+
+	.components-base-control__help,
+	p.description {
+		color: var(--ink-3, var(--np-text-secondary));
 	}
 
 	select {

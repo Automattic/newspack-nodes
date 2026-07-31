@@ -68,8 +68,45 @@ describe( 'Inspector — selected hull', () => {
 		expect( iface ).toContain( 'request-builder' );
 	} );
 
-	it( 'does NOT duplicate the remove affordance — deletion lives in the tree', () => {
-		render( <Inspector { ...props } /> );
+	// The Delete key already removes a selected hull; the panel must offer the
+	// same action under the same gate instead of leaving it keyboard-only.
+	it( 'removes a directly-declared include from the panel', () => {
+		const onRemoveHull = jest.fn();
+		render(
+			<Inspector
+				{ ...props }
+				includes={ [ 'performance' ] }
+				onRemoveHull={ onRemoveHull }
+			/>
+		);
+
+		fireEvent.click( screen.getByTestId( 'hull-remove' ) );
+
+		expect( onRemoveHull ).toHaveBeenCalledWith( 'performance' );
+	} );
+
+	it( 'offers no removal for a hull this file does not declare', () => {
+		render(
+			<Inspector
+				{ ...props }
+				includes={ [ 'job-router' ] }
+				onRemoveHull={ () => {} }
+			/>
+		);
+
+		expect( screen.queryByTestId( 'hull-remove' ) ).toBeNull();
+	} );
+
+	it( 'offers no removal outside edit mode', () => {
+		render(
+			<Inspector
+				{ ...props }
+				editMode={ false }
+				includes={ [ 'performance' ] }
+				onRemoveHull={ () => {} }
+			/>
+		);
+
 		expect( screen.queryByTestId( 'hull-remove' ) ).toBeNull();
 	} );
 

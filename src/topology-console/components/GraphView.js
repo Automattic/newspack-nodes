@@ -57,8 +57,8 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {string}           [props.currentTopology]   The topology being edited; disables dragging it (or an ancestor) onto itself.
  * @param {Function}         [props.onDropTopology]    ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
  * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
- * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector's IncludeTree.
- * @param {Function}         [props.onRemoveInclude]   (name) — Inspector's IncludeTree remove button.
+ * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector, which gates both the IncludeTree rows and the hull panel's remove button on it.
+ * @param {Function}         [props.onRemoveInclude]   (name) — removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
  * @param {Function}         [props.onOpenTopology]    (name) — drill into a hull's topology (open its .tsl).
  * @return {Element} the graph-editing surface as a Fragment.
  */
@@ -183,6 +183,17 @@ export default function GraphView( {
 		},
 		[ onRemoveEdge, selectedEdge ]
 	);
+	const handleRemoveHull = useCallback(
+		( name ) => {
+			// Only a DIRECTLY-declared include has a line here to remove.
+			if ( ! includes.includes( name ) ) {
+				return;
+			}
+			onRemoveInclude?.( name );
+			setSelectedHull( null );
+		},
+		[ includes, onRemoveInclude ]
+	);
 
 	// Delete/Backspace removes the selection (skipped in form fields).
 	useEffect( () => {
@@ -209,13 +220,11 @@ export default function GraphView( {
 				e.preventDefault();
 				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
 			} else if ( editMode && selectedHull ) {
-				// Only a DIRECTLY-declared include has a line here to remove.
 				if ( ! includes.includes( selectedHull ) ) {
 					return;
 				}
 				e.preventDefault();
-				onRemoveInclude?.( selectedHull );
-				setSelectedHull( null );
+				handleRemoveHull( selectedHull );
 			}
 		};
 		document.addEventListener( 'keydown', onKey );
@@ -226,10 +235,10 @@ export default function GraphView( {
 		selectedEdge,
 		selectedHull,
 		includes,
-		onRemoveInclude,
 		graph.nodes,
 		handleRemoveNode,
 		handleRemoveEdge,
+		handleRemoveHull,
 	] );
 
 	const nodeIds = new Set( graph.nodes.map( ( n ) => n.id ) );
@@ -343,6 +352,7 @@ export default function GraphView( {
 							hulls={ hulls }
 							onOpenTopology={ onOpenTopology }
 							onRemoveInclude={ onRemoveInclude }
+							onRemoveHull={ handleRemoveHull }
 						/>
 					) }
 				</div>

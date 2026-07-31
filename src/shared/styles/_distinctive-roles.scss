@@ -4,6 +4,8 @@
  * these semantic roles own the visual language in every host.
  */
 
+@use "button-roles" as role;
+
 :where(.newspack-nodes-ui) {
 	.newspack-nodes-disclosure {
 		appearance: none;
@@ -24,8 +26,7 @@
 
 	.nodes-devtools__tabbar {
 		background: var(--paper-2, var(--np-surface-subtle));
-		border-bottom: 1px solid
-			var(--paper-shadow, var(--np-border-strong));
+		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
 	.nodes-devtools__tab {
@@ -59,10 +60,7 @@
 
 		&.is-active {
 			border-bottom-color: var(--cyan, var(--np-primary));
-			color: var(
-				--nodes-devtools-fg,
-				var(--ink, var(--np-text))
-			);
+			color: var(--nodes-devtools-fg, var(--ink, var(--np-text)));
 			font-weight: 600;
 		}
 	}
@@ -73,8 +71,7 @@
 
 	.topology-header {
 		background: var(--paper-2, var(--np-surface-subtle));
-		border-bottom: 1px solid
-			var(--paper-shadow, var(--np-border-strong));
+		border-bottom: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
 	.topology-brand {
@@ -104,8 +101,7 @@
 	}
 
 	.newspack-nodes-log-browser {
-		border-right: 1px solid
-			var(--paper-shadow, var(--np-border-strong));
+		border-right: 1px solid var(--paper-shadow, var(--np-border-strong));
 	}
 
 	.newspack-nodes-log-browser__title {
@@ -115,17 +111,16 @@
 		text-transform: uppercase;
 	}
 
+	// An idle mode button is a secondary one; only the active fills are bespoke.
 	.newspack-nodes-log-browser__mode {
 		appearance: none;
-		background: transparent;
-		border-color: var(--cyan, var(--np-primary));
 		border-style: solid;
 		border-width: 1px;
 		border-radius: var(--button-radius, 5px);
 		box-shadow: none;
-		color: var(--cyan-text, var(--np-text));
 		cursor: pointer;
 		font: inherit;
+		@include role.secondary;
 	}
 
 	.newspack-nodes-log-browser__mode--live.is-active {
@@ -137,6 +132,25 @@
 	.newspack-nodes-log-browser__mode--replay.is-active {
 		background: var(--cyan, var(--np-primary));
 		color: var(--on-cyan, var(--np-on-primary));
+	}
+
+	.newspack-nodes-log-browser__item {
+		appearance: none;
+		background: transparent;
+		border: 0;
+		box-shadow: none;
+		color: var(--ink, var(--np-text));
+		cursor: pointer;
+		font: inherit;
+	}
+
+	.newspack-nodes-log-browser__item:hover {
+		background: var(--hover, var(--np-surface-muted));
+	}
+
+	.newspack-nodes-log-browser__item.is-active {
+		background: var(--cyan-subtle, var(--np-primary-subtle));
+		font-weight: 600;
 	}
 
 	.newspack-nodes-empty-state.is-quiet {
@@ -190,8 +204,7 @@
 	.nodes-debug__panel {
 		--nodes-devtools-fg: var(--ink, var(--np-text));
 		background: var(--paper-3, var(--np-surface-muted));
-		border: 1px solid
-			var(--paper-shadow, var(--np-border-strong));
+		border: 1px solid var(--paper-shadow, var(--np-border-strong));
 		border-radius: 10px;
 		box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 
@@ -365,9 +378,7 @@
 
 .theme-crt :where(.newspack-nodes-ui) .topology-brand {
 	filter: drop-shadow(0 0 2px var(--ink))
-		drop-shadow(
-			0 0 8px color-mix(in srgb, var(--ink) 45%, transparent)
-		);
+		drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
 	font-size: 24px;
 }
 

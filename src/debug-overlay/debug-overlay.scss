@@ -80,6 +80,11 @@
 			color: var(--ink);
 			opacity: 0.7;
 		}
+
+		// Browsers break a line after "/", orphaning the O of "I/O".
+		.nodes-debug__nowrap {
+			white-space: nowrap;
+		}
 	}
 
 	// Re-shape the shared graph app for the overlay: palette + canvas + REPL (+

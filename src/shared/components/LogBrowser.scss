@@ -57,18 +57,9 @@
 	gap: 8px;
 	width: 100%;
 	padding: 6px 10px;
+	line-height: 1.45;
 	text-align: left;
 	font-size: 12px;
-}
-
-.newspack-nodes-ui.newspack-nodes-ui
-	.button:where(.newspack-nodes-log-browser__item) {
-	min-height: 0;
-	height: auto;
-	padding: 6px 10px;
-	line-height: 1.45;
-	margin-bottom: 0;
-	vertical-align: baseline;
 }
 
 .newspack-nodes-log-browser__item-meta {

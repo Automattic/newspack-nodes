@@ -3,10 +3,11 @@
  * edited.
  *
  * Top level = this file's directly-declared includes (removable); deeper
- * levels are read-only (open that file to act on its includes). Deletion
- * lives here, never on the canvas: "which include provides this node" is a
- * SET (a shared node has several providers), but "remove an include" is one
- * row — that's what sidesteps the diamond.
+ * levels are read-only (open that file to act on its includes). This is where
+ * you remove an include you have NOT selected: "which include provides this
+ * node" is a SET (a shared node has several providers), but "remove an
+ * include" is one row — that's what sidesteps the diamond. A SELECTED hull is
+ * unambiguous, so it also removes from its own panel and the Delete key.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -20,7 +21,7 @@ function Branch( { name, subtree, depth, onRemove } ) {
 				{ 0 === depth && onRemove && (
 					<button
 						type="button"
-						className="button button-small button-link-delete topology-edit-verb__remove"
+						className="button button-small button-link-delete is-circle topology-edit-verb__remove"
 						data-testid={ `include-remove-${ name }` }
 						aria-label={ `Remove include ${ name }` }
 						onClick={ () => onRemove( name ) }

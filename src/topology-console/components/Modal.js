@@ -26,7 +26,7 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 	if ( typeof document === 'undefined' ) {
 		return null;
 	}
-	// Center the dialog over the overlay PANEL (backdrop still dims the page).
+	// Horizontal only: a vertical anchor strands a tall head offscreen.
 	const panelRect = document
 		.querySelector( '.nodes-debug__panel' )
 		?.getBoundingClientRect();
@@ -34,8 +34,7 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 		? {
 				position: 'absolute',
 				left: panelRect.left + panelRect.width / 2,
-				top: panelRect.top + panelRect.height / 2,
-				transform: 'translate(-50%, -50%)',
+				transform: 'translateX(-50%)',
 		  }
 		: undefined;
 	return createPortal(
