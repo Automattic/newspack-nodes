@@ -54,7 +54,8 @@ export function formatCommandArgs( positional = [], options = {} ) {
 		if ( Array.isArray( raw ) ) {
 			value = raw.join( ',' );
 		} else if ( 'boolean' === typeof raw ) {
-			value = raw ? 'true' : 'false';
+			// true left above as a bare `--key`, so only false reaches here.
+			value = 'false';
 		} else {
 			value = String( raw );
 		}

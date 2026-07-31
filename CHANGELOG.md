@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cleared the CodeQL code-quality findings — three dead branches and 27 calls
+  passing an argument nothing reads.** None changed behaviour; each was code
+  asserting something untrue, which misleads the next reader.
+
+  `Header.js` guarded NEW and OPEN on `! onClose` from inside the *else* branch
+  of `{ onClose ? … : … }`, where it is true by construction; the ternary already
+  hid them, and the tests that prove it ("hides the live NEW button in the debug
+  overlay", "the debug overlay has no editor") pass unchanged. `command-args.js`
+  chose `raw ? 'true' : 'false'` after the `true === raw` case had already
+  `continue`d, so the `'true'` branch was unreachable — the wire form is
+  unchanged (bare `--key` for true, `--key=false` for false).
+
+  In tests, 22 `coerceValue( type, raw, prev )` calls passed a third argument the
+  function has never accepted — the signature is two parameters in every revision
+  of `CtorField.js`, so this encoded a previous-value behaviour that never
+  existed. Five `rootClass( container )` calls passed a container to a helper that
+  reads `document.documentElement` by design ("the skin is now the global
+  `<html>.theme-<slug>` class"), making the assertions look scoped when they are
+  not.
+
 ### Security
 
 - **Dev-dependency advisories cleared where a fix exists.** `js-yaml` to 4.3.1

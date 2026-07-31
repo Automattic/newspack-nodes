@@ -89,27 +89,24 @@ export function HeaderControls( {
 				</div>
 			) : (
 				<div className="topology-mode">
-					{ /* NEW + OPEN work from live too (OPEN lands you in edit);
-					     neither belongs in the debug overlay, which has no editor.
+					{ /* NEW + OPEN work from live too (OPEN lands you in edit).
+					     The debug overlay has no editor and takes the onClose
+					     branch above, so neither renders there without a guard.
 					     Live is a PREFIX of edit — a control never moves on you. */ }
-					{ ! onClose && (
-						<button
-							type="button"
-							className="topology-mode__btn topology-mode__btn--new"
-							onClick={ () => onNew && onNew() }
-						>
-							{ __( 'NEW', 'newspack-nodes' ) }
-						</button>
-					) }
-					{ ! onClose && (
-						<button
-							type="button"
-							className="topology-mode__btn topology-mode__btn--open"
-							onClick={ () => onOpen && onOpen() }
-						>
-							{ __( 'OPEN', 'newspack-nodes' ) }
-						</button>
-					) }
+					<button
+						type="button"
+						className="topology-mode__btn topology-mode__btn--new"
+						onClick={ () => onNew && onNew() }
+					>
+						{ __( 'NEW', 'newspack-nodes' ) }
+					</button>
+					<button
+						type="button"
+						className="topology-mode__btn topology-mode__btn--open"
+						onClick={ () => onOpen && onOpen() }
+					>
+						{ __( 'OPEN', 'newspack-nodes' ) }
+					</button>
 					{ /* SAVE works from live too — it snapshots the live graph's
 					     dump_config; in edit it saves the draft. Same slot in both. */ }
 					<button
