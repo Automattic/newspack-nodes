@@ -675,12 +675,19 @@ class PartitionTest extends TestCase {
 		// still be scheduled so the lock isn't stranded by a doomed write [65].
 		\Newspack_Nodes\Core::$now = 1000.0;
 		$p = $this->debounced_partition( "{$this->tmp}.p0", 100 );
-		$oversize = $this->produce( \str_repeat( 'z', 11 * 1024 * 1024 ) ); // > MAX_LARGE_LINE_SIZE.
+		// Sized off the constant: an 11MB literal here stopped being oversize when
+		// the large-write cap rose to 32 MiB, and the test passed on the write path.
+		$oversize = $this->produce( \str_repeat( 'z', Partition_Node::MAX_LARGE_LINE_SIZE + 1 ) );
 		$p->fill( $oversize );
 		$this->assertSame(
 			100,
 			$p->interval_ms,
 			'even a dropped oversize write arms the release timer (lock not stranded)'
+		);
+		$this->assertSame(
+			[],
+			\glob( "{$this->tmp}.p0/*.log" ) ?: [],
+			'the oversize record was dropped, not written (the lock dir is expected)'
 		);
 	}
 
