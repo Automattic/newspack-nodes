@@ -45,6 +45,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes status',     [ $nodes_worker_cli, 'status' ]     );
 	\WP_CLI::add_command( 'nodes activate',   [ $nodes_worker_cli, 'activate' ]   );
 	\WP_CLI::add_command( 'nodes deactivate', [ $nodes_worker_cli, 'deactivate' ] );
+	\WP_CLI::add_command( 'nodes gc',         [ $nodes_worker_cli, 'gc' ]         );
 	\WP_CLI::add_command( 'nodes doctor',     [ $nodes_worker_cli, 'doctor' ]     );
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
