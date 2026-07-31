@@ -35,7 +35,7 @@ Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
 Fresh clone, once:
 
 ```bash
-npm install                  # JS toolchain (esbuild, jest, eslint, husky hooks)
+npm install                  # JS toolchain (esbuild, jest, eslint, lint-staged)
 composer install             # PHP deps + the classmap autoloader
 npm run build                # compile the dashboard bundles into build/
 ```
@@ -44,6 +44,28 @@ After adding/renaming a Node class, regenerate the classmap (`make_node` and
 the console palette read it): `composer build:autoloaders` (= `composer
 install --optimize-autoloader`) or `composer dump-autoload -o`. `composer
 update` only when you mean to move dependency versions.
+
+### Git hooks
+
+Hooks are the tracked files in `scripts/` — `pre-commit`, `commit-msg`,
+`pre-push` — reached via `core.hooksPath`, which `composer install` sets:
+
+```bash
+git config core.hooksPath scripts    # what composer's post-install-cmd runs
+```
+
+Git cannot track anything under `.git/`, so pointing at a tracked directory is
+what puts the hooks under review with the code they gate. A clone that has
+never run `composer install` has no hooks at all — that is the one thing to
+remember.
+
+This plugin is also the AUTHORITATIVE copy of the shared tooling. Every sibling
+plugin carries a vendored copy of `scripts/{pre-commit,commit-msg,
+reorder-node-methods.*,coverage-gate*,lint-comment-length.*,lib/bump-*}` so a
+standalone clone works without a sibling checkout, and `scripts/sync-shared-scripts.sh`
+(run from each `pre-commit`) refreshes them from here whenever `../newspack-nodes`
+exists. Edit the copy in this repo; the next commit in a sibling picks it up and
+stages it. Its only path assumption is that the substrate is a SIBLING checkout.
 
 ```bash
 # Run unit + integration tests. Always pass `--enforce-time-limit` so a
@@ -71,15 +93,15 @@ The plugin is shipped as a standard WordPress plugin; deployment (containers, bi
 
 ## Versioning & Release
 
-The version appears in three places: the `Version:` header in `newspack-nodes.php`, the `NEWSPACK_NODES_VERSION` PHP constant in the same file, and the `"version"` field in `package.json`. Do NOT edit these by hand — `tools/bump-nodes-version.sh` (in `dndocker/`) rewrites all three atomically (and syncs `package-lock.json` via `npm version`) and refuses to bump to a version that's already current.
+The version appears in three places: the `Version:` header in `newspack-nodes.php`, the `NEWSPACK_NODES_VERSION` PHP constant in the same file, and the `"version"` field in `package.json`. Do NOT edit these by hand — `scripts/bump-version.sh` rewrites all three atomically (and syncs `package-lock.json` via `npm version`) and refuses to bump to a version that's already current.
 
 Releases are **automated by GitHub Actions** (`.github/workflows/release.yml`): pushing a `v<major>.<minor>.<patch>` tag builds the archive and publishes the GitHub Release. You only bump, changelog, commit, and tag:
 
 ```bash
 # 1. Update CHANGELOG.md: rename `## [Unreleased]` → `## [<version>] - <date>`,
 #    then add a fresh empty `## [Unreleased]` above it (Keep-a-Changelog format).
-# 2. Bump version across plugin header + constant + package.json (from dndocker root):
-dndocker/tools/bump-nodes-version.sh <version>
+# 2. Bump version across plugin header + constant + package.json:
+./scripts/bump-version.sh <version>
 # 3. Commit the changelog + bump together (e.g. `chore(release): <version>`).
 # 4. Tag and push — the workflow does the rest:
 git tag v<version>

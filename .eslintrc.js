@@ -61,7 +61,10 @@ module.exports = {
 		},
 		{
 			// Build/CLI scripts run under Node and legitimately log to the console.
-			files: [ 'scripts/**/*.mjs', 'src/build-kit/**/*.@(mjs|cjs)' ],
+			files: [
+				'scripts/**/*.@(js|mjs)',
+				'src/build-kit/**/*.@(mjs|cjs)',
+			],
 			env: { node: true },
 			rules: {
 				'no-console': 'off',

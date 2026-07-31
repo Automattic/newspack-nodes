@@ -15,7 +15,6 @@
 		"automattic/vipwpcs": "^3.0",
 		"wp-coding-standards/wpcs": "^3.0",
 		"dealerdirect/phpcodesniffer-composer-installer": "*",
-		"brainmaestro/composer-git-hooks": "^3.0",
 		"phpstan/phpstan": "^2.1",
 		"phpstan/extension-installer": "^1.4",
 		"szepeviktor/phpstan-wordpress": "^2.0",
@@ -34,11 +33,6 @@
 		}
 	},
 	"extra": {
-		"hooks": {
-			"pre-commit": "./node_modules/.bin/lint-staged",
-			"commit-msg": "cat $1 | ./node_modules/.bin/commitlint",
-			"pre-push": "./scripts/pre-push"
-		},
 		"phpstan/extension-installer": {
 			"ignore": [
 				"phpstan/phpstan-strict-rules",
@@ -52,10 +46,10 @@
 		"build:autoloaders": "composer install --optimize-autoloader",
 		"build-release": "./build-release.sh",
 		"post-install-cmd": [
-			"[ -f vendor/bin/cghooks ] && vendor/bin/cghooks add --no-lock --force-win || true"
+			"git config core.hooksPath scripts || true"
 		],
 		"post-update-cmd": [
-			"[ -f vendor/bin/cghooks ] && vendor/bin/cghooks update || true"
+			"git config core.hooksPath scripts || true"
 		]
 	}
 }
