@@ -1,12 +1,11 @@
 /**
  * useBatchedPoll — the batched-poll toolkit (helper H3): every poll-pattern
  * dashboard's mount + batch boilerplate, lifted into the substrate so a dashboard
- * hook is just its slices. It owns, so the caller never re-wires them:
+ * hook is just its slices. It sets these up, so the caller never re-wires them:
  *
- *  - the exospine mount (`_command_interpreter → _router` backbone),
- *  - the `_http` HttpOut egress (command boundary; client injectable for tests),
- *  - the `_shell` observe-only Tap in front of `_http` (`connect _shell` watches
- *    every command going out),
+ *  - the exospine mount, which brings the `_command_interpreter → _router`
+ *    backbone plus its `_http` HttpOut egress and `_shell` observe-only Tap,
+ *  - the `_http` command client (the I/O boundary; injectable for tests),
  *  - a fan-out `Tee` + a router-hitchhike `Timer` that fans each tick to it,
  *  - the lock/flush bracket on the router TIMER tick, so a tick's commands batch
  *    into ONE HttpOut POST (Tachikoma batching — fan-out is free),
@@ -16,8 +15,8 @@
  * The caller supplies a `build( { interpreter, tee } )` that adds ONLY the
  * dashboard-specific nodes — typically `slices.forEach( s => addSliceFetcher(
  * interpreter, { ...s, tee, target: '_shell/_http/<ci>' } ) )` (helper H4). The
- * egress target path (`_shell/_http/<ci>`) is the caller's: `useBatchedPoll`
- * owns `_shell`/`_http`, the caller names the server CI mount.
+ * egress target path (`_shell/_http/<ci>`) is the caller's: the exospine
+ * provides `_shell`/`_http`, the caller names the server CI mount.
  *
  *   useBatchedPoll( {
  *     build:     ( { interpreter, tee } ) => slices.forEach( … ),

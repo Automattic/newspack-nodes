@@ -31,7 +31,7 @@ class Core {
 	public static array $config_resolvers = [];
 
 	/**
-	 * Command-surface policy for this process, ported from Tachikoma's
+	 * Command-surface policy for this process, modeled on Tachikoma's
 	 * `secure_level`.
 	 *
 	 * `null` means there is no command surface at all — a graph-only script

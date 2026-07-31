@@ -82,7 +82,7 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 	$base_interpreter->make_node( 'Insights_CI_Demo', 'insights-demo' );
 }
 
-// Load after the newspack-nodes deferred loader at plugins_loaded:11.
+// Defer to plugins_loaded: the substrate may load after this plugin.
 \add_action(
 	'plugins_loaded',
 	static function (): void {
@@ -97,7 +97,7 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 		require_once __DIR__ . '/vendor/autoload.php';
 
 		/**
-		 * Register the namespace, stock topologies, catalog, and spawn handler.
+		 * Register the namespace and the stock topologies dir.
 		 */
 		\Newspack_Nodes\Topology_Registry::register_plugin(
 			'Example_AI_Newsletter\\',

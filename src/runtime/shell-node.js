@@ -60,7 +60,7 @@ const VAR_GRAMMAR =
 	/^([^\s=+\-*/.|]+(?:\.[^\s=+\-*/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*/]=|\+\+|--|=)?([\s\S]*)$/;
 
 /**
- * Per-quote-type escapes, ported from Shell3's string1/string2/string3
+ * Per-quote-type escapes, following Shell3's string1/string2/string3
  * expansion. Double quotes expand sequences; single quotes and backticks stay
  * literal so a deferred `<token>` survives to its downstream binder. An
  * unlisted `\X` keeps both characters (Perl leaves it untouched too).
@@ -748,7 +748,7 @@ export class ShellNode extends Node {
 	}
 
 	/**
-	 * `var [ <name> [ <op> [ <value> ] ] ]` — port of Shell3's var_assignment,
+	 * `var [ <name> [ <op> [ <value> ] ] ]` — follows Shell3's var_assignment,
 	 * mirroring PHP Shell_Node::var_command. Bare lists every var; a name alone
 	 * prints its value and autovivifies it to empty (Shell3.pm:2715); `<name> =`
 	 * with no value DELETES it (Shell3.pm:2839); else the operator set applies.

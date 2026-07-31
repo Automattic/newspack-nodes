@@ -91,7 +91,7 @@ class Table_Node extends Node {
 	 * key replies TM_ERROR — a divergence from Tachikoma, which returns an
 	 * empty string and so cannot distinguish absent from stored-empty.
 	 *
-	 * `KEYS` and `STATS` are deliberately not ported: both enumerate
+	 * `KEYS` and `STATS` are deliberately absent: both enumerate
 	 * Tachikoma's in-memory buckets, which the memcache backing cannot do.
 	 *
 	 * @param array<int, mixed> $message The TM_REQUEST.

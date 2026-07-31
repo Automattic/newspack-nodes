@@ -136,7 +136,7 @@ namespace {$prefix};
 
 \\defined( 'ABSPATH' ) || exit;
 
-// Defer past the substrate's own loader (plugins_loaded:11); no-op without it.
+// Defer to plugins_loaded: the substrate may load after us; no-op without it.
 \\add_action(
 	'plugins_loaded',
 	static function (): void {
@@ -145,8 +145,8 @@ namespace {$prefix};
 		}
 		require_once __DIR__ . '/vendor/autoload.php';
 
-		// One call: namespace (make_node resolves your *_Node classes), the
-		// topologies/ dir, a catalog entry per *.tsl, and a spawn handler.
+		// One call: the namespace (make_node resolves your *_Node classes)
+		// and the topologies/ dir, whose *.tsl become catalog entries.
 		\\Newspack_Nodes\\Topology_Registry::register_plugin(
 			'{$prefix}\\\\',
 			__DIR__ . '/topologies'

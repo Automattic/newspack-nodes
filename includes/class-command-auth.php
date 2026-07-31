@@ -5,10 +5,12 @@
  * The browser's trusted origin IS its process (see Message::LOCAL); the server
  * legitimately receives commands over the wire, so it can't strip — it must tell
  * an authorized wire-command from an injected one with an unforgeable marker.
- * Issuers (HTTP_In after WP auth; attached `wp nodes cli`) `sign()` the command
- * semantics; verifier processes (workers, /command request scope) install
- * `verifier()` as CommandInterpreter's authorize policy and refuse anything that
- * doesn't verify.
+ * The node that MINTS a command signs its semantics — the attached `wp nodes
+ * cli` Shell via `sign()`, a browser or peer under its session key via
+ * `sign_for()`. Ingress does NOT sign: conferring authority on arrival would
+ * make `HTTP_In` an oracle (ADR-15). Verifier processes (workers, /command
+ * request scope) install `verifier()` as CommandInterpreter's authorize policy
+ * and refuse anything that doesn't verify.
  *
  * Signs the SEMANTICS, never the routing: name + arguments + ts + nonce.
  * TO/FROM mutate as Router peels and nodes stamp FROM, so they are not

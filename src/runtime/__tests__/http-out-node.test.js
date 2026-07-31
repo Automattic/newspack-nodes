@@ -390,7 +390,7 @@ describe( 'HttpOut', () => {
 } );
 
 /**
- * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862. A reply is
+ * Wire-inbound discipline, following Tachikoma Socket.pm:852-862. A reply is
  * TM_RESPONSE and self-routes by TO. Anything else arriving on the reply leg is
  * the remote addressing OUR graph, and `target` decides what that means:
  * unaddressed output belongs to the target, and an addressed non-response while

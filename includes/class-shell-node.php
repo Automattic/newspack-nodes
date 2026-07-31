@@ -99,7 +99,7 @@ class Shell_Node extends Node {
 	private const BUILTIN_VERBS = [ 'include', 'var' ];
 
 	/**
-	 * Per-quote-type escape rules, ported from Shell3's string1/string2/string3
+	 * Per-quote-type escape rules, following Shell3's string1/string2/string3
 	 * expansion. Double quotes expand sequences; single quotes and backticks
 	 * stay literal so a deferred `<token>` survives to its downstream binder.
 	 * An unlisted `\X` keeps both characters (Perl leaves it untouched too).
@@ -627,7 +627,7 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * `var [ <name> [ <op> [ <value> ] ] ]` — port of Shell3's var_assignment.
+	 * `var [ <name> [ <op> [ <value> ] ] ]` — follows Shell3's var_assignment.
 	 *
 	 * Bare lists every var as `name=value`; a name alone prints its value and
 	 * autovivifies it to empty (Shell3.pm:2715); `<name> =` with no value

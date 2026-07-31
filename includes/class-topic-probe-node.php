@@ -1,6 +1,6 @@
 <?php
 /**
- * TopicProbe: periodic Consumer-stats sweep. A faithful port of Tachikoma's
+ * TopicProbe: periodic Consumer-stats sweep. The counterpart of Tachikoma's
  * TopicProbe (consumer branch) for our multi-process world — each worker process
  * runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`, the analog of
  * `%Tachikoma::Nodes`) and emitting one snapshot record per tick into the shared

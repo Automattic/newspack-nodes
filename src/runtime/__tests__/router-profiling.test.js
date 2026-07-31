@@ -1,6 +1,6 @@
 /**
- * Port of Tachikoma Router profiling (see PHP RouterProfilingTest — the twins
- * must agree): push/pop self-time frames with parent subtraction, TTL trim,
+ * Router profiling after Tachikoma's Router.pm (see PHP RouterProfilingTest —
+ * the twins must agree): push/pop self-time frames with parent subtraction, TTL trim,
  * and the profile [on|off] / list_profiles verbs.
  */
 import { RouterNode } from '../router-node';

@@ -29,7 +29,7 @@ class Router_Node extends Timer_Node {
 
 	/**
 	 * Per-node self-time profiles, keyed by node name; null = profiling off.
-	 * Port of Tachikoma Router.pm $PROFILES / @STACK (package globals).
+	 * Follows Router.pm's $PROFILES / @STACK (package globals).
 	 *
 	 * @var array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
 	 */
