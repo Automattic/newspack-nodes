@@ -323,6 +323,20 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $fresh );
 	}
 
+	public function test_a_zero_grace_sweeps_a_dir_being_written_right_now(): void {
+		// `wp nodes gc --force`: an operator tearing a topology down wants its
+		// dirs gone NOW, not after the deploy-safety grace times out.
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$fresh = "{$this->tmp}/logs/undeclared-live.p0";
+		\mkdir( $fresh, 0755, true );
+		\file_put_contents( "{$fresh}/0.log", 'being written RIGHT NOW' );
+
+		$deleted = Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 0 );
+
+		$this->assertDirectoryDoesNotExist( $fresh );
+		$this->assertSame( [ $fresh ], $deleted );
+	}
+
 	public function test_the_spared_dir_is_swept_once_the_grace_expires(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		$orphan = "{$this->tmp}/logs/undeclared-live.p0";

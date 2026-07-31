@@ -374,6 +374,57 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Sweep orphan log + offsetlog dirs now, instead of waiting for the supervisor.
+	 *
+	 * A dir is an orphan when no ACTIVE topology declares it — so deactivating a
+	 * topology is what orphans its data, not stopping its workers. The supervisor
+	 * already runs this sweep every config-check tick, but spares any dir written
+	 * within the last hour so a mid-deploy blip cannot eat live data. `--force`
+	 * drops that wait to zero: use it to reclaim a topology you just tore down.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--force]
+	 * : Sweep orphans however recently they were written.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes gc
+	 *     wp nodes gc --force
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function gc( array $args, array $assoc_args ): void {
+		Bootstrap::ensure_runtime_wired();
+		$force = ! empty( $assoc_args['force'] );
+
+		$deleted = Log_Cleaner::cleanup_orphan_partitions(
+			Config::get_base_directory(),
+			$force ? 0 : Log_Cleaner::DELETE_GRACE_S
+		);
+
+		if ( empty( $deleted ) ) {
+			\WP_CLI::success(
+				$force
+					? 'No orphan dirs to sweep.'
+					: \sprintf(
+						'No orphan dirs past the %ds grace. Re-run with --force to sweep regardless.',
+						Log_Cleaner::DELETE_GRACE_S
+					)
+			);
+			return;
+		}
+
+		foreach ( $deleted as $path ) {
+			\WP_CLI::log( "  removed {$path}" );
+		}
+		\WP_CLI::success( \sprintf( 'Swept %d orphan dir(s).', \count( $deleted ) ) );
+	}
+
+	/**
 	 * List the singleton supervisor runtime process separately, followed by the
 	 * active worker topology groups it will spawn (`Bootstrap::get_topologies()`),
 	 * so this agrees with `wp nodes status`.

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`wp nodes gc [--force]`** — sweep orphan log + offsetlog dirs on demand
+  instead of waiting for the supervisor's next config-check tick. A dir is an
+  orphan when no ACTIVE topology declares it, so deactivating a topology is what
+  orphans its data, not stopping its workers. The supervisor spares any dir
+  written within the last hour so a mid-deploy blip cannot eat live data;
+  `--force` drops that wait to zero, for reclaiming a topology you just tore
+  down. `Log_Cleaner::cleanup_orphan_partitions()` takes the grace as a second
+  parameter, defaulted to the constant, so the supervisor path is unchanged.
+
+
 ### Fixed
 
 - **`Topology_Registry::includes()`** — the transitive include set of one

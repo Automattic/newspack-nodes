@@ -35,9 +35,11 @@ class Log_Cleaner {
 	 *    sweep is skipped rather than wiping live data.
 	 *
 	 * @param string $base_dir Base data directory.
+	 * @param int    $grace    Seconds of quiet an undeclared dir needs before it is
+	 *                         swept; 0 sweeps it however recently it was written.
 	 * @return array<int,string> Absolute paths of the directories removed.
 	 */
-	public static function cleanup_orphan_partitions( string $base_dir ): array {
+	public static function cleanup_orphan_partitions( string $base_dir, int $grace = self::DELETE_GRACE_S ): array {
 		$base_dir = \rtrim( $base_dir, '/' );
 		$deleted  = [];
 
@@ -45,11 +47,11 @@ class Log_Cleaner {
 
 		// Each bucket's KEYS are the declared dir names to keep (membership).
 		if ( null !== $declared['logs'] && ! empty( $declared['logs'] ) ) {
-			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted );
+			self::sweep( "{$base_dir}/logs", $declared['logs'], $base_dir, $deleted, $grace );
 		}
 
 		if ( null !== $declared['offsets'] && ! empty( $declared['offsets'] ) ) {
-			self::sweep( "{$base_dir}/offsets", $declared['offsets'], $base_dir, $deleted );
+			self::sweep( "{$base_dir}/offsets", $declared['offsets'], $base_dir, $deleted, $grace );
 		}
 
 		return $deleted;
@@ -188,14 +190,15 @@ class Log_Cleaner {
 	 * @param array<string,int>  $declared `name => partition` map; membership is by KEY.
 	 * @param string             $base_dir Jail root for delete_directory_recursive.
 	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
+	 * @param int                $grace    Required seconds of quiet; 0 disables the wait.
 	 */
-	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted ): void {
+	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted, int $grace ): void {
 		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
 			if ( isset( $declared[ \basename( $path ) ] ) ) {
 				continue;
 			}
 			// Grace: a recently-written dir is never a true orphan (deploys).
-			if ( \time() - self::newest_mtime( $path ) < self::DELETE_GRACE_S ) {
+			if ( $grace > 0 && \time() - self::newest_mtime( $path ) < $grace ) {
 				continue;
 			}
 			Supervisor_Base::delete_directory_recursive( $path, $base_dir );
