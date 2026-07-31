@@ -111,7 +111,7 @@ class Core {
 	 * The abort at 50ms is the design working: the request is already delivered
 	 * and the server runs on under ignore_user_abort.
 	 */
-	private const SPAWN_POST_TIMEOUT_MS = 50;
+	private const SPAWN_POST_TIMEOUT_MS = 250;
 
 	/**
 	 * Resolve `<partition>` (and `<topology>`, when the fleet is known) in a path
