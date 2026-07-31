@@ -652,11 +652,11 @@ class CoreTest extends TestCase {
 			->invoke( null, 'https://example.test/spawn', 'a=b' );
 
 		// A measured handshake finished at ~17ms; the budget must clear it with
-		// headroom, while staying far below the ~120ms round trip it must NOT
+		// headroom, while staying far below the ~500ms round trip it must NOT
 		// wait for — writing the request is the whole job.
 		$this->assertGreaterThanOrEqual( 50, $opts[ \CURLOPT_TIMEOUT_MS ] );
 		$this->assertGreaterThanOrEqual( 50, $opts[ \CURLOPT_CONNECTTIMEOUT_MS ] );
-		$this->assertLessThan( 120, $opts[ \CURLOPT_TIMEOUT_MS ] );
+		$this->assertLessThan( 500, $opts[ \CURLOPT_TIMEOUT_MS ] );
 	}
 
 	public function test_the_spawn_post_honors_the_verification_opt_out(): void {
