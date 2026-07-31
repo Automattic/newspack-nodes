@@ -1,4 +1,4 @@
-import { useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { initSkin } from '@newspack-nodes/shared/theme';
 import { isDebugEnabled } from './isDebugEnabled';
@@ -37,6 +37,14 @@ export default function DebugOverlay( {
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
+	const [ ownsProvider, setOwnsProvider ] = useState( true );
+	const setRootRef = useCallback( ( node ) => {
+		if ( node ) {
+			setOwnsProvider(
+				! node.parentElement?.closest( '.newspack-nodes-ui' )
+			);
+		}
+	}, [] );
 
 	// Apply the persisted <html> skin so this surface matches the console pick.
 	useEffect( () => {
@@ -74,7 +82,14 @@ export default function DebugOverlay( {
 	}
 
 	return (
-		<div className="nodes-debug">
+		<div
+			ref={ setRootRef }
+			className={ `nodes-debug${
+				ownsProvider
+					? ' newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+					: ''
+			}` }
+		>
 			{ ! open && (
 				<button
 					type="button"

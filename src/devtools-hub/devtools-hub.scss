@@ -8,9 +8,6 @@
  * fill the remaining flex space instead of overflowing.
  */
 
-@use "@newspack-nodes/shared/styles/inputs";
-@use "@newspack-nodes/shared/styles/focus";
-
 .nodes-devtools-hub {
 	// The ONE shared brand header on top — give it the console's row height so it
 	// breathes, with the same soft theme-token divider as the tab bar below it.
@@ -18,29 +15,23 @@
 		min-height: 64px;
 	}
 
-	// The tab bar is a fixed-height row; the tab-content region takes the rest.
-	// Tinted + soft-underlined in theme tokens to match the debug overlay.
-	.nodes-devtools__tabbar {
-		background: var(--paper-2);
-		border-bottom: 1px solid var(--paper-shadow);
-	}
-
 	.topology-app {
 		flex: 1 1 auto;
 		height: auto;
 		min-height: 0;
 	}
+}
 
-	// Shown while a lazy tab's bundle loads on first activation.
-	.nodes-devtools__lazy-loading {
-		padding: 24px;
-		color: var(--ink-2);
+.newspack-nodes-empty-state.nodes-devtools__empty {
+	padding: 0;
+
+	&::before {
+		display: none;
 	}
 }
 
-// Hub buttons: stock WP under the Newspack skins; themed under the decorative
-// ones. Gate on `.topology-app` (the single themed root that carries the
-// `theme-<slug>` class) — NOT `.newspack-nodes-theme`, which is also set on
-// inner wrappers (e.g. `.nodes-devtools-hub`) without a theme class, so a
-// `:not(.theme-newspack)` keyed off it wrongly matches under the Newspack skin.
-@include inputs.skin-adaptive-buttons;
+.newspack-nodes-performance-loading.nodes-devtools__lazy-loading {
+	display: block;
+	min-height: 0;
+	padding: 24px;
+}

@@ -90,7 +90,14 @@ describe( 'getStatusCategory', () => {
 } );
 
 describe( 'getStatusColor / getStatusClass', () => {
-	it( 'getStatusColor maps to STATUS_COLORS entry', () => {
+	it( 'keeps the chart-fill palette byte-for-byte stable', () => {
+		expect( STATUS_COLORS ).toEqual( {
+			'2xx': '#4caf50',
+			'3xx': '#64b5f6',
+			'4xx': '#ff9800',
+			'5xx': '#ef5350',
+			unknown: '#9e9e9e',
+		} );
 		expect( getStatusColor( 200 ) ).toBe( STATUS_COLORS[ '2xx' ] );
 		expect( getStatusColor( 503 ) ).toBe( STATUS_COLORS[ '5xx' ] );
 	} );

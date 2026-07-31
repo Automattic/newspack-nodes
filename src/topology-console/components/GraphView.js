@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
@@ -6,7 +7,6 @@ import { useGraphRates } from '../hooks/useGraphRates';
 import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
-import '../styles/graph-view.scss';
 
 /**
  * The reusable graph-editing surface, shared by the topology console and the
@@ -233,6 +233,9 @@ export default function GraphView( {
 	] );
 
 	const nodeIds = new Set( graph.nodes.map( ( n ) => n.id ) );
+	const inspectorToggleLabel = inspectorCollapsed
+		? __( 'Expand inspector', 'newspack-nodes' )
+		: __( 'Collapse inspector', 'newspack-nodes' );
 
 	return (
 		<>
@@ -299,18 +302,11 @@ export default function GraphView( {
 				>
 					<button
 						type="button"
-						className="topology-inspector__toggle"
+						className="newspack-nodes-rail-toggle topology-inspector__toggle"
 						onClick={ () => onInspectorToggle?.() }
-						aria-label={
-							inspectorCollapsed
-								? 'Expand inspector'
-								: 'Collapse inspector'
-						}
-						title={
-							inspectorCollapsed
-								? 'Expand inspector'
-								: 'Collapse inspector'
-						}
+						aria-label={ inspectorToggleLabel }
+						aria-expanded={ ! inspectorCollapsed }
+						title={ inspectorToggleLabel }
 					>
 						{ inspectorCollapsed ? '‹' : '›' }
 					</button>

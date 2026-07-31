@@ -6,77 +6,10 @@
 
 @use "base";
 
-// Worker Status Component - Full Page
-.worker-status-full {
-	padding: 20px 16px 16px;
-	color: var(--ink);
-	font-family: base.$system-font;
-
-	.worker-status-total-rate {
-		flex: 1;
-		display: flex;
-		align-items: baseline;
-		justify-content: center;
-		gap: 12px;
-
-		.total-rate-write,
-		.total-rate-read {
-			display: inline-flex;
-			align-items: baseline;
-			justify-content: flex-start;
-			gap: 4px;
-			min-width: 160px;
-		}
-
-		.total-rate-label {
-			font-size: 14px;
-			color: var(--ink-3);
-			text-transform: uppercase;
-		}
-
-		.total-rate-value {
-			font-size: 20px;
-			font-weight: 600;
-			color: var(--cyan);
-		}
-	}
-
-	.worker-status-controls {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-}
-
-// Worker Status Component - Embedded
-.worker-status {
-	margin-top: 24px;
-
-	h3 {
-		margin: 0 0 16px;
-		font-size: 14px;
-		font-weight: 600;
-	}
-}
-
-.worker-status-loading,
-.worker-status-error {
-	padding: 24px;
-	text-align: center;
-	color: var(--ink-3);
-	background: var(--paper-2);
-	border-radius: 4px;
-}
-
-.worker-status-error {
-	color: base.$error-text;
-	background: base.$error-surface;
-}
-
 .log-name {
 	font-weight: 600;
 	font-size: 14px;
-	color: var(--cyan);
+	color: var(--cyan-text);
 }
 
 .log-partition-row {
@@ -98,7 +31,7 @@
 
 .log-write-rate {
 	font-size: 10px;
-	color: var(--cyan);
+	color: var(--cyan-text);
 	min-width: 70px;
 }
 
@@ -144,7 +77,7 @@
 
 .connector-rate {
 	font-size: 10px;
-	color: var(--cyan);
+	color: var(--cyan-text);
 	min-width: 85px;
 
 	&.dead {
@@ -166,7 +99,7 @@
 
 .connector-eta {
 	font-size: 10px;
-	color: var(--cyan);
+	color: var(--cyan-text);
 	min-width: 40px;
 
 	&::before {
@@ -206,30 +139,6 @@
 	margin-left: auto;
 }
 
-.worker-status-badge.compact {
-	padding: 1px 6px;
-	font-size: 9px;
-
-	&.running {
-		// Accent-on-its-own-tint: --sage-subtle and --sage both track the theme
-		// (dark-green-on-light under Newspack, bright-green-on-dark under CRT), so
-		// the pill stays a readable green badge in every skin — no hardcoded #fff.
-		background: var(--sage-subtle);
-		color: var(--sage);
-	}
-
-	&.dead {
-		background: var(--oxide-subtle);
-		color: var(--oxide);
-		opacity: 0.5;
-	}
-}
-
-.worker-status-badge.small {
-	padding: 2px 6px;
-	font-size: 9px;
-}
-
 .partition-label-inline {
 	color: var(--ink-3);
 	font-size: 12px;
@@ -243,31 +152,6 @@
 	align-items: stretch;
 	flex: 1;
 	overflow: hidden; // Clip segments sliding off the left edge.
-}
-
-.worker-status-badge {
-	padding: 2px 8px;
-	border-radius: 3px;
-	font-size: 10px;
-	font-weight: 600;
-	text-transform: uppercase;
-
-	&.running {
-		// Accent-on-its-own-tint (see the compact variant above) — a readable
-		// green badge in every skin, no hardcoded #fff.
-		background: var(--sage-subtle);
-		color: var(--sage);
-	}
-
-	&.dead {
-		background: var(--oxide-subtle);
-		color: var(--oxide);
-	}
-
-	&.idle {
-		background: var(--paper-3);
-		color: var(--ink-3);
-	}
 }
 
 // Single segment - horizontal bar
@@ -454,9 +338,6 @@
 .caret {
 	display: inline-block;
 	width: 14px;
-	cursor: pointer;
-	font-size: 13px;
-	color: var(--ink-3);
 	user-select: none;
 	transition: transform 0.1s;
 }

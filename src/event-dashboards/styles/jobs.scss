@@ -20,9 +20,15 @@
 .nodes-jobs__empty {
 	padding: 24px;
 	text-align: center;
-	color: var(--ink-3);
-	background: var(--paper-2);
-	border-radius: var(--np-radius-md);
+}
+
+.newspack-nodes-empty-state.nodes-jobs__empty {
+	padding: 24px;
+	text-align: center;
+
+	&::before {
+		display: none;
+	}
 }
 
 .nodes-jobs__table {
@@ -38,7 +44,7 @@
 	}
 
 	.nodes-jobs__failures.is-nonzero {
-		color: var(--oxide);
+		color: var(--oxide-text);
 		font-weight: 600;
 	}
 
@@ -52,20 +58,13 @@
 }
 
 .nodes-jobs__status {
-	display: inline-block;
-	padding: 2px 8px;
-	border-radius: 3px;
-	font-size: 10px;
-	font-weight: 600;
-	text-transform: uppercase;
-
 	&.is-success {
 		background: var(--sage-subtle);
-		color: var(--sage);
+		color: var(--sage-text);
 	}
 
 	&.is-error {
 		background: var(--oxide-subtle);
-		color: var(--oxide);
+		color: var(--oxide-text);
 	}
 }

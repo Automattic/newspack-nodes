@@ -27,7 +27,7 @@ function LazyTabPlaceholder( { handle } ) {
 		loadTabBundle( handle );
 	}, [ handle ] );
 	return (
-		<div className="nodes-devtools__lazy-loading">
+		<div className="newspack-nodes-performance-loading nodes-devtools__lazy-loading">
 			{ __( 'Loading…', 'newspack-nodes' ) }
 		</div>
 	);

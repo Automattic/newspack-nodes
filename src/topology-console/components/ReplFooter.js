@@ -523,7 +523,7 @@ export default function ReplFooter( {
 					autoComplete="off"
 					spellCheck="false"
 				/>
-				<span className="topology-repl__status">
+				<span className="newspack-nodes-status topology-repl__status">
 					<span
 						className={ `topology-repl__dot${
 							streamStatus === 'open' ? ' is-pulsing' : ''

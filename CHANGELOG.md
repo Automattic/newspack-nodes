@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard chrome now comes from one canonical, skin-aware UI layer.** Shared
+  controls, modals, toolbars, focus treatment, and status roles replace
+  per-dashboard copies; graph-only styles ship only with the graph asset.
+  Every action state and semantic status foreground is contrast-audited across
+  all 15 skins, including hover states, paper elevations, and tinted surfaces.
+
+### Removed
+
+- **Removed the streaming staleness indicator and its `RemoteLink` timestamp
+  passthrough.** `SseIn` still tracks inbound frame time internally for its
+  reconnect watchdog.
+- **Removed completed one-time configuration migrations.** Legacy option
+  rename/copy classes, the autoload-correction sweep, their activation hooks,
+  and obsolete tests are gone.
+
 ## [2.2.9] - 2026-07-29
 
 ### Fixed

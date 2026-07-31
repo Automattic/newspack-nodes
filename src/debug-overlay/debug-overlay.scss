@@ -1,13 +1,10 @@
 /**
  * Debug overlay chrome — the floating FAB + panel that hosts the shared
- * topology <Header> + <GraphView> on any dashboard page. The graph-surface
- * styles (tokens, themes, node/edge/inspector) and the header styles come from
- * graph-view.scss via GraphView.js; this file only adds the overlay's own
- * shell + re-shapes the .topology-app grid so it lays out palette + canvas +
- * repl + inspector under the shared Header.
+ * topology <Header> + <GraphView> on any dashboard page. Shared UI and
+ * graph-surface paint comes from the host-enqueued assets; this file only adds
+ * the overlay's own shell + re-shapes the .topology-app grid so it lays out
+ * palette + canvas + repl + inspector under the shared Header.
  */
-
-@use "@newspack-nodes/shared/styles/focus";
 
 // Floating action button — bottom-right, above WP admin chrome, dashboard
 // modals (@wordpress/components dialogs at ~100000), and the flame-graph
@@ -20,14 +17,9 @@
 	z-index: 999999;
 	width: 48px;
 	height: 48px;
-	border-radius: 50%;
-	border: 1px solid #0d1117;
-	background: #18222e;
-	color: #f0e7d6;
+	padding: 0;
 	font-size: 20px;
 	line-height: 1;
-	cursor: pointer;
-	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -48,49 +40,15 @@
 	// hook initializes on first mount sit it in the bottom-right corner.
 	// One below the FAB; both above dashboard modals + flame tooltip.
 	z-index: 999998;
-	// Theme tokens (DebugPanel wraps the panel in `.theme-<x> .topology-app`), so
-	// the chrome follows whatever skin is active instead of a fixed color.
-	background: var(--paper-3);
-	border: 1px solid var(--paper-shadow);
-	// The shared tab bar colors its labels from --nodes-devtools-fg, which
-	// defaults to #fff (invisible on the light panel). The hub sets this on its
-	// own container; the embedded overlay must set it too — bind it to the theme
-	// ink so the tabs read on any page that mounts the overlay.
-	--nodes-devtools-fg: var(--ink);
-	border-radius: 10px;
-	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
-
-	// Square off when maximized — rounded corners against the screen edges
-	// read wrong full-screen.
-	&.is-maximized {
-		border-radius: 0;
-	}
-
-	// While dragging/resizing, drop the shadow. The 40px-blur box-shadow above
-	// extends past the panel, so every frame the panel moves the browser repaints
-	// the (blurred) page BEHIND it — the jank, proportional to how busy that page
-	// is (a static page like Vault never stutters). Lifting it for the gesture is
-	// the fix; useDebugFrame toggles `is-dragging`, restored on pointerup.
-	&.is-dragging {
-		box-shadow: none;
-	}
 
 	// The one shared header (panel-owned, above the tab bar). It used to be a
 	// 64px grid row inside .topology-app; as a flex child it would collapse to
 	// content height, so restore the 64px so its chrome breathes like the console.
 	.topology-header {
 		min-height: 64px;
-	}
-
-	// Tint the overlay's tab bar one step off the header/panel, in theme tokens
-	// (scoped to the overlay so the hub's own bar is untouched), with the same
-	// faint-ink divider as the side panels below it.
-	.nodes-devtools__tabbar {
-		background: var(--paper-2);
-		border-bottom: 1px solid var(--paper-shadow);
 	}
 
 	// The InspectorTab's root wrapper. It now sits between the panel and

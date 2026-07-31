@@ -38,7 +38,7 @@ export const SupervisorStatus = memo( function SupervisorStatus( {
 					</span>
 					<div className="supervisor-instance">
 						<span
-							className={ `worker-status-badge compact ${ supervisor.status }` }
+							className={ `newspack-nodes-status-badge worker-status-badge compact ${ supervisor.status }` }
 						>
 							{ supervisor.status === 'running'
 								? __( 'RUN', 'newspack-nodes' )

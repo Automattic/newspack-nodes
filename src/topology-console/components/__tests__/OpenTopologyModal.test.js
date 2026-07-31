@@ -9,6 +9,35 @@ import OpenTopologyModal from '../OpenTopologyModal';
 const noop = () => {};
 
 describe( 'OpenTopologyModal', () => {
+	it( 'marks the actual wide dialog frame as a canonical modal', () => {
+		const { container } = render(
+			<OpenTopologyModal
+				topologies={ [
+					{
+						name: 'modal-contract-probe',
+						source: 'both',
+						active: true,
+					},
+				] }
+				loading={ false }
+				error={ null }
+				onPick={ noop }
+				onCancel={ noop }
+			/>
+		);
+		const frame = container.querySelector(
+			'[aria-modal="true"].topology-modal--wide'
+		);
+
+		expect( frame ).not.toBeNull();
+		expect( frame.className ).toBe(
+			'topology-modal topology-modal--wide newspack-nodes-modal'
+		);
+		expect(
+			frame.querySelector( '.topology-modal__header' ).className
+		).toBe( 'topology-modal__header newspack-nodes-modal__header' );
+	} );
+
 	it( 'renders a loading row when loading=true', () => {
 		const { container } = render(
 			<OpenTopologyModal

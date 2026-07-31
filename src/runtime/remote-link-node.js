@@ -201,11 +201,6 @@ export class RemoteLinkNode extends Node {
 		return this.sseIn?.resumePositions() ?? null;
 	}
 
-	// Wall-clock ms of the last frame the SseIn received; the liveness clock.
-	lastEventTime() {
-		return this.sseIn?.lastEventTime ?? null;
-	}
-
 	// Session pid, read from the composed SseIn's `connected` snoop.
 	pid() {
 		return this.sseIn?.pid() ?? null;

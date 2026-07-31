@@ -1,0 +1,10 @@
+@mixin ring {
+	outline: 2px solid var(--ink, var(--np-text, currentcolor));
+	outline-offset: 1px;
+	box-shadow: none;
+}
+
+@mixin no-ring {
+	outline: none;
+	box-shadow: none;
+}

@@ -34,14 +34,18 @@ const debugValue = ( row ) => {
 const renderDebugRow = ( row ) => (
 	<div
 		key={ row.id }
-		className={ `newspack-nodes-log-row is-debug ${
+		className={ `newspack-nodes-table__row newspack-nodes-log-row is-debug ${
 			row.isEven ? 'row-even' : 'row-odd'
 		}` }
 		data-p={ row.partition }
 	>
-		<span className="newspack-nodes-log-row__id">{ row.msgId || '?' }</span>
-		<span className="newspack-nodes-log-row__key">{ row.key || '' }</span>
-		<span className="newspack-nodes-log-row__value">
+		<span className="newspack-nodes-table__cell is-muted newspack-nodes-log-row__id">
+			{ row.msgId || '?' }
+		</span>
+		<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
+			{ row.key || '' }
+		</span>
+		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
 			{ debugValue( row ) }
 		</span>
 	</div>
@@ -51,13 +55,15 @@ const renderDebugRow = ( row ) => (
 const renderDebugRowNoKey = ( row ) => (
 	<div
 		key={ row.id }
-		className={ `newspack-nodes-log-row is-debug ${
+		className={ `newspack-nodes-table__row newspack-nodes-log-row is-debug ${
 			row.isEven ? 'row-even' : 'row-odd'
 		}` }
 		data-p={ row.partition }
 	>
-		<span className="newspack-nodes-log-row__id">{ row.msgId || '?' }</span>
-		<span className="newspack-nodes-log-row__value">
+		<span className="newspack-nodes-table__cell is-muted newspack-nodes-log-row__id">
+			{ row.msgId || '?' }
+		</span>
+		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
 			{ debugValue( row ) }
 		</span>
 	</div>
@@ -343,6 +349,9 @@ export default function LogStreamViewer( {
 		? debugHeader( hasKeyColumn )
 		: listHeader ?? null;
 	const activeDebugRow = hasKeyColumn ? renderDebugRow : renderDebugRowNoKey;
+	const railToggleLabel = railOpen
+		? __( 'Hide the browse rail', 'newspack-nodes' )
+		: __( 'Show the browse rail', 'newspack-nodes' );
 
 	const list = (
 		<LogRowList
@@ -362,7 +371,9 @@ export default function LogStreamViewer( {
 	return (
 		<div className={ className } role="region" aria-label={ ariaLabel }>
 			{ title ? (
-				<div className={ `${ className }__header` }>
+				<div
+					className={ `newspack-nodes-request-stream-header ${ className }__header` }
+				>
 					<h1 className="newspack-dashboard-title">{ title }</h1>
 					{ renderedControls }
 				</div>
@@ -388,19 +399,12 @@ export default function LogStreamViewer( {
 						}` }
 					>
 						<button
+							type="button"
 							className="newspack-nodes-rail-toggle"
 							onClick={ toggleRail }
-							title={
-								railOpen
-									? __(
-											'Hide the browse rail',
-											'newspack-nodes'
-									  )
-									: __(
-											'Show the browse rail',
-											'newspack-nodes'
-									  )
-							}
+							aria-label={ railToggleLabel }
+							aria-expanded={ railOpen }
+							title={ railToggleLabel }
 						>
 							{ railOpen ? '\u2039' : '\u203a' }
 						</button>

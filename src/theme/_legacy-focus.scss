@@ -1,0 +1,20 @@
+.newspack-nodes-theme:not(.newspack-nodes-ui) {
+	a[href],
+	button,
+	input,
+	select,
+	textarea,
+	summary,
+	[tabindex] {
+		&:focus:not(:focus-visible) {
+			outline: none;
+			box-shadow: none;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--ink, currentcolor);
+			outline-offset: 1px;
+			box-shadow: none;
+		}
+	}
+}

@@ -156,10 +156,29 @@ describe( 'VaultAdmin', () => {
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 	} );
 
-	it( 'renders the server table with the wp-list-table class', () => {
+	it( 'renders the server table with only the canonical table class', () => {
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
-		expect( container.querySelector( 'table.wp-list-table' ) ).toBeTruthy();
+		const table = container.querySelector( 'table.newspack-nodes-table' );
+		expect( table ).toBeTruthy();
+		expect( table.className ).toBe( 'newspack-nodes-table' );
+	} );
+
+	it( 'keeps the WordPress notice paragraph inside the canonical error banner', () => {
+		registerViewFixture( {
+			servers: [],
+			loading: false,
+			error: 'Distinct vault failure',
+		} );
+		const { container } = mount();
+		const banner = container.querySelector(
+			'.newspack-nodes-error-banner'
+		);
+
+		expect( banner.firstElementChild?.tagName ).toBe( 'P' );
+		expect( banner.firstElementChild?.textContent ).toBe(
+			'Distinct vault failure'
+		);
 	} );
 
 	it( 'gives the URL column more width than the ID, Status, and Actions columns', () => {
@@ -221,6 +240,9 @@ describe( 'VaultAdmin', () => {
 		openAddModal( container );
 		const dialog = document.querySelector( '[role="dialog"]' );
 		expect( dialog ).toBeTruthy();
+		expect( dialog.className ).toBe(
+			'nodes-vault__modal newspack-nodes-modal'
+		);
 		expect( dialog.querySelector( '#new-server-id' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#new-server-url' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#new-server-username' ) ).toBeTruthy();
@@ -476,7 +498,9 @@ describe( 'VaultAdmin', () => {
 	it( 'falls back to a loading model when the view node is absent', () => {
 		// No fixture: useNodeState yields undefined; the view still renders.
 		const { container } = mount();
-		expect( container.querySelector( 'table.wp-list-table' ) ).toBeTruthy();
+		expect(
+			container.querySelector( 'table.newspack-nodes-table' )
+		).toBeTruthy();
 		expect(
 			container.querySelector( '.nodes-vault__add-trigger' )
 		).toBeTruthy();

@@ -24,7 +24,6 @@
 	&__grid {
 		width: 100%;
 		border-collapse: collapse;
-		font: inherit;
 	}
 
 	&__th {
@@ -37,7 +36,7 @@
 		border-bottom: 1px solid var(--paper-shadow);
 
 		&.is-sorted {
-			color: var(--oxide);
+			color: var(--oxide-text);
 			font-weight: 700;
 		}
 	}
@@ -48,7 +47,7 @@
 	}
 
 	&__row--spinner {
-		color: var(--oxide);
+		color: var(--oxide-text);
 		background: color-mix(in srgb, var(--oxide) 12%, transparent);
 	}
 
@@ -62,8 +61,18 @@
 	// Pinned --total-- tfoot row: distinct from the sortable body.
 	&__foot td {
 		font-weight: 700;
-		color: var(--oxide);
+		color: var(--oxide-text);
 		border-top: 1px solid var(--paper-shadow);
+	}
+}
+
+.newspack-nodes-table.nodes-runtime__grid {
+	font-size: inherit;
+	line-height: inherit;
+
+	.nodes-runtime__th,
+	.nodes-runtime__td {
+		padding: 3px 8px;
 	}
 }
 
@@ -71,10 +80,10 @@
 // trace): the console's `.button.is-compact` is a full-width, left-aligned grid
 // cell built for the inspector rail; in these flex toolbars it must read as a
 // normal inline control instead. (Focus rings are the global policy's job —
-// shared/styles/focus.scss — not restyled here.) The `.topology-app` prefix
-// out-specifies the rail's own `.topology-app .button.is-compact` width rule.
-.topology-app .nodes-stats__toolbar .button.is-compact,
-.topology-app .timeline-view__filters .button.is-compact {
+// shared/styles/focus.scss — not restyled here.) The topology-surface prefix
+// out-specifies the rail/modal's base compact-button geometry.
+:is(.topology-app, .topology-modal) .nodes-stats__toolbar .button.is-compact,
+:is(.topology-app, .topology-modal) .timeline-view__filters .button.is-compact {
 	width: auto;
 	text-align: center;
 }

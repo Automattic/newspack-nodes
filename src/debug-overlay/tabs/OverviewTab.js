@@ -28,7 +28,7 @@ const MSG_LEVELS = [
 function Card( { id, label, value } ) {
 	return (
 		<div
-			className={ `nodes-card nodes-card--${ id }` }
+			className={ `newspack-nodes-card nodes-card nodes-card--${ id }` }
 			data-testid={ `overview-card-${ id }` }
 		>
 			<span className="nodes-card__value">{ value }</span>

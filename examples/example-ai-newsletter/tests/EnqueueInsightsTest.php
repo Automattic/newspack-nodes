@@ -71,6 +71,18 @@ namespace Example_AI_Newsletter\Tests {
 			$_GET = [];
 		}
 
+		protected function tearDown(): void {
+			unset(
+				$GLOBALS['_enqueued_scripts'],
+				$GLOBALS['_enqueued_styles'],
+				$GLOBALS['_localized_scripts'],
+				$GLOBALS['_style_data'],
+				$GLOBALS['_wp_test_current_user_can'],
+				$_GET
+			);
+			parent::tearDown();
+		}
+
 		public function test_skips_on_wrong_page(): void {
 			$_GET = [ 'page' => 'some-other-page' ];
 			enqueue_insights_assets();
@@ -95,6 +107,10 @@ namespace Example_AI_Newsletter\Tests {
 			$this->assertSame( 'NewspackNodesData', $payload['object_name'] );
 			$this->assertArrayHasKey( 'restUrl', $payload['data'] );
 			$this->assertArrayHasKey( 'nonce', $payload['data'] );
+			$this->assertSame(
+				[ 'wp-components', 'newspack-nodes-graph' ],
+				$GLOBALS['_enqueued_styles'][ $handle ]['deps']
+			);
 
 			// Delegation-specific: the registrar activates RTL when index-rtl.css
 			// ships (the old hand-rolled enqueue never did).

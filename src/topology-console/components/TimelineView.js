@@ -129,7 +129,7 @@ export default function TimelineView( { transcript = [], actions = null } ) {
 					</div>
 				</div>
 			) : (
-				<p className="timeline-view__empty">
+				<p className="newspack-nodes-empty-state timeline-view__empty">
 					{ __(
 						'No traces yet — toggle Trace on a node (the Inspector’s Trace button) to populate the timeline.',
 						'newspack-nodes'

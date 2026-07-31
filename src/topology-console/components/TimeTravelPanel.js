@@ -51,7 +51,7 @@ function Cursor( { cursor } ) {
 			<span className="topology-field-row__key">
 				{ __( 'cursor', 'newspack-nodes' ) }
 			</span>
-			<span className="topology-field-row__val topology-field-row__val--num">
+			<span className="newspack-nodes-stat-value is-accent topology-field-row__val topology-field-row__val--num">
 				{ `${ segment }:${ offset }` }
 			</span>
 		</div>
@@ -61,7 +61,7 @@ function Cursor( { cursor } ) {
 function Ruler( { frames, selectedFrameId, offFrame } ) {
 	if ( ! frames.length ) {
 		return (
-			<div className="topology-tt__empty">
+			<div className="newspack-nodes-empty-state topology-tt__empty">
 				{ __( 'No keyframes yet.', 'newspack-nodes' ) }
 			</div>
 		);
@@ -97,7 +97,7 @@ function TransportButton( { label, glyph, disabled, onClick } ) {
 	return (
 		<button
 			type="button"
-			className="topology-tt__transport-btn"
+			className="button button-small topology-tt__transport-btn"
 			aria-label={ label }
 			title={ label }
 			disabled={ disabled }

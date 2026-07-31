@@ -123,12 +123,7 @@ if ( \function_exists( 'add_filter' ) ) {
 	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
 }
 
-// XXX: one-time; remove next release.
 if ( \function_exists( 'register_activation_hook' ) ) {
-	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
-	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ] );
-	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ] );
-	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Retention_Settings_Migration', 'migrate' ] );
 	\register_activation_hook( __FILE__, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
 }
 

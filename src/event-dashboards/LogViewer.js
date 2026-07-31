@@ -45,7 +45,7 @@ const EMPTY_VIEW = {
 const renderRawRow = ( row ) => (
 	<div
 		key={ row.id }
-		className={ `newspack-nodes-log-row ${
+		className={ `newspack-nodes-table__row newspack-nodes-log-row ${
 			row.isEven ? 'row-even' : 'row-odd'
 		}` }
 	>

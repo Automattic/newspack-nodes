@@ -21,7 +21,7 @@ jest.mock( '../../topology-console/components/ConsoleShell', () => ( {
 jest.mock( '../../topology-console/components/Modal', () => ( {
 	NewNodeModal: ( props ) => {
 		mockCaptured.modal = props;
-		return null;
+		return <div data-testid="pending-node-modal" />;
 	},
 } ) );
 // Stub catalog hooks so cwd changes don't fire an async fetch after act().
@@ -164,6 +164,22 @@ describe( 'InspectorTab interactions', () => {
 			/>
 		);
 	}
+
+	it( 'leaves the topology layout root to inherit its host UI provider', () => {
+		const { container } = renderInspector();
+		const root = container.querySelector( '.topology-app' );
+
+		expect( root.classList.contains( 'newspack-nodes-theme' ) ).toBe(
+			false
+		);
+		expect( root.classList.contains( 'newspack-nodes-ui' ) ).toBe( false );
+		expect( root.classList.contains( 'newspack-nodes-skin-root' ) ).toBe(
+			false
+		);
+		expect( container.querySelectorAll( '.topology-app' ) ).toHaveLength(
+			1
+		);
+	} );
 
 	it( 'observes the tab bar with a ResizeObserver and disconnects on unmount', () => {
 		const observe = jest.fn();
@@ -337,7 +353,7 @@ describe( 'InspectorTab interactions', () => {
 	} );
 
 	it( 'a palette drop records the drop position when the modal is confirmed', () => {
-		renderInspector();
+		const { container, getByTestId } = renderInspector();
 		act( () =>
 			mockCaptured.consoleShell.canvasProps.onDropNode( {
 				shellName: 'Echo',
@@ -346,6 +362,12 @@ describe( 'InspectorTab interactions', () => {
 			} )
 		);
 		expect( mockCaptured.modal ).toBeTruthy();
+		expect( container.querySelectorAll( '.topology-app' ) ).toHaveLength(
+			1
+		);
+		const modalWrapper = getByTestId( 'pending-node-modal' ).parentElement;
+		expect( modalWrapper.style.display ).toBe( 'contents' );
+		expect( modalWrapper.className ).toBe( '' );
 		// commitDrop fires `make_node Echo my_echo` → creates the node.
 		expect( Core.node( 'my_echo' ) ).toBeNull();
 		act( () =>

@@ -1,70 +1,37 @@
-/**
- * Canonical themed form controls — the SINGLE source for how `<select>`,
- * `<input>`, `<textarea>` and checkboxes look inside any `.topology-app` surface
- * (the Topology Console, the debug overlay, and every event-logger dashboard /
- * modal). Both plugins `@use '@newspack-nodes/shared/styles/controls'` (resolved
- * by the build-kit alias importer), so the look is defined ONCE and cannot drift.
- *
- * Rules target the BARE element on purpose: that catches the console's plain
- * `<select>` AND event-logger's `@wordpress/components`
- * `<select class="components-…__input">` with one rule.
- *
- * Specificity, not `!important`: `@wordpress`'s emotion boosts its own controls
- * by REPEATING its class three times (`.hash.hash.hash` = 0,3,0) and sets
- * `background: transparent` there. To beat that cleanly we out-specify it the same
- * way — every `.topology-app` root also carries `.newspack-nodes-theme`, so the
- * anchor doubles `.topology-app` for a 3-class (0,3,0) base: (0,3,1) on a bare
- * element and (0,4,0) on a `.components-*` class, both > emotion's (0,3,0).
- *
- * The look mirrors the console's cwd path selector (`.topology-select`), the
- * agreed canonical menu. Uses only the skin custom properties (`--ink`, `--oxide`,
- * `--cyan`, `--font-mono`), which every `.topology-app` root supplies.
- */
-
-// The down-triangle is a data-URI (SVG background can't read CSS vars), baked
-// dark for light skins; the dark-skin list below repaints it light.
 $np-chevron-dark: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E";
 $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E";
 
-.topology-app.topology-app.newspack-nodes-theme {
-	select,
-	input:not([type="checkbox"]):not([type="radio"]):not(.topology-repl__input),
-	textarea,
-	.components-select-control__input,
-	.components-input-control__input,
-	.components-text-control__input,
-	.components-search-control__input {
-		appearance: none;
-		// The lightest/innermost surface in every skin — fields read as elevated
-		// wells that pop off their panel (safe now the ramp puts --paper lightest).
-		background-color: var(--paper);
-		border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
-		// Per-theme control corner — square by default, rounded on skins whose
-		// node cards are rounded (they set --control-radius). Buttons read the
-		// same token so a skin's controls all share one corner.
-		border-radius: var(--control-radius, 0);
-		color: var(--ink);
-		-webkit-text-fill-color: var(--ink);
-		box-shadow: none;
-		font: 500 12px/1.4 var(--font-mono);
+.newspack-nodes-ui.newspack-nodes-ui {
+	--np-field-surface: var(--paper, var(--np-surface));
+	--np-field-ink: var(--ink, var(--np-text));
+	--np-field-muted: var(--ink-3, var(--np-text-secondary));
+	--np-field-border: var(--paper-shadow, var(--np-border-strong));
 
-		// The `-webkit-text-fill-color: var(--ink)` above also paints the
-		// PLACEHOLDER at full brightness (it made placeholders read like real
-		// values); re-dim it here for the placeholder specifically.
+	input:not([type="checkbox"]):not([type="radio"]):not(
+			.components-input-control__input
+		):not(.topology-repl__input),
+	select:not(.components-input-control__input),
+		textarea {
+		appearance: none;
+		background-color: var(--np-field-surface);
+		border: 1px solid var(--np-field-border);
+		border-radius: var(--field-radius, 0);
+		color: var(--np-field-ink);
+		-webkit-text-fill-color: var(--np-field-ink);
+		box-shadow: none;
+		padding: 6px 10px;
+		font-size: 12px;
+		line-height: 1.4;
+
 		&::placeholder {
-			color: var(--ink-3);
-			-webkit-text-fill-color: var(--ink-3);
+			color: var(--np-field-muted);
+			-webkit-text-fill-color: var(--np-field-muted);
 			opacity: 1;
 		}
-
-		// Focus rings + glow suppression are the plugin-wide policy's job now —
-		// see shared/styles/_focus.scss (imported by every entry).
 	}
 
-	// Selects get the dropdown triangle + room for it.
-	select,
-	.components-select-control__input {
-		padding: 6px 22px 6px 10px;
+	select {
+		padding-right: 22px;
 		background-image: url("#{ $np-chevron-dark }");
 		background-repeat: no-repeat;
 		background-position: right 8px center;
@@ -72,47 +39,22 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		cursor: pointer;
 	}
 
-	// @wordpress SelectControl also renders its OWN chevron icon in the suffix, on
-	// top of our background-image one — two overlapping carets ("scuffed"). Hide the
-	// @wordpress one (select controls only, so text-input suffixes survive) so it
-	// matches the bare console <select>, which has just the single background chevron.
+	select option {
+		background-color: var(--paper-2, var(--np-surface-subtle));
+		color: var(--np-field-ink);
+	}
+
 	.components-select-control .components-input-control__suffix {
 		display: none;
 	}
 
-	input:not([type="checkbox"]):not([type="radio"]):not(.topology-repl__input),
-	textarea,
-	.components-input-control__input,
-	.components-text-control__input,
-	.components-search-control__input {
-		padding: 6px 10px;
-	}
-
-	// @wordpress InputControl (SelectControl / TextControl) wraps the field in a
-	// container + backdrop that draw their OWN fill + border; neutralize them so
-	// the input's own themed border/fill (above) is the only one that shows.
-	.components-input-control__container {
-		background: transparent;
-	}
-
-	.components-input-control__backdrop {
-		background: transparent;
-		border: none;
-		box-shadow: none;
-	}
-
-	// EVERY checkbox — bare (compose modal, console verb toggles) AND @wordpress
-	// CheckboxControl (the pickers; its own class IS an input[type=checkbox]) —
-	// renders identically: a themed box with a CSS-drawn check/dash. No native
-	// rendering, no color-scheme dependence. (CheckboxControl's own SVG mark is
-	// hidden below, so the two match exactly.)
 	input[type="checkbox"] {
 		appearance: none;
 		width: 16px;
 		height: 16px;
 		margin: 0;
 		background: transparent;
-		border: 1px solid var(--paper-shadow);
+		border: 1px solid var(--np-field-border);
 		border-radius: 1px;
 		box-shadow: none;
 		position: relative;
@@ -124,11 +66,10 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 
 		&:checked,
 		&:indeterminate {
-			background: var(--cyan);
-			border-color: var(--cyan);
+			background: var(--cyan, var(--np-primary));
+			border-color: var(--cyan, var(--np-primary));
 		}
 
-		// Drawn checkmark (tick), --paper so it contrasts the accent fill.
 		&:checked::after {
 			content: "";
 			position: absolute;
@@ -136,12 +77,11 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			left: 5px;
 			width: 4px;
 			height: 8px;
-			border: solid var(--paper);
+			border: solid var(--paper, var(--np-on-primary));
 			border-width: 0 2.5px 2.5px 0;
 			transform: rotate(45deg);
 		}
 
-		// Drawn dash for the indeterminate (partial-selection) state.
 		&:indeterminate::after {
 			content: "";
 			position: absolute;
@@ -149,40 +89,75 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 			left: 3px;
 			width: 8px;
 			height: 2.5px;
-			background: var(--paper);
+			background: var(--paper, var(--np-on-primary));
 		}
 	}
 
 	input[type="radio"] {
-		accent-color: var(--cyan);
+		accent-color: var(--cyan, var(--np-primary));
 	}
 
-	// @wordpress CheckboxControl draws its own check/dash SVG; hide it so the
-	// CSS-drawn mark above is the only one — matching the bare checkboxes exactly.
 	.components-checkbox-control__input-container svg {
 		display: none;
 	}
 }
 
-// @longform Dark skins: repaint the select chevron light (the default bakes in a
-// dark fill that vanishes on dark surfaces).
-// The skin class lives on <html> (shared/theme.js), NOT on the app root
-// — so these must be ANCESTOR selectors. Written as `.topology-app….theme-crt`
-// they matched nothing, the base rule's dark chevron won, and every dark skin
-// drew a near-black caret on a near-black field. The ancestor form also carries
-// the extra class the base rule has to be outranked by.
+// InputControl's Emotion styles repeat their generated class three times and
+// are inserted at render time. One additional root repetition makes the
+// canonical component-input appearance deterministic without `!important`.
+.newspack-nodes-ui.newspack-nodes-ui.newspack-nodes-ui {
+	.components-input-control__container {
+		background: var(--np-field-surface);
+		border: 1px solid var(--np-field-border);
+		border-radius: var(--field-radius, 0);
+		box-shadow: none;
+	}
+
+	.components-input-control__backdrop {
+		display: none;
+	}
+
+	.components-input-control__input {
+		background: transparent;
+		border: 0;
+		border-radius: inherit;
+		color: var(--np-field-ink);
+		-webkit-text-fill-color: var(--np-field-ink);
+		box-shadow: none;
+		padding: 6px 10px;
+		font-size: 12px;
+		line-height: 1.4;
+
+		&::placeholder {
+			color: var(--np-field-muted);
+			-webkit-text-fill-color: var(--np-field-muted);
+			opacity: 1;
+		}
+	}
+
+	.components-select-control__input {
+		padding-right: 22px;
+		background-image: url("#{ $np-chevron-dark }");
+		background-repeat: no-repeat;
+		background-position: right 8px center;
+		background-size: 8px;
+		cursor: pointer;
+	}
+}
+
 $np-dark-skins: blueprint, crt, synthwave, nord, aurora, neotokyo, scada;
 
 @each $skin in $np-dark-skins {
-	.theme-#{$skin} .topology-app.topology-app.newspack-nodes-theme {
+	.theme-#{$skin}
+		:is(
+			.topology-app,
+			.newspack-nodes-skin-root
+		).newspack-nodes-ui.newspack-nodes-ui {
 		select,
 		.components-select-control__input {
 			background-image: url("#{ $np-chevron-light }");
 		}
 
-		// Dark skins only: paint native UA sub-widgets dark (number spinners, the
-		// bare native checkbox). A light skin keeps its light native widgets —
-		// forcing `color-scheme: dark` there turned unchecked boxes + spinners black.
 		select,
 		input,
 		textarea {

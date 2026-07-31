@@ -364,9 +364,9 @@ export default function LogRowList( {
 
 	return (
 		<div
-			className={ `newspack-nodes-log-rows${ debug ? ' is-debug' : '' }${
-				listClassName ? ' ' + listClassName : ''
-			}` }
+			className={ `newspack-nodes-table newspack-nodes-log-rows${
+				debug ? ' is-debug' : ''
+			}${ listClassName ? ' ' + listClassName : '' }` }
 			role="rowgroup"
 			ref={ listRef }
 			onScroll={ handleScroll }
@@ -383,7 +383,7 @@ export default function LogRowList( {
 				} }
 			>
 				{ 0 === model.visible ? (
-					<div className="newspack-nodes-log-rows__empty">
+					<div className="newspack-nodes-empty-state is-quiet newspack-nodes-log-rows__empty">
 						{ emptyLabel }
 					</div>
 				) : (

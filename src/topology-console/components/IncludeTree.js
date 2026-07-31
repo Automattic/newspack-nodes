@@ -20,7 +20,7 @@ function Branch( { name, subtree, depth, onRemove } ) {
 				{ 0 === depth && onRemove && (
 					<button
 						type="button"
-						className="topology-edit-verb__remove"
+						className="button button-small button-link-delete topology-edit-verb__remove"
 						data-testid={ `include-remove-${ name }` }
 						aria-label={ `Remove include ${ name }` }
 						onClick={ () => onRemove( name ) }

@@ -19,19 +19,6 @@
 	box-sizing: border-box;
 }
 
-// =============================================================================
-// Header
-// =============================================================================
-
-.aggregator-status-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 24px;
-	padding-bottom: 16px;
-	border-bottom: 1px solid var(--paper-shadow);
-}
-
 .aggregator-status-meta {
 	display: flex;
 	align-items: center;
@@ -45,10 +32,6 @@
 	align-items: center;
 	gap: 6px;
 	min-width: 120px;
-
-	&.refreshing {
-		color: var(--cyan);
-	}
 }
 
 .aggregator-status-refresh-dot {
@@ -57,11 +40,6 @@
 	border-radius: 50%;
 	background: var(--sage);
 	transition: background 0.2s ease;
-
-	&.refreshing {
-		background: var(--cyan);
-		animation: pulse 1s ease-in-out infinite;
-	}
 }
 
 @keyframes pulse {
@@ -97,13 +75,16 @@
 }
 
 .aggregator-status-empty {
-	text-align: center;
-	padding: 48px 24px;
-	color: var(--ink-3);
 	font-size: 14px;
-	background: var(--paper);
-	border-radius: var(--np-radius-md);
-	border: 1px dashed var(--paper-shadow);
+}
+
+.newspack-nodes-empty-state.aggregator-status-empty {
+	padding: 48px 24px;
+	text-align: center;
+
+	&::before {
+		display: none;
+	}
 }
 
 // =============================================================================
@@ -111,14 +92,10 @@
 // =============================================================================
 
 .aggregator-server-card {
-	background: var(--paper);
-	border: 1px solid var(--paper-shadow);
-	border-radius: var(--np-radius-md);
-	padding: 16px 20px;
+	padding: 17px 21px;
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
-	box-shadow: 0 1px 3px rgb(0 0 0 / 6%);
 }
 
 // Server Identity
@@ -195,18 +172,12 @@
 
 .aggregator-partition {
 	position: relative;
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	border-radius: var(--np-radius-md);
-	padding: 11px 14px 11px 16px;
+	padding: 12px 15px 12px 17px;
 	min-width: 250px;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	overflow: hidden;
-	transition:
-		box-shadow 0.15s ease,
-		border-color 0.15s ease;
 
 	// At-a-glance health rail down the left edge: green (ok) / amber (degraded)
 	// / red (down). The whole-card status read without parsing the rows.
@@ -228,11 +199,6 @@
 
 	&.is-down::before {
 		background: var(--oxide);
-	}
-
-	&:hover {
-		border-color: var(--ink-3);
-		box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
 	}
 }
 
@@ -265,15 +231,7 @@
 	font-size: 11px;
 }
 
-.aggregator-partition-stat-label {
-	color: var(--ink-3);
-	text-transform: uppercase;
-	font-size: 9px;
-	letter-spacing: 0.3px;
-}
-
 .aggregator-partition-stat-value {
-	color: var(--ink);
 	font-family: base.$mono-font;
 	display: flex;
 	align-items: center;
@@ -294,32 +252,14 @@
 	text-overflow: ellipsis;
 }
 
-// Connection Status
-.aggregator-server-connection {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 4px;
-	min-width: 100px;
-}
-
 .aggregator-status-badge {
-	@include base.status-badge;
-
-	&.small {
-		font-size: 9px;
-		padding: 2px 6px;
-	}
-
-	// Accent-on-its-own-tint: both tokens track the theme, so the text always
-	// contrasts its fill (dark accent on light tint under Newspack, bright accent
-	// on dark tint under decorative skins) — no hardcoded #fff/#000.
+	// Semantic text is independently contrast-audited against its tint.
 	&.connected {
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
 		background: var(--sage-subtle);
-		color: var(--sage);
+		color: var(--sage-text);
 
 		// A small breathing dot = a live connection.
 		&::before {
@@ -332,75 +272,8 @@
 		}
 	}
 
-	&.connecting {
-		background: var(--cyan-subtle);
-		color: var(--cyan);
-		animation: pulse 1s ease-in-out infinite;
-	}
-
-	&.backoff {
-		background: var(--brass-subtle);
-		color: var(--brass);
-	}
-
-	&.disconnected,
-	&.connection_refused {
+	&.disconnected {
 		background: var(--paper-3);
-		color: var(--ink-3);
-	}
-
-	&.error,
-	&.ssl_error,
-	&.auth_failed {
-		background: var(--oxide-subtle);
-		color: var(--oxide);
-	}
-}
-
-.aggregator-connection-time {
-	font-size: 10px;
-	color: var(--ink-3);
-}
-
-// Heartbeat Section
-.aggregator-server-heartbeat {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-
-.aggregator-heartbeat-row {
-	display: flex;
-	align-items: center;
-	gap: 16px;
-	font-size: 12px;
-}
-
-.aggregator-heartbeat-label {
-	color: var(--ink-3);
-	min-width: 80px;
-	text-transform: uppercase;
-	font-size: 10px;
-	letter-spacing: 0.5px;
-}
-
-.aggregator-heartbeat-value {
-	color: var(--ink);
-	font-family: base.$mono-font;
-
-	&.success {
-		color: var(--sage);
-	}
-
-	&.error {
-		color: base.$error-text;
-	}
-
-	&.warning {
-		color: base.$warning-color;
-	}
-
-	&.muted {
 		color: var(--ink-3);
 	}
 }
@@ -409,48 +282,13 @@
 	display: inline-flex;
 	align-items: baseline;
 	gap: 2px;
-
-	.rtt-value {
-		font-weight: 600;
-		color: var(--cyan);
-	}
-
-	.rtt-unit {
-		font-size: 10px;
-		color: var(--ink-3);
-	}
-}
-
-// Heartbeat Status Badge
-.aggregator-heartbeat-status {
-	display: flex;
-	align-items: center;
-	gap: 8px;
 }
 
 .aggregator-heartbeat-badge {
-	@include base.status-badge;
-
-	&.small {
-		font-size: 9px;
-		padding: 2px 6px;
-	}
-
-	// Accent-on-its-own-tint (see .aggregator-status-badge) — readable in every
-	// skin, no hardcoded #fff/#000.
+	// Semantic text is independently contrast-audited against its tint.
 	&.success {
 		background: var(--sage-subtle);
-		color: var(--sage);
-	}
-
-	&.slot_expired {
-		background: var(--brass-subtle);
-		color: var(--brass);
-	}
-
-	&.error {
-		background: var(--oxide-subtle);
-		color: var(--oxide);
+		color: var(--sage-text);
 	}
 
 	&.pending {
@@ -473,39 +311,11 @@
 	color: var(--ink-3);
 }
 
-// Error Display
-.aggregator-server-error {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	min-width: 200px;
-}
-
-.aggregator-error-message {
-	font-size: 11px;
-	color: base.$error-text;
-	background: var(--oxide-subtle);
-	padding: 4px 10px;
-	border-radius: base.$border-radius-sm;
-	max-width: 250px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
 // =============================================================================
 // Loading State
 // =============================================================================
 
 .aggregator-status-loading {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	min-height: 200px;
-	gap: 16px;
-	color: var(--ink-3);
-
 	.spinner {
 		width: 32px;
 		height: 32px;

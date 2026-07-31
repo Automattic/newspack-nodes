@@ -14,27 +14,10 @@
 	flex: 1;
 	overflow-y: scroll;
 	overflow-x: hidden;
-	background: var(--paper-3, #1e1e1e);
-	border: 1px solid var(--paper-shadow, #3a3a3a);
-	border-radius: var(--np-radius-md, 6px);
 	-webkit-overflow-scrolling: touch;
 
 	&::-webkit-scrollbar {
 		width: 8px;
-	}
-
-	&::-webkit-scrollbar-track {
-		background: var(--paper-3, #1e1e1e);
-		border-radius: 4px;
-	}
-
-	&::-webkit-scrollbar-thumb {
-		background: var(--paper-shadow, #3a3a3a);
-		border-radius: 4px;
-
-		&:hover {
-			background: var(--ink-3, #949494);
-		}
 	}
 }
 
@@ -43,26 +26,11 @@
 	display: flex;
 	gap: 12px;
 	padding: 6px 12px;
-	background: var(--paper-2, #262626);
-	border: 1px solid var(--paper-shadow, #3a3a3a);
-	border-bottom: none;
-	border-radius: var(--np-radius-md, 6px) var(--np-radius-md, 6px) 0 0;
 	flex-shrink: 0;
 }
 
 .newspack-nodes-log-header__th {
-	color: var(--ink-3, #949494);
 	font-size: 11px;
-	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-	cursor: default;
-}
-
-// A headed pane squares its top so the header caps it seamlessly.
-.newspack-nodes-log-header + .newspack-nodes-log-rows {
-	border-top: none;
-	border-radius: 0 0 var(--np-radius-md, 6px) var(--np-radius-md, 6px);
 }
 
 .newspack-nodes-log-rows__content {
@@ -77,9 +45,13 @@
 	justify-content: center;
 	height: 100%;
 	min-height: 60px;
-	color: var(--ink-3, #949494);
 	font-size: 14px;
-	font-style: italic;
+}
+
+.newspack-nodes-empty-state.newspack-nodes-log-rows__empty {
+	height: 100%;
+	min-height: 60px;
+	padding: 0;
 }
 
 .newspack-nodes-log-row {
@@ -89,34 +61,9 @@
 	height: var(--log-row-height, 33px);
 	padding: 0 12px;
 	box-sizing: border-box;
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	font-size: 12px;
 	white-space: pre;
 	overflow: hidden;
-	color: var(--ink, #e0e0e0);
-
-	&.row-odd {
-		background: var(--paper-2, #262626);
-	}
-
-	// @longform Surface tiers are nearly identical on dark skins, so tint
-	// every other row toward the ink for visible striping (lighter on dark,
-	// darker on light — it adapts to the skin); hover tints toward the accent.
-	&.row-even {
-		background: color-mix(
-			in srgb,
-			var(--ink, #e0e0e0) 8%,
-			var(--paper-2, #262626)
-		);
-	}
-
-	&:hover {
-		background: color-mix(
-			in srgb,
-			var(--cyan, #6ea8c9) 20%,
-			var(--paper-2, #262626)
-		);
-	}
 
 	// Debug regime: natural row heights, wrapped values.
 	&.is-debug {
@@ -138,7 +85,6 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	user-select: all;
-	color: var(--ink-3, #949494);
 }
 
 .newspack-nodes-log-row__key {
@@ -147,7 +93,6 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	color: var(--ink-2, #b8b8b8);
 }
 
 // The value cell: one clipped line live; wrapped (pre-wrap) in debug rows.
@@ -174,13 +119,10 @@
 	flex-direction: column;
 }
 
-// @longform The browse-rail collapse chevron. Must match the console's
-// %topology-panel-toggle (topology-console/styles/graph-view.scss) so every
-// hide/show control reads identically; duplicated because placeholders
-// can't @extend across bundles.
-// The dock wraps the rail so the chevron rides its top inner edge;
-// collapsed, it is the slim rail holding just the expand chevron
-// (mirrors the console's topology-palette-dock).
+// @longform The dock owns only the browse-rail chevron's placement and box
+// geometry. The shared `.newspack-nodes-rail-toggle` role owns its appearance
+// so this control matches the palette and inspector across separate bundles.
+// Collapsed, the dock is the slim rail holding just the expand chevron.
 .newspack-nodes-rail-dock {
 	position: relative;
 	display: flex;
@@ -211,14 +153,4 @@
 	align-items: center;
 	justify-content: center;
 	padding: 0;
-	background: var(--paper-2, #262626);
-	color: var(--ink, #e0e0e0);
-	border: 1px solid var(--ink-4, #6a6a6a);
-	border-radius: 2px;
-	cursor: pointer;
-	font: 700 12px/1 var(--font-mono, monospace);
-
-	&:hover {
-		background: var(--hover, #30363d);
-	}
 }

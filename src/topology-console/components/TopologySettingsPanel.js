@@ -133,10 +133,17 @@ export default function TopologySettingsPanel( {
 	const genericRows = entries.filter(
 		( [ n ] ) => ! RECOGNIZED_KEYS.includes( n )
 	);
+	const target = getPortalTarget();
+	const isBodyPortal =
+		typeof document !== 'undefined' && target === document.body;
 
 	const panel = (
 		<div
-			className="topology-settings-panel"
+			className={ `newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel${
+				isBodyPortal
+					? ' newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+					: ''
+			}` }
 			role="dialog"
 			aria-label={ __( 'Topology settings', 'newspack-nodes' ) }
 		>
@@ -144,7 +151,7 @@ export default function TopologySettingsPanel( {
 				<span>{ __( 'Topology settings', 'newspack-nodes' ) }</span>
 				<button
 					type="button"
-					className="topology-settings-panel__close"
+					className="button button-small topology-settings-panel__close"
 					onClick={ onClose }
 					aria-label={ __( 'Close', 'newspack-nodes' ) }
 				>
@@ -263,6 +270,7 @@ export default function TopologySettingsPanel( {
 						/>
 						<button
 							type="button"
+							className="button button-small button-link-delete"
 							onClick={ () => removeKey( name ) }
 							aria-label={ sprintf(
 								// translators: %s: variable name.
@@ -295,7 +303,11 @@ export default function TopologySettingsPanel( {
 						) }
 						onChange={ ( e ) => setNewValue( e.target.value ) }
 					/>
-					<button type="button" onClick={ addVar }>
+					<button
+						type="button"
+						className="button button-small"
+						onClick={ addVar }
+					>
 						{ __( 'Add', 'newspack-nodes' ) }
 					</button>
 				</div>
@@ -308,6 +320,5 @@ export default function TopologySettingsPanel( {
 		</div>
 	);
 
-	const target = getPortalTarget();
 	return target ? createPortal( panel, target ) : panel;
 }

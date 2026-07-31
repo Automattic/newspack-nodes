@@ -164,7 +164,7 @@ export default function HullPanel( {
 					<button
 						type="button"
 						data-testid="hull-open"
-						className="topology-hull-panel__open"
+						className="button button-small topology-hull-panel__open"
 						onClick={ () => onOpenTopology( include ) }
 					>
 						{ sprintf(

@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Topology Console — skin gallery</title>
-<!-- The REAL compiled stylesheet. The canvas below uses the REAL
-     .topology-* class names (node bg/type/led/id/spark/counter/rate, edge,
-     brand colon) so the gallery exercises the actual component CSS + any
+<!-- The REAL compiled assets in runtime cascade order. The canvas below uses
+     the REAL .topology-* class names (node bg/type/led/id/spark/counter/rate,
+     edge, brand colon) so the gallery exercises the actual component CSS + any
      per-skin component overrides — not a simplified mock. The header/palette/
      inspector/repl chrome stays g-* (token-only) since it wasn't the concern. -->
-<link rel="stylesheet" href="../build/topology-console/index.css">
+<link rel="stylesheet" href="../build/theme/index.css">
+<link rel="stylesheet" href="../build/ui/index.css">
+<link rel="stylesheet" href="../build/graph/index.css">
 <style>
 	* { box-sizing: border-box; }
 	body { margin: 0; background: #2a2a2e; font-family: Inter, system-ui, sans-serif; padding: 24px; }
@@ -120,9 +122,9 @@ const node = ( x, y, type, id, led, spark, rate, counter, selected ) => `
 const S1 = [ 8, 18, 12, 26, 16, 30, 20, 34 ];
 const S2 = [ 14, 10, 22, 16, 28, 20, 32, 24 ];
 const card = ( slug, name ) => `
-<div class="card">
+<div class="card theme-${ slug }">
 	<div class="label">${ slug } <small>— ${ name }</small></div>
-	<div class="g-app topology-app theme-${ slug }">
+	<div class="g-app topology-app newspack-nodes-theme newspack-nodes-ui">
 		<div class="g-header">
 			<div class="topology-brand">NEWSPACK<span class="topology-brand__colon">::</span>NODES</div>
 			<span class="g-sub">firehose-workers-and-jobs · p0</span>

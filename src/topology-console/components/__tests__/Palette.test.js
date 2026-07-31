@@ -272,6 +272,7 @@ describe( 'Palette', () => {
 			<Palette classes={ sampleClasses } onToggle={ onToggle } />
 		);
 		const btn = getByRole( 'button', { name: /collapse palette/i } );
+		expect( btn.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
 		btn.click();
 		expect( onToggle ).toHaveBeenCalled();
 	} );
@@ -677,6 +678,8 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 		).toBeNull();
 		const toggle = container.querySelector( '.topology-palette__toggle' );
 		expect( toggle.parentElement ).toBe( dock );
+		expect( toggle.getAttribute( 'aria-label' ) ).toBe( 'Expand palette' );
+		expect( toggle.getAttribute( 'aria-expanded' ) ).toBe( 'false' );
 	} );
 
 	it( 'loading placeholder renders inside the aside, under the dock', () => {

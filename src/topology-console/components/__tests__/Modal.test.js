@@ -9,13 +9,25 @@ import { ConfirmModal, PromptModal, ModalShell, NewNodeModal } from '../Modal';
 
 describe( 'ModalShell', () => {
 	it( 'renders its title + children', () => {
-		const { getByText } = render(
+		const { baseElement, getByText } = render(
 			<ModalShell title="My Verb" onDismiss={ () => {} }>
 				<div>inner content</div>
 			</ModalShell>
 		);
 		expect( getByText( 'My Verb' ) ).not.toBeNull();
 		expect( getByText( 'inner content' ) ).not.toBeNull();
+		expect( baseElement.querySelector( '.topology-modal' ).className ).toBe(
+			'topology-modal newspack-nodes-modal'
+		);
+		expect(
+			baseElement.querySelector( '.topology-modal__header' ).className
+		).toBe( 'topology-modal__header newspack-nodes-modal__header' );
+		expect(
+			baseElement.querySelector( '.topology-modal__title' ).className
+		).toBe( 'topology-modal__title newspack-nodes-modal__title' );
+		expect(
+			baseElement.querySelector( '.topology-modal__close' ).className
+		).toBe( 'topology-modal__close newspack-nodes-modal__close' );
 	} );
 
 	it( 'renders an X close button in the corner that invokes onDismiss', () => {
@@ -60,7 +72,7 @@ describe( 'ModalShell', () => {
 		expect( onDismiss ).toHaveBeenCalled();
 	} );
 
-	it( 'portals the backdrop to <body> under a theme wrapper (escapes nested stacking; fixed full-viewport dim)', () => {
+	it( 'portals the backdrop to <body> under the canonical non-graph provider', () => {
 		// Portaled to <body> to escape the dock's stacking context + dim all.
 		render(
 			<div className="dock">
@@ -75,9 +87,12 @@ describe( 'ModalShell', () => {
 		);
 		expect( backdrop ).not.toBeNull();
 		expect( dock.contains( backdrop ) ).toBe( false );
-		expect(
-			backdrop.closest( '.topology-app.newspack-nodes-theme' )
-		).not.toBeNull();
+		const provider = backdrop.parentElement;
+		expect( provider.className ).toBe(
+			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+		);
+		expect( provider.parentElement ).toBe( document.body );
+		expect( provider.classList.contains( 'topology-app' ) ).toBe( false );
 	} );
 
 	it( 'centers the dialog over the overlay panel (not the viewport) when one is present', () => {

@@ -150,6 +150,109 @@ describe( 'AggregatorStatus', () => {
 		expect( container.textContent ).toContain( 'p1' );
 	} );
 
+	it( 'marks only outer server cards as elevated canonical surfaces', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const serverCards = [
+			...container.querySelectorAll( '.aggregator-server-card' ),
+		];
+		const partitionCards = [
+			...container.querySelectorAll( '.aggregator-partition' ),
+		];
+
+		expect( serverCards ).toHaveLength( SAMPLE_SERVERS.length );
+		expect( partitionCards ).toHaveLength( 2 );
+		expect(
+			[ ...serverCards, ...partitionCards ].every( ( card ) =>
+				card.classList.contains( 'newspack-nodes-card' )
+			)
+		).toBe( true );
+		expect(
+			serverCards.every( ( card ) =>
+				card.classList.contains( 'newspack-nodes-card--elevated' )
+			)
+		).toBe( true );
+		expect(
+			partitionCards.every(
+				( card ) =>
+					! card.classList.contains( 'newspack-nodes-card--elevated' )
+			)
+		).toBe( true );
+		expect(
+			partitionCards.every( ( card ) =>
+				card.classList.contains( 'newspack-nodes-card--hoverable' )
+			)
+		).toBe( true );
+		expect(
+			serverCards.every(
+				( card ) =>
+					! card.classList.contains(
+						'newspack-nodes-card--hoverable'
+					)
+			)
+		).toBe( true );
+	} );
+
+	it( 'keeps distinct partition readings in compact semantic rows', () => {
+		registerSlices( {
+			summary: {
+				serverNow: 2000,
+				connected: 1,
+				total: 1,
+				loading: false,
+			},
+			servers: {
+				servers: [
+					{
+						id: 'compact-contract',
+						url: 'https://compact.example.test',
+						partitions: {
+							0: {
+								connected: true,
+								last_connection_attempt: 1903,
+								last_sse_heartbeat: 1991,
+								last_heartbeat_response: 1997,
+								last_heartbeat_rtt: 37.25,
+								last_http_code: 207,
+							},
+						},
+					},
+				],
+				loading: false,
+			},
+		} );
+		const { container } = mount();
+		const partition = container.querySelector( '.aggregator-partition' );
+		const rows = [
+			...partition.querySelectorAll( '.aggregator-partition-row' ),
+		];
+
+		expect( rows ).toHaveLength( 4 );
+		expect(
+			rows.every(
+				( row ) => ! row.classList.contains( 'newspack-nodes-stat' )
+			)
+		).toBe( true );
+		expect(
+			rows.every(
+				( row ) =>
+					row.querySelector(
+						'.newspack-nodes-stat-label.aggregator-partition-stat-label'
+					) &&
+					row.querySelector(
+						'.newspack-nodes-stat-value.aggregator-partition-stat-value'
+					)
+			)
+		).toBe( true );
+		expect( partition.textContent ).toContain( '2m ago' );
+		expect( partition.textContent ).toContain( '9s ago' );
+		expect( partition.textContent ).toContain( '3s ago' );
+		expect( partition.textContent ).toContain( '37.3ms' );
+		expect( partition.textContent ).toContain( 'HTTP 207' );
+	} );
+
 	it( 'renders the connected/total count from the summary slice (not the servers slice)', () => {
 		registerSlices( {
 			summary: { connected: 1, total: 2, loading: false },

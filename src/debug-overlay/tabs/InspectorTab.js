@@ -286,7 +286,7 @@ export default function InspectorTab( {
 			data-testid="inspector-tab"
 		>
 			<div
-				className={ `topology-app newspack-nodes-theme is-inspector-open${
+				className={ `topology-app is-inspector-open${
 					inspectorCollapsed ? ' is-inspector-collapsed' : ''
 				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 			>
@@ -369,11 +369,7 @@ export default function InspectorTab( {
 				/>
 			</div>
 			{ pendingDrop && (
-				// display:contents host so sibling inherits --paper/--ink.
-				<div
-					className="topology-app newspack-nodes-theme"
-					style={ { display: 'contents' } }
-				>
+				<div style={ { display: 'contents' } }>
 					<NewNodeModal
 						shellName={ pendingDrop.shellName }
 						defaultName={ pendingDrop.defaultName }

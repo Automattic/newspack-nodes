@@ -25,6 +25,6 @@ module.exports = createJestConfig( {
 		'^d3$': path.resolve( __dirname, '../../node_modules/d3' ),
 	},
 	transformIgnorePatterns: [
-		'node_modules/(?!(d3|d3-.*|internmap|delaunator|robust-predicates)/)',
+		'node_modules/(?!(@noble/.*|d3|d3-.*|internmap|delaunator|robust-predicates)/)',
 	],
 } );

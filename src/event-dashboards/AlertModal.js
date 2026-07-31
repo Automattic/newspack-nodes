@@ -39,12 +39,14 @@ export default function AlertModal( { title, message, onClose } ) {
 			} }
 		>
 			<div
-				className="nodes-tm__alert"
+				className="nodes-tm__alert newspack-nodes-modal"
 				role="alertdialog"
 				aria-modal="true"
 				aria-label={ title }
 			>
-				<header className="nodes-tm__alert-title">{ title }</header>
+				<header className="newspack-nodes-modal__header newspack-nodes-modal__title nodes-tm__alert-title">
+					{ title }
+				</header>
 				<div className="nodes-tm__alert-body">{ message }</div>
 				<div className="nodes-tm__alert-actions">
 					<button

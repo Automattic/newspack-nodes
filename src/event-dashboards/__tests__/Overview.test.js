@@ -264,6 +264,15 @@ describe( 'Overview fleet board', () => {
 		).toBeNull();
 		const stopped = container.querySelector( '.nodes-overview__stopped' );
 		expect( stopped ).not.toBeNull();
+		const stoppedItem = stopped.querySelector(
+			'.nodes-overview__stopped-item'
+		);
+		expect( stoppedItem.classList.contains( 'newspack-nodes-badge' ) ).toBe(
+			true
+		);
+		expect(
+			stoppedItem.classList.contains( 'newspack-nodes-status-badge' )
+		).toBe( false );
 		const name = stopped.querySelector( '.nodes-overview__name' );
 		expect( name.textContent ).toBe( 'beta' );
 		expect( name.tagName ).not.toBe( 'A' );

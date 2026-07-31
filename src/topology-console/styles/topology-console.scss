@@ -45,17 +45,10 @@ body:has(.nodes-devtools-hub .topology-app) {
 // Paper backdrop + grid is painted as full-viewport fixed layers so
 // the schematic plotter feel persists when the user scrolls inside
 // the panes.
-.newspack-nodes-topology-console-page {
-	margin: 0;
-	padding: 0;
-}
-
-// Header styles moved to graph-view.scss so they ride along with GraphView's
-// imports — the debug overlay reuses the topology Header and needs them in
-// whatever bundle pulls in GraphView. The console picks them up transitively
-// via GraphView's import.
-// REPL footer styles moved to graph-view.scss for the same reason — the debug
-// overlay reuses ReplFooter and needs them in its bundle too.
+// Header and REPL footer styles live in the dedicated `newspack-nodes-graph`
+// asset because the console and debug overlay share them. Their hosts enqueue
+// that asset explicitly; GraphView itself does not import stylesheet side
+// effects.
 
 // ── Toast (post-save success / error banner) ───────────────────────────────
 .topology-toast {
@@ -79,7 +72,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 
 .topology-toast--error {
 	background: var(--oxide);
-	color: var(--paper);
+	color: var(--on-oxide);
 	border-color: var(--oxide-dark);
 }
 
@@ -119,17 +112,8 @@ body:has(.nodes-devtools-hub .topology-app) {
 	align-items: center;
 	gap: 8px;
 	padding: 6px 8px;
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	font: 500 12px var(--font-mono);
-	color: var(--ink);
-	cursor: pointer;
+	font-size: 12px;
 	margin-bottom: 4px;
-}
-
-.topology-open-item:hover {
-	background: var(--paper-3);
-	border-color: var(--ink-3);
 }
 
 .topology-open-item__name {
@@ -138,12 +122,8 @@ body:has(.nodes-devtools-hub .topology-app) {
 }
 
 .topology-open-item__badge {
-	background: var(--oxide);
-	color: var(--paper);
 	padding: 1px 6px;
 	font-size: 9px;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
 }
 
 // ── TopologySettingsPanel — frontmatter (`var name = value`) editor ──────────
@@ -163,12 +143,7 @@ body:has(.nodes-devtools-hub .topology-app) {
 	z-index: 1000;
 	width: 440px;
 	max-width: calc(100vw - 32px);
-	padding: 12px 14px;
-	background: var(--paper-2);
-	color: var(--ink);
-	border: 1px solid var(--paper-shadow);
-	border-radius: 6px;
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+	padding: 13px 15px;
 
 	&__head {
 		display: flex;
@@ -179,30 +154,8 @@ body:has(.nodes-devtools-hub .topology-app) {
 	}
 
 	&__close {
-		background: none;
-		border: 0;
-		cursor: pointer;
 		font-size: 18px;
 		line-height: 1;
-		color: var(--ink);
-		transition: color 100ms ease;
-
-		&:hover {
-			color: var(--oxide);
-		}
-	}
-
-	// WP form inputs default to stark white; theme them so the panel reads on
-	// dark skins (light-on-light under Newspack, dark under decorative skins).
-	input[type="text"],
-	input[type="number"] {
-		background: var(--paper);
-		color: var(--ink);
-		border: 1px solid var(--paper-shadow);
-
-		&::placeholder {
-			color: var(--ink-3);
-		}
 	}
 
 	// The native number spinner renders in the browser's light UA colors (a
@@ -270,43 +223,50 @@ body:has(.nodes-devtools-hub .topology-app) {
 	// Remove (×) — subtle, themed; hover turns destructive (oxide).
 	button {
 		flex: 0 0 auto;
-		cursor: pointer;
-		background: transparent;
-		border: 1px solid var(--paper-shadow);
-		color: var(--ink);
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
-		border-radius: 3px;
-		transition: all 100ms ease;
-
-		&:hover {
-			background: var(--oxide);
-			border-color: var(--oxide);
-			color: var(--paper);
-		}
 	}
 
 	// Add — primary action; mirrors the toolbar SAVE button language.
 	&--add button {
-		background: var(--sage);
-		border-color: var(--ink);
-		color: var(--paper);
-		font: 700 10px var(--font-mono);
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
+		font-size: 10px;
 		padding: 8px 14px;
-
-		&:hover {
-			background: var(--sage-dark);
-			border-color: var(--ink);
-			color: var(--paper);
-		}
 	}
 }
 
 .topology-settings-error {
-	color: var(--oxide);
+	color: var(--oxide-text);
 	font-size: 11px;
 	margin-top: 4px;
+}
+
+.newspack-nodes-ui.newspack-nodes-ui {
+	.button:where(.topology-open-item, .topology-settings-panel__close),
+	.topology-settings-var-row .button {
+		min-height: 0;
+		height: auto;
+		margin-bottom: 0;
+		vertical-align: baseline;
+	}
+
+	.button:where(.topology-open-item) {
+		padding: 6px 8px;
+		line-height: 1.45;
+	}
+
+	.button:where(.topology-settings-panel__close) {
+		padding: 1px 6px;
+		line-height: 1;
+	}
+
+	.topology-settings-var-row .button {
+		padding: 4px 9px;
+		line-height: 1;
+	}
+
+	.topology-settings-var-row--add .button {
+		padding: 8px 14px;
+		line-height: 1.45;
+	}
 }

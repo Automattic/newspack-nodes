@@ -318,7 +318,9 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( getByTestId( 'inspector' ) ).not.toBeNull();
-		fireEvent.click( getByLabelText( 'Collapse inspector' ) );
+		const collapse = getByLabelText( 'Collapse inspector' );
+		expect( collapse.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
+		fireEvent.click( collapse );
 		expect( onInspectorToggle ).toHaveBeenCalled();
 		rerender(
 			<GraphView
@@ -330,7 +332,9 @@ describe( 'GraphView', () => {
 			/>
 		);
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
-		expect( getByLabelText( 'Expand inspector' ) ).not.toBeNull();
+		expect(
+			getByLabelText( 'Expand inspector' ).getAttribute( 'aria-expanded' )
+		).toBe( 'false' );
 	} );
 
 	it( 'accumulates the process-stats rate series in GraphView so it survives inspector collapse/expand', () => {

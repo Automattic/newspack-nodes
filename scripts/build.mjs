@@ -35,6 +35,14 @@ const ENTRIES = [
 		outDir: path.resolve( ROOT, 'build/theme' ),
 	},
 	{
+		entry: 'src/ui/index.js',
+		outDir: path.resolve( ROOT, 'build/ui' ),
+	},
+	{
+		entry: 'src/graph/index.js',
+		outDir: path.resolve( ROOT, 'build/graph' ),
+	},
+	{
 		entry: 'src/event-dashboards/index.js',
 		outDir: path.resolve( ROOT, 'build/event-dashboards' ),
 	},

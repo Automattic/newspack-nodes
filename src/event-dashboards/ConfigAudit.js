@@ -119,7 +119,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 			</p>
 
 			{ 0 === rows.length ? (
-				<p className="nodes-config-audit__empty">
+				<p className="newspack-nodes-empty-state nodes-config-audit__empty">
 					{ query
 						? __(
 								'No option names match the filter.',

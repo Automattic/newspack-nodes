@@ -7,17 +7,16 @@
  * references `var(--np-*)` — one definition, no per-plugin SCSS sharing or build
  * coupling (works for standalone pyrobase because nodes is a hard runtime dep).
  *
- * Values mirror DESIGN.product.md (Cobalt-led, Inter, light neutrals) and the
- * Topology Console's `.theme-newspack` skin — which maps its own `--paper/--ink/
- * --cyan/…` onto these tokens, so the console and the dashboards never drift.
+ * Values mirror DESIGN.product.md (Cobalt-led, Inter, light neutrals). The
+ * shared skin maps below translate those product tokens and every decorative
+ * palette into the universal `--paper/--ink/--cyan/…` vocabulary.
  *
- * This file defines ONLY custom properties (no font/color/background on the
- * class itself) so adding `.newspack-nodes-theme` to the console root can't
- * clobber the console's own skinned base look — consumers apply the base look in
- * their own root rule using these tokens.
+ * Apart from the narrowly scoped legacy focus bridge for public token-only
+ * consumers, this entry emits no component appearance.
  */
 
-@use "@newspack-nodes/shared/styles/focus";
+@use "skins";
+@use "legacy-focus";
 
 .newspack-nodes-theme {
 	/* Primary — Cobalt */
@@ -71,6 +70,12 @@
 	--np-radius-md: 8px;
 	--np-radius-lg: 16px;
 	--np-radius-full: 9999px;
+	--np-modal-radius: var(--np-radius-md);
+	--np-modal-shadow:
+		0 5px 15px rgba(0, 0, 0, 0.08),
+		0 15px 27px rgba(0, 0, 0, 0.07),
+		0 30px 36px rgba(0, 0, 0, 0.04),
+		0 50px 43px rgba(0, 0, 0, 0.02);
 	--np-space-xs: 4px;
 	--np-space-sm: 8px;
 	--np-space-md: 16px;
@@ -85,13 +90,4 @@
 	--np-chart-4: #b32d2e;
 	--np-chart-5: #2055b0;
 	--np-chart-6: #905665;
-}
-
-.newspack-dashboard-title {
-	margin: 0;
-	padding: 0;
-	font-size: 23px;
-	font-weight: 400;
-	line-height: 1.3;
-	color: var(--np-text);
 }

@@ -73,7 +73,7 @@ function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 					<span key={ name }>
 						<button
 							type="button"
-							className="topology-field-row__nav"
+							className="button button-small topology-field-row__nav"
 							onClick={ () => onSelect && onSelect( name ) }
 							onMouseEnter={ () => onHover && onHover( name ) }
 							onMouseLeave={ () => onHover && onHover( null ) }
@@ -372,7 +372,7 @@ function VerbRow( {
 					</span>
 					<button
 						type="button"
-						className="topology-edit-verb__remove"
+						className="button button-small button-link-delete topology-edit-verb__remove"
 						aria-label={ `Remove ${ spec.name }` }
 						onClick={ onRemove }
 					>
@@ -606,7 +606,7 @@ function RoutingChip( { label, virtual, onClear } ) {
 			{ onClear && ! virtual && (
 				<button
 					type="button"
-					className="topology-edit-chip__clear"
+					className="button button-small button-link-delete topology-edit-chip__clear"
 					aria-label={ sprintf(
 						// translators: %s: target node name to remove.
 						__( 'Remove %s', 'newspack-nodes' ),
@@ -713,7 +713,7 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 	return (
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
-			<div className="topology-insp__type">
+			<div className="newspack-nodes-status is-accent topology-insp__type">
 				{ node.class || '?' } · { __( 'BORROWED', 'newspack-nodes' ) }
 			</div>
 			{ node.via?.length > 0 && (
@@ -723,7 +723,7 @@ function LockedForm( { node, catalog, tree, includes, onRemoveInclude } ) {
 			) }
 			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
 				{ argumentSpecs.length === 0 && (
-					<div className="topology-edit-empty">
+					<div className="newspack-nodes-empty-state topology-edit-empty">
 						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
 					</div>
 				) }
@@ -820,14 +820,14 @@ function EditForm( {
 	return (
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
-			<div className="topology-insp__type">
+			<div className="newspack-nodes-status is-accent topology-insp__type">
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
 			{ onRemoveNode && ! isReserved( node ) && (
 				<button
 					type="button"
-					className="topology-edit-delete"
+					className="button button-small button-link-delete topology-edit-delete"
 					onClick={ () => onRemoveNode( node.id ) }
 				>
 					{ __( 'Delete node', 'newspack-nodes' ) }
@@ -870,7 +870,7 @@ function EditForm( {
 			{ ! isReserved( node ) && (
 				<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
 					{ argumentSpecs.length === 0 && (
-						<div className="topology-edit-empty">
+						<div className="newspack-nodes-empty-state topology-edit-empty">
 							{ __(
 								'No constructor arguments.',
 								'newspack-nodes'
@@ -900,7 +900,7 @@ function EditForm( {
 			{ ! isReserved( node ) && (
 				<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
 					{ commandSpecs.length === 0 && (
-						<div className="topology-edit-empty">
+						<div className="newspack-nodes-empty-state topology-edit-empty">
 							{ __( 'No verbs registered.', 'newspack-nodes' ) }
 						</div>
 					) }
@@ -970,7 +970,7 @@ function EditForm( {
 									) ) }
 									<button
 										type="button"
-										className="topology-edit-verb__add"
+										className="button button-small topology-edit-verb__add"
 										onClick={ handleAdd }
 									>
 										{ `+ Add ${ cspec.name }` }
@@ -1539,7 +1539,7 @@ export default function Inspector( {
 		if ( editMode ) {
 			return (
 				<aside className="topology-inspector">
-					<div className="topology-insp__empty">
+					<div className="newspack-nodes-empty-state topology-insp__empty">
 						{ __(
 							'Select a node to edit it, or drop one from the palette.',
 							'newspack-nodes'
@@ -1568,7 +1568,7 @@ export default function Inspector( {
 		return (
 			<aside className="topology-inspector">
 				<h2 className="topology-insp__title">_command_interpreter</h2>
-				<div className="topology-insp__type">
+				<div className="newspack-nodes-status is-accent topology-insp__type">
 					<span
 						className={ `topology-insp__led${
 							live ? ' is-pulsing' : ''
@@ -1813,7 +1813,7 @@ export default function Inspector( {
 	if ( ! node ) {
 		return (
 			<aside className="topology-inspector">
-				<div className="topology-insp__empty">
+				<div className="newspack-nodes-empty-state topology-insp__empty">
 					{ sprintf(
 						// translators: %s: the node id that is no longer present.
 						__( '%s no longer present', 'newspack-nodes' ),
@@ -1904,7 +1904,7 @@ export default function Inspector( {
 	return (
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
-			<div className="topology-insp__type">
+			<div className="newspack-nodes-status is-accent topology-insp__type">
 				<span
 					className={ `topology-insp__led${
 						live ? ' is-pulsing' : ''
@@ -2044,15 +2044,15 @@ export default function Inspector( {
 							? node.count.toLocaleString()
 							: '—'
 					}
-					vClass="topology-field-row__val--num"
+					vClass="newspack-nodes-stat-value is-accent topology-field-row__val--num"
 				/>
 				<FieldRow
 					k="rate"
 					v={ formatRate( rateInfo?.rate ) }
 					vClass={
 						rateInfo && rateInfo.rate > 0
-							? 'topology-field-row__val--num'
-							: 'topology-field-row__val--num topology-field-row__val--dim'
+							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
+							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
 				/>
 				<FieldRow
@@ -2060,8 +2060,8 @@ export default function Inspector( {
 					v={ formatBytes( node.lgstMsg || 0 ) }
 					vClass={
 						node.lgstMsg
-							? 'topology-field-row__val--num'
-							: 'topology-field-row__val--num topology-field-row__val--dim'
+							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
+							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
 				/>
 				<FieldRow
@@ -2069,8 +2069,8 @@ export default function Inspector( {
 					v={ formatBytes( node.bytesRead || 0 ) }
 					vClass={
 						node.bytesRead
-							? 'topology-field-row__val--num'
-							: 'topology-field-row__val--num topology-field-row__val--dim'
+							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
+							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
 				/>
 				<FieldRow
@@ -2078,8 +2078,8 @@ export default function Inspector( {
 					v={ formatBytes( node.bytesWritten || 0 ) }
 					vClass={
 						node.bytesWritten
-							? 'topology-field-row__val--num'
-							: 'topology-field-row__val--num topology-field-row__val--dim'
+							? 'newspack-nodes-stat-value is-accent topology-field-row__val--num'
+							: 'newspack-nodes-stat-value topology-field-row__val--num topology-field-row__val--dim'
 					}
 				/>
 				<FieldRow
@@ -2393,7 +2393,7 @@ export default function Inspector( {
 										</span>
 										<button
 											type="button"
-											className="topology-insp__listener-x"
+											className="button button-small button-link-delete topology-insp__listener-x"
 											aria-label={ sprintf(
 												// translators: %1$s: listener node; %2$s: event.
 												__(

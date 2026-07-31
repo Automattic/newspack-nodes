@@ -26,6 +26,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 		protected function setUp(): void {
 			parent::setUp();
 			$GLOBALS['_enqueued_scripts']  = [];
+			$GLOBALS['_enqueued_styles']   = [];
 			$GLOBALS['_localized_scripts'] = [];
 			$_GET                          = [];
 			$this->tree_dir               = $this->make_temp_dir( 'devtools-bundle-' );
@@ -57,6 +58,19 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
+		}
+
+		public function test_eager_bundle_css_keeps_the_registrar_default_ui_dependencies(): void {
+			\file_put_contents( "{$this->tree_dir}/index.css", 'body{color:rgb(17,73,149)}' );
+			$this->register_bundle();
+			$_GET['page'] = Admin::HUB_MENU_SLUG;
+
+			( new Admin() )->enqueue_devtools_tab_bundles();
+
+			$this->assertSame(
+				[ 'wp-components', 'newspack-nodes-ui' ],
+				$GLOBALS['_enqueued_styles']['contrib-tab']['deps'] ?? null
+			);
 		}
 
 		public function test_does_not_enqueue_on_an_unrelated_page(): void {
@@ -125,6 +139,8 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$entry = $localized['data']['lazy-tab'];
 			$this->assertStringContainsString( 'http://x/lazy/index.js', $entry['src'] );
 			$this->assertStringContainsString( 'http://x/lazy/index.css', $entry['style'] );
+			$this->assertArrayNotHasKey( 'deps', $entry );
+			$this->assertArrayNotHasKey( 'styleDeps', $entry );
 			// The per-tab localize + the shared restUrl/nonce ride the entry so the
 			// injected bundle reads the same NewspackNodesData it would if enqueued.
 			$this->assertSame( 'zonk', $entry['data']['quux'] );

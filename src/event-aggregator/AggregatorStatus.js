@@ -141,44 +141,46 @@ function PartitionStatus( { partition, status, now } ) {
 	const rttFormatted = formatRtt( rtt );
 
 	return (
-		<div className={ `aggregator-partition is-${ health }` }>
+		<div
+			className={ `newspack-nodes-card newspack-nodes-card--hoverable aggregator-partition is-${ health }` }
+		>
 			<div className="aggregator-partition-header">
 				<span className="aggregator-partition-label">
 					p{ partition }
 				</span>
 				<span
-					className={ `aggregator-status-badge small ${ connectionStatus }` }
+					className={ `newspack-nodes-status-badge aggregator-status-badge small ${ connectionStatus }` }
 				>
 					{ connectionStatus.replace( /_/g, ' ' ) }
 				</span>
 			</div>
 			<div className="aggregator-partition-stats">
 				<div className="aggregator-partition-row">
-					<span className="aggregator-partition-stat-label">
+					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
 						{ connected
 							? __( 'Connected', 'newspack-nodes' )
 							: __( 'Attempt', 'newspack-nodes' ) }
 					</span>
-					<span className="aggregator-partition-stat-value">
+					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
 						{ formatTime( status.last_connection_attempt, now ) }
 					</span>
 				</div>
 				<div className="aggregator-partition-row">
-					<span className="aggregator-partition-stat-label">
+					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
 						{ __( 'Server HB', 'newspack-nodes' ) }
 					</span>
-					<span className="aggregator-partition-stat-value">
+					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
 						{ formatTime( status.last_sse_heartbeat, now ) }
 					</span>
 				</div>
 				<div className="aggregator-partition-row">
-					<span className="aggregator-partition-stat-label">
+					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
 						{ __( 'Client HB', 'newspack-nodes' ) }
 					</span>
-					<span className="aggregator-partition-stat-value">
+					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
 						{ rttFormatted && (
 							<span
-								className={ `aggregator-heartbeat-rtt small ${ getRttClass(
+								className={ `newspack-nodes-status aggregator-heartbeat-rtt small ${ getRttClass(
 									rtt
 								) }` }
 							>
@@ -189,12 +191,12 @@ function PartitionStatus( { partition, status, now } ) {
 					</span>
 				</div>
 				<div className="aggregator-partition-row">
-					<span className="aggregator-partition-stat-label">
+					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
 						{ __( 'Status', 'newspack-nodes' ) }
 					</span>
-					<span className="aggregator-partition-stat-value">
+					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
 						<span
-							className={ `aggregator-heartbeat-badge small ${ heartbeatStatus }` }
+							className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
 						>
 							{ heartbeatStatus.replace( /_/g, ' ' ) }
 						</span>
@@ -308,7 +310,7 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 	};
 
 	return (
-		<div className="aggregator-server-card">
+		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
 			{ /* Server Identity */ }
 			<div className="aggregator-server-identity">
 				<div className="aggregator-server-id">{ server.id }</div>
@@ -431,7 +433,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 
 			{ /* Loading State */ }
 			{ loading && (
-				<div className="aggregator-status-loading">
+				<div className="newspack-nodes-performance-loading aggregator-status-loading">
 					<div className="spinner" />
 					<span>
 						{ __( 'Loading server status…', 'newspack-nodes' ) }
@@ -463,7 +465,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 							/>
 						) )
 					) : (
-						<div className="aggregator-status-empty">
+						<div className="newspack-nodes-empty-state aggregator-status-empty">
 							{ __(
 								'No servers configured. Add a server in the Vault tab, then wire a Remote_Source into an active topology.',
 								'newspack-nodes'

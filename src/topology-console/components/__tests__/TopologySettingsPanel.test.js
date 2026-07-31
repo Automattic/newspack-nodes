@@ -17,6 +17,48 @@ function setup( frontmatter = {}, extra = {} ) {
 }
 
 describe( 'TopologySettingsPanel', () => {
+	it( 'owns the canonical non-graph provider classes when portaled to body', () => {
+		setup( {} );
+		const dialog = screen.getByRole( 'dialog', {
+			name: /topology settings/i,
+		} );
+
+		expect( dialog.className ).toBe(
+			'newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'
+		);
+		expect( dialog.parentElement ).toBe( document.body );
+		expect( dialog.classList.contains( 'topology-app' ) ).toBe( false );
+	} );
+
+	it( 'does not repeat provider classes when portaled into the themed hub', () => {
+		const provider = document.createElement( 'div' );
+		provider.className =
+			'newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui';
+		const hub = document.createElement( 'div' );
+		hub.className = 'nodes-devtools-hub';
+		provider.appendChild( hub );
+		document.body.appendChild( provider );
+
+		try {
+			setup( {} );
+			const dialog = screen.getByRole( 'dialog', {
+				name: /topology settings/i,
+			} );
+			expect( dialog.parentElement ).toBe( hub );
+			expect( dialog.className ).toBe(
+				'newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel'
+			);
+			expect( dialog.closest( '.newspack-nodes-theme' ) ).toBe(
+				provider
+			);
+			expect(
+				provider.querySelectorAll( '.newspack-nodes-theme' )
+			).toHaveLength( 0 );
+		} finally {
+			provider.remove();
+		}
+	} );
+
 	it( 'shows the config default as the partitions placeholder when unset', () => {
 		setup( {} );
 		const input = screen.getByLabelText( /partitions/i );

@@ -6,8 +6,8 @@
  * `useNodeState('vault:list','view')` and renders a server-credential table +
  * add form. (The TEST-result concern publishes into the sibling `vault:test`
  * view; each row's Test status is surfaced locally from the test() callback.)
- * The markup reuses WordPress's core admin class names (`wp-list-table`,
- * `form-table`, …) so it inherits the admin styling unchanged.
+ * The credential list uses the substrate's canonical themed table. The add
+ * form keeps WordPress's structural `form-table` layout.
  *
  * A successful add / remove re-`list()`s and the table re-renders from the
  * fresh model (no page reload). Test status + the add-form validation messages
@@ -73,7 +73,7 @@ function Modal( { ariaLabel, onClose, children } ) {
 			} }
 		>
 			<div
-				className="nodes-vault__modal"
+				className="nodes-vault__modal newspack-nodes-modal"
 				role="dialog"
 				aria-modal="true"
 				aria-label={ ariaLabel }
@@ -139,7 +139,7 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
  */
 function ServerRow( { server, onRemove, onTest } ) {
 	const { id, url } = server;
-	const [ testStatus, setTestStatus ] = useState( { text: '', color: '' } );
+	const [ testStatus, setTestStatus ] = useState( { text: '', tone: '' } );
 	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 
@@ -147,13 +147,13 @@ function ServerRow( { server, onRemove, onTest } ) {
 		setBusy( true );
 		setTestStatus( {
 			text: __( 'Testing…', 'newspack-nodes' ),
-			color: '',
+			tone: '',
 		} );
 		try {
 			await onTest( id );
 			setTestStatus( {
 				text: __( 'Connected!', 'newspack-nodes' ),
-				color: 'green',
+				tone: 'is-success',
 			} );
 		} catch ( err ) {
 			setTestStatus( {
@@ -162,7 +162,7 @@ function ServerRow( { server, onRemove, onTest } ) {
 					__( 'Failed: %s', 'newspack-nodes' ),
 					errorMessage( err )
 				),
-				color: 'red',
+				tone: 'is-error',
 			} );
 		} finally {
 			setBusy( false );
@@ -192,8 +192,7 @@ function ServerRow( { server, onRemove, onTest } ) {
 			<td>{ url }</td>
 			<td>
 				<span
-					className="test-status"
-					style={ { color: testStatus.color } }
+					className={ `newspack-nodes-status test-status ${ testStatus.tone }` }
 				>
 					{ testStatus.text }
 				</span>
@@ -243,7 +242,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 	const [ url, setUrl ] = useState( '' );
 	const [ username, setUsername ] = useState( '' );
 	const [ password, setPassword ] = useState( '' );
-	const [ status, setStatus ] = useState( { text: '', color: '' } );
+	const [ status, setStatus ] = useState( { text: '', tone: '' } );
 	const [ busy, setBusy ] = useState( false );
 	const idRef = useRef( null );
 
@@ -257,7 +256,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 		if ( ! trimmedId ) {
 			setStatus( {
 				text: __( 'ID is required', 'newspack-nodes' ),
-				color: 'red',
+				tone: 'is-error',
 			} );
 			return;
 		}
@@ -265,14 +264,14 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 		if ( ! trimmedUrl ) {
 			setStatus( {
 				text: __( 'Server URL is required', 'newspack-nodes' ),
-				color: 'red',
+				tone: 'is-error',
 			} );
 			return;
 		}
 		if ( ! trimmedUrl.startsWith( 'https://' ) ) {
 			setStatus( {
 				text: __( 'URL must start with https://', 'newspack-nodes' ),
-				color: 'red',
+				tone: 'is-error',
 			} );
 			return;
 		}
@@ -280,7 +279,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 		setBusy( true );
 		setStatus( {
 			text: __( 'Adding…', 'newspack-nodes' ),
-			color: '',
+			tone: '',
 		} );
 		try {
 			await onAdd( {
@@ -302,7 +301,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 					__( 'Error: %s', 'newspack-nodes' ),
 					errorMessage( err )
 				),
-				color: 'red',
+				tone: 'is-error',
 			} );
 		} finally {
 			setBusy( false );
@@ -417,8 +416,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 			<div className="nodes-vault__modal-actions">
 				<span
 					id="add-server-status"
-					className="nodes-vault__add-status"
-					style={ { color: status.color } }
+					className={ `newspack-nodes-status nodes-vault__add-status ${ status.tone }` }
 				>
 					{ status.text }
 				</span>
@@ -454,7 +452,9 @@ function AddServerModal( { onAdd, onClose } ) {
 			ariaLabel={ __( 'Add new server', 'newspack-nodes' ) }
 			onClose={ onClose }
 		>
-			<h4>{ __( 'Add New Server', 'newspack-nodes' ) }</h4>
+			<h4 className="newspack-nodes-modal__title">
+				{ __( 'Add New Server', 'newspack-nodes' ) }
+			</h4>
 			<AddServerForm
 				onAdd={ onAdd }
 				onSuccess={ onClose }
@@ -502,12 +502,12 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	return (
 		<div className="event-aggregator-servers-admin">
 			{ error && (
-				<div className="notice notice-error">
+				<div className="newspack-nodes-error-banner">
 					<p>{ error }</p>
 				</div>
 			) }
 			{ renderedControls }
-			<table className="wp-list-table widefat fixed striped">
+			<table className="newspack-nodes-table">
 				<thead>
 					<tr>
 						<th style={ { width: '12%' } }>

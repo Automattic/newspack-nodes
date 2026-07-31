@@ -1682,7 +1682,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	return (
 		<div
 			ref={ appRef }
-			className={ `topology-app newspack-nodes-theme is-inspector-open${
+			className={ `topology-app newspack-nodes-theme newspack-nodes-ui is-inspector-open${
 				mode === 'edit' ? ' is-edit-mode' : ''
 			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
 				inspectorCollapsed ? ' is-inspector-collapsed' : ''

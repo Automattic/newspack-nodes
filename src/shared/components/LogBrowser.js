@@ -48,14 +48,20 @@ export default function LogBrowser( {
 			<div className="newspack-nodes-log-browser__controls">
 				<button
 					type="button"
-					className={ `button${ isLive ? ' is-active' : '' }` }
+					className={ `newspack-nodes-log-browser__mode newspack-nodes-log-browser__mode--live${
+						isLive ? ' is-active' : ''
+					}` }
+					aria-pressed={ isLive }
 					onClick={ onFollow }
 				>
 					{ __( 'Live', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
-					className={ `button${ isLive ? '' : ' is-active' }` }
+					className={ `newspack-nodes-log-browser__mode newspack-nodes-log-browser__mode--replay${
+						isLive ? '' : ' is-active'
+					}` }
+					aria-pressed={ ! isLive }
 					onClick={ onReplay }
 				>
 					{ __( 'Replay', 'newspack-nodes' ) }
@@ -69,7 +75,7 @@ export default function LogBrowser( {
 			) }
 
 			{ 0 === items.length ? (
-				<div className="newspack-nodes-log-browser__empty">
+				<div className="newspack-nodes-empty-state is-quiet newspack-nodes-log-browser__empty">
 					{ emptyLabel }
 				</div>
 			) : (
@@ -81,7 +87,7 @@ export default function LogBrowser( {
 							<li key={ key }>
 								<button
 									type="button"
-									className={ `newspack-nodes-log-browser__item${
+									className={ `button newspack-nodes-log-browser__item${
 										active ? ' is-active' : ''
 									}` }
 									onClick={ () => onSelectItem( item ) }
@@ -90,7 +96,7 @@ export default function LogBrowser( {
 										{ itemLabel( item ) }
 									</span>
 									{ itemMeta && (
-										<span className="newspack-nodes-log-browser__item-meta">
+										<span className="newspack-nodes-status newspack-nodes-log-browser__item-meta">
 											{ itemMeta( item ) }
 										</span>
 									) }

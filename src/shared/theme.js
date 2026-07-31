@@ -6,9 +6,9 @@
  * no store to tear, and no way for a page-behind an overlay to hold a different
  * skin (there is only ever ONE skin, on the root).
  *
- * The CSS lives in `styles/graph-view.scss` scoped `.theme-<slug> .topology-app`,
- * so a `.topology-app` anywhere on the page resolves the live skin's tokens from
- * this root class.
+ * The token CSS lives in `theme/_skins.scss` and targets both topology and
+ * non-layout skin roots. Graph-only artwork remains in
+ * `topology-console/styles/graph-view.scss`.
  *
  * Consumers import this via the `@newspack-nodes/shared/theme` alias; the
  * topology-console's `themes.js` re-exports everything here and adds its own

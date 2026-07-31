@@ -21,6 +21,9 @@ describe( 'ConnectionBanner', () => {
 			'.newspack-nodes-connection-banner'
 		);
 		expect( banner ).not.toBeNull();
+		expect(
+			banner.classList.contains( 'newspack-nodes-error-banner' )
+		).toBe( true );
 		expect( banner.textContent ).toBe( 'Connection lost. Reconnecting…' );
 	} );
 
@@ -52,14 +55,13 @@ describe( 'ConnectionBanner', () => {
 		);
 	} );
 
-	it( 'fully reskins off universal tokens (--oxide fill + --paper text), no fixed --np-*', () => {
-		// Error fill AND text reskin; --paper contrasts --oxide on every skin.
+	it( 'leaves shared error appearance to the canonical banner role', () => {
 		const scss = fs.readFileSync(
 			path.join( __dirname, '..', 'ConnectionBanner.scss' ),
 			'utf8'
 		);
-		expect( scss ).not.toMatch( /var\(\s*--np-/ );
-		expect( scss ).toMatch( /var\(\s*--oxide/ );
-		expect( scss ).toMatch( /var\(\s*--paper/ );
+		expect( scss ).not.toMatch(
+			/\b(?:background|border-radius|color)\s*:/
+		);
 	} );
 } );

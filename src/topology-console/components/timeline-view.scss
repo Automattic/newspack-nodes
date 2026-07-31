@@ -36,10 +36,6 @@
 		border-radius: 0;
 		outline: none;
 
-		&:focus {
-			border-color: var(--oxide);
-		}
-
 		&::placeholder {
 			color: var(--ink-4);
 		}
@@ -102,7 +98,7 @@
 	}
 
 	&__node {
-		color: var(--oxide);
+		color: var(--oxide-text);
 	}
 
 	&__payload {
@@ -111,6 +107,15 @@
 
 	&__empty {
 		margin: 12px 0 0;
-		color: var(--ink-3);
+	}
+}
+
+.newspack-nodes-empty-state.timeline-view__empty {
+	margin: 12px 0 0;
+	padding: 0;
+	text-align: left;
+
+	&::before {
+		display: none;
 	}
 }

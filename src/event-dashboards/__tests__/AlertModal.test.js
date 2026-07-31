@@ -28,6 +28,20 @@ describe( 'AlertModal', () => {
 		expect( ok.classList.contains( 'nodes-tm__alert-ok' ) ).toBe( false );
 	} );
 
+	it( 'marks the inline alert as a canonical modal without becoming a theme provider', () => {
+		const { getByRole } = render(
+			<AlertModal title="t" message="m" onClose={ jest.fn() } />
+		);
+		const dialog = getByRole( 'alertdialog' );
+
+		expect( dialog.className ).toBe(
+			'nodes-tm__alert newspack-nodes-modal'
+		);
+		expect( dialog.classList.contains( 'newspack-nodes-theme' ) ).toBe(
+			false
+		);
+	} );
+
 	it( 'closes on backdrop mouse down', () => {
 		const onClose = jest.fn();
 		const { container } = render(
