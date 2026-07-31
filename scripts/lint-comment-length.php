@@ -115,8 +115,6 @@ function check_file( string $file ): array {
 	return $violations;
 }
 
-const SKIP_FILES = [ 'reorder-node-methods.php' ];
-
 $failed = false;
 foreach ( \array_slice( $argv, 1 ) as $file ) {
 	if ( ! \str_ends_with( $file, '.php' ) || ! \is_file( $file ) ) {
@@ -124,10 +122,6 @@ foreach ( \array_slice( $argv, 1 ) as $file ) {
 	}
 	// Unit tests are exempt (owner's rule), as are vendored trees.
 	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules|build|coverage|release|\.phpstan)/#', $file ) ) {
-		continue;
-	}
-	// Shared dev tooling keeps the commentary it was authored with.
-	if ( \in_array( \basename( $file ), SKIP_FILES, true ) ) {
 		continue;
 	}
 	foreach ( check_file( $file ) as $violation ) {

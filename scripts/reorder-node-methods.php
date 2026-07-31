@@ -74,11 +74,14 @@ function tokens_with_offsets( string $src ): array {
 	return $out;
 }
 
-// Invariant fingerprint: sorted texts of EVERY member (methods and fields) across
-// all processed classes. Reordering is a permutation, so this multiset is unchanged
-// unless a member's own text was corrupted — which aborts the write. Covers the
-// whole rewritten region, not just method bodies.
-/** @return list<string> */
+/**
+ * Invariant fingerprint: sorted texts of EVERY member across all processed
+ * classes. Reordering is a permutation, so this multiset is unchanged unless a
+ * member's own text was corrupted — which aborts the write. Covers the whole
+ * rewritten region, not just method bodies.
+ *
+ * @return list<string>
+ */
 function member_fingerprint( string $src, bool $all_classes ): array {
 	$fp = [];
 	foreach ( find_classes( $src, $all_classes ) as $cls ) {
@@ -90,9 +93,12 @@ function member_fingerprint( string $src, bool $all_classes ): array {
 	return $fp;
 }
 
-// Build a non-method member (const / property / trait-use) with the metadata the
-// field-ordering convention sorts on: kind, visibility, static-ness, and name.
-/** @return Member */
+/**
+ * Build a non-method member (const / property / trait-use) with the metadata the
+ * field-ordering convention sorts on: kind, visibility, static-ness, and name.
+ *
+ * @return Member
+ */
 function field_member( string $src, int $start, int $end, string $vis, bool $static, bool $const, bool $use ): array {
 	$text = substr( $src, $start, $end - $start );
 	if ( $use ) {
@@ -108,15 +114,18 @@ function field_member( string $src, int $start, int $end, string $vis, bool $sta
 	return [ 'method' => false, 'name' => $name, 'static' => $static, 'public' => 'public' === $vis, 'vis' => $vis, 'kind' => $kind, 'end' => $end, 'start_fn' => $start ];
 }
 
-// Member end offset, extended to swallow a trailing SAME-LINE `//`, `#`, or
-// `/* ... */` comment after the terminating `;`/`}`. Without this the trailing
-// comment falls into the next member's leading chunk and gets orphaned onto the
-// wrong line on reorder.
-/** @param list<Token> $toks */
+/**
+ * Member end offset, extended to swallow a trailing SAME-LINE `//`, `#`, or
+ * `/* ... *\/` comment after the terminating `;`/`}`. Without this the trailing
+ * comment falls into the next member's leading chunk and gets orphaned onto the
+ * wrong line on reorder.
+ *
+ * @param list<Token> $toks
+ */
 function absorb_trailing_comment( array $toks, int $n, int $close_idx ): int {
 	$end  = $toks[ $close_idx ][2] + strlen( $toks[ $close_idx ][1] );
 	$next = $close_idx + 1;
-	// Optional same-line whitespace (spaces/tabs, no newline) before the comment.
+	// Optional same-line whitespace before the comment (no newline).
 	if ( $next < $n && $toks[ $next ][0] === T_WHITESPACE && strpos( $toks[ $next ][1], "\n" ) === false ) {
 		$next++;
 	}
@@ -129,30 +138,32 @@ function absorb_trailing_comment( array $toks, int $n, int $close_idx ): int {
 	return $end;
 }
 
-// Last `\`-delimited segment of a possibly-qualified name (`\A\B_Node` → `B_Node`).
+// Last `\`-delimited segment of a qualified name (`\A\B_Node` → `B_Node`).
 function last_ns_segment( string $name ): string {
 	$pos = strrpos( $name, '\\' );
 	return false === $pos ? $name : substr( $name, $pos + 1 );
 }
 
-// Class-name-shaped token: a bare T_STRING or a namespaced-name token. Node
-// detection keys on the `_Node` suffix by design — the substrate's make_node
+// @longform Class-name-shaped token: a bare T_STRING or a namespaced-name
+// token. Node detection keys on the `_Node` suffix by design — make_node
 // contract — so `extends \Newspack_Nodes\Job_Worker_Node` must be seen too.
 function is_name_token( ?int $id ): bool {
 	return T_STRING === $id || T_NAME_QUALIFIED === $id || T_NAME_FULLY_QUALIFIED === $id || T_NAME_RELATIVE === $id;
 }
 
-// Find classes and their depth-1 members with offsets. In node mode only Node
-// subclasses; with $all_classes, every class (each tagged is_node).
-/** @return list<ClassRec> */
+/**
+ * Find classes and their depth-1 members with offsets. In node mode only Node
+ * subclasses; with $all_classes, every class (each tagged is_node).
+ *
+ * @return list<ClassRec>
+ */
 function find_classes( string $src, bool $all_classes ): array {
 	$toks    = tokens_with_offsets( $src );
 	$n       = count( $toks );
 	$classes = [];
 	for ( $i = 0; $i < $n; $i++ ) {
 		if ( $toks[ $i ][0] !== T_CLASS ) continue;
-		// Skip `Foo::class` / `$x::class` — that `class` tokenizes as T_CLASS but is
-		// a constant reference, not a declaration; treating it as one seeds a phantom.
+		// `Foo::class` tokenizes as T_CLASS but declares nothing — skip it.
 		$p = $i - 1;
 		while ( $p >= 0 && ( $toks[ $p ][0] === T_WHITESPACE || $toks[ $p ][0] === T_COMMENT ) ) $p--;
 		if ( $p >= 0 && $toks[ $p ][0] === T_DOUBLE_COLON ) continue;
@@ -171,9 +182,10 @@ function find_classes( string $src, bool $all_classes ): array {
 			$j++;
 		}
 		if ( $j >= $n ) continue;
-		// Node-orderable if the class IS a node base (name 'Node' / '*_Node') or
-		// extends one. Node policy orders the base class correctly (fill/fire prefix
-		// + call-graph), so unlike generic policy it needn't be excluded.
+		// @longform Node-orderable if the class IS a node base (name 'Node' or
+		// '*_Node') or extends one. Node policy orders the base class right
+		// (fill/fire prefix + call graph), so unlike generic policy it needs
+		// no exclusion.
 		$is_node = ( $className === 'Node' || str_ends_with( $className, '_Node' )
 			|| $extends === 'Node' || str_ends_with( $extends, '_Node' ) );
 		if ( ! $is_node && ! $all_classes ) continue;
@@ -214,10 +226,10 @@ function find_classes( string $src, bool $all_classes ): array {
 			if ( $id === T_PRIVATE ) { $fnPublic = false; $mVis = 'private'; }
 			elseif ( $id === T_PROTECTED ) { $fnPublic = false; $mVis = 'protected'; }
 			elseif ( $id === T_PUBLIC ) { $mVis = 'public'; }
-			// The method name is the first identifier-shaped token after `function`
-			// (skip the optional `&` for by-ref). Match by text, NOT token id: a
-			// method named with a semi-reserved word (`list`, `print`, `unset`, …)
-			// tokenizes as T_LIST/T_PRINT/… not T_STRING.
+			// @longform The method name is the first identifier-shaped token
+			// after `function` (skip the optional `&` for by-ref). Match by
+			// TEXT, not token id: a semi-reserved name (`list`, `print`,
+			// `unset`, …) tokenizes as T_LIST/T_PRINT/…, never T_STRING.
 			if ( $sawFunction && $fnName === null && $id !== T_FUNCTION && \preg_match( '/^[a-zA-Z_][a-zA-Z0-9_]*$/', $txt ) ) $fnName = $txt;
 			if ( $txt === ';' ) {
 				if ( $sawFunction ) { // abstract method (no body)
@@ -234,11 +246,12 @@ function find_classes( string $src, bool $all_classes ): array {
 	return $classes;
 }
 
-// A method's SELF-dispatched callees ($this->/$this?->/$this::/self::/static::), in
-// first-appearance order; calls on other objects ($p->foo()) are not edges. Detection
-// scans the TOKEN stream over the method's [start_fn, end] offset range, so a call
-// spelled inside a string/comment/heredoc — its own single token — is never an edge.
 /**
+ * A method's SELF-dispatched callees ($this->/$this?->/self::/static::), in
+ * first-appearance order; a call on another object ($p->foo()) is not an edge.
+ * Detection scans the TOKEN stream over the method's [start_fn, end] range, so a
+ * call spelled inside a string/comment/heredoc is never an edge.
+ *
  * @param list<Token>        $toks
  * @param list<Member>       $methods
  * @param array<string, int> $names
@@ -284,11 +297,12 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 	};
 }
 
-// NODE policy: fixed prefix (constructor/arguments/fill/fire*), then a topological
-// order of the call-graph-connected middle methods where every callee sits below ALL
-// its callers (public roots grouped, then the shared chain — newspaper/stepdown order
-// for a shared helper), then standalone methods in source order, then node_schema.
 /**
+ * NODE policy: fixed prefix (constructor/arguments/fill/fire*), then a
+ * topological order of the call-graph-connected middle methods where every
+ * callee sits below ALL its callers (public roots grouped, then the shared
+ * chain), then standalone methods in source order, then node_schema.
+ *
  * @param list<Token>  $toks
  * @param list<Member> $methods
  * @return list<int>
@@ -309,8 +323,7 @@ function order_methods_node( array $toks, array $methods ): array {
 	$prefixIdx = array_map( fn( $t ) => $t['i'], $prefix );
 	$middleSet = array_flip( $middle );
 
-	// Self-dispatch edges among methods. Prefix entrypoints (fill/fire) are pre-placed —
-	// they don't gate ordering (in-degree), but their calls still pull middle helpers in.
+	// Prefix entrypoints are pre-placed, but still pull middle helpers in.
 	$callees = []; $indeg = array_fill_keys( $middle, 0 ); $called_by_prefix = [];
 	foreach ( array_merge( $prefixIdx, $middle ) as $i ) {
 		$cs = [];
@@ -329,7 +342,7 @@ function order_methods_node( array $toks, array $methods ): array {
 	foreach ( $middle as $i )
 		if ( $callees[ $i ] || $indeg[ $i ] > 0 || isset( $called_by_prefix[ $i ] ) ) $connected[ $i ] = 1;
 
-	// Kahn topological emit (ascending index = source order tie-break); cycle → source order.
+	// Kahn emit (ascending index breaks ties); a cycle falls to source order.
 	$placed = []; $visited = [];
 	$remaining = array_values( array_filter( $middle, fn( $i ) => isset( $connected[ $i ] ) ) );
 	while ( true ) {
@@ -346,7 +359,7 @@ function order_methods_node( array $toks, array $methods ): array {
 	return array_merge( $prefixIdx, $placed, $standalone, $suffix );
 }
 
-// GENERIC policy: __construct first, then public API roots deepest-first, each followed by its tree.
+// GENERIC policy: __construct, then public roots deepest-first + their trees.
 /**
  * @param list<Token>  $toks
  * @param list<Member> $methods
@@ -391,7 +404,7 @@ function order_methods_generic( array $toks, array $methods ): array {
 		return $d !== 0 ? $d : ( $a <=> $b );              // tie: source order
 	} );
 	foreach ( $roots as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; $expand( $i ); }
-	// Remaining public (reached-by-private-only, mutual recursion, inert leaves), then privates — source order.
+	// Remaining publics (private-only reach, recursion), then privates.
 	foreach ( $rest as $i ) if ( $methods[ $i ]['public'] && ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; $expand( $i ); }
 	foreach ( $rest as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; }
 	return array_merge( $ctor, $placed );
@@ -423,12 +436,12 @@ function reorder( string $src, bool $all_classes, bool $sort_fields = false ): a
 		foreach ( $slice as $m ) if ( $m['method'] ) { $has_method = true; break; }
 		if ( ! $has_method ) continue;
 
-		// Reorder the WHOLE class body: the field block (every const/prop/use) is
-		// hoisted above the methods, then the methods in call-graph order. Declared
-		// field order is OBSERVABLE (get_object_vars, foreach, (array) cast, var_dump,
-		// JSON), so by default fields keep source order; --sort-fields opts into the
-		// convention sort (`use` first, then const → static prop → instance prop,
-		// public → protected → private, alpha within).
+		// @longform Reorder the WHOLE class body: the field block (every
+		// const/prop/use) is hoisted above the methods, then the methods in
+		// call-graph order. Declared field order is OBSERVABLE
+		// (get_object_vars, foreach, (array) cast, var_dump, JSON), so
+		// fields keep source order unless --sort-fields opts into the
+		// convention sort.
 		$regionStart = $cls['contentStart'];
 		$regionEnd   = $slice[ count( $slice ) - 1 ]['end'];
 		$chunks = [];
@@ -444,8 +457,7 @@ function reorder( string $src, bool $all_classes, bool $sort_fields = false ): a
 			else $field_pos[] = $p;
 		}
 
-		// --sort-fields only: const (0) → static prop (1) → instance prop (2); public
-		// (0) → protected (1) → private (2); then name (alpha); source index ties.
+		// --sort-fields: kind, then visibility, then name; index breaks ties.
 		if ( $sort_fields ) {
 			usort( $field_pos, function ( int $a, int $b ) use ( $slice ) {
 				$ka = [ field_kind_rank( $slice[ $a ] ), field_vis_rank( $slice[ $a ] ), $slice[ $a ]['name'], $a ];
@@ -467,9 +479,11 @@ function reorder( string $src, bool $all_classes, bool $sort_fields = false ): a
 	return [ $out, $notes ];
 }
 
-// Write $out over $f atomically: a same-dir temp file (so rename is atomic, never
-// cross-device), chmod'd to the original mode, then renamed into place. Any failed
-// step cleans up the temp file and returns false so the caller can fail loud.
+/**
+ * Write $out over $f atomically: a same-dir temp file (so rename is atomic,
+ * never cross-device), chmod'd to the original mode, then renamed into place.
+ * A failed step cleans up the temp file and returns false, so callers fail loud.
+ */
 function write_atomic( string $f, string $out ): bool {
 	$dir = dirname( $f );
 	$tmp = tempnam( $dir, '.reorder' );
@@ -495,8 +509,7 @@ foreach ( $files as $f ) {
 	$before = member_fingerprint( $src, $all_classes );
 	[ $out, $notes ] = reorder( $src, $all_classes, $sort_fields );
 	if ( $out === $src ) continue;
-	// Two invariants: member texts unchanged (no body edited), and the whole-file
-	// byte multiset unchanged (no byte lost/duplicated/added).
+	// Invariants: member texts unchanged, whole-file byte multiset unchanged.
 	if ( $before !== member_fingerprint( $out, $all_classes ) || count_chars( $src, 1 ) !== count_chars( $out, 1 ) ) {
 		fwrite( STDERR, "✗ $f: INVARIANT VIOLATION — aborted\n" );
 		$failed = true;

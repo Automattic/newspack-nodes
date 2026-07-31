@@ -55,8 +55,10 @@ if ( ! files.length ) {
 	process.exit( 1 );
 }
 
-// Resolve from the plugin this copy lives in, so a vendored copy uses that
-// plugin's dependencies rather than reaching back into the substrate.
+/**
+ * Resolve from the plugin this copy lives in, so a vendored copy uses that
+ * plugin's dependencies rather than reaching back into the substrate.
+ */
 const requireFromPlugin = createRequire(
 	path.join( __dirname, '..', 'node_modules', '__reorder_node_methods__.js' )
 );
@@ -83,15 +85,17 @@ function parse( src ) {
 	} );
 }
 
+/**
+ * Node-orderable if the class IS a node base (name 'Node' / '*Node') or extends
+ * one. Node policy orders the base class correctly (fill/fire prefix +
+ * call-graph), so unlike generic policy it needn't be excluded.
+ */
 function isNodeClass( cls ) {
-	// Node-orderable if the class IS a node base (name 'Node' / '*Node') or
-	// extends one. Node policy orders the base class correctly (fill/fire prefix
-	// + call-graph), so unlike generic policy it needn't be excluded.
 	const names = [ cls.id?.name, cls.superClass?.name ];
 	return names.some( ( n ) => !! n && ( n === 'Node' || /Node$/.test( n ) ) );
 }
 
-// Visit each top-level class. In node mode only Node subclasses; with everyClass, every class.
+// Every top-level class: node mode takes Node subclasses, everyClass takes all.
 function walkClasses( ast, cb, everyClass ) {
 	for ( const node of ast.program.body ) {
 		let cls = null;
@@ -147,7 +151,7 @@ const isLast = ( m ) => {
 	return n === 'nodeSchema' || n === 'node_schema';
 };
 
-// Resolve `this.foo` / `this.#foo` / `this['foo']` callees; anything else is null.
+// Resolve `this.foo` / `this.#foo` / `this['foo']` callees; else null.
 function thisCallName( callee ) {
 	if (
 		! callee ||
@@ -172,8 +176,10 @@ function thisCallName( callee ) {
 	return null;
 }
 
-// Collect self-dispatched calls under an AST node, in source-position order.
-// AST-based so strings / comments / template literals never forge a call edge.
+/**
+ * Collect self-dispatched calls under an AST node, in source-position order.
+ * AST-based so strings / comments / template literals never forge a call edge.
+ */
 function collectThisCalls( node, hits ) {
 	if ( ! node || typeof node.type !== 'string' ) {
 		return;
@@ -205,9 +211,11 @@ function collectThisCalls( node, hits ) {
 	}
 }
 
-// Invariant fingerprint: sorted texts of EVERY member (methods and fields) across
-// all processed classes. Reordering is a permutation, so this multiset is unchanged
-// unless a member's own text was corrupted — which aborts the write.
+/**
+ * Invariant fingerprint: sorted texts of EVERY member (methods and fields)
+ * across all processed classes. Reordering is a permutation, so this multiset is
+ * unchanged unless a member's own text was corrupted — which aborts the write.
+ */
 function memberTexts( src, ast, everyClass ) {
 	const out = [];
 	walkClasses(
@@ -225,10 +233,10 @@ function memberTexts( src, ast, everyClass ) {
 function reorderClass( src, cls, isNode ) {
 	const members = cls.body.body;
 
-	// Refuse classes where reordering could change semantics: a computed key
-	// ([expr]) evaluates in element order (fields-first hoist would move it), and
-	// two members sharing a name are last-wins (the call graph could reverse them).
-	// A get/set accessor pair legitimately shares a name — that alone is not a dup.
+	// @longform Refuse classes where reordering could change semantics: a
+	// computed key ([expr]) evaluates in element order (a fields-first
+	// hoist would move it), and two members sharing a name are last-wins
+	// (the call graph could reverse them). A get/set pair is NOT a dup.
 	for ( const m of members ) {
 		if ( m.computed ) {
 			return {
@@ -270,17 +278,16 @@ function reorderClass( src, cls, isNode ) {
 		return null;
 	}
 
-	// The region spans the first method through the last. A non-method (class
-	// field) interleaved among the methods is HOISTED to the top of the region
-	// (fields-first), NOT skipped: moving a field past methods is order-
+	// @longform The region spans the first method through the last. A
+	// class field interleaved among the methods is HOISTED to the top of
+	// the region, NOT skipped: moving a field past methods is order-
 	// independent, and the old skip left such classes silently un-ordered.
 	const slice = members.slice( firstMethodIdx, lastMethodIdx + 1 );
 	const regionStart =
 		firstMethodIdx === 0
 			? cls.body.start + 1
 			: members[ firstMethodIdx - 1 ].end;
-	// A comment trailing a member's `}` ON THE SAME LINE belongs to that member, not
-	// the next one — extend the member's end past it so it travels on reorder.
+	// A same-line trailing comment belongs to that member — extend past it.
 	const memberEnd = ( m ) => {
 		const tc = m.trailingComments && m.trailingComments[ 0 ];
 		return tc && ! src.slice( m.end, tc.start ).includes( '\n' )
@@ -288,7 +295,7 @@ function reorderClass( src, cls, isNode ) {
 			: m.end;
 	};
 	const regionEnd = memberEnd( slice[ slice.length - 1 ] );
-	// Chunk text per member — [prevEnd, thisEnd] so leading docblock + blank line travel with it.
+	// Chunk per member — [prevEnd, thisEnd], so the docblock travels with it.
 	const chunk = slice.map( ( m, i ) =>
 		src.slice(
 			i === 0 ? regionStart : memberEnd( slice[ i - 1 ] ),
@@ -329,7 +336,7 @@ function reorderClass( src, cls, isNode ) {
 		} );
 	}
 
-	// Call graph: a unit's SELF-dispatched callees (this.foo()/this?.foo()), in first-appearance order; calls on other objects (p.foo()) are not edges.
+	// Call graph: SELF-dispatched callees only; `p.foo()` is not an edge.
 	const allNames = new Set( methods.map( mname ).filter( Boolean ) );
 	const byName = {};
 	units.forEach( ( u ) =>
@@ -363,10 +370,10 @@ function reorderClass( src, cls, isNode ) {
 
 	let ordered;
 	if ( isNode ) {
-		// NODE: fixed prefix, then a topological order of the call-graph-connected
-		// middle units where every callee sits below ALL its callers (public roots
-		// grouped, then the shared chain — newspaper/stepdown order for a shared
-		// helper), then standalone units in source order, then nodeSchema.
+		// @longform NODE: fixed prefix, then a topological order of the
+		// call-graph-connected middle units where every callee sits below
+		// ALL its callers (public roots grouped, then the shared chain),
+		// then standalones in source order, then nodeSchema.
 		for ( const u of units ) {
 			u.topRank = topRank( u.members[ 0 ] );
 			if ( u.topRank !== null ) {
@@ -385,9 +392,7 @@ function reorderClass( src, cls, isNode ) {
 		const middleSet = new Set( middle );
 		const srcIdx = new Map( units.map( ( u, i ) => [ u, i ] ) );
 
-		// Self-dispatch edges among middle. Prefix entrypoints (fill/fire) are
-		// pre-placed — they don't gate ordering, but their calls still pull middle
-		// helpers in.
+		// Prefix entrypoints are pre-placed, but still pull middle helpers in.
 		const calleeUnits = new Map();
 		const indeg = new Map( middle.map( ( u ) => [ u, 0 ] ) );
 		const calledByTop = new Set();
@@ -445,7 +450,7 @@ function reorderClass( src, cls, isNode ) {
 		const standalone = middle.filter( ( u ) => ! connected.has( u ) );
 		ordered = [ ...top, ...placed, ...standalone, ...last ];
 	} else {
-		// GENERIC: constructor first, then public API roots deepest-first, each followed by its tree.
+		// GENERIC: constructor, then public roots deepest-first + trees.
 		const visited = new Set();
 		const placed = [];
 		const expand = ( u ) => {
@@ -501,7 +506,7 @@ function reorderClass( src, cls, isNode ) {
 				expand( r );
 			}
 		}
-		// Any remaining public methods (reached-by-private-only, mutual recursion, inert leaves), then privates.
+		// Remaining publics (private-only reach, recursion), then privates.
 		for ( const u of units ) {
 			if (
 				isPublic( u ) &&
@@ -605,8 +610,10 @@ function reorderFile( file, doWrite, everyClass ) {
 	return { file, notes, changed: true };
 }
 
-// Char-frequency multiset equality — a permutation of chunks conserves it, so a
-// pass that loses / duplicates / adds any byte is caught even if member texts match.
+/**
+ * Char-frequency multiset equality — a permutation of chunks conserves it, so a
+ * pass that loses / duplicates / adds a byte is caught even if member texts match.
+ */
 function histogramsEqual( a, b ) {
 	if ( a.length !== b.length ) {
 		return false;
@@ -634,8 +641,10 @@ function histogramsEqual( a, b ) {
 	return true;
 }
 
-// Write via a same-dir temp file + rename so a reader never sees a partial file;
-// preserve the original mode (rename would otherwise install the umask default).
+/**
+ * Write via a same-dir temp file + rename so a reader never sees a partial file;
+ * preserve the original mode (rename would install the umask default).
+ */
 function atomicWrite( file, out ) {
 	const tmp = path.join(
 		path.dirname( file ),
