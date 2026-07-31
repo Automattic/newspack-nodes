@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Dev-dependency advisories cleared where a fix exists.** `js-yaml` to 4.3.1
+  and `brace-expansion` to 1.1.18 / 2.1.4, closing GHSA-52cp-r559-cp3m and
+  GHSA-3jxr-9vmj-r5cp. All are development scope — `build-release.sh` excludes
+  `node_modules` and PHP installs `--no-dev`, so none of this ships.
+
+  **GHSA-mh99-v99m-4gvg (brace-expansion) is deliberately left open.** It covers
+  every version `<= 5.0.7`, so the fix is 5.0.8 — and 5.0.8 changed the CommonJS
+  export from a bare function to `{ EXPANSION_MAX, EXPANSION_MAX_LENGTH, expand }`,
+  which every `minimatch` below 10 calls as a function. An override to 5.0.8 or
+  5.0.9 breaks eslint with `TypeError: expand is not a function`. `npm audit fix
+  --force` clears it only by taking eslint 10 AND downgrading jest 30 to 25 and
+  babel-jest 30 to 23. The residual risk is a DoS reachable only by feeding a
+  hostile glob to our own build tooling, which a hostile PR could not do without
+  already being able to run code in CI.
+
 ### Fixed
 
 - **No runtime node may leave a timer armed past its test, and the harness now
