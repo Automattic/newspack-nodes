@@ -29,7 +29,7 @@ SELF="sync-shared-scripts.sh"
 # Everything except this script, which phase 1 owns.
 SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	coverage-gate.py lint-comment-length.mjs lint-comment-length.php
-	test-coverage-gate.sh pre-commit commit-msg"
+	test-coverage-gate.sh pre-commit commit-msg lint-docs.sh"
 
 [ -d "$SUBSTRATE_DIR/scripts" ] || exit 0
 

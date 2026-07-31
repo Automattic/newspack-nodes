@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`lint-docs.sh` is a shared pre-push gate**, distributed by
+  `sync-shared-scripts.sh` and run from every plugin's `pre-push` rather than
+  the substrate's alone.
+- **The retired-retention-axis rule matches the CONFIG TOKEN, not the bare
+  word.** `<config:max_lifespan>` is wrong in any plugin, but `max_lifespan` is
+  also event-logger-nodes' live memcache-TTL property — matching the word
+  libelled ~15 correct lines there while catching nothing the arity rule missed.
+
+
 ## [2.3.1] - 2026-07-31
 
 ### Fixed
