@@ -1,6 +1,6 @@
 <?php
 /**
- * EventFramework: per-process drain-loop singleton (timers + cURL multi handles + deferred cleanup).
+ * EventFramework: per-process drain-loop singleton (timers + cURL multi handles).
  *
  * Local file descriptors are timer-driven via set_timer — no FD registration / stream_select path.
  *

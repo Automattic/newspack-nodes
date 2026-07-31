@@ -1,6 +1,6 @@
 <?php
 /**
- * Grep: payload filter. Forwards a message only when its VALUE matches the regex; drops the rest. Ported from Tachikoma's Grep.pm.
+ * Grep: payload filter. Forwards a message only when its VALUE matches the regex; drops the rest. Modeled on Tachikoma's Grep.pm.
  *
  * @package Newspack_Nodes
  */

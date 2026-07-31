@@ -2,10 +2,10 @@
 /**
  * ProbeToGraphite
  *
- * Port of Tachikoma's `TopicProbeToGraphite.pm` over the substrate's
+ * Modeled on Tachikoma's `TopicProbeToGraphite.pm` over the substrate's
  * positional Probe_Record: fill() accumulates the latest record per reader,
  * fire() formats `prefix.host.nodes.topics.<reader>.<field> value ts`
- * plaintext lines (fields: distance, msgs — the port's distance/msg_sent),
+ * plaintext lines (fields: distance, msgs — upstream's distance/msg_sent),
  * batches them 16 per TM_BYTESTREAM message to its sink, and clears state.
  *
  * Wire: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite` (and/or
@@ -107,7 +107,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Transform',
-			'description' => 'Formats topicprobe records into Graphite plaintext lines (Tachikoma TopicProbeToGraphite port).',
+			'description' => 'Formats topicprobe records into Graphite plaintext lines (Tachikoma TopicProbeToGraphite variant).',
 			'arguments'   => [
 				[ 'name' => 'prefix', 'type' => 'string', 'default' => 'hosts', 'description' => 'Metric path prefix.' ],
 				[ 'name' => 'interval', 'type' => 'float', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Emit interval in seconds.' ],

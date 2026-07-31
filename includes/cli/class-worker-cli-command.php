@@ -278,7 +278,8 @@ class Worker_CLI_Command {
 	/**
 	 * Activate a topology: add it to the active set and spawn its fleet now.
 	 *
-	 * The headless counterpart to the Settings → Topologies UI toggle. Validates
+	 * The headless counterpart to the Nodes hub's active toggle (the Overview and
+	 * Topologies tabs share one TopologyControls cluster). Validates
 	 * the name against the catalog (`Topology_Registry::describe()`), then delegates
 	 * the option-write + cache-invalidate + immediate spawn to the shared
 	 * `Topology_Registry::activate()` (the same primitive the REST/UI verb calls).

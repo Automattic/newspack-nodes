@@ -2,7 +2,7 @@
 /**
  * Value Timeout
  *
- * Port of Tachikoma's `PayloadTimeout.pm` (v2.0.905): value-keyed dedup
+ * Modeled on Tachikoma's `PayloadTimeout.pm` (v2.0.905): value-keyed dedup
  * with a timeout window and a trailing re-emit. The first arrival of a
  * value forwards; duplicates inside the window are suppressed but refresh
  * `recently_received`; each fire() re-emits a value whose window aged out
@@ -159,7 +159,7 @@ class Value_Timeout_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Filtering',
-			'description' => 'Value-keyed dedup window with trailing re-emit (Tachikoma PayloadTimeout port).',
+			'description' => 'Value-keyed dedup window with trailing re-emit (Tachikoma PayloadTimeout variant).',
 			'arguments'   => [
 				[ 'name' => 'timeout', 'type' => 'int', 'default' => self::DEFAULT_TIMEOUT, 'description' => 'Suppression window in seconds.' ],
 				[ 'name' => 'expires', 'type' => 'int', 'default' => self::DEFAULT_EXPIRES, 'description' => 'Drop messages older than this many seconds.' ],

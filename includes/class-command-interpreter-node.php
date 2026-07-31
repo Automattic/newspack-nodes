@@ -32,7 +32,7 @@ class Command_Interpreter_Node extends Node {
 	public static ?\Closure $default_authorize = null;
 
 	/**
-	 * Verb classes disabled at each secure level, ported from Tachikoma's
+	 * Verb classes disabled at each secure level, modeled on Tachikoma's
 	 * %DISABLED. Indexed by the CURRENT level, not a union: each level says
 	 * what is off AT that level, which is how Ruleset and Scheduler declare
 	 * only their own level-3 verbs.
@@ -467,7 +467,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `secure [<level>]` — climb the ratchet. Bare climbs one level, capped at
-	 * 3; an explicit level must be >= 1 and may never descend. Ported from
+	 * 3; an explicit level must be >= 1 and may never descend. Follows
 	 * Tachikoma's $C{secure}.
 	 *
 	 * @param list<string> $args Verb arguments.
@@ -495,7 +495,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `insecure` — declare this process deliberately unratcheted. Refused once
-	 * secured, so the declaration cannot be walked back. Ported from
+	 * secured, so the declaration cannot be walked back. Mirrors
 	 * Tachikoma's $C{insecure}.
 	 */
 	private static function cmd_insecure(): string {
@@ -1060,7 +1060,7 @@ class Command_Interpreter_Node extends Node {
 	 * `list_timers` — tabulate the Event_Framework's registered timers. NEXT is ms
 	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
 	 * re-arm period; MODE is the scheduling mode ('event_framework' own slot vs
-	 * 'router' hitchhike). Ported from Tachikoma CommandInterpreter's list_ids/list_timers.
+	 * 'router' hitchhike). Modeled on Tachikoma CommandInterpreter's list_ids/list_timers.
 	 */
 	private static function cmd_list_timers(): string {
 		$rows = [];
@@ -1551,7 +1551,7 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Naming an interpreter is the moment this process gains a command surface,
 	 * so it is the moment the policy becomes something someone has to declare.
-	 * Ported from Tachikoma's CommandInterpreter::name().
+	 * Follows Tachikoma's CommandInterpreter::name().
 	 */
 	public function name( ?string $name = null ): string {
 		// Parent splits getter/setter on func_num_args(); null would write.

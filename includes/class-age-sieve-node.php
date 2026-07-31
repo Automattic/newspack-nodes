@@ -2,7 +2,7 @@
 /**
  * AgeSieve
  *
- * Port of Tachikoma's `AgeSieve.pm` (v2.0.280): drop any message whose
+ * Modeled on Tachikoma's `AgeSieve.pm` (v2.0.280): drop any message whose
  * TIMESTAMP age exceeds `max_age`; everything younger passes through. No
  * type gating — age is the sole criterion, so keep control traffic off a
  * sieved edge. `should_warn` enables the rate-limited drop warning.
@@ -62,7 +62,7 @@ class Age_Sieve_Node extends Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Filtering',
-			'description' => 'Drops messages older than max_age seconds by TIMESTAMP (Tachikoma AgeSieve port).',
+			'description' => 'Drops messages older than max_age seconds by TIMESTAMP (Tachikoma AgeSieve variant).',
 			'arguments'   => [
 				[ 'name' => 'max_age', 'type' => 'float', 'default' => self::DEFAULT_MAX_AGE, 'description' => 'Maximum message age in seconds.' ],
 				[ 'name' => 'should_warn', 'type' => 'bool', 'default' => false, 'description' => 'Rate-limited warning on drops.' ],

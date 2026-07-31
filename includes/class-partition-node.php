@@ -415,7 +415,8 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
+	 * Lift the line-size limit to MAX_LARGE_LINE_SIZE (32 MiB) and acquire a Lock
+	 * serializing cross-process writes.
 	 *
 	 * Requires name() and sink() to be set BEFORE this is called.
 	 *

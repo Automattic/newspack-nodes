@@ -94,7 +94,7 @@ export class HttpOutNode extends Node {
 	}
 
 	/**
-	 * Wire-inbound discipline, ported from Tachikoma Socket.pm:852-862.
+	 * Wire-inbound discipline, following Tachikoma Socket.pm:852-862.
 	 *
 	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
 	 * off our own FROM breadcrumb. Anything else on the reply leg is the remote

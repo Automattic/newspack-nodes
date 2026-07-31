@@ -15,9 +15,9 @@
  * signing — commands addressed at nodes that no longer exist.
  *
  * What is deliberately NOT here: the dispatch loop. Tee prepends the remaining
- * path so routing continues past the hop, defers the first throw, and lets a
- * cooperative stop outrank it (ADR-14). Tap hard-addresses, swallows per-target
- * errors as non-fatal, and passes the original through. Those are different
+ * path so routing continues past the hop; Tap hard-addresses and then passes the
+ * original through. Both attempt every target, defer the throwable `outranks()`
+ * selects, and re-throw it after the loop (ADR-14). Those are different
  * contracts, not one contract with a flag.
  *
  * @package Newspack_Nodes
