@@ -47,17 +47,10 @@ function Branch( { name, subtree, depth, onRemove } ) {
 	);
 }
 
-export default function IncludeTree( {
-	tree = {},
-	includes = [],
-	selectedOrigin = null,
-	onRemove,
-} ) {
-	const roots = (
-		selectedOrigin && selectedOrigin.length
-			? includes.filter( ( n ) => selectedOrigin.includes( n ) )
-			: includes
-	).filter( ( n ) => Object.prototype.hasOwnProperty.call( tree, n ) );
+export default function IncludeTree( { tree = {}, includes = [], onRemove } ) {
+	const roots = includes.filter( ( n ) =>
+		Object.prototype.hasOwnProperty.call( tree, n )
+	);
 
 	return (
 		<div className="topology-include-tree">

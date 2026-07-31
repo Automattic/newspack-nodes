@@ -9,8 +9,10 @@ import OpenTopologyModal from '../OpenTopologyModal';
 const noop = () => {};
 
 describe( 'OpenTopologyModal', () => {
+	// One shell for every dialog: the picker used to carry a private copy, so
+	// fixes to the shared one (portal, skin root, anchoring) never reached it.
 	it( 'marks the actual wide dialog frame as a canonical modal', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [
 					{
@@ -25,21 +27,26 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		const frame = container.querySelector(
+		const frame = document.body.querySelector(
 			'[aria-modal="true"].topology-modal--wide'
 		);
 
 		expect( frame ).not.toBeNull();
 		expect( frame.className ).toBe(
-			'topology-modal topology-modal--wide newspack-nodes-modal'
+			'topology-modal newspack-nodes-modal topology-modal--wide'
 		);
 		expect(
 			frame.querySelector( '.topology-modal__header' ).className
 		).toBe( 'topology-modal__header newspack-nodes-modal__header' );
+		// Portaled through the shared shell, so it carries the skin root.
+		expect( frame.closest( '.newspack-nodes-skin-root' ) ).not.toBeNull();
+		expect(
+			frame.querySelector( '.topology-modal__close' )
+		).not.toBeNull();
 	} );
 
 	it( 'renders a loading row when loading=true', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [] }
 				loading
@@ -48,11 +55,11 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		expect( container.textContent ).toMatch( /Loading/ );
+		expect( document.body.textContent ).toMatch( /Loading/ );
 	} );
 
 	it( 'renders an error row when error is set', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [] }
 				loading={ false }
@@ -61,11 +68,11 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		expect( container.textContent ).toMatch( /Failed to load/ );
+		expect( document.body.textContent ).toMatch( /Failed to load/ );
 	} );
 
 	it( 'renders an empty-state row when topologies is empty and not loading', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [] }
 				loading={ false }
@@ -74,11 +81,13 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		expect( container.textContent ).toMatch( /No topologies registered/ );
+		expect( document.body.textContent ).toMatch(
+			/No topologies registered/
+		);
 	} );
 
 	it( 'groups topologies by source and renders only non-empty groups', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [
 					{ name: 'demo', source: 'user', active: false },
@@ -90,7 +99,7 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		const groups = container.querySelectorAll(
+		const groups = document.body.querySelectorAll(
 			'.topology-open-group__title'
 		);
 		const titles = Array.from( groups ).map( ( g ) => g.textContent );
@@ -99,7 +108,7 @@ describe( 'OpenTopologyModal', () => {
 	} );
 
 	it( 'shows an "active" badge on active topologies', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [
 					{ name: 'demo', source: 'user', active: true },
@@ -110,13 +119,15 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		const badge = container.querySelector( '.topology-open-item__badge' );
+		const badge = document.body.querySelector(
+			'.topology-open-item__badge'
+		);
 		expect( badge.textContent ).toBe( 'active' );
 	} );
 
 	it( 'calls onPick with the topology name when an item is clicked', () => {
 		const onPick = jest.fn();
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [
 					{ name: 'demo', source: 'user', active: false },
@@ -127,7 +138,7 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		const button = container.querySelector( '.topology-open-item' );
+		const button = document.body.querySelector( '.topology-open-item' );
 		fireEvent.mouseDown( button );
 		expect( onPick ).toHaveBeenCalledWith( 'demo' );
 	} );
@@ -164,7 +175,7 @@ describe( 'OpenTopologyModal', () => {
 
 	it( 'calls onCancel on backdrop mousedown', () => {
 		const onCancel = jest.fn();
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [] }
 				loading={ false }
@@ -174,13 +185,13 @@ describe( 'OpenTopologyModal', () => {
 			/>
 		);
 		fireEvent.mouseDown(
-			container.querySelector( '.topology-modal-backdrop' )
+			document.body.querySelector( '.topology-modal-backdrop' )
 		);
 		expect( onCancel ).toHaveBeenCalled();
 	} );
 
 	it( 'buckets unknown source values into "stock"', () => {
-		const { container } = render(
+		render(
 			<OpenTopologyModal
 				topologies={ [
 					{ name: 'odd', source: 'mystery', active: false },
@@ -191,7 +202,9 @@ describe( 'OpenTopologyModal', () => {
 				onCancel={ noop }
 			/>
 		);
-		const title = container.querySelector( '.topology-open-group__title' );
+		const title = document.body.querySelector(
+			'.topology-open-group__title'
+		);
 		expect( title.textContent ).toBe( 'stock' );
 	} );
 } );

@@ -1544,7 +1544,6 @@ export default function Inspector( {
 					<IncludeTree
 						tree={ tree }
 						includes={ includes }
-						selectedOrigin={ null }
 						onRemove={ onRemoveInclude }
 					/>
 				</aside>

@@ -267,7 +267,6 @@ export default function HullPanel( {
 					<IncludeTree
 						tree={ subtree }
 						includes={ children }
-						selectedOrigin={ null }
 						onRemove={ null }
 					/>
 				</div>

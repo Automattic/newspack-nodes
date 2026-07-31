@@ -9,7 +9,13 @@ import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/serializeTsl';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
-export function ModalShell( { title, onDismiss, wide = false, children } ) {
+export function ModalShell( {
+	title,
+	onDismiss,
+	wide = false,
+	className = '',
+	children,
+} ) {
 	const ref = useRef( null );
 
 	useEffect( () => {
@@ -54,7 +60,7 @@ export function ModalShell( { title, onDismiss, wide = false, children } ) {
 				<div
 					className={ `topology-modal newspack-nodes-modal${
 						wide ? ' topology-modal--large' : ''
-					}` }
+					}${ className ? ` ${ className }` : '' }` }
 					ref={ ref }
 					role="dialog"
 					aria-modal="true"

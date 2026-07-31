@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`IncludeTree`'s `selectedOrigin` prop.** Once the tree became file-scoped,
+  both remaining callers passed `null`, so its provenance-filter branch could
+  never run.
+
+### Changed
+
+- **The Open dialog uses the shared `ModalShell`.** It carried a private copy,
+  so shell fixes never reached it — including this release's anchoring change.
+  `ModalShell` gained a `className` passthrough so the picker keeps its 640px
+  `--wide` sizing instead of inheriting the 1000px `--large`, and it now gets
+  the portal, skin root, and close control every other dialog has.
+
+
 ## [2.2.11] - 2026-07-31
 
 ### Added
