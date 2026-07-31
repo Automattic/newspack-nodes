@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Topology_Registry::includes()`** — the transitive include set of one
+  topology. "Does this deployment run X?" cannot be answered from the ACTIVE
+  topology NAMES: a deployment routinely runs a stock topology through a
+  locally-named wrapper, whose name says nothing about what it composes.
+
+### Changed
+
+- **The vendored `reorder-node-methods` tooling now passes the comment-length
+  gate.** Function-level prose moved into docblocks, inline prose condensed to
+  one line; four algorithm notes that genuinely need the length carry
+  `@longform`. No behavior change — the tool's own test still passes 38/38.
+
+
 ## [2.2.13] - 2026-07-31
 
 ### Added

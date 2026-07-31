@@ -442,6 +442,45 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Every topology `$name` pulls in, at any depth — itself excluded.
+	 *
+	 * "Does this deployment run X?" cannot be answered from the ACTIVE topology
+	 * NAMES: a deployment routinely runs a stock topology through a locally-named
+	 * wrapper, and the wrapper's name says nothing about what it composes.
+	 *
+	 * @api Consumer plugins ask this; the substrate itself has no caller.
+	 *
+	 * @param string $name Topology to inspect.
+	 *
+	 * @return list<string> Transitive include names; empty when `$name` is unknown.
+	 */
+	public static function includes( string $name ): array {
+		if ( null === self::resolve( $name ) ) {
+			return [];
+		}
+		/** @var array<array-key, mixed> $tree */
+		$tree = self::statements( $name )['tree'];
+		return self::flatten_tree( $tree );
+	}
+
+	/**
+	 * @param array<array-key, mixed> $tree Include subtree.
+	 * @return list<string> Every name in the subtree, depth-first.
+	 */
+	private static function flatten_tree( array $tree ): array {
+		$out = [];
+		foreach ( $tree as $child => $subtree ) {
+			$out[] = (string) $child;
+			if ( \is_array( $subtree ) ) {
+				foreach ( self::flatten_tree( $subtree ) as $deeper ) {
+					$out[] = $deeper;
+				}
+			}
+		}
+		return \array_values( \array_unique( $out ) );
+	}
+
+	/**
 	 * Compose an include set into one graph with provenance — for the console.
 	 *
 	 * Informational only: the runtime is the Shell's `include`. `origin` is the
