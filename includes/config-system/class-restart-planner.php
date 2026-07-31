@@ -34,6 +34,9 @@ class Restart_Planner {
 	 * @return array<int,string>
 	 */
 	public static function request_restarts( array|string $restart, string $locks_dir ): array {
+		if ( ! Bootstrap::fleet_site() ) {
+			return [];
+		}
 		$topologies = self::topologies_for( $restart );
 		foreach ( $topologies as $name ) {
 			$count = Bootstrap::num_partitions_for( $name );
