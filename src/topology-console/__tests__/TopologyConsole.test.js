@@ -4839,21 +4839,21 @@ describe( 'TopologyConsole boot', () => {
 		const rootClass = () => document.documentElement.className;
 
 		it( 'defaults to theme-newspack when localStorage is empty', () => {
-			const { container } = render( <TopologyConsole /> );
-			expect( rootClass( container ) ).toContain( 'theme-newspack' );
+			render( <TopologyConsole /> );
+			expect( rootClass() ).toContain( 'theme-newspack' );
 		} );
 
 		it( 'applies a valid stored skin on mount', () => {
 			window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
-			const { container } = render( <TopologyConsole /> );
-			expect( rootClass( container ) ).toContain( 'theme-blueprint' );
+			render( <TopologyConsole /> );
+			expect( rootClass() ).toContain( 'theme-blueprint' );
 		} );
 
 		it( 'falls back to theme-newspack for an unknown stored skin', () => {
 			window.localStorage.setItem( 'newspack-nodes:theme', 'bogus' );
-			const { container } = render( <TopologyConsole /> );
-			expect( rootClass( container ) ).toContain( 'theme-newspack' );
-			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
+			render( <TopologyConsole /> );
+			expect( rootClass() ).toContain( 'theme-newspack' );
+			expect( rootClass() ).not.toContain( 'theme-bogus' );
 		} );
 
 		it( 'no longer threads skin props to the header (skins moved to the REPL)', () => {
@@ -4863,12 +4863,12 @@ describe( 'TopologyConsole boot', () => {
 		} );
 
 		it( 'set_skin REPL builtin updates the root class and persists', () => {
-			const { container } = render( <TopologyConsole /> );
+			render( <TopologyConsole /> );
 			act( () => {
 				// Spaced label form resolves to the `crt` slug.
 				lastReplProps.onSubmit( 'set_skin CRT Phosphor' );
 			} );
-			expect( rootClass( container ) ).toContain( 'theme-crt' );
+			expect( rootClass() ).toContain( 'theme-crt' );
 			expect(
 				window.localStorage.getItem( 'newspack-nodes:theme' )
 			).toBe( 'crt' );
