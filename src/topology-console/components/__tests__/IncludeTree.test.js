@@ -19,7 +19,6 @@ describe( 'IncludeTree', () => {
 			<IncludeTree
 				tree={ tree }
 				includes={ [ 'performance', 'job-router' ] }
-				selectedOrigin={ null }
 				onAdd={ jest.fn() }
 				onRemove={ onRemove }
 			/>
@@ -30,26 +29,11 @@ describe( 'IncludeTree', () => {
 		expect( onRemove ).toHaveBeenCalledWith( 'performance' );
 	} );
 
-	it( 'scopes to the selection branch when a node from an include is selected', () => {
-		render(
-			<IncludeTree
-				tree={ tree }
-				includes={ [ 'performance', 'job-router' ] }
-				selectedOrigin={ [ 'performance' ] }
-				onAdd={ jest.fn() }
-				onRemove={ jest.fn() }
-			/>
-		);
-		expect( screen.getByText( 'request-builder' ) ).not.toBeNull();
-		expect( screen.queryByText( 'job-intake' ) ).toBeNull();
-	} );
-
 	it( 'offers no remove control on a grandchild include', () => {
 		render(
 			<IncludeTree
 				tree={ tree }
 				includes={ [ 'performance' ] }
-				selectedOrigin={ null }
 				onAdd={ jest.fn() }
 				onRemove={ jest.fn() }
 			/>

@@ -5,43 +5,7 @@
 
 import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-
-function ModalShell( { title, onDismiss, children } ) {
-	useEffect( () => {
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onDismiss();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onDismiss ] );
-
-	return (
-		<div
-			className="topology-modal-backdrop"
-			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onDismiss();
-				}
-			} }
-		>
-			<div
-				className="topology-modal topology-modal--wide newspack-nodes-modal"
-				role="dialog"
-				aria-modal="true"
-				aria-label={ title }
-			>
-				<header className="topology-modal__header newspack-nodes-modal__header">
-					{ title }
-				</header>
-				{ children }
-			</div>
-		</div>
-	);
-}
+import { ModalShell } from './Modal';
 
 export default function OpenTopologyModal( {
 	topologies,
@@ -64,6 +28,7 @@ export default function OpenTopologyModal( {
 		<ModalShell
 			title={ __( 'Open topology', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
+			className="topology-modal--wide"
 		>
 			<div className="topology-modal__body">
 				{ loading && (
