@@ -14,6 +14,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * the supervisor / spawns workers; subsites no-op loud.
  */
 #[CoversClass( Bootstrap::class )]
+#[CoversClass( CLI::class )]
+#[CoversClass( Restart_Planner::class )]
 #[CoversClass( Supervisor::class )]
 class MultisiteGuardTest extends TestCase {
 
