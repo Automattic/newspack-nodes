@@ -19,6 +19,7 @@
 
 import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { endPosition } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
@@ -214,6 +215,16 @@ export function useLogViewerGraph( opts = {} ) {
 			return catalog;
 		} );
 	}, [] );
+
+	// @longform
+	// The catalog used to be fetched once inside the graph build, and its
+	// failure was swallowed with "picker stays empty" — so a refusal at mount,
+	// or a session that expired while the tab slept, left the source list blank
+	// with no way back but a reload. Holding it as reconciled state means the
+	// same refusal re-establishes itself, and fetchSources' own not-ready
+	// rejection doubles as the gate: the loop simply keeps trying until the
+	// exospine graph has mounted.
+	useReconcile( { load: fetchSources } );
 
 	/**
 	 * Reposition the source + set the view mode. Live tail (null positions)

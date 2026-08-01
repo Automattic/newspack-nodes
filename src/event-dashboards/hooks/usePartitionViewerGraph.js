@@ -28,6 +28,7 @@
 
 import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { useGatedSubscription } from './useGatedSubscription';
 import { CommandClient } from '../../runtime/command-client';
@@ -122,6 +123,10 @@ export function usePartitionViewerGraph( opts = {} ) {
 		}
 	);
 
+	// So the reconciled catalog fetch stays a stable, dependency-free callback.
+	const resubscribeRef = useRef( resubscribe );
+	resubscribeRef.current = resubscribe;
+
 	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
 
@@ -154,35 +159,6 @@ export function usePartitionViewerGraph( opts = {} ) {
 			// Re-render so useNodeState re-subscribes to the new view.
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fire list_logs; its reply opens the stream on the default.
-			const listId = makeOpId();
-			const listFuture = new Promise( ( resolve, reject ) => {
-				view.replies.add( listId, resolve, reject );
-			} );
-			// After the session lands: mount races /auth.
-			ensureSession().then( () => {
-				const m = rawLogsCommand( view, listId, 'list_logs' );
-				if ( null !== m && viewRef.current === view ) {
-					link.send( m );
-				}
-			} );
-			listFuture
-				.then( ( logs ) => {
-					if ( ! Array.isArray( logs ) || 0 === logs.length ) {
-						return;
-					}
-					// Push the catalog into the view (defaults selected).
-					view.fill( controlMsg( { action: 'logs', logs } ) );
-					const selected = view.setStateCache?.view?.selected;
-					// Record the default; open only while active.
-					if ( selected ) {
-						resubscribe( [ selected ], null );
-					}
-				} )
-				.catch( () => {
-					// list_logs failure is silent; dropdown stays empty.
-				} );
-
 			// Tear down the RemoteLink before the exospine teardown.
 			return () => {
 				link.removeNode();
@@ -202,6 +178,47 @@ export function usePartitionViewerGraph( opts = {} ) {
 		viewRef.current?.fill( controlMsg( { action: 'select', log } ) );
 		resubscribe( [ log ], null );
 	};
+
+	// @longform
+	// The catalog was fetched inline in the graph build, its failure
+	// swallowed as "dropdown stays empty" — so a refusal at mount, or a session
+	// that expired while the tab slept, left the partition list blank until a
+	// reload. Extracted here so it can be held as reconciled state; its
+	// not-ready rejection doubles as the gate, so the loop simply keeps trying
+	// until the exospine graph has mounted.
+	const fetchLogs = useCallback( () => {
+		const view = viewRef.current;
+		const link = linkRef.current;
+		if ( ! view || ! link ) {
+			return Promise.reject( new Error( 'graph not ready' ) );
+		}
+		const listId = makeOpId();
+		const listFuture = new Promise( ( resolve, reject ) => {
+			view.replies.add( listId, resolve, reject );
+		} );
+		// After the session lands: mount races /auth.
+		ensureSession().then( () => {
+			const m = rawLogsCommand( view, listId, 'list_logs' );
+			if ( null !== m && viewRef.current === view ) {
+				link.send( m );
+			}
+		} );
+		return listFuture.then( ( logs ) => {
+			if ( ! Array.isArray( logs ) || 0 === logs.length ) {
+				return logs;
+			}
+			// Push the catalog into the view (defaults selected).
+			view.fill( controlMsg( { action: 'logs', logs } ) );
+			const selected = view.setStateCache?.view?.selected;
+			// Record the default; open only while active.
+			if ( selected ) {
+				resubscribeRef.current( [ selected ], null );
+			}
+			return logs;
+		} );
+	}, [] );
+
+	useReconcile( { load: fetchLogs } );
 
 	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
 	const fetchLogStatus = useCallback( ( log ) => {
