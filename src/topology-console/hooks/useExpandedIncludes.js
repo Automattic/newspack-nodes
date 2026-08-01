@@ -11,7 +11,8 @@
  * second identical round trip.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
@@ -111,60 +112,56 @@ export function useExpandedIncludes( includes ) {
 		error: null,
 		loading: false,
 	} );
-	const lastKey = useRef( null );
 
-	useEffect( () => {
-		if ( '' === key ) {
-			lastKey.current = key;
-			setState( { baseline: EMPTY, error: null, loading: false } );
-			return undefined;
-		}
-		if ( lastKey.current === key ) {
-			return undefined;
-		}
+	// @longform
+	// The lastKey latch was set BEFORE the request, so one failed expansion
+	// was permanent for that key — the baseline stayed missing until the key
+	// changed. The loop owns whether another attempt is due; the cache still
+	// serves an already-expanded key, so only an unresolved one is retried.
+	const load = useCallback( async () => {
 		const cached = cache.get( key );
 		if ( cached ) {
-			lastKey.current = key;
-			setState( { baseline: cached, error: null, loading: false } );
-			return undefined;
+			setState( ( s ) =>
+				cached === s.baseline && ! s.error && ! s.loading
+					? s
+					: { baseline: cached, error: null, loading: false }
+			);
+			return;
 		}
-		lastKey.current = key;
-		let cancelled = false;
 		setState( ( s ) => ( { ...s, loading: true, error: null } ) );
-		getCommandClient()
-			.send( {
+		try {
+			const message = await getCommandClient().send( {
 				to: 'topologies',
 				verb: 'expand',
 				args: formatCommandArgs( includesRef.current || [] ),
-			} )
-			.then( ( message ) => {
-				if ( cancelled ) {
-					return;
-				}
-				const value = unwrapCommandResponse( message );
-				const baseline = {
-					nodes: value.nodes || [],
-					edges: value.edges || [],
-					tree: value.tree || {},
-					hulls: value.hulls || {},
-				};
-				cache.set( key, baseline );
-				setState( { baseline, error: null, loading: false } );
-			} )
-			.catch( ( e ) => {
-				if ( cancelled ) {
-					return;
-				}
-				setState( ( s ) => ( {
-					baseline: s.baseline,
-					error: e?.message || 'expand failed',
-					loading: false,
-				} ) );
 			} );
-		return () => {
-			cancelled = true;
-		};
+			const value = unwrapCommandResponse( message );
+			const baseline = {
+				nodes: value.nodes || [],
+				edges: value.edges || [],
+				tree: value.tree || {},
+				hulls: value.hulls || {},
+			};
+			cache.set( key, baseline );
+			setState( { baseline, error: null, loading: false } );
+		} catch ( e ) {
+			setState( ( s ) => ( {
+				baseline: s.baseline,
+				error: e?.message || 'expand failed',
+				loading: false,
+			} ) );
+			throw e;
+		}
 	}, [ key ] );
+
+	// An empty include set resets synchronously, as it always did.
+	useEffect( () => {
+		if ( '' === key ) {
+			setState( { baseline: EMPTY, error: null, loading: false } );
+		}
+	}, [ key ] );
+
+	useReconcile( { load, enabled: '' !== key, deps: [ key ] } );
 
 	return state;
 }
