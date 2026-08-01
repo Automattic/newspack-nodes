@@ -1,9 +1,12 @@
+import apiFetch from '@wordpress/api-fetch';
 import {
 	signCommand,
 	ensureSession,
 	hasSession,
 	renewSession,
 	forgetSession,
+	readyToMint,
+	authGeneration,
 	__setAuthFetch,
 	__setBackoffClock,
 } from '../command-auth';
@@ -49,6 +52,148 @@ describe( 'browser command signing', () => {
 	afterEach( () => {
 		forgetSession();
 		__setAuthFetch( null );
+	} );
+
+	// The generation is what turns every auth-shaped failure into one signal a
+	// reconciled loader can depend on, instead of a per-call-site retry.
+	it( 'bumps the auth generation when the session is renewed', () => {
+		const before = authGeneration();
+
+		renewSession();
+		expect( authGeneration() ).toBe( before + 1 );
+
+		renewSession();
+		expect( authGeneration() ).toBe( before + 2 );
+	} );
+
+	it( 'keeps the generation stable while nothing invalidates', async () => {
+		await ensureSession();
+		const settled = authGeneration();
+
+		await ensureSession();
+		signCommand( aCommand() );
+
+		expect( authGeneration() ).toBe( settled );
+	} );
+
+	// /auth was the one request that could not recover from a stale nonce: it
+	// 403s, throws, and burns the re-auth backoff — so the session cannot be
+	// re-minted at the one moment it must be.
+	it( 'renews a stale REST nonce and retries /auth once', async () => {
+		__setAuthFetch( null ); // exercise the real postAuth
+		const previousEndpoint = apiFetch.nonceEndpoint;
+		const previousMiddleware = apiFetch.nonceMiddleware;
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'STALE-AUTH-NONCE-8823',
+		};
+		apiFetch.nonceEndpoint =
+			'https://example.test/wp-admin/admin-ajax.php?action=rest-nonce';
+		apiFetch.nonceMiddleware = { nonce: 'STALE-AUTH-NONCE-8823' };
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( {
+				ok: false,
+				status: 403,
+				text: () =>
+					Promise.resolve(
+						JSON.stringify( { code: 'rest_cookie_invalid_nonce' } )
+					),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				text: () => Promise.resolve( 'FRESH-AUTH-NONCE-4471' ),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				json: () =>
+					Promise.resolve( {
+						handle: 'ffff9999ffff9999ffff9999ffff9999',
+						key: 'session-after-renewal-5512',
+						expires_in: 3600,
+					} ),
+			} );
+
+		try {
+			const issued = await ensureSession();
+
+			// The session must come from the RETRY, not the first response.
+			expect( issued?.key ).toBe( 'session-after-renewal-5512' );
+			expect( global.fetch ).toHaveBeenCalledTimes( 3 );
+			expect( global.fetch.mock.calls[ 2 ][ 1 ].headers ).toEqual(
+				expect.objectContaining( {
+					'X-WP-Nonce': 'FRESH-AUTH-NONCE-4471',
+				} )
+			);
+		} finally {
+			delete global.fetch;
+			delete window.NewspackNodesData;
+			apiFetch.nonceEndpoint = previousEndpoint;
+			apiFetch.nonceMiddleware = previousMiddleware;
+		}
+	} );
+
+	// The server tells us the lifetime; discarding it meant the only way to
+	// learn a session had died was to have a command refused — and that command
+	// was lost. 900 is distinct from the 3600 default, so a hard-coded TTL fails.
+	it( 'treats a session past its issued lifetime as absent', async () => {
+		let clockMs = 1_000_000;
+		__setBackoffClock( () => clockMs );
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			key: KEY,
+			expires_in: 900,
+		} ) );
+
+		await ensureSession();
+		expect( hasSession() ).toBe( true );
+
+		clockMs += 899 * 1000;
+		expect( hasSession() ).toBe( true );
+
+		clockMs += 2 * 1000; // now past 900s
+		expect( hasSession() ).toBe( false );
+
+		__setBackoffClock( null );
+	} );
+
+	it( 're-auths once a session has aged out', async () => {
+		let clockMs = 5_000_000;
+		let issued = 0;
+		__setBackoffClock( () => clockMs );
+		__setAuthFetch( async () => {
+			issued++;
+			return { handle: HANDLE, key: `key-${ issued }`, expires_in: 900 };
+		} );
+
+		await ensureSession();
+		clockMs += 901 * 1000;
+		const second = await ensureSession();
+
+		expect( issued ).toBe( 2 );
+		expect( second?.key ).toBe( 'key-2' );
+
+		__setBackoffClock( null );
+	} );
+
+	// Emitters gate on readyToMint(), so it must see the expiry hasSession()
+	// does — otherwise every tick mints a command the server will refuse.
+	it( 'refuses to mint on an expired session', async () => {
+		let clockMs = 9_000_000;
+		__setBackoffClock( () => clockMs );
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			key: KEY,
+			expires_in: 900,
+		} ) );
+
+		await ensureSession();
+		expect( readyToMint() ).toBe( true );
+
+		clockMs += 901 * 1000;
+		expect( readyToMint() ).toBe( false );
+
+		__setBackoffClock( null );
 	} );
 
 	it( 'stamps a handle, nonce and signature onto a command', async () => {
