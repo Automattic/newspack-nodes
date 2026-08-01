@@ -1,9 +1,16 @@
 /**
- * useClassCatalog — lazily fetch the class catalog once, either when enabled or
- * when a caller needs to await the exact catalog used to fold a topology.
+ * useClassCatalog — the substrate class catalog behind the palette, held as
+ * reconciled state rather than fetched once.
+ *
+ * It used to memoise the in-flight promise forever, so a catalog that failed
+ * once stayed failed: every later load() handed back the same rejected promise
+ * and the palette was empty until a reload. The overnight tab hit exactly that
+ * — the catalog loaded fine at mount, the session expired an hour later, and
+ * nothing ever asked again.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
@@ -12,16 +19,23 @@ export function useClassCatalog( { enabled = false } = {} ) {
 	const [ formatters, setFormatters ] = useState( [] );
 	const [ loading, setLoading ] = useState( false );
 	const [ error, setError ] = useState( null );
-	const request = useRef( null );
+
+	// Resolved catalog; a caller awaiting load() mid-flow reuses it.
+	const cached = useRef( null );
+	// In-flight request, so concurrent callers share ONE round trip.
+	const inflight = useRef( null );
 
 	const load = useCallback( () => {
-		if ( request.current ) {
-			return request.current;
+		if ( cached.current ) {
+			return Promise.resolve( cached.current );
+		}
+		if ( inflight.current ) {
+			return inflight.current;
 		}
 
 		setLoading( true );
 		setError( null );
-		request.current = Promise.resolve()
+		inflight.current = Promise.resolve()
 			.then( () =>
 				getCommandClient().send( { to: 'classes', verb: 'list' } )
 			)
@@ -37,6 +51,7 @@ export function useClassCatalog( { enabled = false } = {} ) {
 					classes: body.classes,
 					formatters: body.formatters,
 				};
+				cached.current = loaded;
 				setClasses( loaded.classes );
 				setFormatters( loaded.formatters );
 				return loaded;
@@ -45,17 +60,22 @@ export function useClassCatalog( { enabled = false } = {} ) {
 				setError( e );
 				throw e;
 			} )
-			.finally( () => setLoading( false ) );
-		return request.current;
+			.finally( () => {
+				// Cleared either way: a failure must not be cached as one.
+				inflight.current = null;
+				setLoading( false );
+			} );
+		return inflight.current;
 	}, [] );
 
+	const { settled } = useReconcile( { load, enabled } );
+
+	// Unsettled means the cache is no longer trustworthy — drop it.
 	useEffect( () => {
-		if ( ! enabled ) {
-			return;
+		if ( ! settled ) {
+			cached.current = null;
 		}
-		// Consume the rejection; this lifecycle call has no promise chain.
-		load().catch( () => {} );
-	}, [ enabled, load ] );
+	}, [ settled ] );
 
 	return { classes, formatters, loading, error, load };
 }
