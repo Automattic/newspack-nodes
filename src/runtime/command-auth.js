@@ -100,6 +100,25 @@ let establishing = null;
 let attempted = false;
 
 /**
+ * Monotonic invalidation counter. Every auth-shaped failure — a refused session,
+ * a renewed nonce, an expiry — bumps this, and reconciled loaders re-establish
+ * because it moved. That is what lets state initialised once at mount recover
+ * without a per-call-site retry: the loader does not need to know WHICH failure
+ * happened, only that what it was told is no longer true.
+ */
+let generation = 0;
+
+/** @return {number} The current invalidation generation. */
+export function authGeneration() {
+	return generation;
+}
+
+/** Invalidate everything derived from the current session. */
+export function invalidateAuth() {
+	generation++;
+}
+
+/**
  * Re-auth backoff. A session the server refuses would otherwise spin — every
  * poll tick minting, being refused, renewing, minting again. The browser hit
  * ~150 requests/second that way. One /auth per window instead, widening while
@@ -137,8 +156,25 @@ export function __setAuthFetch( fn ) {
 	authFetch = fn;
 }
 
+/**
+ * When the issued session stops being usable, in clock() ms. The server tells us
+ * the lifetime; without honouring it the only way to learn a session had died
+ * was to have a command refused — and that command was the one thing lost.
+ */
+let expiresAt = Infinity;
+
+/** Whether the live session has outlived what the server issued it for. */
+function sessionExpired() {
+	return clock() >= expiresAt;
+}
+
 /** Whether a session is live. Emitters gate on this: a mint cannot wait. */
 export function hasSession() {
+	if ( session && sessionExpired() ) {
+		// Discovered, not refused: drop it so the next mint re-auths.
+		session = null;
+		invalidateAuth();
+	}
 	return null !== session;
 }
 
@@ -150,6 +186,7 @@ export function hasSession() {
 export function renewSession() {
 	session = null;
 	establishing = null;
+	invalidateAuth();
 	// Else an issued-then-refused session loops at the poll rate.
 	retryAfter = clock() + backoffMs;
 	backoffMs = Math.min( backoffMs * 2, BACKOFF_MAX_MS );
@@ -165,7 +202,8 @@ export function renewSession() {
  * @return {boolean} True if a mint will produce a signed command.
  */
 export function readyToMint() {
-	if ( session ) {
+	// hasSession() drops an aged-out session, so the re-auth below is reached.
+	if ( hasSession() ) {
 		return true;
 	}
 	void ensureSession();
@@ -180,19 +218,49 @@ export function forgetSession() {
 	attempted = false;
 	backoffMs = BACKOFF_START_MS;
 	retryAfter = 0;
+	expiresAt = Infinity;
+	// Generation stays monotonic: a reset could read as "nothing changed".
+}
+
+// @longform
+// A stale nonce refuses /auth exactly when a session must be re-minted — the
+// tab that slept through the nonce's lifetime. Without this, that 403 throws,
+// widens the backoff, and the session cannot be re-established until the window
+// elapses. CommandClient.#post has carried the same renew-once for commands all
+// along; /auth was the one request left without it.
+async function postAuthOnce( client ) {
+	return fetch( `${ client.baseUrl }newspack-nodes/v1/auth`, {
+		method: 'POST',
+		headers: { 'X-WP-Nonce': client.nonce },
+	} );
 }
 
 async function postAuth() {
 	const { CommandClient } = await import( './command-client' );
+	const { refreshNodesNonce } = await import( './nodes-data' );
 	const client = CommandClient.fromGlobal();
 	// No nonce: nothing to trade for a session. Don't POST into the dark.
 	if ( ! client.nonce ) {
 		return null;
 	}
-	const r = await fetch( `${ client.baseUrl }newspack-nodes/v1/auth`, {
-		method: 'POST',
-		headers: { 'X-WP-Nonce': client.nonce },
-	} );
+	let r = await postAuthOnce( client );
+	if ( ! r.ok && 403 === r.status ) {
+		const code = await r
+			.text()
+			.then( ( t ) => {
+				try {
+					return JSON.parse( t )?.code ?? '';
+				} catch ( e ) {
+					return '';
+				}
+			} )
+			.catch( () => '' );
+		if ( 'rest_cookie_invalid_nonce' === code ) {
+			client.nonce = await refreshNodesNonce();
+			invalidateAuth();
+			r = await postAuthOnce( client );
+		}
+	}
 	if ( ! r.ok ) {
 		throw new Error( `/auth failed - HTTP ${ r.status }` );
 	}
@@ -208,8 +276,13 @@ async function postAuth() {
  * @return {Promise<Object|null>} The session, or null if it could not be had.
  */
 export async function ensureSession() {
-	if ( session ) {
+	if ( session && ! sessionExpired() ) {
 		return session;
+	}
+	if ( session ) {
+		// Aged out. Drop it here so the mint below establishes a fresh one.
+		session = null;
+		invalidateAuth();
 	}
 	// Backing off: one /auth per window, not one per caller.
 	if ( clock() < retryAfter ) {
@@ -222,6 +295,11 @@ export async function ensureSession() {
 				attempted = null !== issued;
 				session = issued?.handle && issued?.key ? issued : null;
 				if ( session ) {
+					const ttl = Number( issued.expires_in );
+					expiresAt =
+						Number.isFinite( ttl ) && ttl > 0
+							? clock() + ttl * 1000
+							: Infinity;
 					backoffMs = BACKOFF_START_MS;
 					retryAfter = 0;
 				} else {
