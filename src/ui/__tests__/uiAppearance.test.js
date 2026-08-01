@@ -1120,7 +1120,7 @@ describe( 'canonical UI appearance', () => {
 		] ) {
 			const elevated = exactSelectorRule( elevatedSelector );
 			expect( elevated?.declarations.background ).toBe(
-				'var(--paper2,var(--np-surface))'
+				'var(--paper-2,var(--np-surface-subtle))'
 			);
 			expect( elevated?.declarations[ 'box-shadow' ] ).toBe(
 				'inset 0 0 0 1px var(--paper-shadow,var(--np-border-strong)),0 1px 3px rgba(0,0,0,0.06)'

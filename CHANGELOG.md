@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Elevated cards sit on `--paper-2`, so inputs stop disappearing into them.**
+  An elevated card shared `--paper` with the inputs it contains, leaving
+  paper-on-paper with no edge. It now takes the subtle surface, and elevation is
+  carried by the drop shadow.
+
+  The alias moved with its declared fallback (`--np-surface-subtle`, not
+  `--np-surface`). Skins inject `--paper-2` at runtime, so the fallback is the
+  no-skin path only — but left behind it resolved to `#fff`, the same value the
+  inputs fall back to, which reproduced the original bug wherever no skin had
+  loaded. `uiAppearance`'s alias-fallback contract test is what caught it.
+
 ## [2.3.3] - 2026-07-31
 
 ### Added
