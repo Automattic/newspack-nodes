@@ -54,7 +54,7 @@
 
 	.newspack-nodes-card--elevated,
 	&.newspack-nodes-card--elevated {
-		background: var(--paper-2, var(--np-surface));
+		background: var(--paper-2, var(--np-surface-subtle));
 		box-shadow:
 			inset 0 0 0 1px var(--paper-shadow, var(--np-border-strong)),
 			0 1px 3px rgb(0 0 0 / 6%);
