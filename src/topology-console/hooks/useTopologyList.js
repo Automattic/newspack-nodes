@@ -1,9 +1,11 @@
 /**
- * useTopologyList — lazily fetch the catalog of saved topologies (when
- * `enabled`). `reload()` refetches after a save.
+ * useTopologyList — the catalog of saved topologies, held as reconciled state.
+ * `reload()` refetches after a save; a refused fetch re-establishes itself
+ * rather than leaving the OPEN dialog permanently empty.
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback, useState } from '@wordpress/element';
+import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
@@ -11,29 +13,33 @@ import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 export function useTopologyList( { enabled = false } = {} ) {
 	const [ topologies, setTopologies ] = useState( [] );
 	const [ userDir, setUserDir ] = useState( '' );
-	const [ loading, setLoading ] = useState( false );
-	const [ error, setError ] = useState( null );
 	const [ reloadKey, setReloadKey ] = useState( 0 );
 
-	useEffect( () => {
-		if ( ! enabled ) {
-			return;
-		}
-		setLoading( true );
-		getCommandClient()
-			.send( { to: 'topologies', verb: 'list' } )
-			.then( ( message ) => {
-				const body = unwrapCommandResponse( message );
-				setTopologies( body?.topologies || [] );
-				setUserDir( body?.user_dir || '' );
-			} )
-			.catch( ( e ) => setError( e ) )
-			.finally( () => setLoading( false ) );
-	}, [ enabled, reloadKey ] );
+	const load = useCallback( async () => {
+		const message = await getCommandClient().send( {
+			to: 'topologies',
+			verb: 'list',
+		} );
+		const body = unwrapCommandResponse( message );
+		setTopologies( body?.topologies || [] );
+		setUserDir( body?.user_dir || '' );
+	}, [] );
+
+	const { settled, error } = useReconcile( {
+		load,
+		enabled,
+		deps: [ reloadKey ],
+	} );
 
 	const reload = useCallback( () => setReloadKey( ( k ) => k + 1 ), [] );
 
-	return { topologies, userDir, loading, error, reload };
+	return {
+		topologies,
+		userDir,
+		loading: enabled && ! settled && ! error,
+		error,
+		reload,
+	};
 }
 
 /**
