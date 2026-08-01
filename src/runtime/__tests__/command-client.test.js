@@ -276,3 +276,57 @@ describe( 'CommandClient — HTTP failures', () => {
 		}
 	} );
 } );
+
+/**
+ * A refusal at the REST boundary and a worker that answered with nothing both
+ * used to collapse to null, so the console blamed the worker for an expired
+ * session — and sent an operator into haproxy logs for a browser-side
+ * condition. send() must tell them apart.
+ */
+describe( 'CommandClient.send failure shapes', () => {
+	afterEach( () => {
+		delete global.fetch;
+		delete window.NewspackNodesData;
+	} );
+
+	const respond = ( response ) => {
+		global.fetch = jest.fn().mockResolvedValue( response );
+		return new CommandClient( { baseUrl: '/wp-json/', nonce: 'N' } );
+	};
+
+	it( 'throws an auth-shaped error when the command is refused', async () => {
+		expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
+		const client = respond( {
+			ok: false,
+			status: 401,
+			text: () =>
+				Promise.resolve( JSON.stringify( { code: 'rest_forbidden' } ) ),
+		} );
+
+		await expect(
+			client.send( { to: 'x', verb: 'help' } )
+		).rejects.toThrow( /session|sign(ed)?[ -]?in|authoriz/i );
+	} );
+
+	it( 'still resolves null when a 200 carried no reply', async () => {
+		const client = respond( {
+			ok: true,
+			text: () => Promise.resolve( '' ),
+		} );
+
+		await expect( client.send( { to: 'x', verb: 'help' } ) ).resolves.toBe(
+			null
+		);
+	} );
+
+	it( 'leaves postBatch resolving to [] so the drain loop never throws', async () => {
+		expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
+		const client = respond( {
+			ok: false,
+			status: 401,
+			text: () => Promise.resolve( '{}' ),
+		} );
+
+		await expect( client.postBatch( [], [] ) ).resolves.toEqual( [] );
+	} );
+} );

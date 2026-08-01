@@ -10,7 +10,12 @@ import {
 	TM_ERROR,
 	TM_UNTYPED,
 } from './message';
-import { ensureSession, markLocal, renewSession } from './command-auth';
+import {
+	ensureSession,
+	invalidateAuth,
+	markLocal,
+	renewSession,
+} from './command-auth';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
@@ -43,8 +48,22 @@ export class CommandClient {
 	async send( params ) {
 		// This MINTS, and is already async — so it waits rather than skipping.
 		await ensureSession();
+		this.lastRefusal = null;
 		// JSONL body; verb response comes last, so return that message.
 		const msgs = await this.#post( pack( this.buildMessage( params ) ), 1 );
+		// @longform
+		// A refusal and a worker that answered with nothing both leave msgs
+		// empty, and collapsing them to null is what had the console blame a
+		// worker for an expired session. postBatch still returns [] — it feeds
+		// the drain loop, which must not throw — so the split lives here.
+		if ( ! msgs.length && this.lastRefusal ) {
+			const { status, code } = this.lastRefusal;
+			throw new Error(
+				`Command refused (HTTP ${ status }${
+					code ? ` ${ code }` : ''
+				}) — your WordPress session or command session is no longer valid. Reconnecting.`
+			);
+		}
 		return msgs.length ? msgs[ msgs.length - 1 ] : null;
 	}
 
@@ -70,12 +89,16 @@ export class CommandClient {
 				renewSession();
 			}
 			const code = restErrorCode( text );
+			// Why the batch came back empty, for send() to report accurately.
+			this.lastRefusal = { status: r.status, code };
 			if (
 				mayRenewNonce &&
 				this._renewNonce &&
 				'rest_cookie_invalid_nonce' === code
 			) {
 				this.nonce = await this._renewNonce();
+				// A renewed nonce invalidates what the old one derived.
+				invalidateAuth();
 				return this.#post( body, outCount, false );
 			}
 			Core.printLessOften(

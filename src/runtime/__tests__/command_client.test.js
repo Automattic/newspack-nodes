@@ -179,7 +179,11 @@ test( 'a refusal renews the session instead of retrying the dead handle', async 
 	} );
 
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
-	await client.send( { to: 'topologies', verb: 'list' } );
+	// send() now reports a refusal rather than resolving null — a silent worker
+	// and a refused session used to be indistinguishable to the caller.
+	await expect(
+		client.send( { to: 'topologies', verb: 'list' } )
+	).rejects.toThrow( /refused/i );
 
 	// The refused session is dropped, so nothing mints until re-auth.
 	expect( hasSession() ).toBe( false );
