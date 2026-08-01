@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.4] - 2026-07-31
+
 ### Fixed
 
 - **Elevated cards sit on `--paper-2`, so inputs stop disappearing into them.**
