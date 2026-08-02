@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The SSE watchdog is a Timer.** It was the last hand-rolled `setInterval` in
+  the runtime — invisible to the graph, unpausable, and disposed only because
+  the jest harness knew its private handle by name. It now arms through
+  `setTimer()` with its body in `fire()`, so `stopTimer()` and `removeNode()`
+  release it like every other timer. `fire()` overrides Timer's emit rather than
+  extending it: the base sends a TM_BYTESTREAM timestamp down its sink, and this
+  node's sink is the DATA path, where that is indistinguishable from a record.
+
+- **`setTimer()` no longer requires a name.** The Router hitchhike is name-keyed
+  (`notifyTimer` resolves each registration through `Core.node( name )`), so an
+  unnamed node could not ride it and `setTimer` threw. It now falls through to
+  an own slot at the requested interval instead: named nodes hitchhike, unnamed
+  ones get their own slot, same call either way. That is what lets the SSE
+  watchdog — deliberately unnamed and unregistered, composed by RemoteLink —
+  convert without becoming addressable.
+
+### Fixed
+
+- **`fireCb()` no longer re-throttles an own-slot timer.** The `interval_ms >
+  1000` gate paces the 1s ROUTER tick; an own slot already fires at
+  `interval_ms`, so gating it again dropped any tick the platform delivered
+  early — a 2000ms slot arriving at 1999ms was silently skipped, halving the
+  cadence for that beat. Invisible under fake timers, which advance exactly.
+  Latent until now, because the unnamed-node path above is what first puts an
+  above-1000ms timer on an own slot.
+
 ### Added
 
 - **The jest harness now fails a test that fakes `setInterval` out from under an

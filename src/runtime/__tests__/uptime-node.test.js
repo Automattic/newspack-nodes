@@ -78,11 +78,20 @@ describe( 'Uptime node', () => {
 			jest.restoreAllMocks();
 		} );
 
-		const build = () => {
+		// The 5s throttle is the Router-hitchhike pacer, so arm the node the
+		// way production does — named, on a live _router — rather than
+		// hand-setting interval_ms on an unarmed node.
+		const build = ( { armed = false } = {} ) => {
+			const router = new RouterNode();
+			router.name = names.ROUTER;
+			router.stopTimer();
 			const node = new UptimeNode();
 			node.name = '_uptime';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
+			if ( armed ) {
+				node.setTimer();
+			}
 			return { node, sent };
 		};
 
@@ -103,9 +112,9 @@ describe( 'Uptime node', () => {
 		it( 'throttles: two fireCb() ticks <5s apart emit once', () => {
 			// 5s cadence = base Timer throttle in fireCb(); fire() unthrottled.
 			const nowSpy = jest.spyOn( Core, 'now' );
-			const { node, sent } = build();
+			const { node, sent } = build( { armed: true } );
 			node.target = '_cwd';
-			node.interval_ms = 5000;
+			expect( node.mode ).toBe( 'router' );
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
 			nowSpy.mockReturnValue( 103 ); // 3s later
@@ -115,9 +124,8 @@ describe( 'Uptime node', () => {
 
 		it( 'emits twice when ticks are >=5s apart', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
-			const { node, sent } = build();
+			const { node, sent } = build( { armed: true } );
 			node.target = '_cwd';
-			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
 			nowSpy.mockReturnValue( 105 ); // 5s later

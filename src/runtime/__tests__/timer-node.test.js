@@ -33,6 +33,34 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		t.stopTimer();
 	} );
 
+	// @longform
+	// fireCb's throttle exists for the ROUTER tick: ride a 1s dispatch, fire
+	// every interval_ms. An own slot already fires at interval_ms, so gating it
+	// again drops any tick the platform delivers a hair early — invisible under
+	// fake timers, which advance exactly, and a halved cadence in the wild.
+	test( 'an own slot >1000ms is not re-throttled by the router gate', () => {
+		const t = new TimerNode();
+		t.sink = { fill: () => {} };
+		t.setTimer( 2000 );
+		expect( t.mode ).toBe( 'event_framework' );
+
+		const realNow = Core.now.bind( Core );
+		try {
+			let stamp = 1000;
+			Core.now = () => stamp;
+			t.fireCb();
+			const first = t.fireCount;
+			// The next slot lands 1ms shy of the nominal 2000ms period.
+			stamp = 1000 + 1.999;
+			t.fireCb();
+
+			expect( t.fireCount ).toBe( first + 1 );
+		} finally {
+			Core.now = realNow;
+			t.stopTimer();
+		}
+	} );
+
 	test( 'a spent oneshot stops fully: one fire, interval cleared, flag reset', () => {
 		const t = new TimerNode();
 		const sent = [];

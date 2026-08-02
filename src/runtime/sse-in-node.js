@@ -20,7 +20,8 @@
  * set_state payload is a STRING (the `connected` envelope is a flat `KEY VALUE`
  * string; pid is parsed into a plain field, not node state).
  */
-import { Node, parseSchemaArgs } from './node';
+import { parseSchemaArgs } from './node';
+import { TimerNode } from './timer-node';
 import { Core } from './core';
 import { nodesData, refreshNodesNonce } from './nodes-data';
 import { IoTelemetry, byteLength } from './io-telemetry';
@@ -55,7 +56,7 @@ const GRACE_MS = 4000;
 const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
 const WATCHDOG_INTERVAL_MS = 2000;
 
-export class SseInNode extends Node {
+export class SseInNode extends TimerNode {
 	constructor() {
 		super();
 		this.subscribe = [];
@@ -71,9 +72,8 @@ export class SseInNode extends Node {
 		this._es = null;
 		// Wall-clock of the last inbound frame; the stream-liveness clock.
 		this.lastEventTime = null;
-		// Watchdog state: open-baseline, interval handle, last-force instant.
+		// Watchdog state: open-baseline and last-force instant.
 		this._watchdogBase = 0;
-		this._watchdog = null;
 		this._lastForce = 0;
 		this._mayRenewNonce = true;
 		// Session identity from `connected`; lease owner remains a string.
@@ -111,6 +111,21 @@ export class SseInNode extends Node {
 		super.removeNode();
 	}
 
+	/**
+	 * One watchdog tick. A half-open EventSource never fires `error`, so total
+	 * silence past the heartbeat timeout is the only evidence the stream died.
+	 *
+	 * Overrides Timer's emit: the base `fire()` sends a TM_BYTESTREAM heartbeat
+	 * down its sink, and this node's sink is the DATA path — a timestamp there
+	 * would be indistinguishable from a record.
+	 */
+	fire() {
+		const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
+		if ( Date.now() - ref > FORCE_AFTER_MS ) {
+			this._forceReconnect();
+		}
+	}
+
 	start( mayRenewNonce = true ) {
 		this.close();
 		this._mayRenewNonce = mayRenewNonce;
@@ -136,18 +151,8 @@ export class SseInNode extends Node {
 		this._es = es;
 		// Baseline so a connect with no first frame still trips FORCE_AFTER_MS.
 		this._watchdogBase = Date.now();
-		// @longform
-		// Its own slot, not the Router hitchhike every dashboard poller uses:
-		// the hitchhike is TimerNode-only (Router.notifyTimer calls fireCb on
-		// registered Timer nodes), and SseIn extends Node. Converting it means
-		// making it a TimerNode subclass that overrides fire() AND giving it a
-		// unique name — it is deliberately unnamed and unregistered today.
-		this._watchdog = setInterval( () => {
-			const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
-			if ( Date.now() - ref > FORCE_AFTER_MS ) {
-				this._forceReconnect();
-			}
-		}, WATCHDOG_INTERVAL_MS );
+		// Rides the Router TIMER; >1000 throttles the tick to this cadence.
+		this.setTimer( WATCHDOG_INTERVAL_MS );
 		// A frame from a closed/reopened stream must not drive the graph.
 		const stale = () => this._es !== es;
 		// CLOSED = browser gave up (nonce/401) → reopen; CONNECTING → leave it.
@@ -410,10 +415,7 @@ export class SseInNode extends Node {
 				this._handleVisibilityChange
 			);
 		}
-		if ( this._watchdog ) {
-			clearInterval( this._watchdog );
-			this._watchdog = null;
-		}
+		this.stopTimer();
 		if ( this._es ) {
 			this._es.close();
 		}

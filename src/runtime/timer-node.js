@@ -70,8 +70,8 @@ export class TimerNode extends Node {
 		if ( ! this.sink ) {
 			return;
 		}
-		// A hitchhike timer with interval_ms > 1000 throttles to that interval.
-		if ( this.interval_ms > 1000 ) {
+		// Paces the 1s router tick; an own slot already fires at interval_ms.
+		if ( 'router' === this.mode && this.interval_ms > 1000 ) {
 			const now = Core.now();
 			if ( now - this.lastFireTime < this.interval_ms / 1000 ) {
 				return;
@@ -106,12 +106,11 @@ export class TimerNode extends Node {
 	// No ms or ms > 1000 → Router-hitchhike; ms <= 1000 → own setInterval slot.
 	setTimer( ms = null, oneshot = false ) {
 		// A >=1000ms timer hitchhikes the router notify; except isRouter.
-		if ( ( null === ms || ms >= 1000 ) && ! this.isRouter ) {
-			if ( '' === this.name ) {
-				throw new Error(
-					'Router-hitchhike requires Timer to have a name'
-				);
-			}
+		if (
+			( null === ms || ms >= 1000 ) &&
+			'' !== this.name &&
+			! this.isRouter
+		) {
 			const router = Core.node( names.ROUTER );
 			if ( ! router ) {
 				throw new Error(
