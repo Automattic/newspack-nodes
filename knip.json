@@ -1,0 +1,26 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": [
+		"src/*/index.js",
+		"scripts/build.mjs",
+		"jest.config.js",
+		"src/shared/**",
+		"src/build-kit/**"
+	],
+	"project": [
+		"src/**/*.js",
+		"!src/**/__tests__/**",
+		"!src/**/__mocks__/**",
+		"!src/**/test-utils/**"
+	],
+	"paths": {
+		"@newspack-nodes/runtime": [ "src/runtime/index.js" ],
+		"@newspack-nodes/shared/*": [ "src/shared/*" ],
+		"@newspack-nodes/shared": [ "src/shared/index.js" ],
+		"@newspack-nodes/debug-overlay": [ "src/debug-overlay/DebugOverlay.js" ],
+		"@newspack-nodes/build-kit": [ "src/build-kit/index.mjs" ]
+	},
+	"ignore": [ "examples/**" ],
+	"ignoreBinaries": [ "php", "phpcs", "phpcbf", "shellcheck", "wp" ],
+	"ignoreDependencies": [ "@commitlint/cli", "lint-staged" ]
+}

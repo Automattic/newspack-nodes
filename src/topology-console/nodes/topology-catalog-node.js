@@ -40,7 +40,7 @@ export function seedFromGlobal() {
  * @param {number} defaultPartitions Count for an entry omitting num_partitions.
  * @return {Object} `{ partitions, active, entries }`.
  */
-export function catalogFromList( list, defaultPartitions ) {
+function catalogFromList( list, defaultPartitions ) {
 	const partitions = {};
 	const active = [];
 	for ( const entry of list ) {

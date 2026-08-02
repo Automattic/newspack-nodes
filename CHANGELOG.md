@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run lint:deadcode:js` — a JS dead-export gate, mirroring the PHP one.**
+  PHP has run `shipmonk/dead-code-detector` at level 10 on every staged file for
+  a while, with `tests/` excluded from the analysed paths so a method reachable
+  only from tests reads as dead. JS had no equivalent, which is why an audit
+  found three whole dead modules here and four more in pyrobase while PHP turned
+  up one already-known item.
+
+  `knip.json` mirrors the PHP policy: `__tests__` excluded from `project`, and
+  the consumer-facing surface (`src/shared`, `src/build-kit`) declared as entry
+  so cross-repo consumption is not reported as unused. Opt-in for now, not in the
+  push gate — read the report and allowlist deliberately first.
+
+  Known limit: exports on the shared surface are exempt by construction, so a
+  dead one there (`resetSkin`) still needs a cross-repo sweep. The per-repo gate
+  catches everything internal.
+
 - **`src/build-kit/alias-map.js` — one resolver for the `@newspack-nodes/*`
   surface.** The map existed three times: nodes' `scripts/build.mjs` spelled out
   absolute paths, each consumer's spelled out its own with a separate env
