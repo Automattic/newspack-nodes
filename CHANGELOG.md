@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`settings-sync.tsl` seeds `max_segments` next to the other count rules.** It
+  sat after `min_lifetime` / `lifetime` in both blocks, reading as though it
+  belonged with the age rules; it is the hard cap that pairs with
+  `num_segments`. Ordering only — the same settings propagate. The statement
+  fixture is regenerated to match.
+
 - **The console's backbone now outlives edit mode.** `useConsoleGraph` mounts the
   spine in its own effect, keyed only on the graph generation: entering edit mode
   drops every view node and the stream, but save, delete and include-expansion
