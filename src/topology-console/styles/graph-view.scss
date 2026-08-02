@@ -2529,7 +2529,12 @@
 	padding: 16px 14px;
 	font-size: 13px;
 	line-height: 1.5;
-	overflow-y: auto;
+	// @longform
+	// Both axes, deliberately. `overflow-y: auto` alone leaves x at `visible`,
+	// which CSS then computes to `auto` — so the body grew a horizontal
+	// scrollbar with nothing to scroll, under every prompt's input. Wide
+	// content belongs in its own scroller, not on the modal body.
+	overflow: hidden auto;
 	min-height: 0;
 }
 
@@ -2569,6 +2574,10 @@
 // match the canonical menu look everywhere.
 .topology-modal__input {
 	display: block;
+	// So `width: 100%` means the body's width, border and padding included —
+	// without it the input overflows by exactly its own chrome, which is what
+	// the body was growing a horizontal scrollbar for.
+	box-sizing: border-box;
 	width: 100%;
 	margin-top: 10px;
 }
