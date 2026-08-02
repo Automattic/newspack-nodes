@@ -110,6 +110,13 @@ npm run lint:shell
 # real dead code — verify every call path (incl siblings + JS + dynamic) first.
 npm run lint:deadcode
 
+# The JS half of the same audit (knip). Same caveat, plus two of its own: the
+# `@newspack-nodes/*` surface is entry, so a dead export there needs a manual
+# cross-repo sweep; and knip cannot parse JSX in a `.js` file, which drops that
+# file's `import()` expressions — a `lazy( () => import( './X' ) )` target must
+# be listed as `entry` in knip.json or it reads as an unused file.
+npm run lint:deadcode:js
+
 # REPL against a live worker.
 wp nodes status
 wp nodes cli firehose-workers.p0

@@ -16,14 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found three whole dead modules here and four more in pyrobase while PHP turned
   up one already-known item.
 
-  `knip.json` mirrors the PHP policy: `__tests__` excluded from `project`, and
-  the consumer-facing surface (`src/shared`, `src/build-kit`) declared as entry
-  so cross-repo consumption is not reported as unused. Opt-in for now, not in the
-  push gate — read the report and allowlist deliberately first.
+  `knip.json` mirrors the PHP policy: `__tests__` excluded from `project`,
+  knip's jest plugin off so test files are not entries (a module reachable only
+  from its own test reads as dead, exactly as on the PHP side), and the
+  consumer-facing surface (`src/shared`, `src/build-kit`) declared as entry so
+  cross-repo consumption is not reported as unused. Opt-in for now, not in the
+  push gate — read the report and allowlist deliberately first. The same config
+  now ships in all five sibling repos.
 
-  Known limit: exports on the shared surface are exempt by construction, so a
-  dead one there (`resetSkin`) still needs a cross-repo sweep. The per-repo gate
-  catches everything internal.
+  Two known limits. Exports on the shared surface are exempt by construction, so
+  a dead one there (`resetSkin`) still needs a cross-repo sweep — the per-repo
+  gate catches everything internal. And knip cannot parse JSX in a `.js` file,
+  which silently drops that file's `import()` expressions: a module reached only
+  via `lazy( () => import( './X' ) )` reads as unused. Those targets are listed
+  as `entry` in the repos that code-split (event-logger-nodes, pyrobase); this
+  repo's only dynamic imports live in a JSX-free module.
+
+- **`@babel/parser` declared as a devDependency.** All five plugins' shared
+  `scripts/reorder-node-methods.js` requires it, and none of them declared it —
+  it resolved only because babel-jest happened to hoist it.
 
 - **`src/build-kit/alias-map.js` — one resolver for the `@newspack-nodes/*`
   surface.** The map existed three times: nodes' `scripts/build.mjs` spelled out
