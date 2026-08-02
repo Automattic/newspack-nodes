@@ -1,25 +1,23 @@
 /**
- * useVaultGraph tests — the Vault server-credential admin graph after the de-god
- * decomposition. The single god `vault:view` is gone; the graph now wires TWO
- * per-concern views, each behind its OWN receiver Tee (so the debug overlay
- * shows traffic per concern, not one opaque node):
+ * useVaultGraph tests — the Vault server-credential admin graph.
  *
  *   _http (HttpOut)
- *   vault:listIn (Tee) → vault:list (VaultListView)   — list/add/update/delete
- *   vault:testIn (Tee) → vault:test (VaultTestView)   — test probes
+ *   vault:listIn (Tee) → vault:list (VaultListView)   — the credential table
+ *   vault:add | vault:update | vault:delete | vault:test (Request)
  *
- * Each verb dispatches a TM_COMMAND through the interpreter (FROM = the concern's
- * receiver Tee, TO = `_http/vault`, verb in VALUE.name); the reply routes via
- * TO=FROM back into that Tee, which fans it to its view. _http.client is injected
- * via `opts.commandClient` so the hook never touches the network. Each CRUD
- * callback returns a Promise the relevant view resolves by matching `message[ID]`
- * against its `replies` map.
+ * What every test here leans on: nothing correlates. Each verb is minted FROM
+ * the node that wants its answer, the reply comes back TO = FROM, and it lands
+ * there — so the table refresh and four awaited verbs are told apart by WHICH
+ * NODE they arrive on. `message[ID]` and `message[KEY]` stay empty throughout,
+ * which the mint assertions pin. `_http.client` is injected via
+ * `opts.commandClient` so the hook never touches the network.
  */
 
 import { renderHook, act } from '@testing-library/react';
 import {
 	newMessage,
 	ID,
+	KEY,
 	TO,
 	FROM,
 	VALUE,
@@ -43,9 +41,12 @@ const HTTP = '_http';
 const CONSOLE_TAP = '_shell';
 const LIST_RECV = 'vault:listIn';
 const LIST_VIEW = 'vault:list';
-const TEST_RECV = 'vault:testIn';
-const TEST_VIEW = 'vault:test';
-const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, TEST_RECV, TEST_VIEW ];
+const ADD = 'vault:add';
+const UPDATE = 'vault:update';
+const DELETE = 'vault:delete';
+const TEST = 'vault:test';
+const REQUEST_NAMES = [ ADD, UPDATE, DELETE, TEST ];
+const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...REQUEST_NAMES ];
 
 // Fake CommandClient: postBatch replies back along FROM, payload by verb.
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
@@ -98,24 +99,29 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 );
 	} );
 
-	test( 'mounts the backbone + _http + both receiver Tees + both views, each sinking into the interpreter', () => {
+	test( 'mounts the backbone + _http + the table edge + one node per awaited verb', () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		for ( const name of ALL_GRAPH_NAMES ) {
-			const node = Core.node( name );
-			expect( node ).toBeTruthy();
-			expect( node.sink ).toBe( interpreter );
+			expect( Core.node( name ) ).toBeTruthy();
+		}
+		// The table edge sinks into the interpreter; a Request node routes
+		// through `_shell` so `connect _shell` sees it.
+		expect( Core.node( LIST_RECV ).sink ).toBe( interpreter );
+		expect( Core.node( LIST_VIEW ).sink ).toBe( interpreter );
+		for ( const name of REQUEST_NAMES ) {
+			expect( Core.node( name ).sink ).toBe( Core.node( CONSOLE_TAP ) );
+			expect( Core.node( name ).target ).toBe( `${ HTTP }/vault` );
 		}
 	} );
 
-	test( 'each receiver Tee fans to exactly its own view (per-concern reply edges)', () => {
+	test( 'the receiver Tee fans to exactly the list view', () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		expect( Core.node( LIST_RECV ).target ).toEqual( [ LIST_VIEW ] );
-		expect( Core.node( TEST_RECV ).target ).toEqual( [ TEST_VIEW ] );
 	} );
 
 	test( 'does NOT mount the old god vault:view or the REPL-only nodes', () => {
@@ -123,6 +129,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		for ( const name of [
 			'vault:view',
+			'vault:testIn',
 			'_output',
 			'_completion',
 			'_uptime',
@@ -182,7 +189,7 @@ describe( 'useVaultGraph — list lands in the list view', () => {
 	} );
 } );
 
-describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list receiver) then re-list', () => {
+describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lists', () => {
 	test( 'addServer dispatches an add command then re-lists', async () => {
 		const client = makeFakeClient( {
 			list: {},
@@ -209,7 +216,9 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 		const add = findVerb( client.batches, 'add' );
 		expect( add ).toBeTruthy();
 		expect( add[ TO ] ).toBe( 'vault' );
-		expect( add[ FROM ] ).toBe( LIST_RECV );
+		expect( add[ FROM ] ).toBe( ADD );
+		expect( add[ ID ] ).toBe( '' );
+		expect( add[ KEY ] ).toBe( '' );
 		expect( add[ VALUE ].payload ).toBeUndefined();
 		expect( add[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ], {
@@ -246,7 +255,8 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 
 		const update = findVerb( client.batches, 'update' );
 		expect( update ).toBeTruthy();
-		expect( update[ FROM ] ).toBe( LIST_RECV );
+		expect( update[ FROM ] ).toBe( UPDATE );
+		expect( update[ ID ] ).toBe( '' );
 		expect( update[ VALUE ].payload ).toBeUndefined();
 		expect( update[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ], { url: 'https://y' } )
@@ -273,7 +283,8 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 
 		const del = findVerb( client.batches, 'delete' );
 		expect( del ).toBeTruthy();
-		expect( del[ FROM ] ).toBe( LIST_RECV );
+		expect( del[ FROM ] ).toBe( DELETE );
+		expect( del[ ID ] ).toBe( '' );
 		expect( del[ VALUE ].payload ).toBeUndefined();
 		expect( del[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
@@ -284,8 +295,8 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb (FROM the list rec
 	} );
 } );
 
-describe( 'useVaultGraph — test probe lands in the test view', () => {
-	test( 'testServer dispatches a test command FROM the test receiver, resolves to the probe, and records it in vault:test (no re-list)', async () => {
+describe( 'useVaultGraph — the probe is its own node', () => {
+	test( 'testServer mints FROM vault:test, resolves to the probe, and does not re-list', async () => {
 		const probe = { id: 'spoke-01', status: 'connected', response: {} };
 		const client = makeFakeClient( {
 			list: {},
@@ -304,17 +315,14 @@ describe( 'useVaultGraph — test probe lands in the test view', () => {
 
 		const t = findVerb( client.batches, 'test' );
 		expect( t ).toBeTruthy();
-		expect( t[ FROM ] ).toBe( TEST_RECV );
+		expect( t[ FROM ] ).toBe( TEST );
+		expect( t[ ID ] ).toBe( '' );
+		expect( t[ KEY ] ).toBe( '' );
 		expect( t[ VALUE ].payload ).toBeUndefined();
 		expect( t[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
 		);
 		expect( returned ).toEqual( probe );
-
-		// The probe is recorded in the TEST view's own model.
-		expect(
-			Core.node( TEST_VIEW ).setStateCache.view.results[ 'spoke-01' ]
-		).toEqual( { ok: true, payload: probe } );
 
 		// test is read-only — no re-list, and the list view never saw it.
 		expect( countVerbs( client.batches, 'list' ) ).toBe( listsBefore );
@@ -345,7 +353,7 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 		expect( Core.node( LIST_VIEW ).setStateCache.view.error ).toBeNull();
 	} );
 
-	test( 'a failed testServer rejects (per-row status surface) and records the failure in vault:test', async () => {
+	test( 'a failed testServer rejects, and the table banner stays clean', async () => {
 		const client = makeFakeClient(
 			{ list: {}, test: 'unauthorized' },
 			{ errorVerbs: [ 'test' ] }
@@ -360,9 +368,7 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 				result.current.testServer( 'spoke-01' )
 			).rejects.toThrow( 'unauthorized' );
 		} );
-		expect(
-			Core.node( TEST_VIEW ).setStateCache.view.results[ 'spoke-01' ].ok
-		).toBe( false );
+		expect( Core.node( LIST_VIEW ).setStateCache.view.error ).toBeNull();
 	} );
 } );
 
@@ -421,7 +427,6 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		await act( async () => {} );
 		const firstList = Core.node( LIST_VIEW );
-		const firstTest = Core.node( TEST_VIEW );
 		const firstHttp = Core.node( HTTP );
 		const backbone = Core.node( INTERPRETER );
 		expect( firstList ).not.toBeNull();
@@ -431,7 +436,6 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		} );
 
 		expect( Core.node( LIST_VIEW ) ).not.toBe( firstList );
-		expect( Core.node( TEST_VIEW ) ).not.toBe( firstTest );
 		// _http is a backbone singleton: kept across rebuild, client reset.
 		expect( Core.node( HTTP ) ).toBe( firstHttp );
 		expect( Core.node( HTTP ).client ).toBe( client );

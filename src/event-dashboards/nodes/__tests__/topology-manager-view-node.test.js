@@ -1,7 +1,8 @@
 /**
  * topologymanager:view tests — the Topology Manager list model React reads via
  * useNodeState('topologymanager:view','view'). Stores the `topologies list`
- * reply, settles awaited activate/deactivate verbs via its PendingReplies.
+ * reply. An awaited activate/deactivate is minted from its own node, so its
+ * reply never lands here.
  */
 
 import {
@@ -13,7 +14,6 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { PendingReplies } from '../../../shared/pendingReplies';
 import { TopologyManagerViewNode } from '../topology-manager-view-node';
 
 beforeEach( () => Core.reset() );
@@ -38,11 +38,6 @@ test( 'stores the list reply payload as the published model', () => {
 	expect( v.model.topologies ).toEqual( [ { name: 'a' } ] );
 	expect( v.model.userDir ).toBe( '/u' );
 	expect( v.model.loading ).toBe( false );
-} );
-
-test( 'exposes a PendingReplies registry for the hook to stash resolvers', () => {
-	const v = makeView( 'topologymanager:view' );
-	expect( v.replies ).toBeInstanceOf( PendingReplies );
 } );
 
 test( 'fill increments the node counter so the overlay shows throughput', () => {

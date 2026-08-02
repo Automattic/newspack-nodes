@@ -364,15 +364,13 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
 	// Mount the graph (poll slices + interval) + the on-demand probe dispatch.
-	const { setRefreshInterval, refreshInterval, probe } =
+	const { setRefreshInterval, refreshInterval, probe, probes } =
 		useAggregatorStatusGraph();
 
 	// Two independent read surfaces — one per slice the graph publishes.
 	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
 	const serversSlice =
 		useNodeState( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
-	// On-demand fleet-probe roll-ups, keyed by server id.
-	const fleet = useNodeState( 'aggregator:fleet', 'view' ) ?? { probes: {} };
 	// Header strip reads the summary slice (counts + clock + refresh marker).
 	const { connected, total, serverNow, lastRefresh } = summary;
 	// Server cards read the servers slice (data + its own loading/error gate).
@@ -457,9 +455,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
-								probeResult={
-									fleet.probes?.[ server.vault_id ]
-								}
+								probeResult={ probes?.[ server.vault_id ] }
 								onProbe={ probe }
 							/>
 						) )

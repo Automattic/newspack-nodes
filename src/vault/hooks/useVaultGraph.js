@@ -1,35 +1,26 @@
 /**
  * useVaultGraph — mounts the Vault server-credential admin node graph onto the
- * canonical rule-#2 backbone (`_command_interpreter → _router`) using the
- * substrate's HTTP I/O boundary node. The de-god decomposition: instead of ONE
- * `vault:view` god view holding the whole model, the graph wires TWO focused
- * per-concern views, each behind its OWN receiver Tee — so the debug overlay
- * shows reply traffic PER CONCERN rather than one opaque node:
+ * canonical rule-#2 backbone (`_command_interpreter → _router`).
  *
- *   _http        (HttpOutNode — POST /command boundary; .client = CommandClient)
- *   vault:listIn (Tee) → vault:list (VaultListViewNode) — list/add/update/delete
- *   vault:testIn (Tee) → vault:test (VaultTestViewNode) — connection-probe results
+ *   _http        (HttpOutNode — POST /command boundary)
+ *   vault:listIn (Tee) → vault:list (VaultListViewNode) — the credential table
+ *   vault:add | vault:update | vault:delete | vault:test  (Request) — one
+ *                                                    awaited verb per node
+ *
+ * There is no correlator anywhere in here, and that is the point. A command is
+ * minted FROM the node that wants the answer, the server replies TO = FROM, and
+ * the reply lands on that node — so a table refresh and four awaited verbs are
+ * told apart by WHICH NODE they arrive on, not by an id stamped into the
+ * message. The list is a publish (its reply repaints `vault:list`, nobody
+ * awaits it); each mutation and the probe is a `Request` node holding exactly
+ * one in-flight command, which is what leaves nothing to tell apart.
  *
  * Dashboards aren't REPLs: no transcript window, no tab-completion input, no
  * uptime display, no `cd` navigation. So `_output` / `_completion` / `_uptime` /
  * `_cwd` are NOT mounted here.
  *
  * The graph build is handed to `mountExospine( build )`, which snapshots Core so
- * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph"). The
- * hook owns the CRUD dispatch — on each call it builds a TM_COMMAND
- * (FROM = the concern's receiver Tee, TO = `_http/vault`, verb in VALUE.name)
- * with a correlator in `message[ID]`, stashes a `{ resolve, reject }` resolver in
- * the matching view's `replies` map under that ID, and fills the message into the
- * interpreter. The router peels `_http`, HttpOutNode POSTs, the server replies
- * TO=FROM, the router peels the receiver Tee, the Tee fans to its view, and
- * the view settles the Promise (and updates its own render model).
- *
- * list / add / update / delete are the LIST concern (FROM=vault:listIn). test is
- * the probe concern (FROM=vault:testIn, correlated by server id). Mutations
- * (add/update/delete) re-list to refresh the table. test() is read-only and does
- * NOT re-list. Each concern's failures reject to the caller; the list view never
- * paints a banner for a pending-matched error, and the test view records each
- * probe per-row.
+ * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph").
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`) so the hook never touches the network. Production lazily
@@ -41,38 +32,30 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { CommandClient } from '../../runtime/command-client';
-import { TO, ID } from '../../runtime/message';
+import { TO } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import '../nodes/register';
-import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
 
 const HTTP = '_http';
 const LIST_RECV = 'vault:listIn';
 const LIST_VIEW = 'vault:list';
-const TEST_RECV = 'vault:testIn';
-const TEST_VIEW = 'vault:test';
 
 /**
- * Build a TM_COMMAND addressed at the `vault` CI. FROM = the concern's receiver
- * Tee so the server's reply path lands on that concern; TO=`_http/vault` so the
- * router peels `_http` and HttpOutNode POSTs the bare command. `id` is the
- * correlator the receiving view uses to settle the hook's Promise.
+ * Ask the `vault` CI to re-list, FROM the table's own receiver Tee.
  *
- * @param {string} from Receiver Tee name (vault:listIn / vault:testIn).
- * @param {string} verb Verb name (list / add / update / delete / test).
- * @param {string} args Tachikoma-style argument string (built via formatCommandArgs).
- * @param {string} id   Correlator stamped into message[ID].
- * @return {Array} A 7-field positional Message.
+ * Nobody awaits this: the reply routes back to `vault:listIn`, the Tee fans it
+ * to `vault:list`, and the view repaints. That IS the result.
+ *
+ * @param {Object} shell The `_shell` Tap every command routes through.
  */
-function buildCommand( from, verb, args, id ) {
-	// The receiver Tee mints; TO/ID after (neither is signed).
-	const m = Core.node( from )?.command( verb, args ) ?? null;
+function fireList( shell ) {
+	const m = Core.node( LIST_RECV )?.command( 'list', [] ) ?? null;
 	if ( null === m ) {
-		return null; // unauthenticated, or the receiver is gone
+		return; // unauthenticated, or the receiver is gone
 	}
 	m[ TO ] = `${ HTTP }/vault`;
-	m[ ID ] = id;
-	return m;
+	shell.fill( m );
 }
 
 /**
@@ -89,13 +72,17 @@ export function useVaultGraph( opts = {} ) {
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
 
-	// Live interpreter handle for the CRUD callbacks.
-	const interpreterRef = useRef( null );
-	// _shell Tap: CRUD enters here, observable via connect _shell.
+	// _shell Tap: the list refresh enters here, observable via connect _shell.
 	const shellRef = useRef( null );
 
 	// Bumped per (re)build; a counter (not a latch) so reinit re-renders.
 	const [ , bumpBuild ] = useState( 0 );
+
+	// One node per awaited verb — the whole of the correlation story.
+	const add = useRequestNode( 'vault:add', 'vault' );
+	const update = useRequestNode( 'vault:update', 'vault' );
+	const remove = useRequestNode( 'vault:delete', 'vault' );
+	const test = useRequestNode( 'vault:test', 'vault' );
 
 	// Mount the graph once: clip onto the exospine, then fire a list.
 	useEffect( () => {
@@ -104,37 +91,25 @@ export function useVaultGraph( opts = {} ) {
 			http.client =
 				optsRef.current.commandClient || CommandClient.fromGlobal();
 
-			// Per-concern reply edges: a receiver Tee fronts each view.
+			// The table's reply edge: a receiver Tee fronts the list view.
 			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );
 			interpreter.makeNode( 'VaultListView', LIST_VIEW );
 			listIn.connectNode( LIST_VIEW );
 
-			const testIn = interpreter.makeNode( 'Tee', TEST_RECV );
-			interpreter.makeNode( 'VaultTestView', TEST_VIEW );
-			testIn.connectNode( TEST_VIEW );
-
-			interpreterRef.current = interpreter;
 			shellRef.current = shell;
 
-			// Re-render so useNodeState re-subscribes to the fresh views.
+			// Re-render so useNodeState re-subscribes to the fresh view.
 			bumpBuild( ( n ) => n + 1 );
 
 			// One immediate list via _shell, once authed (mount races /auth).
 			ensureSession().then( () => {
-				const m = buildCommand(
-					LIST_RECV,
-					'list',
-					[],
-					makeOpId( 'vault-op' )
-				);
-				if ( null !== m && shellRef.current === shell ) {
-					shell.fill( m );
+				if ( shellRef.current === shell ) {
+					fireList( shell );
 				}
 			} );
 
 			// Non-node side effects undone before the nodes are removed.
 			return () => {
-				interpreterRef.current = null;
 				shellRef.current = null;
 			};
 		};
@@ -143,47 +118,20 @@ export function useVaultGraph( opts = {} ) {
 		return teardown;
 	}, [] );
 
-	// Dispatch a verb FROM a concern's Tee; its view settles by message[ID].
-	const dispatch = useCallback(
-		( recv, view, verb, args = [], id = null ) => {
-			const shell = shellRef.current;
-			if ( ! shell ) {
-				return Promise.reject( new Error( 'graph not mounted' ) );
-			}
-			const node = Core.node( view );
-			if ( ! node ) {
-				return Promise.reject( new Error( 'view not mounted' ) );
-			}
-			const opId = id || makeOpId( 'vault-op' );
-			const promise = new Promise( ( resolve, reject ) => {
-				node.replies.add( opId, resolve, reject );
-			} );
-			// Enter at _shell so the command is observable there.
-			const m = buildCommand( recv, verb, args, opId );
-			if ( null === m ) {
-				return Promise.reject( new Error( 'not authenticated' ) );
-			}
-			shell.fill( m );
-			return promise;
-		},
-		[]
-	);
-
-	// Run a mutating verb on the LIST concern, then re-list the table.
-	const runMutation = useCallback(
-		async ( verb, args ) => {
-			const result = await dispatch( LIST_RECV, LIST_VIEW, verb, args );
-			// Fire-and-forget re-list (replaces window.location.reload()).
-			dispatch( LIST_RECV, LIST_VIEW, 'list', [] ).catch( () => {} );
-			return result;
-		},
-		[ dispatch ]
-	);
+	// A mutation's result is the caller's; the table repaints off the re-list.
+	const runMutation = useCallback( async ( request, verb, args ) => {
+		const result = await request( verb, args );
+		if ( shellRef.current ) {
+			fireList( shellRef.current );
+		}
+		return result;
+	}, [] );
 
 	// id is positional; credentials are named args (no enabled flag).
 	const addServer = useCallback(
 		( fields ) =>
 			runMutation(
+				add,
 				'add',
 				formatCommandArgs( [ fields.id ], {
 					url: fields.url,
@@ -191,32 +139,29 @@ export function useVaultGraph( opts = {} ) {
 					auth_password: fields.auth_password,
 				} )
 			),
-		[ runMutation ]
+		[ add, runMutation ]
 	);
 
 	// id is positional so a partial's id key can't retarget the row.
 	const updateServer = useCallback(
 		( id, partial ) =>
-			runMutation( 'update', formatCommandArgs( [ id ], partial ) ),
-		[ runMutation ]
+			runMutation(
+				update,
+				'update',
+				formatCommandArgs( [ id ], partial )
+			),
+		[ update, runMutation ]
 	);
 
 	const removeServer = useCallback(
-		( id ) => runMutation( 'delete', formatCommandArgs( [ id ] ) ),
-		[ runMutation ]
+		( id ) => runMutation( remove, 'delete', formatCommandArgs( [ id ] ) ),
+		[ remove, runMutation ]
 	);
 
-	// test() is the probe concern: read-only, by server id, no re-list.
+	// test() is the probe: read-only, by server id, and no re-list.
 	const testServer = useCallback(
-		( id ) =>
-			dispatch(
-				TEST_RECV,
-				TEST_VIEW,
-				'test',
-				formatCommandArgs( [ id ] ),
-				id
-			),
-		[ dispatch ]
+		( id ) => test( 'test', formatCommandArgs( [ id ] ) ),
+		[ test ]
 	);
 
 	return { addServer, updateServer, removeServer, testServer };

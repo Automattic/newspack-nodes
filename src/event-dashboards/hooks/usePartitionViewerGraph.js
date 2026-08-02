@@ -26,7 +26,6 @@
  * `link.setSubscribe` already does close→resubscribe→reopen.
  */
 
-import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
@@ -36,18 +35,21 @@ import {
 	newMessage,
 	TYPE,
 	FROM,
-	TO,
-	ID,
 	VALUE,
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
-import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'partition:link';
 const TEE = 'partition:stream';
 const VIEW = 'partition:view';
+// Three reads, three nodes; each reply lands on the one that asked.
+const READ_NODE = 'partition:read';
+const LIST_NODE = 'partition:list';
+const STATUS_NODE = 'partition:status';
+const RAW_LOGS_CI = 'raw-logs';
 
 // TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
 const controlMsg = ( value ) => {
@@ -59,16 +61,6 @@ const controlMsg = ( value ) => {
 };
 
 // raw-logs: the view mints; TO/ID stamped after (neither is signed).
-function rawLogsCommand( view, id, verb, args = [] ) {
-	const m = view.command( verb, args );
-	if ( null === m ) {
-		return null; // unauthenticated; re-auth is under way
-	}
-	m[ TO ] = 'raw-logs';
-	m[ ID ] = id;
-	return m;
-}
-
 /**
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] CommandClient seam assigned to the link's
@@ -87,26 +79,18 @@ export function usePartitionViewerGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// One-record fetch behind the paused single-step (reply → VIEW future).
-	const fetchMessage = useCallback( ( sub, position ) => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( ! view || ! link ) {
-			return Promise.reject( new Error( 'graph not ready' ) );
-		}
-		const id = makeOpId( 'partition-op' );
-		const future = new Promise( ( resolve, reject ) => {
-			view.replies.add( id, resolve, reject );
-		} );
-		const m = rawLogsCommand( view, id, 'read_message', [ sub, position ] );
-		if ( null === m ) {
-			return Promise.reject( new Error( 'not authenticated' ) );
-		}
-		link.send( m );
-		return future.then( ( payload ) =>
-			payload && 'object' === typeof payload ? payload : null
-		);
-	}, [] );
+	const readOne = useRequestNode( READ_NODE, RAW_LOGS_CI );
+	const listLogs = useRequestNode( LIST_NODE, RAW_LOGS_CI );
+	const logStatus = useRequestNode( STATUS_NODE, RAW_LOGS_CI );
+
+	// One-record fetch behind the paused single-step; its own node.
+	const fetchMessage = useCallback(
+		( sub, position ) =>
+			readOne( 'read_message', [ sub, position ] ).then( ( payload ) =>
+				payload && 'object' === typeof payload ? payload : null
+			),
+		[ readOne ]
+	);
 
 	// Pause/visibility gating + the record-then-reopen subscription control.
 	const { isPausedRef, resubscribe, setPaused, step } = useGatedSubscription(
@@ -126,15 +110,17 @@ export function usePartitionViewerGraph( opts = {} ) {
 
 	useEffect( () => {
 		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
-		const build = ( { interpreter } ) => {
+		const build = ( { interpreter, http } ) => {
 			// ONE RemoteLink; baseUrl/nonce come from the global, not tokens.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, [
 				'raw-logs',
 			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			link.client =
+			// The shared `_http` carries every command out; both ride it.
+			http.client =
 				optsRef.current.commandClient || CommandClient.fromGlobal();
+			link.client = http.client;
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
@@ -182,22 +168,10 @@ export function usePartitionViewerGraph( opts = {} ) {
 	// until the exospine graph has mounted.
 	const fetchLogs = useCallback( () => {
 		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( ! view || ! link ) {
+		if ( ! view ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const listId = makeOpId( 'partition-op' );
-		const listFuture = new Promise( ( resolve, reject ) => {
-			view.replies.add( listId, resolve, reject );
-		} );
-		// After the session lands: mount races /auth.
-		ensureSession().then( () => {
-			const m = rawLogsCommand( view, listId, 'list_logs' );
-			if ( null !== m && viewRef.current === view ) {
-				link.send( m );
-			}
-		} );
-		return listFuture.then( ( logs ) => {
+		return listLogs( 'list_logs' ).then( ( logs ) => {
 			if ( ! Array.isArray( logs ) || 0 === logs.length ) {
 				return logs;
 			}
@@ -210,28 +184,15 @@ export function usePartitionViewerGraph( opts = {} ) {
 			}
 			return logs;
 		} );
-	}, [] );
+	}, [ listLogs ] );
 
 	useReconcile( { load: fetchLogs } );
 
 	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
-	const fetchLogStatus = useCallback( ( log ) => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( ! view || ! link ) {
-			return Promise.reject( new Error( 'graph not ready' ) );
-		}
-		const id = makeOpId( 'partition-op' );
-		const future = new Promise( ( resolve, reject ) => {
-			view.replies.add( id, resolve, reject );
-		} );
-		const m = rawLogsCommand( view, id, 'log_status', [ log ] );
-		if ( null === m ) {
-			return Promise.reject( new Error( 'not authenticated' ) );
-		}
-		link.send( m );
-		return future;
-	}, [] );
+	const fetchLogStatus = useCallback(
+		( log ) => logStatus( 'log_status', [ log ] ),
+		[ logStatus ]
+	);
 
 	// Set the view mode; resubscribe re-opens if active (mode rides control).
 	const seek = useCallback(

@@ -65,43 +65,12 @@ const walk = ( dir, out = [] ) => {
 	return out;
 };
 
-// @longform
-// Correlation sites still to be removed — issue #177. Each stamps an op-id so a
-// Promise can be settled, which is the routing done twice: the command is
-// already minted FROM the receiver, so the reply is already addressed to it.
-// The fix per hook is for its view node's `fill()` to hold the outcome as state
-// the component reads, not for a Map to resolve a Promise. This list may only
-// SHRINK — the test below fails if it grows or goes stale.
-const PENDING_REMOVAL = {
-	'event-aggregator/hooks/useAggregatorStatusGraph.js':
-		'makeOpId + PendingReplies',
-	'event-dashboards/hooks/useLogViewerGraph.js': 'makeOpId + PendingReplies',
-	'event-dashboards/hooks/usePartitionViewerGraph.js':
-		'makeOpId + PendingReplies',
-	'event-dashboards/hooks/useTopologyManager.js': 'makeOpId + PendingReplies',
-	'vault/hooks/useVaultGraph.js': 'makeOpId + PendingReplies',
-};
-
 test( 'no command source stamps ID or KEY', () => {
 	const offenders = walk( SRC )
-		.filter(
-			( hit ) =>
-				! ( hit.file in ALLOWED ) && ! ( hit.file in PENDING_REMOVAL )
-		)
+		.filter( ( hit ) => ! ( hit.file in ALLOWED ) )
 		.map( ( hit ) => `${ hit.file }:${ hit.line }  ${ hit.text }` );
 
 	expect( offenders ).toEqual( [] );
-} );
-
-// The list may only shrink: a file that stopped stamping must leave it, so the
-// exemption cannot outlive the thing it exempts.
-test( 'the #177 removal list is exactly the files still correlating', () => {
-	const seen = new Set( walk( SRC ).map( ( hit ) => hit.file ) );
-	const stale = Object.keys( PENDING_REMOVAL ).filter(
-		( f ) => ! seen.has( f )
-	);
-
-	expect( stale ).toEqual( [] );
 } );
 
 test( 'every allowlisted file still stamps something', () => {

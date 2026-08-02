@@ -27,7 +27,6 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { PendingReplies } from '../../../shared/pendingReplies';
 import { WorkerStatusViewNode } from '../worker-status-view-node';
 
 beforeEach( () => Core.reset() );
@@ -52,15 +51,6 @@ function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ VALUE ] = payload;
-	return m;
-}
-
-// A successful restart reply from `_http`: VALUE = { name, payload }.
-function restartReply( id, payload ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	m[ ID ] = id;
-	m[ VALUE ] = { name: 'restart', payload };
 	return m;
 }
 
@@ -103,67 +93,6 @@ describe( 'workerstatus:view — model publish', () => {
 		v.fill( modelMsg( baseModel( { currentTime: 1 } ) ) );
 		v.fill( modelMsg( baseModel( { currentTime: 2 } ) ) );
 		expect( v.setStateCache.view.currentTime ).toBe( 2 );
-	} );
-} );
-
-describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
-	test( 'resolves a pending Promise on a successful reply matching message[ID]', async () => {
-		const v = makeView( 'workerstatus:view' );
-		const id = 'restart-1';
-		const promise = new Promise( ( resolve, reject ) => {
-			v.replies.add( id, resolve, reject );
-		} );
-		v.fill( restartReply( id, { restarted: 2 } ) );
-		await expect( promise ).resolves.toEqual( { restarted: 2 } );
-	} );
-
-	test( 'rejects a pending Promise on a TM_ERROR reply matching message[ID]', async () => {
-		const v = makeView( 'workerstatus:view' );
-		const id = 'restart-2';
-		const promise = new Promise( ( resolve, reject ) => {
-			v.replies.add( id, resolve, reject );
-		} );
-		v.fill( restartErrorReply( id, 'permission denied' ) );
-		await expect( promise ).rejects.toThrow( /permission denied/i );
-	} );
-
-	test( 'pending-matched TM_ERROR does NOT pollute global view.error', () => {
-		const v = makeView( 'workerstatus:view' );
-		v.fill( modelMsg( baseModel() ) ); // seed a published model
-		const id = 'restart-3';
-		// Stash + immediately catch so the rejection doesn't escape.
-		const promise = new Promise( ( resolve, reject ) => {
-			v.replies.add( id, resolve, reject );
-		} );
-		promise.catch( () => {} );
-		v.fill( restartErrorReply( id, 'boom' ) );
-		expect( v.setStateCache.view.error ).toBeNull();
-	} );
-
-	test( 'extracts message from a { message } structured TM_ERROR payload', async () => {
-		const v = makeView( 'workerstatus:view' );
-		const id = 'restart-4';
-		const promise = new Promise( ( resolve, reject ) => {
-			v.replies.add( id, resolve, reject );
-		} );
-		v.fill(
-			restartErrorReply( id, { message: 'structured error description' } )
-		);
-		await expect( promise ).rejects.toThrow(
-			/structured error description/i
-		);
-	} );
-
-	test( 'deletes the pending entry after settling', () => {
-		const v = makeView( 'workerstatus:view' );
-		const id = 'restart-5';
-		v.replies.add(
-			id,
-			() => {},
-			() => {}
-		);
-		v.fill( restartReply( id, null ) );
-		expect( v.replies.has( id ) ).toBe( false );
 	} );
 } );
 
@@ -263,11 +192,6 @@ describe( 'workerstatus:view — node wiring', () => {
 	test( 'names the node', () => {
 		const v = makeView( 'workerstatus:view' );
 		expect( v.name ).toBe( 'workerstatus:view' );
-	} );
-
-	test( 'exposes a PendingReplies registry for the hook to stash resolvers', () => {
-		const v = makeView( 'workerstatus:view' );
-		expect( v.replies ).toBeInstanceOf( PendingReplies );
 	} );
 
 	test( 'fill increments the node counter so the overlay shows throughput', () => {

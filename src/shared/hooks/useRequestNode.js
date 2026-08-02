@@ -28,6 +28,43 @@ import {
 } from '@newspack-nodes/runtime';
 
 /**
+ * The egress path for a CI. An empty `ci` addresses the substrate interpreter
+ * itself — a builtin like `taillog`, which no service CI owns.
+ *
+ * @param {string} ci The server CI name, or '' for the interpreter's builtins.
+ * @return {string} The `target` path.
+ */
+function targetFor( ci ) {
+	return ci ? `${ names.HTTP }/${ ci }` : names.HTTP;
+}
+
+/**
+ * Mount a `Request` node on the CURRENT backbone if it is not there already.
+ *
+ * For a concern whose membership is only known at call time — one probe node
+ * per remote server, say. A hook cannot mount those, and one shared node would
+ * have to tell their replies apart; a node each has nothing to tell apart.
+ *
+ * @param {string} node The node's name.
+ * @param {string} ci   The server CI its commands are addressed at.
+ * @return {Object|null} The node, or null with no backbone to clip onto.
+ */
+export function ensureRequestNode( node, ci ) {
+	const existing = Core.node( node );
+	if ( existing ) {
+		return existing;
+	}
+	const interpreter = Core.node( names.COMMAND_INTERPRETER );
+	if ( ! interpreter ) {
+		return null;
+	}
+	const request = interpreter.makeNode( 'Request', node );
+	request.target = targetFor( ci );
+	request.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
+	return request;
+}
+
+/**
  * Send through a mounted Request node from outside a component.
  *
  * The node's lifetime belongs to whichever `useRequestNode` mounted it; a name
@@ -63,11 +100,13 @@ export default function useRequestNode( node, ci, enabled = true ) {
 			const interpreter = Core.node( names.COMMAND_INTERPRETER );
 			const existing = Core.node( node );
 			if ( existing ) {
-				existing.sink = interpreter;
+				existing.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
 				return;
 			}
 			const request = interpreter.makeNode( 'Request', node );
-			request.target = `${ names.HTTP }/${ ci }`;
+			request.target = targetFor( ci );
+			// Through `_shell`, the Tap every command routes through.
+			request.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
 		};
 		attach();
 		const offBackbone = Core.subscribeBackboneUp( attach );

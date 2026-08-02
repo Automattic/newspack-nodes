@@ -1,6 +1,6 @@
 import { Node } from '../../runtime/node';
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
-import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
+import { errorMessage } from '../../shared/errorMessage';
 
 /**
  * `topologymanager:view` — owns the Topology Manager list model, the single
@@ -9,11 +9,10 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  * Follows the canonical serversView/workerStatusView pattern:
  *  - The `topologies list` reply (TM_COMMAND|TM_RESPONSE, FROM=view) stores its
  *    `{ topologies, user_dir }` payload and republishes the model.
- *  - Awaited verbs (activate/deactivate) stash a `{ resolve, reject }` in
- *    `replies` keyed by message[ID]; the matching reply settles the Promise.
- *  - A pending-matched reply does NOT pollute the model's `error` field — that
- *    surface is for un-correlated errors (the initial list poll). A
- *    pending-matched TM_ERROR rejects the caller's Promise only.
+ *  - An awaited verb (activate/deactivate) is minted from its OWN Request node
+ *    and its reply is addressed there, so a failure the caller is already
+ *    catching never reaches this node's `error` field. What lands here is the
+ *    poll's, and that IS the global surface.
  */
 export class TopologyManagerViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
@@ -27,8 +26,6 @@ export class TopologyManagerViewNode extends Node {
 			error: null,
 			loading: true,
 		};
-		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
-		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
@@ -41,19 +38,14 @@ export class TopologyManagerViewNode extends Node {
 		const type = message[ TYPE ] || 0;
 		const isError = 0 !== ( type & TM_ERROR );
 
-		// Settle any awaited verb (activate/deactivate) stashed under this ID.
-		const pendingMatched = this.replies.settle( message );
-
-		// Un-correlated errors surface globally; pending ones by the caller.
+		// A mutation's failure lands on ITS node; this one gets the poll's.
 		if ( isError ) {
-			if ( ! pendingMatched ) {
-				this.model = {
-					...this.model,
-					error: errorMessage( value.payload ),
-					loading: false,
-				};
-				this._publish();
-			}
+			this.model = {
+				...this.model,
+				error: errorMessage( value.payload ),
+				loading: false,
+			};
+			this._publish();
 			return;
 		}
 

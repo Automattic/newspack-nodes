@@ -7,7 +7,6 @@
  */
 import { CommandInterpreterNode } from '../../../runtime/command-interpreter-node';
 import { VaultListViewNode } from '../vault-list-view-node';
-import { VaultTestViewNode } from '../vault-test-view-node';
 import '../register';
 
 it( 'registers the credential-list view for make_node', () => {
@@ -16,12 +15,8 @@ it( 'registers the credential-list view for make_node', () => {
 	);
 } );
 
-it( 'registers the test-result view for make_node', () => {
-	expect( CommandInterpreterNode.includeNodes.VaultTestView ).toBe(
-		VaultTestViewNode
-	);
-} );
-
-it( 'no longer registers the old god view', () => {
+it( 'no longer registers the god view or the probe-correlation view', () => {
 	expect( CommandInterpreterNode.includeNodes.VaultView ).toBeUndefined();
+	// The probe is its own Request node now; nothing files results by op-id.
+	expect( CommandInterpreterNode.includeNodes.VaultTestView ).toBeUndefined();
 } );

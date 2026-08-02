@@ -15,13 +15,14 @@ it( 'registers its per-slice view classes for make_node', () => {
 	expect(
 		CommandInterpreterNode.includeNodes.AggregatorServersView
 	).toBeDefined();
-	expect(
-		CommandInterpreterNode.includeNodes.AggregatorFleetView
-	).toBeDefined();
 } );
 
-it( 'no longer registers the retired AggregatorView god node', () => {
+it( 'no longer registers the retired god / fleet-correlation view nodes', () => {
 	expect(
 		CommandInterpreterNode.includeNodes.AggregatorView
+	).toBeUndefined();
+	// The probe is a node per spoke now; nothing files roll-ups by op-id.
+	expect(
+		CommandInterpreterNode.includeNodes.AggregatorFleetView
 	).toBeUndefined();
 } );
