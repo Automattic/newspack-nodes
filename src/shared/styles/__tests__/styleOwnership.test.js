@@ -1197,7 +1197,7 @@ describe( 'canonical appearance ownership', () => {
 			'text-align': 'center',
 		};
 		for ( const selector of [
-			':is(.topology-app, .topology-modal) .nodes-stats__toolbar .button.is-compact',
+			':is(.topology-app, .topology-modal) .nodes-profiler__toolbar .button.is-compact',
 			':is(.topology-app, .topology-modal) .timeline-view__filters .button.is-compact',
 		] ) {
 			expect(

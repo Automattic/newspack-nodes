@@ -128,14 +128,15 @@ class ScaffoldCliCommandTest extends TestCase {
 	// node
 	// -------------------------------------------------------------------------
 
-	public function test_node_scaffold_writes_into_cwd_includes(): void {
+	public function test_node_scaffold_writes_into_the_cwd(): void {
 		$plugin_dir = "{$this->tmp}/orbit-mail";
 		\mkdir( $plugin_dir, 0755, true );
 		\chdir( $plugin_dir );
 
 		$this->scaffold( 'node', 'Fancy_Filter' );
 
-		$file = "{$plugin_dir}/includes/class-fancy-filter-node.php";
+		// Drops the file where you are; `scaffold plugin` is what builds a tree.
+		$file = "{$plugin_dir}/class-fancy-filter-node.php";
 		$this->assertFileExists( $file );
 		$php = (string) \file_get_contents( $file );
 		$this->assertStringContainsString( 'namespace Orbit_Mail;', $php );
@@ -146,7 +147,7 @@ class ScaffoldCliCommandTest extends TestCase {
 	public function test_node_scaffold_strips_a_given_node_suffix(): void {
 		$this->scaffold( 'node', 'Fancy_Filter_Node' );
 
-		$php = (string) \file_get_contents( "{$this->tmp}/includes/class-fancy-filter-node.php" );
+		$php = (string) \file_get_contents( "{$this->tmp}/class-fancy-filter-node.php" );
 		$this->assertStringContainsString( 'class Fancy_Filter_Node extends Node', $php );
 		$this->assertStringNotContainsString( 'Fancy_Filter_Node_Node', $php );
 	}
@@ -157,8 +158,7 @@ class ScaffoldCliCommandTest extends TestCase {
 	}
 
 	public function test_node_refuses_to_overwrite(): void {
-		\mkdir( "{$this->tmp}/includes", 0755, true );
-		\file_put_contents( "{$this->tmp}/includes/class-fancy-filter-node.php", "<?php // precious\n" );
+		\file_put_contents( "{$this->tmp}/class-fancy-filter-node.php", "<?php // precious\n" );
 
 		try {
 			$this->scaffold( 'node', 'Fancy_Filter' );
@@ -175,7 +175,7 @@ class ScaffoldCliCommandTest extends TestCase {
 	public function test_topology_scaffold_writes_a_working_stock_graph(): void {
 		$this->scaffold( 'topology', 'nightly-sync' );
 
-		$file = "{$this->tmp}/topologies/nightly-sync.tsl";
+		$file = "{$this->tmp}/nightly-sync.tsl";
 		$this->assertFileExists( $file );
 		$tsl = (string) \file_get_contents( $file );
 		$this->assertStringContainsString( 'var num_partitions = 1', $tsl );
