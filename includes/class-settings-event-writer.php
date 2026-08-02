@@ -274,6 +274,14 @@ class Settings_Event_Writer {
 			return;
 		}
 		self::$initialized = true;
+		// @longform
+		// Arming the hooks arms what resolving their args needs. The
+		// writer builds a Partition per change, and Partition's schema
+		// defaults carry `<config:*>` tokens resolved STRICTLY — with no
+		// namespace the construction throws and the event is dropped.
+		// ensure_runtime_wired() registers it too, but it is lazy and an
+		// option change beats it. Registration is a closure in a map.
+		Config::register_token_namespace();
 		\add_action( 'update_option', [ self::class, 'on_update' ], 10, 3 );
 		\add_action( 'add_option', [ self::class, 'on_add' ], 10, 2 );
 		\add_action( 'delete_option', [ self::class, 'on_delete' ], 10, 1 );

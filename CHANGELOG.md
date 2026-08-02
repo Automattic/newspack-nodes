@@ -41,6 +41,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A settings change made before the runtime was wired is no longer dropped.**
+  `Settings_Event_Writer::init()` arms its option hooks at plugin load, and the
+  writer builds a Partition on each change — whose schema defaults carry
+  `<config:*>` tokens resolved STRICTLY. The `config` namespace was registered
+  only by the lazy `ensure_runtime_wired()`, so an option change that beat it
+  (early in a `wp nodes cli` run) threw `unresolvable config token
+  <config:max_segments>: unknown namespace`, the writer's catch swallowed it,
+  and the event never reached `settings.p0`. Arming the hooks now arms what
+  resolving their args needs; registration is a closure in a map, so doing it in
+  both places costs nothing and removes the ordering question.
+
 - **A command that never reached the substrate now answers its minter.** A
   refused POST (401, 403, 500) and a POST that never left the browser both came
   back as an empty batch — indistinguishable from the 202 the server returns for
