@@ -73,7 +73,7 @@
 }
 
 // Row Requeue buttons read as inline controls, not full-width rail cells (mirrors
-// the nodes-stats toolbar override); focus rings stay the global policy's job.
+// the nodes-profiler toolbar override); focus rings stay the global policy's job.
 :is(.topology-app, .topology-modal) .triage-view__grid .button.is-compact {
 	width: auto;
 	text-align: center;

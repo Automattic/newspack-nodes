@@ -138,8 +138,8 @@ export default function ProfilerView() {
 	}, [ all ] );
 
 	return (
-		<div className="nodes-stats" data-testid="profiler-view">
-			<div className="nodes-stats__toolbar">
+		<div className="nodes-profiler" data-testid="profiler-view">
+			<div className="nodes-profiler__toolbar">
 				<button
 					type="button"
 					className={ `button is-compact${
