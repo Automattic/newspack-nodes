@@ -29,7 +29,7 @@ class Remote_Link_Node extends Timer_Node {
 	use Schema_Reflection;
 
 	/** Slot-keepalive heartbeat cadence (seconds). */
-	public const HEARTBEAT_INTERVAL = 20;
+	public const HEARTBEAT_INTERVAL = 15;
 
 	// 10Hz poll; housekeeping self-latches. Protected: PLAY re-arms it.
 	protected const TICK_INTERVAL_MS = 100;
