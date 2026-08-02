@@ -1558,10 +1558,15 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'viewport change debounces into the single layout entry without flipping modified', async () => {
-		const { getByText } = render( <TopologyConsole /> );
-		await publishMeta();
-		jest.useFakeTimers();
+		// Fake ONLY the debounce clock: rAF stays real so fireMsg's frame
+		// resolves, and setInterval stays real so the graph's armed timers
+		// are not stranded on a clock this test never advances.
+		jest.useFakeTimers( {
+			doNotFake: [ 'requestAnimationFrame', 'setInterval' ],
+		} );
 		try {
+			const { getByText } = render( <TopologyConsole /> );
+			await publishMeta();
 			fireEvent.click( getByText( 'vp-change' ) );
 			act( () => {
 				jest.advanceTimersByTime( 250 );
