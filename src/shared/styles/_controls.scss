@@ -15,6 +15,9 @@ $np-chevron-light: "data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://w
 		appearance: none;
 		background-color: var(--np-field-surface);
 		border: 1px solid var(--np-field-border);
+		// With padding + border below, width:100% would overflow its container
+		// — and a scrollable parent turns that into a horizontal scrollbar.
+		box-sizing: border-box;
 		border-radius: var(--field-radius, 0);
 		color: var(--np-field-ink);
 		-webkit-text-fill-color: var(--np-field-ink);

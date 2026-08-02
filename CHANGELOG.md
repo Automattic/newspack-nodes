@@ -91,6 +91,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Full-width fields no longer overflow their container.** The shared control
+  rule styles every bare input with `padding` and a `border` but never declared
+  `box-sizing`, so `width: 100%` rendered 22px wider than its parent. In a
+  scrollable parent that became a horizontal scrollbar across the whole element
+  — visible on the Save-topology modal, whose body sets `overflow-y: auto` (per
+  spec `overflow-x` then computes to `auto` too). `_buttons.scss` already set it
+  beside its own border and padding; the field rule was the one that omitted it.
+
 - **Dashboard state that loaded once at mount now converges.** A console tab left
   overnight showed an empty graph and "Command got no reply": it had loaded an hour
   before the command session expired, so nothing of its own was in flight to
