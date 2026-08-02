@@ -284,4 +284,29 @@ class SettingsEventWriterTest extends TestCase {
 		$this->assertTrue( true, 'the throw is swallowed; reaching here is the assertion' );
 	}
 
+
+	/**
+	 * The writer arms its option hooks at plugin load, but `<config:*>` was only
+	 * registered by the lazy `ensure_runtime_wired()`. An option change before
+	 * anything wired the runtime — early in a `wp nodes cli` run — hit a strict
+	 * schema default (`<config:max_segments>`), threw "unknown namespace", and
+	 * the settings event was DROPPED with only a rate-limited line to show for
+	 * it. Arming the hooks has to arm what resolving their args needs.
+	 */
+	public function test_init_registers_the_config_token_namespace(): void {
+		Core::$config_resolvers = [];
+		// init() latches; a real process calls it once, so unlatch to get the
+		// first call this test is about.
+		$latch = new \ReflectionProperty( Settings_Event_Writer::class, 'initialized' );
+		$latch->setAccessible( true );
+		$latch->setValue( null, false );
+
+		Settings_Event_Writer::init();
+
+		// Strict: the throw is the bug, and an owned key must come back.
+		$this->assertSame(
+			'0',
+			Core::resolve_config_token( 'config', 'max_segments', true )
+		);
+	}
 }
