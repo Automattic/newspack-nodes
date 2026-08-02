@@ -54,7 +54,7 @@ export class DmesgNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.dmesg = {};
-		// runtime_stats and other object replies publish to `reply`.
+		// A `-s` row list and other object replies publish to `reply`.
 		this.registrations.reply = {};
 		// Poll verb + args; mounting views (e.g. RuntimeView) retarget these.
 		this.verb = 'dmesg';

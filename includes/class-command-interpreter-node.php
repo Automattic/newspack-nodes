@@ -169,7 +169,7 @@ class Command_Interpreter_Node extends Node {
 				throw $e; // control flow, not a verb error (ADR-14).
 			} catch ( \Throwable $e ) {
 				// Decode: handler errors are pre-escaped; sink re-escapes raw.
-				$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES );
+				$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) . "\n";
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			}
 		}
@@ -346,14 +346,13 @@ class Command_Interpreter_Node extends Node {
 				. "    note: Without -a, the argument specifies a node;\n"
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
-			'list_timers' => "list_timers\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n",
-			'list_handles' => "list_handles\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n",
-			'runtime_stats' => "runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n",
+			'list_timers' => "list_timers [-s]\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
+			'list_handles' => "list_handles [-s]\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
 			'profile' => "profile [ on | off ]\n"
 				. "    no args: toggle _router dispatch profiling (per-node self time).\n"
 				. "    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n"
 				. "    note: while on, _router times each dispatch; read the table with list_profiles.\n",
-			'list_profiles' => "list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n",
+			'list_profiles' => "list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view that wants to sort them.\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
 			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
@@ -406,11 +405,13 @@ class Command_Interpreter_Node extends Node {
 			'rm'              => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
 			'list_nodes'      => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, self::arg_strings( $args ), $envelope ),
 			'ls'              => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, self::arg_strings( $args ), $envelope ),
-			'list_timers'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_timers(),
-			'list_handles'    => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_handles(),
-			'runtime_stats'   => fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_runtime_stats(),
+			'list_timers'     => fn ( Command_Interpreter_Node $self, array $args ): string|array => self::cmd_list_timers( \in_array( '-s', $args, true ) ),
+			'list_handles'    => fn ( Command_Interpreter_Node $self, array $args ): string|array => self::cmd_list_handles( \in_array( '-s', $args, true ) ),
 			'profile'         => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_profile( Core::as_string( $args[0] ?? '' ) ),
-			'list_profiles'   => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_list_profiles( Core::as_string( $args[0] ?? '' ) ),
+			'list_profiles'   => fn ( Command_Interpreter_Node $self, array $args ): string|array => self::cmd_list_profiles(
+				Core::as_string( \current( \array_filter( $args, static fn ( $a ): bool => '-s' !== $a ) ) ?: '' ),
+				\in_array( '-s', $args, true )
+			),
 			'log'             => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_log( $self, self::arg_strings( $args ) ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_dmesg(),
 			'taillog'         => fn ( Command_Interpreter_Node $self, array $args ): mixed => Log_Sources::taillog( self::arg_strings( $args ) ),
@@ -1061,8 +1062,14 @@ class Command_Interpreter_Node extends Node {
 	 * until the next fire (<=0 = due every tick, i.e. a spinner); INTERVAL is the
 	 * re-arm period; MODE is the scheduling mode ('event_framework' own slot vs
 	 * 'router' hitchhike). Modeled on Tachikoma CommandInterpreter's list_ids/list_timers.
+	 *
+	 * @param  bool $structured Return timer_rows() instead of the text table.
+	 * @return string|list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
 	 */
-	private static function cmd_list_timers(): string {
+	private static function cmd_list_timers( bool $structured = false ): string|array {
+		if ( $structured ) {
+			return self::timer_rows();
+		}
 		$rows = [];
 		foreach ( self::timer_rows() as $r ) {
 			$rows[] = [
@@ -1089,8 +1096,14 @@ class Command_Interpreter_Node extends Node {
 	 * `list_handles` — tabulate the Event_Framework's registered cURL multi handles
 	 * (the SSE/HTTP egress nodes the drain loop selects on). Analogous to
 	 * Tachikoma CommandInterpreter's list_fds.
+	 *
+	 * @param  bool $structured Return handle_rows() instead of the text table.
+	 * @return string|list<array{id:int,count:int,type:string,name:string}>
 	 */
-	private static function cmd_list_handles(): string {
+	private static function cmd_list_handles( bool $structured = false ): string|array {
+		if ( $structured ) {
+			return self::handle_rows();
+		}
 		$rows = [];
 		foreach ( self::handle_rows() as $r ) {
 			$rows[] = [ (string) $r['id'], (string) $r['count'], $r['type'], $r['name'] ];
@@ -1104,63 +1117,8 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `runtime_stats` — the list_timers + list_handles rows plus the Router
-	 * profiling table as one structured reply for the Runtime/Stats devtools
-	 * views (TM_COMMAND array payload, like dump_metadata). Single source of
-	 * truth: the text verbs above and this both derive from timer_rows() /
-	 * handle_rows() / profile_dataset(). `profiles`/`profiles_total` are null
-	 * while profiling is disabled.
-	 *
-	 * @return array{timers:list<array<string,mixed>>,handles:list<array<string,mixed>>,profiles:list<array{name:string,avg:float,time:float,count:int}>|null,profiles_total:array{avg:float,time:float,count:int}|null}
-	 */
-	private static function cmd_runtime_stats(): array {
-		[ 'rows' => $profiles, 'total' => $total ] = self::profile_dataset();
-		return [
-			'timers'         => self::timer_rows(),
-			'handles'        => self::handle_rows(),
-			'profiles'       => $profiles,
-			'profiles_total' => $total,
-		];
-	}
-
-	/**
-	 * The Router self-time table as `{ rows, total }` for runtime_stats. Both are
-	 * null while profiling is off; else one { name, avg, time, count } row per
-	 * profiled node plus the aggregate. `list_profiles` keeps its own text form.
-	 *
-	 * @return array{rows:list<array{name:string,avg:float,time:float,count:int}>|null,total:array{avg:float,time:float,count:int}|null}
-	 */
-	private static function profile_dataset(): array {
-		$profiles = Router_Node::profiles();
-		if ( null === $profiles ) {
-			return [ 'rows' => null, 'total' => null ];
-		}
-		$rows        = [];
-		$total_time  = 0.0;
-		$total_count = 0;
-		foreach ( $profiles as $name => $info ) {
-			$rows[]       = [
-				'name'  => $name,
-				'avg'   => $info['avg'],
-				'time'  => $info['time'],
-				'count' => $info['count'],
-			];
-			$total_time  += $info['time'];
-			$total_count += $info['count'];
-		}
-		return [
-			'rows'  => $rows,
-			'total' => [
-				'avg'   => $total_count > 0 ? $total_time / $total_count : 0.0,
-				'time'  => $total_time,
-				'count' => $total_count,
-			],
-		];
-	}
-
-	/**
 	 * Structured rows for every registered Timer_Node — the one loop the
-	 * list_timers table and runtime_stats both build from. `next_ms` is ms until
+	 * list_timers table and its `-s` form both build from. `next_ms` is ms until
 	 * the next fire, or null when there's no own next_fire (inactive/hitchhike).
 	 *
 	 * @return list<array{id:int,active:bool,interval_ms:int,mode:string,next_ms:int|null,oneshot:bool,fires:int,type:string,name:string}>
@@ -1192,7 +1150,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Structured rows for every registered cURL multi handle — the one loop the
-	 * list_handles table and runtime_stats both build from.
+	 * list_handles table and its `-s` form both build from.
 	 *
 	 * @return list<array{id:int,count:int,type:string,name:string}>
 	 */
@@ -1243,8 +1201,12 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `list_profiles [glob]` — per-node self-time, slowest average first, with a
 	 * --total-- row (Tachikoma CommandInterpreter.pm list_profiles).
+	 *
+	 * @param  string $glob       Regex filter; `total` shows only --total--.
+	 * @param  bool   $structured Return the same rows instead of the text table.
+	 * @return string|list<array{avg:float,time:float,count:int,window:float,rate:float,age:int,what:string}>
 	 */
-	private static function cmd_list_profiles( string $glob ): string {
+	private static function cmd_list_profiles( string $glob, bool $structured = false ): string|array {
 		if ( null === Core::node( Node_Names::ROUTER ) ) {
 			throw new \RuntimeException( "can't find _router" );
 		}
@@ -1252,44 +1214,97 @@ class Command_Interpreter_Node extends Node {
 		$profiles = Router_Node::profiles() ?? [];
 		\uasort( $profiles, static fn ( array $a, array $b ): int => $b['avg'] <=> $a['avg'] );
 
-		$count = 0;
-		$total = [ 'time' => 0.0, 'count' => 0, 'timestamp' => 0.0, 'oldest' => 0.0 ];
-		$rows  = [];
+		$matched = [];
 		foreach ( $profiles as $key => $info ) {
 			if ( '' !== $glob && 'total' !== $glob && 1 !== @\preg_match( '{' . $glob . '}', $key ) ) {
 				continue;
 			}
-			$total['time']     += $info['time'];
-			$total['count']    += $info['count'];
-			$total['timestamp'] = \max( $total['timestamp'], $info['timestamp'] );
-			$total['oldest']    = 0.0 === $total['oldest'] ? $info['oldest'] : \min( $total['oldest'], $info['oldest'] );
-			if ( 'total' === $glob ) {
-				continue;
-			}
-			$age    = $info['timestamp'] - $info['oldest'];
-			$rows[] = self::profile_row( $info['avg'], $info['time'], $info['count'], $age, $info['timestamp'], $key );
-			++$count;
+			$matched[ $key ] = $info;
 		}
-		$age    = $total['timestamp'] - $total['oldest'];
-		$avg    = $total['count'] > 0 ? $total['time'] / $total['count'] : 0.0;
-		$rows[] = self::profile_row( $avg, $total['time'], $total['count'], $age, $total['timestamp'], '--total--' );
+		$totals = self::profile_stats( self::profile_total( $matched ), $start );
+		$listed = 'total' === $glob ? [] : $matched;
+
+		if ( $structured ) {
+			$out = [];
+			foreach ( $listed as $key => $info ) {
+				$out[] = self::profile_stats( $info, $start ) + [ 'what' => $key ];
+			}
+			$out[] = $totals + [ 'what' => '--total--' ];
+			return $out;
+		}
+
+		$rows = [];
+		foreach ( $listed as $key => $info ) {
+			$rows[] = self::profile_row( self::profile_stats( $info, $start ), $key );
+		}
+		$rows[] = self::profile_row( $totals, '--total--' );
 
 		return self::tabulate(
 			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
 			[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
 			$rows
-		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", $count, Core::right_now() - $start );
+		) . \sprintf( "\nreturned %d profiles in %.4f seconds\n", \count( $listed ), Core::right_now() - $start );
 	}
 
-	/** @return list<string> One list_profiles table row (rate = count/window, else 1). */
-	private static function profile_row( float $avg, float $time, int $count, float $age, float $timestamp, string $what ): array {
+	/**
+	 * The seven facts list_profiles prints, from one raw record. Text and -s
+	 * render THIS one derivation, so the two can never disagree.
+	 *
+	 * @param  array{avg:float,time:float,count:int,timestamp:float,oldest:float} $info Raw record.
+	 * @return array{avg:float,time:float,count:int,window:float,rate:float,age:int}
+	 */
+	private static function profile_stats( array $info, float $now ): array {
+		$window = $info['timestamp'] - $info['oldest'];
 		return [
-			\sprintf( '%.6f', $avg ),
-			\sprintf( '%.2f', $time ),
-			(string) $count,
-			\sprintf( '%.2f', $age ),
-			\sprintf( '%.2f', ( $age > 0.0 && $count > 1 ) ? $count / $age : 1 ),
-			(string) (int) ( $timestamp > 0.0 ? \max( 0.0, Core::$now - $timestamp ) : 0 ),
+			'avg'    => $info['avg'],
+			'time'   => $info['time'],
+			'count'  => $info['count'],
+			'window' => $window,
+			'rate'   => ( $window > 0.0 && $info['count'] > 1 ) ? $info['count'] / $window : 1.0,
+			'age'    => (int) ( $info['timestamp'] > 0.0 ? \max( 0.0, $now - $info['timestamp'] ) : 0 ),
+		];
+	}
+
+	/**
+	 * --total--: summed time/count, widest timestamp..oldest span.
+	 *
+	 * @param  array<string,array{avg:float,time:float,count:int,timestamp:float,oldest:float}> $infos Raw records.
+	 * @return array{avg:float,time:float,count:int,timestamp:float,oldest:float}
+	 */
+	private static function profile_total( array $infos ): array {
+		$time      = 0.0;
+		$count     = 0;
+		$timestamp = 0.0;
+		$oldest    = 0.0;
+		foreach ( $infos as $info ) {
+			$time      += $info['time'];
+			$count     += $info['count'];
+			$timestamp  = \max( $timestamp, $info['timestamp'] );
+			$oldest     = 0.0 === $oldest ? $info['oldest'] : \min( $oldest, $info['oldest'] );
+		}
+		return [
+			'avg'       => $count > 0 ? $time / $count : 0.0,
+			'time'      => $time,
+			'count'     => $count,
+			'timestamp' => $timestamp,
+			'oldest'    => $oldest,
+		];
+	}
+
+	/**
+	 * One list_profiles table row: the shared stats struct, formatted.
+	 *
+	 * @param  array{avg:float,time:float,count:int,window:float,rate:float,age:int} $r Stats.
+	 * @return list<string>
+	 */
+	private static function profile_row( array $r, string $what ): array {
+		return [
+			\sprintf( '%.6f', $r['avg'] ),
+			\sprintf( '%.2f', $r['time'] ),
+			(string) $r['count'],
+			\sprintf( '%.2f', $r['window'] ),
+			\sprintf( '%.2f', $r['rate'] ),
+			(string) $r['age'],
 			$what,
 		];
 	}

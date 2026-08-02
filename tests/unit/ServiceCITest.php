@@ -118,7 +118,7 @@ class ServiceCITest extends TestCase {
 		// cap denied (default) the dispatch must return the permission-error
 		// string, not the verb's sentinel.
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
-		$this->assertSame( 'permission denied: manage capability required', $result );
+		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
 	public function test_schema_verb_runs_with_manage_options(): void {
@@ -131,7 +131,7 @@ class ServiceCITest extends TestCase {
 		// `help` is injected by the base commands() accessor, not declared in the
 		// schema — so the gate must catch it too, else it's an ungated bypass.
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
-		$this->assertSame( 'permission denied: manage capability required', $result );
+		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
 	public function test_auto_injected_help_runs_after_manage_options_gate_passes(): void {
@@ -196,7 +196,7 @@ class ServiceCITest extends TestCase {
 		// The slice handler itself never self-gates; registering it via node_schema
 		// must let commands_from_schema's central wrapper deny it without the cap.
 		$result = VerbHarness::fire( new ServiceCISliceVerbProbe(), 'probe', 'slice' );
-		$this->assertSame( 'permission denied: manage capability required', $result );
+		$this->assertSame( "permission denied: manage capability required\n", $result );
 	}
 
 	public function test_slice_verb_handler_runs_through_schema_with_manage_options(): void {

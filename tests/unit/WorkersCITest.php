@@ -510,7 +510,7 @@ class WorkersCITest extends TestCase {
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', [ '7', '42424243' ] );
 
-		$this->assertSame( 'cache not configured', $result );
+		$this->assertSame( "cache not configured\n", $result );
 	}
 
 	/**
@@ -539,7 +539,8 @@ class WorkersCITest extends TestCase {
 
 		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', $args );
 
-		$this->assertSame( $expected, $result );
+		// Verb errors are newline-terminated; the provider carries the message.
+		$this->assertSame( $expected . "\n", $result );
 		\Newspack_Nodes\Core::$memd = null;
 	}
 
@@ -566,7 +567,7 @@ class WorkersCITest extends TestCase {
 			[ (string) $lease['slot'], (string) $wrong_owner ]
 		);
 
-		$this->assertSame( 'SSE slot lease not owned', $result );
+		$this->assertSame( "SSE slot lease not owned\n", $result );
 	}
 
 	// ── cleanup_status verb ─────────────────────────────────────────────────

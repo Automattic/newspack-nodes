@@ -156,7 +156,9 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 
 	expect( got ).toHaveLength( 1 );
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
-	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom' );
+	// Newline-terminated, as PHP's interpret() sends it — the REPL prints the
+	// payload verbatim, so a bare message runs into the next prompt.
+	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom\n' );
 } );
 
 test( 'command without LOCAL provenance is refused (unauthorized), verb not run', () => {
@@ -1600,7 +1602,7 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		expect( out ).toContain( 'COUNT' );
 	} );
 
-	test( 'runtime_stats returns { timers, handles } as keyed rows (same source as the text tables)', () => {
+	test( 'list_timers -s and list_handles -s return the text tables as keyed rows', () => {
 		const timer = new TimerNode();
 		timer.name = 'tick0';
 		timer.setTimer( 250 ); // own-slot: distinct interval, active
@@ -1608,16 +1610,12 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		sse.name = 'sse0';
 		sse._es = { readyState: 1 }; // OPEN
 
-		const out = dispatch( new CommandInterpreterNode(), 'runtime_stats' );
+		const ci = new CommandInterpreterNode();
+		const timers = dispatch( ci, 'list_timers', [ '-s' ] );
+		const handles = dispatch( ci, 'list_handles', [ '-s' ] );
 		timer.stopTimer();
 
-		expect( Object.keys( out ) ).toEqual( [
-			'timers',
-			'handles',
-			'profiles',
-			'profiles_total',
-		] );
-		const tick = out.timers.find( ( r ) => r.name === 'tick0' );
+		const tick = timers.find( ( r ) => r.name === 'tick0' );
 		expect( Object.keys( tick ) ).toEqual( [
 			'id',
 			'active',
@@ -1636,60 +1634,48 @@ describe( 'list_timers / list_handles introspection verbs', () => {
 		expect( tick.oneshot ).toBe( false );
 		expect( tick.type ).toBe( 'TimerNode' );
 
-		expect( out.handles ).toHaveLength( 1 );
-		expect( Object.keys( out.handles[ 0 ] ) ).toEqual( [
+		expect( handles ).toHaveLength( 1 );
+		expect( Object.keys( handles[ 0 ] ) ).toEqual( [
 			'id',
 			'count',
 			'type',
 			'name',
 		] );
-		expect( out.handles[ 0 ].name ).toBe( 'sse0' );
-		expect( out.handles[ 0 ].id ).toBe( 'OPEN' ); // EventSource readyState label
-
-		// Profiling off by default → both profile datasets present but null.
-		expect( out ).toHaveProperty( 'profiles', null );
-		expect( out ).toHaveProperty( 'profiles_total', null );
+		expect( handles[ 0 ].name ).toBe( 'sse0' );
+		expect( handles[ 0 ].id ).toBe( 'OPEN' ); // EventSource readyState label
 	} );
 
-	test( 'runtime_stats joins the Router profile table when profiling is enabled', () => {
-		// Seed the self-time table directly (values distinct from the disabled
-		// null) — runtime_stats reads it verbatim.
-		RouterNode.profiles( {
-			alice: {
-				time: 0.3,
-				count: 3,
-				avg: 0.1,
-				oldest: 100,
-				timestamp: 130,
-			},
-			bob: {
-				time: 0.1,
-				count: 5,
-				avg: 0.02,
-				oldest: 100,
-				timestamp: 130,
-			},
-		} );
+	test( 'list_timers -s and the text table are the same rows', () => {
+		const timer = new TimerNode();
+		timer.name = 'tick0';
+		timer.setTimer( 250 );
 
-		const out = dispatch( new CommandInterpreterNode(), 'runtime_stats' );
+		const ci = new CommandInterpreterNode();
+		const text = dispatch( ci, 'list_timers' );
+		const rows = dispatch( ci, 'list_timers', [ '-s' ] );
+		timer.stopTimer();
 
-		const byName = Object.fromEntries(
-			out.profiles.map( ( r ) => [ r.name, r ] )
-		);
-		expect( Object.keys( byName.alice ) ).toEqual( [
-			'name',
-			'avg',
-			'time',
-			'count',
+		// Every struct row's NAME appears in the rendered table, and the header
+		// names the same facts — one source, two renderings.
+		for ( const row of rows ) {
+			expect( text ).toContain( row.name );
+		}
+		expect( text ).toContain( '250' );
+	} );
+
+	test( 'list_profiles -s is null-free when profiling is off', () => {
+		const router = new RouterNode();
+		router.name = '_router';
+		router.stopTimer();
+		RouterNode.profiles( null );
+		const rows = dispatch( new CommandInterpreterNode(), 'list_profiles', [
+			'-s',
 		] );
-		expect( byName.alice.avg ).toBeCloseTo( 0.1, 9 );
-		expect( byName.alice.time ).toBeCloseTo( 0.3, 9 );
-		expect( byName.alice.count ).toBe( 3 );
-		expect( byName.bob.avg ).toBeCloseTo( 0.02, 9 );
 
-		// Total: summed time/count, avg = total time / total count (0.4 / 8).
-		expect( out.profiles_total.time ).toBeCloseTo( 0.4, 9 );
-		expect( out.profiles_total.count ).toBe( 8 );
-		expect( out.profiles_total.avg ).toBeCloseTo( 0.05, 9 );
+		// No profiles: just the --total-- row, all zeroes — never null, so a
+		// view renders an empty table rather than guarding every field.
+		expect( rows ).toHaveLength( 1 );
+		expect( rows[ 0 ].what ).toBe( '--total--' );
+		expect( rows[ 0 ].count ).toBe( 0 );
 	} );
 } );

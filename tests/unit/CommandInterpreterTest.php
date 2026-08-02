@@ -183,7 +183,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'COUNT', $out, 'has a COUNT (messages processed) column' );
 	}
 
-	public function test_runtime_stats_returns_structured_timer_and_handle_rows(): void {
+	public function test_list_timers_and_list_handles_dash_s_return_keyed_rows(): void {
 		Event_Framework::reset();
 		$router = new \Newspack_Nodes\Router_Node(); // real _router declares the TIMER event
 		$router->name( '_router' );
@@ -199,14 +199,15 @@ class CommandInterpreterTest extends TestCase {
 		$easy = \curl_init();
 		Event_Framework::instance()->register_curl_easy( $sse, $easy );
 
-		$out = ( new Command_Interpreter_Node() )->dispatch( 'runtime_stats' );
+		$ci      = new Command_Interpreter_Node();
+		$timers  = $ci->dispatch( 'list_timers', [ '-s' ] );
+		$handles = $ci->dispatch( 'list_handles', [ '-s' ] );
 
-		$this->assertIsArray( $out );
-		$this->assertArrayHasKey( 'timers', $out );
-		$this->assertArrayHasKey( 'handles', $out );
+		$this->assertIsArray( $timers );
+		$this->assertIsArray( $handles );
 
 		$by_name = [];
-		foreach ( $out['timers'] as $row ) {
+		foreach ( $timers as $row ) {
 			$by_name[ $row['name'] ] = $row;
 		}
 		$this->assertSame(
@@ -223,22 +224,17 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'Timer_Node', $by_name['tick0']['type'] );
 		$this->assertNull( $by_name['hitch0']['next_ms'], 'a hitchhiker has no own next_fire; next_ms is null' );
 
-		$this->assertCount( 1, $out['handles'] );
-		$handle = $out['handles'][0];
+		$this->assertCount( 1, $handles );
+		$handle = $handles[0];
 		$this->assertSame( [ 'id', 'count', 'type', 'name' ], \array_keys( $handle ), 'handle rows are keyed, not positional' );
 		$this->assertSame( 'sse0', $handle['name'] );
-
-		// Profiling is off by default → both profile datasets are present but null.
-		$this->assertArrayHasKey( 'profiles', $out );
-		$this->assertArrayHasKey( 'profiles_total', $out );
-		$this->assertNull( $out['profiles'], 'profiles is null while profiling is disabled' );
-		$this->assertNull( $out['profiles_total'], 'profiles_total is null while profiling is disabled' );
 		Event_Framework::instance()->unregister_curl_easy( $easy );
 	}
 
-	public function test_runtime_stats_joins_router_profiles_when_profiling_is_enabled(): void {
+	public function test_list_profiles_dash_s_returns_every_column_the_table_prints(): void {
 		// Seed the Router self-time table directly (values distinct from the
-		// disabled-null default) — runtime_stats reads it verbatim.
+		// disabled-null default) — `-s` reads it verbatim.
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		Router_Node::profiles(
 			[
 				'alice' => [ 'time' => 0.30, 'count' => 3, 'avg' => 0.10, 'oldest' => 100.0, 'timestamp' => 130.0 ],
@@ -246,24 +242,27 @@ class CommandInterpreterTest extends TestCase {
 			]
 		);
 
-		$out = ( new Command_Interpreter_Node() )->dispatch( 'runtime_stats' );
+		$rows = ( new Command_Interpreter_Node() )->dispatch( 'list_profiles', [ '-s' ] );
 
-		$this->assertIsArray( $out['profiles'], 'enabled profiling yields a profiles row list' );
-		$by_name = \array_column( $out['profiles'], null, 'name' );
+		$this->assertIsArray( $rows );
+		$by_name = \array_column( $rows, null, 'what' );
 		$this->assertSame(
-			[ 'name', 'avg', 'time', 'count' ],
+			[ 'avg', 'time', 'count', 'window', 'rate', 'age', 'what' ],
 			\array_keys( $by_name['alice'] ),
-			'profile rows carry name/avg/time/count'
+			'-s carries every column the text table prints'
 		);
 		$this->assertEqualsWithDelta( 0.10, $by_name['alice']['avg'], 1e-9 );
 		$this->assertEqualsWithDelta( 0.30, $by_name['alice']['time'], 1e-9 );
 		$this->assertSame( 3, $by_name['alice']['count'] );
+		// window = timestamp - oldest = 30, distinct from avg/time/count.
+		$this->assertEqualsWithDelta( 30.0, $by_name['alice']['window'], 1e-9 );
 		$this->assertEqualsWithDelta( 0.02, $by_name['bob']['avg'], 1e-9 );
 
-		// Total: summed time/count, avg = total time / total count (0.40 / 8).
-		$this->assertEqualsWithDelta( 0.40, $out['profiles_total']['time'], 1e-9 );
-		$this->assertSame( 8, $out['profiles_total']['count'] );
-		$this->assertEqualsWithDelta( 0.05, $out['profiles_total']['avg'], 1e-9 );
+		// Total rides in as a row: summed time/count, avg = 0.40 / 8.
+		$total = $by_name['--total--'];
+		$this->assertEqualsWithDelta( 0.40, $total['time'], 1e-9 );
+		$this->assertSame( 8, $total['count'] );
+		$this->assertEqualsWithDelta( 0.05, $total['avg'], 1e-9 );
 	}
 
 	/** Write $lines (each padded to $width chars) as fixed-width $width+1-byte rows to a fresh temp file. */
@@ -740,7 +739,7 @@ class CommandInterpreterTest extends TestCase {
 			$reply[ Message::TYPE ]
 		);
 		$this->assertSame(
-			"activating 'perf' conflicts: a <b>",
+			"activating 'perf' conflicts: a <b>\n",
 			$reply[ Message::VALUE ]['payload']
 		);
 	}
@@ -2637,7 +2636,7 @@ class CommandInterpreterTest extends TestCase {
 		// Response VALUE rides as a live PHP structure — no JSON string to decode.
 		$payload = $response[ Message::VALUE ];
 		$this->assertSame( 'boom', $payload['name'] );
-		$this->assertSame( 'kaboom!', $payload['payload'] );
+		$this->assertSame( "kaboom!\n", $payload['payload'] );
 	}
 
 	public function test_interpret_responds_with_structured_array_payload(): void {

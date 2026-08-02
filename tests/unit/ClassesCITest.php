@@ -43,7 +43,7 @@ class ClassesCITest extends TestCase {
 	public function test_list_is_denied_without_the_read_capability(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
-		$this->assertSame( 'permission denied: read capability required', $result );
+		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
 	/**
