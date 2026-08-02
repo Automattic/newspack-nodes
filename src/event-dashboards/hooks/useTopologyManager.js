@@ -51,8 +51,9 @@ import { TO, ID } from '../../runtime/message';
 import { useNodeState } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
-import { makeOpId } from '@newspack-nodes/shared/hooks/useDashboardGraph';
+import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
@@ -361,17 +362,12 @@ export function useTopologyManager( opts = {} ) {
 	// Re-evaluate connected on a heartbeat even with no reply (visible only).
 	const pageVisible = usePageVisibility();
 	const [ , bumpFreshness ] = useState( 0 );
-	useEffect( () => {
-		if ( ! pageVisible ) {
-			return undefined;
-		}
-		const intervalMs = parseInt( refreshMs, 10 );
-		const id = setInterval(
-			() => bumpFreshness( ( n ) => n + 1 ),
-			intervalMs
-		);
-		return () => clearInterval( id );
-	}, [ refreshMs, pageVisible ] );
+	const bump = useCallback( () => bumpFreshness( ( n ) => n + 1 ), [] );
+	useRouterTick( {
+		name: 'topology-manager:freshness',
+		onTick: bump,
+		intervalMs: parseInt( refreshMs, 10 ),
+	} );
 
 	const connected = deriveConnected( {
 		topologyError: Boolean( topologyModel?.error ),

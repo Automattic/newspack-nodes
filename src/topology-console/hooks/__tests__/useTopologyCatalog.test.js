@@ -1,201 +1,72 @@
 /**
- * Tests for useTopologyCatalog — the LIVE source of the Path menu's topology
- * partition counts + active set. Seeds from the page-load NewspackNodesData
- * snapshot, then refreshes from `topologies.list` on mount + an interval
- * (external changes) and on demand via reload() (in-console save/delete).
+ * useTopologyCatalog — a read over the `topologies:catalog` node.
+ *
+ * The ordering this pins: TopologyConsole calls useTopologyCatalog BEFORE
+ * useConsoleGraph, so on first render the node does not exist yet. The hook has
+ * to pick it up when it appears, or the Path menu stays frozen on the
+ * page-load seed and never reflects a `wp nodes activate` from elsewhere.
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
+import { Core } from '../../../runtime/core';
+import { TopologyCatalogNode } from '../../nodes/topology-catalog-node';
+import { useTopologyCatalog, CATALOG_NODE } from '../useTopologyCatalog';
+import { newMessage, VALUE } from '../../../runtime/message';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
-// Controllable visibility: default visible; flip via mockReturnValue per test.
-jest.mock( '../../../shared/hooks/usePageVisibility', () => ( {
-	__esModule: true,
-	default: jest.fn( () => true ),
-} ) );
-
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
-const usePageVisibility =
-	require( '../../../shared/hooks/usePageVisibility' ).default;
-
-import { useTopologyCatalog } from '../useTopologyCatalog';
-
-const listBody = ( topologies ) => ( { topologies } );
+// Distinct from the seed below AND from the 1 fallback, so a hook stuck on the
+// seed — or one defaulting the count — fails rather than coincidentally passing.
+const LIVE = [ { name: 'combined', num_partitions: 6, active: true } ];
 
 describe( 'useTopologyCatalog', () => {
-	let send;
 	beforeEach( () => {
-		send = jest.fn().mockResolvedValue( [] );
-		getCommandClient.mockReturnValue( { send } );
-		usePageVisibility.mockReturnValue( true );
+		Core.reset();
 		window.NewspackNodesData = {
-			restUrl: '/wp-json/',
-			nonce: 'NONCE',
-			topologyWorkers: { demo: 2 },
-			activeTopologies: [ 'demo' ],
+			topologyWorkers: { seeded: 2 },
+			activeTopologies: [ 'seeded' ],
 			configNumPartitions: 1,
 		};
-		// A list reply that hasn't been overridden resolves to no change.
-		unwrapCommandResponse.mockReturnValue(
-			listBody( [ { name: 'demo', active: true, num_partitions: 2 } ] )
-		);
 	} );
 
-	it( 'seeds partitions + active from NewspackNodesData before any fetch resolves', async () => {
+	it( 'seeds from the page-load snapshot before the node exists', () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
-		expect( result.current.partitions ).toEqual( { demo: 2 } );
-		expect( result.current.active ).toEqual( [ 'demo' ] );
-		expect( typeof result.current.reload ).toBe( 'function' );
-		// The mount fetch lands right after: entries arrive (the seed has none).
-		await waitFor( () =>
-			expect( result.current.entries ).toHaveLength( 1 )
-		);
+		expect( result.current.partitions ).toEqual( { seeded: 2 } );
+		expect( result.current.active ).toEqual( [ 'seeded' ] );
 	} );
 
-	it( 'fetches topologies.list on mount and maps active + num_partitions', async () => {
-		unwrapCommandResponse.mockReturnValue(
-			listBody( [
-				{ name: 'demo', active: true, num_partitions: 3 },
-				{ name: 'idle', active: false, num_partitions: 1 },
-			] )
-		);
-		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () =>
-			expect( result.current.partitions ).toEqual( { demo: 3, idle: 1 } )
-		);
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'topologies',
-			verb: 'list',
-		} );
-		// Only the active topology appears in the active set.
-		expect( result.current.active ).toEqual( [ 'demo' ] );
-	} );
+	it( 'picks up a node that mounts AFTER it, and follows its publishes', () => {
+		const { result, rerender } = renderHook( () => useTopologyCatalog() );
 
-	it( "exposes the raw entries so the palette gets each topology's includes", async () => {
-		// The palette's Topologies section needs name + includes to build the
-		// include DAG (for greying out an ancestor). This hook already polls
-		// `topologies list`; a second lazy fetch just to re-read it would be waste.
-		unwrapCommandResponse.mockReturnValue(
-			listBody( [
-				{
-					name: 'wombat-top',
-					active: false,
-					num_partitions: 1,
-					includes: [ 'zebra-base' ],
-				},
-				{
-					name: 'zebra-base',
-					active: false,
-					num_partitions: 1,
-					includes: [],
-				},
-			] )
-		);
-		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () =>
-			expect( result.current.entries ).toHaveLength( 2 )
-		);
-		expect( result.current.entries[ 0 ] ).toEqual( {
-			name: 'wombat-top',
-			active: false,
-			num_partitions: 1,
-			includes: [ 'zebra-base' ],
-		} );
-	} );
-
-	it( 'falls back to configNumPartitions when an entry omits num_partitions', async () => {
-		window.NewspackNodesData.configNumPartitions = 4;
-		unwrapCommandResponse.mockReturnValue(
-			listBody( [ { name: 'demo', active: true } ] )
-		);
-		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () =>
-			expect( result.current.partitions ).toEqual( { demo: 4 } )
-		);
-	} );
-
-	it( 'reload() triggers a refetch', async () => {
-		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ) );
-		await act( async () => {
-			result.current.reload();
-		} );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 2 ) );
-	} );
-
-	it( 'polls topologies.list on the interval', async () => {
-		jest.useFakeTimers();
-		try {
-			renderHook( () => useTopologyCatalog( { pollMs: 5000 } ) );
-			await act( async () => {} ); // flush the mount fetch
-			expect( send ).toHaveBeenCalledTimes( 1 );
-			await act( async () => {
-				jest.advanceTimersByTime( 5000 );
-			} );
-			expect( send ).toHaveBeenCalledTimes( 2 );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	it( 'does not fetch while the page is hidden, then fetches when it becomes visible', async () => {
-		usePageVisibility.mockReturnValue( false );
-		const { rerender } = renderHook( () => useTopologyCatalog() );
-		await act( async () => {} );
-		expect( send ).not.toHaveBeenCalled();
-		usePageVisibility.mockReturnValue( true );
+		// The graph hook mounts the node on a later commit.
+		const node = new TopologyCatalogNode();
+		node.name = CATALOG_NODE;
 		rerender();
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ) );
+
+		const reply = newMessage();
+		reply[ VALUE ] = { name: 'list', payload: { topologies: LIVE } };
+		act( () => {
+			node.fill( reply );
+		} );
+
+		expect( result.current.partitions ).toEqual( { combined: 6 } );
+		expect( result.current.active ).toEqual( [ 'combined' ] );
+		expect( result.current.entries ).toEqual( LIVE );
 	} );
 
-	it( 'keeps the last-good catalog when a refetch rejects', async () => {
-		send.mockRejectedValue( new Error( 'boom' ) );
-		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ) );
-		// Seed survives the failed fetch — the menu must not blank out.
-		expect( result.current.partitions ).toEqual( { demo: 2 } );
-		expect( result.current.active ).toEqual( [ 'demo' ] );
-	} );
+	it( 'reload() fires the node rather than waiting out the interval', () => {
+		const node = new TopologyCatalogNode();
+		node.name = CATALOG_NODE;
+		const fire = jest.spyOn( node, 'fire' ).mockImplementation( () => {} );
 
-	it( 'keeps the last-good catalog when a successful refetch returns a malformed payload', async () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ) );
-		// A malformed 200 (no `topologies` array) must NOT overwrite catalog.
-		unwrapCommandResponse.mockReturnValue( { user_dir: '/d' } );
-		await act( async () => {
+		act( () => {
 			result.current.reload();
 		} );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 2 ) );
-		expect( result.current.partitions ).toEqual( { demo: 2 } );
-		expect( result.current.active ).toEqual( [ 'demo' ] );
+
+		expect( fire ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	it( 'applies a genuinely empty topology list (collapses the menu)', async () => {
-		unwrapCommandResponse.mockReturnValue( listBody( [] ) );
+	it( 'reload() is inert when no graph is mounted', () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
-		await waitFor( () => expect( result.current.active ).toEqual( [] ) );
-		expect( result.current.partitions ).toEqual( {} );
-	} );
-
-	it( 'keeps a stable reference when an interval poll returns identical data', async () => {
-		jest.useFakeTimers();
-		try {
-			const { result } = renderHook( () =>
-				useTopologyCatalog( { pollMs: 5000 } )
-			);
-			await act( async () => {} ); // mount fetch
-			const afterFirst = result.current.partitions;
-			await act( async () => {
-				jest.advanceTimersByTime( 5000 );
-			} );
-			// Identical poll must not churn the reference (no re-render).
-			expect( result.current.partitions ).toBe( afterFirst );
-		} finally {
-			jest.useRealTimers();
-		}
+		expect( () => result.current.reload() ).not.toThrow();
 	} );
 } );

@@ -10,6 +10,7 @@
  * `LOCAL` and the signature are the same assertion — "this process minted it" —
  * so they are set together by markLocal() and cannot drift apart.
  */
+import { Core } from '../core';
 import { HeartbeatNode } from '../heartbeat-node';
 import { RemoteIpcNode } from '../remote-ipc-node';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
@@ -83,12 +84,13 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		node.reader = 'combined.p0';
 		node.pid = () => 7;
 		node.connect = () => {};
-		node.httpOut = {
+		// The ONE `_http` boundary; RemoteIpc no longer aliases it per-link.
+		Core.registerNode( '_http', {
 			locked: true,
 			lock: () => {},
 			flush: () => {},
 			fill: ( m ) => sent.push( m ),
-		};
+		} );
 
 		const typed = newMessage();
 		typed[ TYPE ] = TM_COMMAND;

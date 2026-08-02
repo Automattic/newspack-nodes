@@ -8,6 +8,11 @@
  * more than one DebugOverlay (separate bundles), but they must share ONE
  * interval — double-sampling would corrupt the per-second rates. The interval
  * starts on the first start() and stops on the last balanced stop().
+ *
+ * One of the few pollers that does NOT ride the Router (`useRouterTick`): it is
+ * always-on, independent of any graph, and its whole job is to keep sampling
+ * when a graph is torn down or was never mounted. Riding the thing it measures
+ * would blind it exactly when the history matters.
  */
 
 import { IoTelemetry, SAMPLE_INTERVAL_MS } from '../runtime/io-telemetry';

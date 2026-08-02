@@ -18,28 +18,21 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname( fileURLToPath( import.meta.url ) );
 const ROOT = path.resolve( __dirname, '..' );
 
-// Fourth override, guarded here — the kit can't report its own missing path.
-const buildKit =
-	process.env.NEWSPACK_NODES_BUILD_KIT ||
-	path.resolve( ROOT, '../../src/build-kit/index.mjs' );
+// In-repo example: the substrate is always three levels up, so no env override.
+const SUBSTRATE_SRC = path.resolve( ROOT, '../../src' );
+const buildKit = path.join( SUBSTRATE_SRC, 'build-kit/index.mjs' );
 if ( ! existsSync( buildKit ) ) {
-	throw new Error(
-		`build-kit not found at ${ buildKit } — set NEWSPACK_NODES_BUILD_KIT when building outside a sibling newspack-nodes checkout`
-	);
+	throw new Error( `build-kit not found at ${ buildKit }` );
 }
 const { buildDashboards } = await import( pathToFileURL( buildKit ).href );
+const { esbuildAlias } = (
+	await import(
+		pathToFileURL( path.join( SUBSTRATE_SRC, 'build-kit/alias-map.cjs' ) )
+			.href
+	)
+).default;
 
-const alias = {
-	'@newspack-nodes/runtime':
-		process.env.NEWSPACK_NODES_RUNTIME ||
-		path.resolve( ROOT, '../../src/runtime/index.js' ),
-	'@newspack-nodes/debug-overlay':
-		process.env.NEWSPACK_NODES_DEBUG_OVERLAY ||
-		path.resolve( ROOT, '../../src/debug-overlay/DebugOverlay.js' ),
-	'@newspack-nodes/shared':
-		process.env.NEWSPACK_NODES_SHARED ||
-		path.resolve( ROOT, '../../src/shared' ),
-};
+const alias = esbuildAlias( SUBSTRATE_SRC );
 
 const ENTRIES = [
 	{

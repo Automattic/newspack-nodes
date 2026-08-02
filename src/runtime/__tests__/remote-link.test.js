@@ -95,7 +95,6 @@ describe( 'RemoteLinkNode', () => {
 		// HttpOut + Heartbeat are shared reserved-name singletons.
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
 		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
-		expect( link.httpOut ).toBe( Core.node( names.HTTP ) );
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
 	} );
 
@@ -117,7 +116,7 @@ describe( 'RemoteLinkNode', () => {
 		link.connect();
 		link.sseIn.bytesRead = 500;
 		link.sseIn.largestMsgSent = 120;
-		link.httpOut.bytesWritten = 80;
+		Core.node( names.HTTP ).bytesWritten = 80;
 		// SseIn is unlisted, so the link surfaces its reads (else uncounted).
 		expect( link.bytesRead ).toBe( 500 );
 		expect( link.largestMsgSent ).toBe( 120 );
@@ -486,7 +485,7 @@ describe( 'RemoteLinkNode', () => {
 		}
 	} );
 
-	it( 'dumpNode filters out its internal sub-node refs (sseIn/httpOut/heartbeat)', () => {
+	it( 'dumpNode filters out its internal sub-node refs (sseIn/heartbeat)', () => {
 		// RemoteLink composes 3 nodes; dumpNode masks them, not serialized.
 		const { link } = makeLink();
 		link.connect(); // wires sseIn + the shared _http/_heartbeat singletons.
@@ -494,7 +493,6 @@ describe( 'RemoteLinkNode', () => {
 		const snap = link.dumpNode();
 
 		expect( snap.sseIn ).toBe( '{...}' );
-		expect( snap.httpOut ).toBe( '{...}' );
 		expect( snap.heartbeat ).toBe( '{...}' );
 		expect( () => JSON.stringify( snap ) ).not.toThrow();
 	} );

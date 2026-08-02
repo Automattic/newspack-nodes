@@ -8,6 +8,7 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
+import { mountExospine } from '../../runtime/exospine';
 import LogViewer from '../LogViewer';
 
 let logRowListProps;
@@ -148,6 +149,9 @@ describe( 'LogViewer', () => {
 
 	it( 'the source catalog refreshes on an interval while a source streams', () => {
 		jest.useFakeTimers();
+		// The rail rides the Router TIMER; the graph hook is mocked out here,
+		// so stand in the backbone the real useLogViewerGraph brings up.
+		const host = mountExospine( () => {} );
 		registerViewFixture( { selected: 'gate' } );
 		render( <LogViewer /> );
 		expect( fetchSources ).not.toHaveBeenCalled();
@@ -155,6 +159,7 @@ describe( 'LogViewer', () => {
 			jest.advanceTimersByTime( 10000 );
 		} );
 		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
+		host.teardown();
 		jest.useRealTimers();
 	} );
 

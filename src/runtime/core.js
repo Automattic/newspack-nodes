@@ -23,7 +23,10 @@ class CoreImpl {
 		this.reinitNames = null; // names mountExospine's build registered
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;
+		// Bumped when a mount CREATES the backbone (bare or delegated).
+		this.backboneGeneration = 0;
 		this._generationListeners = new Set();
+		this._backboneListeners = new Set();
 	}
 
 	now() {
@@ -131,6 +134,25 @@ class CoreImpl {
 	subscribeGraphGeneration( listener ) {
 		this._generationListeners.add( listener );
 		return () => this._generationListeners.delete( listener );
+	}
+
+	// @longform
+	// Distinct from graphGeneration on purpose: a BARE mountExospine() brings
+	// the backbone up without bumping the generation (the console relies on
+	// that, so a co-mounted overlay is not reinit'd), yet a passenger node
+	// still has to learn the backbone exists. Generation means "rebuild what
+	// you built"; backbone-up means "there is something to attach to".
+	notifyBackboneUp() {
+		this.backboneGeneration++;
+		for ( const listener of this._backboneListeners ) {
+			listener();
+		}
+	}
+
+	// Subscribe to backbone-up notifications; returns an unsubscribe function.
+	subscribeBackboneUp( listener ) {
+		this._backboneListeners.add( listener );
+		return () => this._backboneListeners.delete( listener );
 	}
 
 	registerNode( name, node ) {

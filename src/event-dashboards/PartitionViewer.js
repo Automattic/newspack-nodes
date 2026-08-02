@@ -22,6 +22,7 @@ import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
+import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { endPosition } from '../shared/nodes/seekTracker';
 import useLogPositions, {
 	segmentPositions,
@@ -115,28 +116,44 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	const { segmentId, follow, browseSegment, replay } =
 		useLogPositions( selectedLog );
 	const [ segments, setSegments ] = useState( [] );
+	// @longform
+	// Keyed on the log the reply BELONGS to, not a shared cancelled flag: React
+	// runs the old cleanup then the new effect body, so a single ref is un-set
+	// by the very re-run it should be cancelling and a slow reply for the
+	// previous log lands in the new log's rail. Both writers below use this.
+	const selectedLogRef = useRef( selectedLog );
+	selectedLogRef.current = selectedLog;
+	const applySegments = useCallback( ( forLog, status ) => {
+		if ( selectedLogRef.current === forLog ) {
+			setSegments( status?.segments ?? [] );
+		}
+	}, [] );
+
+	const refreshSegments = useCallback( () => {
+		const forLog = selectedLog;
+		if ( ! forLog ) {
+			return;
+		}
+		fetchLogStatus( forLog )
+			.then( ( status ) => applySegments( forLog, status ) )
+			.catch( () => {} );
+	}, [ selectedLog, fetchLogStatus, applySegments ] );
+
 	useEffect( () => {
 		if ( ! selectedLog ) {
 			setSegments( [] );
-			return undefined;
+			return;
 		}
-		let cancelled = false;
-		const refresh = () =>
-			fetchLogStatus( selectedLog )
-				.then( ( status ) => {
-					if ( ! cancelled ) {
-						setSegments( status?.segments ?? [] );
-					}
-				} )
-				.catch( () => {} );
-		refresh();
-		// Maintain the rail: rotation and size growth while streaming.
-		const id = setInterval( refresh, SEGMENTS_REFRESH_MS );
-		return () => {
-			cancelled = true;
-			clearInterval( id );
-		};
-	}, [ selectedLog, fetchLogStatus ] );
+		refreshSegments();
+	}, [ selectedLog, refreshSegments ] );
+
+	// Maintain the rail: rotation and size growth while streaming.
+	useRouterTick( {
+		name: 'partition-viewer:segments',
+		onTick: refreshSegments,
+		intervalMs: SEGMENTS_REFRESH_MS,
+		enabled: Boolean( selectedLog ),
+	} );
 
 	// A record from an unknown segment = rotation; refetch once (no loops).
 	const staleSegmentRef = useRef( null );
@@ -150,10 +167,17 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			return;
 		}
 		staleSegmentRef.current = lastReceivedSegment;
-		fetchLogStatus( selectedLog )
-			.then( ( status ) => setSegments( status?.segments ?? [] ) )
+		const forLog = selectedLog;
+		fetchLogStatus( forLog )
+			.then( ( status ) => applySegments( forLog, status ) )
 			.catch( () => {} );
-	}, [ lastReceivedSegment, segments, selectedLog, fetchLogStatus ] );
+	}, [
+		lastReceivedSegment,
+		segments,
+		selectedLog,
+		fetchLogStatus,
+		applySegments,
+	] );
 
 	// Browse: update seek intent, reposition, and carry the end for catch-up.
 	const handleFollow = () => {
