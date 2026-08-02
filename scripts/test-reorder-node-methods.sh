@@ -394,6 +394,48 @@ assert_before "php order: static before instance prop"  "$php_ord" '$mid' '$zeta
 assert_before "php order: fields before methods"        "$php_ord" '$zeta' "function fill"
 assert_before "php order: methods keep call-graph order" "$php_ord" "function fill" "function helper"
 
+# ---- (E2) `// @ordered` pins a field block against --sort-fields ----
+# A positional layout (Message's 7 wire fields) is only correct in declaration
+# order; alphabetising it silently renumbers the wire. The marker opts that one
+# block out while the rest of the class still sorts.
+cat > "$tmp/class-pinned-node.php" <<'PHP'
+<?php
+class Pinned_Node extends Node {
+	private int $zulu = 0;
+
+	// @ordered
+	public const TYPE      = 0;
+	public const TIMESTAMP = 1;
+	public const FROM      = 2;
+	public const TO        = 3;
+	public const ID        = 4;
+	public const KEY       = 5;
+	public const VALUE     = 6;
+
+	public const ALPHA = 'a';
+
+	public function fill( array &$message ): void {
+		$this->helper();
+	}
+
+	private function helper(): void {
+	}
+}
+PHP
+php reorder-node-methods.php --write --sort-fields "$tmp/class-pinned-node.php" >/dev/null 2>&1
+php_pin="$( cat "$tmp/class-pinned-node.php" )"
+# The whole point: declaration order survives, even though T < TI < F... is not
+# alphabetical and ALPHA would otherwise sort ahead of every one of them.
+assert_before "php @ordered: TYPE before TIMESTAMP"   "$php_pin" "TYPE" "TIMESTAMP"
+assert_before "php @ordered: TIMESTAMP before FROM"   "$php_pin" "TIMESTAMP" "FROM"
+assert_before "php @ordered: FROM before TO"          "$php_pin" "FROM" "TO"
+assert_before "php @ordered: TO before ID"            "$php_pin" "TO" "ID"
+assert_before "php @ordered: ID before KEY"           "$php_pin" "ID" "KEY"
+assert_before "php @ordered: KEY before VALUE"        "$php_pin" "KEY" "VALUE"
+# The marker pins ONLY its block — unmarked fields still sort into convention.
+assert_before "php @ordered: unpinned ALPHA still sorts above the instance prop" "$php_pin" "ALPHA" '$zulu'
+assert_before "php @ordered: fields still hoisted above methods" "$php_pin" '$zulu' "function fill"
+
 # assert_valid_php LABEL FILE — the rewritten file still parses.
 assert_valid_php() {
 	if php -l "$2" >/dev/null 2>&1; then echo "✓ $1: valid PHP"; else echo "✗ $1: INVALID PHP output"; fail=1; fi

@@ -422,6 +422,36 @@ function field_vis_rank( array $m ): int {
 	return [ 'public' => 0, 'protected' => 1, 'private' => 2 ][ $m['vis'] ?? 'public' ] ?? 0;
 }
 
+/**
+ * Field slots pinned by a `// @ordered` marker, which --sort-fields must leave
+ * alone. A positional layout (Message's 7 wire fields, a packed record) is only
+ * correct in DECLARATION order; alphabetising it silently renumbers the wire.
+ *
+ * The marker opens a block and the first blank line closes it, so one comment
+ * pins the run of fields under it and nothing else. A second marker re-opens.
+ *
+ * @param  Member[]   $slice     All members of the class, in source order.
+ * @param  list<int>  $field_pos Indices into $slice of the non-method members.
+ * @return array<int,true> Pinned $slice indices, as a set.
+ */
+function pinned_field_positions( string $src, array $slice, int $region_start, array $field_pos ): array {
+	$pinned = [];
+	$open   = false;
+	foreach ( $field_pos as $p ) {
+		$cs   = 0 === $p ? $region_start : $slice[ $p - 1 ]['end'];
+		$lead = substr( $src, $cs, $slice[ $p ]['start_fn'] - $cs );
+		if ( preg_match( '{(?:^|\n)\s*(?://|\#)\s*@ordered\b|/\*.*?@ordered\b}s', $lead ) ) {
+			$open = true;
+		} elseif ( $open && preg_match( '/\n[ \t]*\n/', $lead ) ) {
+			$open = false;
+		}
+		if ( $open ) {
+			$pinned[ $p ] = true;
+		}
+	}
+	return $pinned;
+}
+
 /** @return array{0: string, 1: list<string>} */
 function reorder( string $src, bool $all_classes, bool $sort_fields = false ): array {
 	$classes = find_classes( $src, $all_classes );
@@ -457,13 +487,21 @@ function reorder( string $src, bool $all_classes, bool $sort_fields = false ): a
 			else $field_pos[] = $p;
 		}
 
-		// --sort-fields: kind, then visibility, then name; index breaks ties.
+		// --sort-fields: kind, vis, name; @ordered blocks keep slot and order.
 		if ( $sort_fields ) {
-			usort( $field_pos, function ( int $a, int $b ) use ( $slice ) {
+			$pinned  = pinned_field_positions( $src, $slice, $regionStart, $field_pos );
+			$movable = array_values( array_filter( $field_pos, fn( int $p ) => ! isset( $pinned[ $p ] ) ) );
+			usort( $movable, function ( int $a, int $b ) use ( $slice ) {
 				$ka = [ field_kind_rank( $slice[ $a ] ), field_vis_rank( $slice[ $a ] ), $slice[ $a ]['name'], $a ];
 				$kb = [ field_kind_rank( $slice[ $b ] ), field_vis_rank( $slice[ $b ] ), $slice[ $b ]['name'], $b ];
 				return $ka <=> $kb;
 			} );
+			$next = 0;
+			foreach ( $field_pos as $k => $p ) {
+				if ( ! isset( $pinned[ $p ] ) ) {
+					$field_pos[ $k ] = $movable[ $next++ ];
+				}
+			}
 		}
 
 		$methods = array_map( fn( $p ) => $slice[ $p ], $method_pos );

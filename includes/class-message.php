@@ -12,9 +12,14 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Message {
+	// @ordered
+	public const TYPE      = 0;
+	public const TIMESTAMP = 1;
 	public const FROM      = 2;
+	public const TO        = 3;
 	public const ID        = 4;
 	public const KEY       = 5;
+	public const VALUE     = 6;
 
 	/** Last addressable VALUE-bearing index; copiers use array_slice(0, LAST_VALUE_INDEX + 1) to drop appended bookkeeping fields. */
 	public const LAST_VALUE_INDEX = self::VALUE;
@@ -27,18 +32,18 @@ class Message {
 	 * authorization default gates on isset( $message[ LOCAL ] ).
 	 */
 	public const LOCAL = 7;
-	public const TIMESTAMP = 1;
 
+	// @ordered
 	public const TM_BYTESTREAM = 1;
-	public const TM_COMMAND    = 8;
 	public const TM_EOF        = 2;
+	public const TM_PING       = 4;
+	public const TM_COMMAND    = 8;
+	public const TM_STRUCT     = 16;
 	public const TM_ERROR      = 32;
 	public const TM_INFO       = 64;
-	public const TM_NOREPLY    = 512;
-	public const TM_PING       = 4;
 	public const TM_REQUEST    = 128;
 	public const TM_RESPONSE   = 256;
-	public const TM_STRUCT     = 16;
+	public const TM_NOREPLY    = 512;
 
 	/**
 	 * The mint default: a message that exists but has not been typed yet. A free
@@ -49,10 +54,7 @@ class Message {
 	 * stays TYPE_UNKNOWN — a different failure, worth telling apart.
 	 */
 	public const TM_UNTYPED = 1024;
-	public const TO        = 3;
 
-	public const TYPE      = 0;
-	public const VALUE     = 6;
 
 	/** Bound a logged/exception excerpt so a huge payload can't flood the log. */
 	private const EXCERPT_LENGTH = 200;
