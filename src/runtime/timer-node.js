@@ -103,9 +103,8 @@ export class TimerNode extends Node {
 		this.notify( 'FIRE', Core.now() );
 	}
 
-	// No ms or ms > 1000 → Router-hitchhike; ms <= 1000 → own setInterval slot.
+	// Named + (no ms | >=1000) → hitchhike; anything else → own slot.
 	setTimer( ms = null, oneshot = false ) {
-		// A >=1000ms timer hitchhikes the router notify; except isRouter.
 		if (
 			( null === ms || ms >= 1000 ) &&
 			'' !== this.name &&
