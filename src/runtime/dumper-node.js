@@ -114,11 +114,11 @@ function buildDebugHeader2( message ) {
 	return [
 		'Message {',
 		'    type:      ' + formatTypeLabel( message[ TYPE ] ),
+		'    timestamp: ' + ts + tsHuman,
 		'    from:      ' + ( message[ FROM ] ?? '' ),
 		'    to:        ' + ( message[ TO ] ?? '' ),
 		'    id:        ' + ( message[ ID ] ?? '' ),
 		'    key:       ' + ( message[ KEY ] ?? '' ),
-		'    timestamp: ' + ts + tsHuman,
 		'    value:     ' + indented,
 		'}',
 	].join( '\n' );

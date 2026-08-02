@@ -178,11 +178,11 @@ class Dumper_Node extends Node {
 		$lines = [
 			'Message {',
 			'    type:      ' . $flags,
+			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
 			'    from:      ' . self::coerce_string( $message[ Message::FROM ] ?? '' ),
 			'    to:        ' . self::coerce_string( $message[ Message::TO ] ?? '' ),
 			'    id:        ' . self::coerce_string( $message[ Message::ID ] ?? '' ),
 			'    key:       ' . self::coerce_string( $message[ Message::KEY ] ?? '' ),
-			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
 			'    value:     ' . self::indent_following_lines( $value, '               ' ),
 			'}',
 		];

@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`// @ordered` pins a field block against `reorder-node-methods.php
+  --sort-fields`.** A positional layout is only correct in DECLARATION order, so
+  alphabetising it destroys the one thing it documents. `Message`'s seven wire
+  fields and its `TM_*` bitmask block had already been sorted into
+  `FROM, ID, KEY, … TIMESTAMP` in the tree — harmless at runtime, since PHP
+  const order is not observable, and completely unreadable as a wire spec. Both
+  blocks are restored and marked.
+
+  The marker opens a block and the first blank line closes it, so one comment
+  pins the run beneath it and nothing else; a second marker re-opens. Pinned
+  fields keep their contents AND their slot — only unpinned fields sort, then
+  deal back into the slots they held, so the rest of a class still converges.
+  `class-message.php` now round-trips `--all-classes --sort-fields` byte-identical.
+
+  Only the PHP twin needed this: `reorder-node-methods.js` hoists fields above
+  methods but never sorts them against each other, so a JS constant block was
+  never at risk.
+
 ### Changed
+
+- **Both Dumpers render `timestamp:` second, in canonical field order.** PHP and
+  JS each printed `type, from, to, id, key, timestamp, value` — the one field
+  out of position, in the very tool you read a message with. Both now follow the
+  layout `Message` declares.
 
 - **36 helpers un-exported across `runtime`, `event-dashboards`, and
   `topology-console`.** Each is called inside its own file and imported by
