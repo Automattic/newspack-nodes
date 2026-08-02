@@ -1,7 +1,7 @@
 /**
  * TopologyCatalogNode tests — the Path menu's catalog, now a graph node.
  *
- * It was a hook calling getCommandClient().send(), i.e. its own POST every tick
+ * It was a hook calling a one-shot client, i.e. its own POST every tick
  * beside the batched one the console already sends. As a node it emits through
  * `_http` during the Router's TIMER notify, inside the same lock.
  */

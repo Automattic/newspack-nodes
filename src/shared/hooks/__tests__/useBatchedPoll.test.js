@@ -56,7 +56,7 @@ function setVisibility( state ) {
 	document.dispatchEvent( new Event( 'visibilitychange' ) );
 }
 
-// A fake CommandClient matching HttpOut's seam: records each batch.
+// A fake transport matching HttpOut's seam: records each batch.
 function makeFakeClient() {
 	const client = {
 		batches: [],
@@ -179,7 +179,7 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 		);
 	} );
 
-	test( '`_http` gets the injected CommandClient as its client', async () => {
+	test( '`_http` gets the injected transport as its client', async () => {
 		const client = makeFakeClient();
 		renderPoll( { commandClient: client } );
 		await act( async () => {} );

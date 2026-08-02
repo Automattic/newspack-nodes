@@ -48,7 +48,7 @@ const TEST = 'vault:test';
 const REQUEST_NAMES = [ ADD, UPDATE, DELETE, TEST ];
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...REQUEST_NAMES ];
 
-// Fake CommandClient: postBatch replies back along FROM, payload by verb.
+// Fake transport: postBatch replies back along FROM, payload by verb.
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
 	const client = {
 		batches: [],
@@ -139,7 +139,7 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		}
 	} );
 
-	test( '_http has the injected CommandClient as its client', () => {
+	test( '_http has the injected transport as its client', () => {
 		const client = makeFakeClient();
 		renderHook( () => useVaultGraph( { commandClient: client } ) );
 		expect( Core.node( HTTP ).client ).toBe( client );

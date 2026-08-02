@@ -41,7 +41,7 @@ const SUMMARY_VIEW = 'summary:view';
 const SERVERS_VIEW = 'servers:view';
 const SLICE_VIEWS = [ SUMMARY_VIEW, SERVERS_VIEW ];
 
-// Fake CommandClient: records batches, mints one TO=FROM reply per message.
+// Fake transport: records batches, mints one TO=FROM reply per message.
 function makeFakeClient( { summary = {}, servers = [] } = {} ) {
 	const client = {
 		batches: [],
@@ -96,7 +96,7 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 		}
 	} );
 
-	test( '_http has the injected CommandClient as its client', () => {
+	test( '_http has the injected transport as its client', () => {
 		const client = makeFakeClient();
 		renderHook( () =>
 			useAggregatorStatusGraph( { commandClient: client } )

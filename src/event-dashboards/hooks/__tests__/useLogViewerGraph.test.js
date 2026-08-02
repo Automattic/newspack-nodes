@@ -61,7 +61,7 @@ const LINK = 'logviewer:link';
 const VIEW = 'logviewer:view';
 const HTTP = names.HTTP;
 
-// CommandClient double: postBatch echoes a reply per verb name along FROM.
+// transport double: postBatch echoes a reply per verb name along FROM.
 // A verb in `errorVerbs` replies TM_ERROR so a rejected pending-reply is exercised.
 function makeFakeClient( payloadByVerb = {}, errorVerbs = [] ) {
 	const client = {

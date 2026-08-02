@@ -6,7 +6,7 @@
  * the view node, replayed records with `inode:offset:length` ID breadcrumbs stream
  * through the real `SseIn → Tee → view`, and the view flips Replay→Live the moment
  * a record reaches the captured byte size OR the inode rotates (logrotate). Real
- * hook + fake SSE + fake CommandClient; only the two leaf presentational
+ * hook + fake SSE + fake transport; only the two leaf presentational
  * components are stubbed. Distinct values: inode 4242, size 977, rotation to 5151.
  */
 

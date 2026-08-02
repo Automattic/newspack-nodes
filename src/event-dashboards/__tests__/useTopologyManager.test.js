@@ -2,7 +2,7 @@
  * useTopologyManager hook tests — the REAL topology-manager graph driving the
  * hook's data contract, with only the `_http` I/O boundary faked.
  *
- * A recording CommandClient double answers `topologies list` (two topologies:
+ * A recording transport double answers `topologies list` (two topologies:
  * `a` active with a worker-status section, `b` inactive) and `dump_graph` (a
  * snapshot whose graph carries the active topology). We assert:
  *  (a) `topologies` has both rows, active `a` carrying a non-null `status` and
@@ -37,7 +37,7 @@ jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	default: () => mockPageVisible,
 } ) );
 
-// Recording CommandClient double: postBatch records sends, resolves replies.
+// Recording transport double: postBatch records sends, resolves replies.
 function makeRecordingClient( payloadByVerb = {}, errorVerbs = new Set() ) {
 	const sent = [];
 	const client = {

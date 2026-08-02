@@ -78,7 +78,7 @@ const VIEW = 'partition:view';
 const TEE = 'partition:stream';
 const LEASE_OWNER = '9007199254740993';
 
-// CommandClient double: postBatch returns reply Messages addressed along FROM.
+// transport double: postBatch returns reply Messages addressed along FROM.
 function makeFakeClient( payloadByVerb = {} ) {
 	const client = {
 		batches: [],
@@ -235,7 +235,7 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( Core.node( VIEW ).lines ).toHaveLength( 1 );
 	} );
 
-	test( 'the composed HttpOut has the injected CommandClient as its client', async () => {
+	test( 'the composed HttpOut has the injected transport as its client', async () => {
 		const client = makeFakeClient( { list_logs: oneLogReply() } );
 		mountGraph( client );
 		await act( async () => {} );
