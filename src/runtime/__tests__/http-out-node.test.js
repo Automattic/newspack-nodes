@@ -200,7 +200,6 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
-		expectConsoleWarn( '_http: ERROR: HttpOut POST failed:' );
 		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
 		const got = [];
@@ -521,5 +520,56 @@ describe( 'HttpOut wire-inbound clause', () => {
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ TO ] ).toBe( '' );
+	} );
+} );
+
+describe( 'HttpOut — an undelivered command', () => {
+	beforeEach( () => {
+		require( '../core' ).Core.reset();
+	} );
+
+	// A POST that never reached the substrate is a failure the minter must learn
+	// about; silence is indistinguishable from a 202 routed onward, so a node
+	// awaiting its reply would wait out its whole deadline instead.
+	it( 'a failed POST answers each entry with a TM_ERROR addressed back to it', async () => {
+		expectConsoleWarn( '_http: ERROR: HttpOut POST failed' );
+		const { node, postBatch } = makeNode();
+		postBatch.mockRejectedValue( new Error( 'NetworkError-8821' ) );
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+
+		node.fill(
+			routed( {
+				to: 'topologies',
+				from: 'topologies:list',
+				value: { name: 'list', arguments: [] },
+			} )
+		);
+		await new Promise( ( r ) => setTimeout( r, 0 ) );
+
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+		expect( sent[ 0 ][ TO ] ).toBe( 'topologies:list' );
+		expect( String( sent[ 0 ][ VALUE ].payload ) ).toMatch(
+			/NetworkError-8821/
+		);
+	} );
+
+	it( 'a failed POST for an entry with no FROM answers nobody', async () => {
+		// Distinct text: printLessOften suppresses a repeat within its window.
+		expectConsoleWarn(
+			'_http: ERROR: HttpOut POST failed: NetworkError-4417'
+		);
+		const { node, postBatch } = makeNode();
+		postBatch.mockRejectedValue( new Error( 'NetworkError-4417' ) );
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+
+		node.fill(
+			routed( { to: 'topologies', from: '', value: { name: 'list' } } )
+		);
+		await new Promise( ( r ) => setTimeout( r, 0 ) );
+
+		expect( sent ).toEqual( [] );
 	} );
 } );

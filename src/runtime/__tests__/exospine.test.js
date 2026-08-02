@@ -410,3 +410,36 @@ test( '_http targets _output', () => {
 	mountExospine();
 	expect( Core.node( names.HTTP ).target ).toBe( names.OUTPUT );
 } );
+
+// A page whose only graph is a passenger's — a lone Request node behind a
+// front-end panel — still has to put the backbone away when that panel goes.
+// Nobody else will: the router self-arms a 1s timer at construction.
+describe( 'mountExospine — a passenger-only page', () => {
+	beforeEach( () => {
+		Core.reset();
+	} );
+
+	it( 'tears the backbone down when the LAST passenger leaves', () => {
+		const first = mountExospine( undefined, { passenger: true } );
+		const second = mountExospine( undefined, { passenger: true } );
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+
+		first.teardown();
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+
+		second.teardown();
+		expect( Core.node( names.ROUTER ) ).toBeNull();
+		expect( Core.node( names.HTTP ) ).toBeNull();
+	} );
+
+	it( 'leaves an OWNED backbone alone when a passenger leaves', () => {
+		const owner = mountExospine();
+		const passenger = mountExospine( undefined, { passenger: true } );
+
+		passenger.teardown();
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+
+		owner.teardown();
+		expect( Core.node( names.ROUTER ) ).toBeNull();
+	} );
+} );

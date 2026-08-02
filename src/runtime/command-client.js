@@ -3,6 +3,7 @@ import {
 	pack,
 	unpack,
 	TYPE,
+	FROM,
 	TO,
 	VALUE,
 	TM_COMMAND,
@@ -24,6 +25,27 @@ function restErrorCode( text ) {
 	} catch ( e ) {
 		return '';
 	}
+}
+
+/**
+ * The TM_ERROR a refused command earns, addressed back to whoever minted it.
+ *
+ * @param {Array}  sent   The posted command Message.
+ * @param {number} status HTTP status the substrate answered with.
+ * @param {string} code   REST error code, if the body carried one.
+ * @return {Array} A positional reply Message.
+ */
+function refusalReply( sent, status, code ) {
+	const reply = newMessage();
+	reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+	reply[ TO ] = sent[ FROM ];
+	reply[ VALUE ] = {
+		name: sent[ VALUE ]?.name,
+		payload: `Command refused (HTTP ${ status }${
+			code ? ` ${ code }` : ''
+		})`,
+	};
+	return reply;
 }
 
 export class CommandClient {
@@ -55,6 +77,8 @@ export class CommandClient {
 				renewSession();
 			}
 			const code = restErrorCode( text );
+			// Why the batch came back empty; postBatch answers the minters.
+			this.lastRefusal = { status: r.status, code };
 			if (
 				mayRenewNonce &&
 				this._renewNonce &&
@@ -138,7 +162,18 @@ export class CommandClient {
 	 */
 	async postBatch( messages, packed ) {
 		const lines = packed ?? messages.map( ( m ) => pack( m ) );
-		return this.#post( lines.join( '\n' ), messages.length );
+		this.lastRefusal = null;
+		const replies = await this.#post( lines.join( '\n' ), messages.length );
+		if ( replies.length || ! this.lastRefusal ) {
+			return replies;
+		}
+		// @longform
+		// Refused, not routed onward. An empty batch reads the same as a 202,
+		// so a node waiting on its reply would wait out its whole deadline for
+		// a failure the transport already knows about. Answer each command the
+		// way the server would have — TM_ERROR, addressed back to its minter.
+		const { status, code } = this.lastRefusal;
+		return messages.map( ( sent ) => refusalReply( sent, status, code ) );
 	}
 
 	/**

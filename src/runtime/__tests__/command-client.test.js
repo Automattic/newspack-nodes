@@ -8,7 +8,16 @@
 import { CommandClient } from '../command-client';
 import * as auth from '../command-auth';
 import { Core } from '../core';
-import { TYPE, TM_BYTESTREAM } from '../message';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_BYTESTREAM,
+	TM_COMMAND,
+	TM_ERROR,
+} from '../message';
 import apiFetch from '@wordpress/api-fetch';
 
 describe( 'CommandClient.fromGlobal', () => {
@@ -303,5 +312,66 @@ describe( 'CommandClient — refused batches', () => {
 		} );
 
 		await expect( client.postBatch( [], [] ) ).resolves.toEqual( [] );
+	} );
+} );
+
+// @longform
+// A refused POST used to answer nothing at all, which is indistinguishable
+// from a 202 the server routed onward — so a node waiting on a reply waited
+// out its whole deadline for a failure the transport already knew about.
+describe( 'CommandClient — a refusal answers the minter', () => {
+	afterEach( () => {
+		delete global.fetch;
+		delete window.NewspackNodesData;
+	} );
+
+	const posted = ( from ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = from;
+		m[ TO ] = 'topologies';
+		m[ VALUE ] = { name: 'list', arguments: [] };
+		return m;
+	};
+
+	it( 'answers each refused command with a TM_ERROR addressed back to it', async () => {
+		expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: false,
+			status: 401,
+			text: () =>
+				Promise.resolve( JSON.stringify( { code: 'rest_forbidden' } ) ),
+		} );
+		const client = new CommandClient( {
+			baseUrl: '/wp-json/',
+			nonce: 'N',
+		} );
+
+		const replies = await client.postBatch( [
+			posted( 'topologies:list' ),
+			posted( 'topologies:get' ),
+		] );
+
+		expect( replies ).toHaveLength( 2 );
+		expect( replies[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+		expect( replies[ 0 ][ TO ] ).toBe( 'topologies:list' );
+		expect( replies[ 1 ][ TO ] ).toBe( 'topologies:get' );
+		expect( String( replies[ 0 ][ VALUE ].payload ) ).toMatch( /401/ );
+	} );
+
+	it( 'says nothing for a 202 the server routed onward', async () => {
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			status: 202,
+			text: () => Promise.resolve( '' ),
+		} );
+		const client = new CommandClient( {
+			baseUrl: '/wp-json/',
+			nonce: 'N',
+		} );
+
+		await expect(
+			client.postBatch( [ posted( 'topologies:list' ) ] )
+		).resolves.toEqual( [] );
 	} );
 } );

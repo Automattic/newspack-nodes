@@ -59,6 +59,9 @@ import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 
 export function mountExospine( build, { passenger = false } = {} ) {
+	if ( passenger ) {
+		Core.backbonePassengers = ( Core.backbonePassengers ?? 0 ) + 1;
+	}
 	// Signing is sync and reads this; start the round trip before any command.
 	void ensureSession();
 
@@ -197,8 +200,19 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			unsubscribe();
 		}
 		teardownBuilt();
-		// Only the owning mount tears the backbone down.
-		if ( ownsBackbone ) {
+		if ( passenger ) {
+			Core.backbonePassengers -= 1;
+		}
+		// @longform
+		// The owning mount tears the backbone down — or, on a page that never
+		// had an owner, the last passenger to leave. Nobody else would, and
+		// the Router self-arms a 1s timer the moment it is constructed.
+		const lastPassengerOut =
+			passenger &&
+			! Core.backboneOwned &&
+			0 === Core.backbonePassengers &&
+			null !== Core.node( names.COMMAND_INTERPRETER );
+		if ( ownsBackbone || lastPassengerOut ) {
 			teardownBackbone();
 			Core.backboneOwned = false;
 			Core.rebuildable = false;

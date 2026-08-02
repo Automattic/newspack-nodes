@@ -39,6 +39,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   router and the interpreter all run for real in a hook test. The old
   `getCommandClient().send` module mock replaced the whole transport instead.
 
+### Fixed
+
+- **A command that never reached the substrate now answers its minter.** A
+  refused POST (401, 403, 500) and a POST that never left the browser both came
+  back as an empty batch — indistinguishable from the 202 the server returns for
+  a command it routed onward. So a node awaiting its reply waited out its whole
+  30-second deadline for a failure the transport already knew about, and any
+  reconcile loop driving it sat `inFlight` that entire time, skipping the very
+  tick meant to recover from the expired session that caused it.
+
+  `CommandClient.postBatch` now answers each refused command the way the server
+  would — `TM_ERROR`, addressed `TO = FROM` — and `HTTP_Out` does the same for a
+  POST that threw. A bare 202 still says nothing, because nothing is what it
+  means.
+
+- **A passenger-only page tears its backbone down.** `mountExospine`'s passenger
+  mode never owns the backbone, so a page whose ONLY graph is a passenger's — a
+  lone `Request` node behind a front-end panel — left `_router` registered with
+  its self-armed 1-second timer after that panel closed. The last passenger out
+  now clears it, and an owned backbone is still left to its owner.
+
 ### Changed
 
 - **The console's backbone now outlives edit mode.** `useConsoleGraph` mounts the
