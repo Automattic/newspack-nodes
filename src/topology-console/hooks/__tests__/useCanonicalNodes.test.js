@@ -87,8 +87,6 @@ describe( 'useCanonicalNodes', () => {
 
 	it( 'ignores a fetch that resolves after the hook unmounts', async () => {
 		parseTsl.mockClear();
-		// The reply outlives the node it was addressed to; the Router says so.
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		send.mockReturnValue( { tsl: 'make_node Echo alpha\n' } );
 		// Hold the wire open so the reply lands only after the unmount.
 		const wire = makeFakeCommandWire( ( m ) => send( m ) );

@@ -14,9 +14,37 @@
  */
 
 import { Node } from './node';
-import { pack, TYPE, TO, TM_RESPONSE, TM_ERROR } from './message';
+import {
+	newMessage,
+	pack,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+} from './message';
 import { byteLength } from './io-telemetry';
 import { CommandClient } from './command-client';
+
+/**
+ * The TM_ERROR an undelivered command earns, addressed back to its minter.
+ *
+ * @param {Array}  sent   The command Message that failed to POST.
+ * @param {string} reason Human-readable failure text.
+ * @return {Array} A positional reply Message.
+ */
+function failureReply( sent, reason ) {
+	const reply = newMessage();
+	reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+	reply[ TO ] = sent[ FROM ];
+	reply[ VALUE ] = {
+		name: sent[ VALUE ]?.name,
+		payload: `Command not delivered: ${ reason }`,
+	};
+	return reply;
+}
 
 export class HttpOutNode extends Node {
 	/**
@@ -76,7 +104,8 @@ export class HttpOutNode extends Node {
 		}
 		Promise.resolve( this.client.postBatch( entries, packed ) )
 			.then( ( messages ) => {
-				for ( const message of messages ) {
+				// A bare 202 resolves null: routed onward, nothing to route.
+				for ( const message of messages ?? [] ) {
 					// Read boundary: tally the wire size of each reply.
 					this.bytesRead += byteLength( pack( message ) );
 					this.counter++;
@@ -90,6 +119,19 @@ export class HttpOutNode extends Node {
 				this.printLessOften(
 					`ERROR: HttpOut POST failed: ${ err?.message ?? err }`
 				);
+				// @longform
+				// And tell whoever minted each one. A POST that never landed
+				// answers nothing, which reads exactly like a 202 routed
+				// onward — so a node awaiting its reply would sit out its
+				// whole deadline for a failure already known here.
+				for ( const sent of entries ) {
+					if ( ! sent[ FROM ] ) {
+						continue;
+					}
+					this.sink?.fill(
+						failureReply( sent, err?.message ?? String( err ) )
+					);
+				}
 			} );
 	}
 
