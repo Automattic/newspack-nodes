@@ -21,27 +21,11 @@ const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
 
 const cache = new Map();
 
-export function getExpandedIncludesCache( key ) {
-	return cache.get( key );
-}
-
-export function setExpandedIncludesCache( key, baseline ) {
-	cache.set( key, baseline );
-}
-
 /**
  * Drop every cached expansion. Saving or deleting ANY topology can change what
  * an `include` of it expands to, so the console invalidates on both.
  */
 export function invalidateExpandedIncludes() {
-	cache.clear();
-}
-
-/**
- * Test-only reset — the cache is module-level and otherwise persists across
- * `it` blocks in the same test file.
- */
-export function __resetExpandedIncludesCacheForTests() {
 	cache.clear();
 }
 

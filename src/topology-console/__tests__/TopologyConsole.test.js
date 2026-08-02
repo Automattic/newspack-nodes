@@ -30,7 +30,7 @@ import {
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import * as draftGraph from '../utils/draftGraph';
-import { __resetExpandedIncludesCacheForTests } from '../hooks/useExpandedIncludes';
+import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
@@ -709,7 +709,7 @@ describe( 'TopologyConsole boot', () => {
 		hooks.reloadCatalog.mockReset();
 		hooks.catalog = null;
 		globalThis.__catalog = { classes: [], formatters: [] };
-		__resetExpandedIncludesCacheForTests();
+		invalidateExpandedIncludes();
 	} );
 
 	// Simulate an SSE reply; the 2nd act() drains React's deferred batch, then

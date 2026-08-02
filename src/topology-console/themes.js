@@ -1,20 +1,11 @@
 /**
- * Topology Console skins. The skin catalog and storage helpers now live in the
+ * Topology Console skins. The skin catalog and storage helpers live in the
  * shared module (`src/shared/theme.js`) so sibling dashboards can import the
- * same contract via `@newspack-nodes/shared/theme`; this file re-exports them
- * so every existing console importer keeps working unchanged, and adds the
- * console-only palette/inspector collapse-state keys.
+ * same contract via `@newspack-nodes/shared/theme`; this file re-exports the
+ * four the console uses and adds the console-only palette/inspector
+ * collapse-state keys. Anything else comes straight from the shared module.
  */
-export {
-	THEME_STORAGE_KEY,
-	DEFAULT_THEME,
-	THEMES,
-	isValidTheme,
-	getStoredTheme,
-	applySkin,
-	initSkin,
-	resetSkin,
-} from '../shared/theme';
+export { THEMES, getStoredTheme, applySkin, initSkin } from '../shared/theme';
 
 // Palette collapse is per-mode: live defaults collapsed, edit defaults open.
 export const PALETTE_COLLAPSED_STORAGE_KEY_LIVE =

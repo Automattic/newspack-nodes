@@ -34,34 +34,6 @@ export function fillModeForMetric( metric ) {
 }
 
 /**
- * Downsample to at most `width` points, taking the MAX per bucket so a spike
- * survives the reduction rather than being averaged away.
- *
- * @param {number[]} values Oldest-first samples.
- * @param {number}   width  Target point count.
- * @return {number[]} At most `width` points.
- */
-export function downsample( values, width ) {
-	const n = values.length;
-	if ( n <= width ) {
-		return values;
-	}
-	const out = [];
-	for ( let i = 0; i < width; i++ ) {
-		const start = Math.floor( ( i * n ) / width );
-		const end = Math.floor( ( ( i + 1 ) * n ) / width );
-		let max = 0;
-		for ( let j = start; j < end; j++ ) {
-			if ( values[ j ] > max ) {
-				max = values[ j ];
-			}
-		}
-		out.push( max );
-	}
-	return out;
-}
-
-/**
  * Per-group time series for ONE metric, summed across the group's readers by ts.
  *
  * @param {Object<string,{source:string,series:Array<{ts:number,msgRate:number,byteRate:number,backlog:number}>}>} consumers

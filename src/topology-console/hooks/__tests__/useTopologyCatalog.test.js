@@ -8,7 +8,8 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { Core } from '../../../runtime/core';
+import { Core, mountExospine } from '@newspack-nodes/runtime';
+import names from '../../../runtime/reserved-node-names.json';
 import { TopologyCatalogNode } from '../../nodes/topology-catalog-node';
 import { useTopologyCatalog, CATALOG_NODE } from '../useTopologyCatalog';
 import { newMessage, VALUE } from '../../../runtime/message';
@@ -68,5 +69,58 @@ describe( 'useTopologyCatalog', () => {
 	it( 'reload() is inert when no graph is mounted', () => {
 		const { result } = renderHook( () => useTopologyCatalog() );
 		expect( () => result.current.reload() ).not.toThrow();
+	} );
+
+	describe( 'owning the node', () => {
+		let host;
+		afterEach( () => {
+			host?.teardown();
+			host = null;
+			Core.cleanupAllNodes?.();
+		} );
+
+		// A passenger: it mounts onto a backbone the console owns, never its own.
+		const mountHost = () => {
+			act( () => {
+				host = mountExospine( () => {} );
+			} );
+		};
+
+		it( 'mounts and wires its own node once a backbone comes up', () => {
+			const { rerender } = renderHook( () => useTopologyCatalog() );
+			expect( Core.node( CATALOG_NODE ) ).toBeFalsy();
+
+			mountHost();
+			rerender();
+
+			const node = Core.node( CATALOG_NODE );
+			expect( node ).toBeInstanceOf( TopologyCatalogNode );
+			// Sink is the interpreter, so `fire()` emits through _http's lock.
+			expect( node.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+			// Router peels `_http`; the reply comes back TO=FROM to this node.
+			expect( node.target ).toBe( `${ names.HTTP }/topologies` );
+			// >1000 hitchhikes the router tick instead of taking its own slot.
+			expect( node.interval_ms ).toBe( 10000 );
+		} );
+
+		it( 'does not replace a node that already exists', () => {
+			mountHost();
+			const { rerender } = renderHook( () => useTopologyCatalog() );
+			const first = Core.node( CATALOG_NODE );
+
+			rerender();
+
+			expect( Core.node( CATALOG_NODE ) ).toBe( first );
+		} );
+
+		it( 'removes its node on unmount', () => {
+			mountHost();
+			const { unmount } = renderHook( () => useTopologyCatalog() );
+			expect( Core.node( CATALOG_NODE ) ).toBeDefined();
+
+			unmount();
+
+			expect( Core.node( CATALOG_NODE ) ).toBeFalsy();
+		} );
 	} );
 } );

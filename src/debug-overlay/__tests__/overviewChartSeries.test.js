@@ -1,4 +1,4 @@
-import { overviewChartSeries, currentRates } from '../overviewChartSeries';
+import { overviewChartSeries } from '../overviewChartSeries';
 
 // Ring rows are [ t, msgInRate, msgOutRate, byteInRate, byteOutRate ].
 const RING = [
@@ -39,25 +39,5 @@ describe( 'overviewChartSeries', () => {
 		expect( msgRate.In.points ).toEqual( [] );
 		expect( byteRate.Out.points ).toEqual( [] );
 		expect( msgRate.In.max ).toBe( 0 );
-	} );
-} );
-
-describe( 'currentRates', () => {
-	test( 'reads the most recent sample row', () => {
-		expect( currentRates( RING ) ).toEqual( {
-			msgIn: 3,
-			msgOut: 4,
-			byteIn: 30,
-			byteOut: 40,
-		} );
-	} );
-
-	test( 'an empty ring is all zeros', () => {
-		expect( currentRates( [] ) ).toEqual( {
-			msgIn: 0,
-			msgOut: 0,
-			byteIn: 0,
-			byteOut: 0,
-		} );
 	} );
 } );

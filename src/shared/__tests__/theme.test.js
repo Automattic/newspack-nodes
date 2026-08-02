@@ -25,6 +25,22 @@ describe( 'shared theme storage helpers', () => {
 		expect( THEMES.map( ( t ) => t.slug ) ).toContain( DEFAULT_THEME );
 	} );
 
+	it( 'registers both Newspack skins as the first two entries', () => {
+		expect( THEMES[ 0 ] ).toMatchObject( { slug: 'newspack' } );
+		expect( THEMES[ 1 ] ).toMatchObject( { slug: 'newspack-brand' } );
+	} );
+
+	it( 'keeps CRT registered (leave-it-alone guard)', () => {
+		expect( THEMES.map( ( t ) => t.slug ) ).toContain( 'crt' );
+	} );
+
+	it( 'has unique, non-empty slugs and a label on every skin', () => {
+		const slugs = THEMES.map( ( t ) => t.slug );
+		expect( new Set( slugs ).size ).toBe( slugs.length );
+		slugs.forEach( ( s ) => expect( s ).toMatch( /\S/ ) );
+		THEMES.forEach( ( t ) => expect( t.label ).toMatch( /\S/ ) );
+	} );
+
 	it( 'validates registered slugs and rejects unknown/empty/non-string', () => {
 		expect( isValidTheme( DEFAULT_THEME ) ).toBe( true );
 		[ 'nonsense', '', undefined, null, 42 ].forEach( ( s ) =>
