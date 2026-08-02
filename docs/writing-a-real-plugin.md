@@ -559,7 +559,7 @@ WordPress plugins, then refresh the workers first and the singleton supervisor
 last:
 
 ```bash
-docker exec -u bend eve-pyrobase1-1 wp nodes restart all --all-partitions --path=/var/www/html
+docker exec -u bend eve-pyrobase1-1 wp nodes restart all --path=/var/www/html
 docker exec -u bend eve-pyrobase1-1 wp nodes restart supervisor --path=/var/www/html
 ```
 

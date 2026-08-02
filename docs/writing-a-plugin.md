@@ -454,7 +454,7 @@ Then he adds his node to the topology and points it at the summarizer — **two 
 
 ```bash
 composer dump-autoload -o
-wp nodes restart example-ai-newsletter --all-partitions    # reload the topology
+wp nodes restart example-ai-newsletter    # reload the topology
 wp nodes cli example-ai-newsletter.p0
 ```
 ```

@@ -9,7 +9,7 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 | `wp nodes doctor` | Canonical seven-check health report: cache backend, filesystem, ownership, worker liveness, supervisor liveness, consumer lag, and dead letters. Cache is probed in the web runtime; recommendations warn and exit 0, while critical results exit 1. |
 | `wp nodes gc [--force]` | Sweep orphan log and offsetlog dirs now, instead of waiting for the supervisor's next config-check tick. A dir is orphaned when no active topology declares it. Spares a dir written in the last hour unless `--force` drops the grace to zero. |
 | `wp nodes run <type> [--partition=<N>]` | Run one worker in the foreground (no spawn endpoint) and block until it exits; prints the worker's own exit reason. The debugging tool for "spawns but immediately exits". |
-| `wp nodes restart <type\|all> [--partition=<N>] [--all-partitions]` | Drop worker restart flags; the holders exit cleanly and the supervisor (or self-respawn) starts them fresh. `restart all` means all worker topologies and does not restart the supervisor. |
+| `wp nodes restart <type\|all> [--partition=<N>]` | Drop worker restart flags; the holders exit cleanly and the supervisor (or self-respawn) starts them fresh. Every partition of the matched type(s) restarts unless `--partition` narrows it. `restart all` means all worker topologies and does not restart the supervisor. |
 | `wp nodes restart supervisor` | Request a clean restart of the singleton supervisor. It has no partitions, so partition flags are not accepted. |
 | `wp nodes activate <topology>` / `deactivate <topology>` | Add/remove a catalog topology from the active set and spawn/drain its fleet now. Same primitive as the Topologies settings UI. |
 | `wp nodes cli [<reader>.p<N>]` | The REPL. Bare (no arg) runs a local interpreter; with a worker id it pivots into that live worker over IPC. Refuses root. See [troubleshooting.md](troubleshooting.md) for the in-REPL verb table. |
@@ -28,7 +28,7 @@ wp nodes status        # detailed fleet and consumer tables
 **Deploying new worker code** — workers are long-lived processes; the old class stays in memory until they restart:
 
 ```bash
-wp nodes restart all --all-partitions   # all worker topologies
+wp nodes restart all   # all worker topologies, every partition
 wp nodes restart supervisor             # singleton; no partition flags
 ```
 

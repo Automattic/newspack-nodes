@@ -63,7 +63,7 @@ describe( 'DmesgNode', () => {
 		} );
 	} );
 
-	it( 'publishes an object reply payload as `reply` (e.g. runtime_stats), leaving the text state untouched', () => {
+	it( 'publishes an object reply payload as `reply` (e.g. a `-s` row list), leaving the text state untouched', () => {
 		const node = new DmesgNode();
 		node.name = 'runtime:poller';
 		const m = newMessage();
