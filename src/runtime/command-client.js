@@ -4,7 +4,6 @@ import {
 	unpack,
 	TYPE,
 	TO,
-	KEY,
 	VALUE,
 	TM_COMMAND,
 	TM_ERROR,
@@ -142,10 +141,9 @@ export class CommandClient {
 	 * @param {string}   params.to     Target node path.
 	 * @param {string}   params.verb   Command verb to dispatch.
 	 * @param {string[]} [params.args] Argument tokens (the verb classifies them), default [].
-	 * @param {string}   [params.key]  Optional Message KEY field.
 	 * @return {Array} A 7-element positional Message.
 	 */
-	buildMessage( { to, verb, args = [], key = '' } ) {
+	buildMessage( { to, verb, args = [] } ) {
 		// Fail loud: a non-array args would coerce to [] (empty verb name).
 		if ( ! Array.isArray( args ) ) {
 			throw new Error(
@@ -155,7 +153,6 @@ export class CommandClient {
 		const msg = newMessage();
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = to;
-		msg[ KEY ] = key;
 		msg[ VALUE ] = {
 			name: verb,
 			arguments: args,

@@ -63,16 +63,17 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	expect( value.payload ).toBeUndefined();
 } );
 
-test( 'send carries the KEY field through (FROM left empty for the server to stamp)', async () => {
+test( 'send mints with FROM empty for the server to stamp, and no KEY', async () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	await client.send( {
 		to: 'firehose-workers.p0/_command_interpreter',
 		verb: 'dump_metadata',
-		key: 'gui:typed',
 	} );
 	const msg = JSON.parse( global.fetch.mock.calls[ 0 ][ 1 ].body );
 	expect( msg[ FROM ] ).toBe( '' );
-	expect( msg[ KEY ] ).toBe( 'gui:typed' );
+	// KEY is Tachikoma's STREAM slot, not a demux discriminator: a reply is
+	// addressed back to its minter, so there is nothing to tell apart.
+	expect( msg[ KEY ] ).toBe( '' );
 } );
 
 test( 'send returns the parsed JSON response', async () => {
