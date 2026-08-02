@@ -1,74 +1,105 @@
 /**
- * Tests for useSaveTopology — dispatches `topologies.save` via the
- * topology-console CommandClient and returns the unwrapped payload.
+ * useSaveTopology — mints `topologies.save` FROM its own Request node.
+ *
+ * What this pins is the whole point of the conversion: the command carries no
+ * ID and no KEY, because the reply is addressed back to the minting node.
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { Core } from '@newspack-nodes/runtime';
 import { useSaveTopology } from '../useSaveTopology';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+	TM_COMMAND,
+	TM_ERROR,
+} from '../../../runtime/message';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
+// Distinct from every default so a wrong-field read fails rather than coincides.
+const SAVED = { name: 'demo', path: '/user/demo.tsl', shadows_stock: false };
+const REASON = 'unknown node type "Bogus" at line 3';
 
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
+const capture = () => {
+	const node = Core.node( 'topologies:save' );
+	const sent = [];
+	node.sink = { fill: ( m ) => sent.push( m ) };
+	return { node, sent };
+};
 
-describe( 'useSaveTopology', () => {
-	let send;
-	beforeEach( () => {
-		send = jest.fn().mockResolvedValue( [ 'fake', 'message' ] );
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockReturnValue( {
-			name: 'demo',
-			path: '/p',
-			shadows_stock: false,
-			restarted_fleets: [],
-		} );
+const reply = ( payload ) => {
+	const m = newMessage();
+	m[ VALUE ] = { name: 'save', payload };
+	return m;
+};
+
+const errorReply = ( text ) => {
+	const m = reply( text );
+	m[ TYPE ] = TM_COMMAND | TM_ERROR;
+	return m;
+};
+
+beforeEach( () => {
+	Core.reset();
+	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+} );
+
+it( 'returns a stable callback across renders', () => {
+	const { result, rerender } = renderHook( () => useSaveTopology() );
+	const first = result.current;
+	rerender();
+	expect( result.current ).toBe( first );
+} );
+
+it( 'mints save FROM its own node, with no ID and no KEY', () => {
+	const { result } = renderHook( () => useSaveTopology() );
+	const { sent } = capture();
+
+	act( () => {
+		// Never replied to; the teardown rejection is expected, not a failure.
+		result
+			.current( { name: 'demo', tsl: 'make_node Echo e' } )
+			.catch( () => {} );
 	} );
 
-	it( 'returns a stable callback across renders', () => {
-		const { result, rerender } = renderHook( () => useSaveTopology() );
-		const first = result.current;
-		rerender();
-		expect( result.current ).toBe( first );
+	expect( sent ).toHaveLength( 1 );
+	expect( sent[ 0 ][ FROM ] ).toBe( 'topologies:save' );
+	expect( sent[ 0 ][ TO ] ).toBe( '_http/topologies' );
+	expect( sent[ 0 ][ VALUE ].name ).toBe( 'save' );
+	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [
+		'demo',
+		'make_node Echo e',
+	] );
+	expect( sent[ 0 ][ ID ] ).toBe( '' );
+	expect( sent[ 0 ][ KEY ] ).toBe( '' );
+} );
+
+it( 'resolves with the reply payload', async () => {
+	const { result } = renderHook( () => useSaveTopology() );
+	const { node } = capture();
+
+	let pending;
+	act( () => {
+		pending = result.current( { name: 'demo', tsl: 'x' } );
+		node.fill( reply( SAVED ) );
 	} );
 
-	it( 'dispatches topologies.save with the supplied name + tsl', async () => {
-		const { result } = renderHook( () => useSaveTopology() );
-		await act( async () => {
-			await result.current( { name: 'demo', tsl: 'make_node Echo e' } );
-		} );
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'topologies',
-			verb: 'save',
-			args: [ 'demo', 'make_node Echo e' ],
-		} );
+	await expect( pending ).resolves.toEqual( SAVED );
+} );
+
+it( 'rejects a verb error with its message', async () => {
+	const { result } = renderHook( () => useSaveTopology() );
+	const { node } = capture();
+
+	let pending;
+	act( () => {
+		pending = result.current( { name: 'bad', tsl: '' } );
+		node.fill( errorReply( REASON ) );
 	} );
 
-	it( 'returns the unwrapped server payload', async () => {
-		const { result } = renderHook( () => useSaveTopology() );
-		let out;
-		await act( async () => {
-			out = await result.current( { name: 'demo', tsl: 'x' } );
-		} );
-		expect( out ).toEqual( {
-			name: 'demo',
-			path: '/p',
-			shadows_stock: false,
-			restarted_fleets: [],
-		} );
-	} );
-
-	it( 'propagates verb errors from unwrapCommandResponse', async () => {
-		unwrapCommandResponse.mockImplementation( () => {
-			throw new Error( 'validation failed at line 3' );
-		} );
-		const { result } = renderHook( () => useSaveTopology() );
-		await act( async () => {
-			await expect(
-				result.current( { name: 'bad', tsl: '' } )
-			).rejects.toThrow( 'validation failed at line 3' );
-		} );
-	} );
+	await expect( pending ).rejects.toThrow( REASON );
 } );

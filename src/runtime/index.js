@@ -7,9 +7,12 @@ export { HookNode } from './hook-node';
 export { CallbackNode } from './callback-node';
 export { EchoNode } from './echo-node';
 export { TimerNode } from './timer-node';
+export { RequestNode } from './request-node';
 export { HeartbeatNode } from './heartbeat-node';
 export { CommandInterpreterNode } from './command-interpreter-node';
 export { mountExospine } from './exospine';
+// The reserved node names, for shared code that cannot reach the JSON itself.
+export { default as reservedNames } from './reserved-node-names.json';
 export { SseInNode } from './sse-in-node';
 export { RemoteLinkNode } from './remote-link-node';
 export { RemoteIpcNode } from './remote-ipc-node';

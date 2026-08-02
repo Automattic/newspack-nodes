@@ -9,25 +9,21 @@
 
 import { useCallback, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
-import { getCommandClient } from '../utils/commandClient';
-import unwrapCommandResponse from '../utils/unwrapCommandResponse';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
 export function useVaults( { enabled = false } = {} ) {
 	const [ vaults, setVaults ] = useState( [] );
+	const request = useRequestNode( 'vault:list', 'vault' );
 
 	const load = useCallback( async () => {
-		const message = await getCommandClient().send( {
-			to: 'vault',
-			verb: 'list',
-		} );
-		const body = unwrapCommandResponse( message ) || {};
+		const body = ( await request( 'list' ) ) || {};
 		setVaults(
 			Object.values( body ).map( ( v ) => ( {
 				id: v.id,
 				url: v.url ?? '',
 			} ) )
 		);
-	}, [] );
+	}, [ request ] );
 
 	const { settled, error } = useReconcile( { load, enabled } );
 

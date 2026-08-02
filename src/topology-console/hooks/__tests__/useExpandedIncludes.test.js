@@ -4,32 +4,27 @@
  */
 
 import { renderHook, waitFor } from '@testing-library/react';
+import { Core, VALUE } from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
 	useExpandedIncludes,
 	invalidateExpandedIncludes,
 } from '../useExpandedIncludes';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
+let send;
 
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
+const args = () => send.mock.calls.map( ( [ m ] ) => m[ VALUE ].arguments );
 
-// Payload the real unwrapCommandResponse would extract from a Message tuple.
-const commandReply = ( payload ) => payload;
+beforeEach( () => {
+	Core.reset();
+	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	send = jest.fn();
+	installFakeCommandWire( ( m ) => send( m ) );
+	// The cache is module-level and survives `it` blocks in this file.
+	invalidateExpandedIncludes();
+} );
 
 describe( 'useExpandedIncludes', () => {
-	let send;
-	beforeEach( () => {
-		send = jest.fn();
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockImplementation( ( message ) => message );
-		// The cache is module-level and survives `it` blocks in this file.
-		invalidateExpandedIncludes();
-	} );
-
 	it( 'returns an empty baseline and never fetches when there are no includes', async () => {
 		const { result } = renderHook( () => useExpandedIncludes( [] ) );
 		expect( result.current.baseline ).toEqual( {
@@ -42,29 +37,23 @@ describe( 'useExpandedIncludes', () => {
 	} );
 
 	it( 'fetches topologies expand for the include set', async () => {
-		send.mockResolvedValue(
-			commandReply( {
-				nodes: [ { name: 'shared-tee' } ],
-				edges: [],
-				tree: {},
-			} )
-		);
+		send.mockReturnValue( {
+			nodes: [ { name: 'shared-tee' } ],
+			edges: [],
+			tree: {},
+		} );
 		const { result } = renderHook( () =>
 			useExpandedIncludes( [ 'performance', 'job-router' ] )
 		);
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'topologies',
-			verb: 'expand',
-			args: [ 'performance', 'job-router' ],
-		} );
+		expect( args() ).toEqual( [ [ 'performance', 'job-router' ] ] );
 		expect( result.current.baseline.nodes ).toEqual( [
 			{ name: 'shared-tee' },
 		] );
 	} );
 
 	it( 'surfaces a cycle error and keeps the last-good baseline', async () => {
-		send.mockRejectedValue(
+		send.mockReturnValue(
 			new Error( 'topology include cycle: a -> b -> a' )
 		);
 		const { result } = renderHook( () =>
@@ -82,13 +71,11 @@ describe( 'useExpandedIncludes', () => {
 	} );
 
 	it( 'caches the expansion, so a second caller skips the round trip', async () => {
-		send.mockResolvedValue(
-			commandReply( {
-				nodes: [ { name: 'cached-node' } ],
-				edges: [],
-				tree: { 'cache-source': {} },
-			} )
-		);
+		send.mockReturnValue( {
+			nodes: [ { name: 'cached-node' } ],
+			edges: [],
+			tree: { 'cache-source': {} },
+		} );
 		const first = renderHook( () =>
 			useExpandedIncludes( [ 'cache-source' ] )
 		);
@@ -116,15 +103,11 @@ describe( 'invalidateExpandedIncludes', () => {
 		// performance` expands to. Without invalidation, reopening combined.tsl
 		// would paint the pre-save expansion — stale borrowed nodes, and a save
 		// that writes deltas against a baseline the server no longer agrees with.
-		const send = jest.fn().mockResolvedValue(
-			commandReply( {
-				nodes: [ { name: 'stale-tee' } ],
-				edges: [],
-				tree: {},
-			} )
-		);
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockImplementation( ( message ) => message );
+		send.mockReturnValue( {
+			nodes: [ { name: 'stale-tee' } ],
+			edges: [],
+			tree: {},
+		} );
 		invalidateExpandedIncludes();
 
 		const primed = renderHook( () =>

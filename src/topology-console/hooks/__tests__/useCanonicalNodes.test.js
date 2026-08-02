@@ -1,19 +1,18 @@
 import { renderHook, waitFor } from '@testing-library/react';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
 // Spy on parseTsl so post-unmount test asserts !live short-circuits parsing.
 jest.mock( '../../utils/parseTsl', () => {
 	const actual = jest.requireActual( '../../utils/parseTsl' );
 	return { parseTsl: jest.fn( actual.parseTsl ) };
 } );
 
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
 const { parseTsl } = require( '../../utils/parseTsl' );
 
+import { Core } from '@newspack-nodes/runtime';
+import {
+	installFakeCommandWire,
+	makeFakeCommandWire,
+} from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCanonicalNodes, driftNodeIds } from '../useCanonicalNodes';
 
 describe( 'driftNodeIds', () => {
@@ -39,13 +38,14 @@ describe( 'driftNodeIds', () => {
 describe( 'useCanonicalNodes', () => {
 	let send;
 	beforeEach( () => {
+		Core.reset();
+		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 		send = jest.fn();
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockImplementation( ( m ) => m );
+		installFakeCommandWire( ( m ) => send( m ) );
 	} );
 
 	it( 'fetches the topology .tsl and returns its declared node names', async () => {
-		send.mockResolvedValue( {
+		send.mockReturnValue( {
 			tsl: 'make_node Echo alpha\nmake_node Tee beta\n',
 		} );
 		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
@@ -58,7 +58,7 @@ describe( 'useCanonicalNodes', () => {
 		// combined.tsl owns one node and `include`s the rest. Comparing live nodes
 		// against the raw file alone paints every borrowed node as drift — a
 		// "temporary node" the operator never added.
-		send.mockResolvedValue( {
+		send.mockReturnValue( {
 			tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
 			includes: [ 'zebra-base' ],
 			expanded: {
@@ -87,31 +87,40 @@ describe( 'useCanonicalNodes', () => {
 
 	it( 'ignores a fetch that resolves after the hook unmounts', async () => {
 		parseTsl.mockClear();
-		let resolveFetch;
-		send.mockReturnValue(
-			new Promise( ( res ) => {
-				resolveFetch = res;
-			} )
+		// The reply outlives the node it was addressed to; the Router says so.
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
+		send.mockReturnValue( { tsl: 'make_node Echo alpha\n' } );
+		// Hold the wire open so the reply lands only after the unmount.
+		const wire = makeFakeCommandWire( ( m ) => send( m ) );
+		let release;
+		global.fetch = jest.fn(
+			( ...args ) =>
+				new Promise( ( resolve ) => {
+					release = () => resolve( wire( ...args ) );
+				} )
 		);
 		const { unmount } = renderHook( () => useCanonicalNodes( 'combined' ) );
+		// The mint waits out /auth, so let it reach the wire before unmounting.
+		await waitFor( () => expect( global.fetch ).toHaveBeenCalled() );
 		unmount();
-		resolveFetch( { tsl: 'make_node Echo alpha\n' } );
-		// Flush the resolve handler.
-		await Promise.resolve();
-		await Promise.resolve();
+		release();
+		// Flush the resolve handlers.
+		for ( let i = 0; i < 8; i++ ) {
+			await Promise.resolve();
+		}
 		// !live guard returns before parse/setState; parseTsl running is a bug.
 		expect( parseTsl ).not.toHaveBeenCalled();
 	} );
 
 	it( 'resets to an empty set when the topology fetch rejects', async () => {
-		send.mockResolvedValueOnce( { tsl: 'make_node Echo alpha\n' } );
+		send.mockReturnValueOnce( { tsl: 'make_node Echo alpha\n' } );
 		const { result, rerender } = renderHook(
 			( { t } ) => useCanonicalNodes( t ),
 			{ initialProps: { t: 'combined' } }
 		);
 		await waitFor( () => expect( result.current.size ).toBe( 1 ) );
 
-		send.mockRejectedValueOnce( new Error( 'nope' ) );
+		send.mockReturnValueOnce( new Error( 'nope' ) );
 		rerender( { t: 'other' } );
 		await waitFor( () => expect( result.current.size ).toBe( 0 ) );
 	} );

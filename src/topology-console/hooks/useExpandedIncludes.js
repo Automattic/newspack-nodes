@@ -14,10 +14,14 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { getCommandClient } from '../utils/commandClient';
-import unwrapCommandResponse from '../utils/unwrapCommandResponse';
+import useRequestNode, {
+	requestVia,
+} from '@newspack-nodes/shared/hooks/useRequestNode';
 
 const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
+
+// Mounted below; the module-level fetch borrows it, queueing behind it.
+const EXPAND_NODE = 'topologies:expand';
 
 const cache = new Map();
 
@@ -70,12 +74,12 @@ export async function fetchExpandedIncludes( includes ) {
 	if ( cached ) {
 		return cached;
 	}
-	const message = await getCommandClient().send( {
-		to: 'topologies',
-		verb: 'expand',
-		args: formatCommandArgs( includes ),
-	} );
-	const value = unwrapCommandResponse( message ) || {};
+	const value =
+		( await requestVia(
+			EXPAND_NODE,
+			'expand',
+			formatCommandArgs( includes )
+		) ) || {};
 	const baseline = {
 		nodes: value.nodes || [],
 		edges: value.edges || [],
@@ -96,6 +100,7 @@ export function useExpandedIncludes( includes ) {
 		error: null,
 		loading: false,
 	} );
+	const request = useRequestNode( EXPAND_NODE, 'topologies' );
 
 	// @longform
 	// The lastKey latch was set BEFORE the request, so one failed expansion
@@ -114,12 +119,10 @@ export function useExpandedIncludes( includes ) {
 		}
 		setState( ( s ) => ( { ...s, loading: true, error: null } ) );
 		try {
-			const message = await getCommandClient().send( {
-				to: 'topologies',
-				verb: 'expand',
-				args: formatCommandArgs( includesRef.current || [] ),
-			} );
-			const value = unwrapCommandResponse( message );
+			const value = await request(
+				'expand',
+				formatCommandArgs( includesRef.current || [] )
+			);
 			const baseline = {
 				nodes: value.nodes || [],
 				edges: value.edges || [],
@@ -136,7 +139,7 @@ export function useExpandedIncludes( includes ) {
 			} ) );
 			throw e;
 		}
-	}, [ key ] );
+	}, [ key, request ] );
 
 	// An empty include set resets synchronously, as it always did.
 	useEffect( () => {

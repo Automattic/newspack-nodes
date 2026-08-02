@@ -20,6 +20,7 @@ class CoreImpl {
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (PHP Core::$init_time)
 		this.rebuildable = false; // overlay Reset-Graph capability; mountExospine sets it
+		this.backboneOwned = false; // a non-passenger mount holds the backbone
 		this.reinitNames = null; // names mountExospine's build registered
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;

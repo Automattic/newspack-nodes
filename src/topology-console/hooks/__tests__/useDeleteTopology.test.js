@@ -1,72 +1,95 @@
 /**
- * Tests for useDeleteTopology — dispatches `topologies.delete` via the
- * topology-console CommandClient and returns the unwrapped payload.
+ * useDeleteTopology — mints `topologies.delete` FROM its own Request node.
+ *
+ * The reply is addressed back here, so the command carries no ID and no KEY.
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { Core } from '@newspack-nodes/runtime';
 import { useDeleteTopology } from '../useDeleteTopology';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+	TM_COMMAND,
+	TM_ERROR,
+} from '../../../runtime/message';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
+// Distinct from every default so a wrong-field read fails rather than coincides.
+const DELETED = { name: 'scratch', deleted: true };
+const REASON = 'refusing to delete stock topology "combined"';
 
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
+const capture = () => {
+	const node = Core.node( 'topologies:delete' );
+	const sent = [];
+	node.sink = { fill: ( m ) => sent.push( m ) };
+	return { node, sent };
+};
 
-describe( 'useDeleteTopology', () => {
-	let send;
-	beforeEach( () => {
-		send = jest.fn().mockResolvedValue( [] );
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockReturnValue( {
-			name: 'demo',
-			deleted: true,
-			stock_fallback: false,
-		} );
+const reply = ( payload ) => {
+	const m = newMessage();
+	m[ VALUE ] = { name: 'delete', payload };
+	return m;
+};
+
+beforeEach( () => {
+	Core.reset();
+	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+} );
+
+it( 'returns a stable callback across renders', () => {
+	const { result, rerender } = renderHook( () => useDeleteTopology() );
+	const first = result.current;
+	rerender();
+	expect( result.current ).toBe( first );
+} );
+
+it( 'mints delete FROM its own node, with no ID and no KEY', () => {
+	const { result } = renderHook( () => useDeleteTopology() );
+	const { sent } = capture();
+
+	act( () => {
+		// Never replied to; the teardown rejection is expected, not a failure.
+		result.current( { name: 'scratch' } ).catch( () => {} );
 	} );
 
-	it( 'returns a stable callback across renders', () => {
-		const { result, rerender } = renderHook( () => useDeleteTopology() );
-		const first = result.current;
-		rerender();
-		expect( result.current ).toBe( first );
+	expect( sent ).toHaveLength( 1 );
+	expect( sent[ 0 ][ FROM ] ).toBe( 'topologies:delete' );
+	expect( sent[ 0 ][ TO ] ).toBe( '_http/topologies' );
+	expect( sent[ 0 ][ VALUE ].name ).toBe( 'delete' );
+	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'scratch' ] );
+	expect( sent[ 0 ][ ID ] ).toBe( '' );
+	expect( sent[ 0 ][ KEY ] ).toBe( '' );
+} );
+
+it( 'resolves with the reply payload', async () => {
+	const { result } = renderHook( () => useDeleteTopology() );
+	const { node } = capture();
+
+	let pending;
+	act( () => {
+		pending = result.current( { name: 'scratch' } );
+		node.fill( reply( DELETED ) );
 	} );
 
-	it( 'dispatches topologies.delete with the supplied name', async () => {
-		const { result } = renderHook( () => useDeleteTopology() );
-		await act( async () => {
-			await result.current( { name: 'demo' } );
-		} );
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'topologies',
-			verb: 'delete',
-			args: [ 'demo' ],
-		} );
+	await expect( pending ).resolves.toEqual( DELETED );
+} );
+
+it( 'rejects a verb error with its message', async () => {
+	const { result } = renderHook( () => useDeleteTopology() );
+	const { node } = capture();
+
+	let pending;
+	act( () => {
+		pending = result.current( { name: 'combined' } );
+		const m = reply( REASON );
+		m[ TYPE ] = TM_COMMAND | TM_ERROR;
+		node.fill( m );
 	} );
 
-	it( 'returns the unwrapped server payload verbatim', async () => {
-		const { result } = renderHook( () => useDeleteTopology() );
-		let out;
-		await act( async () => {
-			out = await result.current( { name: 'demo' } );
-		} );
-		expect( out ).toEqual( {
-			name: 'demo',
-			deleted: true,
-			stock_fallback: false,
-		} );
-	} );
-
-	it( 'propagates verb errors from unwrapCommandResponse', async () => {
-		unwrapCommandResponse.mockImplementation( () => {
-			throw new Error( 'no user-saved topology named: missing' );
-		} );
-		const { result } = renderHook( () => useDeleteTopology() );
-		await act( async () => {
-			await expect(
-				result.current( { name: 'missing' } )
-			).rejects.toThrow( 'no user-saved topology named: missing' );
-		} );
-	} );
+	await expect( pending ).rejects.toThrow( REASON );
 } );

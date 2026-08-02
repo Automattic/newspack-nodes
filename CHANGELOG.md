@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Request` node — one command, one reply, no correlation.** A node that mints
+  a single command and resolves when its reply routes back. Nothing tells the
+  replies apart because there is nothing to tell apart: `command()` stamps
+  `FROM = <the node>`, the server replies `TO = FROM`, and the reply lands on
+  that node. Two concerns get two nodes; a second command asked for while one is
+  outstanding QUEUES, so there is still exactly one in flight. Mounted by the
+  shared `useRequestNode` hook, which rides the backbone as a passenger — a bare
+  `mountExospine()` that never bumps the graph generation nor owns the spine.
+
 - **Tests pinning every command source to mint with `ID` and `KEY` empty.** A
   reply is addressed, not correlated: the minter stamps `FROM = <its own name>`,
   the server replies `TO = FROM`, and the reply lands on that node. Stamping an
@@ -24,7 +33,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allowlisting only the non-command stamps: replies echoing an inbound
   breadcrumb, and KEY-as-STREAM (`Timer`'s heartbeat tag, `notify()`'s event).
 
+- **`makeFakeCommandWire` / `installFakeCommandWire` test helpers.** A
+  `global.fetch` double for `/command` that answers a posted batch the way the
+  server does — `TO = FROM`, JSONL in and out — so pack/unpack, `HTTP_Out`, the
+  router and the interpreter all run for real in a hook test. The old
+  `getCommandClient().send` module mock replaced the whole transport instead.
+
+### Changed
+
+- **The console's backbone now outlives edit mode.** `useConsoleGraph` mounts the
+  spine in its own effect, keyed only on the graph generation: entering edit mode
+  drops every view node and the stream, but save, delete and include-expansion
+  all happen in edit mode, and tearing the interpreter down under them left those
+  commands sinking into a removed node — silently. A Reset Graph still replaces
+  the backbone, which is the one thing that should.
+
+- **`mountExospine( build, { passenger: true } )`** — clip onto the backbone,
+  raising one if absent, without owning it. The owner (the console) adopts a
+  passenger-raised backbone on arrival and stays the one that can replace it.
+
 ### Removed
+
+- **`CommandClient.send()`.** The console's one-shot verbs — save, delete,
+  layout get/save, topology list/get, classes list, vault list, expand, activate
+  — went out through it as a standalone POST outside the graph, skipping the
+  `_http` lock/flush bracket the rest of the tick batches into. Each is now a
+  `Request` node whose reply routes back to it. Event-logger-nodes' two callers
+  (`CurrentRequestTab`, `usePerformanceGraph`'s rid-search fallback) moved with
+  it. `unwrapCommandResponse` stays for the shared surface; the topology
+  console's duplicate `commandClient.js` and `unwrapCommandResponse.js`
+  re-exports are gone.
 
 - **`CommandClient.buildMessage`'s `key` parameter.** It stamped `KEY` for
   demuxing several verbs batched into one tick — a problem that does not exist,

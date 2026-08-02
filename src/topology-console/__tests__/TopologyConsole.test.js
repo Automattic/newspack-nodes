@@ -29,6 +29,12 @@ import {
 	TM_STRUCT,
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
+import { RequestNode } from '../../runtime/request-node';
+import { Core } from '../../runtime/core';
+import {
+	answerBatch,
+	installFakeCommandWire,
+} from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import * as draftGraph from '../utils/draftGraph';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 
@@ -59,6 +65,7 @@ class FakeEventSource {
 }
 global.EventSource = FakeEventSource;
 jest.mock( '../hooks/useConsoleGraph', () => {
+	// eslint-disable-next-line no-shadow
 	const { Core } = require( '../../runtime/core' );
 	const { RouterNode } = require( '../../runtime/router-node' );
 	const {
@@ -74,16 +81,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { HeartbeatNode } = require( '../../runtime/heartbeat-node' );
 	const { ShellNode } = require( '../../runtime/shell-node' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
+	// View nodes only: the backbone is the page's and outlives edit mode,
+	// exactly as the real hook's separate backbone effect leaves it standing.
 	const NAMES = [
-		reserved.ROUTER,
-		reserved.COMMAND_INTERPRETER,
 		reserved.OUTPUT,
 		reserved.METADATA,
 		reserved.UPTIME,
 		reserved.COMPLETION,
 		reserved.CWD,
-		reserved.HTTP,
-		reserved.HEARTBEAT,
 	];
 	const teardown = () => {
 		Core.node( reserved.ROUTER )?.stopTimer();
@@ -119,11 +124,16 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			const key = `${ reader }|${ generation }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
-				const router = new RouterNode();
-				router.name = reserved.ROUTER;
-				const interpreter = new CommandInterpreterNode();
-				interpreter.name = reserved.COMMAND_INTERPRETER;
-				interpreter.sink = router;
+				let router = Core.node( reserved.ROUTER );
+				let interpreter = Core.node( reserved.COMMAND_INTERPRETER );
+				const freshBackbone = ! interpreter;
+				if ( freshBackbone ) {
+					router = new RouterNode();
+					router.name = reserved.ROUTER;
+					interpreter = new CommandInterpreterNode();
+					interpreter.name = reserved.COMMAND_INTERPRETER;
+					interpreter.sink = router;
+				}
 				const dumper = new DumperNode();
 				dumper.debugLevelRef = debugLevelRef;
 				dumper.name = reserved.OUTPUT;
@@ -133,12 +143,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				uptime.name = reserved.UPTIME;
 				new CompletionNode().name = reserved.COMPLETION;
 				// Backbone singletons; RemoteIpc.ensureChildren reuses them.
-				const http = new HttpOutNode();
-				http.name = reserved.HTTP;
-				http.sink = interpreter;
-				const heartbeat = new HeartbeatNode();
-				heartbeat.name = reserved.HEARTBEAT;
-				heartbeat.sink = interpreter;
+				if ( freshBackbone ) {
+					const http = new HttpOutNode();
+					http.name = reserved.HTTP;
+					http.sink = interpreter;
+					const heartbeat = new HeartbeatNode();
+					heartbeat.name = reserved.HEARTBEAT;
+					heartbeat.sink = interpreter;
+				}
 				// One RemoteIpc/worker: SseIn+HttpOut(captures)+Heartbeat.
 				const remote = interpreter.makeNode( 'RemoteIpc', reader, [
 					reader,
@@ -147,7 +159,9 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				remote.client = {
 					postBatch: ( entries ) => {
 						globalThis.__httpPosts.push( ...entries );
-						return Promise.resolve( [] );
+						// Answer like the server: the Request nodes' replies
+						// route back TO=FROM through this same client.
+						return globalThis.__answerBatch( entries );
 					},
 				};
 				// Boot stream + force connected pid 1234 (fake ES sends none).
@@ -179,6 +193,11 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				globalThis.__shell = shell;
 				globalThis.__reader = reader;
 				globalThis.__graphKey = key;
+				// The real hook mounts via mountExospine, which announces a
+				// NEW backbone; passenger nodes re-attach on that signal.
+				if ( freshBackbone ) {
+					Core.notifyBackboneUp();
+				}
 			}
 			// `__connecting`: pre-connect window (enabled, no pid) guard.
 			return globalThis.__connecting
@@ -663,16 +682,25 @@ jest.mock( '../components/Modal', () => ( {
 	},
 } ) );
 
-// Capture the activate dispatch; send() resolves so the toast runs in act().
-globalThis.__activateSend = jest.fn().mockResolvedValue( null );
-jest.mock( '../utils/commandClient', () => ( {
-	getCommandClient: () => ( {
-		send: ( ...args ) => globalThis.__activateSend( ...args ),
-	} ),
-} ) );
+// Commands travel the real graph; this answers them. It sees the
+// `{ to, verb, args }` shape the assertions read, and returns the reply
+// payload (an Error answers TM_ERROR, undefined answers nothing at all).
+globalThis.__activateSend = jest.fn();
+// Only a Request node's command is answered here; a worker-bound poll gets
+// silence, as the live server gives it — its reply rides the SSE stream.
+const answerCommand = ( m ) => {
+	if ( ! ( Core.node( m[ FROM ] ) instanceof RequestNode ) ) {
+		return undefined;
+	}
+	return globalThis.__activateSend( {
+		to: String( m[ TO ] ),
+		verb: m[ VALUE ]?.name,
+		args: m[ VALUE ]?.arguments,
+	} );
+};
+globalThis.__answerBatch = ( entries ) => answerBatch( entries, answerCommand );
 
 import TopologyConsole, { initialTopologyFromUrl } from '../TopologyConsole';
-import { Core } from '../../runtime/core';
 
 // Build a positional Message; default TO routes to the Dumper transcript.
 function posMsg( { type, value, from = 'worker', to = names.OUTPUT } ) {
@@ -698,6 +726,8 @@ describe( 'TopologyConsole boot', () => {
 		hooks.saveTopology.mockResolvedValue( null );
 		globalThis.__activateSend.mockReset();
 		globalThis.__activateSend.mockResolvedValue( null );
+		installFakeCommandWire( answerCommand );
+		globalThis.__httpPosts = [];
 		hooks.deleteTopology.mockReset();
 		hooks.deleteTopology.mockResolvedValue( null );
 		hooks.fetchLayout.mockReset();
@@ -2620,13 +2650,7 @@ describe( 'TopologyConsole boot', () => {
 	it( 'confirming "Activate now?" toasts the error (not success) when the verb returns TM_ERROR', async () => {
 		// activate rejects (TM_ERROR at HTTP 200): surface the error toast.
 		globalThis.__activateSend.mockResolvedValueOnce(
-			posMsg( {
-				type: TM_COMMAND | TM_RESPONSE | TM_ERROR,
-				value: {
-					name: 'activate',
-					payload: 'conflicts with active demo',
-				},
-			} )
+			new Error( 'conflicts with active demo' )
 		);
 		hooks.catalog = { partitions: { demo: 2 }, active: [ 'demo' ] };
 		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
@@ -4255,26 +4279,22 @@ describe( 'TopologyConsole boot', () => {
 			} );
 		}
 
-		// getCommandClient().send is the one mocked entry point (shared with the
-		// "Activate now?" flow); route only the `topologies expand` verb through it.
+		// The wire adapter is the one command entry point (shared with the
+		// "Activate now?" flow); answer only the `topologies expand` verb.
 		function mockTopologyExpand( includeNames, result ) {
-			globalThis.__activateSend.mockImplementation( ( msg ) => {
-				if ( msg && msg.to === 'topologies' && msg.verb === 'expand' ) {
-					const m = newMessage();
-					m[ VALUE ] = { name: 'expand', payload: result };
-					return Promise.resolve( m );
-				}
-				return Promise.resolve( newMessage() );
-			} );
+			globalThis.__activateSend.mockImplementation( ( msg ) =>
+				'topologies' === msg?.to && 'expand' === msg?.verb
+					? result
+					: null
+			);
 		}
 
 		function mockTopologyExpandFailure( message ) {
-			globalThis.__activateSend.mockImplementation( ( msg ) => {
-				if ( msg && msg.to === 'topologies' && msg.verb === 'expand' ) {
-					return Promise.reject( new Error( message ) );
-				}
-				return Promise.resolve( newMessage() );
-			} );
+			globalThis.__activateSend.mockImplementation( ( msg ) =>
+				'topologies' === msg?.to && 'expand' === msg?.verb
+					? new Error( message )
+					: null
+			);
 		}
 
 		// 'demo' is the one topology SEED_WORKERS/topologyWorkers knows about
@@ -4704,55 +4724,48 @@ describe( 'TopologyConsole boot', () => {
 					msg.to !== 'topologies' ||
 					msg.verb !== 'expand'
 				) {
-					return Promise.resolve( newMessage() );
+					return null;
 				}
-				const m = newMessage();
-				const payload =
-					msg.args === 'performance'
-						? {
-								nodes: [
-									{
-										name: 'shared-tee',
-										class: 'Tee',
-										args: [],
-										origin: [ 'performance' ],
-										via: [ 'performance' ],
-									},
-								],
-								edges: [],
-								tree: { performance: {} },
-								hulls: { performance: [ 'shared-tee' ] },
-						  }
-						: {
-								nodes: [
-									{
-										name: 'shared-tee',
-										class: 'Tee',
-										args: [],
-										origin: [ 'performance', 'job-router' ],
-										via: [ 'performance', 'job-router' ],
-									},
-									{
-										name: 'router-only',
-										class: 'Echo',
-										args: [],
-										origin: [ 'job-router' ],
-										via: [ 'job-router' ],
-									},
-								],
-								edges: [],
-								tree: { performance: {}, 'job-router': {} },
-								// The diamond node is a member of BOTH hulls.
-								hulls: {
-									performance: [ 'shared-tee' ],
-									'job-router': [
-										'shared-tee',
-										'router-only',
-									],
+				return msg.args === 'performance'
+					? {
+							nodes: [
+								{
+									name: 'shared-tee',
+									class: 'Tee',
+									args: [],
+									origin: [ 'performance' ],
+									via: [ 'performance' ],
 								},
-						  };
-				m[ VALUE ] = { name: 'expand', payload };
-				return Promise.resolve( m );
+							],
+							edges: [],
+							tree: { performance: {} },
+							hulls: { performance: [ 'shared-tee' ] },
+					  }
+					: {
+							nodes: [
+								{
+									name: 'shared-tee',
+									class: 'Tee',
+									args: [],
+									origin: [ 'performance', 'job-router' ],
+									via: [ 'performance', 'job-router' ],
+								},
+								{
+									name: 'router-only',
+									class: 'Echo',
+									args: [],
+									origin: [ 'job-router' ],
+									via: [ 'job-router' ],
+								},
+							],
+							edges: [],
+							tree: { performance: {}, 'job-router': {} },
+							// The diamond node is a member of BOTH hulls.
+							hulls: {
+								performance: [ 'shared-tee' ],
+								'job-router': [ 'shared-tee', 'router-only' ],
+							},
+					  };
 			} );
 
 			await renderConsoleInEditMode();

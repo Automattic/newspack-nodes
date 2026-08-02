@@ -18,6 +18,22 @@ if ( ! global.crypto?.subtle ) {
 
 /* eslint-env jest */
 // @longform
+// jsdom has no fetch, and a graph under test posts its command batch for real
+// through `_http`. Default it to an empty 200 batch so a test that never asked
+// about the wire stays silent instead of failing on `fetch is not defined`; a
+// test that cares about the request overrides `global.fetch` itself.
+beforeEach( () => {
+	global.fetch = jest.fn( () =>
+		Promise.resolve( {
+			ok: true,
+			status: 200,
+			text: () => Promise.resolve( '' ),
+			json: () => Promise.resolve( {} ),
+		} )
+	);
+} );
+
+// @longform
 // Jest setup — FAIL any test that emits an UNEXPECTED console.warn/error, and
 // fail any test that DECLARED an expected console message that never fired.
 //

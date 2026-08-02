@@ -39,8 +39,11 @@
  * caller MUST pair every mount with `teardown()` (e.g. in a useEffect cleanup);
  * a second mount before teardown throws a name collision, by design.
  *
- * @param {Function} [build] `( spine ) => cleanup|void` — registers the soft
- *                           view-nodes onto the backbone. Re-run on every rebuild.
+ * @param {Function} [build]          `( spine ) => cleanup|void` — registers the soft
+ *                                    view-nodes onto the backbone. Re-run on every rebuild.
+ * @param {Object}   [opts]
+ * @param {boolean}  [opts.passenger] True to clip onto the backbone without
+ *                                    owning it — see `ownsBackbone` below.
  * @return {{ interpreter: CommandInterpreterNode, router: RouterNode,
  *   reinit: Function, teardown: Function }} The backbone nodes, a `reinit()` that
  *   rebuilds the build-registered nodes, and a `teardown()` that additionally
@@ -55,7 +58,7 @@ import { HttpOutNode } from './http-out-node';
 import { HeartbeatNode } from './heartbeat-node';
 import names from './reserved-node-names.json';
 
-export function mountExospine( build ) {
+export function mountExospine( build, { passenger = false } = {} ) {
 	// Signing is sync and reads this; start the round trip before any command.
 	void ensureSession();
 
@@ -71,7 +74,12 @@ export function mountExospine( build ) {
 		spine.http = Core.node( names.HTTP );
 		spine.heartbeat = Core.node( names.HEARTBEAT );
 	};
-	// Whether THIS mount created the backbone; a reusing mount must not own it.
+	// @longform
+	// Whether THIS mount owns the backbone — i.e. tears it down on teardown.
+	// A PASSENGER never owns: it may bring the backbone up so its node has
+	// something to clip onto, but the graph's real owner (the console) adopts
+	// it on arrival and remains the one that can replace it. Passengers
+	// re-attach on backbone-up, which is what that signal exists for.
 	let ownsBackbone = false;
 
 	// (Re)create the rule-#2 backbone; mutable so a FULL rebuild recreates it.
@@ -81,10 +89,16 @@ export function mountExospine( build ) {
 		if ( existing ) {
 			interpreter = existing;
 			router = Core.node( names.ROUTER );
+			// Adopt a backbone a passenger raised; it has no owner yet.
+			if ( ! passenger && ! Core.backboneOwned ) {
+				ownsBackbone = true;
+				Core.backboneOwned = true;
+			}
 			syncSpineFromCore();
 			return;
 		}
-		ownsBackbone = true;
+		ownsBackbone = ! passenger;
+		Core.backboneOwned = Core.backboneOwned || ownsBackbone;
 
 		router = new RouterNode();
 		router.name = names.ROUTER;
@@ -183,9 +197,10 @@ export function mountExospine( build ) {
 			unsubscribe();
 		}
 		teardownBuilt();
-		// Only the owner tears the backbone down (and owns the rebuild flag).
+		// Only the owning mount tears the backbone down.
 		if ( ownsBackbone ) {
 			teardownBackbone();
+			Core.backboneOwned = false;
 			Core.rebuildable = false;
 			Core.reinitNames = null;
 		}

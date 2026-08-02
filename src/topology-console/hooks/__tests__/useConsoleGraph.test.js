@@ -22,16 +22,14 @@ import { CompletionNode } from '../../../runtime/completion-node';
 import { RemoteIpcNode } from '../../../runtime/remote-ipc-node';
 import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
+import * as wire from '../../../runtime/message';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 
-// Mock the command client — no real fetch; beforeEach installs a valid empty
-// topology response so the background seed is a real no-op, not a swallowed
-// protocol failure.
-const mockSend = jest.fn().mockResolvedValue( null );
-const mockPostBatch = jest.fn().mockResolvedValue( [] );
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: () => ( { send: mockSend, postBatch: mockPostBatch } ),
-	__resetCommandClientForTests: () => {},
-} ) );
+// The command wire is faked, not the client — commands travel the real graph
+// and their replies come back addressed `TO = FROM`. beforeEach answers the
+// background topology seed so it is a real no-op, not a swallowed failure.
+// mockSend sees the verb in the `{ to, verb, args }` shape the assertions read.
+const mockSend = jest.fn();
 
 let lastConnector = null;
 
@@ -107,6 +105,13 @@ beforeEach( () => {
 	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	mockSend.mockReset();
+	installFakeCommandWire( ( m ) =>
+		mockSend( {
+			to: String( m[ wire.TO ] ),
+			verb: m[ wire.VALUE ]?.name,
+			args: m[ wire.VALUE ]?.arguments,
+		} )
+	);
 	mockSend.mockImplementation( ( message ) => {
 		if ( 'topologies' === message?.to && 'get' === message?.verb ) {
 			return Promise.resolve(
@@ -119,10 +124,8 @@ beforeEach( () => {
 				} )
 			);
 		}
-		return Promise.resolve( null );
+		return undefined;
 	} );
-	mockPostBatch.mockReset();
-	mockPostBatch.mockResolvedValue( [] );
 } );
 
 const loadEmptyCatalog = () =>
@@ -295,8 +298,10 @@ describe( 'useConsoleGraph — graph topology', () => {
 } );
 
 describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
-	it( 'batches one tick of the active worker polls into a SINGLE postBatch', () => {
+	it( 'batches one tick of the active worker polls into a SINGLE postBatch', async () => {
 		renderGraph();
+		// Let /auth land: a node with no session mints nothing.
+		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf( 'demo.p0' ).client = { postBatch };
@@ -515,14 +520,8 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 
 	it( 'seeds the Metadata node with the topology TSL on mount (instant structure before dump_metadata)', async () => {
-		const { newMessage, VALUE } = require( '../../../runtime/message' );
 		const tsl = 'make_node Echo greeter\n';
-		const reply = newMessage();
-		reply[ VALUE ] = {
-			name: 'get',
-			payload: { name: 'demo', source: 'user', tsl },
-		};
-		mockSend.mockResolvedValue( reply );
+		mockSend.mockResolvedValue( { name: 'demo', source: 'user', tsl } );
 		await act( async () => {
 			renderGraph();
 			await Promise.resolve();
@@ -541,17 +540,11 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 
 	it( 'does NOT seed the Metadata node at the local root (cwd "/") — only at a worker scope', async () => {
-		const { newMessage, VALUE } = require( '../../../runtime/message' );
-		const reply = newMessage();
-		reply[ VALUE ] = {
-			name: 'get',
-			payload: {
-				name: 'demo',
-				source: 'user',
-				tsl: 'make_node Echo greeter\n',
-			},
-		};
-		mockSend.mockResolvedValue( reply );
+		mockSend.mockResolvedValue( {
+			name: 'demo',
+			source: 'user',
+			tsl: 'make_node Echo greeter\n',
+		} );
 		renderGraph();
 		// cd / before the seed resolves; seeding topology paints wrong graph.
 		Core.node( names.CWD ).target = '';
@@ -589,8 +582,10 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		).toHaveLength( 0 );
 	} );
 
-	it( 'a typed Shell command flows Shell → interpreter → Router → RemoteIpc → POST', () => {
+	it( 'a typed Shell command flows Shell → interpreter → Router → RemoteIpc → POST', async () => {
 		const { result } = renderGraph();
+		// Let /auth land: a node with no session mints nothing.
+		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf( 'demo.p0' ).client = { postBatch };
@@ -669,8 +664,10 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		return m;
 	};
 
-	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', () => {
+	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', async () => {
 		renderGraph();
+		// Let /auth land: a node with no session mints nothing.
+		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf( 'demo.p0' ).client = { postBatch };
@@ -744,13 +741,17 @@ describe( 'useConsoleGraph — hub transcript persistence [87]', () => {
 } );
 
 describe( 'useConsoleGraph — lifecycle', () => {
-	it( 'short-circuits when enabled=false: no nodes, status closed', () => {
+	// The backbone is the page's and stands either way; what `enabled=false`
+	// means is no VIEW nodes and no stream. Edit mode still saves, deletes and
+	// expands, and those commands need somewhere to sink.
+	it( 'short-circuits when enabled=false: no view nodes, status closed', () => {
 		const { result } = renderGraph( { enabled: false } );
 		expect( result.current.status ).toBe( 'closed' );
 		expect( result.current.ssePid ).toBeNull();
 		expect( result.current.shell ).toBeNull();
-		expect( Core.node( names.ROUTER ) ).toBeNull();
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
+		expect( Core.node( names.METADATA ) ).toBeNull();
+		expect( Core.node( 'demo.p0' ) ).toBeNull();
 		expect( lastConnector ).toBeNull();
 	} );
 
@@ -794,6 +795,9 @@ describe( 'useConsoleGraph — lifecycle', () => {
 	} );
 
 	it( 'tearing down on enabled→false unregisters nodes + closes the stream', () => {
+		// The in-flight topology `get` reply outlives its node; the Router says
+		// so rather than routing it into the void.
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { rerender } = renderGraph( { enabled: true } );
 		const connector = lastConnector;
 		act( () => {
@@ -843,14 +847,8 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 	} );
 } );
 
-// A well-formed command reply the real unwrapCommandResponse accepts.
-const reply = ( payload ) => {
-	const { newMessage } = require( '../../../runtime/message' );
-	const { VALUE } = require( '../../../runtime/message' );
-	const m = newMessage();
-	m[ VALUE ] = { name: 'verb', payload };
-	return m;
-};
+// The wire wraps the payload into a reply Message itself.
+const reply = ( payload ) => payload;
 
 describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 	it( 'resolves a tokenized top-level override on a borrowed seed node', async () => {
@@ -895,7 +893,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		renderGraph();
@@ -930,7 +928,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		const { result } = renderGraph();
@@ -986,7 +984,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		renderGraph( { loadCatalog } );
@@ -1035,7 +1033,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		const { result } = renderGraph( { loadCatalog } );
@@ -1089,7 +1087,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		const { result } = renderGraph( { loadCatalog } );
@@ -1134,7 +1132,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		renderGraph();
@@ -1174,7 +1172,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 					} )
 				);
 			}
-			return Promise.resolve( null );
+			return undefined;
 		} );
 
 		renderGraph();

@@ -11,8 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
-import { getCommandClient } from '../utils/commandClient';
-import unwrapCommandResponse from '../utils/unwrapCommandResponse';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
 export function useClassCatalog( { enabled = false } = {} ) {
 	const [ classes, setClasses ] = useState( [] );
@@ -25,6 +24,8 @@ export function useClassCatalog( { enabled = false } = {} ) {
 	// In-flight request, so concurrent callers share ONE round trip.
 	const inflight = useRef( null );
 
+	const request = useRequestNode( 'classes:list', 'classes' );
+
 	const load = useCallback( () => {
 		if ( cached.current ) {
 			return Promise.resolve( cached.current );
@@ -35,12 +36,8 @@ export function useClassCatalog( { enabled = false } = {} ) {
 
 		setLoading( true );
 		setError( null );
-		inflight.current = Promise.resolve()
-			.then( () =>
-				getCommandClient().send( { to: 'classes', verb: 'list' } )
-			)
-			.then( ( message ) => {
-				const body = unwrapCommandResponse( message );
+		inflight.current = request( 'list' )
+			.then( ( body ) => {
 				if (
 					! Array.isArray( body?.classes ) ||
 					! Array.isArray( body?.formatters )
@@ -66,7 +63,7 @@ export function useClassCatalog( { enabled = false } = {} ) {
 				setLoading( false );
 			} );
 		return inflight.current;
-	}, [] );
+	}, [ request ] );
 
 	const { settled } = useReconcile( { load, enabled } );
 
