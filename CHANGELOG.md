@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-02
+
 ### Added
 
 - **`Request` node — one command, one reply, no correlation.** A node that mints
@@ -72,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now clears it, and an owned backbone is still left to its owner.
 
 ### Changed
+
+- **`RemoteLink`'s heartbeat interval is 15 seconds** (was 30). A spoke's slot
+  lease has to be renewed well inside its TTL, and the wider interval left less
+  margin than the SSE slot pool wants.
 
 - **`settings-sync.tsl` seeds `max_segments` next to the other count rules.** It
   sat after `min_lifetime` / `lifetime` in both blocks, reading as though it
