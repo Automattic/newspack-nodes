@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-08-02
+
 ### Fixed
 
 - **A `Request` node survives while any hook still holds it.** Two hooks
