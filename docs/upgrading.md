@@ -4,6 +4,25 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.3.5
+
+- **`wp nodes restart <type>` restarts every partition; `--all-partitions` is
+  gone.** Restarting one of six partitions left five running the old code, so
+  the safe behaviour is now the default. Drop the flag from any script — it is
+  rejected, not ignored. `--partition=<N>` still narrows to one.
+- **`wp nodes scaffold node|topology` writes into the current directory**, not
+  into `includes/` and `topologies/`. `scaffold plugin` still creates the full
+  tree; cd to where you want the file, or move it after.
+- **The `runtime_stats` verb is removed.** It bundled `list_timers`,
+  `list_handles` and the Router profile table into one struct for the devtools
+  views, and its profile third had silently fallen behind the text verb's
+  columns. Each of those three verbs now takes `-s`, returning the same rows its
+  table is built from: `list_timers -s`, `list_handles -s`, `list_profiles -s`.
+- **Verb errors are newline-terminated.** `interpret()` appends `\n` to the
+  TM_ERROR payload in both the PHP and JS interpreters, so a REPL that prints
+  the payload verbatim does not run the message into the next prompt. Anything
+  matching an error payload exactly needs the trailing newline.
+
 ## 2.2.4
 
 - **SSE leases now carry an opaque owner token.** The `connected` envelope adds

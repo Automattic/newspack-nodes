@@ -7,92 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Buttons ring on keyboard focus only.** The shared policy gave every button a
-  plain `:focus` ring, which outlives the click that set it — so the last control
-  you pressed wore a permanent outline. Worst on a toggle, where it reads as the
-  toggle's own state: the Profiler's profile button looked stuck on after one
-  click. Buttons now use the `:focus-visible` pair the policy already applied to
-  links and `summary`. Text controls keep plain `:focus` — clicking one IS where
-  you are about to type.
-
-- **The Profiler toolbar has room around it.** Its button sat flush against the
-  modal heading above and the grid header below; the flex `gap` spaced the
-  toolbar from the grid but nothing spaced the button itself.
-
-### Changed
-
-- **`wp nodes restart <type>` restarts every partition, and `--all-partitions`
-  is gone.** A worker type is a fleet: restarting one of six partitions leaves
-  five running the old code, which is the wrong default and was never the intent
-  — every example in the docs passed `--all-partitions`. The flag is removed
-  rather than kept as a redundant no-op; `--partition=<N>` narrows when you
-  actually want one. `restart supervisor` is unchanged apart from its error text,
-  which no longer names a flag that does not exist.
-
-- **The Profiler modal renders `list_profiles`, and nothing else.** It was a
-  join: the `stats` baseline (NAME / COUNTER / LGST_MSG / READ / WRITTEN) from
-  the polled `_metadata` graph, with three profiling columns bolted on. So the
-  modal titled "Profiler" mostly showed node counters, and dropped three of the
-  seven columns the verb has always printed — WINDOW, RATE and AGE were measured
-  by the Router and thrown away before they reached the view. It now shows
-  AVERAGE / TIME / COUNT / WINDOW / RATE / AGE / WHAT, avg-descending, with
-  `--total--` pinned to the footer. `StatsView` is `ProfilerView`.
-
-- **`runtime_stats` is gone; `list_timers`, `list_handles` and `list_profiles`
-  take `-s` instead.** That verb existed only to hand the devtools views a
-  struct, and bundling three concerns into one reply is what let its profile
-  third carry four of seven columns while the text verb carried all seven — two
-  derivations of the same facts, one of which quietly fell behind. `-s` returns
-  the very rows the table is built from, so a view sorts them without parsing a
-  fixed-width table and the two renderings cannot drift. Runtime polls
-  `list_timers -s` + `list_handles -s`; Profiler polls `list_profiles -s`.
-
-- **Verb errors are newline-terminated in BOTH twins.** PHP's `interpret()` now
-  appends it; the JS interpreter matches, so a REPL that prints the payload
-  verbatim doesn't run the message into the next prompt.
-
-- **The SSE watchdog is a Timer.** It was the last hand-rolled `setInterval` in
-  the runtime — invisible to the graph, unpausable, and disposed only because
-  the jest harness knew its private handle by name. It now arms through
-  `setTimer()` with its body in `fire()`, so `stopTimer()` and `removeNode()`
-  release it like every other timer. `fire()` overrides Timer's emit rather than
-  extending it: the base sends a TM_BYTESTREAM timestamp down its sink, and this
-  node's sink is the DATA path, where that is indistinguishable from a record.
-
-- **`set_timer()` no longer requires a name, in BOTH twins.** The Router
-  hitchhike is name-keyed (`notify_timer` resolves each registration through
-  `Core::node()`), so an
-  unnamed node could not ride it and `setTimer` threw. It now falls through to
-  an own slot at the requested interval instead: named nodes hitchhike, unnamed
-  ones get their own slot, same call either way. That is what lets the SSE
-  watchdog — deliberately unnamed and unregistered, composed by RemoteLink —
-  convert without becoming addressable. `Timer_Node::set_timer()` gets the same
-  fall-through, so an unnamed PHP node can ask for 2000 too. No parity test
-  pins Timer semantics, so the drift would not have gone red anywhere.
-
-  The throttle fix below is ported with it, because the two are one change: an
-  unnamed node asking for 2000 is worthless if the gate then eats its ticks.
-
-### Fixed
-
-- **A no-ms hitchhike reports the router's cadence, not `0`.** JS stamped
-  `interval_ms = 0` on a rider that took no interval; PHP stamped the router's
-  own (1000, armed by `Worker_Base`). The throttle read both the same way, so
-  behaviour never differed — but `list_timers` prints `interval_ms`, so the same
-  node showed INTERVAL 0 in a browser graph and 1000 in a worker. JS now takes
-  the router's value, which is also the truthful one: a no-ms rider genuinely
-  fires at the router cadence. Pinned on both sides now.
-
-- **`fireCb()` / `fire_cb()` no longer re-throttle an own-slot timer.** The
-  `interval_ms >
- 1000` gate paces the 1s ROUTER tick; an own slot already fires at
-  `interval_ms`, so gating it again dropped any tick the platform delivered
-  early — a 2000ms slot arriving at 1999ms was silently skipped, halving the
-  cadence for that beat. Invisible under fake timers, which advance exactly.
-  Latent until now, because the unnamed-node path above is what first puts an
-  above-1000ms timer on an own slot — in either language.
+## [2.3.5] - 2026-08-02
 
 ### Added
 
@@ -122,7 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mount through an awaited `requestAnimationFrame` never resolve against a fake
   clock. Guarding the order costs nothing; forcing it costs the suite.
 
-
 - **`// @ordered` pins a field block against `reorder-node-methods.php
   --sort-fields`.** A positional layout is only correct in DECLARATION order, so
   alphabetising it destroys the one thing it documents. `Message`'s seven wire
@@ -140,98 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Only the PHP twin needed this: `reorder-node-methods.js` hoists fields above
   methods but never sorts them against each other, so a JS constant block was
   never at risk.
-
-### Changed
-
-- **Both Dumpers render `timestamp:` second, in canonical field order.** PHP and
-  JS each printed `type, from, to, id, key, timestamp, value` — the one field
-  out of position, in the very tool you read a message with. Both now follow the
-  layout `Message` declares.
-
-- **36 helpers un-exported across `runtime`, `event-dashboards`, and
-  `topology-console`.** Each is called inside its own file and imported by
-  nothing else, so the `export` keyword was the only dead part — it advertised
-  a public surface that did not exist and let tests reach past the API they were
-  supposed to be checking. Every test that reached for one now drives the
-  module's real entry point instead, and each rewrite was proven by breaking the
-  production function and watching the intended test go red.
-
-  Several of the old tests could not have failed at all: `expect( NODE_W ).toBe(
-  196 )` and `expect( messages.length ).toBe( MAX_MESSAGES )` imported the very
-  constant they asserted. Those are boundary tests now — `NODE_W`/`NODE_H` are
-  pinned through the snap-grid bucket edge, `STALL_PAD` through a
-  heartbeat-age 29-vs-31 pair at interval 10.
-
-  Two exports stay: `__setBackoffClock` and `__resetCommandClientForTests`
-  substitute a clock and reset a module singleton, so un-exporting them is the
-  one case that genuinely costs testability.
-
-- **`makeOpId` is now used by all nine of its consumers, not two.** The shared
-  util was extracted and then only `useTopologyManager` and (in intelligence)
-  `useInsightsGraph` ever imported it — the other seven hooks kept a private
-  `let nextOpId = 0` and a copy of the function, identical bar the prefix
-  string, which is the one thing the shared version takes as an argument. A
-  half-finished extraction is worse than none: it reads as if the util is the
-  rule while seven files quietly are not. Migrated here (`useLogViewerGraph`,
-  `usePartitionViewerGraph`, `useVaultGraph`) and in event-logger-nodes.
-
-  The counter is now shared across consumers rather than per-module, which can
-  only help: ids stay `{prefix}-{ms}-{n}`, and two hooks can no longer mint the
-  same one.
-
-### Removed
-
-- **`tokenizeSpans` / `Shell_Node::tokenize_spans()`, both halves.** The
-  phpstan-deadcode allowlist kept the PHP half alive on the claim that it was
-  "live in parseTsl.js". `parseTsl.js` exists and does not reference it; neither
-  half had a caller in either language. `parse_statements()` — which returns
-  both token forms — superseded it, and that is what the TSL editors actually
-  round-trip through. The allowlist entry is gone too, so the PHP gate now sees
-  the file honestly.
-
-- **The four PHP-write-only `probe-record.js` constants** (`CURSOR_SEGMENT`,
-  `CURSOR_OFF`, `END_SEGMENT`, `END_SIZE`). The PHP `Probe_Record` constants
-  stay — Consumer, Tail, and the CLI all write those slots — but the browser
-  derives everything from `DISTANCE` on, so the JS mirrors were fixture-only.
-  Parity is undiminished: `ProbeRecordTest` still pins the PHP layout as dense
-  0..9 and still asserts every surviving JS constant equals its PHP counterpart,
-  so a renumber on either side still fails.
-
-- **Dead JS the new knip gate found.** Three whole modules whose only importer
-  was their own test — `useNodeGraph`, `parseLsOutput`, `replDismissHandler` —
-  plus `currentRates` (overviewChartSeries) and `downsample` (topicProbeSeries),
-  in the same shape. Their tests go with them.
-
-- **`getExpandedIncludesCache` / `setExpandedIncludesCache`.** Every production
-  path in `useExpandedIncludes` reads and writes the module `Map` directly;
-  these accessors existed so a test could reach into it. The tests now assert
-  the observable behaviour instead — whether a second caller issues a second
-  `topologies expand` round trip — which is what the cache is FOR. Verified
-  loud: disabling the cache and no-op'ing the invalidator each fail a test.
-
-- **`__resetExpandedIncludesCacheForTests`.** Byte-identical to the production
-  `invalidateExpandedIncludes()`; both call sites now use that.
-
-- **Four dead re-exports from `topology-console/themes.js`.** The barrel
-  forwarded eight names from `shared/theme`; the console imports four. Its
-  `__tests__/themes.test.js` duplicated `shared/__tests__/theme.test.js` through
-  that barrel, so the four catalog guards it uniquely carried (both Newspack
-  skins first, CRT registered, unique slugs, every skin labelled) moved to the
-  shared test and the duplicate file is gone.
-
-  `resetSkin` STAYS in `shared/theme.js` — its docblock declares it a test seam,
-  which is the documented exception, not an oversight.
-
-### Fixed
-
-- **`useTopologyCatalog` was below the 90% JS coverage floor** (66.7%): no test
-  ever reached the branch where an interpreter exists and the node does not, so
-  the hook's entire mount-and-wire body was unexercised. Three tests cover it
-  now, each pinned by mutation — breaking the sink, the `_http/topologies`
-  target, the poll interval, or the unmount teardown fails one. Gate clean: all
-  226 files at or above 90%.
-
-### Added
 
 - **`npm run lint:deadcode:js` — a JS dead-export gate, mirroring the PHP one.**
   PHP has run `shipmonk/dead-code-detector` at level 10 on every staged file for
@@ -288,6 +110,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`wp nodes scaffold node|topology` writes into the current directory.** They
+  wrote into `includes/` and `topologies/`, which only makes sense standing at a
+  plugin root; `scaffold plugin` is what builds that tree. Dropping the file
+  where you are makes the single-file verbs usable anywhere.
+
+- **`wp nodes restart <type>` restarts every partition, and `--all-partitions`
+  is gone.** A worker type is a fleet: restarting one of six partitions leaves
+  five running the old code, which is the wrong default and was never the intent
+  — every example in the docs passed `--all-partitions`. The flag is removed
+  rather than kept as a redundant no-op; `--partition=<N>` narrows when you
+  actually want one. `restart supervisor` is unchanged apart from its error text,
+  which no longer names a flag that does not exist.
+
+- **The Profiler modal renders `list_profiles`, and nothing else.** It was a
+  join: the `stats` baseline (NAME / COUNTER / LGST_MSG / READ / WRITTEN) from
+  the polled `_metadata` graph, with three profiling columns bolted on. So the
+  modal titled "Profiler" mostly showed node counters, and dropped three of the
+  seven columns the verb has always printed — WINDOW, RATE and AGE were measured
+  by the Router and thrown away before they reached the view. It now shows
+  AVERAGE / TIME / COUNT / WINDOW / RATE / AGE / WHAT, avg-descending, with
+  `--total--` pinned to the footer. `StatsView` is `ProfilerView`.
+
+- **`runtime_stats` is gone; `list_timers`, `list_handles` and `list_profiles`
+  take `-s` instead.** That verb existed only to hand the devtools views a
+  struct, and bundling three concerns into one reply is what let its profile
+  third carry four of seven columns while the text verb carried all seven — two
+  derivations of the same facts, one of which quietly fell behind. `-s` returns
+  the very rows the table is built from, so a view sorts them without parsing a
+  fixed-width table and the two renderings cannot drift. Runtime polls
+  `list_timers -s` + `list_handles -s`; Profiler polls `list_profiles -s`.
+
+- **Verb errors are newline-terminated in BOTH twins.** PHP's `interpret()` now
+  appends it; the JS interpreter matches, so a REPL that prints the payload
+  verbatim doesn't run the message into the next prompt.
+
+- **The SSE watchdog is a Timer.** It was the last hand-rolled `setInterval` in
+  the runtime — invisible to the graph, unpausable, and disposed only because
+  the jest harness knew its private handle by name. It now arms through
+  `setTimer()` with its body in `fire()`, so `stopTimer()` and `removeNode()`
+  release it like every other timer. `fire()` overrides Timer's emit rather than
+  extending it: the base sends a TM_BYTESTREAM timestamp down its sink, and this
+  node's sink is the DATA path, where that is indistinguishable from a record.
+
+- **`set_timer()` no longer requires a name, in BOTH twins.** The Router
+  hitchhike is name-keyed (`notify_timer` resolves each registration through
+  `Core::node()`), so an
+  unnamed node could not ride it and `setTimer` threw. It now falls through to
+  an own slot at the requested interval instead: named nodes hitchhike, unnamed
+  ones get their own slot, same call either way. That is what lets the SSE
+  watchdog — deliberately unnamed and unregistered, composed by RemoteLink —
+  convert without becoming addressable. `Timer_Node::set_timer()` gets the same
+  fall-through, so an unnamed PHP node can ask for 2000 too. No parity test
+  pins Timer semantics, so the drift would not have gone red anywhere.
+
+  The throttle fix below is ported with it, because the two are one change: an
+  unnamed node asking for 2000 is worthless if the gate then eats its ticks.
+
+- **Both Dumpers render `timestamp:` second, in canonical field order.** PHP and
+  JS each printed `type, from, to, id, key, timestamp, value` — the one field
+  out of position, in the very tool you read a message with. Both now follow the
+  layout `Message` declares.
+
+- **36 helpers un-exported across `runtime`, `event-dashboards`, and
+  `topology-console`.** Each is called inside its own file and imported by
+  nothing else, so the `export` keyword was the only dead part — it advertised
+  a public surface that did not exist and let tests reach past the API they were
+  supposed to be checking. Every test that reached for one now drives the
+  module's real entry point instead, and each rewrite was proven by breaking the
+  production function and watching the intended test go red.
+
+  Several of the old tests could not have failed at all: `expect( NODE_W ).toBe(
+  196 )` and `expect( messages.length ).toBe( MAX_MESSAGES )` imported the very
+  constant they asserted. Those are boundary tests now — `NODE_W`/`NODE_H` are
+  pinned through the snap-grid bucket edge, `STALL_PAD` through a
+  heartbeat-age 29-vs-31 pair at interval 10.
+
+  Two exports stay: `__setBackoffClock` and `__resetCommandClientForTests`
+  substitute a clock and reset a module singleton, so un-exporting them is the
+  one case that genuinely costs testability.
+
+- **`makeOpId` is now used by all nine of its consumers, not two.** The shared
+  util was extracted and then only `useTopologyManager` and (in intelligence)
+  `useInsightsGraph` ever imported it — the other seven hooks kept a private
+  `let nextOpId = 0` and a copy of the function, identical bar the prefix
+  string, which is the one thing the shared version takes as an argument. A
+  half-finished extraction is worse than none: it reads as if the util is the
+  rule while seven files quietly are not. Migrated here (`useLogViewerGraph`,
+  `usePartitionViewerGraph`, `useVaultGraph`) and in event-logger-nodes.
+
+  The counter is now shared across consumers rather than per-module, which can
+  only help: ids stay `{prefix}-{ms}-{n}`, and two hooks can no longer mint the
+  same one.
+
 - **One `_http` per browser graph, and the TIMER batch bracket is absolute
   again.** `RemoteLinkNode.httpOut` / `RemoteIpcNode.httpOut` were deleted: both
   were always `Core.node( '_http' )`, assigned on connect and nulled on teardown,
@@ -342,6 +257,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Buttons ring on keyboard focus only.** The shared policy gave every button a
+  plain `:focus` ring, which outlives the click that set it — so the last control
+  you pressed wore a permanent outline. Worst on a toggle, where it reads as the
+  toggle's own state: the Profiler's profile button looked stuck on after one
+  click. Buttons now use the `:focus-visible` pair the policy already applied to
+  links and `summary`. Text controls keep plain `:focus` — clicking one IS where
+  you are about to type.
+
+- **The Profiler toolbar has room around it.** Its button sat flush against the
+  modal heading above and the grid header below; the flex `gap` spaced the
+  toolbar from the grid but nothing spaced the button itself.
+
+- **A no-ms hitchhike reports the router's cadence, not `0`.** JS stamped
+  `interval_ms = 0` on a rider that took no interval; PHP stamped the router's
+  own (1000, armed by `Worker_Base`). The throttle read both the same way, so
+  behaviour never differed — but `list_timers` prints `interval_ms`, so the same
+  node showed INTERVAL 0 in a browser graph and 1000 in a worker. JS now takes
+  the router's value, which is also the truthful one: a no-ms rider genuinely
+  fires at the router cadence. Pinned on both sides now.
+
+- **`fireCb()` / `fire_cb()` no longer re-throttle an own-slot timer.** The
+  `interval_ms >
+ 1000` gate paces the 1s ROUTER tick; an own slot already fires at
+  `interval_ms`, so gating it again dropped any tick the platform delivered
+  early — a 2000ms slot arriving at 1999ms was silently skipped, halving the
+  cadence for that beat. Invisible under fake timers, which advance exactly.
+  Latent until now, because the unnamed-node path above is what first puts an
+  above-1000ms timer on an own slot — in either language.
+
+- **`useTopologyCatalog` was below the 90% JS coverage floor** (66.7%): no test
+  ever reached the branch where an interpreter exists and the node does not, so
+  the hook's entire mount-and-wire body was unexercised. Three tests cover it
+  now, each pinned by mutation — breaking the sink, the `_http/topologies`
+  target, the poll interval, or the unmount teardown fails one. Gate clean: all
+  226 files at or above 90%.
+
 - **Full-width fields no longer overflow their container.** The shared control
   rule styles every bare input with `padding` and a `border` but never declared
   `box-sizing`, so `width: 100%` rendered 22px wider than its parent. In a
@@ -383,6 +334,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   permanent and even an explicit retry got the same rejected promise; `useVaults`
   set its `fetched` latch before the request; `useExpandedIncludes` had the same
   shape per include-set. All three are now unreachable by construction.
+
+### Removed
+
+- **`tokenizeSpans` / `Shell_Node::tokenize_spans()`, both halves.** The
+  phpstan-deadcode allowlist kept the PHP half alive on the claim that it was
+  "live in parseTsl.js". `parseTsl.js` exists and does not reference it; neither
+  half had a caller in either language. `parse_statements()` — which returns
+  both token forms — superseded it, and that is what the TSL editors actually
+  round-trip through. The allowlist entry is gone too, so the PHP gate now sees
+  the file honestly.
+
+- **The four PHP-write-only `probe-record.js` constants** (`CURSOR_SEGMENT`,
+  `CURSOR_OFF`, `END_SEGMENT`, `END_SIZE`). The PHP `Probe_Record` constants
+  stay — Consumer, Tail, and the CLI all write those slots — but the browser
+  derives everything from `DISTANCE` on, so the JS mirrors were fixture-only.
+  Parity is undiminished: `ProbeRecordTest` still pins the PHP layout as dense
+  0..9 and still asserts every surviving JS constant equals its PHP counterpart,
+  so a renumber on either side still fails.
+
+- **Dead JS the new knip gate found.** Three whole modules whose only importer
+  was their own test — `useNodeGraph`, `parseLsOutput`, `replDismissHandler` —
+  plus `currentRates` (overviewChartSeries) and `downsample` (topicProbeSeries),
+  in the same shape. Their tests go with them.
+
+- **`getExpandedIncludesCache` / `setExpandedIncludesCache`.** Every production
+  path in `useExpandedIncludes` reads and writes the module `Map` directly;
+  these accessors existed so a test could reach into it. The tests now assert
+  the observable behaviour instead — whether a second caller issues a second
+  `topologies expand` round trip — which is what the cache is FOR. Verified
+  loud: disabling the cache and no-op'ing the invalidator each fail a test.
+
+- **`__resetExpandedIncludesCacheForTests`.** Byte-identical to the production
+  `invalidateExpandedIncludes()`; both call sites now use that.
+
+- **Four dead re-exports from `topology-console/themes.js`.** The barrel
+  forwarded eight names from `shared/theme`; the console imports four. Its
+  `__tests__/themes.test.js` duplicated `shared/__tests__/theme.test.js` through
+  that barrel, so the four catalog guards it uniquely carried (both Newspack
+  skins first, CRT registered, unique slugs, every skin labelled) moved to the
+  shared test and the duplicate file is gone.
+
+  `resetSkin` STAYS in `shared/theme.js` — its docblock declares it a test seam,
+  which is the documented exception, not an oversight.
 
 ## [2.3.4] - 2026-07-31
 
