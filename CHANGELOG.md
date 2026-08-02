@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tests pinning every command source to mint with `ID` and `KEY` empty.** A
+  reply is addressed, not correlated: the minter stamps `FROM = <its own name>`,
+  the server replies `TO = FROM`, and the reply lands on that node. Stamping an
+  op-id so a Promise can be settled — or pressing `KEY` into service as a demux
+  discriminator — re-implements routing that already happened.
+
+  Two layers. `commandMintHygiene.test.{js,php}` pin each minter behaviourally
+  (`Node.command()`, `Fetcher`, `Shell` `cmd`, the interpreter's `reply_to`
+  re-mint, `CommandClient.buildMessage`, and the PHP twins); each file also
+  proves its own assertion bites, since "the field is empty" is otherwise
+  trivially true against the `new_message()` default. `commandMintSources.test.js`
+  then walks the whole tree so a NEW correlation site cannot appear unnoticed,
+  allowlisting only the non-command stamps: replies echoing an inbound
+  breadcrumb, and KEY-as-STREAM (`Timer`'s heartbeat tag, `notify()`'s event).
+
+### Removed
+
+- **`CommandClient.buildMessage`'s `key` parameter.** It stamped `KEY` for
+  demuxing several verbs batched into one tick — a problem that does not exist,
+  since each verb is minted by its own node and its reply is addressed back
+  there. No caller ever passed it.
+
 ## [2.3.5] - 2026-08-02
 
 ### Added
