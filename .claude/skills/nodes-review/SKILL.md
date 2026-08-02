@@ -162,6 +162,23 @@ Aliases share the same `cmd_foo`. When you add or remove a verb, audit `$C` for 
 
 Adding, renaming, or removing a verb (or its args) on any `*_CI_Node` `node_schema()['commands']` — or changing a `dump_graph`/`dump_metadata` payload shape — MUST update the matching row/paragraph in `docs/API.md` in the same diff. API.md's Service-CI table is hand-kept, so a dropped verb leaves a ghost (the 0.47.1 `Aggregator_CI` `status`/`health`/`servers` removal is the case in point). `scripts/lint-docs.sh` guards the aggregator row specifically; the rest of the table it can't, so review it by hand.
 
+### Reply correlation — the routing already did it
+
+A node mints a command stamped `FROM = <its own name>`; the server replies
+`TO = FROM`; the reply lands on that node and `fill()` handles it. REJECT any
+diff that adds:
+
+- an op-id minted into `message[ID]` so a reply can be matched (`makeOpId`)
+- a `{ resolve, reject }` Map keyed by that id (`PendingReplies`)
+- a transport method that returns a Promise the caller awaits
+- `KEY` pressed into service as a demux discriminator
+
+"Several verbs batch into one tick, so replies need telling apart" is one node
+doing N jobs. The fix is N nodes, each with its own FROM — see
+`addSliceFetcher`'s docblock ("an independent reply path per slice, nothing
+crosses") and `RuntimeView`'s two pollers. Batching is orthogonal: `HTTP_Out`'s
+lock/flush already puts the tick in one POST.
+
 ## Style gates (lighter-weight)
 
 - WordPress VIP Go: snake_case, Yoda conditions, tabs, spaces inside `( $args )`. PHPCS catches most of these (`npm run lint:php`).
