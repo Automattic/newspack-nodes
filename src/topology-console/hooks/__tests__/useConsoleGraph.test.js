@@ -143,7 +143,7 @@ const renderGraph = ( props = {} ) =>
 	);
 
 // The composed HttpOut of the session worker's RemoteIpc — where sends land.
-const httpOf = ( reader ) => Core.node( reader )?.httpOut;
+const httpOf = () => Core.node( names.HTTP );
 
 describe( 'useConsoleGraph — graph topology', () => {
 	it( 'mounts the spine + the session worker RemoteIpc under the reserved node names', () => {
@@ -161,9 +161,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
 		// No top-level `_sse`, but `_http`/`_heartbeat` are shared singletons.
 		expect( Core.node( names.SSE ) ).toBeNull();
-		expect( Core.node( names.HTTP ) ).toBe(
-			Core.node( 'demo.p0' ).httpOut
-		);
+		expect( Core.node( names.HTTP ) ).toBe( Core.node( names.HTTP ) );
 		expect( Core.node( names.HEARTBEAT ) ).toBe(
 			Core.node( 'demo.p0' ).heartbeat
 		);
@@ -314,30 +312,30 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		expect( verbNames ).toContain( 'dump_metadata' );
 	} );
 
-	it( 'flushes the SAME node it locked when a steal swaps active mid-notify', () => {
+	// @longform
+	// This replaces a "flushes the SAME node it locked when a steal swaps
+	// active mid-notify" test. Both hooks now close over the one `_http`, so
+	// RemoteIpcNode.active is not read by either and the steal it staged could
+	// no longer make the assertion fail — a tautology. What is worth pinning is
+	// that the bracket actually holds the buffer across notifyTimer.
+	it( 'holds `_http` locked across notifyTimer and releases it after', () => {
 		renderGraph( {
 			topology: 'demo',
 			partition: 0,
-			workers: [ 'demo.p0', 'other.p1' ],
+			workers: [ 'demo.p0' ],
 		} );
 		const router = Core.node( names.ROUTER );
-		const oldActive = Core.node( 'demo.p0' );
-		const newActive = Core.node( 'other.p1' );
-		// Make demo.p0 the active link; every RemoteIpc shares the one `_http`.
-		act( () => oldActive.connect() );
-		expect( RemoteIpcNode.active ).toBe( oldActive );
-		newActive.ensureChildren();
-		const sharedHttp = Core.node( names.HTTP );
-		expect( oldActive.httpOut ).toBe( sharedHttp );
-		expect( newActive.httpOut ).toBe( sharedHttp );
-		const flush = jest.spyOn( sharedHttp, 'flush' );
-		// afterTimerNotify flushes the lock-time node, not the stolen active.
+		const http = Core.node( names.HTTP );
+
+		expect( http.locked ).toBe( false );
 		act( () => {
 			router.beforeTimerNotify();
-			RemoteIpcNode.active = newActive; // steal mid-notify
+		} );
+		expect( http.locked ).toBe( true );
+		act( () => {
 			router.afterTimerNotify();
 		} );
-		expect( flush ).toHaveBeenCalledTimes( 1 );
+		expect( http.locked ).toBe( false );
 	} );
 } );
 

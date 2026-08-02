@@ -51,15 +51,11 @@ export function assertAliasPathsExist( alias ) {
 		if ( existsSync( aliasPath ) ) {
 			continue;
 		}
-		const prefix = '@newspack-nodes/';
-		const hint = key.startsWith( prefix )
-			? ` — set NEWSPACK_NODES_${ key
-					.slice( prefix.length )
-					.replace( /-/g, '_' )
-					.toUpperCase() } when building outside a sibling newspack-nodes checkout`
-			: '';
+		// ONE knob; a per-alias name would hit assertNoRetiredOverrides.
 		throw new Error(
-			`alias ${ key } → ${ aliasPath } does not exist${ hint }`
+			`alias ${ key } → ${ aliasPath } does not exist — set ` +
+				'NEWSPACK_NODES_SRC to the substrate `src` directory when ' +
+				'building outside a sibling newspack-nodes checkout'
 		);
 	}
 }

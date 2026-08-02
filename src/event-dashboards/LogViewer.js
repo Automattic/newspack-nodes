@@ -21,6 +21,7 @@ import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
 import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
+import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import useLogPositions, {
 	segmentPositions,
 	replayPositions,
@@ -89,15 +90,15 @@ export default function LogViewer( { headerControlsSlot } ) {
 	);
 
 	// Maintain the rail: re-catalog on a cadence while a source streams.
-	useEffect( () => {
-		if ( ! currentSource ) {
-			return undefined;
-		}
-		const id = setInterval( () => {
-			fetchSources().catch( () => {} );
-		}, SEGMENTS_REFRESH_MS );
-		return () => clearInterval( id );
-	}, [ currentSource, fetchSources ] );
+	const recatalog = useCallback( () => {
+		fetchSources().catch( () => {} );
+	}, [ fetchSources ] );
+	useRouterTick( {
+		name: 'log-viewer:sources',
+		onTick: recatalog,
+		intervalMs: SEGMENTS_REFRESH_MS,
+		enabled: Boolean( currentSource ),
+	} );
 
 	// A record from an unknown segment = rotation; re-catalog once (no loops).
 	const staleSegmentRef = useRef( null );

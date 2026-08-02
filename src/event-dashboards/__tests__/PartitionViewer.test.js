@@ -8,6 +8,7 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
+import { mountExospine } from '../../runtime/exospine';
 import PartitionViewer from '../PartitionViewer';
 
 // Capture the props PartitionViewer hands the shared list + sidebar each render.
@@ -319,6 +320,9 @@ describe( 'PartitionViewer', () => {
 
 	it( 'the segment rail refreshes on an interval', async () => {
 		jest.useFakeTimers();
+		// The rail rides the Router TIMER; the graph hook is mocked out here,
+		// so stand in the backbone the real usePartitionViewerGraph brings up.
+		const host = mountExospine( () => {} );
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
@@ -329,6 +333,7 @@ describe( 'PartitionViewer', () => {
 			jest.advanceTimersByTime( 10000 );
 		} );
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		host.teardown();
 		jest.useRealTimers();
 	} );
 

@@ -142,7 +142,7 @@ describe( 'RemoteIpcNode', () => {
 			interpreter.dispatch( verb, args );
 		}
 		const reopened = Core.node( 'violet-ipc-947' );
-		reopened.httpOut.client = {
+		Core.node( names.HTTP ).client = {
 			postBatch: ( messages ) => {
 				posted.push( ...messages );
 				return Promise.resolve( [] );
@@ -216,8 +216,8 @@ describe( 'RemoteIpcNode', () => {
 		// No per-worker child nodes (churn the shared design removes).
 		expect( Core.node( 'aggregator.p0:http' ) ).toBe( null );
 		expect( Core.node( 'combined.p0:heartbeat' ) ).toBe( null );
-		expect( a.httpOut ).toBe( b.httpOut );
-		expect( a.httpOut ).toBe( Core.node( names.HTTP ) );
+		// Both links send through the ONE `_http`; there is no per-link alias.
+		expect( Core.node( names.HTTP ) ).not.toBeNull();
 		expect( a.heartbeat ).toBe( b.heartbeat );
 	} );
 

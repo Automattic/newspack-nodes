@@ -25,6 +25,7 @@
  * process.
  */
 
+import { Core } from './core';
 import { Node } from './node';
 import { RemoteLinkNode } from './remote-link-node';
 import { FROM, TO } from './message';
@@ -81,7 +82,7 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		connect[ TO ] = 'topologies';
 
 		// One POST: ride a pre-existing lock, else open one around this pair.
-		const h = this.httpOut;
+		const h = Core.node( names.HTTP );
 		const pre = h.locked;
 		if ( ! pre ) {
 			h.lock();
@@ -136,7 +137,6 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		}
 		this.onClose?.();
 		this.sseIn = null;
-		this.httpOut = null;
 		this.heartbeat = null;
 		// Skip RemoteLink.removeNode (tears down children); just unregister.
 		Node.prototype.removeNode.call( this );

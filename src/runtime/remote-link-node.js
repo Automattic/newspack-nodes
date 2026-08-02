@@ -30,7 +30,6 @@ export class RemoteLinkNode extends Node {
 		// CommandClient for the HttpOut; ensureChildren builds one if unset.
 		this.client = null;
 		this.sseIn = null;
-		this.httpOut = null;
 		this.heartbeat = null;
 		this.subscribe = '';
 		// Override the SseIn REST route (e.g. /log/stream); '' keeps default.
@@ -62,10 +61,13 @@ export class RemoteLinkNode extends Node {
 		this.sseIn.start();
 	}
 
-	// Send a command out through this link's own HttpOut.
+	// @longform
+	// Out through the ONE `_http` boundary — every browser graph has exactly
+	// one, and a shared buffer is what lets a tick's commands batch into a
+	// single POST regardless of which TO each of them carries.
 	send( message ) {
 		this.ensureChildren();
-		this.httpOut.fill( message );
+		Core.node( names.HTTP ).fill( message );
 	}
 
 	// Tear down OUR SseIn — close() first (removeNode won't close the stream).
@@ -76,7 +78,6 @@ export class RemoteLinkNode extends Node {
 		this.sseIn?.unregister( 'DISCONNECTED', this.name );
 		this.sseIn?.removeNode();
 		this.sseIn = null;
-		this.httpOut = null;
 		this.heartbeat = null;
 		super.removeNode();
 	}
@@ -123,10 +124,9 @@ export class RemoteLinkNode extends Node {
 		sse.homeToTarget = this.rehomeReceived;
 		this.sseIn = sse;
 
-		// `_http` + `_heartbeat` are backbone singletons; reuse + configure.
-		const http = Core.node( names.HTTP );
-		http.client = this.client || CommandClient.fromGlobal();
-		this.httpOut = http;
+		// Backbone singletons; configure, never alias per-link.
+		Core.node( names.HTTP ).client =
+			this.client || CommandClient.fromGlobal();
 
 		// Not armed here: the connection lifecycle below arms/stops it.
 		const hb = Core.node( names.HEARTBEAT );

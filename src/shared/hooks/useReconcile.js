@@ -30,7 +30,15 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { authGeneration } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
-/** How often an unsettled loader reconsiders. */
+/**
+ * How often an unsettled loader reconsiders.
+ *
+ * Deliberately its OWN slot, not the `useRouterTick` hitchhike every dashboard
+ * poller uses. This loop's whole job is to converge while other things are
+ * broken, and riding the Router would park it exactly when the graph is torn
+ * down — during a Reset-Graph, or on a page whose graph never mounted. One
+ * timer per loader is the price of that independence.
+ */
 const TICK_MS = 1000;
 
 /** First retry delay, and the ceiling it doubles toward. */

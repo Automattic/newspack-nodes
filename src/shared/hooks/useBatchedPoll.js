@@ -51,7 +51,13 @@ import usePageVisibility from './usePageVisibility';
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
 const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
 
-// Arm the Timer's router-TIMER hitchhike: >1000 throttles, else every tick.
+// @longform
+// One second is a FLOOR here, not TimerNode's arming rule. The batch is the
+// lock/flush bracket around the ROUTER's notifyTimer below, so ONLY a
+// router-hitchhiking timer is inside it. Below 1000 TimerNode hands out an own
+// slot, which fires outside the bracket — that is not a faster batch, it is no
+// batch at all, one POST per slice per tick. Sub-second belongs to display
+// ticks (useRouterTick), never here.
 function armTimer( timer, intervalMs ) {
 	if ( intervalMs > 1000 ) {
 		timer.setTimer( intervalMs );

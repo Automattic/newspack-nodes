@@ -136,6 +136,12 @@ export class SseInNode extends Node {
 		this._es = es;
 		// Baseline so a connect with no first frame still trips FORCE_AFTER_MS.
 		this._watchdogBase = Date.now();
+		// @longform
+		// Its own slot, not the Router hitchhike every dashboard poller uses:
+		// the hitchhike is TimerNode-only (Router.notifyTimer calls fireCb on
+		// registered Timer nodes), and SseIn extends Node. Converting it means
+		// making it a TimerNode subclass that overrides fire() AND giving it a
+		// unique name — it is deliberately unnamed and unregistered today.
 		this._watchdog = setInterval( () => {
 			const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
 			if ( Date.now() - ref > FORCE_AFTER_MS ) {

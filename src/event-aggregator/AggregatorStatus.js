@@ -15,7 +15,7 @@
  * pure display, re-rendering the relative timestamps without re-polling.
  */
 
-import { useState, useEffect, createPortal } from '@wordpress/element';
+import { useState, useCallback, createPortal } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '@newspack-nodes/runtime';
@@ -24,6 +24,7 @@ import {
 	REFRESH_OPTIONS,
 } from './hooks/useAggregatorStatusGraph';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/aggregator-status.scss';
 
@@ -380,10 +381,8 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 	const [ , setTick ] = useState( 0 );
 
 	// Tick every second to update relative timestamps (pure display — no poll).
-	useEffect( () => {
-		const timer = setInterval( () => setTick( ( t ) => t + 1 ), 1000 );
-		return () => clearInterval( timer );
-	}, [] );
+	const bumpClock = useCallback( () => setTick( ( t ) => t + 1 ), [] );
+	useRouterTick( { name: 'aggregator-status:clock', onTick: bumpClock } );
 
 	// Refresh strip: node=portal→slot, null=pending, undefined=inline.
 	const controls = (

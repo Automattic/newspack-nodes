@@ -7,6 +7,124 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`src/build-kit/alias-map.js` — one resolver for the `@newspack-nodes/*`
+  surface.** The map existed three times: nodes' `scripts/build.mjs` spelled out
+  absolute paths, each consumer's spelled out its own with a separate env
+  override per alias, and `jest.cjs` built the regex mappers independently. All
+  three now derive from a single base directory, so esbuild and jest cannot
+  disagree about where an alias points.
+
+  It is CommonJS on purpose — `jest.cjs` requires it synchronously while
+  `build.mjs` imports it as an ES module.
+
+- **`useRouterTick` — one heartbeat for every dashboard poller.** The Router owns
+  exactly one 1s slot and dispatches it to every TIMER-registered node; each
+  dashboard poller owned a private `setInterval` beside it, so a console page ran
+  several competing heartbeats the graph could not see, pause, or batch. Pollers
+  now ride the Router.
+
+  The hook is a PASSENGER and never mounts a backbone. The first version called
+  `mountExospine`, which brings one up when none exists — and because
+  `useTopologyCatalog` is declared before `useConsoleGraph`, its effect ran first
+  and became the backbone OWNER. Ownership decides who rebuilds on Reset-Graph, so
+  a catalog poller had quietly taken over the console's lifecycle.
+  `useRouterTick.test.js` pins that it never owns.
+
+- **`useReconcile`** — hold a load as desired state and converge on it, instead of
+  firing once at mount. See Fixed, below.
+
+### Changed
+
+- **One `_http` per browser graph, and the TIMER batch bracket is absolute
+  again.** `RemoteLinkNode.httpOut` / `RemoteIpcNode.httpOut` were deleted: both
+  were always `Core.node( '_http' )`, assigned on connect and nulled on teardown,
+  so they aliased the backbone singleton rather than owning anything. Four tests
+  asserted exactly that (`expect( link.httpOut ).toBe( Core.node( names.HTTP ) )`)
+  — a tautology standing in for coverage.
+
+  The console's bracket is now `http.lock()` / `http.flush()`. It previously
+  reached through `RemoteIpcNode.active`, which can change between `before` and
+  `after`, and carried a `tickLocked` guard against a steal that cannot happen
+  once there is one buffer.
+
+- **The Path menu's topology catalog is a graph node.** `TopologyCatalogNode`
+  (a `Timer_Node` overriding `fire()`) replaces a hook that called
+  `getCommandClient().send()` — a standalone `fetch` outside the graph, so every
+  tick made its own POST beside the batched one the console already sent. It
+  mints through `Node::command` with `target = '_http/topologies'`, so the
+  emission lands inside the TIMER lock and `topologies list` now rides the SAME
+  request as `dump_metadata` / `uptime` / `dmesg`. A batch carries whatever TO
+  each line holds; the server routes them independently.
+
+  `useTopologyCatalog` is now a `useNodeState` read. Its ten tests of the removed
+  fetch path are replaced by eight on the node — where the parsing,
+  keep-last-good and no-op-on-identical behaviour actually lives — plus four on
+  the hook, one of which pins that it picks up a node mounting after it (the
+  console declares the hook before the graph, so a hook that only looked once
+  would sit on the page-load seed forever).
+
+  The hook owns the node rather than the console graph mounting it. The catalog
+  feeds `pathOptions` → `workers` → `workersKey`, a dependency of that graph's
+  effect, so a node mounted there would be destroyed by the publish it had just
+  made and re-seeded from the frozen page-load snapshot — the console would
+  oscillate between seed and live at the poll rate, reconnecting SSE each time.
+  Owning it also keeps the catalog alive in edit mode, where the graph is
+  disabled and `reload()` is called on save and delete.
+
+  The old hook skipped polling while the tab was hidden; the node does not, in
+  line with its `_metadata` / `_uptime` / `_dmesg` siblings — the emission now
+  rides a POST that was already going out.
+
+- **`makeOpId` moved to `shared/utils/makeOpId`** and `useDashboardGraph` is
+  **removed**. It had no callers left: every dashboard had moved to
+  `useBatchedPoll`, which already hitchhiked the Router correctly, and only the
+  co-located `makeOpId` was still imported.
+
+- Five `setInterval` sites deliberately keep their own slot, each documented at the
+  site: `useOverviewStats` (20Hz — below the Router's 1s resolution),
+  `overviewSampler` (always-on, must sample when no graph exists), the SSE-In
+  watchdog (a `TimerNode`'s `fireCb` is sink-gated, and a watchdog that stops
+  silently is the one failure it must not have), `useReconcile` (its job is to
+  converge while other things are broken), and `TimerNode`'s own-slot arm.
+
+### Fixed
+
+- **Dashboard state that loaded once at mount now converges.** A console tab left
+  overnight showed an empty graph and "Command got no reply": it had loaded an hour
+  before the command session expired, so nothing of its own was in flight to
+  discover the refusal. Its polling neighbour on the same page recovered untouched.
+
+  The fix is not a retry at the failing call site. `useReconcile` models "loaded" as
+  a state that must hold rather than an event that happened, so a refused session, a
+  renewed nonce, an expired key and a restarted worker collapse into one word —
+  invalidated — and every consumer recovers because it must. Adopted by the class
+  catalog, vaults, topology list, include expansion, and the log- and
+  partition-viewer catalogs.
+
+- **`authGeneration()` / `invalidateAuth()`** — a monotonic counter every
+  auth-shaped failure bumps, and reconciled loaders re-establish because it moved.
+
+- **`POST /auth` recovers a stale nonce.** It was the one request without the
+  renew-once that `CommandClient.#post` has always had, so the tab that slept
+  through its nonce's lifetime could not re-establish a session until the backoff
+  window elapsed.
+
+- **The session's `expires_in` is honoured at mint.** It was discarded, so the only
+  way to learn a session had died was to have a command refused — and that command
+  was the one thing lost.
+
+- **A refused command is reported as a refusal.** `send()` threw nothing when the
+  batch came back empty, so an expired session and a worker that answered with
+  nothing were indistinguishable, and the console blamed the worker.
+
+- **Three latent one-shot bugs, none of which the reported symptom showed.**
+  `useClassCatalog` memoised its in-flight promise forever, so one failure was
+  permanent and even an explicit retry got the same rejected promise; `useVaults`
+  set its `fetched` latch before the request; `useExpandedIncludes` had the same
+  shape per include-set. All three are now unreachable by construction.
+
 ## [2.3.4] - 2026-07-31
 
 ### Fixed

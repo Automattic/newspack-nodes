@@ -10,6 +10,7 @@
  */
 
 const path = require( 'node:path' );
+const { jestModuleNameMapper } = require( './alias-map.cjs' );
 
 /**
  * @param {Object}   opts
@@ -28,15 +29,7 @@ function createJestConfig( {
 	transformIgnorePatterns = null,
 } ) {
 	// Shared-subpath mapper MUST precede css/scss style-mock (AGENTS trap).
-	const moduleNameMapper = {
-		'^@newspack-nodes/runtime$': path.join( aliasBase, 'runtime/index.js' ),
-		'^@newspack-nodes/debug-overlay$': path.join(
-			aliasBase,
-			'debug-overlay/DebugOverlay.js'
-		),
-		'^@newspack-nodes/shared/(.*)$': path.join( aliasBase, 'shared/$1' ),
-		'^@newspack-nodes/shared$': path.join( aliasBase, 'shared' ),
-	};
+	const moduleNameMapper = jestModuleNameMapper( aliasBase );
 
 	// Pin ONE React + @wordpress/element copy (avoids "Invalid hook call").
 	if ( pinReactFrom ) {

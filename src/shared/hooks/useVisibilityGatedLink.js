@@ -1,5 +1,5 @@
 /**
- * useVisibilityGatedLink — the SSE analog of `useDashboardGraph`: own the
+ * useVisibilityGatedLink — the SSE analog of `useBatchedPoll`: own the
  * connection lifecycle of a mountExospine'd `RemoteLink` so every streaming
  * dashboard shares ONE implementation of "close the stream while inactive, and
  * on refocus RECONNECT the same link instead of tail-dropping the gap that

@@ -3,7 +3,12 @@ import { IoTelemetry } from '../runtime/io-telemetry';
 import { overviewChartSeries } from './overviewChartSeries';
 import { RateSmoother } from '../shared/rateSmoother';
 
-// Card refresh cadence (20Hz); live rate uses the RateSmoother (10s avg, EMA).
+/**
+ * Card refresh cadence (20Hz); live rate uses the RateSmoother (10s avg, EMA).
+ *
+ * Its own slot by necessity: the Router ticks at 1s, so `useRouterTick` cannot
+ * express 20Hz. Sub-second work is the standing exception to the hitchhike rule.
+ */
 const TICK_MS = 50;
 
 /**

@@ -116,6 +116,9 @@ export function mountExospine( build ) {
 		spine.shell = shell;
 		spine.http = http;
 		spine.heartbeat = heartbeat;
+
+		// A bare mount never bumps graphGeneration; passengers need this.
+		Core.notifyBackboneUp();
 	};
 
 	// Snapshot Core around build so rebuild removes only what build added.

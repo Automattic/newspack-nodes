@@ -16,18 +16,15 @@ import rtlcss from 'rtlcss';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDashboards } from '../src/build-kit/index.mjs';
+import aliasMap from '../src/build-kit/alias-map.cjs';
+
+const { esbuildAlias } = aliasMap;
 
 const __dirname = path.dirname( fileURLToPath( import.meta.url ) );
 const ROOT = path.resolve( __dirname, '..' );
 
-const alias = {
-	'@newspack-nodes/runtime': path.resolve( ROOT, 'src/runtime/index.js' ),
-	'@newspack-nodes/debug-overlay': path.resolve(
-		ROOT,
-		'src/debug-overlay/DebugOverlay.js'
-	),
-	'@newspack-nodes/shared': path.resolve( ROOT, 'src/shared' ),
-};
+// Nodes dogfoods the surface: the alias base is its OWN canonical src.
+const alias = esbuildAlias( path.resolve( ROOT, 'src' ) );
 
 const ENTRIES = [
 	{

@@ -56,15 +56,16 @@ describe( 'build-kit pure exports', () => {
 		expect( typeof kit.buildDashboards ).toBe( 'function' );
 	} );
 
-	test( 'assertAliasPathsExist names the missing alias and its env var', () => {
+	// The hint names the ONE knob. It used to synthesize a per-alias variable
+	// name — all four of which assertNoRetiredOverrides now refuses, so the
+	// message sent the operator into a second, different failure.
+	test( 'assertAliasPathsExist names the missing alias and NEWSPACK_NODES_SRC', () => {
 		expect( () =>
 			kit.assertAliasPathsExist( {
 				'@newspack-nodes/debug-overlay':
 					'/nonexistent-9317/DebugOverlay.js',
 			} )
-		).toThrow(
-			/@newspack-nodes\/debug-overlay.*NEWSPACK_NODES_DEBUG_OVERLAY/s
-		);
+		).toThrow( /@newspack-nodes\/debug-overlay.*NEWSPACK_NODES_SRC/s );
 	} );
 
 	test( 'assertAliasPathsExist passes a real path silently', () => {
@@ -83,7 +84,7 @@ describe( 'build-kit pure exports', () => {
 				entries: [],
 				alias: { '@newspack-nodes/shared': '/nonexistent-4482' },
 			} )
-		).rejects.toThrow( /NEWSPACK_NODES_SHARED/ );
+		).rejects.toThrow( /NEWSPACK_NODES_SRC/ );
 	} );
 
 	test( 'substrateVersion reads the substrate package.json version', () => {

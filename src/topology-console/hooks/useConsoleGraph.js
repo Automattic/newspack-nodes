@@ -104,6 +104,7 @@ export function useConsoleGraph( {
 			interpreter,
 			router,
 			shell: shellTap,
+			http,
 			teardown: teardownSpine,
 		} = mountExospine();
 		// Interpreter ships the PHP verb set as built-ins (no overrides).
@@ -172,16 +173,13 @@ export function useConsoleGraph( {
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
 		dmesg.target = names.CWD;
-		// Flush the SAME node locked in `before` (a steal must not strand it).
-		let tickLocked = null;
-		router.beforeTimerNotify = () => {
-			tickLocked = RemoteIpcNode.active ?? null;
-			tickLocked?.httpOut?.lock();
-		};
-		router.afterTimerNotify = () => {
-			tickLocked?.httpOut?.flush();
-			tickLocked = null;
-		};
+		// @longform
+		// Absolute: ONE `_http` per graph, so the tick's commands batch into a
+		// single POST whatever TO each carries. The old form reached through
+		// RemoteIpcNode.active, which could change between before and after —
+		// hence a steal guard for a steal that cannot happen.
+		router.beforeTimerNotify = () => http.lock();
+		router.afterTimerNotify = () => http.flush();
 		// Poll nodes hitchhike the _router TIMER (fireCb runs each tick).
 		metadata.setTimer();
 		uptime.setTimer();
