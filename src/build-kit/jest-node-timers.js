@@ -23,6 +23,8 @@
 if ( 'undefined' !== typeof window ) {
 	const { SseInNode } = require( '../runtime/sse-in-node' );
 	const { TimerNode } = require( '../runtime/timer-node' );
+	const { createTimerHazardGuard } = require( './timer-hazard' );
+	const guard = createTimerHazardGuard();
 
 	// @longform
 	// Interval accounting, and the standing guard the teardown below is
@@ -46,6 +48,26 @@ if ( 'undefined' !== typeof window ) {
 		live.delete( id );
 		return rawClearInterval.call( this, id );
 	};
+
+	// @longform
+	// Fake timers install by ASSIGNING the timer globals, and a setup file
+	// cannot intercept `jest.useFakeTimers` itself — the test module gets its
+	// own `jest` facade, so a reassignment here is never seen. An accessor
+	// property is the one hook that does catch the swap, in either direction.
+	// Scoped to setInterval: that is the API a node timer holds, so faking
+	// setTimeout alone (a component debounce) is correctly not a hazard.
+	const accounting = global.setInterval;
+	let currentSetInterval = accounting;
+	Object.defineProperty( global, 'setInterval', {
+		configurable: true,
+		get: () => currentSetInterval,
+		set: ( replacement ) => {
+			const installingFake =
+				currentSetInterval === accounting && replacement !== accounting;
+			currentSetInterval = replacement;
+			guard.onTimerSwap( installingFake );
+		},
+	} );
 
 	afterAll( () => {
 		const sites = [];
@@ -90,7 +112,14 @@ if ( 'undefined' !== typeof window ) {
 		const original = proto[ arm ];
 		proto[ arm ] = function ( ...args ) {
 			armed.add( this );
+			guard.onArm( this, currentSetInterval !== accounting );
 			return original.apply( this, args );
+		};
+		// A disposed node strands nothing, so it clears the standing record.
+		const originalDispose = proto[ dispose ];
+		proto[ dispose ] = function ( ...args ) {
+			guard.onDispose( this );
+			return originalDispose.apply( this, args );
 		};
 		afterEach( () => {
 			armed.forEach( ( node ) => {
@@ -101,6 +130,12 @@ if ( 'undefined' !== typeof window ) {
 				}
 			} );
 			armed.clear();
+			// Verdict BEFORE the reset: onClear discards it by design.
+			try {
+				guard.assertClean();
+			} finally {
+				guard.onClear();
+			}
 		} );
 	};
 

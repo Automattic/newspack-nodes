@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The jest harness now fails a test that fakes `setInterval` out from under an
+  armed node.** A node armed while `setInterval` was real, still armed when a
+  suite fakes it, silently does nothing: `advanceTimersByTime` moves the fake
+  clock while the node's handle belongs to the real one, so the graph never
+  ticks and the assertion passes for the wrong reason — with a live real
+  interval running beside a frozen clock the whole time.
+
+  It found one in event-logger-nodes on the first run, in a test named
+  "refreshes the segment catalog on a 10s cadence" — precisely a test whose
+  point is driving the router tick. Its author had already spotted the hazard
+  and written `Core.reset(); mountExospine();` to re-mount under fake timers,
+  but `Core.reset()` only swaps the node map: the original router kept its real
+  interval for the whole test. One `stopTimer()` fixes it.
+
+  Scoped to `setInterval`, the API a node timer holds, so faking `setTimeout`
+  alone to drive a component debounce is correctly not reported. The verdict is
+  taken at teardown against timers still live, so disposing the old graph before
+  re-mounting counts as the fix it is. Three remedies, all one line: arm after
+  installing fake timers, dispose before re-mounting, or
+  `doNotFake: [ 'setInterval', 'requestAnimationFrame' ]`.
+
+  What this replaces: the obvious version — have the harness install fake timers
+  before anything arms — breaks 230 tests across 9 suites, because suites that
+  mount through an awaited `requestAnimationFrame` never resolve against a fake
+  clock. Guarding the order costs nothing; forcing it costs the suite.
+
+
 - **`// @ordered` pins a field block against `reorder-node-methods.php
   --sort-fields`.** A positional layout is only correct in DECLARATION order, so
   alphabetising it destroys the one thing it documents. `Message`'s seven wire
