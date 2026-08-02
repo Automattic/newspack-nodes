@@ -20,8 +20,8 @@ const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
 // Recent-only caps; transcript reuses Dumper TRANSCRIPT_MAX so restore agrees.
-export const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
-export const MAX_PERSISTED_HISTORY = 100;
+const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
+const MAX_PERSISTED_HISTORY = 100;
 
 function read( key ) {
 	try {
@@ -84,7 +84,7 @@ const REDACTED = '<redacted>';
  * @param {string} text A transcript line.
  * @return {string} The line with credential values masked.
  */
-export function redactSecrets( text ) {
+function redactSecrets( text ) {
 	if ( 'string' !== typeof text ) {
 		return text;
 	}

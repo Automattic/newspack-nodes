@@ -38,13 +38,12 @@ class ProbeRecordTest extends TestCase {
 		);
 		$this->assertIsString( $js, 'probe-record.js must exist' );
 
+		// Indices 2..5 (cursor/end) are PHP-write-only — the JS mirror omits
+		// them. The remaining values still pin the shared layout: a renumber
+		// on either side breaks this.
 		$expected = [
 			'SOURCE'     => Probe_Record::SOURCE,
 			'READER'     => Probe_Record::READER,
-			'CURSOR_SEGMENT' => Probe_Record::CURSOR_SEGMENT,
-			'CURSOR_OFF' => Probe_Record::CURSOR_OFF,
-			'END_SEGMENT'    => Probe_Record::END_SEGMENT,
-			'END_SIZE'   => Probe_Record::END_SIZE,
 			'DISTANCE'   => Probe_Record::DISTANCE,
 			'MSGS'       => Probe_Record::MSGS,
 			'END_BYTES'  => Probe_Record::END_BYTES,

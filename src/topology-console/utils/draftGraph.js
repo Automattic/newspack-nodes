@@ -27,7 +27,7 @@ export function edgeHasConnectRole( edge ) {
 	return ! Array.isArray( edge?.roles ) || edge.roles.includes( 'connect' );
 }
 
-export function nodeUsesTeeSemantics( node, catalog = [] ) {
+function nodeUsesTeeSemantics( node, catalog = [] ) {
 	if ( 'boolean' === typeof node?.fansOut ) {
 		return node.fansOut;
 	}
@@ -73,7 +73,7 @@ export function withResolvedConfigEdges( graph, edges ) {
 	return graph;
 }
 
-export function addEdge( graph, { from, to } ) {
+function addEdge( graph, { from, to } ) {
 	if ( from === to ) {
 		return graph;
 	}

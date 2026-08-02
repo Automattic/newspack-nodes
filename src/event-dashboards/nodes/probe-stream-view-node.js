@@ -2,13 +2,13 @@ import { Node } from '../../runtime/node';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
 
 // Fixed 24h live window; older records dropped/pruned. Seconds (epoch).
-export const RETENTION_S = 86400;
+const RETENTION_S = 86400;
 // Per-key ring cap ABOVE the 24h window (N+1=5761); prune is the real boundary.
-export const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
+const MAX_SAMPLES = RETENTION_S / 15 + 1; // 5761
 // Throttle publish (replay bursts thrash): leading-edge + trailing flush.
-export const PUBLISH_THROTTLE_MS = 500;
+const PUBLISH_THROTTLE_MS = 500;
 // Evict a key unseen this long; measured by arrival, not record ts.
-export const ENTRY_TTL_MS = 300000; // 5 min
+const ENTRY_TTL_MS = 300000; // 5 min
 
 /**
  * Shared base for the durable-probe stream view nodes (TopicProbe + Jobstats).

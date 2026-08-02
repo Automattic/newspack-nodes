@@ -7,15 +7,7 @@
  * node, plus the dump_node structured-render + no-[object Object] guards.
  */
 
-import {
-	DumperNode,
-	TRANSCRIPT_MAX,
-	renderMessage,
-	formatTypeLabel,
-	stringifyValue,
-	buildDebugHeader1,
-	buildDebugHeader2,
-} from '../dumper-node';
+import { DumperNode, TRANSCRIPT_MAX } from '../dumper-node';
 import { Node } from '../node';
 import {
 	newMessage,
@@ -55,82 +47,92 @@ function makeDumper( debugLevel = 0 ) {
 	return { dumper, debugLevelRef };
 }
 
-describe( 'renderMessage', () => {
+// The rendered transcript for ONE filled message, at the given debug level.
+function transcriptFor( message, debugLevel = 0 ) {
+	const { dumper } = makeDumper( debugLevel );
+	dumper.fill( message );
+	return dumper.setStateCache.transcript ?? [];
+}
+
+// The single rendered entry, or null when the message rendered nothing.
+function entryFor( message, debugLevel = 0 ) {
+	const [ entry = null ] = transcriptFor( message, debugLevel );
+	return entry;
+}
+
+describe( 'per-type render rules', () => {
 	it( 'drops TM_EOF silently', () => {
-		expect( renderMessage( msg( TM_EOF, '' ) ) ).toBeNull();
+		expect( transcriptFor( msg( TM_EOF, '' ) ) ).toEqual( [] );
 	} );
 
 	it( 'unwraps TM_COMMAND|TM_RESPONSE payload as recv', () => {
 		const t = TM_COMMAND | TM_RESPONSE;
 		expect(
-			renderMessage( msg( t, { name: 'ls', payload: 'ls result' } ) )
-		).toEqual( { kind: 'recv', text: 'ls result' } );
+			entryFor( msg( t, { name: 'ls', payload: 'ls result' } ) )
+		).toEqual(
+			expect.objectContaining( { kind: 'recv', text: 'ls result' } )
+		);
 	} );
 
 	it( 'drops TM_COMMAND|TM_RESPONSE with empty payload', () => {
 		const t = TM_COMMAND | TM_RESPONSE;
-		expect( renderMessage( msg( t, { payload: '' } ) ) ).toBeNull();
-		expect( renderMessage( msg( t, null ) ) ).toBeNull();
+		expect( transcriptFor( msg( t, { payload: '' } ) ) ).toEqual( [] );
+		expect( transcriptFor( msg( t, null ) ) ).toEqual( [] );
 	} );
 
 	it( 'unwraps TM_COMMAND|TM_ERROR as error', () => {
 		const t = TM_COMMAND | TM_ERROR;
 		expect(
-			renderMessage( msg( t, { name: 'x', payload: 'bad arg' } ) )
-		).toEqual( {
-			kind: 'error',
-			text: 'bad arg',
-		} );
+			entryFor( msg( t, { name: 'x', payload: 'bad arg' } ) )
+		).toEqual(
+			expect.objectContaining( { kind: 'error', text: 'bad arg' } )
+		);
 	} );
 
 	it( 'routes TM_ERROR to error kind with the raw value', () => {
-		expect(
-			renderMessage( msg( TM_ERROR, 'something went wrong' ) )
-		).toEqual( {
-			kind: 'error',
-			text: 'something went wrong',
-		} );
+		expect( entryFor( msg( TM_ERROR, 'something went wrong' ) ) ).toEqual(
+			expect.objectContaining( {
+				kind: 'error',
+				text: 'something went wrong',
+			} )
+		);
 	} );
 
 	it( 'formats TM_PING as round trip time', () => {
 		const past = Date.now() / 1000 - 0.05;
-		const out = renderMessage( msg( TM_PING, String( past ) ) );
+		const out = entryFor( msg( TM_PING, String( past ) ) );
 		expect( out.kind ).toBe( 'info' );
 		expect( out.text ).toMatch( /round trip time: .+ ms/ );
 	} );
 
 	it( 'stringifies TM_STRUCT object payloads as JSON', () => {
-		const out = renderMessage( msg( TM_STRUCT, { foo: 'bar' } ) );
+		const out = entryFor( msg( TM_STRUCT, { foo: 'bar' } ) );
 		expect( out.kind ).toBe( 'recv' );
 		expect( out.text ).toMatch( /"foo": "bar"/ );
 	} );
 
 	it( 'passes TM_STRUCT string payloads through', () => {
-		expect(
-			renderMessage( msg( TM_STRUCT, 'already serialized' ) )
-		).toEqual( {
-			kind: 'recv',
-			text: 'already serialized',
-		} );
+		expect( entryFor( msg( TM_STRUCT, 'already serialized' ) ) ).toEqual(
+			expect.objectContaining( {
+				kind: 'recv',
+				text: 'already serialized',
+			} )
+		);
 	} );
 
 	it( 'renders TM_INFO and TM_BYTESTREAM as recv', () => {
-		expect( renderMessage( msg( TM_INFO, 'some info' ) ) ).toEqual( {
-			kind: 'recv',
-			text: 'some info',
-		} );
-		expect( renderMessage( msg( TM_BYTESTREAM, 'hello world' ) ) ).toEqual(
-			{
-				kind: 'recv',
-				text: 'hello world',
-			}
+		expect( entryFor( msg( TM_INFO, 'some info' ) ) ).toEqual(
+			expect.objectContaining( { kind: 'recv', text: 'some info' } )
+		);
+		expect( entryFor( msg( TM_BYTESTREAM, 'hello world' ) ) ).toEqual(
+			expect.objectContaining( { kind: 'recv', text: 'hello world' } )
 		);
 	} );
 
 	it( 'renders a structured TM_COMMAND|TM_RESPONSE payload as JSON (not dropped)', () => {
 		// Structured reply payload renders as JSON, not dropped.
 		const t = TM_COMMAND | TM_RESPONSE;
-		const out = renderMessage(
+		const out = entryFor(
 			msg( t, { name: 'dump_node', payload: { sink: 'x', counter: 3 } } )
 		);
 		expect( out ).not.toBeNull();
@@ -139,49 +141,45 @@ describe( 'renderMessage', () => {
 	} );
 
 	it( 'renders a structured TM_INFO value as JSON, not [object Object]', () => {
-		const out = renderMessage( msg( TM_INFO, { a: 1 } ) );
+		const out = entryFor( msg( TM_INFO, { a: 1 } ) );
 		expect( out.text ).not.toContain( '[object Object]' );
 		expect( out.text ).toMatch( /"a": 1/ );
 	} );
 
-	it( 'drops an unknown / zero type', () => {
-		expect( renderMessage( msg( 0, 'noflag' ) ) ).toBeNull();
-	} );
-} );
-
-describe( 'formatTypeLabel + stringifyValue', () => {
-	it( 'pipe-joins combined flags', () => {
-		expect( formatTypeLabel( TM_COMMAND | TM_RESPONSE ) ).toBe(
-			'TM_COMMAND | TM_RESPONSE'
+	it( 'renders a nullish TM_INFO value as an empty recv entry', () => {
+		expect( entryFor( msg( TM_INFO, null ) ) ).toEqual(
+			expect.objectContaining( { kind: 'recv', text: '' } )
 		);
 	} );
 
-	it( 'renders an unknown type as a hex fallback', () => {
-		expect( formatTypeLabel( 0 ) ).toMatch( /TM_UNKNOWN/ );
-	} );
-
-	it( 'stringifyValue: object → JSON, string → through, null → empty', () => {
-		expect( stringifyValue( { a: 1 } ) ).toMatch( /"a": 1/ );
-		expect( stringifyValue( 'x' ) ).toBe( 'x' );
-		expect( stringifyValue( null ) ).toBe( '' );
-	} );
-
-	it( 'stringifyValue: falls back to String() on a circular object', () => {
+	it( 'falls back to String() on a circular value instead of throwing', () => {
 		const circular = {};
 		circular.self = circular;
-		// Doesn't throw; produces some string (the [object Object] form).
-		expect( typeof stringifyValue( circular ) ).toBe( 'string' );
-	} );
-} );
-
-describe( 'buildDebugHeader1 / buildDebugHeader2 (positional)', () => {
-	it( 'header1 renders a single-line type/from header', () => {
-		expect( buildDebugHeader1( msg( TM_BYTESTREAM, '', 'worker' ) ) ).toBe(
-			'TM_BYTESTREAM from worker:'
+		expect( entryFor( msg( TM_STRUCT, circular ) ).text ).toBe(
+			'[object Object]'
 		);
 	} );
 
-	it( 'header2 renders the full envelope dump', () => {
+	it( 'drops an unknown / zero type', () => {
+		expect( transcriptFor( msg( 0, 'noflag' ) ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'debug headers (positional)', () => {
+	it( 'level 1 pipe-joins combined type flags in the header', () => {
+		const t = TM_COMMAND | TM_RESPONSE;
+		expect(
+			entryFor( msg( t, { name: 'ls', payload: 'out' } ), 1 ).text
+		).toBe( 'TM_COMMAND | TM_RESPONSE from worker:' );
+	} );
+
+	it( 'level 1 renders an unknown type as a hex fallback', () => {
+		expect( entryFor( msg( 0, 'noflag' ), 1 ).text ).toBe(
+			'TM_UNKNOWN(0x0) from worker:'
+		);
+	} );
+
+	it( 'level 2 renders the full envelope dump', () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_INFO;
 		m[ TIMESTAMP ] = 1700000000;
@@ -190,18 +188,27 @@ describe( 'buildDebugHeader1 / buildDebugHeader2 (positional)', () => {
 		m[ ID ] = '1:2';
 		m[ KEY ] = 'k';
 		m[ VALUE ] = 'payload';
-		const out = buildDebugHeader2( m );
+		const out = entryFor( m, 2 ).text;
 		expect( out ).toMatch( /^Message \{/ );
 		expect( out ).toMatch( /type:\s+TM_INFO/ );
 		expect( out ).toMatch( /from:\s+worker/ );
+		expect( out ).toMatch( /to:\s+x/ );
+		expect( out ).toMatch( /id:\s+1:2/ );
+		expect( out ).toMatch( /key:\s+k/ );
+		expect( out ).toMatch( /timestamp:\s+1700000000 \(2023-11-14/ );
 		expect( out ).toMatch( /value:\s+payload/ );
 	} );
 
-	it( 'header2 trims a value trailing newline so a single newline (no blank line) precedes the closing brace', () => {
+	it( 'level 2 indents a multi-line value under the value column', () => {
+		const out = entryFor( msg( TM_STRUCT, { a: 1 } ), 2 ).text;
+		expect( out ).toMatch( /value: {5}\{\n {17}"a": 1\n {15}\}\n\}$/ );
+	} );
+
+	it( 'level 2 trims a value trailing newline so a single newline (no blank line) precedes the closing brace', () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
 		m[ VALUE ] = 'SEGMENT 1\n';
-		const out = buildDebugHeader2( m );
+		const out = entryFor( m, 2 ).text;
 		// The value sits directly above `}` — no whitespace-only wedge line.
 		expect( out ).toMatch( /value:\s+SEGMENT 1\n}$/ );
 		expect( out ).not.toMatch( /\n\s*\n}/ );

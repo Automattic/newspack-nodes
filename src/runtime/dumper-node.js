@@ -64,7 +64,7 @@ const TM_LABELS = [
 	[ TM_NOREPLY, 'TM_NOREPLY' ],
 ];
 
-export function formatTypeLabel( type ) {
+function formatTypeLabel( type ) {
 	const flags = TM_LABELS.filter( ( [ flag ] ) => has( type, flag ) ).map(
 		( [ , label ] ) => label
 	);
@@ -74,7 +74,7 @@ export function formatTypeLabel( type ) {
 }
 
 // Objects/arrays → pretty JSON, strings pass through, null/undefined → ''.
-export function stringifyValue( value ) {
+function stringifyValue( value ) {
 	if ( typeof value === 'string' ) {
 		return value;
 	}
@@ -89,14 +89,14 @@ export function stringifyValue( value ) {
 }
 
 // debug_level 1 header: `<TM_FLAGS> from <FROM>:`.
-export function buildDebugHeader1( message ) {
+function buildDebugHeader1( message ) {
 	return `${ formatTypeLabel( message[ TYPE ] ) } from ${
 		message[ FROM ] || ''
 	}:`;
 }
 
 // debug_level 2 header: full positional-envelope dump.
-export function buildDebugHeader2( message ) {
+function buildDebugHeader2( message ) {
 	const ts = message[ TIMESTAMP ] ?? '';
 	const tsHuman =
 		typeof ts === 'number' && Number.isFinite( ts )
@@ -132,7 +132,7 @@ export function buildDebugHeader2( message ) {
  *
  * @param {Array} message Positional Message array.
  */
-export function renderMessage( message ) {
+function renderMessage( message ) {
 	const type = message[ TYPE ];
 	const value = message[ VALUE ];
 	if ( has( type, TM_EOF ) ) {

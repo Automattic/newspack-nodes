@@ -16,8 +16,9 @@ export const X_STEP = 240;
 export const Y_STEP = 110;
 export const X_PAD = 60;
 export const Y_PAD = 80;
-export const NODE_W = 196;
-export const NODE_H = 84;
+// Card size the grid centres on; SchematicCanvas owns the rendered pair.
+const NODE_W = 196;
+const NODE_H = 84;
 
 // Snap a drop point to the nearest grid intersection; returns top-left pos.
 export function snapToGrid( x, y ) {

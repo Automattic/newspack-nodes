@@ -1,5 +1,5 @@
 /**
- * hullPath — a soft closed region hugging a set of node rects.
+ * hullGeometry — a soft closed region hugging a set of node rects.
  *
  * Convex hull (Andrew's monotone chain) of every rect's padded corners, drawn
  * with quadratic-rounded joins so the region reads as a blob, not a polygon.
@@ -78,10 +78,6 @@ export function hullGeometry( rects, pad = 24 ) {
 		return { d: '', area: 0 };
 	}
 	return { d: roundedPath( poly ), area: polygonArea( poly ) };
-}
-
-export function hullPath( rects, pad = 24 ) {
-	return hullGeometry( rects, pad ).d;
 }
 
 function roundedPath( poly ) {

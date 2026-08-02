@@ -1,12 +1,12 @@
-import { hullPath } from '../hullPath';
+import { hullGeometry } from '../hullPath';
 
-describe( 'hullPath', () => {
-	it( 'returns an empty string for no rects', () => {
-		expect( hullPath( [] ) ).toBe( '' );
+describe( 'hullGeometry', () => {
+	it( 'returns an empty path and no area for no rects', () => {
+		expect( hullGeometry( [] ) ).toEqual( { d: '', area: 0 } );
 	} );
 
 	it( 'wraps two rects in one closed path that contains both, padded', () => {
-		const d = hullPath(
+		const { d, area } = hullGeometry(
 			[
 				{ x: 0, y: 0, w: 100, h: 50 },
 				{ x: 300, y: 200, w: 100, h: 50 },
@@ -19,5 +19,8 @@ describe( 'hullPath', () => {
 		const xs = [ ...d.matchAll( /-?\d+(?:\.\d+)?/g ) ].map( Number );
 		expect( Math.min( ...xs ) ).toBeLessThanOrEqual( -20 );
 		expect( Math.max( ...xs ) ).toBeGreaterThanOrEqual( 420 );
+		// True hull area, not the 440x310 bbox the two rects span.
+		expect( area ).toBeGreaterThan( 0 );
+		expect( area ).toBeLessThan( 440 * 310 );
 	} );
 } );

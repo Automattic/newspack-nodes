@@ -58,7 +58,7 @@ export const REFRESH_OPTIONS = [
 	{ label: '10s', value: '10000' },
 ];
 
-export const DEFAULT_REFRESH_MS = '2000';
+const DEFAULT_REFRESH_MS = '2000';
 const REFRESH_KEY = 'aggregator-status-refresh';
 
 /**

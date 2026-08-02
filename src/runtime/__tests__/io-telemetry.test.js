@@ -1,11 +1,11 @@
-import {
-	IoTelemetry,
-	byteLength,
-	MAX_SAMPLES,
-	MAX_MESSAGES,
-	RING_SECONDS,
-	OVERVIEW_STORAGE_KEY,
-} from '../io-telemetry';
+import { IoTelemetry, byteLength } from '../io-telemetry';
+
+// Pinned literals, not the module's own constants: a test that imports the
+// value it asserts on cannot notice the value changing.
+const OVERVIEW_STORAGE_KEY = 'newspack-nodes:debug:overview';
+const RING_SECONDS = 3600;
+const MAX_SAMPLES = 720;
+const MAX_MESSAGES = 200;
 
 beforeEach( () => {
 	IoTelemetry.reset();

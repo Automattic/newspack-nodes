@@ -44,19 +44,13 @@ import { CommandClient } from '../../runtime/command-client';
 import { TO, ID } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
 import '../nodes/register';
+import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
 
 const HTTP = '_http';
 const LIST_RECV = 'vault:listIn';
 const LIST_VIEW = 'vault:list';
 const TEST_RECV = 'vault:testIn';
 const TEST_VIEW = 'vault:test';
-
-// Monotonic op-id for LIST ops; the list view matches replies by message[ID].
-let nextOpId = 0;
-function makeOpId() {
-	nextOpId += 1;
-	return `vault-op-${ Date.now() }-${ nextOpId }`;
-}
 
 /**
  * Build a TM_COMMAND addressed at the `vault` CI. FROM = the concern's receiver
@@ -127,7 +121,12 @@ export function useVaultGraph( opts = {} ) {
 
 			// One immediate list via _shell, once authed (mount races /auth).
 			ensureSession().then( () => {
-				const m = buildCommand( LIST_RECV, 'list', [], makeOpId() );
+				const m = buildCommand(
+					LIST_RECV,
+					'list',
+					[],
+					makeOpId( 'vault-op' )
+				);
 				if ( null !== m && shellRef.current === shell ) {
 					shell.fill( m );
 				}
@@ -155,7 +154,7 @@ export function useVaultGraph( opts = {} ) {
 			if ( ! node ) {
 				return Promise.reject( new Error( 'view not mounted' ) );
 			}
-			const opId = id || makeOpId();
+			const opId = id || makeOpId( 'vault-op' );
 			const promise = new Promise( ( resolve, reject ) => {
 				node.replies.add( opId, resolve, reject );
 			} );

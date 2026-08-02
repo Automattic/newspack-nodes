@@ -7,7 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **36 helpers un-exported across `runtime`, `event-dashboards`, and
+  `topology-console`.** Each is called inside its own file and imported by
+  nothing else, so the `export` keyword was the only dead part — it advertised
+  a public surface that did not exist and let tests reach past the API they were
+  supposed to be checking. Every test that reached for one now drives the
+  module's real entry point instead, and each rewrite was proven by breaking the
+  production function and watching the intended test go red.
+
+  Several of the old tests could not have failed at all: `expect( NODE_W ).toBe(
+  196 )` and `expect( messages.length ).toBe( MAX_MESSAGES )` imported the very
+  constant they asserted. Those are boundary tests now — `NODE_W`/`NODE_H` are
+  pinned through the snap-grid bucket edge, `STALL_PAD` through a
+  heartbeat-age 29-vs-31 pair at interval 10.
+
+  Two exports stay: `__setBackoffClock` and `__resetCommandClientForTests`
+  substitute a clock and reset a module singleton, so un-exporting them is the
+  one case that genuinely costs testability.
+
+- **`makeOpId` is now used by all nine of its consumers, not two.** The shared
+  util was extracted and then only `useTopologyManager` and (in intelligence)
+  `useInsightsGraph` ever imported it — the other seven hooks kept a private
+  `let nextOpId = 0` and a copy of the function, identical bar the prefix
+  string, which is the one thing the shared version takes as an argument. A
+  half-finished extraction is worse than none: it reads as if the util is the
+  rule while seven files quietly are not. Migrated here (`useLogViewerGraph`,
+  `usePartitionViewerGraph`, `useVaultGraph`) and in event-logger-nodes.
+
+  The counter is now shared across consumers rather than per-module, which can
+  only help: ids stay `{prefix}-{ms}-{n}`, and two hooks can no longer mint the
+  same one.
+
 ### Removed
+
+- **`tokenizeSpans` / `Shell_Node::tokenize_spans()`, both halves.** The
+  phpstan-deadcode allowlist kept the PHP half alive on the claim that it was
+  "live in parseTsl.js". `parseTsl.js` exists and does not reference it; neither
+  half had a caller in either language. `parse_statements()` — which returns
+  both token forms — superseded it, and that is what the TSL editors actually
+  round-trip through. The allowlist entry is gone too, so the PHP gate now sees
+  the file honestly.
+
+- **The four PHP-write-only `probe-record.js` constants** (`CURSOR_SEGMENT`,
+  `CURSOR_OFF`, `END_SEGMENT`, `END_SIZE`). The PHP `Probe_Record` constants
+  stay — Consumer, Tail, and the CLI all write those slots — but the browser
+  derives everything from `DISTANCE` on, so the JS mirrors were fixture-only.
+  Parity is undiminished: `ProbeRecordTest` still pins the PHP layout as dense
+  0..9 and still asserts every surviving JS constant equals its PHP counterpart,
+  so a renumber on either side still fails.
 
 - **Dead JS the new knip gate found.** Three whole modules whose only importer
   was their own test — `useNodeGraph`, `parseLsOutput`, `replDismissHandler` —

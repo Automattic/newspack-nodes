@@ -10,9 +10,11 @@ import {
 	X_STEP,
 	Y_PAD,
 	Y_STEP,
-	NODE_W,
-	NODE_H,
 } from '../autoLayout';
+
+// The node card autoLayout centres its snap grid on; asserted via snapToGrid.
+const NODE_W = 196;
+const NODE_H = 84;
 
 describe( 'placeBelow — new-node tuck', () => {
 	it( 'returns the origin cell for an empty map', () => {
@@ -547,8 +549,6 @@ describe( 'autoLayout', () => {
 		expect( Y_STEP ).toBe( 110 );
 		expect( X_PAD ).toBe( 60 );
 		expect( Y_PAD ).toBe( 80 );
-		expect( NODE_W ).toBe( 196 );
-		expect( NODE_H ).toBe( 84 );
 	} );
 
 	it( 'survives an isolated node with no edges', () => {
@@ -847,5 +847,25 @@ describe( 'snapToGrid', () => {
 			x: X_PAD + X_STEP,
 			y: Y_PAD + Y_STEP,
 		} );
+	} );
+
+	// The bucket is a half-step wide and centred on the card, so these two
+	// pin the card offset (NODE_W/2, NODE_H/2) the grid is built around.
+	it( 'keeps a drop just inside the half-step of the card centre', () => {
+		expect(
+			snapToGrid(
+				X_PAD + NODE_W / 2 + X_STEP / 4 - 1,
+				Y_PAD + NODE_H / 2 + Y_STEP / 4 - 0.5
+			)
+		).toEqual( { x: X_PAD, y: Y_PAD } );
+	} );
+
+	it( 'pushes a drop at the half-step boundary onto the next half-cell', () => {
+		expect(
+			snapToGrid(
+				X_PAD + NODE_W / 2 + X_STEP / 4,
+				Y_PAD + NODE_H / 2 + Y_STEP / 4
+			)
+		).toEqual( { x: X_PAD + X_STEP / 2, y: Y_PAD + Y_STEP / 2 } );
 	} );
 } );

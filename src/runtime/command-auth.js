@@ -56,7 +56,7 @@ import {
  * @param {string}   nonce Single-use nonce (hex).
  * @return {string} The string to HMAC.
  */
-export function canonical( ts, name, args, nonce ) {
+function canonical( ts, name, args, nonce ) {
 	return JSON.stringify( [
 		ts,
 		String( name ?? '' ),
@@ -73,14 +73,14 @@ export function canonical( ts, name, args, nonce ) {
  * @param {string} key    Session key.
  * @return {string} Lowercase hex digest.
  */
-export function hmacHex( string, key ) {
+function hmacHex( string, key ) {
 	return bytesToHex(
 		hmac( sha256, utf8ToBytes( key ), utf8ToBytes( string ) )
 	);
 }
 
 /** Hex nonce, same shape as PHP's bin2hex( random_bytes( 16 ) ). */
-export function newNonce() {
+function newNonce() {
 	const bytes = new Uint8Array( 16 );
 	crypto.getRandomValues( bytes );
 	return Array.from( bytes )

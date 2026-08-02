@@ -35,13 +35,13 @@ function nowSeconds() {
 	return Date.now() / 1000;
 }
 
-export const OVERVIEW_STORAGE_KEY = 'newspack-nodes:debug:overview';
+const OVERVIEW_STORAGE_KEY = 'newspack-nodes:debug:overview';
 // 1-hour rolling window at a 5-second cadence = 720 samples.
-export const RING_SECONDS = 3600;
+const RING_SECONDS = 3600;
 export const SAMPLE_INTERVAL_MS = 5000;
-export const MAX_SAMPLES = RING_SECONDS / ( SAMPLE_INTERVAL_MS / 1000 );
+const MAX_SAMPLES = RING_SECONDS / ( SAMPLE_INTERVAL_MS / 1000 );
 // Bounded ring of recent classified log lines — per page-load, not persisted.
-export const MAX_MESSAGES = 200;
+const MAX_MESSAGES = 200;
 
 class IoTelemetryImpl {
 	constructor() {

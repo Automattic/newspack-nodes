@@ -20,7 +20,7 @@ const POLL_INTERVAL_MS = 10000;
  * @param {string} line One log line.
  * @return {'warning'|'error'|'debug'} The line's level.
  */
-export function classifyLine( line ) {
+function classifyLine( line ) {
 	if ( /\bWARNING:/.test( line ) ) {
 		return 'warning';
 	}
@@ -39,7 +39,7 @@ const COUNT_KEY = { warning: 'warnings', error: 'errors', debug: 'debug' };
  * @param {string} text The dmesg output.
  * @return {{errors:number, warnings:number, debug:number}} Per-level line counts.
  */
-export function countLevels( text ) {
+function countLevels( text ) {
 	const counts = { errors: 0, warnings: 0, debug: 0 };
 	for ( const line of String( text || '' ).split( '\n' ) ) {
 		if ( '' === line.trim() ) {
