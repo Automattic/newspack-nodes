@@ -4,7 +4,7 @@
  * fills the browse control into the view node, replayed records with
  * `segment:offset:length` ID breadcrumbs stream through the real `SseIn → Tee →
  * view`, the view publishes the mode change, and `useNodeState` re-feeds it to
- * `LogBrowser`. Real hook + fake SSE + fake CommandClient; only the two leaf
+ * `LogBrowser`. Real hook + fake SSE + fake transport; only the two leaf
  * presentational components are stubbed so we can read the props the component
  * computes. This is the acceptance pin the shared-`SeekTracker` extraction must
  * keep passing.

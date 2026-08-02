@@ -24,7 +24,7 @@
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`) so the hook never touches the network. Production lazily
- * defaults to the shared CommandClient singleton.
+ * defaults to the shared transport singleton.
  */
 
 import { ensureSession } from '../../runtime/command-auth';
