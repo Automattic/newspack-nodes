@@ -55,6 +55,7 @@
 	// modal's profiling toggle.
 	&__toolbar {
 		display: flex;
+		align-items: center;
 		gap: 8px;
 	}
 
@@ -88,8 +89,8 @@
 	text-align: center;
 }
 
-// Hot-nodes stats view: reuses the sortable grid, adds a profiling toolbar; the
-// pinned --total-- row rides the grid's own <tfoot> so it never sorts into the body.
+// Profiler view: reuses the sortable grid, adds a profiling toolbar; the pinned
+// --total-- row rides the grid's own <tfoot> so it never sorts into the body.
 .nodes-stats {
 	display: flex;
 	flex-direction: column;
@@ -102,6 +103,10 @@
 
 	&__toolbar {
 		display: flex;
+		align-items: center;
 		gap: 8px;
+		// Clear of the modal heading above and the grid header below, which
+		// the flex `gap` alone does not manage — the Timeline toolbar's rhythm.
+		padding: 4px 0 8px;
 	}
 }

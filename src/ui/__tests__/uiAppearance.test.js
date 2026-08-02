@@ -1521,4 +1521,31 @@ describe( 'canonical UI appearance', () => {
 			)
 		).toEqual( [] );
 	} );
+
+	// @longform
+	// A plain `button:focus` ring outlives the click that set it, so the last
+	// control you pressed wears a permanent outline — worst on a toggle, where
+	// it reads as the toggle's own state. Text controls are the opposite case:
+	// clicking one IS where you are about to type, so they keep plain :focus.
+	it( 'rings buttons on keyboard focus only, text controls on any focus', () => {
+		const focusSelectors = [];
+		stylesheet.walkRules( ( rule ) => {
+			if ( /:focus/.test( rule.selector ) ) {
+				focusSelectors.push( rule.selector );
+			}
+		} );
+		const forBare = focusSelectors.filter( ( sel ) =>
+			/(^|[\s,])button:focus(?![-:])/.test( sel )
+		);
+
+		expect( forBare ).toEqual( [] );
+		expect(
+			focusSelectors.some( ( sel ) => /button:focus-visible/.test( sel ) )
+		).toBe( true );
+		expect(
+			focusSelectors.some( ( sel ) =>
+				/textarea:focus(?![-:])/.test( sel )
+			)
+		).toBe( true );
+	} );
 } );

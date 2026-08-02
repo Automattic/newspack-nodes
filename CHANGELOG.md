@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Buttons ring on keyboard focus only.** The shared policy gave every button a
+  plain `:focus` ring, which outlives the click that set it — so the last control
+  you pressed wore a permanent outline. Worst on a toggle, where it reads as the
+  toggle's own state: the Profiler's profile button looked stuck on after one
+  click. Buttons now use the `:focus-visible` pair the policy already applied to
+  links and `summary`. Text controls keep plain `:focus` — clicking one IS where
+  you are about to type.
+
+- **The Profiler toolbar has room around it.** Its button sat flush against the
+  modal heading above and the grid header below; the flex `gap` spaced the
+  toolbar from the grid but nothing spaced the button itself.
+
 ### Changed
 
 - **`wp nodes restart <type>` restarts every partition, and `--all-partitions`
