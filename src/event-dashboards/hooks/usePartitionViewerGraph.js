@@ -8,7 +8,7 @@
  *                        `partition:link:http` (HttpOut — POST /command boundary),
  *                        `partition:link:heartbeat` (Heartbeat — slot keep-alive),
  *                        and wires the `connected → slot` bridge to its own
- *                        heartbeat. `.client` is the injected CommandClient.)
+ *                        heartbeat. `.client` is the injected transport.)
  *
  * Plus the single dashboard view-model node:
  *
@@ -30,7 +30,6 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { useGatedSubscription } from './useGatedSubscription';
-import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
 	TYPE,
@@ -63,9 +62,8 @@ const controlMsg = ( value ) => {
 // raw-logs: the view mints; TO/ID stamped after (neither is signed).
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to the link's
- *                                      HttpOut; defaults to a freshly-constructed
- *                                      CommandClient.
+ * @param {Object} [opts.commandClient] transport seam assigned to the link's
+ *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
  * @return {{ selectLog: Function, setPaused: Function }} Control callbacks for
  *   the thin React view (the view's own state is read via useNodeState). Reset
  *   Graph is driven by a `Core.bumpGraphGeneration()` bump — mountExospine
@@ -118,8 +116,9 @@ export function usePartitionViewerGraph( opts = {} ) {
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
 			// The shared `_http` carries every command out; both ride it.
-			http.client =
-				optsRef.current.commandClient || CommandClient.fromGlobal();
+			if ( optsRef.current.commandClient ) {
+				http.client = optsRef.current.commandClient;
+			}
 			link.client = http.client;
 
 			const tee = interpreter.makeNode( 'Tee', TEE );

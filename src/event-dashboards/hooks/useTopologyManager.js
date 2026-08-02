@@ -227,7 +227,7 @@ function deriveConnected( {
 
 /**
  * @param {Object}  [opts]               Options (testing seams).
- * @param {Object}  [opts.commandClient] CommandClient seam assigned to `_http.client`.
+ * @param {Object}  [opts.commandClient] transport seam assigned to `_http.client`.
  * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
  * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
  *   readRate: number, writeRate: number, logPartitions: number,

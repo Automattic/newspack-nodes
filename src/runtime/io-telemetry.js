@@ -2,7 +2,7 @@
  * IoTelemetry — the debug overlay's I/O accounting singleton. The browser-side
  * graph talks to the server over two boundaries: inbound SSE frames + HTTP
  * command responses ("in"), and outbound HTTP command requests ("out"). The
- * boundary nodes (SseIn, CommandClient) and Core.stderr feed cumulative
+ * boundary nodes (SseIn, the command transport) and Core.stderr feed cumulative
  * counters here; the Overview tab reads them.
  *
  * Why a window singleton (like Core / the devtools tab registry): the boundary
@@ -25,7 +25,7 @@
 
 import { byteLength } from './message';
 
-// Re-exported so SseIn/CommandClient pull byteLength from this module.
+// Re-exported so SseIn/the transport pull byteLength from this module.
 export { byteLength };
 
 const GLOBAL_KEY = '__newspackNodesIoTelemetry';

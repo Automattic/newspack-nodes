@@ -8,7 +8,6 @@
  */
 
 import { HttpOutNode } from '../http-out-node';
-import { CommandClient } from '../command-client';
 import { byteLength } from '../io-telemetry';
 import {
 	newMessage,
@@ -25,13 +24,9 @@ import {
 } from '../message';
 
 function makeNode() {
-	const real = new CommandClient( { baseUrl: '/wp-json/', nonce: 'NONCE' } );
 	// Default: bare 202, no sync replies (routed-onward); tests override.
 	const postBatch = jest.fn().mockResolvedValue( [] );
-	const client = {
-		buildMessage: real.buildMessage.bind( real ),
-		postBatch,
-	};
+	const client = { postBatch };
 	const node = new HttpOutNode();
 	node.client = client;
 	node.name = '_http';
@@ -333,11 +328,17 @@ describe( 'HttpOut', () => {
 				node.fill( routed( { to: 'demo.p0' } ) );
 				await new Promise( ( r ) => setTimeout( r, 0 ) );
 
-				expect( node.client ).toBeInstanceOf( CommandClient );
-				expect( node.client.baseUrl ).toBe(
-					'https://example.test/wp-json/'
+				expect( typeof node.client.postBatch ).toBe( 'function' );
+				// The transport is closed over the localized base + nonce, so
+				// the POST it made is the only place to read them back.
+				expect( global.fetch ).toHaveBeenCalledWith(
+					'https://example.test/wp-json/newspack-nodes/v1/command',
+					expect.objectContaining( {
+						headers: expect.objectContaining( {
+							'X-WP-Nonce': 'GNONCE',
+						} ),
+					} )
 				);
-				expect( node.client.nonce ).toBe( 'GNONCE' );
 				expect( global.fetch ).toHaveBeenCalledTimes( 1 );
 				const [ url, init ] = global.fetch.mock.calls[ 0 ];
 				expect( url ).toBe(
@@ -353,14 +354,7 @@ describe( 'HttpOut', () => {
 
 		it( 'accepts the client as a public property and POSTs through it', () => {
 			const postBatch = jest.fn().mockResolvedValue( [] );
-			const real = new CommandClient( {
-				baseUrl: '/wp-json/',
-				nonce: 'NONCE',
-			} );
-			const client = {
-				buildMessage: real.buildMessage.bind( real ),
-				postBatch,
-			};
+			const client = { postBatch };
 			const node = new HttpOutNode();
 			node.client = client;
 			node.name = '_http';

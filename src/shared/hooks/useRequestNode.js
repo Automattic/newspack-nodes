@@ -2,7 +2,7 @@
  * useRequestNode — a `Request` node on the page's backbone, for one concern.
  *
  * A dashboard's one-shot verbs (save a topology, delete one, fetch a layout)
- * used to go out through a standalone `CommandClient.send()` fetch: its own
+ * used to go out through a standalone one-shot fetch: its own
  * POST, outside the graph, skipping the `_http` lock/flush bracket the rest of
  * the tick batches into. This mounts a node instead — so the command rides the
  * same egress as everything else, and its reply routes back `TO = FROM`.

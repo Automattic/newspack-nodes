@@ -76,7 +76,7 @@ export class RequestNode extends Node {
 	 *
 	 * A view node that cannot mint yet just skips the tick and tries the next
 	 * one; a caller holding a Promise has no next tick, so this waits out the
-	 * session instead — the same wait the old `CommandClient.send()` did. The
+	 * session instead — the same wait the old one-shot client did. The
 	 * ready case stays synchronous so the mint lands inside the drain tick's
 	 * lock/flush bracket and still batches.
 	 */

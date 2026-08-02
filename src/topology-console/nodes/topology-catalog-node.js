@@ -1,7 +1,7 @@
 /**
  * TopologyCatalogNode — the Path menu's live topology catalog, as a graph node.
  *
- * It was a React hook calling `getCommandClient().send()`, which is a standalone
+ * It was a React hook calling a one-shot client, which is a standalone
  * `fetch` outside the graph: its own POST every tick, alongside the batched one
  * the console already sends. A node emitting through `_http` during the Router's
  * TIMER notify rides the SAME lock, so `topologies list` now travels in the same

@@ -23,7 +23,6 @@ import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
-import { getCommandClient } from '@newspack-nodes/shared/utils/commandClient';
 import { useTopology } from './useTopologyList';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { parseTsl } from '../utils/parseTsl';
@@ -153,7 +152,6 @@ export function useConsoleGraph( {
 			// baseUrl/nonce resolve from the localized global, not tokens.
 			const remote = interpreter.makeNode( 'RemoteIpc', wr, [ wr ] );
 			remote.target = names.OUTPUT;
-			remote.client = getCommandClient();
 			// The active worker's connect handshake drives the pid display.
 			remote.onConnected = () => setSsePid( remote.pid() );
 			// Reset pid on a steal so a send won't wrap the stale pid.

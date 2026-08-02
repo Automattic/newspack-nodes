@@ -97,6 +97,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `errorMessage` survives the deletion (as `shared/errorMessage`); it was never
   about correlation.
 
+- **`CommandClient` itself.** With `send()` gone it was a class with one method
+  and one implementation, whose only seam was a test double — so the POST folded
+  into `HttpOut`, which was its only production consumer. What replaces it is
+  `commandTransport({ baseUrl, nonce, renewNonce })`, a closure returning
+  `{ postBatch }`, and `defaultTransport()` bound to the localized globals;
+  `HttpOut` defaults to the latter on its first POST, so a palette drop still
+  needs no nonce threaded through construction. `buildMessage` went with it —
+  nothing outside tests had called it since nodes started minting their own
+  commands. The `_http.client` seam stays, duck-typed: a test that injects
+  `{ postBatch }` is unaffected, and one that wants the real path can answer the
+  wire instead. The `getCommandClient()` page singleton is gone; nothing needed
+  a shared instance once HttpOut owned the transport.
+
 - **`CommandClient.send()`.** The console's one-shot verbs — save, delete,
   layout get/save, topology list/get, classes list, vault list, expand, activate
   — went out through it as a standalone POST outside the graph, skipping the

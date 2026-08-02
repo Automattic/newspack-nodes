@@ -23,8 +23,6 @@ import { ShellNode } from '../shell-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { RouterNode } from '../router-node';
 import { Core } from '../core';
-import { CommandClient } from '../command-client';
-import { markLocal } from '../command-auth';
 import names from '../reserved-node-names.json';
 import { ID, KEY, TYPE, TM_COMMAND } from '../message';
 
@@ -93,14 +91,6 @@ test( 'CommandInterpreterNode `reply_to` re-mint', () => {
 
 	const cmd = sent.find( ( m ) => m[ TYPE ] & TM_COMMAND );
 	expectUncorrelated( cmd );
-} );
-
-test( 'CommandClient.buildMessage — no caller supplies a key', () => {
-	const client = new CommandClient( { baseUrl: '/', nonce: 'n' } );
-
-	expectUncorrelated(
-		markLocal( client.buildMessage( { to: 'topologies', verb: 'list' } ) )
-	);
 } );
 
 // @longform

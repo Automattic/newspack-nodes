@@ -21,13 +21,13 @@
 import { Core } from './core';
 import { Node, parseSchemaArgs } from './node';
 import { SseInNode } from './sse-in-node';
-import { CommandClient } from './command-client';
+import { defaultTransport } from './command-transport';
 import names from './reserved-node-names.json';
 
 export class RemoteLinkNode extends Node {
 	constructor() {
 		super();
-		// CommandClient for the HttpOut; ensureChildren builds one if unset.
+		// Transport for the HttpOut; ensureChildren defaults it if unset.
 		this.client = null;
 		this.sseIn = null;
 		this.heartbeat = null;
@@ -125,8 +125,7 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = sse;
 
 		// Backbone singletons; configure, never alias per-link.
-		Core.node( names.HTTP ).client =
-			this.client || CommandClient.fromGlobal();
+		Core.node( names.HTTP ).client = this.client || defaultTransport();
 
 		// Not armed here: the connection lifecycle below arms/stops it.
 		const hb = Core.node( names.HEARTBEAT );

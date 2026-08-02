@@ -1,10 +1,10 @@
 /**
- * Unwrap the raw Message array from CommandClient.send() into the verb's
+ * Unwrap a raw reply Message array into the verb's
  * payload. VALUE is already the structured `{ name, payload }` object (no parse).
  * Canonical shared module; sibling plugins consume it via the
  * `@newspack-nodes/shared` alias (esbuild + jest), not a copy.
  *
- * @param {Array} message Seven-field Message tuple from CommandClient.send().
+ * @param {Array} message Seven-field reply Message tuple.
  * @return {*} The payload; null when the verb returned an empty payload.
  * @throws {Error} If TYPE has TM_ERROR set, or on malformed input.
  */
@@ -20,7 +20,7 @@ export default function unwrapCommandResponse( message ) {
 	}
 	if ( ! Array.isArray( message ) || message.length < 7 ) {
 		throw new Error(
-			'CommandClient response is malformed (expected 7-field Message array)'
+			'reply is malformed (expected a 7-field Message array)'
 		);
 	}
 	const outer = message[ VALUE ];

@@ -21,7 +21,6 @@
 
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { useVisibilityGatedLink } from '@newspack-nodes/shared/hooks/useVisibilityGatedLink';
-import { CommandClient } from '../../runtime/command-client';
 import '../nodes/register';
 
 const LINK = 'topicprobe:link';
@@ -38,7 +37,7 @@ function positionsForMode( mode ) {
 /**
  * @param {Object} [opts]
  * @param {string} [opts.mode]          'history' (24h replay) or 'follow' (tail).
- * @param {Object} [opts.commandClient] CommandClient seam for the link's HttpOut.
+ * @param {Object} [opts.commandClient] transport seam for the link's HttpOut.
  */
 export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	const isPageVisible = usePageVisibility();
@@ -52,7 +51,9 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			link.client = commandClient || CommandClient.fromGlobal();
+			if ( commandClient ) {
+				link.client = commandClient;
+			}
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );

@@ -9,7 +9,8 @@ test( 'public surface exports everything used by dashboards', () => {
 	expect( runtime.TimerNode ).toBeDefined();
 	expect( runtime.CommandInterpreterNode ).toBeDefined();
 	expect( runtime.SseInNode ).toBeDefined();
-	expect( runtime.CommandClient ).toBeDefined();
+	expect( runtime.commandTransport ).toBeDefined();
+	expect( runtime.defaultTransport ).toBeDefined();
 	expect( runtime.Core ).toBeDefined();
 	expect( runtime.useNodeState ).toBeDefined();
 	expect( runtime.useNodeFill ).toBeDefined();

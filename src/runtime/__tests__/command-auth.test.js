@@ -316,7 +316,7 @@ describe( 'clock alignment', () => {
  *
  * A mint is synchronous, so it cannot wait. The EMITTERS wait instead:
  * `hasSession()` gates the poll ticks (they retry on the next tick anyway), and
- * `CommandClient.send()` is already async so it simply awaits.
+ * the transport is already async so it simply awaits.
  */
 describe( 'authentication gates minting, and recovers', () => {
 	beforeEach( () => {
