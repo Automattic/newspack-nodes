@@ -165,18 +165,6 @@ export function tokenize( line ) {
 }
 
 /**
- * tokenize(), but each token is its RAW span, quote chars and escapes intact.
- * For TSL round-trips: the quote type carries interpolation semantics, so an
- * editor must reproduce the authored span verbatim, never re-quote it.
- *
- * @param {string} line Trimmed line.
- * @return {string[]} Raw spans, index-aligned with tokenize().
- */
-export function tokenizeSpans( line ) {
-	return scanTokens( line ).tokens.map( ( t ) => t.raw );
-}
-
-/**
  * Inverse of tokenize() for a SINGLE token: quote+escape a value so tokenize()
  * delivers it back as one intact token. Used by the message composer to send
  * JSON to `send_struct` without the caller hand-escaping it [#32]. With the

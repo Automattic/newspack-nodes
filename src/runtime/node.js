@@ -479,7 +479,7 @@ export function serializeArg( token ) {
  * @param {string[]} tokens Argument tokens.
  * @return {string} Space-joined line, each token quoted+escaped as needed.
  */
-export function serializeArgs( tokens ) {
+function serializeArgs( tokens ) {
 	return tokens.map( serializeArg ).join( ' ' );
 }
 

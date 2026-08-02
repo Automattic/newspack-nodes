@@ -1,6 +1,5 @@
 import {
 	addNode,
-	addEdge,
 	removeNode,
 	removeEdge,
 	renameNode,
@@ -59,9 +58,7 @@ describe( 'draftGraph', () => {
 			addNode( base, { shellName: 'Echo', name: 'c', x: 0, y: 0 } )
 				.frontmatter
 		).toEqual( fm );
-		expect( addEdge( base, { from: 'b', to: 'a' } ).frontmatter ).toEqual(
-			fm
-		);
+		expect( connectDraftEdge( base, 'b', 'a' ).frontmatter ).toEqual( fm );
 		expect( removeNode( base, 'a' ).frontmatter ).toEqual( fm );
 		expect( renameNode( base, 'a', 'z' ).frontmatter ).toEqual( fm );
 		expect( removeEdge( base, 'a', 'b' ).frontmatter ).toEqual( fm );
@@ -93,7 +90,7 @@ describe( 'draftGraph', () => {
 		} );
 	} );
 
-	describe( 'addEdge', () => {
+	describe( 'connectDraftEdge', () => {
 		it( 'appends an edge and updates source node target', () => {
 			const g = addNode( empty, {
 				shellName: 'Echo',
@@ -101,9 +98,22 @@ describe( 'draftGraph', () => {
 				x: 0,
 				y: 0,
 			} );
-			const next = addEdge( g, { from: 'a', to: 'b' } );
+			const next = connectDraftEdge( g, 'a', 'b' );
 			expect( next.edges ).toEqual( [ { from: 'a', to: 'b' } ] );
 			expect( next.nodes[ 0 ].target ).toBe( 'b' );
+		} );
+
+		it( 'mirrors a fan-out source second target onto `also`', () => {
+			let g = addNode( empty, {
+				shellName: 'Tee',
+				name: 'a',
+				x: 0,
+				y: 0,
+			} );
+			g = connectDraftEdge( g, 'a', 'b' );
+			g = connectDraftEdge( g, 'a', 'c' );
+			expect( g.nodes[ 0 ].target ).toBe( 'b' );
+			expect( g.nodes[ 0 ].also ).toEqual( [ 'c' ] );
 		} );
 
 		it( 'is a no-op for self-edges', () => {
@@ -113,18 +123,18 @@ describe( 'draftGraph', () => {
 				x: 0,
 				y: 0,
 			} );
-			expect( addEdge( g, { from: 'a', to: 'a' } ) ).toBe( g );
+			expect( connectDraftEdge( g, 'a', 'a' ) ).toBe( g );
 		} );
 
 		it( 'is a no-op for duplicate edges', () => {
 			let g = addNode( empty, {
-				shellName: 'Echo',
+				shellName: 'Tee',
 				name: 'a',
 				x: 0,
 				y: 0,
 			} );
-			g = addEdge( g, { from: 'a', to: 'b' } );
-			expect( addEdge( g, { from: 'a', to: 'b' } ) ).toBe( g );
+			g = connectDraftEdge( g, 'a', 'b' );
+			expect( connectDraftEdge( g, 'a', 'b' ) ).toBe( g );
 		} );
 	} );
 
@@ -142,7 +152,7 @@ describe( 'draftGraph', () => {
 				x: 0,
 				y: 0,
 			} );
-			g = addEdge( g, { from: 'a', to: 'b' } );
+			g = connectDraftEdge( g, 'a', 'b' );
 			const next = removeNode( g, 'a' );
 			expect( next.nodes.map( ( n ) => n.id ) ).toEqual( [ 'b' ] );
 			expect( next.edges ).toEqual( [] );
@@ -188,13 +198,13 @@ describe( 'draftGraph', () => {
 	describe( 'removeEdge', () => {
 		it( 'drops one edge, leaves others intact', () => {
 			let g = addNode( empty, {
-				shellName: 'Echo',
+				shellName: 'Tee',
 				name: 'a',
 				x: 0,
 				y: 0,
 			} );
-			g = addEdge( g, { from: 'a', to: 'b' } );
-			g = addEdge( g, { from: 'a', to: 'c' } );
+			g = connectDraftEdge( g, 'a', 'b' );
+			g = connectDraftEdge( g, 'a', 'c' );
 			const next = removeEdge( g, 'a', 'b' );
 			expect( next.edges ).toEqual( [ { from: 'a', to: 'c' } ] );
 		} );
@@ -214,7 +224,7 @@ describe( 'draftGraph', () => {
 				x: 0,
 				y: 0,
 			} );
-			g = addEdge( g, { from: 'a', to: 'b' } );
+			g = connectDraftEdge( g, 'a', 'b' );
 			return g;
 		};
 
@@ -266,7 +276,7 @@ describe( 'draftGraph', () => {
 				x: 0,
 				y: 0,
 			} );
-			g = addEdge( g, { from: 'b', to: 'c' } );
+			g = connectDraftEdge( g, 'b', 'c' );
 			const next = renameNode( g, 'a', 'alpha' );
 			// b → c is unrelated; same reference, not re-mapped.
 			const bc = next.edges.find(
@@ -381,7 +391,7 @@ describe( 'draftGraph', () => {
 				x: 10,
 				y: 20,
 			} );
-			g = addEdge( g, { from: 'my-tee', to: '_repl' } );
+			g = connectDraftEdge( g, 'my-tee', '_repl' );
 			const next = withReplAnchor( g );
 			expect(
 				next.nodes.find( ( n ) => n.id === 'my-tee' )
@@ -452,7 +462,7 @@ describe( 'draftGraph', () => {
 				x: 10,
 				y: 20,
 			} );
-			g = addEdge( g, { from: 'wombat-echo', to: 'zebra-tee' } );
+			g = connectDraftEdge( g, 'wombat-echo', 'zebra-tee' );
 			g = updateNodeArgs( g, 'wombat-echo', [ 'giraffe' ] );
 			expect( g.includes ).toEqual( [ 'performance' ] );
 		} );

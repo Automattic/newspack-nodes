@@ -187,7 +187,7 @@ class Shell_Node extends Node {
 	/**
 	 * The one static TSL statement front-end: split → join backslash
 	 * continuations → tokenize → resolve verb aliases + cwd, keeping BOTH token
-	 * forms. A public static sibling of tokenize() / tokenize_spans() built from
+	 * forms. A public static sibling of tokenize() built from
 	 * the pieces the Shell already owns, with dispatch removed and no side
 	 * effects: no interpolation, no Core::$var reads, no node construction. Static
 	 * analysis (Topology_Registry) reads the list without executing it.
@@ -815,17 +815,6 @@ class Shell_Node extends Node {
 		return \array_column( self::scan_tokens( $line ), 'value' );
 	}
 
-	/**
-	 * tokenize(), but each token is its RAW span, quote chars and escapes
-	 * intact. For static TSL parsing (Topology_Registry) and any editor
-	 * round-trip: the quote type carries interpolation semantics, so a span
-	 * must be reproduced verbatim, never re-quoted.
-	 *
-	 * @return list<string>
-	 */
-	public static function tokenize_spans( string $line ): array {
-		return \array_column( self::scan_tokens( $line ), 'raw' );
-	}
 
 	/**
 	 * The one tokenizer state machine ('/"/` + backslash escapes): splits on

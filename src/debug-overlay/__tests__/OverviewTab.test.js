@@ -1,14 +1,11 @@
 import { render, fireEvent, act } from '@testing-library/react';
 import OverviewTab from '../tabs/OverviewTab';
-import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
+import { IoTelemetry } from '../../runtime/io-telemetry';
 
 beforeEach( () => {
 	IoTelemetry.reset();
-	try {
-		window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
-	} catch ( _e ) {
-		// ignore
-	}
+	// reset() deliberately leaves localStorage alone; drop the persisted series.
+	window.localStorage.clear();
 } );
 
 function renderTab( props = {} ) {

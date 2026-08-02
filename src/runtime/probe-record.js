@@ -7,11 +7,8 @@
  */
 
 export const SOURCE = 0; // source partition, e.g. "firehose.p0"
+// 2..5 are PHP-write-only; ProbeRecordTest pins every index below.
 export const READER = 1; // reader id = basename of the offsetlog dir
-export const CURSOR_SEGMENT = 2; // consumer offset: segment id
-export const CURSOR_OFF = 3; // consumer offset: byte within the cursor segment
-export const END_SEGMENT = 4; // partition end: last segment id
-export const END_SIZE = 5; // partition end: last segment size
 export const DISTANCE = 6; // bytes behind (the backlog)
 export const MSGS = 7; // messages the consumer has sent
 export const END_BYTES = 8; // absolute partition byte position (Σ live segment sizes); byte rate = Δ/Δt

@@ -37,7 +37,7 @@ import { stepPosition } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { newMessage, TYPE, VALUE, TM_STRUCT } from '../../runtime/message';
 
 // Reopen: explicit seek wins; else resume the same dir (tail a changed dir).
-export function reopenSeed( link, { subscribe, positions } ) {
+function reopenSeed( link, { subscribe, positions } ) {
 	if ( positions ) {
 		return positions;
 	}

@@ -5,9 +5,9 @@
  * to the default (readers → [] / empty Set, writers → no-op) and never throws.
  */
 
-export const ORDER_KEY = 'newspack-nodes:overview:order';
-export const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
-export const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed';
+const ORDER_KEY = 'newspack-nodes:overview:order';
+const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
+const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed';
 
 // Read a JSON string-array from localStorage; anything not a clean array → [].
 function readStringArray( key ) {

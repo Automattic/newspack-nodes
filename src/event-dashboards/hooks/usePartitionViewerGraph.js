@@ -42,18 +42,12 @@ import {
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
+import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'partition:link';
 const TEE = 'partition:stream';
 const VIEW = 'partition:view';
-
-// Monotonic per-hook-instance ID counter for the list_logs correlator.
-let nextOpId = 0;
-function makeOpId() {
-	nextOpId += 1;
-	return `partition-op-${ Date.now() }-${ nextOpId }`;
-}
 
 // TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
 const controlMsg = ( value ) => {
@@ -100,7 +94,7 @@ export function usePartitionViewerGraph( opts = {} ) {
 		if ( ! view || ! link ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const id = makeOpId();
+		const id = makeOpId( 'partition-op' );
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
@@ -192,7 +186,7 @@ export function usePartitionViewerGraph( opts = {} ) {
 		if ( ! view || ! link ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const listId = makeOpId();
+		const listId = makeOpId( 'partition-op' );
 		const listFuture = new Promise( ( resolve, reject ) => {
 			view.replies.add( listId, resolve, reject );
 		} );
@@ -227,7 +221,7 @@ export function usePartitionViewerGraph( opts = {} ) {
 		if ( ! view || ! link ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const id = makeOpId();
+		const id = makeOpId( 'partition-op' );
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );

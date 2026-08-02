@@ -9,9 +9,12 @@ import {
 	saveDebugLevel,
 	loadDebugState,
 	saveDebugState,
-	MAX_PERSISTED_TRANSCRIPT,
-	MAX_PERSISTED_HISTORY,
 } from '../consolePersistence';
+import { TRANSCRIPT_MAX } from '../../../runtime/dumper-node';
+
+// The transcript cap IS the Dumper's, so a restored transcript agrees with it.
+const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
+const MAX_PERSISTED_HISTORY = 100;
 
 beforeEach( () => window.localStorage.clear() );
 

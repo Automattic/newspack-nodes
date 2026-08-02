@@ -1,4 +1,4 @@
-import { DmesgNode, countLevels, classifyLine } from '../dmesg-node';
+import { DmesgNode } from '../dmesg-node';
 import { Core } from '../core';
 import {
 	newMessage,
@@ -11,16 +11,17 @@ import {
 
 beforeEach( () => Core.reset() );
 
-describe( 'classifyLine', () => {
-	it( 'classifies one line by log convention (WARNING wins over ERROR)', () => {
-		expect( classifyLine( 'WARNING: careful' ) ).toBe( 'warning' );
-		expect( classifyLine( 'ERROR: boom' ) ).toBe( 'error' );
-		expect( classifyLine( 'WARNING: ERROR: both' ) ).toBe( 'warning' );
-		expect( classifyLine( 'a plain trace' ) ).toBe( 'debug' );
-	} );
-} );
+// Drive a dmesg tail through fill() and read back the published level counts.
+function tally( payload ) {
+	const node = new DmesgNode();
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	m[ VALUE ] = { payload };
+	node.fill( m );
+	return node.setStateCache.dmesg;
+}
 
-describe( 'countLevels', () => {
+describe( 'dmesg level classification', () => {
 	it( 'classifies dmesg lines (WARNING wins over ERROR), ignoring blanks', () => {
 		const text = [
 			'2026-01-01 12:00:00 ERROR: boom',
@@ -30,7 +31,7 @@ describe( 'countLevels', () => {
 			'',
 			'   ',
 		].join( '\n' );
-		expect( countLevels( text ) ).toEqual( {
+		expect( tally( text ) ).toEqual( {
 			errors: 1,
 			warnings: 2,
 			debug: 1,
@@ -38,12 +39,12 @@ describe( 'countLevels', () => {
 	} );
 
 	it( 'is zero-safe for empty / missing input', () => {
-		expect( countLevels( '' ) ).toEqual( {
+		expect( tally( '' ) ).toEqual( {
 			errors: 0,
 			warnings: 0,
 			debug: 0,
 		} );
-		expect( countLevels( undefined ).errors ).toBe( 0 );
+		expect( tally( undefined ).errors ).toBe( 0 );
 	} );
 } );
 

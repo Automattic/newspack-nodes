@@ -86,16 +86,6 @@ class ShellTest extends TestCase {
 		$this->assertSame( [ 'a', 'b', 'c' ], $shell->tokenize( "a   b\tc" ) );
 	}
 
-	public function test_tokenize_spans_keeps_quote_chars_and_escapes_raw(): void {
-		$this->assertSame(
-			[ 'cmd', 'scorer:config', 'add_profile', '"Engineers care"' ],
-			Shell_Node::tokenize_spans( 'cmd scorer:config add_profile "Engineers care"' )
-		);
-		$this->assertSame(
-			[ "<config:logs_dir>/jobs.p'<partition>'", "'it\\'s'" ],
-			Shell_Node::tokenize_spans( "<config:logs_dir>/jobs.p'<partition>'  'it\\'s'" )
-		);
-	}
 
 	public function test_tokenize_double_quoted_string_is_one_token(): void {
 		$shell = new Shell_Node();

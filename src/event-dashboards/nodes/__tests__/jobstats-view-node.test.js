@@ -1,5 +1,4 @@
 import { JobstatsViewNode } from '../jobstats-view-node';
-import { RETENTION_S } from '../probe-stream-view-node';
 import {
 	newMessage,
 	TYPE,
@@ -24,6 +23,9 @@ import {
 
 // Probe ts is an OFFSET from a recent epoch base so records stay in the 24h window.
 const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
+
+// The node's live window is a fixed 24h; samples older than this are pruned.
+const RETENTION_S = 86400;
 
 // Build a jobstats TM_STRUCT frame: positional VALUE, sweep instant in TIMESTAMP.
 function jobstatsMsg( {

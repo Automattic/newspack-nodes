@@ -60,10 +60,10 @@ import { etaSeconds } from '../formatters';
 import '../nodes/register';
 
 // Partition stalled when heartbeat age exceeds interval x STALL_PAD.
-export const STALL_PAD = 3;
+const STALL_PAD = 3;
 
 // Stale once the last successful poll is older than this many poll intervals.
-export const STALE_POLL_INTERVALS = 3;
+const STALE_POLL_INTERVALS = 3;
 
 // A consumer is "behind" only once its catch-up ETA reaches this many seconds.
 const BEHIND_ETA_S = 60;
@@ -148,7 +148,7 @@ function sectionsByName( model ) {
  * @param {?Object} section A topology's enriched status section (or null).
  * @return {{ partitions: Array, health: string }} Partition stall flags + health.
  */
-export function deriveHealth( section ) {
+function deriveHealth( section ) {
 	if ( ! section ) {
 		return { partitions: [], health: 'ok', etaSeconds: 0 };
 	}
@@ -210,7 +210,7 @@ export function deriveHealth( section ) {
  * @param {boolean} o.pageVisible   Whether the page is currently visible.
  * @return {boolean} Whether the dashboard is considered connected.
  */
-export function deriveConnected( {
+function deriveConnected( {
 	topologyError,
 	workerError,
 	lastPollMs,

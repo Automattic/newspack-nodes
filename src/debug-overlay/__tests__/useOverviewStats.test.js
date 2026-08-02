@@ -1,17 +1,14 @@
 import { renderHook, act } from '@testing-library/react';
 import { useOverviewStats } from '../useOverviewStats';
-import { IoTelemetry, OVERVIEW_STORAGE_KEY } from '../../runtime/io-telemetry';
+import { IoTelemetry } from '../../runtime/io-telemetry';
 
 beforeEach( () => {
 	IoTelemetry.reset();
 	// Fake timers, clock pinned to 0: no 20Hz leak + exact rate deltas.
 	jest.useFakeTimers();
 	jest.setSystemTime( 0 );
-	try {
-		window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
-	} catch ( _e ) {
-		// ignore
-	}
+	// reset() deliberately leaves localStorage alone; drop the persisted series.
+	window.localStorage.clear();
 } );
 
 afterEach( () => {

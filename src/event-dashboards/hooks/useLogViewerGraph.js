@@ -33,18 +33,12 @@ import {
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
+import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
 
 const LINK = 'logviewer:link';
 const TEE = 'logviewer:stream';
 const VIEW = 'logviewer:view';
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
-
-// Monotonic per-hook-instance ID counter for the taillog-sources correlator.
-let nextOpId = 0;
-function makeOpId() {
-	nextOpId += 1;
-	return `logviewer-op-${ Date.now() }-${ nextOpId }`;
-}
 
 // TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
 const controlMsg = ( value ) => {
@@ -94,7 +88,7 @@ export function useLogViewerGraph( opts = {} ) {
 		if ( ! view || ! link ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const id = makeOpId();
+		const id = makeOpId( 'logviewer-op' );
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );
@@ -197,7 +191,7 @@ export function useLogViewerGraph( opts = {} ) {
 		if ( ! view || ! link ) {
 			return Promise.reject( new Error( 'graph not ready' ) );
 		}
-		const id = makeOpId();
+		const id = makeOpId( 'logviewer-op' );
 		const future = new Promise( ( resolve, reject ) => {
 			view.replies.add( id, resolve, reject );
 		} );

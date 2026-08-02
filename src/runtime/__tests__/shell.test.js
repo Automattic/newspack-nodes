@@ -9,10 +9,9 @@ import {
 	ShellNode,
 	splitStatements,
 	tokenize,
-	tokenizeSpans,
 	quoteToken,
 } from '../shell-node';
-import { Node, serializeArgs } from '../node';
+import { Node } from '../node';
 import names from '../reserved-node-names.json';
 import { Core } from '../core';
 import {
@@ -44,48 +43,6 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	shell.sink = sink;
 	return { shell, filled };
 }
-
-describe( 'tokenizeSpans — raw token spans (quote chars intact)', () => {
-	it( 'splits like tokenize but preserves each token verbatim', () => {
-		expect(
-			tokenizeSpans( 'cmd scorer:config add_profile "Engineers care"' )
-		).toEqual( [
-			'cmd',
-			'scorer:config',
-			'add_profile',
-			'"Engineers care"',
-		] );
-	} );
-
-	it( 'keeps single quotes and backticks so interpolation intent survives', () => {
-		expect(
-			tokenizeSpans(
-				"make_node Topic t <config:logs_dir>/jobs.p'<partition>' `lit`"
-			)
-		).toEqual( [
-			'make_node',
-			'Topic',
-			't',
-			"<config:logs_dir>/jobs.p'<partition>'",
-			'`lit`',
-		] );
-	} );
-
-	it( 'keeps escapes raw and aligns 1:1 with tokenize()', () => {
-		const line = "a 'it\\'s' \"x y\" z";
-		expect( tokenizeSpans( line ) ).toEqual( [
-			'a',
-			"'it\\'s'",
-			'"x y"',
-			'z',
-		] );
-		expect( tokenize( line ) ).toEqual( [ 'a', "it's", 'x y', 'z' ] );
-	} );
-
-	it( 'an empty quoted string is one raw span', () => {
-		expect( tokenizeSpans( "a '' b" ) ).toEqual( [ 'a', "''", 'b' ] );
-	} );
-} );
 
 describe( 'parse — backslash continuation splices with nothing', () => {
 	it( 'holds the line, then splices bash-style (hi\\ + bye = hibye)', () => {
@@ -164,6 +121,9 @@ describe( 'quoteToken — tokenizer inverse for one intact token [#32]', () => {
 } );
 
 describe( 'tokenizer escape round-trip', () => {
+	// Node names are globally unique; one per round-trip case.
+	let roundTripSeq = 0;
+
 	it( 'tokenize unescapes the quote char and backslash inside quotes', () => {
 		expect( tokenize( "'it\\'s'" ) ).toEqual( [ "it's" ] );
 		expect( tokenize( "'a\\\\b'" ) ).toEqual( [ 'a\\b' ] );
@@ -181,10 +141,17 @@ describe( 'tokenizer escape round-trip', () => {
 		[ [ 'a', '', 'c' ] ],
 		[ [ '' ] ],
 		[ [ '/logs/x.p0', '65536', '4' ] ],
-	] )( 'serializeArgs round-trips %j through tokenize', ( tokens ) => {
-		const back = tokenize( 'X Y ' + serializeArgs( tokens ) ).slice( 2 );
-		expect( back ).toEqual( tokens );
-	} );
+	] )(
+		'a dumped make_node line round-trips %j through tokenize',
+		( tokens ) => {
+			const node = new Node();
+			node.name = `roundtrip${ roundTripSeq++ }`;
+			node.arguments = tokens;
+			// `make_node <Type> <name> <args…>` — drop the three fixed tokens.
+			const [ line ] = node.dumpConfig().split( '\n' );
+			expect( tokenize( line ).slice( 3 ) ).toEqual( tokens );
+		}
+	);
 } );
 
 describe( 'Shell node — cd navigation', () => {

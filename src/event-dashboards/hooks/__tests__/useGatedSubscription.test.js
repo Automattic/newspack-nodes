@@ -6,12 +6,13 @@
  * target (never the old selection) — so changing the log or seeking WHILE PAUSED
  * can never revive the closed EventSource and burn a bounded server slot.
  *
- * `reopenSeed` (the reopen-positions decision) is pure and tested directly.
+ * The reopen-positions decision (explicit seek > same-dir resume > tail) is
+ * asserted through what Play hands `setSubscribe`.
  */
 
 import { renderHook, act } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
-import { useGatedSubscription, reopenSeed } from '../useGatedSubscription';
+import { useGatedSubscription } from '../useGatedSubscription';
 
 let mockPageVisible = true;
 jest.mock( '@newspack-nodes/shared/hooks/usePageVisibility', () => ( {
@@ -39,39 +40,31 @@ function mount( link, view, fetchMessage ) {
 	} );
 }
 
-describe( 'reopenSeed', () => {
-	test( 'an explicit seek target wins over the resume offset', () => {
-		const link = {
-			resumePositions: () => ( { 'x.p0': { segment: 9, offset: 1 } } ),
-		};
-		expect(
-			reopenSeed( link, {
-				subscribe: [ 'x.p0' ],
-				positions: { 'x.p0': { segment: 2, offset: 3 } },
-			} )
-		).toEqual( { 'x.p0': { segment: 2, offset: 3 } } );
-	} );
-
-	test( 'a live tail resumes the SAME dir from its last offset', () => {
-		const link = {
-			resumePositions: () => ( { 'x.p0': { segment: 5, offset: 7 } } ),
-		};
-		expect(
-			reopenSeed( link, { subscribe: [ 'x.p0' ], positions: null } )
-		).toEqual( { 'x.p0': { segment: 5, offset: 7 } } );
-	} );
-
-	test( 'a CHANGED dir has no resume point, so it tails (null)', () => {
-		const link = {
-			resumePositions: () => ( { 'x.p0': { segment: 5, offset: 7 } } ),
-		};
-		expect(
-			reopenSeed( link, { subscribe: [ 'y.p0' ], positions: null } )
-		).toBeNull();
-	} );
-} );
-
 describe( 'useGatedSubscription', () => {
+	test( 'Play resumes the SAME dir from its recorded offset', () => {
+		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
+		const { result } = mount( link, { fill: jest.fn() } );
+		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
+		act( () => result.current.setPaused( true ) );
+		link.setSubscribe.mockClear();
+		act( () => result.current.setPaused( false ) );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 5, offset: 7 },
+		} );
+	} );
+
+	test( 'Play tails a CHANGED dir — the old dir’s offset never applies', () => {
+		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
+		const { result } = mount( link, { fill: jest.fn() } );
+		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
+		act( () => result.current.setPaused( true ) );
+		// Selecting another dir while paused only records the new target.
+		act( () => result.current.resubscribe( [ 'y.p0' ], null ) );
+		link.setSubscribe.mockClear();
+		act( () => result.current.setPaused( false ) );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'y.p0' ], null );
+	} );
+
 	test( 'resubscribe while active setSubscribes immediately', () => {
 		const link = fakeLink();
 		const { result } = mount( link, { fill: jest.fn() } );

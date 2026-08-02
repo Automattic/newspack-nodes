@@ -28,8 +28,6 @@ import {
 // Poll cadence; >1000 so the Router hitchhike throttles rather than every tick.
 const POLL_INTERVAL_MS = 10000;
 
-export { CATALOG_NODE };
-
 export function useTopologyCatalog() {
 	const [ attachEpoch, setAttachEpoch ] = useState( 0 );
 	useEffect( () => {

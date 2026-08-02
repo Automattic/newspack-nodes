@@ -29,138 +29,12 @@ import {
 	TM_ERROR,
 } from '../../runtime/message';
 import { Core } from '../../runtime/core';
-import {
-	useTopologyManager,
-	STALL_PAD,
-	STALE_POLL_INTERVALS,
-	deriveHealth,
-	deriveConnected,
-} from '../hooks/useTopologyManager';
+import { useTopologyManager } from '../hooks/useTopologyManager';
 
-describe( 'deriveConnected — error flag OR poll-freshness', () => {
-	const opts = { refreshMs: 4000, pageVisible: true, now: 100000 };
-
-	it( 'is connected when neither model errored and the last poll is fresh', () => {
-		expect(
-			deriveConnected( {
-				...opts,
-				topologyError: false,
-				workerError: false,
-				lastPollMs: 100000 - 4000, // one interval ago — fresh
-			} )
-		).toBe( true );
-	} );
-
-	it( 'is disconnected when a model reports an error (last poll flag)', () => {
-		expect(
-			deriveConnected( {
-				...opts,
-				topologyError: true,
-				workerError: false,
-				lastPollMs: 100000,
-			} )
-		).toBe( false );
-	} );
-
-	it( 'is disconnected when the last poll is staler than the threshold while visible', () => {
-		// Wedged channel: no error flag, but the poll clock stopped advancing.
-		const stale = 100000 - ( STALE_POLL_INTERVALS * 4000 + 1 );
-		expect(
-			deriveConnected( {
-				...opts,
-				topologyError: false,
-				workerError: false,
-				lastPollMs: stale,
-			} )
-		).toBe( false );
-	} );
-
-	it( 'does NOT report disconnected merely because the tab is hidden (paused)', () => {
-		const stale = 100000 - ( STALE_POLL_INTERVALS * 4000 + 1 );
-		expect(
-			deriveConnected( {
-				...opts,
-				pageVisible: false,
-				topologyError: false,
-				workerError: false,
-				lastPollMs: stale,
-			} )
-		).toBe( true );
-	} );
-
-	it( 'treats a never-polled clock (0) as not-yet-stale while visible', () => {
-		// Pre-first-poll clock is 0; don't flash "disconnected" prematurely.
-		expect(
-			deriveConnected( {
-				...opts,
-				topologyError: false,
-				workerError: false,
-				lastPollMs: 0,
-			} )
-		).toBe( true );
-	} );
-} );
-
-describe( 'deriveHealth — eta-aware behind', () => {
-	const sect = ( workers ) => ( { workers, heartbeatIntervalS: 10 } );
-
-	it( 'returns ok + eta 0 for no section', () => {
-		expect( deriveHealth( null ) ).toEqual( {
-			partitions: [],
-			health: 'ok',
-			etaSeconds: 0,
-		} );
-	} );
-
-	it( 'does NOT count a sub-minute ETA as behind', () => {
-		// behind 100B at 10 B/s = 10s ETA → caught up enough; health stays ok.
-		const r = deriveHealth(
-			sect( [
-				{ partition: 0, heartbeat_age: 5, behind: 100, read_rate: 10 },
-			] )
-		);
-		expect( r.health ).toBe( 'ok' );
-		expect( r.etaSeconds ).toBe( 10 );
-	} );
-
-	it( 'counts a >=1min ETA as behind and reports the worst eta', () => {
-		const r = deriveHealth(
-			sect( [
-				{ partition: 0, heartbeat_age: 5, behind: 6000, read_rate: 10 },
-			] )
-		);
-		expect( r.health ).toBe( 'behind' );
-		expect( r.etaSeconds ).toBe( 600 );
-	} );
-
-	it( 'counts lag with no read progress (rate 0) as behind (Infinity eta)', () => {
-		const r = deriveHealth(
-			sect( [
-				{ partition: 0, heartbeat_age: 5, behind: 4096, read_rate: 0 },
-			] )
-		);
-		expect( r.health ).toBe( 'behind' );
-		expect( r.etaSeconds ).toBe( Infinity );
-	} );
-
-	it( 'heartbeat stall outranks behind', () => {
-		const r = deriveHealth(
-			sect( [
-				{
-					partition: 0,
-					heartbeat_age: 40,
-					behind: 6000,
-					read_rate: 10,
-				},
-			] )
-		);
-		expect( r.health ).toBe( 'stalled' );
-	} );
-} );
-
+let mockPageVisible = true;
 jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	__esModule: true,
-	default: () => true,
+	default: () => mockPageVisible,
 } ) );
 
 // Recording CommandClient double: postBatch records sends, resolves replies.
@@ -260,9 +134,26 @@ function buildClient() {
 	} );
 }
 
+// Answers the FIRST poll, then wedges: later polls never reply at all.
+function wedgingClient() {
+	const { client } = buildClient();
+	let answered = false;
+	return {
+		buildMessage: client.buildMessage,
+		postBatch: ( messages ) => {
+			if ( answered ) {
+				return Promise.resolve( [] );
+			}
+			answered = true;
+			return client.postBatch( messages );
+		},
+	};
+}
+
 beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
+	mockPageVisible = true;
 } );
 
 describe( 'useTopologyManager', () => {
@@ -506,26 +397,13 @@ describe( 'useTopologyManager', () => {
 		expect( result.current ).toHaveProperty( 'connected' );
 	} );
 
-	it( 'goes disconnected when the channel wedges (no reply past the staleness threshold)', async () => {
+	it( 'goes disconnected when the channel wedges past three poll intervals', async () => {
 		// Fake timers drive the poll interval AND Date.now, aging the clock.
 		jest.useFakeTimers();
 		try {
-			// Answers the FIRST poll, then wedges: later polls never reply.
-			const fresh = buildClient();
-			let answered = false;
-			const wedging = {
-				buildMessage: fresh.client.buildMessage,
-				postBatch: ( messages ) => {
-					if ( answered ) {
-						return Promise.resolve( [] );
-					}
-					answered = true;
-					return fresh.client.postBatch( messages );
-				},
-			};
-			const { result } = renderHook( () =>
+			const { result, rerender } = renderHook( () =>
 				useTopologyManager( {
-					commandClient: wedging,
+					commandClient: wedgingClient(),
 					refreshMs: 4000,
 				} )
 			);
@@ -533,14 +411,64 @@ describe( 'useTopologyManager', () => {
 			// First poll succeeded → connected.
 			expect( result.current.connected ).toBe( true );
 
-			// Age past the threshold; re-derive against the frozen clock.
-			await act( async () => {
-				jest.advanceTimersByTime( STALE_POLL_INTERVALS * 4000 + 5000 );
-			} );
+			// Under 3 × 4000ms of silence is still fresh…
+			await act( async () => jest.advanceTimersByTime( 11000 ) );
+			rerender();
+			expect( result.current.connected ).toBe( true );
+
+			// …past it, the wedged channel reads as disconnected.
+			await act( async () => jest.advanceTimersByTime( 2000 ) );
+			rerender();
 			expect( result.current.connected ).toBe( false );
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+
+	it( 'stays connected while a hidden tab ages the clock (polling is paused)', async () => {
+		jest.useFakeTimers();
+		try {
+			const { result, rerender } = renderHook( () =>
+				useTopologyManager( {
+					commandClient: wedgingClient(),
+					refreshMs: 4000,
+				} )
+			);
+			await act( async () => {} );
+
+			// Hidden: the same silence that wedges a visible tab is expected.
+			mockPageVisible = false;
+			await act( async () => jest.advanceTimersByTime( 13000 ) );
+			rerender();
+			expect( result.current.connected ).toBe( true );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'reports disconnected when a poll reply comes back TM_ERROR', async () => {
+		const { client } = makeRecordingClient(
+			{
+				dump_graph: DUMP_GRAPH,
+				list: { message: 'topologies unavailable' },
+			},
+			new Set( [ 'list' ] )
+		);
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+		expect( result.current.connected ).toBe( false );
+	} );
+
+	it( 'does not flash disconnected before the very first poll lands', async () => {
+		const { client } = buildClient();
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		// Nothing has polled yet; the never-stamped clock is not "stale".
+		expect( result.current.connected ).toBe( true );
+		await act( async () => {} );
 	} );
 
 	it( 'stays connected while replies keep arriving (fresh polls)', async () => {
@@ -553,8 +481,13 @@ describe( 'useTopologyManager', () => {
 	} );
 } );
 
-// LEAN dump_graph client: per-partition liveness + probe rows to workers.
-function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
+// LEAN dump_graph payload: per-partition liveness + probe rows to workers.
+function healthDump( {
+	workers,
+	heartbeatIntervalS = 10,
+	currentTime,
+	cursorOffset = 0,
+} ) {
 	const dump = {
 		// Liveness only — heartbeat_age + status per (type, partition).
 		workers: workers.map( ( w ) => ( {
@@ -574,7 +507,7 @@ function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 			source: `a.p${ w.partition }`,
 			partition: w.partition,
 			cursor_segment: 0,
-			cursor_offset: 0,
+			cursor_offset: cursorOffset,
 			end_segment: 0,
 			end_size: 0,
 			distance: w.behind,
@@ -610,13 +543,22 @@ function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
 	if ( currentTime !== undefined ) {
 		dump.timestamp = currentTime;
 	}
-	const topologies = {
-		topologies: [
-			{ name: 'a', source: 'stock', active: true, num_partitions: 2 },
-		],
-		user_dir: '/tmp/topologies',
-	};
-	return makeRecordingClient( { dump_graph: dump, list: topologies } );
+	return dump;
+}
+
+const TOPOLOGY_A_LIST = {
+	topologies: [
+		{ name: 'a', source: 'stock', active: true, num_partitions: 2 },
+	],
+	user_dir: '/tmp/topologies',
+};
+
+// Single-poll client over the lean dump: read_rate has no delta yet, so 0.
+function healthClient( opts ) {
+	return makeRecordingClient( {
+		dump_graph: healthDump( opts ),
+		list: TOPOLOGY_A_LIST,
+	} );
 }
 
 // A lean per-partition fixture: liveness (status/heartbeat_age) + probe behind.
@@ -631,25 +573,54 @@ function worker( partition, { heartbeatAge, behind, status = 'running' } ) {
 	};
 }
 
-describe( 'useTopologyManager — partition stall + rolled-up health', () => {
-	it( 'exports STALL_PAD = 3', () => {
-		expect( STALL_PAD ).toBe( 3 );
-	} );
+// Poll once with the lean dump; return topology `a`'s merged row.
+async function pollHealth( opts ) {
+	const { client } = healthClient( opts );
+	const { result } = renderHook( () =>
+		useTopologyManager( { commandClient: client } )
+	);
+	await act( async () => {} );
+	return result.current.topologies.find( ( t ) => 'a' === t.name );
+}
 
-	it( 'flags a partition stalled when heartbeat_age exceeds interval × STALL_PAD', async () => {
-		const { client } = healthClient( {
+/**
+ * Poll TWICE with an advancing cursor and clock, so the transform has a real
+ * read-rate delta to hand the health roll-up: 500 bytes over 50s = 10 B/s.
+ * A single poll can only ever produce rate 0 (nothing to delta against).
+ *
+ * @param {Array} workers Lean per-partition fixtures.
+ * @return {Object} Topology `a`'s merged row after the second poll.
+ */
+async function pollHealthAtTenBytesPerSecond( workers ) {
+	const payloads = {
+		dump_graph: healthDump( { workers, currentTime: 1000 } ),
+		list: TOPOLOGY_A_LIST,
+	};
+	const { client } = makeRecordingClient( payloads );
+	const { result } = renderHook( () =>
+		useTopologyManager( { commandClient: client } )
+	);
+	await act( async () => {} );
+	payloads.dump_graph = healthDump( {
+		workers,
+		currentTime: 1050,
+		cursorOffset: 500,
+	} );
+	await act( async () => {
+		Core.node( '_router' ).fireCb();
+	} );
+	return result.current.topologies.find( ( t ) => 'a' === t.name );
+}
+
+describe( 'useTopologyManager — partition stall + rolled-up health', () => {
+	it( 'stalls a partition only past heartbeat interval × 3', async () => {
+		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [
-				worker( 0, { heartbeatAge: 5, behind: 0 } ),
-				worker( 1, { heartbeatAge: 40, behind: 0 } ),
+				worker( 0, { heartbeatAge: 29, behind: 0 } ),
+				worker( 1, { heartbeatAge: 31, behind: 0 } ),
 			],
 		} );
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-
-		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
 		const byPart = Object.fromEntries(
 			row.partitions.map( ( p ) => [ p.partition, p ] )
 		);
@@ -659,51 +630,76 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 	} );
 
 	it( 'rolls up to health=behind when no partition stalled but a consumer is behind', async () => {
-		const { client } = healthClient( {
+		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [
 				worker( 0, { heartbeatAge: 5, behind: 0 } ),
 				worker( 1, { heartbeatAge: 5, behind: 4096 } ),
 			],
 		} );
+		expect( row.partitions.every( ( p ) => ! p.stalled ) ).toBe( true );
+		expect( row.health ).toBe( 'behind' );
+		// No read progress at all — the catch-up ETA never arrives.
+		expect( row.etaSeconds ).toBe( Infinity );
+	} );
+
+	it( 'lets a heartbeat stall outrank a behind consumer', async () => {
+		const row = await pollHealth( {
+			heartbeatIntervalS: 10,
+			workers: [ worker( 0, { heartbeatAge: 40, behind: 4096 } ) ],
+		} );
+		expect( row.health ).toBe( 'stalled' );
+	} );
+
+	it( 'does NOT count a sub-minute catch-up ETA as behind', async () => {
+		// 100 bytes behind at 10 B/s = a 10s ETA — caught up enough.
+		const row = await pollHealthAtTenBytesPerSecond( [
+			worker( 0, { heartbeatAge: 5, behind: 100 } ),
+		] );
+		expect( row.health ).toBe( 'ok' );
+		expect( row.etaSeconds ).toBe( 10 );
+	} );
+
+	it( 'counts a >=1min ETA as behind and reports the WORST partition eta', async () => {
+		const row = await pollHealthAtTenBytesPerSecond( [
+			worker( 0, { heartbeatAge: 5, behind: 100 } ),
+			worker( 1, { heartbeatAge: 5, behind: 6000 } ),
+		] );
+		expect( row.health ).toBe( 'behind' );
+		expect( row.etaSeconds ).toBe( 600 );
+	} );
+
+	it( 'gives an inactive topology no partitions, health ok, and eta 0', async () => {
+		const { client } = buildClient();
 		const { result } = renderHook( () =>
 			useTopologyManager( { commandClient: client } )
 		);
 		await act( async () => {} );
 
-		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
-		expect( row.partitions.every( ( p ) => ! p.stalled ) ).toBe( true );
-		expect( row.health ).toBe( 'behind' );
+		const row = result.current.topologies.find( ( t ) => 'b' === t.name );
+		expect( row.status ).toBeNull();
+		expect( row.partitions ).toEqual( [] );
+		expect( row.health ).toBe( 'ok' );
+		expect( row.etaSeconds ).toBe( 0 );
 	} );
 
 	it( 'rolls up to health=ok when nothing is stalled or behind', async () => {
-		const { client } = healthClient( {
+		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [
 				worker( 0, { heartbeatAge: 5, behind: 0 } ),
 				worker( 1, { heartbeatAge: 5, behind: 0 } ),
 			],
 		} );
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-
-		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
 		expect( row.health ).toBe( 'ok' );
+		expect( row.etaSeconds ).toBe( 0 );
 	} );
 
 	it( 'does not flag a never-heartbeated worker (heartbeat_age null) as stalled', async () => {
-		const { client } = healthClient( {
+		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [ worker( 0, { heartbeatAge: null, behind: 0 } ) ],
 		} );
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-
-		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
 		expect( row.partitions.every( ( p ) => ! p.stalled ) ).toBe( true );
 		expect( row.health ).toBe( 'ok' );
 	} );

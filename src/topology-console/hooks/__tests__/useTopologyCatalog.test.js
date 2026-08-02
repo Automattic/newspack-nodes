@@ -10,8 +10,11 @@
 import { renderHook, act } from '@testing-library/react';
 import { Core, mountExospine } from '@newspack-nodes/runtime';
 import names from '../../../runtime/reserved-node-names.json';
-import { TopologyCatalogNode } from '../../nodes/topology-catalog-node';
-import { useTopologyCatalog, CATALOG_NODE } from '../useTopologyCatalog';
+import {
+	CATALOG_NODE,
+	TopologyCatalogNode,
+} from '../../nodes/topology-catalog-node';
+import { useTopologyCatalog } from '../useTopologyCatalog';
 import { newMessage, VALUE } from '../../../runtime/message';
 
 // Distinct from the seed below AND from the 1 fallback, so a hook stuck on the
