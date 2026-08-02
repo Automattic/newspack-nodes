@@ -16,6 +16,8 @@
 import { SseInNode } from '../sse-in-node';
 import { IoTelemetry, byteLength } from '../io-telemetry';
 import { Core } from '../core';
+import { RouterNode } from '../router-node';
+import names from '../reserved-node-names.json';
 import apiFetch from '@wordpress/api-fetch';
 import {
 	newMessage,
@@ -691,6 +693,48 @@ test( 'start() called twice closes the first EventSource before opening the seco
 
 // A half-open socket never auto-reconnects; a heartbeat watchdog forces it.
 
+// @longform
+// The watchdog is a Timer now, not a hand-rolled setInterval: it arms through
+// setTimer() and its body is fire(), so stopTimer/removeNode dispose it like
+// every other timer in the graph. Unnamed, so setTimer takes an own slot —
+// name the node and the same call hitchhikes the Router tick instead.
+test( 'the watchdog arms through setTimer, and close() stops it', () => {
+	jest.useFakeTimers();
+	try {
+		const { sse } = makeSseIn();
+		sse.start();
+
+		expect( sse.mode ).toBe( 'event_framework' );
+		expect( sse.interval_ms ).toBe( 2000 );
+
+		sse.close();
+
+		expect( sse.mode ).toBe( 'inactive' );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+// The base Timer.fire() emits a TM_BYTESTREAM timestamp down its sink. This
+// node's sink is the DATA path, where that is indistinguishable from a record.
+test( 'the watchdog tick emits nothing into the data sink', () => {
+	jest.useFakeTimers();
+	try {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		routed.length = 0;
+
+		// Ticks with the stream fresh: nothing to report, nothing to emit.
+		sse.lastEventTime = Date.now();
+		sse.fire();
+		sse.fire();
+
+		expect( routed ).toEqual( [] );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
 test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', () => {
 	jest.useFakeTimers();
 	try {
@@ -872,9 +916,14 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 test( 'removeNode() stops the watchdog and closes the stream (no reconnect after removal)', () => {
 	jest.useFakeTimers();
 	try {
+		// A NAMED SseIn is an addressable graph node, so setTimer hitchhikes
+		// the Router tick rather than taking a slot of its own.
+		const router = new RouterNode();
+		router.name = names.ROUTER;
 		const { sse } = makeSseIn();
 		sse.name = 'sse-test';
 		sse.start();
+		expect( sse.mode ).toBe( 'router' );
 		const first = FakeEventSource.last;
 		sse.removeNode();
 		expect( first.closed ).toBe( true );
