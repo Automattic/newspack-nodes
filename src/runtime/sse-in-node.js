@@ -115,9 +115,12 @@ export class SseInNode extends TimerNode {
 	 * One watchdog tick. A half-open EventSource never fires `error`, so total
 	 * silence past the heartbeat timeout is the only evidence the stream died.
 	 *
-	 * Overrides Timer's emit: the base `fire()` sends a TM_BYTESTREAM heartbeat
-	 * down its sink, and this node's sink is the DATA path — a timestamp there
-	 * would be indistinguishable from a record.
+	 * `fireCb()` keeps the scheduling — counter, throttle, oneshot — and calls
+	 * `fire()` last; a Timer subclass REPLACES `fire()` with whatever its tick
+	 * means, as Uptime mints its command and Router runs notifyTimer. So this
+	 * does not call `super.fire()`. Here that also matters concretely: the base
+	 * emits a TM_BYTESTREAM timestamp down its sink, and this node's sink is the
+	 * DATA path, where a timestamp is indistinguishable from a record.
 	 */
 	fire() {
 		const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
