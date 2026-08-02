@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-08-02
+
+### Fixed
+
+- **The Request-node holder count lives on the node.** 2.4.1 kept it in a
+  module-level Map beside Core, which `Core.reset()` does not clear — so a reset
+  left a stale count and no unmount ever removed that node again. On the node,
+  a reset discards both. Caught by event-logger-nodes' teardown test on the
+  pre-push gate, which is the point of running a sibling's suite before a push.
+
 ## [2.4.1] - 2026-08-02
 
 ### Fixed
