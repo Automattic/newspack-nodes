@@ -17,13 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extending it: the base sends a TM_BYTESTREAM timestamp down its sink, and this
   node's sink is the DATA path, where that is indistinguishable from a record.
 
-- **`setTimer()` no longer requires a name.** The Router hitchhike is name-keyed
-  (`notifyTimer` resolves each registration through `Core.node( name )`), so an
+- **`set_timer()` no longer requires a name, in BOTH twins.** The Router
+  hitchhike is name-keyed (`notify_timer` resolves each registration through
+  `Core::node()`), so an
   unnamed node could not ride it and `setTimer` threw. It now falls through to
   an own slot at the requested interval instead: named nodes hitchhike, unnamed
   ones get their own slot, same call either way. That is what lets the SSE
   watchdog — deliberately unnamed and unregistered, composed by RemoteLink —
-  convert without becoming addressable.
+  convert without becoming addressable. `Timer_Node::set_timer()` gets the same
+  fall-through: nothing in PHP needs it today (`SSE_In_Node` has no watchdog —
+  a wedged EventSource is a browser problem), but the twins are meant to agree,
+  and no parity test pins Timer semantics to catch the drift.
+
+  The throttle fix above is deliberately NOT ported. PHP cannot reach it: its
+  own-slot branch requires `$ms < 1000`, and even if it did, `Event_Framework`
+  sets `next_fire` from the same cached `Core::$now` that `fire_cb()` writes to
+  `last_fire_time`, so the delta can never come up short. JS was exposed because
+  `setInterval` schedules on the browser's own clock, independent of the
+  `Date.now()` behind `Core.now()`.
 
 ### Fixed
 
