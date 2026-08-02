@@ -27,6 +27,9 @@ import {
 	reservedNames as names,
 } from '@newspack-nodes/runtime';
 
+// node name → how many live hooks hold it; the last one out removes it.
+const holders = new Map();
+
 /**
  * The egress path for a CI. An empty `ci` addresses the substrate interpreter
  * itself — a builtin like `taillog`, which no service CI owns.
@@ -108,11 +111,25 @@ export default function useRequestNode( node, ci, enabled = true ) {
 			// Through `_shell`, the Tap every command routes through.
 			request.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
 		};
+		holders.set( node, ( holders.get( node ) ?? 0 ) + 1 );
 		attach();
 		const offBackbone = Core.subscribeBackboneUp( attach );
 		return () => {
 			offBackbone();
-			Core.node( node )?.removeNode();
+			// @longform
+			// Two hooks legitimately want the same concern — the console's
+			// topology seed and the canonical-node read both ask
+			// `topologies get`. The node is the concern, not this hook's
+			// copy of it, so the LAST holder out removes it; otherwise the
+			// first to unmount takes it with them and the other's next
+			// request dies "is not mounted", or its in-flight one "was
+			// removed".
+			const left = ( holders.get( node ) ?? 1 ) - 1;
+			holders.set( node, left );
+			if ( 0 === left ) {
+				holders.delete( node );
+				Core.node( node )?.removeNode();
+			}
 			teardown();
 		};
 	}, [ node, ci, enabled ] );
