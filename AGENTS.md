@@ -259,6 +259,18 @@ These are mistakes that have actually happened. Pay attention.
 - **Messages are arrays, not hashes.** Use `Message::TYPE` etc. constants for indexing. `$message['type']` silently fails (PHP coerces string to int 0 → corrupted TYPE).
 - **Pick the right `Core` coercion family — the guard is the name.** `as_string`/`as_int`/`as_float` = lenient cast (`is_scalar`; `as_int('42')`→42, `as_int(true)`→1). `num_int`/`num_float` = validated numeric cast (`is_numeric`; bools and `'12abc'` take the default — use on arithmetic paths). Bare `str`/`arr`/`int` = exact-type passthrough, NO conversion (`int('42')`→default, `str(42)`→default). All take an optional `$default`. The footgun is `int()` on a wire/JSON field that arrives as a numeric string — that wants `num_int()` or `as_int()`.
 - **FROM stamping at sources and I/O boundaries.** A node that *mints* a brand-new message stamps FROM with its own name (Shell stamps `_output/<pid>`, interpreter responses stamp `$this->name`, Timer/Tail/Consumer stamp at the I/O boundary); *pass-through* forwarders (Tee, Hook, application nodes that relay an existing message) don't re-stamp. A message flowing `firehose-in → firehose-fanout → request-builder` carries `FROM=firehose-in`, NOT `firehose-fanout/firehose-in`.
+- **A reply is already addressed — never correlate it.** A node mints a command
+  stamped `FROM = <its own name>`; the server replies `TO = FROM`, so the reply
+  lands on THAT node and its `fill()` handles it. The addressing IS the
+  correlation. Do not mint an op-id into `message[ID]`, do not keep a Promise
+  registry keyed by it, do not return a Promise from the transport, and do not
+  press `KEY` into service as a demux discriminator. "I batch N verbs per tick,
+  so I need to tell the replies apart" means you have ONE node doing N jobs —
+  make it N nodes. Batching is orthogonal: `HTTP_Out`'s lock/flush puts the
+  whole tick in one POST however many nodes minted into it. The shapes that are
+  already right: `addSliceFetcher` ("an independent reply path per slice,
+  nothing crosses"), RuntimeView's two pollers, `TopologyCatalogNode.fire()` →
+  reply → `fill()`. See [ADR-7](docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies).
 - **`stamp_message` empty-name guard.** A node with no name (mid-construction or post-rename) emitting `/from` paths breaks Router. Drop with `print_less_often` instead.
 - **Class-API must be event-loop-free.** Topic and Partition constructors run in request scope, where there is no `Event_Framework`. See [ADR-5](docs/architecture-decisions.md#adr-5-lazy-init-for-topic--partition).
 - **`hash_to_partition` is canonical.** Diverging hash families silently misroute the same key. See [ADR-6](docs/architecture-decisions.md#adr-6-crc32--31-bit-mask-partition-routing).
