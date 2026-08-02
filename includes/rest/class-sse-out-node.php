@@ -235,9 +235,9 @@ class SSE_Out_Node extends Node {
 	 *
 	 * @param array<int,string>             $subs      Subscription names.
 	 * @param array<array-key, mixed>|null  $positions Per-subscription saved positions.
-	 * @param int                      $interval  Heartbeat / flush cadence ms.
-	 * @param array{slot:int,owner:int} $lease     Acquired lease (default slot -1 = unmetered).
-	 * @param int                       $partition Slot-pool partition (-1 = shared browser).
+	 * @param int                           $interval  Heartbeat / flush cadence ms.
+	 * @param array{slot:int,owner:int}     $lease     Acquired lease (default slot -1 = unmetered).
+	 * @param int                           $partition Slot-pool partition (-1 = shared browser).
 	 *
 	 * @api Direct loop runner for tests that must not send HTTP headers or exit.
 	 */
