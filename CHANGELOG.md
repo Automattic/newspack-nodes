@@ -25,26 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ones get their own slot, same call either way. That is what lets the SSE
   watchdog — deliberately unnamed and unregistered, composed by RemoteLink —
   convert without becoming addressable. `Timer_Node::set_timer()` gets the same
-  fall-through: nothing in PHP needs it today (`SSE_In_Node` has no watchdog —
-  a wedged EventSource is a browser problem), but the twins are meant to agree,
-  and no parity test pins Timer semantics to catch the drift.
+  fall-through, so an unnamed PHP node can ask for 2000 too. No parity test
+  pins Timer semantics, so the drift would not have gone red anywhere.
 
-  The throttle fix above is deliberately NOT ported. PHP cannot reach it: its
-  own-slot branch requires `$ms < 1000`, and even if it did, `Event_Framework`
-  sets `next_fire` from the same cached `Core::$now` that `fire_cb()` writes to
-  `last_fire_time`, so the delta can never come up short. JS was exposed because
-  `setInterval` schedules on the browser's own clock, independent of the
-  `Date.now()` behind `Core.now()`.
+  The throttle fix below is ported with it, because the two are one change: an
+  unnamed node asking for 2000 is worthless if the gate then eats its ticks.
 
 ### Fixed
 
-- **`fireCb()` no longer re-throttles an own-slot timer.** The `interval_ms >
-  1000` gate paces the 1s ROUTER tick; an own slot already fires at
+- **`fireCb()` / `fire_cb()` no longer re-throttle an own-slot timer.** The
+  `interval_ms >
+ 1000` gate paces the 1s ROUTER tick; an own slot already fires at
   `interval_ms`, so gating it again dropped any tick the platform delivered
   early — a 2000ms slot arriving at 1999ms was silently skipped, halving the
   cadence for that beat. Invisible under fake timers, which advance exactly.
   Latent until now, because the unnamed-node path above is what first puts an
-  above-1000ms timer on an own slot.
+  above-1000ms timer on an own slot — in either language.
 
 ### Added
 

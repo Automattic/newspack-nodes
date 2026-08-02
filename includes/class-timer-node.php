@@ -22,7 +22,7 @@ class Timer_Node extends Node {
 	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
 	protected string $key = '';
 
-	/** Throttle clock (Core::$now seconds) for hitchhike timers with interval_ms > 1000: fire_cb() only fires once interval_ms has elapsed since this. */
+	/** Throttle clock (Core::$now seconds) for ROUTER-mode timers with interval_ms > 1000: fire_cb() only fires once interval_ms has elapsed since this. An own slot paces itself. */
 	protected float $last_fire_time = 0.0;
 
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
@@ -60,8 +60,8 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		// Hitchhike timers with interval_ms>1000 throttle here; <=1000/0 skip.
-		if ( $this->interval_ms > 1000 ) {
+		// Paces the 1s router tick; an own slot already fires at interval_ms.
+		if ( 'router' === $this->mode && $this->interval_ms > 1000 ) {
 			if ( Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
 				return;
 			}
@@ -92,7 +92,7 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
-	// No ms / >=1000 => router-hitchhike; <1000 => own slot (router self-owns).
+	// Named + (no ms | >=1000) => hitchhike; anything else => own slot.
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$router = Core::node( Node_Names::ROUTER );
 		// Unnamed takes an own slot: the hitchhike is name-keyed.

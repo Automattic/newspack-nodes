@@ -172,6 +172,30 @@ class TimerTest extends TestCase {
 		$timer->stop_timer();
 	}
 
+	/**
+	 * fire_cb's throttle paces the 1s ROUTER tick down to interval_ms. An own
+	 * slot already fires at interval_ms, so gating it again drops any tick the
+	 * scheduler delivers early — which is the whole point of letting an unnamed
+	 * node ask for 2000: it has to actually fire every 2s.
+	 */
+	public function test_own_slot_above_1000ms_is_not_re_throttled(): void {
+		$timer = new Timer_Node();
+		$timer->sink( new Capture_Sink_Node() );
+		$timer->set_timer( 2000 );
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
+
+		Core::$now = 1000.0;
+		$timer->fire_cb();
+		$first = $timer->get_fire_count();
+
+		// The next slot lands 1ms shy of the nominal 2000ms period.
+		Core::$now = 1001.999;
+		$timer->fire_cb();
+
+		$this->assertSame( $first + 1, $timer->get_fire_count() );
+		$timer->stop_timer();
+	}
+
 	public function test_unnamed_timer_with_no_interval_still_fails_loud(): void {
 		$timer = new Timer_Node();
 

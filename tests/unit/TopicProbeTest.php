@@ -188,6 +188,11 @@ class TopicProbeTest extends TestCase {
 		$probe   = new TopicProbe_Node();
 		$probe->name( '_topicprobe' );
 		$probe->sink( $capture );
+		// Arm the way production does — the gate belongs to the hitchhike, so
+		// the node has to be IN it, not merely carry a matching interval_ms.
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
+		$probe->set_timer( 15000 );
+		$this->assertSame( 'router', $probe->timer_mode() );
 
 		Core::$now = 1000;
 		$probe->fire_cb(); // due (last_fire_time 0) → emit
