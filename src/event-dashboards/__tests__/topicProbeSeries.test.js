@@ -1,30 +1,9 @@
-import {
-	topicChartSeries,
-	downsample,
-	fillModeForMetric,
-} from '../topicProbeSeries';
+import { topicChartSeries, fillModeForMetric } from '../topicProbeSeries';
 
 // Build a topicprobe:view consumers entry: keyed by reader, source + series.
 function consumer( source, series ) {
 	return { source, series };
 }
-
-describe( 'downsample', () => {
-	it( 'returns the values unchanged when already within the width', () => {
-		expect( downsample( [ 1, 2, 3 ], 8 ) ).toEqual( [ 1, 2, 3 ] );
-	} );
-
-	it( 'buckets to the target width, taking the max per bucket (spikes survive)', () => {
-		// 8 values → width 4: buckets [1,9],[2,3],[4,4],[5,8] → maxes 9,3,4,8.
-		expect( downsample( [ 1, 9, 2, 3, 4, 4, 5, 8 ], 4 ) ).toEqual( [
-			9, 3, 4, 8,
-		] );
-	} );
-
-	it( 'returns [] for empty input', () => {
-		expect( downsample( [], 4 ) ).toEqual( [] );
-	} );
-} );
 
 describe( 'fillModeForMetric', () => {
 	it( 'maps LEVEL gauges to hold/last', () => {

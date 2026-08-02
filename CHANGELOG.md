@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Dead JS the new knip gate found.** Three whole modules whose only importer
+  was their own test — `useNodeGraph`, `parseLsOutput`, `replDismissHandler` —
+  plus `currentRates` (overviewChartSeries) and `downsample` (topicProbeSeries),
+  in the same shape. Their tests go with them.
+
+- **`getExpandedIncludesCache` / `setExpandedIncludesCache`.** Every production
+  path in `useExpandedIncludes` reads and writes the module `Map` directly;
+  these accessors existed so a test could reach into it. The tests now assert
+  the observable behaviour instead — whether a second caller issues a second
+  `topologies expand` round trip — which is what the cache is FOR. Verified
+  loud: disabling the cache and no-op'ing the invalidator each fail a test.
+
+- **`__resetExpandedIncludesCacheForTests`.** Byte-identical to the production
+  `invalidateExpandedIncludes()`; both call sites now use that.
+
+- **Four dead re-exports from `topology-console/themes.js`.** The barrel
+  forwarded eight names from `shared/theme`; the console imports four. Its
+  `__tests__/themes.test.js` duplicated `shared/__tests__/theme.test.js` through
+  that barrel, so the four catalog guards it uniquely carried (both Newspack
+  skins first, CRT registered, unique slugs, every skin labelled) moved to the
+  shared test and the duplicate file is gone.
+
+  `resetSkin` STAYS in `shared/theme.js` — its docblock declares it a test seam,
+  which is the documented exception, not an oversight.
+
+### Fixed
+
+- **`useTopologyCatalog` was below the 90% JS coverage floor** (66.7%): no test
+  ever reached the branch where an interpreter exists and the node does not, so
+  the hook's entire mount-and-wire body was unexercised. Three tests cover it
+  now, each pinned by mutation — breaking the sink, the `_http/topologies`
+  target, the poll interval, or the unmount teardown fails one. Gate clean: all
+  226 files at or above 90%.
+
 ### Added
 
 - **`npm run lint:deadcode:js` — a JS dead-export gate, mirroring the PHP one.**

@@ -44,20 +44,3 @@ export function overviewChartSeries( ring ) {
 		},
 	};
 }
-
-/**
- * The latest per-second rates (the cards' "current" row), or zeros for an empty
- * ring.
- *
- * @param {Array<Array<number>>} ring IoTelemetry rate ring.
- * @return {{ msgIn: number, msgOut: number, byteIn: number, byteOut: number }} Current rates.
- */
-export function currentRates( ring ) {
-	const last = ring.length ? ring[ ring.length - 1 ] : null;
-	return {
-		msgIn: last ? last[ MSG_IN ] : 0,
-		msgOut: last ? last[ MSG_OUT ] : 0,
-		byteIn: last ? last[ BYTE_IN ] : 0,
-		byteOut: last ? last[ BYTE_OUT ] : 0,
-	};
-}
