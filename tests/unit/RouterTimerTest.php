@@ -129,6 +129,28 @@ class RouterTimerTest extends TestCase {
 	}
 
 	/**
+	 * A no-ms rider fires at the router's own cadence, and list_timers prints
+	 * interval_ms — so the value has to BE that cadence, not a 0 sentinel, or
+	 * the same node reads differently in a worker than in a browser graph.
+	 * Mirrors src/runtime/timer-node.js.
+	 */
+	public function test_no_ms_hitchhike_reports_the_router_cadence(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		// Worker_Base arms it at DEFAULT_TICK_MS; JS's RouterNode self-arms.
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
+		$this->assertSame( 1000, $router->interval_ms );
+
+		$timer = new Timer_Node();
+		$timer->name( 'rides' );
+		$timer->sink( new Capture_Sink_Node() );
+		$timer->set_timer();
+
+		$this->assertSame( $router->interval_ms, $timer->interval_ms );
+		$timer->stop_timer();
+	}
+
+	/**
 	 * An unnamed timer cannot ride the name-keyed hitchhike, so it never
 	 * registers — it takes an own slot instead (TimerTest covers that path).
 	 * With no interval to take one at, the no-arg call fails loud.

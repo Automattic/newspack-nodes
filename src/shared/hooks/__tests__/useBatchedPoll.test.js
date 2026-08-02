@@ -502,11 +502,15 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
 	} );
 
-	test( 'no intervalMs keeps the every-tick hitchhike (interval_ms 0)', async () => {
+	test( 'no intervalMs keeps the every-tick hitchhike (router cadence)', async () => {
 		renderPoll( { commandClient: makeFakeClient() } );
 		await act( async () => {} );
-		expect( Core.node( 'insights:timer' ).interval_ms ).toBe( 0 );
-		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
+		const timer = Core.node( 'insights:timer' );
+		expect( timer.mode ).toBe( 'router' );
+		// Adopts the router's own cadence, which is never > 1000, so fireCb's
+		// throttle stays out of the way and the poll runs on every tick.
+		expect( timer.interval_ms ).toBe( Core.node( '_router' ).interval_ms );
+		expect( timer.interval_ms ).toBeLessThanOrEqual( 1000 );
 	} );
 } );
 

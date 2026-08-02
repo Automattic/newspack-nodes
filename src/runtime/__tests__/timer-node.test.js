@@ -313,7 +313,26 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		t.stopTimer();
 	} );
 
-	test( 'no-ms hitchhike still fires every tick (interval_ms = 0, no throttle)', () => {
+	// PHP: `$this->interval_ms = null === $ms ? $router->interval_ms : $ms;`
+	// A no-ms rider genuinely fires at the router cadence, and list_timers
+	// prints interval_ms — so reporting 0 here made the same node read
+	// differently in a browser graph than in a worker.
+	test( 'a no-ms hitchhike reports the router cadence, matching PHP', () => {
+		const r = new RouterNode();
+		r.name = names.ROUTER;
+		expect( r.interval_ms ).toBe( 1000 );
+
+		const t = new TimerNode();
+		t.name = 'rides';
+		t.sink = { fill: () => {} };
+		t.setTimer();
+
+		expect( t.interval_ms ).toBe( 1000 );
+		t.stopTimer();
+		r.stopTimer();
+	} );
+
+	test( 'no-ms hitchhike fires every tick — the cadence is never > 1000, so no throttle', () => {
 		const r = makeRouter();
 		const t = new TimerNode();
 		t.name = 'every-tick';

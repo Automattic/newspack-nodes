@@ -120,7 +120,8 @@ export class TimerNode extends Node {
 				this.stopTimer();
 			}
 			router.register( 'TIMER', this.name );
-			this.interval_ms = null === ms ? 0 : ms;
+			// No ms = the router's own cadence; list_timers prints this.
+			this.interval_ms = null === ms ? router.interval_ms : ms;
 			this.lastFireTime = 0;
 			this.mode = 'router';
 			// After the mode-switch stopTimer above, which resets the flag.
