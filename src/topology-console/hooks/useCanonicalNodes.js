@@ -42,7 +42,7 @@ export function driftNodeIds( nodes, canonical ) {
  * @return {Set<string>} Canonical node names from the topology's `.tsl`.
  */
 export function useCanonicalNodes( topology ) {
-	const fetchTopology = useTopology();
+	const fetchTopology = useTopology( { enabled: !! topology } );
 	const [ names, setNames ] = useState( () => new Set() );
 
 	useEffect( () => {

@@ -4,6 +4,7 @@ import { TeeNode } from './tee-node';
 import { TapNode } from './tap-node';
 import { EchoNode } from './echo-node';
 import { FetcherNode } from './fetcher-node';
+import { RequestNode } from './request-node';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
 import { dumpMetadataPayload, MetadataNode } from './metadata-node';
@@ -1428,6 +1429,7 @@ CommandInterpreterNode.includeNodes = {
 	Dumper: DumperNode,
 	Echo: EchoNode,
 	Fetcher: FetcherNode,
+	Request: RequestNode,
 	Heartbeat: HeartbeatNode,
 	HttpOut: HttpOutNode,
 	Metadata: MetadataNode,

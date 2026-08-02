@@ -23,8 +23,9 @@ import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
-import { getCommandClient } from '../utils/commandClient';
+import { getCommandClient } from '@newspack-nodes/shared/utils/commandClient';
 import { useTopology } from './useTopologyList';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { parseTsl } from '../utils/parseTsl';
 import {
 	fetchExpandedIncludes,
@@ -78,7 +79,9 @@ export function useConsoleGraph( {
 	const generation = useGraphGeneration();
 
 	// Direct `topologies get` for the mount TSL seed; stable identity.
-	const fetchTopologyTsl = useTopology();
+	const fetchTopologyTsl = useTopology( { enabled } );
+	// fetchExpandedIncludes below borrows this node; mount it for that call.
+	useRequestNode( 'topologies:expand', 'topologies', enabled );
 
 	// Stash debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
@@ -86,6 +89,18 @@ export function useConsoleGraph( {
 
 	// Stable key over the worker list; the effect rebuilds RemoteIpc on change.
 	const workersKey = workers.join( ',' );
+
+	// @longform
+	// The backbone is the PAGE's, not the stream's: it stands for as long as
+	// the console is mounted, and only a graph-generation bump replaces it.
+	// Edit mode stops the stream and drops every view node, but a save, a
+	// delete and an include expansion all happen in edit mode — tearing the
+	// interpreter down under them left their commands sinking into a removed
+	// node, silently.
+	useEffect( () => {
+		const { teardown } = mountExospine();
+		return teardown;
+	}, [ generation ] );
 
 	useEffect( () => {
 		if ( ! enabled ) {
@@ -273,7 +288,7 @@ export function useConsoleGraph( {
 				remote.removeNode();
 			}
 			cwdNode.removeNode();
-			// Backbone last: stops router TIMER, removes interpreter/router.
+			// The backbone effect above owns the spine; this is a no-op.
 			teardownSpine();
 			setSsePid( null );
 			setShell( null );

@@ -70,8 +70,7 @@ import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from './core/dispatchLocalCommand';
-import { getCommandClient } from './utils/commandClient';
-import unwrapCommandResponse from './utils/unwrapCommandResponse';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { scopeFromCwd } from './utils/scope';
 import { Core } from '../runtime/core';
 import { TO, applyComposeFields } from '../runtime/message';
@@ -1607,6 +1606,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
+	const activate = useRequestNode( 'topologies:activate', 'topologies' );
 	const confirmActivate = useCallback( async () => {
 		const name = activateModal?.name;
 		setActivateModal( null );
@@ -1614,13 +1614,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			return;
 		}
 		try {
-			unwrapCommandResponse(
-				await getCommandClient().send( {
-					to: 'topologies',
-					verb: 'activate',
-					args: formatCommandArgs( [ name ] ),
-				} )
-			);
+			await activate( 'activate', formatCommandArgs( [ name ] ) );
 			reloadCatalog();
 			setToast( {
 				kind: 'success',
@@ -1637,7 +1631,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				__( 'Activate failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
-	}, [ activateModal, reloadCatalog ] );
+	}, [ activate, activateModal, reloadCatalog ] );
 
 	useEffect( () => {
 		if ( ! toast ) {

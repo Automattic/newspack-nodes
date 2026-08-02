@@ -1,36 +1,34 @@
 /**
- * Tests for useClassCatalog — lazy single-fetch of the substrate class
- * catalog for the topology console palette.
+ * useClassCatalog — lazy single fetch of the substrate class catalog for the
+ * console palette, minted from its own `classes:list` Request node.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { renewSession } from '@newspack-nodes/runtime';
+import { Core, renewSession, VALUE } from '@newspack-nodes/runtime';
+import {
+	installFakeCommandWire,
+	makeFakeCommandWire,
+} from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useClassCatalog } from '../useClassCatalog';
 
-jest.mock( '../../utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../utils/unwrapCommandResponse', () => jest.fn() );
+// Distinct from every default so a wrong-field read fails rather than coincides.
+const CATALOG = { classes: [ 'Echo', 'Tee' ], formatters: [ 'Plain' ] };
 
-const { getCommandClient } = require( '../../utils/commandClient' );
-const unwrapCommandResponse = require( '../../utils/unwrapCommandResponse' );
+let replyFor;
+
+beforeEach( () => {
+	Core.reset();
+	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	replyFor = jest.fn( () => CATALOG );
+	installFakeCommandWire( ( m ) => replyFor( m ) );
+} );
 
 describe( 'useClassCatalog', () => {
-	let send;
-	beforeEach( () => {
-		send = jest.fn().mockResolvedValue( [ 'fake', 'message' ] );
-		getCommandClient.mockReturnValue( { send } );
-		unwrapCommandResponse.mockReturnValue( {
-			classes: [ 'Echo', 'Tee' ],
-			formatters: [ 'Plain' ],
-		} );
-	} );
-
 	// The overnight-tab bug: the catalog loaded once, the session died an hour
 	// later, and nothing ever asked again. A refused load must re-establish
 	// itself when the auth generation moves — without a remount.
 	it( 're-establishes the catalog after an auth invalidation', async () => {
-		send.mockRejectedValueOnce( new Error( 'refused-4471' ) );
+		replyFor.mockImplementationOnce( () => new Error( 'refused-4471' ) );
 
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
@@ -42,15 +40,18 @@ describe( 'useClassCatalog', () => {
 			renewSession();
 		} );
 
-		await waitFor( () =>
-			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
+		// The generation change is noticed on the reconcile tick (1s), then
+		// the round trip runs — past waitFor's 1s default.
+		await waitFor(
+			() => expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] ),
+			{ timeout: 4000 }
 		);
 	} );
 
 	// A failure used to be memoised forever, so even an explicit retry got the
 	// same rejected promise back.
 	it( 'does not cache a failure permanently', async () => {
-		send.mockRejectedValueOnce( new Error( 'refused-8823' ) );
+		replyFor.mockImplementationOnce( () => new Error( 'refused-8823' ) );
 
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
@@ -73,7 +74,7 @@ describe( 'useClassCatalog', () => {
 			error: null,
 			load: expect.any( Function ),
 		} );
-		expect( send ).not.toHaveBeenCalled();
+		expect( replyFor ).not.toHaveBeenCalled();
 	} );
 
 	it( 'fetches classes.list when enabled flips true', async () => {
@@ -81,17 +82,15 @@ describe( 'useClassCatalog', () => {
 			( { enabled } ) => useClassCatalog( { enabled } ),
 			{ initialProps: { enabled: false } }
 		);
-		expect( send ).not.toHaveBeenCalled();
+		expect( replyFor ).not.toHaveBeenCalled();
 		rerender( { enabled: true } );
+
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
-		expect( send ).toHaveBeenCalledWith( { to: 'classes', verb: 'list' } );
+		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].name ).toBe( 'list' );
 		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
 		expect( result.current.formatters ).toEqual( [ 'Plain' ] );
-		await expect( result.current.load() ).resolves.toEqual( {
-			classes: [ 'Echo', 'Tee' ],
-			formatters: [ 'Plain' ],
-		} );
-		expect( send ).toHaveBeenCalledTimes( 1 );
+		await expect( result.current.load() ).resolves.toEqual( CATALOG );
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'only fetches once even if enabled flips off and back on', async () => {
@@ -100,14 +99,14 @@ describe( 'useClassCatalog', () => {
 			{ initialProps: { enabled: true } }
 		);
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
-		expect( send ).toHaveBeenCalledTimes( 1 );
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 		rerender( { enabled: false } );
 		rerender( { enabled: true } );
-		expect( send ).toHaveBeenCalledTimes( 1 );
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	it( 'captures send-side errors into state.error', async () => {
-		send.mockRejectedValue( new Error( 'network down' ) );
+	it( 'captures verb errors into state.error', async () => {
+		replyFor.mockImplementation( () => new Error( 'network down' ) );
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
 		);
@@ -117,7 +116,7 @@ describe( 'useClassCatalog', () => {
 	} );
 
 	it( 'rejects a malformed payload instead of treating every class as regular', async () => {
-		unwrapCommandResponse.mockReturnValue( null );
+		replyFor.mockImplementation( () => null );
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
 		);
@@ -130,11 +129,13 @@ describe( 'useClassCatalog', () => {
 	} );
 
 	it( 'sets loading true during the in-flight fetch', async () => {
-		let resolveSend;
-		send.mockImplementation(
-			() =>
+		// Hold the wire open, then let the real reply through on release.
+		const wire = makeFakeCommandWire( ( m ) => replyFor( m ) );
+		let release;
+		global.fetch = jest.fn(
+			( ...args ) =>
 				new Promise( ( resolve ) => {
-					resolveSend = resolve;
+					release = () => resolve( wire( ...args ) );
 				} )
 		);
 		const { result } = renderHook( () =>
@@ -142,7 +143,7 @@ describe( 'useClassCatalog', () => {
 		);
 		await waitFor( () => expect( result.current.loading ).toBe( true ) );
 		await act( async () => {
-			resolveSend( [] );
+			release();
 		} );
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
 	} );

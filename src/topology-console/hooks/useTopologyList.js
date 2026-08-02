@@ -7,23 +7,19 @@
 import { useCallback, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { getCommandClient } from '../utils/commandClient';
-import unwrapCommandResponse from '../utils/unwrapCommandResponse';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
 export function useTopologyList( { enabled = false } = {} ) {
 	const [ topologies, setTopologies ] = useState( [] );
 	const [ userDir, setUserDir ] = useState( '' );
 	const [ reloadKey, setReloadKey ] = useState( 0 );
+	const request = useRequestNode( 'topologies:list', 'topologies' );
 
 	const load = useCallback( async () => {
-		const message = await getCommandClient().send( {
-			to: 'topologies',
-			verb: 'list',
-		} );
-		const body = unwrapCommandResponse( message );
+		const body = await request( 'list' );
 		setTopologies( body?.topologies || [] );
 		setUserDir( body?.user_dir || '' );
-	}, [] );
+	}, [ request ] );
 
 	const { settled, error } = useReconcile( {
 		load,
@@ -45,14 +41,15 @@ export function useTopologyList( { enabled = false } = {} ) {
 /**
  * useTopology — fetch a single topology's TSL body by name. Returns
  * an `open(name)` callback that resolves to { name, source, tsl }.
+ *
+ * @param {Object}  [o]         Options.
+ * @param {boolean} [o.enabled] False leaves the Request node unmounted.
+ * @return {Function} `( name ) => Promise<{name, source, tsl}>`.
  */
-export function useTopology() {
-	return useCallback( async ( name ) => {
-		const message = await getCommandClient().send( {
-			to: 'topologies',
-			verb: 'get',
-			args: formatCommandArgs( [ name ] ),
-		} );
-		return unwrapCommandResponse( message );
-	}, [] );
+export function useTopology( { enabled = true } = {} ) {
+	const request = useRequestNode( 'topologies:get', 'topologies', enabled );
+	return useCallback(
+		( name ) => request( 'get', formatCommandArgs( [ name ] ) ),
+		[ request ]
+	);
 }

@@ -1,0 +1,111 @@
+/**
+ * makeFakeCommandWire — a `global.fetch` double for the `/command` endpoint.
+ *
+ * The seam is the wire, not the client: a graph under test packs its batch,
+ * POSTs it, and gets JSONL back, so pack/unpack, HttpOut, the router and the
+ * interpreter all run for real. Replies come back the way the server sends
+ * them — `TO = FROM`, addressed at the node that minted the command — which is
+ * the routing the hooks under test depend on.
+ *
+ *   global.fetch = makeFakeCommandWire( ( m ) =>
+ *       'list' === m[ VALUE ].name ? { topologies: [] } : null
+ *   );
+ *
+ * `replyFor` returns the reply payload, an `Error` to answer TM_ERROR, or
+ * `undefined` for a command the server routes onward without replying.
+ */
+
+/* eslint-env jest */
+import {
+	ensureSession,
+	__setAuthFetch,
+	newMessage,
+	pack,
+	unpack,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+} from '@newspack-nodes/runtime';
+
+/**
+ * Answer a batch of command Messages the way the server would.
+ *
+ * Shared with `makeFakeCommandWire` so a test that captures at the HttpOut
+ * client seam produces the same replies as one that captures at the wire.
+ *
+ * @param {Array<Array>} messages Posted command Messages.
+ * @param {Function}     replyFor Maps one to its reply payload.
+ * @return {Promise<Array<Array>>} Reply Messages, addressed TO = FROM.
+ */
+export async function answerBatch( messages, replyFor ) {
+	const replies = [];
+	for ( const sent of messages ) {
+		// Awaited, so a replyFor that resolves a payload works unchanged.
+		const answer = await replyFor( sent );
+		// undefined = the server said nothing; a 202-style routed command.
+		if ( undefined === answer ) {
+			continue;
+		}
+		const reply = newMessage();
+		const failed = answer instanceof Error;
+		reply[ TYPE ] = TM_COMMAND | ( failed ? TM_ERROR : TM_RESPONSE );
+		reply[ TO ] = sent[ FROM ];
+		reply[ VALUE ] = {
+			name: sent[ VALUE ]?.name,
+			payload: failed ? answer.message : answer,
+		};
+		replies.push( reply );
+	}
+	return replies;
+}
+
+/**
+ * @param {Function} replyFor Maps a posted command Message to its reply payload.
+ * @return {Function} A `fetch` implementation answering `/command`.
+ */
+export function makeFakeCommandWire( replyFor ) {
+	return jest.fn( async ( url, init ) => {
+		const sent = String( init?.body ?? '' )
+			.split( '\n' )
+			.filter( ( line ) => '' !== line.trim() )
+			.map( ( line ) => unpack( line ) );
+		const replies = await answerBatch( sent, replyFor );
+		return {
+			ok: true,
+			status: 200,
+			text: () =>
+				Promise.resolve(
+					replies.map( ( m ) => pack( m ) ).join( '\n' )
+				),
+		};
+	} );
+}
+
+/**
+ * Install the wire AND a session, so the graph signs and mints for real.
+ *
+ * Without a session `Node.command()` returns null and every mint is refused —
+ * which in a test reads as a mysterious "not authenticated" rather than as the
+ * missing /auth stub it is.
+ *
+ * @param {Function} replyFor Maps a posted command Message to its reply payload.
+ * @return {Function} The installed `global.fetch`.
+ */
+export function installFakeCommandWire( replyFor ) {
+	__setAuthFetch( async () => ( {
+		handle: 'test-handle',
+		key: 'test-key',
+		expires_in: 3600,
+	} ) );
+	// @longform
+	// Kicked, not forgotten: the session is module state that outlives a
+	// test, and dropping it would make the first mint of every test race
+	// /auth. Callers that WANT the pre-auth state call forgetSession().
+	void ensureSession();
+	global.fetch = makeFakeCommandWire( replyFor );
+	return global.fetch;
+}
