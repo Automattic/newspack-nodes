@@ -128,15 +128,29 @@ class RouterTimerTest extends TestCase {
 		$this->assertEmpty( $plain->captured, 'a non-Timer node must not be driven by notify_timer' );
 	}
 
-	public function test_set_timer_no_args_throws_when_timer_has_no_name(): void {
+	/**
+	 * An unnamed timer cannot ride the name-keyed hitchhike, so it never
+	 * registers — it takes an own slot instead (TimerTest covers that path).
+	 * With no interval to take one at, the no-arg call fails loud.
+	 */
+	public function test_set_timer_no_args_on_unnamed_timer_never_registers(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$timer = new Timer_Node(); // no name() call
 
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'Router-hitchhike requires Timer to have a name' );
-		$timer->set_timer();
+		try {
+			$timer->set_timer();
+			$this->fail( 'expected the own-slot interval guard to throw' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString(
+				'Own-slot timer requires an interval (ms)',
+				$e->getMessage()
+			);
+		}
+
+		$router->notify_timer();
+		$this->assertSame( 0, $timer->get_fire_count(), 'never joined the tick' );
 	}
 
 	public function test_set_timer_no_args_throws_when_no_router_present(): void {

@@ -95,10 +95,8 @@ class Timer_Node extends Node {
 	// No ms / >=1000 => router-hitchhike; <1000 => own slot (router self-owns).
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$router = Core::node( Node_Names::ROUTER );
-		if ( ( null === $ms || $ms >= 1000 ) && $router !== $this ) {
-			if ( '' === $this->name ) {
-				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
-			}
+		// Unnamed takes an own slot: the hitchhike is name-keyed.
+		if ( ( null === $ms || $ms >= 1000 ) && '' !== $this->name && $router !== $this ) {
 			if ( ! $router instanceof self ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}

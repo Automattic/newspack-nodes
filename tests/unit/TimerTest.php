@@ -149,11 +149,34 @@ class TimerTest extends TestCase {
 		$this->assertSame( 'inactive', $timer->timer_mode() );
 	}
 
-	public function test_router_hitchhike_requires_named_timer(): void {
+	/**
+	 * The hitchhike is name-keyed — Router::notify_timer resolves each
+	 * registration through Core::node() — so an unnamed node cannot ride it.
+	 * It takes an own slot at the interval asked for rather than failing:
+	 * a private child (the JS SSE watchdog) is deliberately unregistered.
+	 */
+	public function test_unnamed_timer_takes_an_own_slot_at_the_asked_interval(): void {
+		$router = new Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$timer = new Timer_Node();
+
+		// 2000 is distinct from the 0 default AND the router's own 1000, so a
+		// slot that ignored the argument or inherited the tick would fail here.
+		$timer->set_timer( 2000 );
+
+		$this->assertSame( 'event_framework', $timer->timer_mode() );
+		$this->assertSame( 2000, $timer->interval_ms );
+		// Seeded by Event_Framework::set_timer — proof the own-slot path ran,
+		// not the hitchhike, which leaves next_fire at 0.0.
+		$this->assertGreaterThan( 0.0, $timer->next_fire );
+		$timer->stop_timer();
+	}
+
+	public function test_unnamed_timer_with_no_interval_still_fails_loud(): void {
 		$timer = new Timer_Node();
 
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'Router-hitchhike requires Timer to have a name' );
+		$this->expectExceptionMessage( 'Own-slot timer requires an interval (ms)' );
 
 		$timer->set_timer();
 	}
