@@ -2074,3 +2074,40 @@ describe( 'canonical appearance ownership', () => {
 		).toBeUndefined();
 	} );
 } );
+
+/**
+ * The shared field rule styles every bare input with padding and a border. It
+ * has to say `box-sizing` too, or `width: 100%` renders 22px wider than its
+ * container — and a container with `overflow-y: auto` (per spec `overflow-x`
+ * then computes to `auto` as well) grows a horizontal scrollbar across its
+ * whole width. The Save-topology modal did exactly that.
+ *
+ * `_buttons.scss` already sets it beside its own border and padding; the field
+ * rule is the one that omitted it.
+ */
+describe( 'shared field chrome', () => {
+	const uiStylesheet = postcss.parse( sass.compile( UI_ENTRY ).css, {
+		from: UI_ENTRY,
+	} );
+
+	it( 'gives bare fields border-box, so width:100% cannot overflow', () => {
+		let fieldRule = null;
+		uiStylesheet.walkRules( ( rule ) => {
+			if (
+				null === fieldRule &&
+				// Sass strips the attribute quotes in the compiled selector.
+				rule.selector.includes( 'input:not([type=checkbox])' )
+			) {
+				fieldRule = rule;
+			}
+		} );
+		expect( fieldRule ).not.toBeNull();
+
+		const declared = [];
+		fieldRule.walkDecls( ( decl ) => declared.push( decl.prop ) );
+		// It sets padding + border; box-sizing is what makes those safe.
+		expect( declared ).toContain( 'padding' );
+		expect( declared ).toContain( 'border' );
+		expect( declared ).toContain( 'box-sizing' );
+	} );
+} );
