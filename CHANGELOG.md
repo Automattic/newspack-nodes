@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A no-ms hitchhike reports the router's cadence, not `0`.** JS stamped
+  `interval_ms = 0` on a rider that took no interval; PHP stamped the router's
+  own (1000, armed by `Worker_Base`). The throttle read both the same way, so
+  behaviour never differed — but `list_timers` prints `interval_ms`, so the same
+  node showed INTERVAL 0 in a browser graph and 1000 in a worker. JS now takes
+  the router's value, which is also the truthful one: a no-ms rider genuinely
+  fires at the router cadence. Pinned on both sides now.
+
 - **`fireCb()` / `fire_cb()` no longer re-throttle an own-slot timer.** The
   `interval_ms >
  1000` gate paces the 1s ROUTER tick; an own slot already fires at
