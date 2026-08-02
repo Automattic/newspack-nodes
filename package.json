@@ -33,6 +33,7 @@
 		"d3": "^7.9.0"
 	},
 	"devDependencies": {
+		"@babel/parser": "^7.29.8",
 		"@babel/preset-env": "^7.29.5",
 		"@babel/preset-react": "^7.28.5",
 		"@commitlint/cli": "^20.1.0",
