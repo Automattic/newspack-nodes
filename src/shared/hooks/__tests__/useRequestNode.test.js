@@ -54,3 +54,39 @@ it( 'does not mount when disabled', () => {
 	expect( Core.node( 'topologies:save' ) ).toBeNull();
 	expect( Core.node( names.ROUTER ) ).toBeNull();
 } );
+
+// Two hooks legitimately want the same concern — the console's topology seed
+// and the canonical-node read both ask `topologies get`. Whichever unmounted
+// first used to take the node with it, and the other's next request died with
+// "is not mounted", or its in-flight one with "was removed".
+it( 'keeps the node while ANY consumer still holds it', () => {
+	const first = renderHook( () =>
+		useRequestNode( 'topologies:get', 'topologies' )
+	);
+	const second = renderHook( () =>
+		useRequestNode( 'topologies:get', 'topologies' )
+	);
+
+	first.unmount();
+	expect( Core.node( 'topologies:get' ) ).not.toBeNull();
+
+	second.unmount();
+	expect( Core.node( 'topologies:get' ) ).toBeNull();
+} );
+
+it( 'a disabled consumer does not unmount one an enabled consumer holds', () => {
+	const holder = renderHook( () =>
+		useRequestNode( 'topologies:get', 'topologies' )
+	);
+	// The console flips to edit mode: its copy goes, the read's stays.
+	const { rerender } = renderHook(
+		( { enabled } ) =>
+			useRequestNode( 'topologies:get', 'topologies', enabled ),
+		{ initialProps: { enabled: true } }
+	);
+
+	rerender( { enabled: false } );
+
+	expect( Core.node( 'topologies:get' ) ).not.toBeNull();
+	holder.unmount();
+} );

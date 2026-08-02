@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `Request` node survives while any hook still holds it.** Two hooks
+  legitimately want the same concern — the console's topology seed and the
+  canonical-node read both ask `topologies get` — and each mounted its own copy
+  under the one node name. Whichever unmounted first took the node with it, so
+  the other's next request died `topologies:get is not mounted` and its
+  in-flight one `topologies:get was removed`, both surfacing as a red toast.
+  Entering edit mode did exactly that. The node is the concern, not one hook's
+  copy of it, so the mounts are counted and the LAST holder out removes it.
+
 ## [2.4.0] - 2026-08-02
 
 ### Added
