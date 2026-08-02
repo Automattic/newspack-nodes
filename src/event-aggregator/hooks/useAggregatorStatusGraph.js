@@ -24,20 +24,21 @@
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
  * to `_http.client`); production lazily defaults to the shared CommandClient.
  *
- * Alongside the polled slices it wires ONE on-demand concern — a `aggregator:fleet`
- * result view behind its own `aggregator:fleetIn` receiver Tee — and returns a
- * `probe(id)` that POSTs the `probe` verb (deep spoke roll-up) and settles when
- * the reply lands on that view. It rides `_http` directly (unlocked between poll
- * ticks → immediate POST; during a tick it batches with the poll).
+ * Alongside the polled slices it serves the on-demand deep probe, and there the
+ * same principle decides the shape: each spoke gets its OWN `aggregator:probe:<id>`
+ * Request node. One shared node would have to tell N roll-ups apart — which is
+ * the correlator this design does not have — so it is a node each, and the reply
+ * that lands on one IS that spoke's answer. They ride `_http` directly (unlocked
+ * between poll ticks → immediate POST; during a tick they batch with the poll).
  *
- * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) + the
- * `probe(id)` dispatch; React reads each slice via its own
- * useNodeState('<slice>:view','view') and the fleet via
- * useNodeState('aggregator:fleet','view').
+ * Returns the refresh control (`setRefreshInterval` / `refreshInterval`), the
+ * `probe(id)` dispatch, and the per-spoke `probes` map it fills. React reads each
+ * polled slice via its own useNodeState('<slice>:view','view').
  */
 
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import { Core, TO, ID, formatCommandArgs } from '@newspack-nodes/runtime';
+import { formatCommandArgs } from '@newspack-nodes/runtime';
+import { ensureRequestNode } from '@newspack-nodes/shared/hooks/useRequestNode';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
@@ -46,9 +47,8 @@ import '../nodes/register';
 const SERVER = 'aggregator';
 const TARGET = `_shell/_http/${ SERVER }`;
 
-// On-demand deep-probe concern: receiver Tee + result view, keyed by server id.
-const FLEET_RECV = 'aggregator:fleetIn';
-const FLEET_VIEW = 'aggregator:fleet';
+// One on-demand probe node per spoke; the name IS the addressing.
+const PROBE_PREFIX = 'aggregator:probe';
 
 // Refresh-interval options offered to the user (the select in the dashboard).
 export const REFRESH_OPTIONS = [
@@ -107,7 +107,7 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		useState( initialRefresh );
 
 	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
-	const { interpreterRef } = useBatchedPoll( {
+	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
 				addSliceFetcher( interpreter, {
@@ -117,9 +117,6 @@ export function useAggregatorStatusGraph( opts = {} ) {
 				} )
 			);
 			// On-demand fleet-probe reply edge: receiver Tee → result view.
-			const fleetIn = interpreter.makeNode( 'Tee', FLEET_RECV );
-			interpreter.makeNode( 'AggregatorFleetView', FLEET_VIEW );
-			fleetIn.connectNode( FLEET_VIEW );
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
@@ -128,36 +125,33 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		intervalMs: parseInt( refreshInterval, 10 ) || 0,
 	} );
 
-	// On-demand deep probe of one spoke; settles via the fleet replies map.
-	const probe = useCallback(
-		( id ) => {
-			const interpreter = interpreterRef.current;
-			if ( ! interpreter ) {
-				return Promise.reject( new Error( 'graph not mounted' ) );
-			}
-			const view = Core.node( FLEET_VIEW );
-			if ( ! view ) {
-				return Promise.reject( new Error( 'fleet view not mounted' ) );
-			}
-			const promise = new Promise( ( resolve, reject ) => {
-				view.replies.add( id, resolve, reject );
-			} );
-			// The receiver Tee mints; TO/ID after (not signed).
-			const m =
-				Core.node( FLEET_RECV )?.command(
-					'probe',
-					formatCommandArgs( [ id ] )
-				) ?? null;
-			if ( null === m ) {
-				return Promise.reject( new Error( 'not authenticated' ) );
-			}
-			m[ TO ] = TARGET;
-			m[ ID ] = id;
-			interpreter.fill( m );
-			return promise;
-		},
-		[ interpreterRef ]
-	);
+	// Per-spoke roll-ups, filed as each probe settles.
+	const [ probes, setProbes ] = useState( {} );
+
+	// On-demand deep probe of one spoke, through that spoke's own node.
+	const probe = useCallback( async ( id ) => {
+		const node = ensureRequestNode( `${ PROBE_PREFIX }:${ id }`, SERVER );
+		if ( ! node ) {
+			return Promise.reject( new Error( 'graph not mounted' ) );
+		}
+		try {
+			const rollup = await node.request(
+				'probe',
+				formatCommandArgs( [ id ] )
+			);
+			setProbes( ( prev ) => ( {
+				...prev,
+				[ id ]: { ok: true, rollup },
+			} ) );
+			return rollup;
+		} catch ( e ) {
+			setProbes( ( prev ) => ( {
+				...prev,
+				[ id ]: { ok: false, error: e?.message ?? 'Probe failed' },
+			} ) );
+			throw e;
+		}
+	}, [] );
 
 	// Persist the refresh choice to localStorage.
 	useEffect( () => {
@@ -169,5 +163,5 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		setRefreshIntervalState( value );
 	};
 
-	return { setRefreshInterval, refreshInterval, probe };
+	return { setRefreshInterval, refreshInterval, probe, probes };
 }

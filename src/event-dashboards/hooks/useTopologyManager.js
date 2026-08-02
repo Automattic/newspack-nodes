@@ -31,7 +31,6 @@
  * Mutations are on-demand Fetchers (graph-visible through `_shell`), not
  * hook-callback → interpreter.fill: `dispatchAwaited` mounts a one-shot Fetcher
  * targeting `_shell/_http/<ci>` with FROM=<view>, fans a single trigger through it,
- * and settles the matching reply via the view's PendingReplies — so the debug
  * overlay's `connect _shell` sees the command flow.
  *
  * The merge: index the worker-status model's per-topology sections by name (its
@@ -47,13 +46,12 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../../runtime/core';
-import { TO, ID } from '../../runtime/message';
 import { useNodeState } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
-import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
@@ -228,70 +226,6 @@ function deriveConnected( {
 }
 
 /**
- * Build an ID-correlated TM_COMMAND addressed at a server CI THROUGH `_shell`:
- * TO=`_shell/_http/<ci>` so the router peels `_shell` (the observe-only Tap the
- * toolkit owns) — making the command visible to the debug overlay's
- * `connect _shell` — then `_http` POSTs the bare command. FROM=<view> is the
- * reply path; ID is the correlator the view's PendingReplies settles on.
- *
- * @param {string} ci   Server CI target (`workers` | `topologies`).
- * @param {string} verb Verb name.
- * @param {string} args Argument tail the verb parses (empty for nullary verbs).
- * @param {string} from Reply FROM (which view the reply lands at).
- * @param {string} id   Correlator stamped into message[ID].
- * @return {Array} A 7-field positional Message.
- */
-function buildMutation( ci, verb, args, from, id ) {
-	// The view mints; TO/ID after (neither is signed).
-	const m = Core.node( from )?.command( verb, args ) ?? null;
-	if ( null === m ) {
-		return null; // unauthenticated; re-auth is under way
-	}
-	m[ TO ] = `_shell/_http/${ ci }`;
-	m[ ID ] = id;
-	return m;
-}
-
-/**
- * Dispatch an awaited mutation on-demand and graph-visible: an ID-correlated
- * TM_COMMAND routed through `_shell/_http/<ci>` so the debug overlay's
- * `connect _shell` sees it. FROM=<view>
- * routes the reply back to that view, where the matching ID settles the Promise on
- * its PendingReplies. Rejects if the graph or view isn't mounted yet. `_http` is
- * flushed immediately — this is an event-driven mutation, not part of the batched
- * poll tick.
- *
- * @param {Object} interpreterRef The toolkit's live interpreter ref.
- * @param {string} viewName       The view node whose `replies` settles the Promise.
- * @param {string} ci             Server CI target (`workers` | `topologies`).
- * @param {string} verb           Verb name.
- * @param {string} args           Argument tail.
- * @return {Promise} Settled by the matching reply.
- */
-function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
-	const interpreter = interpreterRef.current;
-	if ( ! interpreter ) {
-		return Promise.reject( new Error( 'graph not mounted' ) );
-	}
-	const view = Core.node( viewName );
-	if ( ! view ) {
-		return Promise.reject( new Error( 'view not mounted' ) );
-	}
-	const id = makeOpId( 'topologymanager-op' );
-	const promise = new Promise( ( resolve, reject ) => {
-		view.replies.add( id, resolve, reject );
-	} );
-	const m = buildMutation( ci, verb, args, viewName, id );
-	if ( null === m ) {
-		return Promise.reject( new Error( 'not authenticated' ) );
-	}
-	interpreter.fill( m );
-	// Event-driven, not the batched tick: flush the buffered command now.
-	Core.node( '_http' )?.flush();
-	return promise;
-}
-
-/**
  * @param {Object}  [opts]               Options (testing seams).
  * @param {Object}  [opts.commandClient] CommandClient seam assigned to `_http.client`.
  * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
@@ -303,11 +237,23 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  *   supervisor uptime, the fleet-global R/W byte rates + on-disk log-partition
  *   count for the summary cards, the mutation verbs, and connected.
  */
+/**
+ * Put the just-minted command on the wire NOW: a mutation is event-driven, not
+ * part of the batched poll tick that would otherwise carry it.
+ *
+ * @param {Promise} pending The request's promise, returned unchanged.
+ * @return {Promise} `pending`.
+ */
+function flushed( pending ) {
+	Core.node( '_http' )?.flush();
+	return pending;
+}
+
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, paused = false } = opts;
 	const refreshMs = opts.refreshMs ?? 4000;
 
-	const { interpreterRef } = useBatchedPoll( {
+	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
 			SLICES.forEach( ( slice ) =>
 				addSliceFetcher( interpreter, { ...slice, tee } )
@@ -320,6 +266,14 @@ export function useTopologyManager( opts = {} ) {
 		commandClient,
 		paused,
 	} );
+
+	// One node per mutation verb; the reply that lands on it IS its answer.
+	const restartNode = useRequestNode( 'workers:restart', WORKERS_CI );
+	const activateNode = useRequestNode( 'topologies:activate', TOPOLOGIES_CI );
+	const deactivateNode = useRequestNode(
+		'topologies:deactivate',
+		TOPOLOGIES_CI
+	);
 
 	const workerModel = useNodeState( WORKER_VIEW, 'view' );
 	const topologyModel = useNodeState( TOPOLOGY_VIEW, 'view' );
@@ -384,43 +338,34 @@ export function useTopologyManager( opts = {} ) {
 	);
 	const logPartitions = workerModel?.logPartitions ?? 0;
 
-	// Request a graceful restart (FROM=workerstatus:view settles the reply).
+	// Request a graceful restart; the reply lands on the node that asked.
 	const restart = useCallback(
 		( name, partition = -1 ) =>
-			dispatchAwaited(
-				interpreterRef,
-				WORKER_VIEW,
-				WORKERS_CI,
-				'restart',
-				partition >= 0
-					? formatCommandArgs( [ name, String( partition ) ] )
-					: formatCommandArgs( [ name ] )
+			flushed(
+				restartNode(
+					'restart',
+					partition >= 0
+						? formatCommandArgs( [ name, String( partition ) ] )
+						: formatCommandArgs( [ name ] )
+				)
 			),
-		[ interpreterRef ]
+		[ restartNode ]
 	);
 
 	const activate = useCallback(
 		( name ) =>
-			dispatchAwaited(
-				interpreterRef,
-				TOPOLOGY_VIEW,
-				TOPOLOGIES_CI,
-				'activate',
-				formatCommandArgs( [ name ] )
+			flushed(
+				activateNode( 'activate', formatCommandArgs( [ name ] ) )
 			),
-		[ interpreterRef ]
+		[ activateNode ]
 	);
 
 	const deactivate = useCallback(
 		( name ) =>
-			dispatchAwaited(
-				interpreterRef,
-				TOPOLOGY_VIEW,
-				TOPOLOGIES_CI,
-				'deactivate',
-				formatCommandArgs( [ name ] )
+			flushed(
+				deactivateNode( 'deactivate', formatCommandArgs( [ name ] ) )
 			),
-		[ interpreterRef ]
+		[ deactivateNode ]
 	);
 
 	return {

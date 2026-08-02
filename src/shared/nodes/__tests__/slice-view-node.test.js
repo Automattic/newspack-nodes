@@ -4,15 +4,9 @@
  * concrete subclass: parse a 200 reply into the slice, surface a TM_ERROR
  * (string OR { message } payload), keep the prior slice on transient garbage,
  * and start with the subclass's empty slice.
- *
- * They also cover the OPTIONAL PendingReplies settle path: a subclass that
- * assigns `this.replies` (a PendingReplies) lets `fill()` settle an awaited
- * verb first and return; with no pending entry it falls through to the model
- * path, and a base with no `replies` behaves exactly as before.
  */
 
 import {
-	ID,
 	VALUE,
 	TYPE,
 	TM_COMMAND,
@@ -21,7 +15,6 @@ import {
 	newMessage,
 	Core,
 } from '@newspack-nodes/runtime';
-import { PendingReplies } from '@newspack-nodes/shared/pendingReplies';
 import { SliceViewNode } from '../slice-view-node';
 
 beforeEach( () => Core.reset() );
@@ -103,41 +96,5 @@ describe( 'SliceViewNode', () => {
 		garbage[ VALUE ] = 'not a json object';
 		v.fill( garbage );
 		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
-	} );
-
-	describe( 'optional PendingReplies settle path', () => {
-		test( 'settles an awaited reply and does NOT touch the model', async () => {
-			const v = makeView();
-			v.replies = new PendingReplies();
-			const id = 'verb-1';
-			const settled = new Promise( ( resolve, reject ) =>
-				v.replies.add( id, resolve, reject )
-			);
-			const m = reply( JSON.stringify( { sources: { x: 9 } } ) );
-			m[ ID ] = id;
-			v.fill( m );
-			// Settle path consumed the reply; the slice model is untouched.
-			await expect( settled ).resolves.toBe(
-				JSON.stringify( { sources: { x: 9 } } )
-			);
-			expect( v.setStateCache.view ).toEqual( { sources: {} } );
-		} );
-
-		test( 'falls through to the model path when no pending entry matches', () => {
-			const v = makeView();
-			v.replies = new PendingReplies();
-			const m = reply( JSON.stringify( { sources: { b: 3 } } ) );
-			m[ ID ] = 'unknown-id';
-			v.fill( m );
-			expect( v.setStateCache.view ).toEqual( { sources: { b: 3 } } );
-		} );
-
-		test( 'with no `replies` set, behaves exactly as the model path', () => {
-			const v = makeView();
-			const m = reply( JSON.stringify( { sources: { c: 7 } } ) );
-			m[ ID ] = 'has-an-id-but-no-replies';
-			v.fill( m );
-			expect( v.setStateCache.view ).toEqual( { sources: { c: 7 } } );
-		} );
 	} );
 } );

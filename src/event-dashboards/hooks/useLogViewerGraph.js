@@ -17,7 +17,6 @@
  * steered ONLY by each node's `target`.
  */
 
-import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
@@ -28,16 +27,17 @@ import {
 	newMessage,
 	TYPE,
 	FROM,
-	ID,
 	VALUE,
 	TM_STRUCT,
 } from '../../runtime/message';
 import '../nodes/register';
-import makeOpId from '@newspack-nodes/shared/utils/makeOpId';
+import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
 const LINK = 'logviewer:link';
 const TEE = 'logviewer:stream';
 const VIEW = 'logviewer:view';
+const READ_NODE = 'logviewer:read';
+const SOURCES_NODE = 'logviewer:sources';
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 
 // TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
@@ -48,16 +48,6 @@ const controlMsg = ( value ) => {
 	m[ VALUE ] = value;
 	return m;
 };
-
-// taillog: the view mints; ID after (not signed), TO stays empty.
-function taillogCommand( view, id, args ) {
-	const m = view.command( 'taillog', args );
-	if ( null === m ) {
-		return null; // unauthenticated; re-auth is under way
-	}
-	m[ ID ] = id;
-	return m;
-}
 
 // Prefer the first available source; else fall back to the first listed.
 function defaultSourceName( sources ) {
@@ -81,26 +71,19 @@ export function useLogViewerGraph( opts = {} ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// One-line fetch behind the paused single-step (reply → VIEW future).
-	const fetchMessage = useCallback( ( sub, position ) => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( ! view || ! link ) {
-			return Promise.reject( new Error( 'graph not ready' ) );
-		}
-		const id = makeOpId( 'logviewer-op' );
-		const future = new Promise( ( resolve, reject ) => {
-			view.replies.add( id, resolve, reject );
-		} );
-		const m = taillogCommand( view, id, [ 'read', sub, position ] );
-		if ( null === m ) {
-			return Promise.reject( new Error( 'not authenticated' ) );
-		}
-		link.send( m );
-		return future.then( ( payload ) =>
-			payload && 'object' === typeof payload ? payload : null
-		);
-	}, [] );
+	// Two reads, two nodes; each reply lands on the node that asked.
+	const readOne = useRequestNode( READ_NODE, '' );
+	const readSources = useRequestNode( SOURCES_NODE, '' );
+
+	// One-line fetch behind the paused single-step, through its own node.
+	const fetchMessage = useCallback(
+		( sub, position ) =>
+			readOne( 'taillog', [ 'read', sub, position ] ).then(
+				( payload ) =>
+					payload && 'object' === typeof payload ? payload : null
+			),
+		[ readOne ]
+	);
 
 	// Pause/visibility gating + the record-then-reopen subscription control.
 	const { isPausedRef, resubscribe, setPaused, step } = useGatedSubscription(
@@ -117,13 +100,15 @@ export function useLogViewerGraph( opts = {} ) {
 	const [ sources, setSources ] = useState( [] );
 
 	useEffect( () => {
-		const build = ( { interpreter } ) => {
+		const build = ( { interpreter, http } ) => {
 			// 'php' is a builtin source placeholder; the catalog repoints it.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, [ 'php' ] );
 			link.endpoint = LOG_STREAM_ENDPOINT;
 			link.target = TEE;
-			link.client =
+			// The shared `_http` carries every command out; both ride it.
+			http.client =
 				optsRef.current.commandClient || CommandClient.fromGlobal();
+			link.client = http.client;
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
@@ -185,30 +170,16 @@ export function useLogViewerGraph( opts = {} ) {
 	};
 
 	// Fetch a FRESH catalog + republish, so segments track rotation.
-	const fetchSources = useCallback( () => {
-		const view = viewRef.current;
-		const link = linkRef.current;
-		if ( ! view || ! link ) {
-			return Promise.reject( new Error( 'graph not ready' ) );
-		}
-		const id = makeOpId( 'logviewer-op' );
-		const future = new Promise( ( resolve, reject ) => {
-			view.replies.add( id, resolve, reject );
-		} );
-		// After the session lands: mount races /auth.
-		ensureSession().then( () => {
-			const m = taillogCommand( view, id, [ 'sources' ] );
-			if ( null !== m && viewRef.current === view ) {
-				link.send( m );
-			}
-		} );
-		return future.then( ( catalog ) => {
-			if ( Array.isArray( catalog ) ) {
-				setSources( catalog );
-			}
-			return catalog;
-		} );
-	}, [] );
+	const fetchSources = useCallback(
+		() =>
+			readSources( 'taillog', [ 'sources' ] ).then( ( catalog ) => {
+				if ( Array.isArray( catalog ) ) {
+					setSources( catalog );
+				}
+				return catalog;
+			} ),
+		[ readSources ]
+	);
 
 	// @longform
 	// The catalog used to be fetched once inside the graph build, and its

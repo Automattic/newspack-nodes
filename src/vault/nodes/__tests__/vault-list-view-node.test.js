@@ -27,7 +27,6 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { PendingReplies } from '../../../shared/pendingReplies';
 import { VaultListViewNode } from '../vault-list-view-node';
 
 beforeEach( () => Core.reset() );
@@ -64,12 +63,6 @@ describe( 'vault:list — initial model', () => {
 			error: null,
 		} );
 	} );
-
-	test( 'has a `replies` registry for hook-side promise resolution', () => {
-		const v = makeView();
-		expect( v.replies ).toBeInstanceOf( PendingReplies );
-		expect( v.replies.size ).toBe( 0 );
-	} );
 } );
 
 describe( 'vault:list — list reply updates the render model', () => {
@@ -98,17 +91,6 @@ describe( 'vault:list — list reply updates the render model', () => {
 		v.fill( replyMsg( { name: 'list', payload: null } ) );
 		expect( v.setStateCache.view.servers ).toEqual( [] );
 	} );
-
-	test( 'a list reply that also resolves a pending promise still updates the model', () => {
-		const v = makeView();
-		const resolve = jest.fn();
-		v.replies.add( 'op-3', resolve, jest.fn() );
-		v.fill( replyMsg( { id: 'op-3', name: 'list', payload: SAMPLE } ) );
-		// The settle path resolves the mutation AND the list model refreshes.
-		expect( resolve ).toHaveBeenCalledWith( SAMPLE );
-		expect( v.setStateCache.view.servers ).toHaveLength( 2 );
-		expect( v.replies.has( 'op-3' ) ).toBe( false );
-	} );
 } );
 
 describe( 'vault:list — error surfacing', () => {
@@ -128,52 +110,14 @@ describe( 'vault:list — error surfacing', () => {
 		expect( model.servers ).toHaveLength( 2 );
 	} );
 
-	test( 'a pending-matched TM_ERROR rejects the caller WITHOUT painting the table banner', () => {
+	// A mutation's failure lands on ITS node, never here — which is what keeps
+	// an error the caller is already catching off the table banner.
+	test( "a mutation's failure never reaches this node", () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
-		expect( v.setStateCache.view.error ).toBeNull();
-		const reject = jest.fn();
-		v.replies.add( 'mut-1', jest.fn(), reject );
-		v.fill(
-			replyMsg( {
-				id: 'mut-1',
-				name: 'add',
-				payload: 'duplicate id',
-				type: TM_COMMAND | TM_ERROR,
-			} )
-		);
-		expect( reject ).toHaveBeenCalledTimes( 1 );
-		expect( reject.mock.calls[ 0 ][ 0 ].message ).toContain(
-			'duplicate id'
-		);
+
 		expect( v.setStateCache.view.error ).toBeNull();
 		expect( v.setStateCache.view.servers ).toHaveLength( 2 );
-	} );
-} );
-
-describe( 'vault:list — pending-promise resolution', () => {
-	test( 'a successful reply resolves the pending promise with the payload', () => {
-		const v = makeView();
-		const resolve = jest.fn();
-		v.replies.add( 'op-1', resolve, jest.fn() );
-		v.fill(
-			replyMsg( { id: 'op-1', name: 'add', payload: { id: 'spoke-01' } } )
-		);
-		expect( resolve ).toHaveBeenCalledWith( { id: 'spoke-01' } );
-		expect( v.replies.has( 'op-1' ) ).toBe( false );
-	} );
-} );
-
-describe( 'vault:list — removeNode rejects in-flight pending', () => {
-	test( 'removeNode rejects every pending promise so a reset/teardown does not strand a caller', async () => {
-		const v = makeView();
-		const p = new Promise( ( resolve, reject ) =>
-			v.replies.add( 'op-a', resolve, reject )
-		);
-		const e = p.catch( ( err ) => err );
-		v.removeNode();
-		expect( await e ).toBeInstanceOf( Error );
-		expect( v.replies.size ).toBe( 0 );
 	} );
 } );
 

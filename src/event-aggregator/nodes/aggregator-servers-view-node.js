@@ -1,6 +1,6 @@
 import { TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
-import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
+import { errorMessage } from '@newspack-nodes/shared/errorMessage';
 
 /**
  * `servers:view` — owns the de-god SERVER-CARDS slice of the Aggregator Status

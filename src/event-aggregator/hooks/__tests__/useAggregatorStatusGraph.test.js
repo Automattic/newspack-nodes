@@ -21,10 +21,12 @@ import {
 	TO,
 	FROM,
 	ID,
+	KEY,
 	VALUE,
 	TYPE,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_ERROR,
 	Core,
 	useNodeState,
 	mountExospine,
@@ -285,15 +287,20 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		};
 	}
 
-	test( 'mounts the on-demand fleet receiver Tee + result view', () => {
-		renderHook( () =>
+	// The whole shape: no fleet view, no correlator — a node per spoke.
+	test( 'mounts nothing up front; the first probe raises that spoke its node', async () => {
+		const { result } = renderHook( () =>
 			useAggregatorStatusGraph( { commandClient: makeClient() } )
 		);
-		expect( Core.node( 'aggregator:fleetIn' ) ).toBeTruthy();
-		expect( Core.node( 'aggregator:fleet' ) ).toBeTruthy();
+		expect( Core.node( 'aggregator:probe:spokeX' ) ).toBeNull();
+
+		await act( async () => {
+			await result.current.probe( 'spokeX' );
+		} );
+		expect( Core.node( 'aggregator:probe:spokeX' ) ).toBeTruthy();
 	} );
 
-	test( 'probe(id) POSTs the probe verb FROM the fleet receiver, correlated by id', async () => {
+	test( "probe(id) mints FROM that spoke's node, with no ID and no KEY", async () => {
 		const client = makeClient();
 		const { result } = renderHook( () =>
 			useAggregatorStatusGraph( { commandClient: client } )
@@ -305,13 +312,32 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 			( m ) => 'probe' === m[ VALUE ]?.name
 		);
 		expect( probeMsg ).toBeTruthy();
-		expect( probeMsg[ FROM ] ).toBe( 'aggregator:fleetIn' );
-		expect( probeMsg[ ID ] ).toBe( 'spokeX' );
-		// TO started `_shell/_http/aggregator`; router peeled both hops before POST.
+		expect( probeMsg[ FROM ] ).toBe( 'aggregator:probe:spokeX' );
+		expect( probeMsg[ ID ] ).toBe( '' );
+		expect( probeMsg[ KEY ] ).toBe( '' );
+		// TO started `_http/aggregator`; the router peeled it before the POST.
 		expect( probeMsg[ TO ] ).toBe( 'aggregator' );
 	} );
 
-	test( 'a probe reply resolves the caller AND files the roll-up in aggregator:fleet', async () => {
+	test( 'two spokes probed at once settle independently, each on its own node', async () => {
+		const client = makeClient( { rollup: { id: 'either' } } );
+		const { result } = renderHook( () =>
+			useAggregatorStatusGraph( { commandClient: client } )
+		);
+		await act( async () => {
+			await Promise.all( [
+				result.current.probe( 'spoke1' ),
+				result.current.probe( 'spoke2' ),
+			] );
+		} );
+
+		expect( Core.node( 'aggregator:probe:spoke1' ) ).toBeTruthy();
+		expect( Core.node( 'aggregator:probe:spoke2' ) ).toBeTruthy();
+		expect( result.current.probes.spoke1.ok ).toBe( true );
+		expect( result.current.probes.spoke2.ok ).toBe( true );
+	} );
+
+	test( 'a probe reply resolves the caller AND files the roll-up', async () => {
 		const rollup = {
 			id: 'spoke1',
 			workers: { total: 2, live: 2, stale: 0, dead: 0 },
@@ -327,9 +353,7 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 			settled = await result.current.probe( 'spoke1' );
 		} );
 		expect( settled ).toEqual( rollup );
-		expect(
-			Core.node( 'aggregator:fleet' ).setStateCache.view.probes.spoke1
-		).toEqual( { ok: true, rollup } );
+		expect( result.current.probes.spoke1 ).toEqual( { ok: true, rollup } );
 	} );
 
 	test( 'probe rejects after unmount (graph gone)', async () => {
@@ -342,13 +366,35 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		);
 	} );
 
-	test( 'probe rejects when the fleet view is absent', async () => {
+	test( 'a failed probe rejects AND files the failure for that spoke', async () => {
+		const client = makeClient();
+		client.postBatch = ( messages ) => {
+			client.posted.push( ...messages );
+			return Promise.resolve(
+				messages.map( ( m ) => {
+					const reply = newMessage();
+					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+					reply[ TO ] = m[ FROM ];
+					reply[ VALUE ] = {
+						name: m[ VALUE ]?.name,
+						payload: 'spoke unreachable',
+					};
+					return reply;
+				} )
+			);
+		};
 		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeClient() } )
+			useAggregatorStatusGraph( { commandClient: client } )
 		);
-		Core.nodes.delete( 'aggregator:fleet' );
-		await expect( result.current.probe( 'x' ) ).rejects.toThrow(
-			'fleet view not mounted'
-		);
+
+		await act( async () => {
+			await expect( result.current.probe( 'spoke9' ) ).rejects.toThrow(
+				'spoke unreachable'
+			);
+		} );
+		expect( result.current.probes.spoke9 ).toEqual( {
+			ok: false,
+			error: 'spoke unreachable',
+		} );
 	} );
 } );

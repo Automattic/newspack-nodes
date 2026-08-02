@@ -1,6 +1,6 @@
 import { Node } from '../../runtime/node';
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
-import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
+import { errorMessage } from '../../shared/errorMessage';
 
 // Segment slide-out window (ms): how long a removing row lingers.
 const REMOVING_CLEAR_MS = 400;
@@ -47,8 +47,6 @@ export class WorkerStatusViewNode extends Node {
 		super();
 		this.model = emptyModel();
 		this._clearTimer = null;
-		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
-		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
@@ -61,11 +59,8 @@ export class WorkerStatusViewNode extends Node {
 		const type = message[ TYPE ] || 0;
 		const isError = 0 !== ( type & TM_ERROR );
 
-		// Settle any Promise stashed under this ID; caller owns its error.
-		const pendingMatched = this.replies.settle( message );
-
-		// Un-correlated errors surface globally; pending ones by the caller.
-		if ( isError && ! pendingMatched ) {
+		// A restart's failure lands on ITS node; this one gets the poll's.
+		if ( isError ) {
 			this.model = {
 				...this.model,
 				error: errorMessage( value.payload ),

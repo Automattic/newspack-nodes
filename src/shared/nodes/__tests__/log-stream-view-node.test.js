@@ -141,16 +141,12 @@ test( 'the partition subclass shapes a bare VALUE column beside the key', () => 
 	expect( row.content ).toBe( 'jobstats: {"n":4}' );
 } );
 
-test( 'a pending command reply settles instead of becoming a row', async () => {
+// A verb reply is addressed to the node that asked for it. One reaching this
+// node is not its business — and must not become a row in the stream.
+test( 'a command reply is ignored, never rendered as a row', () => {
 	const v = makeView();
-	let settled;
-	const wait = new Promise( ( resolve ) => {
-		settled = resolve;
-	} );
-	v.replies.add( 'cmd-7', settled, () => {} );
-	const reply = controlMsg( { name: 'list_logs', payload: [ 'x' ] } );
-	reply[ ID ] = 'cmd-7';
-	v.fill( reply );
-	await wait;
+
+	v.fill( controlMsg( { name: 'list_logs', payload: [ 'x' ] } ) );
+
 	expect( v.linesCount ).toBe( 0 );
 } );

@@ -1,6 +1,6 @@
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { SliceViewNode } from '../../shared/nodes/slice-view-node';
-import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
+import { errorMessage } from '../../shared/errorMessage';
 
 /**
  * `vault:list` — owns ONLY the Vault credential-LIST slice of the admin view
@@ -13,24 +13,15 @@ import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
  * already decoded as `value.payload` (not a JSON string), and the slice is the
  * `Object.values` array — not the raw map.
  *
- * The `replies` registry (SliceViewNode's optional PendingReplies path) lets the
- * hook await `list` / `add` / `update` / `delete`: it stashes `{ resolve, reject }`
- * under each outbound `message[ID]`, and a matching reply settles it. On a `list`
- * reply the model ALSO refreshes (so a mutation's awaited re-list repaints the
- * table). An un-correlated TM_ERROR surfaces as the table banner; a
- * pending-matched TM_ERROR is owned by the caller's catch and leaves the banner
- * clean.
+ * Nobody awaits what lands here: a `list` reply refreshes the model, and that
+ * IS the result. The awaited verbs — add / update / delete / test — each mint
+ * from their own `Request` node and their replies never reach this one, so a
+ * failure the caller is already catching cannot also paint the table banner.
  */
 export class VaultListViewNode extends SliceViewNode {
-	constructor() {
-		super();
-		this.replies = new PendingReplies();
-	}
-
-	// A `list` reply always refreshes the model; other replies just settle.
+	// A `list` reply refreshes the model; a failure paints the banner.
 	fill( message ) {
-		const settled = this.replies && this.replies.settle( message );
-		if ( ! settled && 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
+		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			this._applyError( message[ VALUE ] );
 			this.setState( 'view', this.model );
 			return;
@@ -65,11 +56,5 @@ export class VaultListViewNode extends SliceViewNode {
 	// Shaped-but-empty list slice: a loading table before the first list lands.
 	emptySlice() {
 		return { servers: null, loading: true, error: null };
-	}
-
-	// Reject in-flight pendings on removal so teardown strands no caller.
-	removeNode() {
-		this.replies.rejectAll( 'View removed before reply' );
-		super.removeNode();
 	}
 }

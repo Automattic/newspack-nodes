@@ -118,6 +118,7 @@ describe( 'AggregatorStatus', () => {
 			setRefreshInterval,
 			refreshInterval: '2000',
 			probe,
+			probes: {},
 		} );
 	} );
 
@@ -533,10 +534,13 @@ describe( 'AggregatorStatus', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
-		fixtureNode( 'aggregator:fleet', {
+		// Keyed by vault_id (what onProbe dispatches), NOT `id` — a lookup
+		// that regresses to server.id must render nothing.
+		useAggregatorStatusGraph.mockReturnValue( {
+			setRefreshInterval,
+			refreshInterval: '2000',
+			probe,
 			probes: {
-				// Keyed by vault_id (what onProbe dispatches), NOT `id` — a
-				// lookup that regresses to server.id must render nothing.
 				'server1-vault-cred': {
 					ok: true,
 					rollup: {
@@ -559,7 +563,10 @@ describe( 'AggregatorStatus', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
-		fixtureNode( 'aggregator:fleet', {
+		useAggregatorStatusGraph.mockReturnValue( {
+			setRefreshInterval,
+			refreshInterval: '2000',
+			probe,
 			probes: {
 				'server1-vault-cred': {
 					ok: false,

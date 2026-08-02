@@ -1,5 +1,5 @@
 import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
-import { errorMessage } from '../pendingReplies';
+import { errorMessage } from '../errorMessage';
 
 /**
  * SliceViewNode — the thin per-widget view-node base every dashboard rebuild's
@@ -16,11 +16,9 @@ import { errorMessage } from '../pendingReplies';
  * Subclasses supply only `emptySlice()` — the shaped-but-empty model so a render
  * before the first reply is valid, and the fallback the error path reuses.
  *
- * Optional verb-await: a subclass that also awaits a verb (a topology mutate, a
- * hook-catalog modal) assigns `this.replies = new PendingReplies()` and stashes
- * `{ resolve, reject }` under each outbound `message[ID]`. `fill()` then settles
- * a matching reply first and returns; with no match — or no `replies` at all —
- * it behaves exactly as the slice path below.
+ * A slice, and only a slice. A verb somebody awaits is minted from its own
+ * `Request` node and its reply is addressed there — so nothing that lands here
+ * needs telling apart from anything else that lands here.
  */
 export class SliceViewNode extends Node {
 	constructor() {
@@ -31,10 +29,6 @@ export class SliceViewNode extends Node {
 	}
 
 	fill( message ) {
-		// Optional verb-await: a settled reply is fully consumed here.
-		if ( this.replies && this.replies.settle( message ) ) {
-			return;
-		}
 		const value = message[ VALUE ];
 		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {

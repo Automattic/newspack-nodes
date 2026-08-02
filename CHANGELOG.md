@@ -75,6 +75,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The correlation layer — `makeOpId`, `PendingReplies`, and every op-id that
+  fed them.** Five dashboards minted a unique id into `message[ID]`, stashed a
+  `{ resolve, reject }` under it, and had a shared view node settle the match
+  when the reply came back. All of that re-implemented routing that had already
+  happened: a command is minted `FROM` the node that wants the answer, the
+  server replies `TO = FROM`, and the reply lands there.
+
+  So each awaited verb became its own node. The vault's four CRUD verbs, the
+  topology manager's activate/deactivate/restart, the log and partition viewers'
+  reads, the rules table's mutations, the performance dashboard's six lookups,
+  the insights actions — a node each, and the aggregator's deep probe gets one
+  per SPOKE, because the op-id there was the server id doing demux work.
+
+  Three view nodes went with it: `vault:test`, `aggregator:fleet` and
+  `hookcatalog:view` existed to file results by correlator or to hold state the
+  hook already had. What a view publishes now is its slice, and only its slice —
+  which is what keeps a failure the caller is already catching off the table
+  banner, with no `pendingMatched` flag to arrange it.
+
+  `errorMessage` survives the deletion (as `shared/errorMessage`); it was never
+  about correlation.
+
 - **`CommandClient.send()`.** The console's one-shot verbs — save, delete,
   layout get/save, topology list/get, classes list, vault list, expand, activate
   — went out through it as a standalone POST outside the graph, skipping the

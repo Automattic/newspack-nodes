@@ -1,6 +1,5 @@
 import { Node } from '../../runtime/node';
 import { VALUE, ID } from '../../runtime/message';
-import { PendingReplies } from '../pendingReplies';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
 
@@ -18,7 +17,6 @@ const MAX_LINES = 100000;
  * - the decaying `lps` readout (`RateSmoother.read` — idle rates fall to 0);
  * - seek tracking (`SeekTracker` breadcrumbs; publishes on segment change or
  *   the replay→live flip only, never per record);
- * - command-reply settling (`PendingReplies`, gated on `VALUE.name`);
  * - the shared control verbs: `pause`, `step`, `connection`, `browse`
  *   (which CLEARS — a rewind starts from a clean slate), `follow`, `clear`.
  *
@@ -50,8 +48,6 @@ export class LogStreamViewNode extends Node {
 		this.connectionError = false;
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
-		// Hook-stamped ID → { resolve, reject }; settled when its reply lands.
-		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
@@ -59,13 +55,8 @@ export class LogStreamViewNode extends Node {
 		this.counter += 1;
 		const value = message[ VALUE ];
 
-		// Settle a pending Promise; gate on VALUE.name so raw rows can't.
-		if (
-			value &&
-			'object' === typeof value &&
-			'name' in value &&
-			this.replies.settle( message )
-		) {
+		// A verb reply belongs to the node that asked; this one gets stream.
+		if ( value && 'object' === typeof value && 'name' in value ) {
 			return;
 		}
 
