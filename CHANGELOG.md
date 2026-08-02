@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The prompt modals no longer grow a horizontal scrollbar.** Two causes, both
+  fixed at the source: `.topology-modal__input` had no `box-sizing`, so its
+  `width: 100%` overflowed the body by exactly its own border and padding; and
+  `.topology-modal__body` set `overflow-y: auto` with x left at `visible`, which
+  CSS computes to `auto` — so the body offered to scroll an axis it had no
+  business scrolling. Wide content belongs in its own scroller.
+
 ## [2.4.2] - 2026-08-02
 
 ### Fixed
