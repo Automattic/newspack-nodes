@@ -3,13 +3,19 @@
 .newspack-nodes-ui.newspack-nodes-ui {
 	input:not(.components-input-control__input, .topology-repl__input),
 	select:not(.components-input-control__input),
-	textarea,
-	button {
+	textarea {
 		&:focus {
 			@include focus.ring;
 		}
 	}
 
+	// @longform
+	// Buttons ring on KEYBOARD focus only. A plain `:focus` leaves the ring
+	// sitting on whatever you last clicked — the Profiler's profile toggle wore
+	// one permanently after a single click — which reads as a selected state on
+	// a control whose whole job is to show one. Text controls above keep plain
+	// `:focus`: a click there IS where you are about to type.
+	button,
 	a[href],
 	summary,
 	[tabindex]:not(input, select, textarea, button) {
