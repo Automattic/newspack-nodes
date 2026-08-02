@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`wp nodes restart <type>` restarts every partition, and `--all-partitions`
+  is gone.** A worker type is a fleet: restarting one of six partitions leaves
+  five running the old code, which is the wrong default and was never the intent
+  — every example in the docs passed `--all-partitions`. The flag is removed
+  rather than kept as a redundant no-op; `--partition=<N>` narrows when you
+  actually want one. `restart supervisor` is unchanged apart from its error text,
+  which no longer names a flag that does not exist.
+
 - **The Profiler modal renders `list_profiles`, and nothing else.** It was a
   join: the `stats` baseline (NAME / COUNTER / LGST_MSG / READ / WRITTEN) from
   the polled `_metadata` graph, with three profiling columns bolted on. So the

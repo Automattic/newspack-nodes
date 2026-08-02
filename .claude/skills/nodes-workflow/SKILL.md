@@ -68,7 +68,7 @@ npm run lint:phpstan   # alias: npm run lint:deadcode
 # `Topology_Registry::register_builtin_dir`); the rest come from application
 # plugins and are deployment-specific — `wp nodes types` / `wp nodes status` is
 # the source of truth.
-wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
+wp nodes restart all   # or a specific type from `wp nodes types`
 
 # Verify workers came back.
 wp nodes status

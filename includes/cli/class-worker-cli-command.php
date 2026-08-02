@@ -28,16 +28,16 @@ class Worker_CLI_Command {
 	 * or `all` for all worker types.
 	 *
 	 * [--partition=<partition>]
-	 * : Partition number for a worker target (0-based).
-	 *
-	 * [--all-partitions]
-	 * : Apply across every partition for the matched worker type(s).
+	 * : Restrict to one partition (0-based). Every partition of the matched
+	 * worker type(s) restarts by default — a type is a fleet, and restarting
+	 * one of six leaves five running the old code.
 	 *
 	 * ## EXAMPLES
 	 *
+	 *     wp nodes restart firehose-workers
 	 *     wp nodes restart firehose-workers --partition=0
 	 *     wp nodes restart supervisor
-	 *     wp nodes restart all --all-partitions
+	 *     wp nodes restart all
 	 *
 	 * @when after_wp_load
 	 *
@@ -50,8 +50,8 @@ class Worker_CLI_Command {
 			\WP_CLI::error( 'Restart target required. Use: wp nodes restart <target>' );
 		}
 		if ( 'supervisor' === $target ) {
-			if ( isset( $assoc_args['partition'] ) || isset( $assoc_args['all-partitions'] ) ) {
-				\WP_CLI::error( 'The supervisor is a singleton and does not accept --partition or --all-partitions.' );
+			if ( isset( $assoc_args['partition'] ) ) {
+				\WP_CLI::error( 'The supervisor is a singleton and does not accept --partition.' );
 			}
 			if ( ! $this->cli()->restart_supervisor() ) {
 				\WP_CLI::error( 'Unable to request supervisor restart.' );
@@ -60,17 +60,14 @@ class Worker_CLI_Command {
 			return;
 		}
 
-		$workers        = $this->workers();
-		$valid          = \array_unique( \array_column( $workers, 'type' ) );
-		$all_partitions = isset( $assoc_args['all-partitions'] );
-		$partition      = $all_partitions ? -1 : self::entry_int( $assoc_args, 'partition', -1 );
+		$workers = $this->workers();
+		$valid   = \array_unique( \array_column( $workers, 'type' ) );
+		// -1 means every partition, which is the default.
+		$partition = self::entry_int( $assoc_args, 'partition', -1 );
 
 		if ( 'all' !== $target && ! \in_array( $target, $valid, true ) ) {
 			$available = \array_merge( $valid, [ 'supervisor', 'all' ] );
 			\WP_CLI::error( 'Invalid restart target: ' . $target . '. Available: ' . \implode( ', ', $available ) );
-		}
-		if ( ! $all_partitions && $partition < 0 ) {
-			\WP_CLI::error( 'Specify --partition=<N> or --all-partitions.' );
 		}
 
 		$filter    = ( 'all' === $target ) ? [] : [ $target => true ];

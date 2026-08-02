@@ -150,11 +150,39 @@ class CliWorkerCommandTest extends TestCase {
 		}
 	}
 
-	public function test_restart_requires_partition_or_all_partitions(): void {
-		$this->register_topology( 'firehose-workers', 2 );
-		$this->expectException( \RuntimeException::class );
-		// No --partition, no --all-partitions => error.
+	/**
+	 * Restarting every partition is the point — a worker type is a fleet, and
+	 * restarting one of six leaves five running the old code. Bare `restart
+	 * <type>` therefore means all of them; --partition narrows it.
+	 */
+	public function test_restart_without_partition_restarts_every_partition(): void {
+		$this->register_topology( 'firehose-workers', 3 );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
+		}
+
 		( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [] );
+
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->assertTrue(
+				Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
+				"p{$p} flag should be set"
+			);
+		}
+	}
+
+	/** --partition still narrows to exactly one, leaving its siblings alone. */
+	public function test_restart_with_partition_touches_only_that_one(): void {
+		$this->register_topology( 'firehose-workers', 3 );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
+		}
+
+		( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [ 'partition' => 1 ] );
+
+		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p1.lock.d" ) );
+		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p2.lock.d" ) );
 	}
 
 	public function test_restart_supervisor_bypasses_worker_catalog_and_writes_flag(): void {
@@ -222,23 +250,7 @@ class CliWorkerCommandTest extends TestCase {
 			$this->fail( 'Expected supervisor partition option to fail.' );
 		} catch ( \RuntimeException ) {
 			$this->assertSame(
-				[ 'The supervisor is a singleton and does not accept --partition or --all-partitions.' ],
-				$GLOBALS['_test_wp_cli_errors']
-			);
-		}
-		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
-	}
-
-	public function test_restart_supervisor_rejects_all_partitions_option(): void {
-		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0755, true );
-
-		try {
-			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [ 'all-partitions' => true ] );
-			$this->fail( 'Expected supervisor all-partitions option to fail.' );
-		} catch ( \RuntimeException ) {
-			$this->assertSame(
-				[ 'The supervisor is a singleton and does not accept --partition or --all-partitions.' ],
+				[ 'The supervisor is a singleton and does not accept --partition.' ],
 				$GLOBALS['_test_wp_cli_errors']
 			);
 		}
@@ -269,10 +281,7 @@ class CliWorkerCommandTest extends TestCase {
 			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
 		}
 
-		( new Worker_CLI_Command() )->restart(
-			[ 'firehose-workers' ],
-			[ 'all-partitions' => true ]
-		);
+		( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [] );
 
 		for ( $p = 0; $p < 3; $p++ ) {
 			$lock_dir = "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d";
@@ -287,7 +296,7 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
 
-		( new Worker_CLI_Command() )->restart( [ 'all' ], [ 'all-partitions' => true ] );
+		( new Worker_CLI_Command() )->restart( [ 'all' ], [] );
 
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );

@@ -81,7 +81,7 @@ wp nodes doctor                     # seven environment + fleet checks; WARN exi
 wp nodes types                      # singleton supervisor + topology groups (no liveness info)
 wp nodes status                     # active workers + last heartbeat age (live vs stale); --format=json for scripts
 wp nodes run <type> [--partition=<N>]   # run a worker in the foreground — boot errors hit your terminal
-wp nodes restart all --all-partitions   # force-restart every worker topology; excludes supervisor
+wp nodes restart all   # force-restart every worker topology; excludes supervisor
 wp nodes restart <type> --partition=<N> # one type, one partition
 wp nodes restart supervisor             # restart the singleton; no partition flags
 ```
