@@ -31,7 +31,6 @@ import { ensureSession } from '../../runtime/command-auth';
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { CommandClient } from '../../runtime/command-client';
 import { TO } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
@@ -60,8 +59,8 @@ function fireList( shell ) {
 
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
- *                                      defaults to a freshly-constructed CommandClient.
+ * @param {Object} [opts.commandClient] transport seam assigned to `_http.client`;
+ *                                      defaults (inside HttpOut) to the localized transport.
  * @return {{ addServer: Function, updateServer: Function, removeServer: Function,
  *   testServer: Function }} CRUD callbacks for the thin React view (each view's
  *   model is read via useNodeState). Reset Graph is driven by a
@@ -88,8 +87,9 @@ export function useVaultGraph( opts = {} ) {
 	useEffect( () => {
 		const build = ( { interpreter, shell, http } ) => {
 			// Shared _http singleton (mountExospine owns it); set its client.
-			http.client =
-				optsRef.current.commandClient || CommandClient.fromGlobal();
+			if ( optsRef.current.commandClient ) {
+				http.client = optsRef.current.commandClient;
+			}
 
 			// The table's reply edge: a receiver Tee fronts the list view.
 			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );

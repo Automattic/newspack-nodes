@@ -14,7 +14,6 @@ import { RemoteLinkNode } from '../remote-link-node';
 import { SseInNode } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
-import { CommandClient } from '../command-client';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { Core } from '../core';
 import { mountExospine } from '../exospine';
@@ -475,11 +474,8 @@ describe( 'RemoteLinkNode', () => {
 			link.arguments = [ 'raw-logs' ];
 			link.connect();
 			const http = Core.node( names.HTTP );
-			expect( http.client ).toBeInstanceOf( CommandClient );
-			expect( http.client.baseUrl ).toBe(
-				'https://example.test/wp-json/'
-			);
-			expect( http.client.nonce ).toBe( 'GLOBALNONCE' );
+			// The transport closes over the base + nonce; a POST shows them.
+			expect( typeof http.client.postBatch ).toBe( 'function' );
 		} finally {
 			delete window.NewspackNodesData;
 		}

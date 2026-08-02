@@ -1,7 +1,7 @@
 import { Core } from '../core';
 import { IoTelemetry, byteLength } from '../io-telemetry';
 import { SseInNode } from '../sse-in-node';
-import { CommandClient } from '../command-client';
+import { commandTransport } from '../command-transport';
 import {
 	TYPE,
 	KEY,
@@ -12,6 +12,8 @@ import {
 	TM_INFO,
 	TM_ERROR,
 	TM_RESPONSE,
+	TM_COMMAND,
+	TO,
 } from '../message';
 
 class FakeEventSource {
@@ -96,7 +98,16 @@ describe( 'SseIn feeds IoTelemetry "in"', () => {
 	} );
 } );
 
-describe( 'CommandClient feeds IoTelemetry "out" and "in"', () => {
+// The command shape HttpOut hands the transport (it mints; this is a stand-in).
+const command = ( to, verb ) => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ TO ] = to;
+	m[ VALUE ] = { name: verb, arguments: [] };
+	return m;
+};
+
+describe( 'the command transport feeds IoTelemetry "out" and "in"', () => {
 	function mockFetch( replies ) {
 		const body = replies.map( ( m ) => pack( m ) ).join( '\n' );
 		global.fetch = jest
@@ -116,9 +127,9 @@ describe( 'CommandClient feeds IoTelemetry "out" and "in"', () => {
 			{ name: 'ok', payload: {} },
 		];
 		const respBody = mockFetch( [ reply ] );
-		const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
-		const out1 = client.buildMessage( { to: 'a', verb: 'x' } );
-		const out2 = client.buildMessage( { to: 'b', verb: 'y' } );
+		const client = commandTransport( { baseUrl: '/', nonce: 'N' } );
+		const out1 = command( 'a', 'x' );
+		const out2 = command( 'b', 'y' );
 		const reqBody = [ out1, out2 ].map( ( m ) => pack( m ) ).join( '\n' );
 
 		await client.postBatch( [ out1, out2 ] );
@@ -132,10 +143,8 @@ describe( 'CommandClient feeds IoTelemetry "out" and "in"', () => {
 
 	test( 'a bare-202 (empty body) reply records zero inbound', async () => {
 		global.fetch = jest.fn().mockResolvedValue( { text: async () => '' } );
-		const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
-		await client.postBatch( [
-			client.buildMessage( { to: 'a', verb: 'x' } ),
-		] );
+		const client = commandTransport( { baseUrl: '/', nonce: 'N' } );
+		await client.postBatch( [ command( 'a', 'x' ) ] );
 		const snap = IoTelemetry.snapshot();
 		expect( snap.msgsOut ).toBe( 1 );
 		expect( snap.msgsIn ).toBe( 0 );
@@ -145,10 +154,8 @@ describe( 'CommandClient feeds IoTelemetry "out" and "in"', () => {
 	test( 'a TM_ERROR reply bumps the error count', async () => {
 		const errReply = [ TM_ERROR, 1, '', '', 'cmd-2', '', 'nope' ];
 		mockFetch( [ errReply ] );
-		const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
-		await client.postBatch( [
-			client.buildMessage( { to: 'a', verb: 'x' } ),
-		] );
+		const client = commandTransport( { baseUrl: '/', nonce: 'N' } );
+		await client.postBatch( [ command( 'a', 'x' ) ] );
 		expect( IoTelemetry.snapshot().errors ).toBe( 1 );
 	} );
 } );

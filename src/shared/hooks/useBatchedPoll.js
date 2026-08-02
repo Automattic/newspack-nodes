@@ -34,18 +34,14 @@
  * @param {Function} opts.build           `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
  * @param {string}   opts.timerName       Name for the owned router-hitchhike Timer.
  * @param {string}   opts.teeName         Name for the owned fan-out Tee.
- * @param {Object}   [opts.commandClient] CommandClient seam assigned to `_http.client`.
+ * @param {Object}   [opts.commandClient] transport seam assigned to `_http.client`.
  * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
  * @param {number}   [opts.intervalMs]    Poll cadence in ms: > 1000 hitchhikes + throttles to it; omitted/0 fires every router tick. Changing it re-arms the Timer.
  * @return {{ interpreterRef: Object }} A ref to the live interpreter.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
-import {
-	mountExospine,
-	CommandClient,
-	hasSession,
-} from '@newspack-nodes/runtime';
+import { mountExospine, hasSession } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
@@ -102,8 +98,9 @@ export function useBatchedPoll( opts ) {
 	useEffect( () => {
 		const build = ( { interpreter, router, http } ) => {
 			// I/O boundary — assign the command client; injectable for tests.
-			http.client =
-				optsRef.current.commandClient || CommandClient.fromGlobal();
+			if ( optsRef.current.commandClient ) {
+				http.client = optsRef.current.commandClient;
+			}
 
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 

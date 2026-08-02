@@ -26,7 +26,7 @@ import {
 	TM_ERROR,
 } from './message';
 import { byteLength } from './io-telemetry';
-import { CommandClient } from './command-client';
+import { defaultTransport } from './command-transport';
 
 /**
  * The TM_ERROR an undelivered command earns, addressed back to its minter.
@@ -48,7 +48,7 @@ function failureReply( sent, reason ) {
 
 export class HttpOutNode extends Node {
 	/**
-	 * Tachikoma-parity: no-arg ctor. The `client` (CommandClient with
+	 * Tachikoma-parity: no-arg ctor. The `client` (a transport with
 	 * `buildMessage` / `postBatch`) is a programmatic dependency — callers
 	 * assign it as a public property after construction:
 	 * `const h = new HttpOutNode(); h.client = client;`
@@ -90,9 +90,9 @@ export class HttpOutNode extends Node {
 
 	// POST the entries; feed each sync reply into the sink (routes by TO).
 	_post( entries ) {
-		// Palette drop with no client: default from the localized global.
+		// Palette drop with no client: default to the localized transport.
 		if ( ! this.client ) {
-			this.client = CommandClient.fromGlobal();
+			this.client = defaultTransport();
 		}
 		// Pack ONCE: byte tally AND the POST body; postBatch reuses them.
 		const packed = entries.map( ( m ) => pack( m ) );

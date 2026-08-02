@@ -22,7 +22,7 @@
  * page-visibility gate, which suspends polling on a HIDDEN tab.
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (assigned
- * to `_http.client`); production lazily defaults to the shared CommandClient.
+ * to `_http.client`); production lets HttpOut default it.
  *
  * Alongside the polled slices it serves the on-demand deep probe, and there the
  * same principle decides the shape: each spoke gets its OWN `aggregator:probe:<id>`
@@ -96,8 +96,8 @@ const SLICES = [
 
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
- *                                      defaults (inside useBatchedPoll) to a freshly-constructed CommandClient.
+ * @param {Object} [opts.commandClient] transport seam assigned to `_http.client`;
+ *                                      defaults (inside HttpOut) to the localized transport.
  * @return {{ setRefreshInterval: Function, refreshInterval: string }} Control
  *   callbacks for the thin React view (each slice is read via useNodeState).
  */

@@ -41,11 +41,13 @@ jest.mock( '@newspack-nodes/shared/components/LogRowList', () => ( {
 	default: () => null,
 } ) );
 
-// Provide the fake client to the real hook via CommandClient.fromGlobal().
+// Provide the fake transport to the real hook: HttpOut defaults to this when
+// nothing was injected.
 let mockFakeClient;
-jest.mock( '../../runtime/command-client', () => ( {
+jest.mock( '../../runtime/command-transport', () => ( {
 	__esModule: true,
-	CommandClient: { fromGlobal: () => mockFakeClient },
+	defaultTransport: () => mockFakeClient,
+	commandTransport: () => mockFakeClient,
 } ) );
 
 class FakeEventSource {

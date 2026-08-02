@@ -30,7 +30,7 @@ const EMPTY_MODEL = {
 };
 
 /**
- * Pull a human-readable message off a thrown CommandClient error.
+ * Pull a human-readable message off a thrown verb error.
  *
  * @param {Error} err Thrown error from a CRUD callback.
  * @return {string} Display message.

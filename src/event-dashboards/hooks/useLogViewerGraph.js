@@ -22,7 +22,6 @@ import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { endPosition } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
-import { CommandClient } from '../../runtime/command-client';
 import {
 	newMessage,
 	TYPE,
@@ -57,9 +56,8 @@ function defaultSourceName( sources ) {
 
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to the link's
- *                                      HttpOut; defaults to a freshly-constructed
- *                                      CommandClient.
+ * @param {Object} [opts.commandClient] transport seam assigned to the link's
+ *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
  * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
  *   for the picker and segment sidebar; fetchSources refreshes that catalog.
@@ -106,8 +104,9 @@ export function useLogViewerGraph( opts = {} ) {
 			link.endpoint = LOG_STREAM_ENDPOINT;
 			link.target = TEE;
 			// The shared `_http` carries every command out; both ride it.
-			http.client =
-				optsRef.current.commandClient || CommandClient.fromGlobal();
+			if ( optsRef.current.commandClient ) {
+				http.client = optsRef.current.commandClient;
+			}
 			link.client = http.client;
 
 			const tee = interpreter.makeNode( 'Tee', TEE );

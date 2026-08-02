@@ -1,11 +1,11 @@
 /**
- * CommandClient.fromGlobal — builds a CommandClient from the PHP-localized
+ * the command transport.fromGlobal — builds a the command transport from the PHP-localized
  * `window.NewspackNodesData` (REST base + command nonce). The push-side boundary
  * nodes (HttpOut) lazily default their client to this so a fresh palette-drop
  * never needs the nonce threaded through construction args.
  */
 
-import { CommandClient } from '../command-client';
+import { commandTransport, defaultTransport } from '../command-transport';
 import * as auth from '../command-auth';
 import { Core } from '../core';
 import {
@@ -20,27 +20,41 @@ import {
 } from '../message';
 import apiFetch from '@wordpress/api-fetch';
 
-describe( 'CommandClient.fromGlobal', () => {
+describe( 'the command transport.fromGlobal', () => {
 	afterEach( () => {
 		delete window.NewspackNodesData;
 	} );
 
-	it( 'builds a CommandClient with the localized restUrl + nonce', () => {
+	// The base + nonce are closed over, so the POST is where they show.
+	const posted = () => global.fetch.mock.calls[ 0 ];
+
+	it( 'posts to the localized restUrl with the localized nonce', async () => {
 		window.NewspackNodesData = {
 			restUrl: 'https://example.test/wp-json/',
 			nonce: 'GNONCE',
 		};
-		const client = CommandClient.fromGlobal();
-		expect( client ).toBeInstanceOf( CommandClient );
-		expect( client.baseUrl ).toBe( 'https://example.test/wp-json/' );
-		expect( client.nonce ).toBe( 'GNONCE' );
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: true, text: async () => '' } );
+
+		await defaultTransport().postBatch( [], [] );
+
+		expect( posted()[ 0 ] ).toBe(
+			'https://example.test/wp-json/newspack-nodes/v1/command'
+		);
+		expect( posted()[ 1 ].headers[ 'X-WP-Nonce' ] ).toBe( 'GNONCE' );
 	} );
 
-	it( 'falls back to the safe REST default when the global is absent', () => {
+	it( 'falls back to the safe REST default when the global is absent', async () => {
 		delete window.NewspackNodesData;
-		const client = CommandClient.fromGlobal();
-		expect( client.baseUrl ).toBe( '/wp-json/' );
-		expect( client.nonce ).toBe( '' );
+		global.fetch = jest
+			.fn()
+			.mockResolvedValue( { ok: true, text: async () => '' } );
+
+		await defaultTransport().postBatch( [], [] );
+
+		expect( posted()[ 0 ] ).toBe( '/wp-json/newspack-nodes/v1/command' );
+		expect( posted()[ 1 ].headers[ 'X-WP-Nonce' ] ).toBe( '' );
 	} );
 } );
 
@@ -50,7 +64,7 @@ describe( 'CommandClient.fromGlobal', () => {
  * response line became a ghost message with no TYPE, no FROM and no TO, and
  * surfaced as `_router: WARNING: message not addressed`. Reject it at the wire.
  */
-describe( 'CommandClient.postBatch — unparseable response lines', () => {
+describe( 'the command transport.postBatch — unparseable response lines', () => {
 	const okLine = JSON.stringify( [
 		TM_BYTESTREAM,
 		1,
@@ -70,7 +84,7 @@ describe( 'CommandClient.postBatch — unparseable response lines', () => {
 		global.fetch = jest.fn().mockResolvedValue( {
 			text: () => Promise.resolve( body ),
 		} );
-		return new CommandClient( { baseUrl: '/wp-json/', nonce: 'N' } );
+		return commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
 	};
 
 	it( 'drops a line that is not a 7-field message, and warns', async () => {
@@ -84,7 +98,7 @@ describe( 'CommandClient.postBatch — unparseable response lines', () => {
 		expect( messages ).toHaveLength( 1 );
 		expect( messages[ 0 ][ TYPE ] ).toBe( TM_BYTESTREAM );
 		expect( warn ).toHaveBeenCalledWith(
-			'ERROR: CommandClient: dropped an unparseable /command response line'
+			'ERROR: dropped an unparseable /command response line'
 		);
 		warn.mockRestore();
 	} );
@@ -101,7 +115,7 @@ describe( 'CommandClient.postBatch — unparseable response lines', () => {
  * HTTP error it was. An expired nonce (401 rest_forbidden) or a deactivated
  * plugin (404 rest_no_route) must SAY so.
  */
-describe( 'CommandClient — HTTP failures', () => {
+describe( 'the command transport — HTTP failures', () => {
 	afterEach( () => {
 		delete global.fetch;
 		Core.reset();
@@ -120,7 +134,7 @@ describe( 'CommandClient — HTTP failures', () => {
 					} )
 				),
 		} );
-		return new CommandClient( { baseUrl: '/wp-json/', nonce: 'N' } );
+		return commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
 	};
 
 	it( 'reports a 404 rest_no_route instead of routing a ghost', async () => {
@@ -135,7 +149,7 @@ describe( 'CommandClient — HTTP failures', () => {
 
 		expect( messages ).toEqual( [] );
 		expect( warn ).toHaveBeenCalledWith(
-			'ERROR: CommandClient: /command failed - HTTP 404 rest_no_route'
+			'ERROR: /command failed - HTTP 404 rest_no_route'
 		);
 		warn.mockRestore();
 	} );
@@ -165,7 +179,7 @@ describe( 'CommandClient — HTTP failures', () => {
 		await failing( 401, 'rest_forbidden' ).postBatch( [], [] );
 
 		expect( warn ).toHaveBeenCalledWith(
-			'ERROR: CommandClient: /command failed - HTTP 401 rest_forbidden'
+			'ERROR: /command failed - HTTP 401 rest_forbidden'
 		);
 		warn.mockRestore();
 	} );
@@ -201,7 +215,7 @@ describe( 'CommandClient — HTTP failures', () => {
 				status: 202,
 				text: () => Promise.resolve( '' ),
 			} );
-		const client = CommandClient.fromGlobal();
+		const client = defaultTransport();
 
 		try {
 			expect( await client.postBatch( [], [] ) ).toEqual( [] );
@@ -216,7 +230,7 @@ describe( 'CommandClient — HTTP failures', () => {
 					'X-WP-Nonce': 'FRESH-COMMAND-NONCE-649',
 				} )
 			);
-			expect( client.nonce ).toBe( 'FRESH-COMMAND-NONCE-649' );
+			// The retry's header IS the observable; the nonce is closed over.
 		} finally {
 			delete global.fetch;
 			delete window.NewspackNodesData;
@@ -264,7 +278,7 @@ describe( 'CommandClient — HTTP failures', () => {
 		const warn = jest
 			.spyOn( Core, 'printLessOften' )
 			.mockImplementation( () => {} );
-		const client = new CommandClient( {
+		const client = commandTransport( {
 			baseUrl: 'https://remote.example/wp-json/',
 			nonce: 'REMOTE-PRIVATE-NONCE-727',
 		} );
@@ -275,7 +289,9 @@ describe( 'CommandClient — HTTP failures', () => {
 			expect( global.fetch.mock.calls[ 0 ][ 0 ] ).toBe(
 				'https://remote.example/wp-json/newspack-nodes/v1/command'
 			);
-			expect( client.nonce ).toBe( 'REMOTE-PRIVATE-NONCE-727' );
+			expect(
+				global.fetch.mock.calls[ 0 ][ 1 ].headers[ 'X-WP-Nonce' ]
+			).toBe( 'REMOTE-PRIVATE-NONCE-727' );
 		} finally {
 			warn.mockRestore();
 			delete global.fetch;
@@ -292,7 +308,7 @@ describe( 'CommandClient — HTTP failures', () => {
  * session — and sent an operator into haproxy logs for a browser-side
  * condition. send() must tell them apart.
  */
-describe( 'CommandClient — refused batches', () => {
+describe( 'the command transport — refused batches', () => {
 	afterEach( () => {
 		delete global.fetch;
 		delete window.NewspackNodesData;
@@ -300,11 +316,11 @@ describe( 'CommandClient — refused batches', () => {
 
 	const respond = ( response ) => {
 		global.fetch = jest.fn().mockResolvedValue( response );
-		return new CommandClient( { baseUrl: '/wp-json/', nonce: 'N' } );
+		return commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
 	};
 
 	it( 'leaves postBatch resolving to [] so the drain loop never throws', async () => {
-		expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
+		expectConsoleWarn( 'ERROR: /command failed - HTTP 401' );
 		const client = respond( {
 			ok: false,
 			status: 401,
@@ -319,7 +335,7 @@ describe( 'CommandClient — refused batches', () => {
 // A refused POST used to answer nothing at all, which is indistinguishable
 // from a 202 the server routed onward — so a node waiting on a reply waited
 // out its whole deadline for a failure the transport already knew about.
-describe( 'CommandClient — a refusal answers the minter', () => {
+describe( 'the command transport — a refusal answers the minter', () => {
 	afterEach( () => {
 		delete global.fetch;
 		delete window.NewspackNodesData;
@@ -335,14 +351,14 @@ describe( 'CommandClient — a refusal answers the minter', () => {
 	};
 
 	it( 'answers each refused command with a TM_ERROR addressed back to it', async () => {
-		expectConsoleWarn( 'ERROR: CommandClient: /command failed - HTTP 401' );
+		expectConsoleWarn( 'ERROR: /command failed - HTTP 401' );
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: false,
 			status: 401,
 			text: () =>
 				Promise.resolve( JSON.stringify( { code: 'rest_forbidden' } ) ),
 		} );
-		const client = new CommandClient( {
+		const client = commandTransport( {
 			baseUrl: '/wp-json/',
 			nonce: 'N',
 		} );
@@ -365,7 +381,7 @@ describe( 'CommandClient — a refusal answers the minter', () => {
 			status: 202,
 			text: () => Promise.resolve( '' ),
 		} );
-		const client = new CommandClient( {
+		const client = commandTransport( {
 			baseUrl: '/wp-json/',
 			nonce: 'N',
 		} );

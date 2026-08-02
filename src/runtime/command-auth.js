@@ -226,7 +226,7 @@ export function forgetSession() {
 // A stale nonce refuses /auth exactly when a session must be re-minted — the
 // tab that slept through the nonce's lifetime. Without this, that 403 throws,
 // widens the backoff, and the session cannot be re-established until the window
-// elapses. CommandClient.#post has carried the same renew-once for commands all
+// elapses. The command transport has carried the same renew-once all
 // along; /auth was the one request left without it.
 async function postAuthOnce( client ) {
 	return fetch( `${ client.baseUrl }newspack-nodes/v1/auth`, {
@@ -236,9 +236,9 @@ async function postAuthOnce( client ) {
 }
 
 async function postAuth() {
-	const { CommandClient } = await import( './command-client' );
-	const { refreshNodesNonce } = await import( './nodes-data' );
-	const client = CommandClient.fromGlobal();
+	const { nodesData, refreshNodesNonce } = await import( './nodes-data' );
+	const { restUrl, nonce } = nodesData();
+	const client = { baseUrl: restUrl, nonce };
 	// No nonce: nothing to trade for a session. Don't POST into the dark.
 	if ( ! client.nonce ) {
 		return null;
