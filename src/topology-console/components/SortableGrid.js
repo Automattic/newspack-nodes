@@ -1,7 +1,7 @@
 /**
  * SortableGrid — the click-to-sort table shared by the Inspector's Runtime and
  * Stats modal views. Moved out of RuntimeView (rather than imported from it) so
- * StatsView doesn't depend on a sibling view's internals: both render keyed rows
+ * ProfilerView doesn't depend on a sibling view's internals: both render keyed rows
  * as a sortable grid, so the grid + its sort-toggle hook are their own module.
  */
 

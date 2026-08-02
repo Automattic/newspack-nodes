@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
 import RuntimeView from './RuntimeView';
-import StatsView from './StatsView';
+import ProfilerView from './ProfilerView';
 import TimelineView from './TimelineView';
 import TriageView from './TriageView';
 import { useNodeState } from '../../runtime/react';
@@ -93,7 +93,7 @@ function ViewBody( { view, node, onAction } ) {
 		return <RuntimeView />;
 	}
 	if ( 'stats' === view ) {
-		return <StatsView />;
+		return <ProfilerView />;
 	}
 	if ( 'triage' === view ) {
 		return <TriageView node={ node } onAction={ onAction } />;

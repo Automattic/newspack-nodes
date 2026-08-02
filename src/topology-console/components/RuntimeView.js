@@ -4,12 +4,13 @@
  * grid. A timer that is due every tick (NEXT <= 0) whose FIRES keep climbing is
  * a drain spinner — those rows are flagged red with a ⚠.
  *
- * Shown inside the Inspector's Runtime modal. It mounts ONE `Dmesg` poller (a
- * router-TIMER-hitchhiking TimerNode publishing an object reply as `reply`) on
- * the backbone while the modal is open, its verb retargeted at `runtime_stats`
- * and its poll routed through `_cwd` — so it reports the current scope
- * (browser-local at root, the cd'd worker when pivoted). The PHP and JS
- * `runtime_stats` verbs emit identical row keys, so it renders either unchanged.
+ * Shown inside the Inspector's Runtime modal. It mounts TWO `Dmesg` pollers
+ * (router-TIMER-hitchhiking TimerNodes publishing their reply as `reply`) on the
+ * backbone while the modal is open — one per verb, `list_timers -s` and
+ * `list_handles -s` — each routed through `_cwd` so it reports the current scope
+ * (browser-local at root, the cd'd worker when pivoted). `-s` hands back the
+ * same rows the text tables print, so the grid sorts them without parsing a
+ * fixed-width table, and PHP and JS render alike.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -21,8 +22,9 @@ import names from '../../runtime/reserved-node-names.json';
 import { Grid, useSortState } from './SortableGrid';
 import './inspector-views.scss';
 
-// The one poller node the view mounts + reads.
-const POLLER = 'runtime:poller';
+// The poller nodes the view mounts + reads, one per verb.
+const TIMER_POLLER = 'runtime:timers';
+const HANDLE_POLLER = 'runtime:handles';
 
 // Column specs per grid: numeric columns sort numerically (else lexically).
 const TIMER_COLS = [
@@ -51,20 +53,24 @@ export default function RuntimeView() {
 	const [ , bumpBuild ] = useState( 0 );
 	const pollerRef = useRef( null );
 
-	// Mount ONE poller on the backbone; poll runtime_stats at _cwd.
+	// Mount one poller per verb on the backbone; both poll at _cwd.
 	useEffect( () => {
 		const build = ( { interpreter } ) => {
-			const poller = interpreter.makeNode( 'Dmesg', POLLER );
-			poller.verb = 'runtime_stats';
-			poller.pollArgs = [];
 			// `_cwd` routes to the current scope; default it to browser-local.
 			if ( ! Core.node( names.CWD ) ) {
 				interpreter.makeNode( 'Node', names.CWD );
 			}
-			poller.target = names.CWD;
-			poller.setTimer(); // hitchhike the _router TIMER (Dmesg throttles to 10s)
-			poller.fire(); // poll immediately
-			pollerRef.current = poller;
+			const mount = ( name, verb ) => {
+				const poller = interpreter.makeNode( 'Dmesg', name );
+				poller.verb = verb;
+				poller.pollArgs = [ '-s' ];
+				poller.target = names.CWD;
+				poller.setTimer(); // hitchhike _router TIMER (Dmesg throttles)
+				poller.fire(); // poll immediately
+				return poller;
+			};
+			pollerRef.current = mount( TIMER_POLLER, 'list_timers' );
+			mount( HANDLE_POLLER, 'list_handles' );
 			bumpBuild( ( n ) => n + 1 );
 			return () => {
 				pollerRef.current = null;
@@ -74,9 +80,10 @@ export default function RuntimeView() {
 		return teardown;
 	}, [] );
 
-	const data = useNodeState( POLLER, 'reply' );
-	const timers = data?.timers ?? [];
-	const handles = data?.handles ?? [];
+	const data = useNodeState( TIMER_POLLER, 'reply' );
+	const timers = Array.isArray( data ) ? data : [];
+	const handleData = useNodeState( HANDLE_POLLER, 'reply' );
+	const handles = Array.isArray( handleData ) ? handleData : [];
 
 	// Spinner: fires climbing vs the prior poll; the ref guards StrictMode.
 	const lastDataRef = useRef( null );
@@ -89,7 +96,7 @@ export default function RuntimeView() {
 		lastDataRef.current = data;
 		const next = new Map();
 		const grew = new Set();
-		for ( const t of data?.timers ?? [] ) {
+		for ( const t of Array.isArray( data ) ? data : [] ) {
 			const fires = Number( t.fires ) || 0;
 			next.set( t.name, fires );
 			if (

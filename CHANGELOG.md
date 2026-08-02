@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Profiler modal renders `list_profiles`, and nothing else.** It was a
+  join: the `stats` baseline (NAME / COUNTER / LGST_MSG / READ / WRITTEN) from
+  the polled `_metadata` graph, with three profiling columns bolted on. So the
+  modal titled "Profiler" mostly showed node counters, and dropped three of the
+  seven columns the verb has always printed — WINDOW, RATE and AGE were measured
+  by the Router and thrown away before they reached the view. It now shows
+  AVERAGE / TIME / COUNT / WINDOW / RATE / AGE / WHAT, avg-descending, with
+  `--total--` pinned to the footer. `StatsView` is `ProfilerView`.
+
+- **`runtime_stats` is gone; `list_timers`, `list_handles` and `list_profiles`
+  take `-s` instead.** That verb existed only to hand the devtools views a
+  struct, and bundling three concerns into one reply is what let its profile
+  third carry four of seven columns while the text verb carried all seven — two
+  derivations of the same facts, one of which quietly fell behind. `-s` returns
+  the very rows the table is built from, so a view sorts them without parsing a
+  fixed-width table and the two renderings cannot drift. Runtime polls
+  `list_timers -s` + `list_handles -s`; Profiler polls `list_profiles -s`.
+
+- **Verb errors are newline-terminated in BOTH twins.** PHP's `interpret()` now
+  appends it; the JS interpreter matches, so a REPL that prints the payload
+  verbatim doesn't run the message into the next prompt.
+
 - **The SSE watchdog is a Timer.** It was the last hand-rolled `setInterval` in
   the runtime — invisible to the graph, unpausable, and disposed only because
   the jest harness knew its private handle by name. It now arms through

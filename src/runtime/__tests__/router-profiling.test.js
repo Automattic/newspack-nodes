@@ -171,6 +171,44 @@ test( 'profile on/off is an idempotent set with already-replies', () => {
 	);
 } );
 
+// @longform
+// `-s` is the SAME rows the text table prints, so a view can sort them without
+// parsing a fixed-width table — and so the two renderings cannot drift, which
+// is what happened when the struct lived in a separate runtime_stats verb and
+// carried four of the seven columns.
+test( 'list_profiles -s returns every column the text table prints', () => {
+	const r = new RouterNode();
+	r.name = '_router';
+	const ci = new CommandInterpreterNode();
+
+	Core.now = () => 500;
+	RouterNode.profiles( {
+		slowpoke: {
+			time: 4.0,
+			count: 2,
+			avg: 2.0,
+			oldest: 480.0,
+			timestamp: 496.0,
+		},
+	} );
+
+	const rows = ci.dispatch( 'list_profiles', [ '-s' ] );
+	const row = rows.find( ( p ) => 'slowpoke' === p.what );
+
+	// window = timestamp - oldest = 16; rate = count/window = 2/16 = 0.125;
+	// age = now - timestamp = 4. Each distinct from the others AND from
+	// avg/time/count, so a row that mapped the wrong field fails.
+	expect( row.window ).toBeCloseTo( 16.0, 6 );
+	expect( row.rate ).toBeCloseTo( 0.125, 6 );
+	expect( row.age ).toBe( 4 );
+	expect( row.avg ).toBeCloseTo( 2.0, 6 );
+
+	// The --total-- row rides along, as it does in the text table.
+	const total = rows.find( ( p ) => '--total--' === p.what );
+	expect( total.window ).toBeCloseTo( 16.0, 6 );
+	expect( total.age ).toBe( 4 );
+} );
+
 test( 'list_profiles renders avg-descending rows, --total--, and a glob filter', () => {
 	const r = new RouterNode();
 	r.name = '_router';

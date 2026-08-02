@@ -67,15 +67,13 @@ const HELP = {
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	list_timers:
-		'list_timers\n    note: all timers (ACTIVE, INTERVAL ms, MODE, ONESHOT, FIRES, TYPE, NAME).\n',
+		'list_timers [-s]\n    note: all timers (ACTIVE, INTERVAL ms, MODE, ONESHOT, FIRES, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n',
 	list_handles:
-		'list_handles\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n',
-	runtime_stats:
-		'runtime_stats\n    note: list_timers + list_handles rows plus the Router profile table as one { timers, handles, profiles, profiles_total } struct for the Runtime/Stats views (profiles null while profiling is off).\n',
+		'list_handles [-s]\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n',
 	profile:
 		'profile [ on | off ]\n    no args: toggle _router dispatch profiling (per-node self time).\n    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n    note: while on, _router times each dispatch; read the table with list_profiles.\n',
 	list_profiles:
-		'list_profiles [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n',
+		'list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view that wants to sort them.\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
 		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
@@ -184,7 +182,8 @@ export class CommandInterpreterNode extends Node {
 			const result = verb( this, args, message );
 			this._respond( message, cmd.name, result, TM_RESPONSE );
 		} catch ( e ) {
-			this._respond( message, cmd.name, e.message, TM_ERROR );
+			// Newline-terminated, as PHP sends it: the payload prints verbatim.
+			this._respond( message, cmd.name, `${ e.message }\n`, TM_ERROR );
 		}
 	}
 
@@ -320,13 +319,17 @@ export class CommandInterpreterNode extends Node {
 			rm: ( self, args ) => self._cmdRemove( args ),
 			list_nodes: ( self, args, env ) => self._cmdList( args, env ),
 			ls: ( self, args, env ) => self._cmdList( args, env ),
-			list_timers: () => CommandInterpreterNode._cmdListTimers(),
-			list_handles: () => CommandInterpreterNode._cmdListHandles(),
-			runtime_stats: () => CommandInterpreterNode._cmdRuntimeStats(),
+			list_timers: ( self, args ) =>
+				CommandInterpreterNode._cmdListTimers( args.includes( '-s' ) ),
+			list_handles: ( self, args ) =>
+				CommandInterpreterNode._cmdListHandles( args.includes( '-s' ) ),
 			profile: ( self, args ) =>
 				CommandInterpreterNode._cmdProfile( args[ 0 ] ?? '' ),
 			list_profiles: ( self, args ) =>
-				CommandInterpreterNode._cmdListProfiles( args[ 0 ] ?? '' ),
+				CommandInterpreterNode._cmdListProfiles(
+					args.find( ( a ) => '-s' !== a ) ?? '',
+					args.includes( '-s' )
+				),
 			log: ( self, args ) => {
 				self.stderr( args.join( ' ' ) );
 				return '';
@@ -1115,7 +1118,10 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// `list_timers` — active timers; MODE = own-slot vs router-hitchhike.
-	static _cmdListTimers() {
+	static _cmdListTimers( structured = false ) {
+		if ( structured ) {
+			return CommandInterpreterNode._timerRows();
+		}
 		const rows = CommandInterpreterNode._timerRows().map( ( r ) => [
 			r.active ? 'yes' : 'no',
 			String( r.interval_ms ),
@@ -1142,7 +1148,10 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// `list_handles` — nodes holding an EventSource; STATE = its readyState.
-	static _cmdListHandles() {
+	static _cmdListHandles( structured = false ) {
+		if ( structured ) {
+			return CommandInterpreterNode._handleRows();
+		}
 		const rows = CommandInterpreterNode._handleRows().map( ( r ) => [
 			r.id, // the EventSource readyState label (CONNECTING/OPEN/CLOSED)
 			String( r.count ),
@@ -1157,47 +1166,46 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// runtime_stats: timer+handle rows + Router profiles; keys mirror PHP.
-	static _cmdRuntimeStats() {
-		const { rows, total } = CommandInterpreterNode._profileDataset();
+	// @longform
+	// The seven facts list_profiles prints, from one raw record. Text and -s
+	// render THIS one derivation, so the two can never disagree.
+	static _profileStats( info, now ) {
+		const window = info.timestamp - info.oldest;
 		return {
-			timers: CommandInterpreterNode._timerRows(),
-			handles: CommandInterpreterNode._handleRows(),
-			profiles: rows,
-			profiles_total: total,
+			avg: info.avg,
+			time: info.time,
+			count: info.count,
+			window,
+			rate: window > 0 && info.count > 1 ? info.count / window : 1,
+			age: Math.trunc(
+				info.timestamp > 0 ? Math.max( 0, now - info.timestamp ) : 0
+			),
 		};
 	}
 
-	// Router self-time { rows, total } for runtime_stats; both null when off.
-	static _profileDataset() {
-		const profiles = RouterNode.profiles();
-		if ( null === profiles ) {
-			return { rows: null, total: null };
-		}
-		const rows = [];
-		let totalTime = 0;
-		let totalCount = 0;
-		for ( const [ name, info ] of Object.entries( profiles ) ) {
-			rows.push( {
-				name,
-				avg: info.avg,
-				time: info.time,
-				count: info.count,
-			} );
-			totalTime += info.time;
-			totalCount += info.count;
+	// --total--: summed time/count, widest timestamp..oldest span.
+	static _profileTotal( infos ) {
+		let time = 0;
+		let count = 0;
+		let timestamp = 0;
+		let oldest = 0;
+		for ( const info of infos ) {
+			time += info.time;
+			count += info.count;
+			timestamp = Math.max( timestamp, info.timestamp );
+			oldest =
+				0 === oldest ? info.oldest : Math.min( oldest, info.oldest );
 		}
 		return {
-			rows,
-			total: {
-				avg: totalCount > 0 ? totalTime / totalCount : 0,
-				time: totalTime,
-				count: totalCount,
-			},
+			avg: count > 0 ? time / count : 0,
+			time,
+			count,
+			timestamp,
+			oldest,
 		};
 	}
 
-	// Keyed TimerNode rows for list_timers + runtime_stats; next_ms is null.
+	// Keyed TimerNode rows for list_timers; next_ms is null.
 	static _timerRows() {
 		const rows = [];
 		for ( const [ name, node ] of Core.nodes ) {
@@ -1219,7 +1227,7 @@ export class CommandInterpreterNode extends Node {
 		return rows;
 	}
 
-	// Keyed handle rows for list_handles + runtime_stats; id = readyState.
+	// Keyed handle rows for list_handles; id = readyState.
 	static _handleRows() {
 		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
 		const rows = [];
@@ -1275,61 +1283,42 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// list_profiles [glob] — per-node self-time, slowest avg first, --total--.
-	static _cmdListProfiles( glob ) {
+	static _cmdListProfiles( glob, structured = false ) {
 		if ( null === Core.node( '_router' ) ) {
 			throw new Error( "can't find _router" );
 		}
 		// Core.now() (not wall time) so a shadowed clock stays deterministic.
 		const start = Core.now();
 		const profiles = RouterNode.profiles() ?? {};
-		const entries = Object.entries( profiles ).sort(
-			( a, b ) => b[ 1 ].avg - a[ 1 ].avg
+		const matched = Object.entries( profiles ).filter(
+			( [ key ] ) =>
+				'' === glob ||
+				'total' === glob ||
+				new RegExp( glob ).test( key )
 		);
-
-		let count = 0;
-		const total = { time: 0, count: 0, timestamp: 0, oldest: 0 };
-		const rows = [];
-		for ( const [ key, info ] of entries ) {
-			if (
-				'' !== glob &&
-				'total' !== glob &&
-				! new RegExp( glob ).test( key )
-			) {
-				continue;
-			}
-			total.time += info.time;
-			total.count += info.count;
-			total.timestamp = Math.max( total.timestamp, info.timestamp );
-			total.oldest =
-				0 === total.oldest
-					? info.oldest
-					: Math.min( total.oldest, info.oldest );
-			if ( 'total' === glob ) {
-				continue;
-			}
-			rows.push(
-				CommandInterpreterNode._profileRow(
-					info.avg,
-					info.time,
-					info.count,
-					info.timestamp - info.oldest,
-					info.timestamp,
-					key
-				)
-			);
-			count++;
-		}
-		const avg = total.count > 0 ? total.time / total.count : 0;
-		rows.push(
-			CommandInterpreterNode._profileRow(
-				avg,
-				total.time,
-				total.count,
-				total.timestamp - total.oldest,
-				total.timestamp,
-				'--total--'
+		const stats = ( info ) =>
+			CommandInterpreterNode._profileStats( info, start );
+		const totals = stats(
+			CommandInterpreterNode._profileTotal(
+				matched.map( ( e ) => e[ 1 ] )
 			)
 		);
+
+		const listed =
+			'total' === glob
+				? []
+				: matched
+						.map( ( [ key, info ] ) => [ key, stats( info ) ] )
+						.sort( ( a, b ) => b[ 1 ].avg - a[ 1 ].avg );
+		if ( structured ) {
+			return listed
+				.map( ( [ key, r ] ) => ( { ...r, what: key } ) )
+				.concat( [ { ...totals, what: '--total--' } ] );
+		}
+		const rows = listed.map( ( [ key, r ] ) =>
+			CommandInterpreterNode._profileRow( r, key )
+		);
+		rows.push( CommandInterpreterNode._profileRow( totals, '--total--' ) );
 
 		return (
 			CommandInterpreterNode._tabulate(
@@ -1345,25 +1334,21 @@ export class CommandInterpreterNode extends Node {
 				[ 'AVERAGE', 'TIME', 'COUNT', 'WINDOW', 'RATE', 'AGE', 'WHAT' ],
 				rows
 			) +
-			`\nreturned ${ count } profiles in ${ (
+			`\nreturned ${ listed.length } profiles in ${ (
 				Core.now() - start
 			).toFixed( 4 ) } seconds\n`
 		);
 	}
 
-	// One list_profiles row; `age` is the window (rate = count/window, else 1).
-	static _profileRow( avg, time, count, age, timestamp, what ) {
+	// One list_profiles row: the shared stats struct, formatted.
+	static _profileRow( r, what ) {
 		return [
-			avg.toFixed( 6 ),
-			time.toFixed( 2 ),
-			String( count ),
-			age.toFixed( 2 ),
-			( age > 0 && count > 1 ? count / age : 1 ).toFixed( 2 ),
-			String(
-				Math.trunc(
-					timestamp > 0 ? Math.max( 0, Core.now() - timestamp ) : 0
-				)
-			),
+			r.avg.toFixed( 6 ),
+			r.time.toFixed( 2 ),
+			String( r.count ),
+			r.window.toFixed( 2 ),
+			r.rate.toFixed( 2 ),
+			String( r.age ),
 			what,
 		];
 	}

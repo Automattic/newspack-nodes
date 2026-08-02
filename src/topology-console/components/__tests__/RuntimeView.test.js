@@ -1,9 +1,9 @@
 /**
  * RuntimeView tests — the current-scope timers + handles grids shown inside the
- * Inspector's Runtime modal. It mounts ONE `Dmesg` poller (verb `runtime_stats`,
- * target `_cwd`) on the backbone and renders its `{ timers, handles }` reply as
- * two click-to-sort grids; a drain spinner (next_ms <= 0 with fires climbing) is
- * flagged. Ported from the retired Runtime devtools tab.
+ * Inspector's Runtime modal. It mounts one `Dmesg` poller per verb
+ * (`list_timers -s` and `list_handles -s`, both targeting `_cwd`) and renders
+ * each reply as a click-to-sort grid; a drain spinner (next_ms <= 0 with fires
+ * climbing) is flagged. Ported from the retired Runtime devtools tab.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -17,16 +17,23 @@ import {
 } from '../../../runtime/message';
 import RuntimeView from '../RuntimeView';
 
-const POLLER = 'runtime:poller';
+const TIMER_POLLER = 'runtime:timers';
+const HANDLE_POLLER = 'runtime:handles';
 
 beforeEach( () => Core.reset() );
 
-// Feed a runtime_stats reply into the mounted poller and let React settle.
+// Feed each verb's `-s` rows into its own poller; let React settle.
 function publish( timers, handles ) {
-	const m = newMessage();
-	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	m[ VALUE ] = { payload: { timers, handles } };
-	act( () => Core.node( POLLER ).fill( m ) );
+	const reply = ( rows ) => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		m[ VALUE ] = { payload: rows };
+		return m;
+	};
+	act( () => {
+		Core.node( TIMER_POLLER ).fill( reply( timers ) );
+		Core.node( HANDLE_POLLER ).fill( reply( handles ) );
+	} );
 }
 
 // Seed / refresh the console `_metadata` graph the Trace toggle derives from.
@@ -52,19 +59,27 @@ const rowNames = ( table ) =>
 		tr.getAttribute( 'data-name' )
 	);
 
-test( 'mounts one runtime_stats poller on the backbone, targeting the current scope (_cwd)', () => {
+test( 'mounts a poller per verb on the backbone, targeting the current scope (_cwd)', () => {
 	render( <RuntimeView /> );
-	const poller = Core.node( POLLER );
-	expect( poller ).toBeTruthy();
-	expect( poller.verb ).toBe( 'runtime_stats' );
-	expect( poller.target ).toBe( '_cwd' );
+	for ( const [ name, verb ] of [
+		[ TIMER_POLLER, 'list_timers' ],
+		[ HANDLE_POLLER, 'list_handles' ],
+	] ) {
+		const poller = Core.node( name );
+		expect( poller ).toBeTruthy();
+		expect( poller.verb ).toBe( verb );
+		expect( poller.pollArgs ).toEqual( [ '-s' ] );
+		expect( poller.target ).toBe( '_cwd' );
+	}
 } );
 
 test( 'tears the poller down on unmount (poll only while the modal is open)', () => {
 	const { unmount } = render( <RuntimeView /> );
-	expect( Core.node( POLLER ) ).toBeTruthy();
+	expect( Core.node( TIMER_POLLER ) ).toBeTruthy();
+	expect( Core.node( HANDLE_POLLER ) ).toBeTruthy();
 	unmount();
-	expect( Core.node( POLLER ) ).toBeFalsy();
+	expect( Core.node( TIMER_POLLER ) ).toBeFalsy();
+	expect( Core.node( HANDLE_POLLER ) ).toBeFalsy();
 } );
 
 test( 'renders the timer + handle rows into two grids', () => {

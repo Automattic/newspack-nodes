@@ -30,7 +30,7 @@ test( 'renders nothing for an unknown / null view', () => {
 	expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 } );
 
-test( 'the Runtime view mounts the runtime_stats poller inside a wide modal', () => {
+test( 'the Runtime view mounts its list_timers poller inside a wide modal', () => {
 	render( <InspectorViewModal view="runtime" onDismiss={ () => {} } /> );
 	const modal = document.body.querySelector( '.topology-modal' );
 	expect( modal ).toBeTruthy();
@@ -38,21 +38,21 @@ test( 'the Runtime view mounts the runtime_stats poller inside a wide modal', ()
 	expect(
 		document.body.querySelector( '[data-testid="runtime-view"]' )
 	).toBeTruthy();
-	const poller = Core.node( 'runtime:poller' );
-	expect( poller.verb ).toBe( 'runtime_stats' );
+	const poller = Core.node( 'runtime:timers' );
+	expect( poller.verb ).toBe( 'list_timers' );
 	expect( poller.target ).toBe( '_cwd' );
 } );
 
-test( 'the Stats view mounts the runtime_stats poller inside a wide modal', () => {
+test( 'the Profiler view mounts its list_profiles poller inside a wide modal', () => {
 	render( <InspectorViewModal view="stats" onDismiss={ () => {} } /> );
 	const modal = document.body.querySelector( '.topology-modal' );
 	expect( modal ).toBeTruthy();
 	expect( modal.classList.contains( 'topology-modal--large' ) ).toBe( true );
 	expect(
-		document.body.querySelector( '[data-testid="stats-view"]' )
+		document.body.querySelector( '[data-testid="profiler-view"]' )
 	).toBeTruthy();
-	const poller = Core.node( 'stats:poller' );
-	expect( poller.verb ).toBe( 'runtime_stats' );
+	const poller = Core.node( 'profiler:poller' );
+	expect( poller.verb ).toBe( 'list_profiles' );
 	expect( poller.target ).toBe( '_cwd' );
 } );
 

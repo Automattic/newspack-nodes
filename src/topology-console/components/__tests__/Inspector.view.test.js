@@ -442,7 +442,7 @@ describe( 'Inspector (view mode)', () => {
 			true
 		);
 		expect(
-			modal.querySelector( '[data-testid="stats-view"]' )
+			modal.querySelector( '[data-testid="profiler-view"]' )
 		).toBeTruthy();
 		Core.reset();
 	} );
