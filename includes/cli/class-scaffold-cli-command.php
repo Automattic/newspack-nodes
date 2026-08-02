@@ -22,10 +22,10 @@ class Scaffold_CLI_Command {
 	/**
 	 * Generate starter files for a Nodes plugin, node class, or topology.
 	 *
-	 * `plugin` creates `./<slug>/` with a bootstrap, composer.json, one working
+	 * `plugin` creates `./<name>/` with a bootstrap, composer.json, one working
 	 * example node, a topology wiring it, and a README. `node` and `topology`
-	 * write a single file into the current plugin directory. Existing targets
-	 * are never overwritten.
+	 * write a single file into the current directory. Existing targets are never
+	 * overwritten.
 	 *
 	 * ## OPTIONS
 	 *
@@ -327,7 +327,7 @@ MD;
 	}
 
 	/**
-	 * Write one node class into the cwd plugin's includes/.
+	 * Write one node class into the cwd.
 	 *
 	 * @param string $class Class name (with or without the `_Node` suffix).
 	 * @return array<int, string> Paths written, relative to cwd.
@@ -338,7 +338,7 @@ MD;
 		}
 		$class = (string) \preg_replace( '/_Node$/', '', $class );
 		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
-		$path  = "includes/class-{$kebab}-node.php";
+		$path  = "class-{$kebab}-node.php";
 
 		self::refuse_existing( [ $path ] );
 		self::write_file( $path, $this->node_template( self::prefix_from_slug( \basename( (string) \getcwd() ) ), $class, $kebab ) );
@@ -346,14 +346,14 @@ MD;
 	}
 
 	/**
-	 * Write one TSL topology (stock nodes only) into the cwd plugin's topologies/.
+	 * Write one TSL topology (stock nodes only) into the cwd.
 	 *
 	 * @param string $name Topology name.
 	 * @return array<int, string> Paths written, relative to cwd.
 	 */
 	private function scaffold_topology( string $name ): array {
 		self::require_slug( $name );
-		$path = "topologies/{$name}.tsl";
+		$path = "{$name}.tsl";
 
 		self::refuse_existing( [ $path ] );
 		self::write_file( $path, $this->stock_topology_template( $name ) );
