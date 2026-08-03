@@ -1341,4 +1341,84 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	// ── node_dirs / node_partitions ────────────────────────────────────────
+
+	/**
+	 * Make `$names` the active set, each backed by a TSL in a fresh stock dir.
+	 *
+	 * @param array<string,string> $tsl  Topology name => TSL body.
+	 * @param array<string,int>    $counts Topology name => worker count.
+	 */
+	private function activate_topologies( array $tsl, array $counts ): string {
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		foreach ( $tsl as $name => $body ) {
+			\file_put_contents( "{$stock}/{$name}.tsl", $body );
+		}
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ) use ( $counts ): array {
+				foreach ( $counts as $name => $count ) {
+					$topologies[ $name ] = [ 'topology' => $name, 'num_partitions' => $count, 'stale_timeout' => 60 ];
+				}
+				return $topologies;
+			}
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_keys( $counts );
+		\Newspack_Nodes\Config::reset();
+		return $stock;
+	}
+
+	public function test_node_dirs_unions_the_partitions_of_every_active_topology(): void {
+		// combined runs 4 workers, performance 2 — the union is 0..3, and a
+		// count of 4 is distinct from the config default of 1 either way.
+		$decl  = "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n";
+		$stock = $this->activate_topologies(
+			[ 'combined' => $decl, 'performance' => $decl ],
+			[ 'combined' => 4, 'performance' => 2 ]
+		);
+
+		try {
+			$dirs = Bootstrap::node_dirs( 'requests:partition' );
+
+			$this->assertSame( [ 0, 1, 2, 3 ], \array_keys( $dirs ) );
+			$root = Core::resolve_config_token( 'config', 'logs_dir' );
+			$this->assertSame( "{$root}/requests.p3", $dirs[3] );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_node_dirs_of_a_node_no_active_topology_declares_is_empty(): void {
+		$stock = $this->activate_topologies(
+			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" ],
+			[ 'combined' => 4 ]
+		);
+
+		try {
+			$this->assertSame( [], Bootstrap::node_dirs( 'flames:partition' ) );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_node_partitions_is_the_worker_index_space_of_the_declaring_topologies(): void {
+		// flame-builder writes nothing to disk — its stats store is keyed by the
+		// worker index, so the index space has to come from the topology count.
+		$stock = $this->activate_topologies(
+			[ 'combined' => "make_node Flame_Builder flame-builder\n", 'job-router' => "make_node Age_Sieve jobs:sieve\n" ],
+			[ 'combined' => 3, 'job-router' => 8 ]
+		);
+
+		try {
+			$this->assertSame( [ 0, 1, 2 ], Bootstrap::node_partitions( 'flame-builder' ) );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 }

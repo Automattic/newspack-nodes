@@ -375,6 +375,55 @@ class Bootstrap {
 	}
 
 	/**
+	 * Concrete dirs the Partition/Topic node `$node` writes across every ACTIVE
+	 * topology, indexed by partition. The union: two topologies declaring the
+	 * same node at different worker counts each contribute their own.
+	 *
+	 * This is how a READER finds a resource's partitions. The global
+	 * `num_partitions` is not that number — a topology carries its own count,
+	 * and a Topic re-partitions above it — so a reader that loops to the global
+	 * silently sees only the low partitions.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function node_dirs( string $node ): array {
+		$dirs = [];
+		foreach ( \array_keys( self::get_topologies() ) as $name ) {
+			foreach ( Topology_Registry::resolved_node_dirs( $name, $node, self::num_partitions_for( $name ) ) as $p => $dir ) {
+				$dirs[ $p ] ??= $dir;
+			}
+		}
+		\ksort( $dirs );
+		return $dirs;
+	}
+
+	/**
+	 * Worker indices running `$node`, across every ACTIVE topology that declares
+	 * it. For per-partition state that never lands on disk — a memcache stats
+	 * store keyed by the worker index — where node_dirs() has nothing to expand.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @return list<int>
+	 */
+	public static function node_partitions( string $node ): array {
+		$seen = [];
+		foreach ( \array_keys( self::get_topologies() ) as $name ) {
+			if ( ! Topology_Registry::declares_node( $name, $node ) ) {
+				continue;
+			}
+			for ( $p = 0; $p < self::num_partitions_for( $name ); $p++ ) {
+				$seen[ $p ] = true;
+			}
+		}
+		$out = \array_keys( $seen );
+		\sort( $out );
+		return $out;
+	}
+
+	/**
 	 * Veto-time diagnostic for the supervisor cron, registered on
 	 * pre_schedule_event AND pre_reschedule_event at PHP_INT_MAX - 2. When an
 	 * earlier callback short-circuits OUR event with false or a WP_Error,

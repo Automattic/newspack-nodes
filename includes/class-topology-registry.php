@@ -60,6 +60,14 @@ class Topology_Registry {
 	private static array $write_meta_cache = [];
 
 	/**
+	 * Per-topology `node name => write_set entry` for Partition/Topic nodes, so a
+	 * caller can resolve ONE node's dirs without pattern-matching a path.
+	 *
+	 * @var array<string, array<string, string>>
+	 */
+	private static array $write_nodes_cache = [];
+
+	/**
 	 * What a Topic's `num_partitions` means when the argument is OMITTED —
 	 * Topic_Node's schema default, not the worker count. Pinned to that schema
 	 * by TopologyRegistryResolvedDirsTest so the two cannot drift.
@@ -271,7 +279,8 @@ class Topology_Registry {
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
-		self::$write_meta_cache[ $name ] = $meta;
+		self::$write_meta_cache[ $name ]  = $meta;
+		self::$write_nodes_cache[ $name ] = $nodes;
 		return self::$write_set_cache[ $name ] = $out;
 	}
 
@@ -933,6 +942,49 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Concrete dirs the Partition/Topic node `$node` writes in `$topology`,
+	 * indexed by partition — the per-node counterpart of resolved_resource_dirs,
+	 * for a reader that wants ONE resource's paths rather than the GC's whole
+	 * first-level set. Same rules: a Topic's declared count wins over
+	 * `$num_partitions`, the token is substituted wherever it sits, and a
+	 * template carrying no partition token collapses to one dir at index 0 —
+	 * `alerts.p0` is pinned across every worker on purpose. `[]` when
+	 * `$topology` declares no such node.
+	 *
+	 * `$num_partitions` is the caller's worker count; pass
+	 * `Bootstrap::num_partitions_for($topology)`.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function resolved_node_dirs( string $topology, string $node, int $num_partitions ): array {
+		// write_set() populates both caches; read them AFTER.
+		self::write_set( $topology );
+		$entry = self::$write_nodes_cache[ $topology ][ $node ] ?? '';
+		if ( '' === $entry ) {
+			return [];
+		}
+		$meta     = self::$write_meta_cache[ $topology ][ $entry ] ?? [];
+		$declared = self::declared_partition_count( Core::as_string( $meta['partitions'] ?? '' ) );
+		$count    = $declared > 0 ? $declared : \max( 1, $num_partitions );
+		$dirs     = [];
+		[ , $template ] = \explode( ':', $entry, 2 );
+		for ( $p = 0; $p < $count; $p++ ) {
+			$concrete = Core::resolve_partition_template( $template, $p, $topology );
+			// Tokenless (or nested) template: keep the FIRST partition seen.
+			if ( \in_array( $concrete, $dirs, true ) ) {
+				continue;
+			}
+			$dirs[ $p ] = $concrete;
+		}
+		return $dirs;
+	}
+
+	/** Whether `$topology` declares a node named `$node` — including nodes that write nothing. */
+	public static function declares_node( string $topology, string $node ): bool {
+		return \in_array( $node, self::declared_node_names( $topology ), true );
+	}
+
+	/**
 	 * A Topic's declared partition count: a literal, or a `<config:…>` token
 	 * resolved the same way the runtime resolves it. 0 means "not declared, or
 	 * unresolvable" — the caller falls back to the worker count.
@@ -1265,6 +1317,7 @@ class Topology_Registry {
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];
 		self::$write_meta_cache             = [];
+		self::$write_nodes_cache            = [];
 		self::$graph_cache                  = [];
 		self::$frontmatter_cache            = [];
 		self::$statements_cache             = [];

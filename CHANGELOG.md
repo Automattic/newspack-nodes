@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Bootstrap::node_dirs()` / `node_partitions()` — how a reader finds a
+  resource's partitions.** The global `num_partitions` is not that number: a
+  topology carries its own count, and a Topic re-partitions above it. A reader
+  that loops to the global silently sees only the low partitions. `node_dirs()`
+  returns the concrete dirs a named Partition/Topic node writes across every
+  active topology, indexed by partition, resolved through the DECLARATION —
+  so nothing has to assume where `.p{N}` lands, which matters because
+  request-builder alone pins `alerts.p0` and `gyroscope.p0` while
+  `requests.p<partition>` expands. `node_partitions()` is the worker index
+  space, for per-partition state that never lands on disk.
+  `Topology_Registry::resolved_node_dirs()` / `declares_node()` are the
+  per-topology primitives behind them.
+
 ## [2.4.6] - 2026-08-03
 
 ### Fixed
