@@ -44,6 +44,24 @@ function errorText( payload ) {
 	return 'Operation failed';
 }
 
+/**
+ * A TM_ERROR rejection, flagged as a REPLY.
+ *
+ * The server answered and said it cannot serve this. A timeout, an unmounted
+ * node, or a missing session is the ABSENCE of an answer. A caller that holds
+ * an intent and retries has to tell those apart, because retrying a definitive
+ * "not found" never terminates. Only this path is flagged, so the default
+ * stays "we do not know" — the safe assumption.
+ *
+ * @param {string} text The error message.
+ * @return {Error} The rejection, with `fromServer` set.
+ */
+function replyError( text ) {
+	const err = new Error( text );
+	err.fromServer = true;
+	return err;
+}
+
 export class RequestNode extends Node {
 	// Hook-mounted infrastructure, not an operator's canvas drop.
 	static isSystemNode = true;
@@ -142,7 +160,7 @@ export class RequestNode extends Node {
 		const payload = message[ VALUE ]?.payload ?? message[ VALUE ];
 		if ( message[ TYPE ] & TM_ERROR ) {
 			this._settle( ( p ) =>
-				p.reject( new Error( errorText( payload ) ) )
+				p.reject( replyError( errorText( payload ) ) )
 			);
 			return;
 		}
