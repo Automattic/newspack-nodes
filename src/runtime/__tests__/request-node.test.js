@@ -92,6 +92,29 @@ test( 'rejects a TM_ERROR with its message', async () => {
 	await expect( pending ).rejects.toThrow( REASON );
 } );
 
+test( 'a TM_ERROR rejection is marked as having come from the server', async () => {
+	// A caller that retries needs to tell "the server says no" from "no
+	// answer yet" — the first is final, and retrying it never terminates.
+	const { node } = makeNode();
+
+	const pending = node.request( 'delete', [ 'combined' ] );
+	node.fill( reply( TM_ERROR, REASON ) );
+
+	await expect( pending ).rejects.toMatchObject( { fromServer: true } );
+} );
+
+test( 'an unmounted-node rejection is NOT marked as from the server', async () => {
+	const { node } = makeNode();
+
+	const pending = node.request( 'list', [] );
+	node.removeNode();
+
+	const err = await pending.catch( ( e ) => e );
+
+	expect( err.message ).toMatch( /was removed/ );
+	expect( err.fromServer ).toBeUndefined();
+} );
+
 test( 'serializes a second request behind the first', async () => {
 	const { node, sent } = makeNode();
 

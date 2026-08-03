@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A `RequestNode` rejection says whether a reply arrived.** A TM_ERROR now
+  rejects with `fromServer` set; a timeout, an unmounted node, and a missing
+  session do not. Callers that hold an intent and retry need that distinction —
+  retrying a definitive "not found" never terminates. The default stays "we do
+  not know", which is the safe assumption.
+
 ### Changed
 
 - **Every console document mutation goes through one door.** `DraftContext.js`
