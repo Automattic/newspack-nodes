@@ -53,6 +53,9 @@ function errorText( payload ) {
  * "not found" never terminates. Only this path is flagged, so the default
  * stays "we do not know" — the safe assumption.
  *
+ * The consumer is cross-repo — newspack-event-logger-nodes' `resolveUrlHash`
+ * — so `fromServer` reads as unused from inside this repo.
+ *
  * @param {string} text The error message.
  * @return {Error} The rejection, with `fromServer` set.
  */

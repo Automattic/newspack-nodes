@@ -1086,9 +1086,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			return;
 		}
 		setToast( { kind: 'error', text: expandError } );
-		setDraft( ( g ) => revertIncludes( g, expandBaseline.tree ) );
+		// Toast in either mode; revert only what this tree belongs to.
+		if ( 'edit' === mode ) {
+			setDraft( ( g ) => revertIncludes( g, expandBaseline.tree ) );
+		}
 		pendingClusterRef.current = null;
-	}, [ expandError, expandBaseline ] );
+	}, [ expandError, expandBaseline, mode ] );
 
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(

@@ -49,6 +49,24 @@ describe( 'useCatalog', () => {
 		expect( result.current.classes ).toEqual( [ { shell_name: 'Tee' } ] );
 	} );
 
+	it( 'keeps one value identity when a provider omits catalogs', () => {
+		// The overlay passes no `topologies`. A fresh [] default per render
+		// changes the memo's deps every render, so the memo never bails and
+		// the first React.memo'd consumer would silently re-render forever.
+		const classes = [ { shell_name: 'Tee' } ];
+		const wrapper = ( { children } ) => (
+			<CatalogProvider classes={ classes }>{ children }</CatalogProvider>
+		);
+
+		const { result, rerender } = renderHook( () => useCatalog(), {
+			wrapper,
+		} );
+		const first = result.current;
+		rerender();
+
+		expect( result.current ).toBe( first );
+	} );
+
 	it( 'throws outside a provider rather than serving empty catalogs', () => {
 		// Loud: empty catalogs render as "this node type does not exist",
 		// which reads as a broken topology rather than a missing provider.
