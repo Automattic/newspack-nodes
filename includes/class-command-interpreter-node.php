@@ -948,11 +948,17 @@ class Command_Interpreter_Node extends Node {
 			if ( null !== $node->patron() ) {
 				continue;
 			}
+			$schema = $node::node_schema();
+			// @longform Hook-mounted infrastructure has no owner to patron it —
+			// the connect-queue timer is shared by every Remote_Link — so a
+			// schema saying hidden is the only signal it can give. The palette
+			// already honours it; the canvas has to as well.
+			if ( true === ( $schema['hidden'] ?? false ) ) {
+				continue;
+			}
 			// SHELL name (GUI key), not class short-name (Echo_Node -> 'Echo').
 			$class = self::shell_name_for( $node );
 			$sink  = $node->sink();
-			// Port flags from schema; default true so canvas draws both.
-			$schema       = $node::node_schema();
 			$out[ $name ] = [
 				'class'         => $class,
 				'counter'       => $node->counter(),
