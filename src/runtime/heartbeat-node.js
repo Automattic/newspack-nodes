@@ -15,7 +15,10 @@ import { Core } from './core';
 import { TYPE, VALUE, TM_ERROR, TM_RESPONSE } from './message';
 
 const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
-const POKE_INTERVAL_MS = 5000;
+// @longform Matches Remote_Link_Node::HEARTBEAT_INTERVAL doing the identical
+// job server-side, and clears SSE_Slot_Pool::$ttl (60s) four times over. 5s
+// was 12x more often than the lease actually needs.
+const POKE_INTERVAL_MS = 15000;
 
 export class HeartbeatNode extends TimerNode {
 	constructor() {

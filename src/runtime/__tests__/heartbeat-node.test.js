@@ -29,6 +29,32 @@ const LONG_NON_BOOLEAN_ERROR =
 	'Heartbeat reply used a non-boolean success marker 619: ' +
 	'x'.repeat( 600 );
 
+// The slot TTL is the server's (SSE_Slot_Pool::$ttl, 60s) and the client poke
+// is the ONLY thing that refreshes it, so the interval has to clear the TTL
+// with margin — but 5s was 12x more often than needed, and 3x harder than
+// Remote_Link_Node::HEARTBEAT_INTERVAL doing the identical job server-side.
+describe( 'HeartbeatNode — poke cadence', () => {
+	it( 'pokes on the same cadence as the server-side client, well inside the TTL', () => {
+		// SSE_Slot_Pool::$ttl. Duplicated here rather than exported from
+		// production, which never reads it — nothing pins the two together, so
+		// a constant claiming to know the server's TTL would be a lie.
+		const slotTtlMs = 60 * 1000;
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		const node = new HeartbeatNode();
+		node.name = names.HEARTBEAT;
+		node.sink = { fill: () => {} };
+		node.setSlot( 3, '42424243', 'demo.p0' );
+
+		expect( node.interval_ms ).toBe( 15000 );
+		expect( node.interval_ms ).toBeLessThan( slotTtlMs / 3 );
+		// RouterNode arms a REAL 1s interval; leaving it running outlives the
+		// test and warns from notifyTimer once Core.reset() drops the map.
+		router.stopTimer();
+		node.stopTimer();
+	} );
+} );
+
 describe( 'Heartbeat node', () => {
 	afterEach( () => {
 		Core.reset();
