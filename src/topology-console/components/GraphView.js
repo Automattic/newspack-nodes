@@ -24,10 +24,6 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {boolean}          props.editMode            Draft-only canvas affordances.
  * @param {boolean}          props.showPalette         Render the class palette.
  * @param {boolean}          props.paletteLoading      Catalog fetch-in-flight flag for the palette (default false).
- * @param {Object}           props.classCatalog        shell_name → schema (ports).
- * @param {Array}            props.catalog             Class list (Inspector verbs).
- * @param {Array}            props.formatters          Formatter list (Inspector).
- * @param {Array}            props.vaults              Vault catalog (Inspector, vault_id args).
  * @param {string}           props.streamStatus        For Inspector display.
  * @param {Object}           props.positionOverrides   Layout positions (consumer-owned).
  * @param {Function}         props.onPositionChange    (id, pos)
@@ -51,9 +47,7 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {boolean}          props.local               When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
  * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
  * @param {number}           [props.debugLevel]        Live Dumper verbosity dial (0/1/2); the Inspector's no-node Verbose toggle reads it. Default 0.
- * @param {Array}            [props.composeTargets]    The Compose modal's full "To" list (derived from `parsed.nodes`: `_command_interpreter` + every node id + its `:config` sidecar); Inspector falls back to its own node-id list when omitted.
  * @param {Array}            [props.hulls]             One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
- * @param {Array}            [props.topologies]        `topologies list` entries (each carries `includes`); forwarded to the Palette's "Topologies" drag section.
  * @param {string}           [props.currentTopology]   The topology being edited; disables dragging it (or an ancestor) onto itself.
  * @param {Function}         [props.onDropTopology]    ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
  * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
@@ -73,10 +67,6 @@ export default function GraphView( {
 	paletteLoading = false,
 	paletteCollapsed = false,
 	onPaletteToggle,
-	classCatalog = {},
-	catalog = [],
-	formatters = [],
-	vaults = [],
 	streamStatus,
 	positionOverrides = {},
 	onPositionChange,
@@ -98,9 +88,7 @@ export default function GraphView( {
 	driftIds = null,
 	local = false,
 	debugLevel = 0,
-	composeTargets,
 	hulls = [],
-	topologies = [],
 	currentTopology = '',
 	onDropTopology,
 	includeTree = {},
@@ -251,12 +239,10 @@ export default function GraphView( {
 			{ showPalette && (
 				<Palette
 					editMode={ editMode }
-					classes={ catalog }
 					loading={ paletteLoading }
 					collapsed={ paletteCollapsed }
 					onToggle={ onPaletteToggle }
 					onDropNode={ onDropNode }
-					topologies={ topologies }
 					currentTopology={ currentTopology }
 					declaredIncludes={ includes }
 					onDropTopology={ onDropTopology }
@@ -296,7 +282,6 @@ export default function GraphView( {
 					onConnect={ onConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
-					classCatalog={ classCatalog }
 					hulls={ hulls }
 				/>
 			</Frame>
@@ -336,16 +321,12 @@ export default function GraphView( {
 							onHover={ setHoveredId }
 							nodeIds={ nodeIds }
 							editMode={ editMode }
-							catalog={ catalog }
-							formatters={ formatters }
-							vaults={ vaults }
 							onUpdateArgs={ onUpdateArgs }
 							onUpdateVerbs={ onUpdateVerbs }
 							onRemoveNode={ handleRemoveNode }
 							onRenameNode={ onRenameNode }
 							onRemoveEdge={ handleRemoveEdge }
 							onConnect={ onConnect }
-							composeTargets={ composeTargets }
 							tree={ includeTree }
 							includes={ includes }
 							selectedHull={ selectedHull }

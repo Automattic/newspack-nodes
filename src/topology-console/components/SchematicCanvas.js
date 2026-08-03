@@ -27,6 +27,7 @@ import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullGeometry } from '../utils/hullPath';
 import { edgeHasConnectRole } from '../utils/draftGraph';
+import { useCatalog } from '../CatalogContext';
 
 // Exported so the palette drag ghost can render the same node-card geometry.
 export const NODE_W = 196;
@@ -253,8 +254,6 @@ export default function SchematicCanvas( {
 	onSelectEdge,
 	// Canvas px obstructed at the bottom (expanded REPL); autofit reserves it.
 	bottomObstructionPx = 0,
-	// shell_name → schema; drives port visibility (accepts_fill/has_target).
-	classCatalog = {},
 	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
 	// One soft hull per include, at ANY depth: { include, nodeIds }.
@@ -262,6 +261,7 @@ export default function SchematicCanvas( {
 	selectedHull = null,
 	onSelectHull,
 } ) {
+	const { classCatalog } = useCatalog();
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
 	const hullPaths = useMemo(
 		() =>

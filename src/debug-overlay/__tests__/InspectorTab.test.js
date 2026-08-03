@@ -13,8 +13,12 @@ import { replMaxHeight, measureTabBarHeight } from '../tabs/InspectorTab';
 const mockCaptured = { consoleShell: null, modal: null };
 jest.mock( '../../topology-console/components/ConsoleShell', () => ( {
 	__esModule: true,
-	default: ( props ) => {
-		mockCaptured.consoleShell = props;
+	default: function ConsoleShellDouble( props ) {
+		// The catalogs reach the canvas through context now, not canvasProps.
+		const {
+			useCatalog,
+		} = require( '../../topology-console/CatalogContext' );
+		mockCaptured.consoleShell = { ...props, catalogs: useCatalog() };
 		return null;
 	},
 } ) );
@@ -339,7 +343,7 @@ describe( 'InspectorTab interactions', () => {
 				frame={ { h: 600, w: 800 } }
 			/>
 		);
-		const targets = mockCaptured.consoleShell.canvasProps.composeTargets;
+		const targets = mockCaptured.consoleShell.catalogs.composeTargets;
 		expect( targets[ 0 ] ).toBe( '_command_interpreter' );
 		expect( targets ).toContain( 'a' );
 		expect( targets ).toContain( 'a:config' );
@@ -352,7 +356,7 @@ describe( 'InspectorTab interactions', () => {
 		expect( targets ).not.toContain( '_router:config' );
 	} );
 
-	it( 'threads the vault catalog into canvasProps so vault_id args render the picker', () => {
+	it( 'provides the vault catalog so vault_id args render the picker', () => {
 		const InspectorTab = require( '../tabs/InspectorTab' ).default;
 		render(
 			<InspectorTab
@@ -361,7 +365,7 @@ describe( 'InspectorTab interactions', () => {
 				frame={ { h: 600, w: 800 } }
 			/>
 		);
-		expect( mockCaptured.consoleShell.canvasProps.vaults ).toEqual( [
+		expect( mockCaptured.consoleShell.catalogs.vaults ).toEqual( [
 			{ id: 'austin', url: '' },
 		] );
 	} );

@@ -2,13 +2,14 @@
  * Inspector view-mode rendering (edit-mode paths live in a separate file).
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { fireEvent } from '@testing-library/react';
 import Inspector from '../Inspector';
 import { formatActivityWindow } from '../ProcessStats';
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import { IoTelemetry } from '../../../runtime/io-telemetry';
 import names from '../../../runtime/reserved-node-names.json';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 const baseProps = {
 	selectedId: null,
@@ -24,14 +25,32 @@ const baseProps = {
 
 describe( 'Inspector (view mode)', () => {
 	it( 'renders the no-node command palette when nothing is selected', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect(
 			container.querySelector( '.topology-insp__commands' )
 		).not.toBeNull();
 	} );
 
 	it( 'no-node palette groups are full Sections with no strip labels', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const titles = [
 			...container.querySelectorAll( '.topology-insp__section-title' ),
 		].map( ( el ) => el.textContent );
@@ -47,8 +66,15 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node panel in EDIT mode shows an edit hint, not the live command palette', () => {
 		// Offline draft: no live command palette — edit mode shows a hint.
-		const { container, queryByText } = render(
-			<Inspector { ...baseProps } editMode={ true } />
+		const { container, queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } editMode={ true } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-insp__commands' )
@@ -58,7 +84,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'shows process stats (msgs in/out) at the top of the no-node inspector', () => {
-		const { getByTestId } = render(
+		const { getByTestId } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -78,7 +104,14 @@ describe( 'Inspector (view mode)', () => {
 					],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const stats = getByTestId( 'inspector-process-stats' ).textContent;
 		expect( stats ).toContain( '10' );
@@ -94,7 +127,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'shows the current msg + byte /s rates in the no-node process header [98]', () => {
-		const { getByTestId } = render(
+		const { getByTestId } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -116,7 +149,14 @@ describe( 'Inspector (view mode)', () => {
 					read: [ 0, 2048 ],
 					write: [ 0, 512 ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const header = getByTestId( 'inspector-process-stats' );
 		const stats = header.textContent;
@@ -148,7 +188,7 @@ describe( 'Inspector (view mode)', () => {
 		// Received: 5185 msgs / 995 bytes; sent: 118 msgs / 6300 bytes.
 		IoTelemetry.recordIn( 995, 5185 );
 		IoTelemetry.recordOut( 6300, 118 );
-		const { getByTestId } = render(
+		const { getByTestId } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				local
@@ -164,7 +204,14 @@ describe( 'Inspector (view mode)', () => {
 					],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const stats = getByTestId( 'inspector-process-stats' ).textContent;
 		// IoTelemetry totals win, NOT the node count (3).
@@ -180,7 +227,16 @@ describe( 'Inspector (view mode)', () => {
 		const dmesg = new Node();
 		dmesg.name = names.DMESG;
 		dmesg.setStateCache = { dmesg: { errors: 2, warnings: 1, debug: 3 } };
-		const { getByTestId } = render( <Inspector { ...baseProps } /> );
+		const { getByTestId } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const header = getByTestId( 'inspector-process-stats' );
 		const levels = header.querySelector( '.topology-insp__levels' );
 		expect( levels.textContent ).toMatch( /2 err/ );
@@ -207,7 +263,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'shows no-node server-command buttons that dispatch via onAction', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ ( ...a ) => calls.push( a ) }
@@ -219,7 +275,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Trace fires the trace action with an explicit level (like the per-node button), not a raw command', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ { nodes: [ { id: 'a', debugState: 0 } ], edges: [] } }
@@ -232,7 +288,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node Trace reads "stop trace" when ANY node is traced, not just the first', () => {
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -242,14 +298,21 @@ describe( 'Inspector (view mode)', () => {
 					],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( getByText( 'stop trace' ) ).not.toBeNull();
 	} );
 
 	it( 'no-node Trace highlights + swaps to "stop trace" when tracing, and toggles to level 0', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ { nodes: [ { id: 'a', debugState: 1 } ], edges: [] } }
@@ -264,7 +327,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'exposes list_timers/list_handles as no-node inspector commands', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ ( ...a ) => calls.push( a ) }
@@ -278,7 +341,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'exposes `profiles` (list_profiles) as a no-node command button', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ ( ...a ) => calls.push( a ) }
@@ -289,8 +352,15 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'groups the no-node strip into Views / Toggles / Commands headers', () => {
-		const { getByText } = render(
-			<Inspector { ...baseProps } parsed={ { nodes: [], edges: [] } } />
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } parsed={ { nodes: [], edges: [] } } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( getByText( 'Views' ) ).not.toBeNull();
 		expect( getByText( 'Toggles' ) ).not.toBeNull();
@@ -299,7 +369,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Profiling is ONE toggle: fires `profile on` when off, then swaps to "stop profiling" + highlights optimistically', () => {
 		const calls = [];
-		const { getByText, queryByText } = render(
+		const { getByText, queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ { nodes: [], edges: [], profiling: false } }
@@ -321,7 +391,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Profiling reads server truth (parsed.profiling) and fires `profile off` when on', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ { nodes: [], edges: [], profiling: true } }
@@ -336,7 +406,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Verbose is ONE toggle: fires `debug_level 2` when the live level is 0', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				debugLevel={ 0 }
@@ -351,7 +421,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Verbose reads the live debug level (2) and fires `debug_level 0` when on', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				debugLevel={ 2 }
@@ -367,16 +437,30 @@ describe( 'Inspector (view mode)', () => {
 	// debug + verbose are the two lights on ONE dial (the Dumper's debug_level):
 	// debugOn = level >= 1, verboseOn = level >= 2. Verbose lit implies debug lit.
 	it( 'no-node Debug at level 1 is lit (verbose is NOT — dial, not two switches)', () => {
-		const { getByText } = render(
-			<Inspector { ...baseProps } debugLevel={ 1 } />
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } debugLevel={ 1 } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( getByText( 'stop debug' ).className ).toContain( 'is-active' );
 		expect( getByText( 'verbose' ).className ).not.toContain( 'is-active' );
 	} );
 
 	it( 'no-node Debug at level 2 is lit alongside verbose (verbose implies debug)', () => {
-		const { getByText } = render(
-			<Inspector { ...baseProps } debugLevel={ 2 } />
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } debugLevel={ 2 } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( getByText( 'stop debug' ).className ).toContain( 'is-active' );
 		expect( getByText( 'stop verbose' ).className ).toContain(
@@ -386,7 +470,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Debug is ONE toggle: fires `debug_level 1` when the live level is 0', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				debugLevel={ 0 }
@@ -407,7 +491,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Debug at level 2 fires `debug_level 0`, collapsing the whole dial', () => {
 		const calls = [];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				debugLevel={ 2 }
@@ -420,7 +504,16 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'opens the wide Runtime modal from the no-node strip', () => {
 		Core.reset();
-		const { getByText } = render( <Inspector { ...baseProps } /> );
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect( document.body.querySelector( '.topology-modal' ) ).toBeNull();
 		fireEvent.click( getByText( 'Runtime' ) );
 		const modal = document.body.querySelector( '.topology-modal' );
@@ -435,7 +528,16 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'opens the wide Profiler modal from the no-node strip', () => {
 		Core.reset();
-		const { getByText } = render( <Inspector { ...baseProps } /> );
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		fireEvent.click( getByText( 'Profiler' ) );
 		const modal = document.body.querySelector( '.topology-modal' );
 		expect( modal.classList.contains( 'topology-modal--large' ) ).toBe(
@@ -449,7 +551,16 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'opens the Timeline modal from the no-node strip', () => {
 		Core.reset();
-		const { getByText } = render( <Inspector { ...baseProps } /> );
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		fireEvent.click( getByText( 'Timeline' ) );
 		expect(
 			document.body.querySelector( '.topology-modal .timeline-view' )
@@ -459,7 +570,16 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'closes the strip modal via its close button', () => {
 		Core.reset();
-		const { getByText } = render( <Inspector { ...baseProps } /> );
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		fireEvent.click( getByText( 'Runtime' ) );
 		fireEvent.click(
 			document.body.querySelector( '.topology-modal__close' )
@@ -469,8 +589,15 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'does NOT show the Runtime/Profiler/Timeline strip modal buttons in edit mode', () => {
-		const { queryByText } = render(
-			<Inspector { ...baseProps } editMode={ true } />
+		const { queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } editMode={ true } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( queryByText( 'Runtime' ) ).toBeNull();
 		expect( queryByText( 'Profiler' ) ).toBeNull();
@@ -479,7 +606,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Compose opens a composer that dispatches the chosen verb', () => {
 		const onAction = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ onAction }
@@ -487,7 +614,14 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		// Pick TM_INFO (tell_node) by its option label, not a fixed index.
@@ -519,7 +653,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Compose Cancel button closes the composer without dispatching', () => {
 		const onAction = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ onAction }
@@ -527,7 +661,14 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		expect(
@@ -553,15 +694,15 @@ describe( 'Inspector (view mode)', () => {
 			'tee_a',
 			'tee_a:config',
 		];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-				composeTargets={ composeTargets }
-			/>
+			/>,
+			{ composeTargets }
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		const toSelect = document.body.querySelector( '#nodes-compose-to' );
@@ -574,14 +715,21 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node Compose falls back to parsed.nodes ids when composeTargets is not supplied', () => {
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		const toSelect = document.body.querySelector( '#nodes-compose-to' );
@@ -593,7 +741,7 @@ describe( 'Inspector (view mode)', () => {
 	it( 'no-node Compose TM_RESPONSE / TM_ERROR checkboxes pass their flags through onConfirm', () => {
 		// Inspector only carries flags to onAction; OR-ing tested elsewhere.
 		const onAction = jest.fn();
-		const { getByText, getByLabelText } = render(
+		const { getByText, getByLabelText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ onAction }
@@ -601,7 +749,14 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
@@ -626,14 +781,21 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'no-node Compose lays its controls out in Message field order', () => {
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		const ids = Array.from(
@@ -657,7 +819,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Compose FROM / ID / KEY / TIMESTAMP inputs pass their values through onConfirm', () => {
 		const onAction = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ onAction }
@@ -665,7 +827,14 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		fireEvent.change(
@@ -703,7 +872,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'no-node Compose leaves the flags unchecked on open, even after a prior send left them checked', () => {
 		const onAction = jest.fn();
-		const { getByText, getByLabelText } = render(
+		const { getByText, getByLabelText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				onAction={ onAction }
@@ -711,7 +880,14 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Compose' ) );
 		fireEvent.click( getByLabelText( 'TM_RESPONSE' ) );
@@ -742,8 +918,15 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'renders the missing-node state when selectedId is absent from parsed', () => {
-		const { container } = render(
-			<Inspector { ...baseProps } selectedId="ghost" />
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } selectedId="ghost" />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( container.textContent ).toMatch( /no longer present/ );
 	} );
@@ -763,16 +946,21 @@ describe( 'Inspector (view mode)', () => {
 			{ from: 'echo', to: 'sink' },
 		],
 	};
-	const renderNode = ( extra = {} ) =>
-		render(
+	// Fixtures still describe the catalogs; the component reads them from
+	// context now, so split them at the render boundary.
+	const renderNode = ( extra = {} ) => {
+		const props = { ...baseProps, ...extra };
+		const { catalog, formatters, vaults, composeTargets, ...rest } = props;
+		return renderWithCatalog(
 			<Inspector
-				{ ...baseProps }
+				{ ...rest }
 				selectedId="echo"
 				parsed={ parsed }
 				nodeIds={ new Set( [ 'echo', 'tee_a' ] ) }
-				{ ...extra }
-			/>
+			/>,
+			{ classes: catalog, formatters, vaults, composeTargets }
 		);
+	};
 
 	it( 'selected-node Request opens a prompt modal and dispatches with the payload; EOF dispatches directly', () => {
 		const onAction = jest.fn();
@@ -840,7 +1028,7 @@ describe( 'Inspector (view mode)', () => {
 			bytesRead: 0,
 			bytesWritten: 0,
 		};
-		const { container: zeroContainer } = render(
+		const { container: zeroContainer } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="echo"
@@ -896,7 +1084,7 @@ describe( 'Inspector (view mode)', () => {
 				{ from: 'tee', to: 'a', registration: true, event: 'EVT' },
 			],
 		};
-		const { getByRole, getByDisplayValue } = render(
+		const { getByRole, getByDisplayValue } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee"
@@ -926,7 +1114,7 @@ describe( 'Inspector (view mode)', () => {
 			],
 			edges: [ { from: '_repl', to: 'a' } ],
 		};
-		const { queryByRole } = render(
+		const { queryByRole } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="_repl"
@@ -941,7 +1129,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'hides the Routing section when node.has_target is false', () => {
-		const { queryByText } = render(
+		const { queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="dump"
@@ -958,7 +1146,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'hides the Routing section when the catalog schema says has_target is false', () => {
-		const { queryByText } = render(
+		const { queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="dump"
@@ -967,8 +1155,8 @@ describe( 'Inspector (view mode)', () => {
 					edges: [],
 				} }
 				nodeIds={ new Set( [ 'dump' ] ) }
-				catalog={ [ { shell_name: 'Dumper', has_target: false } ] }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Dumper', has_target: false } ] }
 		);
 		expect( queryByText( 'Routing' ) ).toBeNull();
 	} );
@@ -993,7 +1181,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'renders a dash for routing when there are no edges', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="solo"
@@ -1055,7 +1243,7 @@ describe( 'Inspector (view mode)', () => {
 				bytesRead: 1024 * 1024 * 1024,
 				bytesWritten: 0,
 			};
-			const { container } = render(
+			const { container } = renderWithCatalog(
 				<Inspector
 					{ ...baseProps }
 					selectedId="echo"
@@ -1089,7 +1277,7 @@ describe( 'Inspector (view mode)', () => {
 	it( 'renders array-valued constructor arguments without crashing [token-array]', () => {
 		// node.arguments is a token array (list<string>) post-migration; the
 		// read-only Constructor view must consume it as tokens, not a string.
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="lg"
@@ -1104,7 +1292,9 @@ describe( 'Inspector (view mode)', () => {
 					edges: [],
 				} }
 				nodeIds={ new Set( [ 'lg' ] ) }
-				catalog={ [
+			/>,
+			{
+				classes: [
 					{
 						shell_name: 'Log',
 						arguments: [
@@ -1112,8 +1302,8 @@ describe( 'Inspector (view mode)', () => {
 							{ name: 'segment_size', type: 'int' },
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		expect( container.textContent ).toContain( '/logs/x.p0' );
 		expect( container.textContent ).toContain( '4096' );
@@ -1185,7 +1375,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'flips Trace label when node.debugState > 0', () => {
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="echo"
@@ -1221,7 +1411,7 @@ describe( 'Inspector (view mode)', () => {
 			target: [],
 			targets: [],
 		};
-		const tailView = render(
+		const tailView = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1239,7 +1429,7 @@ describe( 'Inspector (view mode)', () => {
 		tailView.unmount();
 
 		const disconnectAction = jest.fn();
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1274,15 +1464,15 @@ describe( 'Inspector (view mode)', () => {
 			target: '',
 			targets: [],
 		};
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tap_a"
 				parsed={ { nodes: [ tapNode ], edges: [] } }
 				nodeIds={ new Set( [ 'tap_a' ] ) }
-				catalog={ [ { shell_name: 'Tap', fans_out: true } ] }
 				onAction={ tapAction }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Tap', fans_out: true } ] }
 		);
 		fireEvent.click( getByText( 'Connect' ) );
 		expect( tapAction ).toHaveBeenCalledWith( 'tail', 'tap_a' );
@@ -1423,7 +1613,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'lists current registrations with an × that dispatches unregister', () => {
 		const onAction = jest.fn();
-		const { getByRole } = render(
+		const { getByRole } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="src"
@@ -1453,7 +1643,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'renders a Connect button on Tee nodes', () => {
 		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, target: [] };
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1474,7 +1664,7 @@ describe( 'Inspector (view mode)', () => {
 			target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
 			targets: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
 		};
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1500,7 +1690,7 @@ describe( 'Inspector (view mode)', () => {
 			target: [ '_output' ],
 			targets: [ '_output' ],
 		};
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1524,7 +1714,7 @@ describe( 'Inspector (view mode)', () => {
 			target: [ '_repl/_output/_sse:777/_output' ],
 			targets: [ '_repl/_output/_sse:777/_output' ],
 		};
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1689,7 +1879,7 @@ describe( 'Inspector (view mode)', () => {
 				requests: [ { name: 'with_index', args: [] } ],
 			},
 		];
-		const { queryByText, getByText } = render(
+		const { queryByText, getByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="_repl"
@@ -1704,8 +1894,8 @@ describe( 'Inspector (view mode)', () => {
 					edges: [],
 				} }
 				nodeIds={ new Set( [ '_repl' ] ) }
-				catalog={ catalog }
-			/>
+			/>,
+			{ classes: catalog }
 		);
 		expect( queryByText( 'allow_large_writes' ) ).toBeNull();
 		expect( queryByText( 'with_index' ) ).toBeNull();
@@ -1745,7 +1935,7 @@ describe( 'Inspector (view mode)', () => {
 	};
 
 	it( 'shows the Time Travel section for a node carrying frames + cursor', () => {
-		const { queryByText, container } = render(
+		const { queryByText, container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="firehose-consumer"
@@ -1761,7 +1951,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'passes the polling signal to the panel — paused when polling is PAUSED', () => {
-		const { getByLabelText } = render(
+		const { getByLabelText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="firehose-consumer"
@@ -1778,7 +1968,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'panel is live when the consumer is polling ACTIVE', () => {
-		const { getByLabelText } = render(
+		const { getByLabelText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="firehose-consumer"
@@ -1794,7 +1984,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'does NOT show the Time Travel section for a node without frames', () => {
-		const { queryByText } = render(
+		const { queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="echo"
@@ -1809,7 +1999,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'does NOT qualify a node that has frames but no cursor (plumbing)', () => {
-		const { queryByText } = render(
+		const { queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="x"
@@ -1825,7 +2015,7 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'routes transport buttons through onAction("invoke") as :config commands', () => {
 		const onAction = jest.fn();
-		const { getByLabelText } = render(
+		const { getByLabelText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="firehose-consumer"
@@ -1885,12 +2075,14 @@ describe( 'Inspector (view mode)', () => {
 			class: 'Partition',
 			arguments: [ '/tmp/logs/errors.p0', '4096', '8' ],
 		};
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="errors"
 				parsed={ { nodes: [ part ], edges: [] } }
-				catalog={ [
+			/>,
+			{
+				classes: [
 					{
 						shell_name: 'Partition',
 						arguments: [
@@ -1899,8 +2091,8 @@ describe( 'Inspector (view mode)', () => {
 							{ name: 'max_segments' },
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		expect( container.textContent ).toMatch( /Constructor/ );
 		// Schema arg names paired with the node's positional values.
@@ -1922,12 +2114,14 @@ describe( 'Inspector (view mode)', () => {
 			class: 'Fetcher',
 			arguments: [ 'overviewIn', 'overview', 'a', 'b', 'c' ],
 		};
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="f"
 				parsed={ { nodes: [ fetcher ], edges: [] } }
-				catalog={ [
+			/>,
+			{
+				classes: [
 					{
 						shell_name: 'Fetcher',
 						arguments: [
@@ -1936,8 +2130,8 @@ describe( 'Inspector (view mode)', () => {
 							{ name: 'arguments' },
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		const vals = [
 			...container.querySelectorAll( '.topology-insp__arg-val' ),
@@ -1947,12 +2141,14 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'falls back to the schema default (dimmed) for an omitted optional argument', () => {
 		const part = { id: 'p', class: 'Partition', arguments: [ '/tmp/x' ] };
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="p"
 				parsed={ { nodes: [ part ], edges: [] } }
-				catalog={ [
+			/>,
+			{
+				classes: [
 					{
 						shell_name: 'Partition',
 						arguments: [
@@ -1960,8 +2156,8 @@ describe( 'Inspector (view mode)', () => {
 							{ name: 'segment_size', default: 4096 },
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		const vals = [
 			...container.querySelectorAll( '.topology-insp__arg-val' ),
@@ -1975,7 +2171,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'omits the Constructor section when the class declares no arguments', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="e"
@@ -1983,8 +2179,8 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [ { id: 'e', class: 'Echo', arguments: [] } ],
 					edges: [],
 				} }
-				catalog={ [ { shell_name: 'Echo', arguments: [] } ] }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Echo', arguments: [] } ] }
 		);
 		expect( container.textContent ).not.toMatch( /Constructor/ );
 	} );
@@ -2006,15 +2202,15 @@ describe( 'Inspector (view mode)', () => {
 		...over,
 	} );
 	const renderDlq = ( dlNode, extra = {} ) =>
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="firehose-consumer"
 				parsed={ { nodes: [ dlNode ], edges: [] } }
 				nodeIds={ new Set( [ 'firehose-consumer' ] ) }
-				catalog={ dlqCatalog }
 				{ ...extra }
-			/>
+			/>,
+			{ classes: dlqCatalog }
 		);
 
 	it( 'shows a Triage button badged with the segment count for a DLQ node', () => {
@@ -2031,7 +2227,7 @@ describe( 'Inspector (view mode)', () => {
 	} );
 
 	it( 'hides the Triage button for a non-consumer node (no frames + cursor)', () => {
-		const { queryByText } = render(
+		const { queryByText } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="p"
@@ -2049,8 +2245,8 @@ describe( 'Inspector (view mode)', () => {
 					edges: [],
 				} }
 				nodeIds={ new Set( [ 'p' ] ) }
-				catalog={ dlqCatalog }
-			/>
+			/>,
+			{ classes: dlqCatalog }
 		);
 		expect( queryByText( /Triage/ ) ).toBeNull();
 	} );

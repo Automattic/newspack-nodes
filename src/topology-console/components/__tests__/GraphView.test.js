@@ -1,5 +1,6 @@
-import { render, fireEvent, act } from '@testing-library/react';
+import { fireEvent, act } from '@testing-library/react';
 import GraphView from '../GraphView';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 // Minimal frame stub: renders children (the console passes CanvasFrame).
 const Frame = ( { children } ) => <div data-testid="frame">{ children }</div>;
@@ -24,7 +25,8 @@ jest.mock( '../SchematicCanvas', () => ( props ) => {
 	);
 } );
 jest.mock( '../Inspector', () => ( props ) => {
-	global.__inspectorProps = props;
+	const { useCatalog } = require( '../../CatalogContext' );
+	global.__inspectorProps = { ...props, ...useCatalog() };
 	return (
 		<div data-testid="inspector">
 			insp:{ props.selectedId }
@@ -35,7 +37,8 @@ jest.mock( '../Inspector', () => ( props ) => {
 	);
 } );
 jest.mock( '../Palette', () => ( props ) => {
-	global.__paletteProps = props;
+	const { useCatalog: useCat } = require( '../../CatalogContext' );
+	global.__paletteProps = { ...props, ...useCat() };
 	return <div data-testid="palette" />;
 } );
 
@@ -51,7 +54,7 @@ const twoNodeGraph = {
 describe( 'GraphView', () => {
 	it( 'renders the canvas and forwards a connect gesture to onConnect', () => {
 		const onConnect = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -64,7 +67,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 'inspector is always present (rail/panel); shows the node once selected', () => {
-		const { getByTestId, getByText } = render(
+		const { getByTestId, getByText } = renderWithCatalog(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
 		// Default-expanded: the Inspector renders before any selection.
@@ -74,21 +77,17 @@ describe( 'GraphView', () => {
 		expect( getByTestId( 'inspector' ).textContent ).toContain( 'n1' );
 	} );
 
-	it( 'forwards composeTargets through to Inspector', () => {
+	it( 'lets composeTargets reach Inspector through the catalog context', () => {
 		const composeTargets = [ '_command_interpreter', 'n1', 'n1:config' ];
-		render(
-			<GraphView
-				graph={ graph }
-				frame={ Frame }
-				resetKey="k"
-				composeTargets={ composeTargets }
-			/>
+		renderWithCatalog(
+			<GraphView graph={ graph } frame={ Frame } resetKey="k" />,
+			{ composeTargets }
 		);
 		expect( global.__inspectorProps.composeTargets ).toBe( composeTargets );
 	} );
 
 	it( 'renders the palette only when showPalette is set', () => {
-		const { queryByTestId, rerender } = render(
+		const { queryByTestId, rerender } = renderWithCatalog(
 			<GraphView graph={ graph } frame={ Frame } resetKey="k" />
 		);
 		expect( queryByTestId( 'palette' ) ).toBeNull();
@@ -104,7 +103,7 @@ describe( 'GraphView', () => {
 	} );
 
 	it( 're-syncs internal selection when the controlled `selection` prop changes', () => {
-		const { getByText, getByTestId, rerender } = render(
+		const { getByText, getByTestId, rerender } = renderWithCatalog(
 			<GraphView
 				graph={ twoNodeGraph }
 				frame={ Frame }
@@ -139,7 +138,7 @@ describe( 'GraphView', () => {
 
 	it( 'canvas deselect notifies the consumer via onSelectionChange(null)', () => {
 		const onSelectionChange = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -156,7 +155,7 @@ describe( 'GraphView', () => {
 	it( 'removing the selected node notifies the consumer via onSelectionChange(null)', () => {
 		const onSelectionChange = jest.fn();
 		const onRemoveNode = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -174,7 +173,7 @@ describe( 'GraphView', () => {
 	it( 'external null-clear also clears a selected edge', () => {
 		const onRemoveEdge = jest.fn();
 		// Self-controlled; selection→null forces re-sync (bug: edge stale).
-		const { getByText, rerender } = render(
+		const { getByText, rerender } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -200,7 +199,7 @@ describe( 'GraphView', () => {
 
 	it( 'forwards onDropNode to the Palette (which owns the pointer-drag drop)', () => {
 		const onDropNode = jest.fn();
-		render(
+		renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -214,22 +213,22 @@ describe( 'GraphView', () => {
 
 	it( 'forwards paletteLoading to the Palette loading prop (not derived from catalog)', () => {
 		// Non-empty catalog: a true result can't come from ! catalog.length.
-		render(
+		renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
 				resetKey="k"
 				showPalette
-				catalog={ [ { shell_name: 'Echo' } ] }
 				paletteLoading
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Echo' } ] }
 		);
 		expect( global.__paletteProps.loading ).toBe( true );
 	} );
 
 	it( 'Delete key on a selected node calls onRemoveNode', () => {
 		const onRemoveNode = jest.fn();
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -248,7 +247,7 @@ describe( 'GraphView', () => {
 			nodes: [ { id: 'n1', count: 0, origin: [ 'performance' ] } ],
 			edges: [],
 		};
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ borrowedGraph }
 				frame={ Frame }
@@ -263,7 +262,7 @@ describe( 'GraphView', () => {
 
 	it( 'forwards hulls through to SchematicCanvas', () => {
 		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
-		render(
+		renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -279,19 +278,19 @@ describe( 'GraphView', () => {
 		const onDropTopology = jest.fn();
 		const includeTree = { performance: {} };
 		const onRemoveInclude = jest.fn();
-		render(
+		renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
 				resetKey="k"
 				showPalette
-				topologies={ topologies }
 				currentTopology="wombat-top"
 				includes={ [ 'performance' ] }
 				onDropTopology={ onDropTopology }
 				includeTree={ includeTree }
 				onRemoveInclude={ onRemoveInclude }
-			/>
+			/>,
+			{ topologies }
 		);
 		expect( global.__paletteProps.topologies ).toBe( topologies );
 		expect( global.__paletteProps.currentTopology ).toBe( 'wombat-top' );
@@ -308,15 +307,16 @@ describe( 'GraphView', () => {
 
 	it( 'inspector collapse: expanded shows Inspector + a Collapse toggle; collapsed shows an Expand rail (no Inspector)', () => {
 		const onInspectorToggle = jest.fn();
-		const { getByTestId, getByLabelText, queryByTestId, rerender } = render(
-			<GraphView
-				graph={ twoNodeGraph }
-				frame={ Frame }
-				selection="n2"
-				inspectorCollapsed={ false }
-				onInspectorToggle={ onInspectorToggle }
-			/>
-		);
+		const { getByTestId, getByLabelText, queryByTestId, rerender } =
+			renderWithCatalog(
+				<GraphView
+					graph={ twoNodeGraph }
+					frame={ Frame }
+					selection="n2"
+					inspectorCollapsed={ false }
+					onInspectorToggle={ onInspectorToggle }
+				/>
+			);
 		expect( getByTestId( 'inspector' ) ).not.toBeNull();
 		const collapse = getByLabelText( 'Collapse inspector' );
 		expect( collapse.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
@@ -347,7 +347,7 @@ describe( 'GraphView', () => {
 		// g0 seeds the baseline WITH data; g1 yields a real In-rate delta.
 		const g0 = { nodes: [ src( 5 ) ], edges: [] };
 		const g1 = { nodes: [ src( 10 ) ], edges: [] };
-		const { rerender } = render(
+		const { rerender } = renderWithCatalog(
 			<GraphView graph={ g0 } frame={ Frame } resetKey="k" />
 		);
 		// A second poll (new graph identity) accumulates one In-rate sample.
@@ -378,7 +378,7 @@ describe( 'GraphView', () => {
 describe( 'GraphView — hull selection', () => {
 	it( 'clicking the background clears a selected HULL, not just a node', () => {
 		const hulls = [ { include: 'performance', nodeIds: [ 'n1' ] } ];
-		const { getByText } = render(
+		const { getByText } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }
@@ -433,7 +433,7 @@ describe( 'GraphView — hull selection', () => {
 			// Both are sources, so both feed the graph-wide In rate; only `inside`
 			// is a member. The deltas differ by an order of magnitude, so a series
 			// built from the wrong scope can't coincidentally match the right one.
-			const { rerender } = render(
+			const { rerender } = renderWithCatalog(
 				hullView( hullNodesGraph( 10, 100 ) )
 			);
 			act( () => {
@@ -455,7 +455,7 @@ describe( 'GraphView — hull selection', () => {
 			// Three polls with NO hull selected. useGraphRates is recording the
 			// whole time, so selecting the hull afterwards must reveal that
 			// history — not start a fresh accumulation from zero.
-			const { rerender } = render(
+			const { rerender } = renderWithCatalog(
 				hullView( hullNodesGraph( 10, 100 ) )
 			);
 			tick();
@@ -490,7 +490,7 @@ describe( 'GraphView — Delete on a selected hull', () => {
 	];
 
 	const renderWith = ( props ) =>
-		render(
+		renderWithCatalog(
 			<GraphView
 				graph={ graph }
 				frame={ Frame }

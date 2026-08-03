@@ -4,8 +4,9 @@
  * variants, verb checkbox + arg inputs, and the delete-node button.
  */
 
-import { render, fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import Inspector from '../Inspector';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 const baseProps = {
 	selectedId: 'echo',
@@ -36,14 +37,30 @@ const baseProps = {
 
 describe( 'Inspector (edit mode)', () => {
 	it( 'renders EDIT badge in the type row', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect( container.textContent ).toMatch( /EDIT/ );
 	} );
 
 	it( 'shows Delete node button and wires onRemoveNode', () => {
 		const onRemoveNode = jest.fn();
-		const { getByText } = render(
-			<Inspector { ...baseProps } onRemoveNode={ onRemoveNode } />
+		const { getByText } = renderWithCatalog(
+			<Inspector { ...baseProps } onRemoveNode={ onRemoveNode } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		fireEvent.click( getByText( 'Delete node' ) );
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'echo' );
@@ -81,8 +98,15 @@ describe( 'Inspector (edit mode)', () => {
 				},
 			],
 		};
-		const { getByLabelText, getByDisplayValue } = render(
-			<Inspector { ...borrowedProps } />
+		const { getByLabelText, getByDisplayValue } = renderWithCatalog(
+			<Inspector { ...borrowedProps } />,
+			{
+				classes: borrowedProps.catalog,
+				formatters: borrowedProps.formatters,
+				vaults: borrowedProps.vaults,
+				composeTargets: borrowedProps.composeTargets,
+				classCatalog: borrowedProps.classCatalog,
+			}
 		);
 
 		// Ticked verb: checked, but immutable here (borrowed).
@@ -133,8 +157,15 @@ describe( 'Inspector (edit mode)', () => {
 				},
 			],
 		};
-		const { getByDisplayValue } = render(
-			<Inspector { ...borrowedProps } />
+		const { getByDisplayValue } = renderWithCatalog(
+			<Inspector { ...borrowedProps } />,
+			{
+				classes: borrowedProps.catalog,
+				formatters: borrowedProps.formatters,
+				vaults: borrowedProps.vaults,
+				composeTargets: borrowedProps.composeTargets,
+				classCatalog: borrowedProps.classCatalog,
+			}
 		);
 		expect( getByDisplayValue( 'Engineers build tools.' ).disabled ).toBe(
 			true
@@ -179,8 +210,15 @@ describe( 'Inspector (edit mode)', () => {
 				},
 			],
 		};
-		const { getByDisplayValue } = render(
-			<Inspector { ...borrowedProps } />
+		const { getByDisplayValue } = renderWithCatalog(
+			<Inspector { ...borrowedProps } />,
+			{
+				classes: borrowedProps.catalog,
+				formatters: borrowedProps.formatters,
+				vaults: borrowedProps.vaults,
+				composeTargets: borrowedProps.composeTargets,
+				classCatalog: borrowedProps.classCatalog,
+			}
 		);
 		expect( getByDisplayValue( 'Do not produce tables.' ).disabled ).toBe(
 			true
@@ -221,8 +259,15 @@ describe( 'Inspector (edit mode)', () => {
 				},
 			],
 		};
-		const { getByDisplayValue } = render(
-			<Inspector { ...borrowedProps } />
+		const { getByDisplayValue } = renderWithCatalog(
+			<Inspector { ...borrowedProps } />,
+			{
+				classes: borrowedProps.catalog,
+				formatters: borrowedProps.formatters,
+				vaults: borrowedProps.vaults,
+				composeTargets: borrowedProps.composeTargets,
+				classCatalog: borrowedProps.classCatalog,
+			}
 		);
 
 		// Both invocations visible, not just the first.
@@ -231,10 +276,10 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'hides verbs flagged hidden in node_schema from the edit Verbs list', () => {
-		const { getByText, queryByText } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ [
+		const { getByText, queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: [
 					{
 						shell_name: 'Echo',
 						arguments: [],
@@ -243,18 +288,18 @@ describe( 'Inspector (edit mode)', () => {
 							{ name: 'seek_frame', args: [], hidden: true },
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		expect( getByText( 'visible_verb' ) ).not.toBeNull();
 		expect( queryByText( 'seek_frame' ) ).toBeNull();
 	} );
 
 	it( 'surfaces a verb description as a tooltip in the edit Verbs list', () => {
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ [
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: [
 					{
 						shell_name: 'Echo',
 						arguments: [],
@@ -266,8 +311,8 @@ describe( 'Inspector (edit mode)', () => {
 							},
 						],
 					},
-				] }
-			/>
+				],
+			}
 		);
 		const tip = container.querySelector(
 			'[title="Commit past on a clean stop."]'
@@ -278,8 +323,15 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'NameField: commits rename on blur with a valid new name', () => {
 		const onRenameNode = jest.fn().mockReturnValue( true );
-		const { container } = render(
-			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'alpha' } } );
@@ -288,7 +340,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'NameField: surfaces validation error inline when name is empty', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: '' } } );
 		fireEvent.blur( input );
@@ -297,7 +358,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'NameField: surfaces validation error when name collides with another node', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'sink' } } );
 		fireEvent.blur( input );
@@ -305,7 +375,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'NameField: rejects names with disallowed characters', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'bad/name' } } );
 		fireEvent.blur( input );
@@ -314,8 +393,15 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'NameField: snaps back when the caller refuses a rename', () => {
 		const onRenameNode = jest.fn().mockReturnValue( false );
-		const { container } = render(
-			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'raced' } } );
@@ -325,7 +411,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'NameField: Escape reverts the input to the original id', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const input = container.querySelector( '#topology-name-field' );
 		fireEvent.change( input, { target: { value: 'wip' } } );
 		fireEvent.keyDown( input, { key: 'Escape' } );
@@ -333,7 +428,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'NameField: Enter preventDefaults and tries to blur', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const input = container.querySelector( '#topology-name-field' );
 		input.focus();
 		fireEvent.change( input, { target: { value: 'beta' } } );
@@ -389,7 +493,16 @@ describe( 'Inspector (edit mode)', () => {
 		};
 
 		it( 'renders one editable row per invocation, not just the first', () => {
-			const { container } = render( <Inspector { ...multiProps } /> );
+			const { container } = renderWithCatalog(
+				<Inspector { ...multiProps } />,
+				{
+					classes: multiProps.catalog,
+					formatters: multiProps.formatters,
+					vaults: multiProps.vaults,
+					composeTargets: multiProps.composeTargets,
+					classCatalog: multiProps.classCatalog,
+				}
+			);
 			const argBlocks = container.querySelectorAll(
 				'.topology-edit-verb__args'
 			);
@@ -417,11 +530,18 @@ describe( 'Inspector (edit mode)', () => {
 					edges: [],
 				},
 			};
-			const { container } = render(
+			const { container } = renderWithCatalog(
 				<Inspector
 					{ ...overlongProps }
 					onUpdateVerbs={ onUpdateVerbs }
-				/>
+				/>,
+				{
+					classes: overlongProps.catalog,
+					formatters: overlongProps.formatters,
+					vaults: overlongProps.vaults,
+					composeTargets: overlongProps.composeTargets,
+					classCatalog: overlongProps.classCatalog,
+				}
 			);
 			fireEvent.change( container.querySelector( '#topology-ctor-to' ), {
 				target: { value: 'S' },
@@ -433,8 +553,15 @@ describe( 'Inspector (edit mode)', () => {
 
 		it( 'Add appends a fresh invocation; remove drops the chosen one', () => {
 			const onUpdateVerbs = jest.fn();
-			const { getByText, container } = render(
-				<Inspector { ...multiProps } onUpdateVerbs={ onUpdateVerbs } />
+			const { getByText, container } = renderWithCatalog(
+				<Inspector { ...multiProps } onUpdateVerbs={ onUpdateVerbs } />,
+				{
+					classes: multiProps.catalog,
+					formatters: multiProps.formatters,
+					vaults: multiProps.vaults,
+					composeTargets: multiProps.composeTargets,
+					classCatalog: multiProps.classCatalog,
+				}
 			);
 			fireEvent.click( getByText( /Add add_setting/ ) );
 			expect( onUpdateVerbs ).toHaveBeenCalledWith(
@@ -495,18 +622,34 @@ describe( 'Inspector (edit mode)', () => {
 		};
 
 		it( 'shows the full multi-token value in the input, not just the first token', () => {
-			const { container } = render( <Inspector { ...freeTextProps } /> );
+			const { container } = renderWithCatalog(
+				<Inspector { ...freeTextProps } />,
+				{
+					classes: freeTextProps.catalog,
+					formatters: freeTextProps.formatters,
+					vaults: freeTextProps.vaults,
+					composeTargets: freeTextProps.composeTargets,
+					classCatalog: freeTextProps.classCatalog,
+				}
+			);
 			const input = container.querySelector( '#topology-ctor-text' );
 			expect( input.value ).toBe( 'Engineers building tools' );
 		} );
 
 		it( 'editing collapses the tail so onUpdateVerbs gets a single-slot args array', () => {
 			const onUpdateVerbs = jest.fn();
-			const { container } = render(
+			const { container } = renderWithCatalog(
 				<Inspector
 					{ ...freeTextProps }
 					onUpdateVerbs={ onUpdateVerbs }
-				/>
+				/>,
+				{
+					classes: freeTextProps.catalog,
+					formatters: freeTextProps.formatters,
+					vaults: freeTextProps.vaults,
+					composeTargets: freeTextProps.composeTargets,
+					classCatalog: freeTextProps.classCatalog,
+				}
 			);
 			fireEvent.change(
 				container.querySelector( '#topology-ctor-text' ),
@@ -550,14 +693,14 @@ describe( 'Inspector (edit mode)', () => {
 		};
 
 		it( 'hides the Delete node button for a reserved node', () => {
-			const { queryByText } = render(
+			const { queryByText } = renderWithCatalog(
 				<Inspector { ...reservedProps } onRemoveNode={ jest.fn() } />
 			);
 			expect( queryByText( 'Delete node' ) ).toBeNull();
 		} );
 
 		it( 'hides the rename input for a reserved node', () => {
-			const { container } = render(
+			const { container } = renderWithCatalog(
 				<Inspector { ...reservedProps } onRenameNode={ jest.fn() } />
 			);
 			expect(
@@ -566,14 +709,30 @@ describe( 'Inspector (edit mode)', () => {
 		} );
 
 		it( 'still renders the reserved node title', () => {
-			const { container } = render( <Inspector { ...reservedProps } /> );
+			const { container } = renderWithCatalog(
+				<Inspector { ...reservedProps } />,
+				{
+					classes: reservedProps.catalog,
+					formatters: reservedProps.formatters,
+					vaults: reservedProps.vaults,
+					composeTargets: reservedProps.composeTargets,
+					classCatalog: reservedProps.classCatalog,
+				}
+			);
 			expect( container.textContent ).toMatch( /_repl/ );
 		} );
 
 		it( 'hides Routing, Constructor, and Verbs sections (no settings on a reserved node)', () => {
 			// Reserved-node settings are fixed, not round-trippable via TSL.
-			const { container, queryByText } = render(
-				<Inspector { ...reservedProps } />
+			const { container, queryByText } = renderWithCatalog(
+				<Inspector { ...reservedProps } />,
+				{
+					classes: reservedProps.catalog,
+					formatters: reservedProps.formatters,
+					vaults: reservedProps.vaults,
+					composeTargets: reservedProps.composeTargets,
+					classCatalog: reservedProps.classCatalog,
+				}
 			);
 			expect( queryByText( 'Routing' ) ).toBeNull();
 			expect( queryByText( 'Constructor' ) ).toBeNull();
@@ -586,22 +745,38 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'hides the Routing section when the catalog schema says has_target is false', () => {
-		const { queryByText } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ [ { shell_name: 'Echo', has_target: false } ] }
-			/>
+		const { queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{ classes: [ { shell_name: 'Echo', has_target: false } ] }
 		);
 		expect( queryByText( 'Routing' ) ).toBeNull();
 	} );
 
 	it( 'shows the Routing section when has_target defaults to true', () => {
-		const { queryByText } = render( <Inspector { ...baseProps } /> );
+		const { queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect( queryByText( 'Routing' ) ).not.toBeNull();
 	} );
 
 	it( 'Empty Constructor section: surfaces a placeholder', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect( container.textContent ).toMatch( /No constructor arguments/ );
 	} );
 
@@ -614,12 +789,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				onUpdateArgs={ onUpdateArgs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog }
 		);
 		const input = container.querySelector( '#topology-ctor-name' );
 		fireEvent.change( input, { target: { value: 'hello' } } );
@@ -645,13 +817,13 @@ describe( 'Inspector (edit mode)', () => {
 			],
 			edges: [],
 		};
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ parsed }
-				catalog={ catalog }
 				onUpdateArgs={ onUpdateArgs }
-			/>
+			/>,
+			{ classes: catalog }
 		);
 		const clear = container.querySelector( '.topology-edit-row__reset' );
 		fireEvent.click( clear );
@@ -667,13 +839,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				formatters={ [ 'Plain', 'JSON' ] }
-				onUpdateArgs={ onUpdateArgs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog, formatters: [ 'Plain', 'JSON' ] }
 		);
 		const select = container.querySelector( '#topology-ctor-format' );
 		expect( select.tagName ).toBe( 'SELECT' );
@@ -691,13 +859,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				formatters={ [] }
-				onUpdateArgs={ onUpdateArgs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog, formatters: [] }
 		);
 		const input = container.querySelector( '#topology-ctor-format' );
 		expect( input.tagName ).toBe( 'INPUT' );
@@ -714,12 +878,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				onUpdateArgs={ onUpdateArgs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog }
 		);
 		const select = container.querySelector( '#topology-ctor-route' );
 		expect( select.tagName ).toBe( 'SELECT' );
@@ -738,13 +899,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				vaults={ [ { id: 'austin', url: '' } ] }
-				onUpdateArgs={ onUpdateArgs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateArgs={ onUpdateArgs } />,
+			{ classes: catalog, vaults: [ { id: 'austin', url: '' } ] }
 		);
 		const select = container.querySelector( '#topology-ctor-vault_id' );
 		expect( select.tagName ).toBe( 'SELECT' );
@@ -760,8 +917,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [],
 			},
 		];
-		const { container } = render(
-			<Inspector { ...baseProps } catalog={ catalog } />
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{ classes: catalog }
 		);
 		expect(
 			container.querySelector( '#topology-ctor-enabled' ).value
@@ -769,7 +927,16 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'Empty Verbs section: surfaces a placeholder', () => {
-		const { container } = render( <Inspector { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect( container.textContent ).toMatch( /No verbs registered/ );
 	} );
 
@@ -782,12 +949,9 @@ describe( 'Inspector (edit mode)', () => {
 				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
-		const { container } = render(
-			<Inspector
-				{ ...baseProps }
-				catalog={ catalog }
-				onUpdateVerbs={ onUpdateVerbs }
-			/>
+		const { container } = renderWithCatalog(
+			<Inspector { ...baseProps } onUpdateVerbs={ onUpdateVerbs } />,
+			{ classes: catalog }
 		);
 		const checkbox = container.querySelector( '#topology-verb-reset' );
 		fireEvent.click( checkbox );
@@ -815,13 +979,13 @@ describe( 'Inspector (edit mode)', () => {
 			],
 			edges: [],
 		};
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ parsed }
-				catalog={ catalog }
 				onUpdateVerbs={ onUpdateVerbs }
-			/>
+			/>,
+			{ classes: catalog }
 		);
 		fireEvent.click( container.querySelector( '#topology-verb-reset' ) );
 		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [] );
@@ -853,13 +1017,13 @@ describe( 'Inspector (edit mode)', () => {
 			],
 			edges: [],
 		};
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ parsed }
-				catalog={ catalog }
 				onUpdateVerbs={ onUpdateVerbs }
-			/>
+			/>,
+			{ classes: catalog }
 		);
 		fireEvent.change( container.querySelector( '#topology-ctor-target' ), {
 			target: { value: 'new' },
@@ -871,7 +1035,7 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'SingleTargetField: select onChange fires onConnect when picking a new target', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -882,7 +1046,14 @@ describe( 'Inspector (edit mode)', () => {
 					edges: [],
 				} }
 				onConnect={ onConnect }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const select = container.querySelector( '#topology-target-input-echo' );
 		fireEvent.change( select, { target: { value: 'sink' } } );
@@ -891,7 +1062,7 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'SingleTargetField: select onChange to empty fires onRemoveEdge for the physical edge', () => {
 		const onRemoveEdge = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -902,7 +1073,14 @@ describe( 'Inspector (edit mode)', () => {
 					edges: [ { from: 'echo', to: 'sink' } ],
 				} }
 				onRemoveEdge={ onRemoveEdge }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const select = container.querySelector( '#topology-target-input-echo' );
 		fireEvent.change( select, { target: { value: '' } } );
@@ -911,7 +1089,7 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'SingleTargetField: does not offer a config-only edge as its removable connection', () => {
 		const onRemoveEdge = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
@@ -928,7 +1106,14 @@ describe( 'Inspector (edit mode)', () => {
 					],
 				} }
 				onRemoveEdge={ onRemoveEdge }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const select = container.querySelector( '#topology-target-input-echo' );
 		expect( select.value ).toBe( '' );
@@ -937,14 +1122,21 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'SingleTargetField: includes a current target missing from the draft node list', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'echo', class: 'Echo' } ],
 					edges: [ { from: 'echo', to: 'external' } ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const values = [
 			...container.querySelector( '#topology-target-input-echo' ).options,
@@ -954,7 +1146,7 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'Tee TargetsField: renders chips per wired target + an add-target select', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -966,11 +1158,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [
-					{ shell_name: 'Tee', arguments: [], commands: [] },
-				] }
 				onConnect={ onConnect }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
 		);
 		expect(
 			container.querySelectorAll( '.topology-edit-chip' )
@@ -983,7 +1173,7 @@ describe( 'Inspector (edit mode)', () => {
 
 	it( 'Tee TargetsField: clears a wired target via chip × button', () => {
 		const onRemoveEdge = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -994,11 +1184,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [
-					{ shell_name: 'Tee', arguments: [], commands: [] },
-				] }
 				onRemoveEdge={ onRemoveEdge }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
 		);
 		const clear = container.querySelector( '.topology-edit-chip__clear' );
 		fireEvent.click( clear );
@@ -1008,7 +1196,7 @@ describe( 'Inspector (edit mode)', () => {
 	it( 'TargetsField: a Tee SUBCLASS renders the multi-chip field driven by the catalog fans_out flag (edit-mode string target)', () => {
 		// Edit-mode target is a STRING; multi-chip editor keys off fans_out.
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tap_a"
@@ -1020,16 +1208,18 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tap_a', to: 'a' } ],
 				} }
-				catalog={ [
+				onConnect={ onConnect }
+			/>,
+			{
+				classes: [
 					{
 						shell_name: 'Tap',
 						fans_out: true,
 						arguments: [],
 						commands: [],
 					},
-				] }
-				onConnect={ onConnect }
-			/>
+				],
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-edit-chip' )
@@ -1049,14 +1239,14 @@ describe( 'Inspector (edit mode)', () => {
 			origin: [ 'performance' ],
 			via: [ 'performance', 'request-builder' ],
 		};
-		render(
+		renderWithCatalog(
 			<Inspector
 				selectedId="shared-tee"
 				parsed={ { nodes: [ node ], edges: [] } }
 				editMode
-				catalog={ [] }
 				onRemoveNode={ jest.fn() }
-			/>
+			/>,
+			{ classes: [] }
 		);
 		expect(
 			screen.getByText( /via performance → request-builder/ )
@@ -1067,7 +1257,7 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'Tee TargetsField: shows an empty hint when there are no available targets', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				selectedId="tee_a"
@@ -1075,10 +1265,8 @@ describe( 'Inspector (edit mode)', () => {
 					nodes: [ { id: 'tee_a', class: 'Tee', target: [] } ],
 					edges: [],
 				} }
-				catalog={ [
-					{ shell_name: 'Tee', arguments: [], commands: [] },
-				] }
-			/>
+			/>,
+			{ classes: [ { shell_name: 'Tee', arguments: [], commands: [] } ] }
 		);
 		expect( container.textContent ).toMatch( /No other nodes to wire/ );
 	} );
@@ -1086,7 +1274,7 @@ describe( 'Inspector (edit mode)', () => {
 	// The include tree is FILE-scoped ("the authoritative include structure for
 	// the file being edited"); a node selection is a different scope.
 	it( 'leaves the file-scoped include tree out of a node-selected panel', () => {
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...baseProps }
 				tree={ { performance: { echo: {} } } }

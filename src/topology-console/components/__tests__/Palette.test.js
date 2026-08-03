@@ -5,8 +5,9 @@
  * projects the cursor into SVG coords and calls onDropNode.
  */
 
-import { render, fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import Palette from '../Palette';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 // Fake canvas SVG: closest() returns itself; projects coords to a fixed pt.
 function makeCanvasStub( projected = { x: 42, y: 99 } ) {
@@ -30,13 +31,16 @@ const sampleClasses = [
 
 describe( 'Palette', () => {
 	it( 'renders a loading placeholder when loading=true and no classes', () => {
-		const { container } = render( <Palette classes={ [] } loading /> );
+		const { container } = renderWithCatalog( <Palette loading />, {
+			classes: [],
+		} );
 		expect( container.textContent ).toMatch( /Loading/ );
 	} );
 
 	it( 'groups classes by category and sorts within each group', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: sampleClasses }
 		);
 		const groups = container.querySelectorAll( '.topology-palette__group' );
 		const groupNames = Array.from( groups ).map( ( g ) => g.textContent );
@@ -55,8 +59,9 @@ describe( 'Palette', () => {
 			{ shell_name: 'Echo', category: 'Generic' },
 			{ shell_name: 'Insights_CI', category: 'Service' },
 		];
-		const { container } = render(
-			<Palette classes={ withService } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: withService }
 		);
 		const groupNames = Array.from(
 			container.querySelectorAll( '.topology-palette__group' )
@@ -71,16 +76,18 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'shows the total count of classes in the footer', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: sampleClasses }
 		);
 		const count = container.querySelector( '.topology-palette__count' );
 		expect( count.textContent ).toBe( '3' );
 	} );
 
 	it( 'sets a per-class CSS modifier on each draggable item', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		expect( echo.className ).toContain( 'topology-palette__item--echo' );
@@ -108,8 +115,9 @@ describe( 'Palette', () => {
 				fans_out: true,
 			},
 		];
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		const glyphOf = ( name ) =>
 			container.querySelector(
@@ -147,8 +155,9 @@ describe( 'Palette', () => {
 				has_target: true,
 			},
 		];
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		const item = container.querySelector( '[data-shell-name="Sourcey"]' );
 		fireEvent.pointerDown( item, { pointerId: 1, clientX: 5, clientY: 5 } );
@@ -166,8 +175,9 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'shows a drag ghost with the shell name on pointer-down', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		fireEvent.pointerDown( echo, {
@@ -187,12 +197,9 @@ describe( 'Palette', () => {
 		const svg = makeCanvasStub( { x: 42, y: 99 } );
 		// jsdom has no elementFromPoint; install one for this test.
 		document.elementFromPoint = jest.fn().mockReturnValue( svg );
-		const { container } = render(
-			<Palette
-				classes={ sampleClasses }
-				loading={ false }
-				onDropNode={ onDropNode }
-			/>
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } onDropNode={ onDropNode } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		fireEvent.pointerDown( echo, {
@@ -216,12 +223,9 @@ describe( 'Palette', () => {
 	it( 'pointer-up NOT over the canvas does not drop and clears the ghost', () => {
 		const onDropNode = jest.fn();
 		document.elementFromPoint = jest.fn().mockReturnValue( null );
-		const { container } = render(
-			<Palette
-				classes={ sampleClasses }
-				loading={ false }
-				onDropNode={ onDropNode }
-			/>
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } onDropNode={ onDropNode } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		fireEvent.pointerDown( echo, { pointerId: 1, clientX: 5, clientY: 5 } );
@@ -235,12 +239,9 @@ describe( 'Palette', () => {
 
 	it( 'pointer-cancel clears the ghost without calling onDropNode', () => {
 		const onDropNode = jest.fn();
-		const { container } = render(
-			<Palette
-				classes={ sampleClasses }
-				loading={ false }
-				onDropNode={ onDropNode }
-			/>
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } onDropNode={ onDropNode } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		fireEvent.pointerDown( echo, { pointerId: 1, clientX: 5, clientY: 5 } );
@@ -255,8 +256,9 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'does not throw when setPointerCapture is absent (jsdom)', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		expect( () =>
@@ -269,17 +271,18 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'renders the footer count even when loading is true and classes already exist', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } loading />
-		);
+		const { container } = renderWithCatalog( <Palette loading />, {
+			classes: sampleClasses,
+		} );
 		const count = container.querySelector( '.topology-palette__count' );
 		expect( count.textContent ).toBe( '3' );
 	} );
 
 	it( 'renders a collapse toggle button when onToggle is provided', () => {
 		const onToggle = jest.fn();
-		const { getByRole } = render(
-			<Palette classes={ sampleClasses } onToggle={ onToggle } />
+		const { getByRole } = renderWithCatalog(
+			<Palette onToggle={ onToggle } />,
+			{ classes: sampleClasses }
 		);
 		const btn = getByRole( 'button', { name: /collapse palette/i } );
 		expect( btn.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
@@ -295,15 +298,14 @@ describe( 'Palette', () => {
 	];
 
 	it( 'renders a Topologies section listing includable topologies', () => {
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				editMode
 				currentTopology="performance"
 				declaredIncludes={ [ 'request-builder' ] }
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		expect( screen.getByText( 'Topologies' ) ).not.toBeNull();
 		expect(
@@ -314,15 +316,14 @@ describe( 'Palette', () => {
 	} );
 
 	it( 'greys out self, an already-declared include, and an ancestor', () => {
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				editMode
 				currentTopology="performance"
 				declaredIncludes={ [ 'request-builder' ] }
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		const isDisabled = ( testId ) =>
 			screen.getByTestId( testId ).className.includes( 'is-disabled' );
@@ -336,15 +337,14 @@ describe( 'Palette', () => {
 
 	it( 'does not fire onDropTopology for a disabled item', () => {
 		const onDropTopology = jest.fn();
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				editMode
 				currentTopology="performance"
 				declaredIncludes={ [] }
 				onDropTopology={ onDropTopology }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		fireEvent.pointerDown(
 			screen.getByTestId( 'palette-topology-performance' )
@@ -357,12 +357,9 @@ describe( 'Palette', () => {
 
 	it( 'collapses to a slim expand handle when `collapsed` is true', () => {
 		const onToggle = jest.fn();
-		const { getByRole, container } = render(
-			<Palette
-				classes={ sampleClasses }
-				collapsed
-				onToggle={ onToggle }
-			/>
+		const { getByRole, container } = renderWithCatalog(
+			<Palette collapsed onToggle={ onToggle } />,
+			{ classes: sampleClasses }
 		);
 		// Class list is hidden; expand-handle button is visible and clickable.
 		expect(
@@ -379,15 +376,17 @@ describe( 'Palette — topology drag + include-closure edge cases', () => {
 		const onDropTopology = jest.fn();
 		const svg = makeCanvasStub( { x: 12, y: 34 } );
 		document.elementFromPoint = jest.fn().mockReturnValue( svg );
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ [ { name: 'job-router', includes: [] } ] }
 				editMode
 				currentTopology="something-else"
 				declaredIncludes={ [] }
 				onDropTopology={ onDropTopology }
-			/>
+			/>,
+			{
+				classes: [],
+				topologies: [ { name: 'job-router', includes: [] } ],
+			}
 		);
 		const tile = screen.getByTestId( 'palette-topology-job-router' );
 		fireEvent.pointerDown( tile, {
@@ -425,12 +424,9 @@ describe( 'Palette — topology drag + include-closure edge cases', () => {
 		const svg = makeCanvasStub();
 		svg.getScreenCTM = () => null;
 		document.elementFromPoint = jest.fn().mockReturnValue( svg );
-		const { container } = render(
-			<Palette
-				classes={ sampleClasses }
-				loading={ false }
-				onDropNode={ onDropNode }
-			/>
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } onDropNode={ onDropNode } />,
+			{ classes: sampleClasses }
 		);
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		fireEvent.pointerDown( echo, {
@@ -459,15 +455,14 @@ describe( 'Palette — topology drag + include-closure edge cases', () => {
 			{ name: 'right-branch', includes: [ 'shared-leaf' ] },
 			{ name: 'shared-leaf', includes: [] },
 		];
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				editMode
 				currentTopology="shared-leaf"
 				declaredIncludes={ [] }
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		// diamond-root transitively includes shared-leaf (the current
 		// topology) → the ancestor guard disables it.
@@ -497,8 +492,9 @@ describe( 'Palette — search filter', () => {
 		).map( ( el ) => el.dataset.shellName );
 
 	it( 'renders a search input at the top of the palette', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		expect(
 			container.querySelector( '.topology-palette__search' )
@@ -506,8 +502,9 @@ describe( 'Palette — search filter', () => {
 	} );
 
 	it( 'shows the full list when the query is empty', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		expect( shellNames( container ).sort() ).toEqual( [
 			'Echo',
@@ -518,8 +515,9 @@ describe( 'Palette — search filter', () => {
 	} );
 
 	it( 'filters by shell name case-insensitively', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		fireEvent.change(
 			container.querySelector( '.topology-palette__search' ),
@@ -529,8 +527,9 @@ describe( 'Palette — search filter', () => {
 	} );
 
 	it( 'also matches on description text', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		// "quack" appears only in Zeta's description, not any shell name.
 		fireEvent.change(
@@ -541,8 +540,9 @@ describe( 'Palette — search filter', () => {
 	} );
 
 	it( 'restores the full list when the query is cleared', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		const input = container.querySelector( '.topology-palette__search' );
 		fireEvent.change( input, { target: { value: 'part' } } );
@@ -552,8 +552,9 @@ describe( 'Palette — search filter', () => {
 	} );
 
 	it( 'keeps the footer count at the full registered total while filtering', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		fireEvent.change(
 			container.querySelector( '.topology-palette__search' ),
@@ -572,14 +573,13 @@ describe( 'Palette — Topologies section is edit-only', () => {
 	];
 
 	it( 'hides the Topologies section in LIVE mode — there is no draft to include into', () => {
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				declaredIncludes={ [] }
 				editMode={ false }
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		expect( screen.queryByText( 'Topologies' ) ).toBeNull();
 		expect(
@@ -588,14 +588,13 @@ describe( 'Palette — Topologies section is edit-only', () => {
 	} );
 
 	it( 'shows it in EDIT mode', () => {
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ [] }
-				topologies={ topologies }
 				declaredIncludes={ [] }
 				editMode
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes: [], topologies }
 		);
 		expect( screen.getByText( 'Topologies' ) ).toBeTruthy();
 	} );
@@ -612,15 +611,14 @@ describe( 'Palette — search filters the Topologies section', () => {
 	];
 
 	const renderEditPalette = () =>
-		render(
+		renderWithCatalog(
 			<Palette
-				classes={ classes }
-				topologies={ topologies }
 				editMode
 				currentTopology="something-else"
 				declaredIncludes={ [] }
 				onDropTopology={ jest.fn() }
-			/>
+			/>,
+			{ classes, topologies }
 		);
 
 	it( 'narrows the topology tiles by name, case-insensitively', () => {
@@ -656,8 +654,9 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	// children — structurally identical to `.topology-inspector-dock`, so the
 	// aside owns only its own padding/scroll and the dock owns grid placement.
 	it( 'wraps the aside in a dock; toggle and aside are sibling direct children of the dock', () => {
-		const { container } = render(
-			<Palette classes={ sampleClasses } onToggle={ jest.fn() } />
+		const { container } = renderWithCatalog(
+			<Palette onToggle={ jest.fn() } />,
+			{ classes: sampleClasses }
 		);
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
@@ -670,12 +669,9 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	} );
 
 	it( 'collapsed: dock gains --collapsed, keeps the toggle, and drops the aside entirely', () => {
-		const { container } = render(
-			<Palette
-				classes={ sampleClasses }
-				collapsed
-				onToggle={ jest.fn() }
-			/>
+		const { container } = renderWithCatalog(
+			<Palette collapsed onToggle={ jest.fn() } />,
+			{ classes: sampleClasses }
 		);
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
@@ -693,8 +689,9 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	} );
 
 	it( 'loading placeholder renders inside the aside, under the dock', () => {
-		const { container } = render(
-			<Palette classes={ [] } loading onToggle={ jest.fn() } />
+		const { container } = renderWithCatalog(
+			<Palette loading onToggle={ jest.fn() } />,
+			{ classes: [] }
 		);
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
@@ -717,15 +714,18 @@ describe( 'Palette — search clear button', () => {
 		).map( ( el ) => el.dataset.shellName );
 
 	it( 'shows no clear button while the query is empty', () => {
-		render( <Palette classes={ classes } loading={ false } /> );
+		renderWithCatalog( <Palette loading={ false } />, {
+			classes,
+		} );
 		expect(
 			screen.queryByRole( 'button', { name: /clear filter/i } )
 		).toBeNull();
 	} );
 
 	it( 'clears the query, restores the full list, and refocuses the input', () => {
-		const { container } = render(
-			<Palette classes={ classes } loading={ false } />
+		const { container } = renderWithCatalog(
+			<Palette loading={ false } />,
+			{ classes }
 		);
 		const input = container.querySelector( '.topology-palette__search' );
 		fireEvent.change( input, { target: { value: 'part' } } );
