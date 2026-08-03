@@ -271,7 +271,10 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `unknown class: ${ type }` );
 		}
 		const node = new NodeClass();
-		node.registry = this.childRegistry;
+		// Pin only a NON-default table; else dump_node grows a `registry` row.
+		if ( this.childRegistry !== Core.registry ) {
+			node.registry = this.childRegistry;
+		}
 		node.name = name;
 		try {
 			node.arguments = Array.isArray( args ) ? args : [];
@@ -337,26 +340,26 @@ export class CommandInterpreterNode extends Node {
 			connect_node: ( self, args, env ) =>
 				CommandInterpreterNode._cmdConnect(
 					args,
-					env,
-					self.childRegistry
+					self.childRegistry,
+					env
 				),
 			connect: ( self, args, env ) =>
 				CommandInterpreterNode._cmdConnect(
 					args,
-					env,
-					self.childRegistry
+					self.childRegistry,
+					env
 				),
 			disconnect_node: ( self, args, env ) =>
 				CommandInterpreterNode._cmdDisconnect(
 					args,
-					env,
-					self.childRegistry
+					self.childRegistry,
+					env
 				),
 			disconnect: ( self, args, env ) =>
 				CommandInterpreterNode._cmdDisconnect(
 					args,
-					env,
-					self.childRegistry
+					self.childRegistry,
+					env
 				),
 			register: ( self, args ) =>
 				CommandInterpreterNode._cmdRegister( args, self.childRegistry ),
@@ -394,7 +397,10 @@ export class CommandInterpreterNode extends Node {
 			dump: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpNode( args, self.childRegistry ),
 			dump_metadata: ( self, args ) =>
-				CommandInterpreterNode._cmdDumpMetadata( args[ 0 ] ?? '' ),
+				CommandInterpreterNode._cmdDumpMetadata(
+					args[ 0 ] ?? '',
+					self.childRegistry
+				),
 			dump_config: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpConfig(
 					args[ 0 ] ?? '',
@@ -453,7 +459,7 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	static _cmdConnect( args, envelope = {}, registry ) {
+	static _cmdConnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
@@ -476,7 +482,7 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	static _cmdDisconnect( args, envelope = {}, registry ) {
+	static _cmdDisconnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
@@ -840,8 +846,8 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// dump_metadata [<node>] — per-node stats snapshot; bare = the full map.
-	static _cmdDumpMetadata( args ) {
-		return dumpMetadataPayload( String( args ?? '' ).trim() );
+	static _cmdDumpMetadata( args, registry ) {
+		return dumpMetadataPayload( String( args ?? '' ).trim(), registry );
 	}
 
 	// stats [-a] [<regex>] — tabular per-node counters.

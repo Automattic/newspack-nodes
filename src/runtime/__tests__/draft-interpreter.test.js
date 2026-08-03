@@ -15,7 +15,7 @@ import { CommandInterpreterNode } from '../command-interpreter-node';
 import { StubNode } from '../stub-node';
 import { NodeRegistry } from '../node-registry';
 import { parseStatements } from '../shell-node';
-import { newMessage, TYPE, VALUE, TM_COMMAND } from '../message';
+import { newMessage, TYPE, TO, VALUE, TM_COMMAND } from '../message';
 import { markLocal } from '../command-auth';
 
 /**
@@ -200,6 +200,46 @@ describe( 'a draft interpreter holding a server topology', () => {
 		expect(
 			draft.childRegistry.node( 'firehose-fanout' ).dumpConfig()
 		).toContain( 'connect_node firehose-fanout flames' );
+	} );
+
+	it( 'reports ITS OWN graph from dump_metadata, with declared classes', () => {
+		// The verb the canvas paints from. Reading Core here would draw the
+		// live graph in the draft's place — and report a stub as `Stub`,
+		// which misses in the class catalog and loses every port.
+		const live = new StubNode();
+		live.shellName = 'Topic';
+		live.name = 'live-only';
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
+
+		const meta = CommandInterpreterNode._cmdDumpMetadata(
+			'',
+			draft.childRegistry
+		);
+
+		expect( Object.keys( meta ) ).toEqual(
+			expect.arrayContaining( NAMES )
+		);
+		expect( meta ).not.toHaveProperty( 'live-only' );
+		expect( meta.firehose.class ).toBe( 'Topic' );
+		expect( meta.flames.class ).toBe( 'Flame_Builder' );
+	} );
+
+	it( "does not delete a real Tee's edges when it fills", () => {
+		// TeeNode prunes dead targets and writes the list BACK. Pruning
+		// against Core would silently drop every edge on the first fill.
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
+		const tee = draft.childRegistry.node( 'firehose-fanout' );
+
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ TO ] = '';
+		tee.fill( m );
+
+		expect( tee.dumpConfig() ).toContain(
+			'connect_node firehose-fanout flames'
+		);
 	} );
 
 	it( 'applies remove_node to a stub', () => {

@@ -15,12 +15,13 @@ import { VALUE } from './message';
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
  * node name. Patron-linked nodes are plumbing and are skipped.
  *
- * @param {string} [only] Single node name to snapshot; '' (default) = all nodes.
+ * @param {string} [only]     Single node name to snapshot; '' = all nodes.
+ * @param {Object} [registry] The name table to read; defaults to Core's.
  * @return {Object} Map of node name to { class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }.
  */
-export function dumpMetadataPayload( only = '' ) {
+export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 	const out = {};
-	for ( const [ name, node ] of Core.nodes ) {
+	for ( const [ name, node ] of registry.nodes ) {
 		if ( only && name !== only ) {
 			continue;
 		}
@@ -29,10 +30,11 @@ export function dumpMetadataPayload( only = '' ) {
 		}
 		// Per-node port flags from the node's schema; default true if none.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
-		// Shell name (strip `_Node`) so `class` matches the worker's.
+		// Shell name, or the class a stub STANDS FOR — else the catalog misses.
 		const ctorName = node.constructor?.name ?? 'Node';
 		out[ name ] = {
-			class: ctorName.replace( /Node$/, '' ) || ctorName,
+			class:
+				node.shellName || ctorName.replace( /Node$/, '' ) || ctorName,
 			counter: node.counter ?? 0,
 			sink: node.sink && node.sink.name ? node.sink.name : '',
 			target: node.target ?? '',
@@ -44,7 +46,7 @@ export function dumpMetadataPayload( only = '' ) {
 			accepts_fill: schema?.accepts_fill ?? true,
 			has_target: schema?.has_target ?? true,
 			// Has a `:config` sidecar iff that sibling node is registered.
-			has_config: Core.nodes.has( `${ name }:config` ),
+			has_config: registry.nodes.has( `${ name }:config` ),
 		};
 		// Emit registrations only when non-empty (PHP-parity: `[]` vs `{}`).
 		const registrations = node.registeredListeners();

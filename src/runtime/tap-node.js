@@ -1,14 +1,13 @@
 import { TeeNode } from './tee-node';
 import { TO } from './message';
-import { Core } from './core';
 
 export class TapNode extends TeeNode {
 	fill( message ) {
 		this.counter++;
 		const targets = Array.isArray( this.target ) ? this.target : [];
-		// Prune targets whose HEAD node is dead (a live head can be routed).
+		// Prune dead heads in THIS registry, or a draft loses every edge.
 		const alive = targets.filter(
-			( t ) => null !== Core.node( t.split( '/' )[ 0 ] )
+			( t ) => null !== this.registry.node( t.split( '/' )[ 0 ] )
 		);
 		this.target = alive;
 		for ( const t of alive ) {

@@ -412,6 +412,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// The composed `topologies expand` result for that include set.
 	const { baseline: expandBaseline, error: expandError } =
 		useExpandedIncludes( activeIncludes );
+	// Last expand error we toasted; `mode` in the deps re-fires otherwise.
+	const toastedExpandErrorRef = useRef( null );
 	// Previous expandBaseline, so reconcile can diff old vs new on each change.
 	const prevExpandBaselineRef = useRef( null );
 	useEffect( () => {
@@ -1085,8 +1087,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! expandError ) {
 			return;
 		}
-		setToast( { kind: 'error', text: expandError } );
-		// Toast in either mode; revert only what this tree belongs to.
+		// Toast once per error, not again on every mode toggle.
+		if ( toastedExpandErrorRef.current !== expandError ) {
+			toastedExpandErrorRef.current = expandError;
+			setToast( { kind: 'error', text: expandError } );
+		}
+		// Revert only what this tree belongs to.
 		if ( 'edit' === mode ) {
 			setDraft( ( g ) => revertIncludes( g, expandBaseline.tree ) );
 		}
