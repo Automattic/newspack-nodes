@@ -8,7 +8,16 @@
  */
 
 import { draftReducer, DRAFT_ACTIONS } from '../draftReducer';
-import { addNode, removeNode, addInclude } from '../draftGraph';
+import {
+	addNode,
+	removeNode,
+	addInclude,
+	removeInclude,
+	removeEdge,
+	connectDraftEdge,
+	updateNodeArgs,
+	updateNodeVerbs,
+} from '../draftGraph';
 
 const EMPTY = { nodes: [], edges: [], frontmatter: {} };
 
@@ -106,6 +115,63 @@ describe( 'draftReducer', () => {
 		const next = draftReducer( EMPTY, { type: 'secure', level: 2 } );
 
 		expect( next.secureLevel ).toBe( 2 );
+	} );
+
+	test( 'the edge and node-config verbs route to their draftGraph function', () => {
+		// connect_node / disconnect_node / set_arguments / cmd / remove_include
+		// — every remaining branch, so the routing table has no dark corners.
+		const seeded = addNode( EMPTY, {
+			shellName: 'Tee',
+			name: 'router-tee',
+			x: 0,
+			y: 0,
+		} );
+		const id = seeded.nodes[ 0 ].id;
+
+		expect(
+			draftReducer( seeded, {
+				type: 'set_arguments',
+				id,
+				ctorArgs: [ 'a', 'b' ],
+			} )
+		).toEqual( updateNodeArgs( seeded, id, [ 'a', 'b' ] ) );
+
+		expect(
+			draftReducer( seeded, {
+				type: 'cmd',
+				id,
+				verbInvocations: [ { verb: 'void_warranty' } ],
+			} )
+		).toEqual(
+			updateNodeVerbs( seeded, id, [ { verb: 'void_warranty' } ] )
+		);
+
+		const withInclude = draftReducer( EMPTY, {
+			type: 'include',
+			name: 'topic-probe',
+		} );
+		expect(
+			draftReducer( withInclude, {
+				type: 'remove_include',
+				name: 'topic-probe',
+			} )
+		).toEqual( removeInclude( withInclude, 'topic-probe' ) );
+
+		const two = addNode( seeded, {
+			shellName: 'Tee',
+			name: 'sink-tee',
+			x: 1,
+			y: 1,
+		} );
+		const [ a, b ] = two.nodes.map( ( n ) => n.id );
+		expect(
+			draftReducer( two, { type: 'connect_node', from: a, to: b } )
+		).toEqual( connectDraftEdge( two, a, b, [] ) );
+
+		const linked = connectDraftEdge( two, a, b, [] );
+		expect(
+			draftReducer( linked, { type: 'disconnect_node', from: a, to: b } )
+		).toEqual( removeEdge( linked, a, b ) );
 	} );
 
 	test( 'an unknown action returns the same object, not a copy', () => {
