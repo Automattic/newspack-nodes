@@ -26,6 +26,7 @@ import { buildComposeTargets } from '../../topology-console/utils/composeTargets
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
 import { useGraphReset } from '../useGraphReset';
+import { CatalogProvider } from '../../topology-console/CatalogContext';
 
 /**
  * Measure the DevtoolsTabHost tab bar (`.nodes-devtools__tabbar`) that the host
@@ -284,105 +285,110 @@ export default function InspectorTab( {
 	}
 
 	return (
-		<div
-			ref={ rootRef }
-			className="nodes-debug__inspector"
-			data-testid="inspector-tab"
+		<CatalogProvider
+			classCatalog={ schemasByShellName }
+			classes={ catalog.classes }
+			formatters={ catalog.formatters }
+			vaults={ vaultCatalog.vaults }
+			composeTargets={ composeTargets }
 		>
 			<div
-				className={ `topology-app is-inspector-open${
-					inspectorCollapsed ? ' is-inspector-collapsed' : ''
-				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
+				ref={ rootRef }
+				className="nodes-debug__inspector"
+				data-testid="inspector-tab"
 			>
-				<ConsoleShell
-					ready={ ready }
-					graph={ graph }
-					// The panel owns the one shared header above the tabs.
-					showHeader={ false }
-					frame={ CanvasFrame }
-					frameProps={ {
-						topology: 'debug',
-						partition: null,
-						isWorker: false,
-						editMode: false,
-						// null tells CanvasFrame to skip the reset chips.
-						onResetLayout: hasLayoutToReset ? resetLayout : null,
-						onResetGraph: canResetGraph ? resetGraph : null,
-					} }
-					buildingClassName="nodes-debug__canvas-building"
-					canvasProps={ {
-						...canvasChromeProps,
-						resetKey: storageKey,
-						// No cwd → local; header uses IoTelemetry vs metadata.
-						local: ! cwd,
-						// Live Dumper verbosity — the Verbose toggle reads it.
-						debugLevel,
-						interactive: true,
-						editMode: false,
-						showPalette: true,
-						paletteLoading: catalog.loading,
-						classCatalog: schemasByShellName,
-						catalog: catalog.classes,
-						formatters: catalog.formatters,
-						vaults: vaultCatalog.vaults,
-						positionOverrides: positions,
-						onPositionChange,
-						viewport,
-						viewportDelta,
-						onViewportChange,
-						onConnect: handlers.onConnect,
-						onRemoveEdge: handlers.onRemoveEdge,
-						onRemoveNode: handlers.onRemoveNode,
-						onDropNode: handlers.onDropNode,
-						composeTargets,
-						onInspectorAction: (
-							action,
-							nodeId,
-							payload,
-							flags
-						) => {
-							// Pop transcript footer on an inspector action.
-							setReplExpanded( true );
-							// Raw REPL line via Shell (special + builtins).
-							if ( 'command' === action ) {
-								sendLine( payload );
-								return;
-							}
-							handlers.onInspectorAction(
+				<div
+					className={ `topology-app is-inspector-open${
+						inspectorCollapsed ? ' is-inspector-collapsed' : ''
+					}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
+				>
+					<ConsoleShell
+						ready={ ready }
+						graph={ graph }
+						// The panel owns the one shared header above the tabs.
+						showHeader={ false }
+						frame={ CanvasFrame }
+						frameProps={ {
+							topology: 'debug',
+							partition: null,
+							isWorker: false,
+							editMode: false,
+							// null tells CanvasFrame to skip the reset chips.
+							onResetLayout: hasLayoutToReset
+								? resetLayout
+								: null,
+							onResetGraph: canResetGraph ? resetGraph : null,
+						} }
+						buildingClassName="nodes-debug__canvas-building"
+						canvasProps={ {
+							...canvasChromeProps,
+							resetKey: storageKey,
+							// No cwd → local; header uses IoTelemetry.
+							local: ! cwd,
+							// Dumper verbosity; Verbose toggle reads it.
+							debugLevel,
+							interactive: true,
+							editMode: false,
+							showPalette: true,
+							paletteLoading: catalog.loading,
+							positionOverrides: positions,
+							onPositionChange,
+							viewport,
+							viewportDelta,
+							onViewportChange,
+							onConnect: handlers.onConnect,
+							onRemoveEdge: handlers.onRemoveEdge,
+							onRemoveNode: handlers.onRemoveNode,
+							onDropNode: handlers.onDropNode,
+							onInspectorAction: (
 								action,
 								nodeId,
 								payload,
 								flags
-							);
-						},
-						// Selecting a node auto-opens inspector (rail→panel).
-						onSelectionChange: openInspectorOnSelect,
-					} }
-					replProps={ {
-						...replChromeProps,
-						prompt: `/${ cwd }`,
-						canSend: true,
-						onSubmit: sendLine,
-						onClear: clear,
-						transcript,
-						completion,
-						onComplete: requestCompletion,
-						onShowCandidates: handleShowCandidates,
-						maxHeightPx: replMaxHeightPx,
-					} }
-				/>
-			</div>
-			{ pendingDrop && (
-				<div style={ { display: 'contents' } }>
-					<NewNodeModal
-						shellName={ pendingDrop.shellName }
-						defaultName={ pendingDrop.defaultName }
-						argSchema={ pendingDrop.argSchema }
-						onConfirm={ commitDrop }
-						onCancel={ cancelDrop }
+							) => {
+								// Pop transcript footer on an inspector action.
+								setReplExpanded( true );
+								// Raw REPL line via Shell (special + builtins).
+								if ( 'command' === action ) {
+									sendLine( payload );
+									return;
+								}
+								handlers.onInspectorAction(
+									action,
+									nodeId,
+									payload,
+									flags
+								);
+							},
+							// Selecting auto-opens the inspector.
+							onSelectionChange: openInspectorOnSelect,
+						} }
+						replProps={ {
+							...replChromeProps,
+							prompt: `/${ cwd }`,
+							canSend: true,
+							onSubmit: sendLine,
+							onClear: clear,
+							transcript,
+							completion,
+							onComplete: requestCompletion,
+							onShowCandidates: handleShowCandidates,
+							maxHeightPx: replMaxHeightPx,
+						} }
 					/>
 				</div>
-			) }
-		</div>
+				{ pendingDrop && (
+					<div style={ { display: 'contents' } }>
+						<NewNodeModal
+							shellName={ pendingDrop.shellName }
+							defaultName={ pendingDrop.defaultName }
+							argSchema={ pendingDrop.argSchema }
+							onConfirm={ commitDrop }
+							onCancel={ cancelDrop }
+						/>
+					</div>
+				) }
+			</div>
+		</CatalogProvider>
 	);
 }

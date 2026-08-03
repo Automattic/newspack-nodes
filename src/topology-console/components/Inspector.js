@@ -28,6 +28,7 @@ import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
 import { edgeHasConnectRole } from '../utils/draftGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import { useCatalog } from '../CatalogContext';
 
 // A Consumer/Tail node: its dump_metadata carries both `frames` and a `cursor`.
 function isConsumerNode( node ) {
@@ -1471,21 +1472,23 @@ export default function Inspector( {
 	onHover,
 	nodeIds,
 	editMode = false,
-	catalog = [],
-	formatters = [],
-	vaults = [],
 	onUpdateArgs,
 	onUpdateVerbs,
 	onRemoveNode,
 	onRenameNode,
 	onRemoveEdge,
 	onConnect,
-	composeTargets,
 	tree = {},
 	includes = [],
 	onRemoveInclude,
 	onRemoveHull,
 } ) {
+	const {
+		classes: catalog,
+		formatters,
+		vaults,
+		composeTargets,
+	} = useCatalog();
 	// Which value-taking verb's prompt modal is open, or null (shared modal).
 	const [ promptVerb, setPromptVerb ] = useState( null );
 	// Whether the "Register a listener" modal is open.

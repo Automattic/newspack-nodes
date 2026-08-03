@@ -3,8 +3,9 @@
  * createSVGPoint / getScreenCTM with identity-transform math.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { fireEvent } from '@testing-library/react';
 import SchematicCanvas from '../SchematicCanvas';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 const parsed = {
 	nodes: [ { id: 'a' }, { id: 'b' } ],
@@ -82,13 +83,22 @@ describe( 'SchematicCanvas', () => {
 	};
 
 	it( 'renders one <g class="topology-node"> per parsed node', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const nodes = container.querySelectorAll( '.topology-node' );
 		expect( nodes ).toHaveLength( 2 );
 	} );
 
 	it( 'does not expose a config-only edge as an edit-mode removal hit target', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -105,14 +115,21 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders a paused cue on the card of a node polling PAUSED', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', polling: 'PAUSED' }, { id: 'b' } ],
 					edges: [ { from: 'a', to: 'b' } ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const cards = container.querySelectorAll( '.topology-node' );
 		expect(
@@ -121,14 +138,21 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders NO paused cue on a node that is not paused (ACTIVE / absent)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', polling: 'ACTIVE' }, { id: 'b' } ],
 					edges: [ { from: 'a', to: 'b' } ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-node__paused' )
@@ -136,7 +160,16 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'composites the bloom additively (screen) so interior name/LED glow is not occluded by the opaque card', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {
 			const filter = container.querySelector( `#${ id }` );
 			expect( filter ).not.toBeNull();
@@ -158,12 +191,19 @@ describe( 'SchematicCanvas', () => {
 			positionOverrides[ `t${ i }` ] = { x: 300, y: 80 + i * 12 };
 			edges.push( { from: 's', to: `t${ i }` } );
 		}
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ { nodes, edges } }
 				positionOverrides={ positionOverrides }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-edges--still' )
@@ -171,7 +211,16 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'keeps the edge-flow animation for a small graph (no --still)', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		expect(
 			container.querySelector( '.topology-edges--still' )
 		).toBeNull();
@@ -184,8 +233,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'b', { rate: 3 } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
 		expect( edge.classList.contains( 'topology-edge--flowing' ) ).toBe(
@@ -200,8 +256,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'b', { rate: 0 } ], // idle this dump
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
 		expect( edge.classList.contains( 'topology-edge--flowing' ) ).toBe(
@@ -210,7 +273,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'adds is-drift to nodes in driftIds (runtime drift vs the canonical .tsl)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas { ...baseProps } driftIds={ new Set( [ 'b' ] ) } />
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
@@ -225,8 +288,15 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'dims idle nodes (is-idle) in LIVE mode when there is no rate for them', () => {
 		// baseProps.rateRef is an empty Map → every node reads as idle.
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } editMode={ false } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } editMode={ false } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
 		expect(
@@ -235,8 +305,15 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'never dims nodes (no is-idle) in EDIT mode — there is no live rate to be idle against', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } editMode={ true } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } editMode={ true } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
 		expect( nodes.some( ( n ) => n.classList.contains( 'is-idle' ) ) ).toBe(
@@ -252,12 +329,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'arrow keys pan the viewport (Right → +x, Down → +y, by 8% of the viewport)', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		hoverCanvas( container );
 		fireEvent.keyDown( document, { key: 'ArrowRight' } );
@@ -274,12 +358,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'shift+arrow pans faster', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		hoverCanvas( container );
 		fireEvent.keyDown( document, { key: 'ArrowLeft', shiftKey: true } );
@@ -291,12 +382,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'arrow keys do NOT pan while typing in a form field', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		hoverCanvas( container );
 		const input = document.createElement( 'input' );
@@ -308,12 +406,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'arrow keys do NOT pan when the canvas is not hovered (overlay host-page protection)', () => {
 		const onViewportChange = jest.fn();
-		render(
+		renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// No hover → the arrow handler must NOT pan or preventDefault.
 		fireEvent.keyDown( document, { key: 'ArrowRight' } );
@@ -321,14 +426,30 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders one edge path per parsed edge', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const edges = container.querySelectorAll( '.topology-edge--active' );
 		expect( edges ).toHaveLength( 1 );
 	} );
 
 	it( 'applies is-selected to the matching node', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } selectedId="a" />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } selectedId="a" />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const selected = container.querySelector(
 			'.topology-node.is-selected'
@@ -338,8 +459,15 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'invokes onSelect when a node is clicked', () => {
 		const onSelect = jest.fn();
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } onSelect={ onSelect } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } onSelect={ onSelect } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
 		fireEvent.click( firstNode );
@@ -347,11 +475,18 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders a node at its exact positionOverrides coordinates', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				positionOverrides={ { a: { x: 999, y: 222 } } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// The canvas renders the node verbatim at the supplied position.
 		const nodeA = Array.from(
@@ -370,19 +505,26 @@ describe( 'SchematicCanvas', () => {
 			a: { x: 60, y: 80 },
 			b: { x: 300, y: 80 },
 		};
-		render(
+		renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ localParsed }
 				positionOverrides={ positionOverrides }
 				onSeedLayout={ onSeedLayout }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( onSeedLayout ).not.toHaveBeenCalled();
 	} );
 
 	it( 'skips a node that has no position (one-frame gap before the layout hook places it)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -390,7 +532,14 @@ describe( 'SchematicCanvas', () => {
 					edges: [],
 				} }
 				positionOverrides={ { a: { x: 60, y: 80 } } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// 'late' has no position → only one node renders.
 		expect( container.querySelectorAll( '.topology-node' ) ).toHaveLength(
@@ -400,7 +549,7 @@ describe( 'SchematicCanvas', () => {
 
 	// OUT port is a wire-drag source when interactive + onConnect (any mode).
 	it( 'OUT port carries is-wire-source when interactive + onConnect (non-edit)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode={ false }
@@ -412,7 +561,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'OUT port carries is-wire-source in edit mode (still draggable)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode={ true }
@@ -424,15 +573,22 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'OUT port lacks is-wire-source when onConnect is missing (not draggable)', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } onConnect={ undefined } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } onConnect={ undefined } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const out = container.querySelector( '.topology-port--out' );
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
 	} );
 
 	it( 'OUT port lacks is-wire-source when interactive=false (read-only canvas)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				interactive={ false }
@@ -444,25 +600,50 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'honors the parent-provided viewport as the SVG viewBox', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 100, y: 100, w: 800, h: 600 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		expect( svg.getAttribute( 'viewBox' ) ).toBe( '100 100 800 600' );
 	} );
 
 	it( 'falls back to a tight autofit viewBox when viewport is null', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const svg = container.querySelector( 'svg' );
 		const viewBox = svg.getAttribute( 'viewBox' );
 		expect( viewBox.split( /\s+/ ) ).toHaveLength( 4 );
 	} );
 
 	it( 'autofit zooms a small graph in to fill the canvas (not floored at native zoom)', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const [ , , w ] = container
 			.querySelector( 'svg' )
 			.getAttribute( 'viewBox' )
@@ -480,36 +661,63 @@ describe( 'SchematicCanvas', () => {
 					.getAttribute( 'viewBox' )
 					.split( /\s+/ )[ 1 ]
 			);
-		const base = render( <SchematicCanvas { ...baseProps } /> );
+		const base = renderWithCatalog( <SchematicCanvas { ...baseProps } />, {
+			classes: baseProps.catalog,
+			formatters: baseProps.formatters,
+			vaults: baseProps.vaults,
+			composeTargets: baseProps.composeTargets,
+			classCatalog: baseProps.classCatalog,
+		} );
 		const baseY = yOf( base );
 		base.unmount();
-		const inset = render(
-			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />
+		const inset = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// Reserving the bottom band moves viewBox down → graph up on screen.
 		expect( yOf( inset ) ).toBeGreaterThan( baseY );
 	} );
 
 	it( 'shows AUTOFIT_MIN size for empty graphs', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ { nodes: [], edges: [] } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		expect( svg.getAttribute( 'viewBox' ) ).toBe( '0 0 1280 720' );
 	} );
 
 	it( 'skips edges with missing endpoints', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a' } ],
 					edges: [ { from: 'a', to: 'missing' } ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// Missing endpoint short-circuits the edge render.
 		expect(
@@ -518,7 +726,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders an edge hit-target only in edit mode for non-virtual edges', () => {
-		const { container, rerender } = render(
+		const { container, rerender } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
@@ -542,12 +750,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'invokes onSelectEdge with from/to when the hit-target is clicked', () => {
 		const onSelectEdge = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
 				onSelectEdge={ onSelectEdge }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const hit = container.querySelector( '.topology-edge-hit' );
 		fireEvent.mouseDown( hit );
@@ -558,7 +773,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'tags selected edge with is-selected', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
@@ -573,14 +788,21 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'tags virtual edges with is-virtual class', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a' }, { id: 'b' } ],
 					edges: [ { from: 'a', to: 'b', virtual: true } ],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const edge = container.querySelector(
 			'.topology-edge--active.is-virtual'
@@ -595,8 +817,15 @@ describe( 'SchematicCanvas', () => {
 	};
 
 	it( 'tags a registration edge with the is-registration class', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-edge.is-registration' )
@@ -604,14 +833,21 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders the event name as a <title> on a registration edge', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( container.querySelector( 'title' )?.textContent ).toBe( 'EVT' );
 	} );
 
 	it( 'gives a registration edge no edit-mode hit-target', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ registrationParsed }
@@ -623,8 +859,15 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'dims unhovered edges when hoveredId is set', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } hoveredId="c" />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } hoveredId="c" />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const dimmed = container.querySelector(
 			'.topology-edge--active.is-dimmed'
@@ -636,11 +879,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'pointer-down on a node starts a drag (sets pointer capture)', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
 		// mouseDown reliably drives beginDrag in jsdom.
@@ -661,11 +911,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'drag past threshold commits a snapped position', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
 		// mouseDown starts the drag; pointer-move/-up drive the rest.
@@ -693,11 +950,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'right-click on a node does not start drag', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
 		fireEvent.mouseDown( firstNode, {
@@ -713,12 +977,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'pan: drag on empty canvas updates viewport', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onViewportChange={ onViewportChange }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		svg.getBoundingClientRect = () => ( {
@@ -754,12 +1025,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'pan-click without drag with no selection autofits the viewport', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onViewportChange={ onViewportChange }
 				viewport={ { x: 0, y: 0, w: 100, h: 100 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		svg.getBoundingClientRect = () => ( {
@@ -790,14 +1068,21 @@ describe( 'SchematicCanvas', () => {
 	it( 'pan-click without drag with selection only deselects', () => {
 		const onDeselect = jest.fn();
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				selectedId="a"
 				onDeselect={ onDeselect }
 				onViewportChange={ onViewportChange }
 				viewport={ { x: 0, y: 0, w: 100, h: 100 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		svg.getBoundingClientRect = () => ( {
@@ -830,12 +1115,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'wheel: scrolling down zooms out', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		fireEvent.wheel( svg, { deltaY: 100, clientX: 500, clientY: 400 } );
@@ -846,12 +1138,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'wheel: scrolling up zooms in', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		fireEvent.wheel( svg, { deltaY: -100, clientX: 500, clientY: 400 } );
@@ -863,12 +1162,19 @@ describe( 'SchematicCanvas', () => {
 	it( 'wheel: zoom clamps to ZOOM_MIN / ZOOM_MAX', () => {
 		// Large viewport: zoom-in shrinks it; clamp floors at baseW/ZOOM_MAX.
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 100, h: 80 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		for ( let i = 0; i < 20; i++ ) {
@@ -885,12 +1191,19 @@ describe( 'SchematicCanvas', () => {
 	it( 'anchors wheel zoom to the cursor SCREEN fraction, not the viewBox-world fraction', () => {
 		// Bug: viewBox ≠ canvas width → world-fraction anchor flings graph.
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1700, h: 1700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		svg.getBoundingClientRect = () => ( {
@@ -917,7 +1230,13 @@ describe( 'SchematicCanvas', () => {
 			window.SVGSVGElement.prototype,
 			'addEventListener'
 		);
-		render( <SchematicCanvas { ...baseProps } /> );
+		renderWithCatalog( <SchematicCanvas { ...baseProps } />, {
+			classes: baseProps.catalog,
+			formatters: baseProps.formatters,
+			vaults: baseProps.vaults,
+			composeTargets: baseProps.composeTargets,
+			classCatalog: baseProps.classCatalog,
+		} );
 		const wheelCall = addSpy.mock.calls.find( ( c ) => c[ 0 ] === 'wheel' );
 		expect( wheelCall ).toBeDefined();
 		expect( wheelCall[ 2 ] ).toEqual( { passive: false } );
@@ -928,12 +1247,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'OUT port mousedown in edit mode begins wire drag', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
 				onConnect={ onConnect }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const outPort = container.querySelector(
 			'.topology-port.topology-port--out'
@@ -954,12 +1280,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'OUT port: wire drag releases over IN port → onConnect fires', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
 				onConnect={ onConnect }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const outPort = container.querySelector(
 			'.topology-port.topology-port--out'
@@ -977,8 +1310,15 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'OUT port wire drag fires onConnect without editMode (gestures are always-on)', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } onConnect={ onConnect } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } onConnect={ onConnect } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const outPort = container.querySelector(
 			'.topology-port.topology-port--out'
@@ -997,12 +1337,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'OUT port mousedown with interactive=false does not begin a wire drag', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				interactive={ false }
 				onConnect={ onConnect }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const outPort = container.querySelector(
 			'.topology-port.topology-port--out'
@@ -1021,17 +1368,19 @@ describe( 'SchematicCanvas', () => {
 	// === classCatalog gates port visibility ===
 
 	it( 'classCatalog with accepts_fill=false hides IN port', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Source' } ],
 					edges: [],
 				} }
-				classCatalog={ {
+			/>,
+			{
+				classCatalog: {
 					Source: { accepts_fill: false, has_target: true },
-				} }
-			/>
+				},
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
@@ -1039,17 +1388,19 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'classCatalog with has_target=false hides OUT port', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Sink' } ],
 					edges: [],
 				} }
-				classCatalog={ {
+			/>,
+			{
+				classCatalog: {
 					Sink: { accepts_fill: true, has_target: false },
-				} }
-			/>
+				},
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--out' ).length
@@ -1059,7 +1410,7 @@ describe( 'SchematicCanvas', () => {
 	// === Per-node flags gate port visibility (no catalog entry needed) ===
 
 	it( 'per-node accepts_fill=false hides IN port even with no catalog match', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1068,8 +1419,8 @@ describe( 'SchematicCanvas', () => {
 					],
 					edges: [],
 				} }
-				classCatalog={ {} }
-			/>
+			/>,
+			{ classCatalog: {} }
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
@@ -1077,15 +1428,15 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'per-node has_target=false hides OUT port even with no catalog match', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Sink', has_target: false } ],
 					edges: [],
 				} }
-				classCatalog={ {} }
-			/>
+			/>,
+			{ classCatalog: {} }
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--out' ).length
@@ -1093,15 +1444,15 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'a node with neither flag set still draws both ports (default true)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Echo' } ],
 					edges: [],
 				} }
-				classCatalog={ {} }
-			/>
+			/>,
+			{ classCatalog: {} }
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
@@ -1126,8 +1477,15 @@ describe( 'SchematicCanvas', () => {
 				],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const spark = container.querySelector( '.topology-node__spark' );
 		expect( spark ).not.toBeNull();
@@ -1139,21 +1497,35 @@ describe( 'SchematicCanvas', () => {
 				[ 'a', { count: 1, rate: 0, history: [ 1 ] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect( container.querySelector( '.topology-node__spark' ) ).toBeNull();
 	} );
 
 	it( 'renders compactCount value in counter cell', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Echo', count: 1234567 } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const counter = container.querySelector( '.topology-node__counter' );
 		expect( counter ).not.toBeNull();
@@ -1161,14 +1533,21 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders em-dash for null count', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Echo', count: null } ],
 					edges: [],
 				} }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const counter = container.querySelector( '.topology-node__counter' );
 		expect( counter.textContent ).toBe( '—' );
@@ -1180,8 +1559,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'a', { count: 100, rate: 12.5, history: [] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
 		expect( rateText ).not.toBeNull();
@@ -1194,8 +1580,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'a', { count: 0, rate: 0.01, history: [] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
 		expect( rateText.textContent ).toBe( '' );
@@ -1207,8 +1600,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'a', { count: 0, rate: 1234.7, history: [] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
 		expect( rateText.textContent ).toBe( '1235 /s' );
@@ -1221,8 +1621,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'b', { count: 0, rate: 0, history: [] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const all = container.querySelectorAll( '.topology-node' );
 		const idle = container.querySelectorAll( '.topology-node.is-idle' );
@@ -1236,8 +1643,15 @@ describe( 'SchematicCanvas', () => {
 				[ 'b', { count: 0, rate: 50, history: [] } ],
 			] ),
 		};
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-node.is-idle' ).length
@@ -1248,8 +1662,15 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'hovering a node calls onHover with its id', () => {
 		const onHover = jest.fn();
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } onHover={ onHover } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } onHover={ onHover } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
 		fireEvent.mouseEnter( firstNode );
@@ -1259,8 +1680,15 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'applies is-hovered class to the matching node', () => {
-		const { container } = render(
-			<SchematicCanvas { ...baseProps } hoveredId="a" />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } hoveredId="a" />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-node.is-hovered' )
@@ -1273,12 +1701,19 @@ describe( 'SchematicCanvas', () => {
 	// === setViewport is a no-op when the parent owns no viewport ===
 
 	it( 'arrow pan does nothing when no onViewportChange is provided (setViewport short-circuits)', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ undefined }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		hoverCanvas( container );
 		// keydown → setViewport early-returns when onViewportChange is absent.
@@ -1291,12 +1726,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'ignores a non-arrow key (no pan)', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
 				onViewportChange={ onViewportChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		hoverCanvas( container );
 		fireEvent.keyDown( document, { key: 'a' } );
@@ -1305,12 +1747,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'right-button press on the background does not start a pan', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onViewportChange={ onViewportChange }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		fireEvent.pointerDown( svg, {
@@ -1330,12 +1779,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'a sub-threshold background move does not pan (stays a click)', () => {
 		const onViewportChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onViewportChange={ onViewportChange }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const svg = container.querySelector( 'svg' );
 		svg.getBoundingClientRect = () => ( {
@@ -1368,11 +1824,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'pointerMove / pointerUp on a node with no active drag are no-ops', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const node = container.querySelector( '.topology-node' );
 		// No prior pointer-down → updateDrag/endDrag hit their `! drag` guard.
@@ -1384,7 +1847,16 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'pointerDown on a node begins a drag (covers the onPointerDown handler)', () => {
-		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...baseProps } />,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
+		);
 		const node = container.querySelector( '.topology-node' );
 		expect( () =>
 			fireEvent.pointerDown( node, {
@@ -1399,7 +1871,7 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'a click after a real drag suppresses selection (draggedRef gate)', () => {
 		const onSelect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				onSelect={ onSelect }
@@ -1429,12 +1901,19 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'wire drag that lands on an IN port fires onConnect(from, to)', () => {
 		const onConnect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode
 				onConnect={ onConnect }
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		// Node b's IN port sits at ( x=300, y=80 + NODE_H/2=42 ) = (300, 122).
 		const outPort = container.querySelector( '.topology-port--out' );
@@ -1450,7 +1929,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'renders one hull path per include, before the edges', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1472,7 +1951,14 @@ describe( 'SchematicCanvas', () => {
 					{ include: 'performance', nodeIds: [ 'shared-tee' ] },
 				] }
 				editMode
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const hull = container.querySelector(
 			'.topology-hull[data-include="performance"]'
@@ -1486,7 +1972,7 @@ describe( 'SchematicCanvas', () => {
 		// the parent's, so the hulls nearly coincide and area can even TIE —
 		// depth must win the paint order or the parent swallows the child's
 		// clicks everywhere. Props deliberately list the child first.
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1519,7 +2005,14 @@ describe( 'SchematicCanvas', () => {
 					},
 				] }
 				editMode
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
 			( el ) => el.getAttribute( 'data-include' )
@@ -1528,7 +2021,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'paints equal-depth sibling hulls biggest-first so the smaller stays clickable', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1557,7 +2050,14 @@ describe( 'SchematicCanvas', () => {
 					},
 				] }
 				editMode
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
 			( el ) => el.getAttribute( 'data-include' )
@@ -1566,7 +2066,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'marks a borrowed node locked', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1582,7 +2082,14 @@ describe( 'SchematicCanvas', () => {
 				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
 				hulls={ [] }
 				editMode
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelector( '.topology-node.is-borrowed' )
@@ -1593,7 +2100,7 @@ describe( 'SchematicCanvas', () => {
 	} );
 
 	it( 'keeps the lock badge clear of the liveness LED', () => {
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
@@ -1609,7 +2116,14 @@ describe( 'SchematicCanvas', () => {
 				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
 				hulls={ [] }
 				editMode
-			/>
+			/>,
+			{
+				classes: baseProps.catalog,
+				formatters: baseProps.formatters,
+				vaults: baseProps.vaults,
+				composeTargets: baseProps.composeTargets,
+				classCatalog: baseProps.classCatalog,
+			}
 		);
 
 		const lock = container.querySelector( '.topology-node__lock' );
@@ -1672,11 +2186,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		// 0.2 px/unit: below 0.35 detail scale, so edges LOD away with labels.
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 5000, h: 5000 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-node.is-static' ).length
@@ -1689,11 +2210,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'marks visible nodes is-static (no entrance fade) when zoomed out', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-node.is-static' ).length
@@ -1704,11 +2232,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		// 1000/1000 = 1.0 px/unit: detail on, edge layer + node fade restored.
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-edge--active' ).length
@@ -1722,11 +2257,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		// 0.0025 px/unit: a 196-unit node → ~0.5px; floor enlarges it to ~2px.
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 400000, h: 400000 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const bg = container.querySelector( '.topology-node__bg' );
 		const minWorld = 2 / ( 1000 / 400000 ); // MIN_NODE_PX / scale = 800
@@ -1744,11 +2286,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'leaves a node at its natural NODE_W when zoomed in (floor is a no-op)', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const bg = container.querySelector( '.topology-node__bg' );
 		expect( Number( bg.getAttribute( 'width' ) ) ).toBe( 196 );
@@ -1757,7 +2306,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'truncates a one-endpoint-visible edge to a straight stub, no arrow', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				parsed={ {
@@ -1769,7 +2318,14 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 					b: { x: 90000, y: 100 }, // far off-screen to the right
 				} }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
 		// a in-view, b off-view → stub (M..L..), no bezier/arrowhead.
@@ -1781,11 +2337,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'keeps the full bezier (+ arrow) when both endpoints are visible', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
 		expect( edge.getAttribute( 'd' ) ).toContain( 'C' );
@@ -1797,11 +2360,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'renders all cards in one bloom-classed group when zoomed in (no reparenting)', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		// Exactly one nodes group, carrying --bloom, holding every card.
 		const groups = container.querySelectorAll( '.topology-nodes' );
@@ -1817,11 +2387,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'drops the bloom class from the nodes group when zoomed out (LOD)', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const group = container.querySelector( '.topology-nodes' );
 		expect( group.classList.contains( 'topology-nodes--bloom' ) ).toBe(
@@ -1830,7 +2407,16 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'clips the card label layer and pins the bloom filter to the viewport', () => {
-		const { container } = render( <SchematicCanvas { ...lodProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...lodProps } />,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
+		);
 		// The clip def + a label layer that references it.
 		expect(
 			container.querySelector( '#topology-node-clip' )
@@ -1846,7 +2432,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'does not bloom an edge with an endpoint outside the viewport', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				parsed={ {
@@ -1858,7 +2444,14 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 					b: { x: 90000, y: 100 }, // far off-screen → stub
 				} }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
 		expect(
@@ -1873,11 +2466,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	it( 'blooms an edge whose endpoints are both on-screen', () => {
 		stubW = 1000;
 		stubH = 1000;
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
 		expect(
@@ -1886,7 +2486,16 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 	} );
 
 	it( 'defines the group-bloom SVG filters', () => {
-		const { container } = render( <SchematicCanvas { ...lodProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...lodProps } />,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
+		);
 		expect(
 			container.querySelector( '#topology-bloom-crt' )
 		).not.toBeNull();
@@ -1901,13 +2510,20 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		const onViewportChange = jest.fn();
 		// Panned/zoomed off autofit; inset-shifted box → a different viewport.
 		const viewport = { x: 100, y: 100, w: 2000, h: 2000 };
-		const { rerender } = render(
+		const { rerender } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ viewport }
 				onViewportChange={ onViewportChange }
 				bottomObstructionPx={ 0 }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		// Ignore mount-measure onViewportChange calls; watch only the reflow.
 		onViewportChange.mockClear();
@@ -1936,13 +2552,20 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const onViewportChange = jest.fn();
-		const { rerender } = render(
+		const { rerender } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...lodProps }
 				viewport={ null }
 				onViewportChange={ onViewportChange }
 				bottomObstructionPx={ 0 }
-			/>
+			/>,
+			{
+				classes: lodProps.catalog,
+				formatters: lodProps.formatters,
+				vaults: lodProps.vaults,
+				composeTargets: lodProps.composeTargets,
+				classCatalog: lodProps.classCatalog,
+			}
 		);
 		onViewportChange.mockClear();
 		// Uncontrolled: reflow's `! vp` branch returns, no setViewport call.
@@ -1981,7 +2604,16 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	};
 
 	it( 'hovering a hull dims the nodes that are NOT its members', () => {
-		const { container } = render( <SchematicCanvas { ...hullProps } /> );
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...hullProps } />,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
+		);
 		const hull = container.querySelector( '.topology-hull' );
 
 		fireEvent.mouseEnter( hull );
@@ -2020,8 +2652,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 			.join( ' ' );
 
 	it( 'a hovered hull suspends idle dimming on its members', () => {
-		const { container } = render(
-			<SchematicCanvas { ...liveHullProps } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...liveHullProps } />,
+			{
+				classes: liveHullProps.catalog,
+				formatters: liveHullProps.formatters,
+				vaults: liveHullProps.vaults,
+				composeTargets: liveHullProps.composeTargets,
+				classCatalog: liveHullProps.classCatalog,
+			}
 		);
 
 		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
@@ -2033,8 +2672,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	} );
 
 	it( 'a hovered hull lights the idle wires BETWEEN its members', () => {
-		const { container } = render(
-			<SchematicCanvas { ...liveHullProps } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...liveHullProps } />,
+			{
+				classes: liveHullProps.catalog,
+				formatters: liveHullProps.formatters,
+				vaults: liveHullProps.vaults,
+				composeTargets: liveHullProps.composeTargets,
+				classCatalog: liveHullProps.classCatalog,
+			}
 		);
 
 		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
@@ -2049,8 +2695,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	} );
 
 	it( 'releasing the hover restores the idle dim', () => {
-		const { container } = render(
-			<SchematicCanvas { ...liveHullProps } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...liveHullProps } />,
+			{
+				classes: liveHullProps.catalog,
+				formatters: liveHullProps.formatters,
+				vaults: liveHullProps.vaults,
+				composeTargets: liveHullProps.composeTargets,
+				classCatalog: liveHullProps.classCatalog,
+			}
 		);
 		const hull = container.querySelector( '.topology-hull' );
 
@@ -2068,8 +2721,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	// focus gesture -- so it has to fade the rest too, or lighting its members
 	// would buy no contrast against the ordinary active nodes around it.
 	it( 'a SELECTED hull highlights exactly like a hovered one', () => {
-		const { container } = render(
-			<SchematicCanvas { ...liveHullProps } selectedHull="performance" />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...liveHullProps } selectedHull="performance" />,
+			{
+				classes: liveHullProps.catalog,
+				formatters: liveHullProps.formatters,
+				vaults: liveHullProps.vaults,
+				composeTargets: liveHullProps.composeTargets,
+				classCatalog: liveHullProps.classCatalog,
+			}
 		);
 
 		// Members lit: no idle dim inside the hull...
@@ -2095,8 +2755,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	} );
 
 	it( 'hovering one hull takes over from a DIFFERENT selected hull', () => {
-		const { container } = render(
-			<SchematicCanvas { ...liveHullProps } selectedHull="other" />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...liveHullProps } selectedHull="other" />,
+			{
+				classes: liveHullProps.catalog,
+				formatters: liveHullProps.formatters,
+				vaults: liveHullProps.vaults,
+				composeTargets: liveHullProps.composeTargets,
+				classCatalog: liveHullProps.classCatalog,
+			}
 		);
 
 		fireEvent.mouseEnter( container.querySelector( '.topology-hull' ) );
@@ -2107,8 +2774,15 @@ describe( 'SchematicCanvas — hull interaction', () => {
 
 	it( 'clicking a hull FILL selects the hull', () => {
 		const onSelectHull = jest.fn();
-		const { container } = render(
-			<SchematicCanvas { ...hullProps } onSelectHull={ onSelectHull } />
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...hullProps } onSelectHull={ onSelectHull } />,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
 		);
 
 		fireEvent.mouseDown( container.querySelector( '.topology-hull' ) );
@@ -2118,11 +2792,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 
 	it( 'dragging a hull moves EVERY member by the same delta, and nothing else', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...hullProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
 		);
 		const hull = container.querySelector( '.topology-hull' );
 
@@ -2167,11 +2848,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 
 	it( 'snaps a hull drag onto the grid, moving every member by one delta', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...hullProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
 		);
 
 		dragHullBy( container, 190, 90 );
@@ -2187,11 +2875,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 
 	it( 'snaps a NEGATIVE hull drag too, off the left/top of the origin', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...hullProps }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
 		);
 
 		dragHullBy( container, -190, -90 );
@@ -2204,7 +2899,7 @@ describe( 'SchematicCanvas — hull interaction', () => {
 
 	it( 'tidies an off-grid cluster onto the grid without reshaping it', () => {
 		const onPositionChange = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				{ ...hullProps }
 				positionOverrides={ {
@@ -2213,7 +2908,14 @@ describe( 'SchematicCanvas — hull interaction', () => {
 					'inner-b': { x: 307, y: 103 },
 				} }
 				onPositionChange={ onPositionChange }
-			/>
+			/>,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+			}
 		);
 
 		dragHullBy( container, 190, 90 );
@@ -2231,7 +2933,7 @@ describe( 'SchematicCanvas — hull interaction', () => {
 describe( 'SchematicCanvas — background click with only a hull selected', () => {
 	it( 'deselects instead of falling through to autofit', () => {
 		const onDeselect = jest.fn();
-		const { container } = render(
+		const { container } = renderWithCatalog(
 			<SchematicCanvas
 				parsed={ {
 					nodes: [ { id: 'a', class: 'Echo', origin: [ 'perf' ] } ],

@@ -3,8 +3,9 @@
  * the canvas deliberately cannot: the recursion we flattened, the diamond nodes
  * only visible as an overlap, and the edges crossing the boundary (its interface).
  */
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import Inspector from '../Inspector';
+import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 
 describe( 'Inspector — selected hull', () => {
 	const props = {
@@ -44,7 +45,13 @@ describe( 'Inspector — selected hull', () => {
 	};
 
 	it( 'names the topology and lists what it provides', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		expect( screen.getByText( 'performance' ) ).toBeTruthy();
 		expect( screen.getByTestId( 'hull-provides' ).textContent ).toContain(
 			'request-builder'
@@ -52,7 +59,13 @@ describe( 'Inspector — selected hull', () => {
 	} );
 
 	it( 'flags a node SHARED with another include — the diamond, invisible on canvas', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		expect( screen.getByTestId( 'hull-shared' ).textContent ).toContain(
 			'shared-tee'
 		);
@@ -62,7 +75,13 @@ describe( 'Inspector — selected hull', () => {
 	} );
 
 	it( 'shows the boundary edges — what feeds it, and what it feeds', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		const iface = screen.getByTestId( 'hull-interface' ).textContent;
 		expect( iface ).toContain( 'own-echo' );
 		expect( iface ).toContain( 'request-builder' );
@@ -72,12 +91,19 @@ describe( 'Inspector — selected hull', () => {
 	// same action under the same gate instead of leaving it keyboard-only.
 	it( 'removes a directly-declared include from the panel', () => {
 		const onRemoveHull = jest.fn();
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...props }
 				includes={ [ 'performance' ] }
 				onRemoveHull={ onRemoveHull }
-			/>
+			/>,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
 		);
 
 		fireEvent.click( screen.getByTestId( 'hull-remove' ) );
@@ -86,7 +112,7 @@ describe( 'Inspector — selected hull', () => {
 	} );
 
 	it( 'offers no removal for a hull this file does not declare', () => {
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...props }
 				includes={ [ 'job-router' ] }
@@ -98,7 +124,7 @@ describe( 'Inspector — selected hull', () => {
 	} );
 
 	it( 'offers no removal outside edit mode', () => {
-		render(
+		renderWithCatalog(
 			<Inspector
 				{ ...props }
 				editMode={ false }
@@ -111,20 +137,44 @@ describe( 'Inspector — selected hull', () => {
 	} );
 
 	it( 'lists what the topology itself includes, not its own name', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		const tree = screen.getByTestId( 'hull-includes' ).textContent;
 		expect( tree ).toContain( 'request-builder' );
 		expect( tree ).toContain( 'flame-builder' );
 	} );
 
 	it( 'omits the includes section entirely when it includes nothing', () => {
-		render( <Inspector { ...props } tree={ { performance: {} } } /> );
+		renderWithCatalog(
+			<Inspector { ...props } tree={ { performance: {} } } />,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
 		expect( screen.queryByTestId( 'hull-includes' ) ).toBeNull();
 	} );
 
 	it( 'offers to OPEN the included topology — the drill-in', () => {
 		const onOpenTopology = jest.fn();
-		render( <Inspector { ...props } onOpenTopology={ onOpenTopology } /> );
+		renderWithCatalog(
+			<Inspector { ...props } onOpenTopology={ onOpenTopology } />,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
 		fireEvent.click( screen.getByTestId( 'hull-open' ) );
 		expect( onOpenTopology ).toHaveBeenCalledWith( 'performance' );
 	} );
@@ -182,7 +232,13 @@ describe( 'Inspector — hull stats', () => {
 	};
 
 	it( 'rolls the hull members up into throughput totals', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		const stats = screen.getByTestId( 'hull-stats' ).textContent;
 		expect( stats ).toContain( '71' );
 		expect( stats ).toContain( '33' );
@@ -191,13 +247,25 @@ describe( 'Inspector — hull stats', () => {
 	} );
 
 	it( 'counts ONLY the members — a non-member node is another scope', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		const stats = screen.getByTestId( 'hull-stats' ).textContent;
 		expect( stats ).not.toContain( '999' );
 	} );
 
 	it( 'graphs the hull message and byte rates', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		const stats = screen.getByTestId( 'hull-stats' ).textContent;
 		expect( stats ).toContain( '5.0 /s' );
 		expect( stats ).toContain( '6.0 /s' );
@@ -206,14 +274,26 @@ describe( 'Inspector — hull stats', () => {
 	} );
 
 	it( 'omits the dmesg strip — err/warn counts are process-wide, not per-hull', () => {
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		expect( screen.getByTestId( 'hull-stats' ).textContent ).not.toContain(
 			'err'
 		);
 	} );
 
 	it( 'shows NO stats in edit mode — a draft graph has nothing to measure', () => {
-		render( <Inspector { ...props } editMode={ true } /> );
+		renderWithCatalog( <Inspector { ...props } editMode={ true } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 		expect( screen.queryByTestId( 'hull-stats' ) ).toBeNull();
 	} );
 } );
@@ -248,7 +328,13 @@ describe( 'HullPanel — shared vs contained', () => {
 			catalog: [],
 		};
 
-		render( <Inspector { ...props } /> );
+		renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
 
 		expect( screen.queryByTestId( 'hull-shared' ) ).toBeNull();
 	} );

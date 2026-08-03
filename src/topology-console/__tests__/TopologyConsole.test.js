@@ -361,7 +361,8 @@ function mockCanvasMarkup( props ) {
 	);
 }
 jest.mock( '../components/Inspector', () => ( props ) => {
-	lastInspectorProps = props;
+	const { useCatalog: useCat } = require( '../CatalogContext' );
+	lastInspectorProps = { ...props, ...useCat() };
 	return (
 		<div
 			data-testid="inspector"
@@ -523,7 +524,10 @@ jest.mock( '../components/Header', () => ( {
 } ) );
 let lastPaletteProps = null;
 jest.mock( '../components/Palette', () => ( props ) => {
-	lastPaletteProps = props;
+	// The real Palette reads its catalogs from context now, so the double
+	// must too, or these assertions test the prop chain it stopped using.
+	const { useCatalog } = require( '../CatalogContext' );
+	lastPaletteProps = { ...props, ...useCatalog() };
 	return (
 		<aside data-testid="palette">
 			<button

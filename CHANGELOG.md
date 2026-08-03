@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The graph surface's catalogs moved off the prop chain.** `classCatalog`,
+  `classes`, `formatters`, `vaults`, `topologies` and `composeTargets` were
+  threaded TopologyConsole → ConsoleShell → GraphView → child, four levels,
+  with `GraphView` reading none of the six and forwarding all of them.
+  `CatalogContext` carries them instead, provided by both graph-surface mounts
+  (the console and the debug overlay's inspector tab). Prop counts:
+  `GraphView` 44 → 38, `Inspector` 30 → 26, `SchematicCanvas` 23 → 22,
+  `Palette` 10 → 8. These lift where the mutation handlers cannot, and the
+  reason is worth keeping: a class list is the same list whether you are
+  editing a topology or watching a live worker, so there is no edit-vs-live
+  branch to resolve.
 - **Every console document mutation goes through one door.** `DraftContext.js`
   adds `useDraftDispatch( setDraft )` — the binding of the reducer to the
   draft — and `TopologyConsole` now dispatches TSL-verb actions instead of
