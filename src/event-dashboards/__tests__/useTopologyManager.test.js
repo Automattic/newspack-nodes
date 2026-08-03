@@ -157,6 +157,18 @@ beforeEach( () => {
 } );
 
 describe( 'useTopologyManager', () => {
+	it( 'throttles the batched poll to refreshMs instead of every router tick', async () => {
+		// refreshMs was only ever wired to the freshness bump; useBatchedPoll
+		// got no intervalMs at all, and omitted means "fire every router tick"
+		// — so the hub Overview polled the server at 1Hz while the staleness
+		// calculation judged it against a multi-second cadence.
+		const { client } = buildClient();
+		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		await act( async () => {} );
+
+		expect( Core.node( 'topologymanager:timer' ).interval_ms ).toBe( 5000 );
+	} );
+
 	it( 'surfaces every topology (active + inactive) with provenance + active flag', async () => {
 		const { client } = buildClient();
 		const { result } = renderHook( () =>
