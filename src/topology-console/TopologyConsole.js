@@ -46,22 +46,17 @@ import {
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
 import {
-	addInclude,
 	connectDraftEdge,
 	draftIsDirty,
 	addNode,
 	applyLoadedBaseline,
 	generateNodeName,
 	reconcileIncludes,
-	removeEdge,
-	removeInclude,
-	removeNode,
 	renameNode,
-	updateNodeArgs,
-	updateNodeVerbs,
 	withReplAnchor,
 	withResolvedConfigEdges,
 } from './utils/draftGraph';
+import { draftReducer } from './utils/draftReducer';
 import { snapToGrid } from './utils/autoLayout';
 import { stampOrigins } from './utils/stampOrigins';
 import { clusterLayout } from './utils/clusterLayout';
@@ -1052,7 +1047,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				return;
 			}
 			pendingClusterRef.current = { name, drop: snapToGrid( x, y ) };
-			setDraft( ( g ) => addInclude( g, name ) );
+			setDraft( ( g ) => draftReducer( g, { type: 'include', name } ) );
 		},
 		[ mode ]
 	);
@@ -1097,7 +1092,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(
-		( name ) => setDraft( ( g ) => removeInclude( g, name ) ),
+		( name ) =>
+			setDraft( ( g ) =>
+				draftReducer( g, { type: 'remove_include', name } )
+			),
 		[]
 	);
 
@@ -1146,7 +1144,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onRemoveNode( id );
 				return;
 			}
-			setDraft( ( g ) => removeNode( g, id ) );
+			setDraft( ( g ) => draftReducer( g, { type: 'remove_node', id } ) );
 		},
 		[ mode, liveHandlers ]
 	);
@@ -1158,7 +1156,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onRemoveEdge( from, to );
 				return;
 			}
-			setDraft( ( g ) => removeEdge( g, from, to ) );
+			setDraft( ( g ) =>
+				draftReducer( g, { type: 'disconnect_node', from, to } )
+			);
 		},
 		[ mode, liveHandlers ]
 	);
@@ -1286,11 +1286,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	const handleUpdateArgs = useCallback( ( id, args ) => {
-		setDraft( ( g ) => updateNodeArgs( g, id, args ) );
+		setDraft( ( g ) =>
+			draftReducer( g, { type: 'set_arguments', id, ctorArgs: args } )
+		);
 	}, [] );
 
 	const handleUpdateVerbs = useCallback( ( id, verbs ) => {
-		setDraft( ( g ) => updateNodeVerbs( g, id, verbs ) );
+		setDraft( ( g ) =>
+			draftReducer( g, { type: 'cmd', id, verbInvocations: verbs } )
+		);
 	}, [] );
 
 	const handleFrontmatterChange = useCallback( ( nextFrontmatter ) => {
