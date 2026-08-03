@@ -45,6 +45,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			secure: ( self, args ) => self._cmdDraftSecure( args ),
 			// `cmd` and `command` canonicalise to this in the tokenizer.
 			command_node: ( self, args ) => self._cmdCommandNode( args ),
+			set_arguments: ( self, args ) => self._cmdSetArguments( args ),
+			set: ( self, args ) => self._cmdSetArguments( args ),
 		} );
 	}
 
@@ -98,6 +100,44 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		list.push( { verb, args: rest, viaConfig } );
 		this._invocations.set( name, list );
 		return 'ok';
+	}
+
+	/**
+	 * `set_arguments <node> [args…]` — rewrite a node's constructor args.
+	 *
+	 * Tachikoma's verb, aliased `set`, absent here until now: the one real gap
+	 * the interpreter parity triage found. An editor rewriting ctor args needs
+	 * exactly this, which is a good sign it is the right shape.
+	 *
+	 * @param {string[]} args Token array after the verb.
+	 * @return {string} The reply line.
+	 */
+	_cmdSetArguments( args ) {
+		const [ name, ...rest ] = args;
+		if ( ! name ) {
+			return 'usage: set_arguments <node name> [<arguments>...]';
+		}
+		const node = this.childRegistry.node( name );
+		if ( ! node ) {
+			return `unknown node: ${ name }`;
+		}
+		node.arguments = rest;
+		return 'ok';
+	}
+
+	/**
+	 * Replace a node's declared invocations wholesale.
+	 *
+	 * A METHOD, not a verb, and deliberately: `command_node` only appends, and
+	 * a topology file has no way to say "forget the previous cmd lines". So
+	 * replacement is an editor operation with no TSL spelling, and giving it
+	 * one would put a word in the grammar no topology can contain.
+	 *
+	 * @param {string} name Node name.
+	 * @param {Array}  list `{ verb, args, viaConfig }` entries.
+	 */
+	replaceInvocations( name, list ) {
+		this._invocations.set( name, list.slice() );
 	}
 
 	/**
