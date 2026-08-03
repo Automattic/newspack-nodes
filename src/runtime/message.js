@@ -6,6 +6,7 @@ export const ID = 4;
 export const KEY = 5;
 export const VALUE = 6;
 
+/** @testonly Alias of VALUE; exported so the wire-shape test can pin it. */
 export const LAST_VALUE_INDEX = VALUE;
 
 // LOCAL: provenance taint after the 7 fields; pack() strips it off the wire.

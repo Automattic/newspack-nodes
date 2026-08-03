@@ -61,7 +61,8 @@
 	"lint-staged": {
 		"*.{js,jsx}": [
 			"eslint",
-			"node scripts/lint-comment-length.mjs"
+			"node scripts/lint-comment-length.mjs",
+			"sh -c 'npm run lint:deadcode:js --silent'"
 		],
 		"*.scss": "stylelint --customSyntax postcss-scss",
 		"*.php": [
