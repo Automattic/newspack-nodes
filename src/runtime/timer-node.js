@@ -110,7 +110,8 @@ export class TimerNode extends Node {
 			'' !== this.name &&
 			! this.isRouter
 		) {
-			const router = Core.node( names.ROUTER );
+			// THIS registry's router; a document registry has none.
+			const router = this.registry.node( names.ROUTER );
 			if ( ! router ) {
 				throw new Error(
 					'Router-hitchhike requires _router to be present'
@@ -155,7 +156,7 @@ export class TimerNode extends Node {
 		this.interval_ms = 0;
 		this.oneshot = false;
 		if ( 'router' === mode ) {
-			const router = Core.node( names.ROUTER );
+			const router = this.registry.node( names.ROUTER );
 			if ( router && '' !== this.name ) {
 				router.unregister( 'TIMER', this.name );
 			}
