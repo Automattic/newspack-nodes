@@ -27,14 +27,3 @@ export function renderWithCatalog( ui, catalogs = {}, options = {} ) {
 	);
 	return render( ui, { ...options, wrapper } );
 }
-
-/**
- * A `wrapper` for `renderHook`/`render` when the catalogs can stay empty.
- *
- * @param {Object} props          Wrapper props.
- * @param {*}      props.children Consumers.
- * @return {Element} The provider.
- */
-export function CatalogWrapper( { children } ) {
-	return <CatalogProvider>{ children }</CatalogProvider>;
-}
