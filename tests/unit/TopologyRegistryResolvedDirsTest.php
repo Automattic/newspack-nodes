@@ -287,4 +287,64 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 
 		$this->assertSame( [ 'logs' => [], 'offsets' => [] ], $result );
 	}
+
+	// ── resolved_node_dirs: one named node, full paths, indexed by partition ──
+
+	private function logs_root(): string {
+		return \Newspack_Nodes\Core::resolve_config_token( 'config', 'logs_dir' );
+	}
+
+	public function test_resolved_node_dirs_expands_one_named_node_over_the_worker_count(): void {
+		$this->write_tsl(
+			'req',
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
+		);
+
+		$dirs = Topology_Registry::resolved_node_dirs( 'req', 'requests:partition', 3 );
+
+		$root = $this->logs_root();
+		$this->assertSame(
+			[ 0 => "{$root}/requests.p0", 1 => "{$root}/requests.p1", 2 => "{$root}/requests.p2" ],
+			$dirs
+		);
+	}
+
+	public function test_resolved_node_dirs_of_a_tokenless_path_is_one_dir_whatever_the_count(): void {
+		// alerts is pinned to .p0 on purpose: N workers all append to it.
+		$this->write_tsl(
+			'req',
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
+		);
+
+		$dirs = Topology_Registry::resolved_node_dirs( 'req', 'alerts:partition', 3 );
+
+		$this->assertSame( [ 0 => $this->logs_root() . '/alerts.p0' ], $dirs );
+	}
+
+	public function test_resolved_node_dirs_prefers_a_topics_own_declared_count(): void {
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 4\n"
+		);
+
+		$dirs = Topology_Registry::resolved_node_dirs( 'agg', 'firehose:topic', 3 );
+
+		$this->assertCount( 4, $dirs );
+		$this->assertSame( $this->logs_root() . '/firehose.p3', $dirs[3] );
+	}
+
+	public function test_resolved_node_dirs_of_an_undeclared_node_is_empty(): void {
+		$this->write_tsl( 'req', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" );
+
+		$this->assertSame( [], Topology_Registry::resolved_node_dirs( 'req', 'nope:partition', 3 ) );
+	}
+
+	public function test_declares_node_sees_nodes_that_write_nothing(): void {
+		$this->write_tsl( 'fb', "make_node Flame_Builder flame-builder\n" );
+
+		$this->assertTrue( Topology_Registry::declares_node( 'fb', 'flame-builder' ) );
+		$this->assertFalse( Topology_Registry::declares_node( 'fb', 'request-builder' ) );
+	}
 }
