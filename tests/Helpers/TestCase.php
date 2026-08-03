@@ -155,6 +155,7 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\CLI::$sleep = null;
 		}
 		$this->reset_health_test_state();
+		\Newspack_Nodes\Remote_Link_Node::reset_connect_queue();
 		parent::tearDown();
 	}
 
@@ -185,6 +186,23 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * and a sibling is outside. Tests that repoint base_directory at their own
 	 * temp dir stay contained either way.
 	 */
+	/**
+	 * Run every queued Remote_Link connect now.
+	 *
+	 * Connects are staggered one-per-tick through Connect_Queue_Timer_Node, so a
+	 * test that asserts on a live stream has to advance that queue rather than
+	 * assume `fire()` connected inline.
+	 */
+	protected function drain_connect_queue(): void {
+		while ( true ) {
+			$connect = \Newspack_Nodes\Remote_Link_Node::shift_connect_queue();
+			if ( null === $connect ) {
+				return;
+			}
+			$connect();
+		}
+	}
+
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
 		// PID + more-entropy uniqid: bare uniqid() is microtime-based and collides
 		// across PARALLEL processes (run-coverage runs nodes/ELN/pyrobase at once),

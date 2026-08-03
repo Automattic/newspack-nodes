@@ -2574,11 +2574,10 @@
 // match the canonical menu look everywhere.
 .topology-modal__input {
 	display: block;
-	// So `width: 100%` means the body's width, border and padding included —
-	// without it the input overflows by exactly its own chrome, which is what
-	// the body was growing a horizontal scrollbar for.
-	box-sizing: border-box;
 	width: 100%;
+	// WP admin gives inputs `margin: 1px`, so width:100% overflows the body by
+	// its own margin box — the 2px the modal was offering to scroll.
+	margin-inline: 0;
 	margin-top: 10px;
 }
 

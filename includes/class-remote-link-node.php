@@ -42,6 +42,26 @@ class Remote_Link_Node extends Timer_Node {
 
 	protected int $last_heartbeat_sent = 0;
 
+	/**
+	 * Pending connects, drained one per tick by Connect_Queue_Timer_Node.
+	 * Process-wide, exactly as Tachikoma's `@SPAWN_QUEUE` is package-wide.
+	 *
+	 * Each entry is `[ closure, owning link ]` so a removed link's pending
+	 * connect can be purged rather than resurrect it.
+	 *
+	 * @var list<array{0: callable, 1: self}>
+	 */
+	private static array $connect_queue = [];
+
+	/** Whether this link already has a connect waiting in that queue. */
+	private bool $connect_queued = false;
+
+	/** Wall-second the lease first existed; both cadences count from it. */
+	protected int $link_epoch = 0;
+
+	/** Wall-second of the last session request; its own retry clock. */
+	protected int $last_session_request = 0;
+
 
 	protected string $remote_partition = '';
 
@@ -122,7 +142,7 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$sse->check_stale();
-		$sse->maybe_connect();
+		$this->queue_connect( $sse );
 		$this->maybe_send_heartbeat();
 		$this->publish_status();
 	}
@@ -160,15 +180,20 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$now = (int) Core::$now;
-		if ( $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
-			return;
+		// The lease exists from this tick; the session offset counts from it.
+		if ( 0 === $this->link_epoch ) {
+			$this->link_epoch = $now;
 		}
 		// Silence is not a refusal — HTTP_Out drops the session on a 401.
 		$spoke = $this->http_out->vault_id();
-		if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
-			// Our only traffic: ask, and spend the cadence (backoff).
-			$this->last_heartbeat_sent = $now;
-			$this->http_out->ensure_session();
+		if ( '' === $spoke ) {
+			return;
+		}
+		if ( ! Command_Auth::has_session( $spoke ) ) {
+			$this->maybe_request_session( $this->http_out, $now );
+			return;
+		}
+		if ( $now - $this->last_heartbeat_sent < self::HEARTBEAT_INTERVAL ) {
 			return;
 		}
 		$this->last_heartbeat_sent = $now;
@@ -186,6 +211,96 @@ class Remote_Link_Node extends Timer_Node {
 		$this->http_out->fill( $message );
 
 		$this->record_heartbeat_sent( $now );
+	}
+
+	/**
+	 * Queue this link's connect instead of running it inline, and make sure the
+	 * shared drain timer is up.
+	 *
+	 * @longform Tachikoma `Job.pm`: a spawn pushes a closure onto `@SPAWN_QUEUE`
+	 * and mounts `_spawn_timer` if absent. Same shape, same reason — an
+	 * aggregator brings every Remote_Source up in one tick, and N simultaneous
+	 * SSE connects are what the spoke answers with 429. The queued flag is what
+	 * keeps a once-per-second housekeeping tick from queueing the same connect
+	 * over and over while it waits its turn.
+	 *
+	 * @param SSE_In_Node $sse The patron stream to connect.
+	 */
+	private function queue_connect( SSE_In_Node $sse ): void {
+		if ( $this->connect_queued ) {
+			return;
+		}
+		$this->connect_queued = true;
+		self::$connect_queue[] = [
+			function () use ( $sse ): void {
+				$this->connect_queued = false;
+				$sse->maybe_connect();
+			},
+			$this,
+		];
+		if ( null === Core::node( Connect_Queue_Timer_Node::NODE_NAME ) ) {
+			$timer = new Connect_Queue_Timer_Node();
+			$timer->name( Connect_Queue_Timer_Node::NODE_NAME );
+			// fire_cb() returns early on a null sink, before fire().
+			$timer->sink( Core::node( Node_Names::COMMAND_INTERPRETER ) );
+			$timer->set_timer( Connect_Queue_Timer_Node::INTERVAL_MS );
+		}
+	}
+
+	/**
+	 * Pop the next queued connect, or null when the queue is dry.
+	 *
+	 * @api Called by Connect_Queue_Timer_Node::fire().
+	 */
+	/** Drop every pending connect. Teardown only; a live graph purges per link. */
+	public static function reset_connect_queue(): void {
+		self::$connect_queue = [];
+	}
+
+	public static function shift_connect_queue(): ?callable {
+		$queued = \array_shift( self::$connect_queue );
+		return null === $queued ? null : $queued[0];
+	}
+
+	/**
+	 * Ask for a command session, on a clock of its own offset half a cadence
+	 * from the heartbeat grid.
+	 *
+	 * @longform Every Remote_Source in an aggregator boots in the same tick, so
+	 * anything sent "immediately" is sent N times at once — which is what the
+	 * spoke answers with 429. Auth lands between heartbeats, never with one, and
+	 * asking never moves the heartbeat clock: that coupling is what pushed the
+	 * first heartbeat a full extra cadence out.
+	 *
+	 * @param HTTP_Out_Node $http_out The patron egress that owns the session.
+	 * @param int           $now      Current wall-second.
+	 */
+	/** This link's second within the cadence. Stable, so it survives re-auth. */
+	private function session_phase(): int {
+		return \crc32( $this->name ) % self::HEARTBEAT_INTERVAL;
+	}
+
+	private function maybe_request_session( HTTP_Out_Node $http_out, int $now ): void {
+		// intdiv, so a 1s housekeeping tick can actually land on the boundary.
+		$offset = \intdiv( self::HEARTBEAT_INTERVAL, 2 );
+		if ( $now - $this->link_epoch < $offset ) {
+			return;
+		}
+		// @longform Each link owns one second of the cadence, from its name.
+		// The connect queue only spreads FIRST boot; a spoke restart or key
+		// rotation drops every session at once, leaving every link past its
+		// retry gate and asking together. A phase on the absolute clock
+		// spreads boot and mass re-auth alike, and survives both because no
+		// session loss resets it.
+		if ( $now % self::HEARTBEAT_INTERVAL !== $this->session_phase() ) {
+			return;
+		}
+		if ( $this->last_session_request > 0
+				&& $now - $this->last_session_request < self::HEARTBEAT_INTERVAL ) {
+			return;
+		}
+		$this->last_session_request = $now;
+		$http_out->ensure_session();
 	}
 
 	// --- Dashboard status snapshot: Remote_Source-only (IPC writes dead) ---
@@ -410,6 +525,16 @@ class Remote_Link_Node extends Timer_Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function remove_node(): void {
+		// @longform A queued closure holds this node and its SSE_In; popped
+		// after teardown it reconnects a removed node and strands a cURL
+		// handle in the drain loop, holding a slot nothing can release.
+		$this->connect_queued = false;
+		self::$connect_queue  = \array_values(
+			\array_filter(
+				self::$connect_queue,
+				fn ( $queued ): bool => $queued[1] !== $this
+			)
+		);
 		$this->sse_in?->remove_node();
 		$this->sse_in = null;
 		$this->http_out?->remove_node();

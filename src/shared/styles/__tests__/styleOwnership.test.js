@@ -2032,8 +2032,10 @@ describe( 'canonical appearance ownership', () => {
 		expect(
 			declarationsForSelector( graphStylesheet, '.topology-modal__body' )
 		).toEqual(
+			// Both axes, explicitly: `overflow-y: auto` alone computes x to
+			// auto too, which is the horizontal scrollbar under the input.
 			expect.objectContaining( {
-				'overflow-y': 'auto',
+				overflow: 'hidden auto',
 				'min-height': '0',
 			} )
 		);
@@ -2109,5 +2111,30 @@ describe( 'shared field chrome', () => {
 		expect( declared ).toContain( 'padding' );
 		expect( declared ).toContain( 'border' );
 		expect( declared ).toContain( 'box-sizing' );
+	} );
+
+	// The shared rule owns it. A per-component redeclaration is dead weight
+	// that also lies: it credits the component for a fix that lives upstream,
+	// and the next reader chasing a modal-width bug believes the wrong cause.
+	// Measured live: the body's content box is 390px, the input fills it at
+	// width:100%, and WP admin's own `margin: 1px` on inputs makes its MARGIN
+	// box 392 — exactly the 2px the body was offering to scroll. Zeroing the
+	// inline margin takes the overflow to 0; clipping the axis only hid it.
+	it( 'zeroes the modal input inline margin so width:100% fits', () => {
+		const declared = declarationsForSelector(
+			graphStylesheet,
+			'.topology-modal__input'
+		);
+		expect( declared ).not.toBeNull();
+		expect( declared[ 'margin-inline' ] ).toBe( '0' );
+	} );
+
+	it( 'leaves the modal input to inherit that, not redeclare it', () => {
+		const declared = declarationsForSelector(
+			graphStylesheet,
+			'.topology-modal__input'
+		);
+		expect( declared ).not.toBeNull();
+		expect( declared[ 'box-sizing' ] ).toBeUndefined();
 	} );
 } );

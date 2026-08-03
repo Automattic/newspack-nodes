@@ -760,6 +760,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse->disconnect();
 		Core::$now = \microtime( true ) + 100;
 		$node->fire();
+		$this->drain_connect_queue();
 
 		$last_url = (string) \end( $captured_urls );
 		\parse_str( (string) \parse_url( $last_url, \PHP_URL_QUERY ), $query );
@@ -1480,7 +1481,8 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote( 'remote-austin' );
 
 		Core::$now = 1000.0;
-		$node->fire(); // opens the connection at t=1000
+		$node->fire(); // queues the connect at t=1000
+		$this->drain_connect_queue();
 
 		// Later ticks keep firing without a reconnect (the handle persists), so
 		// "Connected" must stay pinned to the real connect time — not creep with the tick clock.

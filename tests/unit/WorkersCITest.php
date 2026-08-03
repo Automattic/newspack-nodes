@@ -470,9 +470,11 @@ class WorkersCITest extends TestCase {
 		$memd                            = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		\Newspack_Nodes\Core::$memd      = $memd;
 		\Newspack_Nodes\SSE_Slot_Pool::$ttl = 47;
-		$user_id = \get_current_user_id();
-		$ip_hash = \Newspack_Nodes\SSE_Slot_Pool::ip_hash();
-		$lease   = \Newspack_Nodes\SSE_Slot_Pool::acquire( \Newspack_Nodes\SSE_Slot_Pool::hostname(), $user_id, $ip_hash, 8, 83 );
+		// Acquire through the WIRED seam, exactly as SSE_Out does. Reaching past
+		// it and passing a namespace by hand let this test agree with a caller
+		// that had drifted onto a retired one — both wrong, and green.
+		\Newspack_Nodes\SSE_Slot_Pool::wire();
+		$lease = ( \Newspack_Nodes\Rest\SSE_Out_Node::$acquire_slot )( -1 );
 		$this->assertIsArray( $lease );
 		$this->assertSame( 0, $lease['slot'], 'first acquire claims slot 0' );
 
@@ -547,7 +549,7 @@ class WorkersCITest extends TestCase {
 	public function test_heartbeat_verb_throws_on_owner_mismatch(): void {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
-			\Newspack_Nodes\SSE_Slot_Pool::hostname(),
+			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
 			\get_current_user_id(),
 			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
 			8,

@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Connect_Queue_Timer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Null_Node;
 use Newspack_Nodes\Event_Framework;
@@ -343,6 +344,195 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( [ '7', '42424243' ], $value['arguments'] );
 	}
 
+	public function test_first_session_request_waits_half_the_heartbeat_interval(): void {
+		// Every Remote_Source in an aggregator boots in the same tick, so the
+		// session POST used to pile onto the same instant as its own SSE GET.
+		// Offsetting it by half the cadence splits the boot burst in two.
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		$this->stub_sse_connect();
+		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		[ $node ] = $this->make_link( 'link-austin' );
+		$start    = \microtime( true );
+		Core::$now = $start;
+		$node->fire();
+
+		$sse = Core::node( 'link-austin:sse-in' );
+		$this->set_slot( $sse, 7, 42424243 );
+		// Both clocks start on the first tick that sees the lease.
+		Core::$now = $start + 1;
+		$node->fire();
+		$epoch = $start + 1;
+
+		$http_out = Core::node( 'link-austin:http-out' );
+		// 6s in: distinct from 0 and from the 15s cadence — a bare `>= 0` gate
+		// and an unchanged full-cadence gate both fail here.
+		Core::$now = $epoch + 6;
+		$node->fire();
+		$this->assertFalse(
+			$this->read_private( $http_out, 'auth_in_flight' ),
+			'no session request before half the heartbeat interval'
+		);
+
+		// Past the floor it asks on its OWN second of the cadence (the phase that
+		// stops a mass re-auth stampeding), so allow one full cadence.
+		$asked = false;
+		for ( $t = 7; $t <= 7 + Remote_Link_Node::HEARTBEAT_INTERVAL; $t++ ) {
+			Core::$now = $epoch + $t;
+			$node->fire();
+			if ( true === $this->read_private( $http_out, 'auth_in_flight' ) ) {
+				$asked = true;
+				break;
+			}
+		}
+		$this->assertTrue( $asked, 'the session request fires within a cadence of 7.5s' );
+	}
+
+	public function test_asking_for_a_session_does_not_move_the_heartbeat_clock(): void {
+		// Spending the heartbeat cadence to ask for a session pushed the first
+		// heartbeat a whole extra cadence out (22.5s, not 15s). The session
+		// request rides its own clock and must not touch the heartbeat one.
+		$this->stub_sse_connect();
+		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$start     = \microtime( true );
+		Core::$now = $start;
+		$node->fire();
+		$this->set_slot( Core::node( 'link-austin:sse-in' ), 7, 42424243 );
+		Core::$now = $start + 1;
+		$node->fire();
+		$epoch = $start + 1;
+
+		// The session request goes out at the half-cadence boundary.
+		Core::$now = $epoch + 7;
+		$node->fire();
+		// It lands, as the real /auth reply would.
+		Command_Auth::remember_session( 'austin', \str_repeat( 'b', 32 ), 'spoke-session-key' );
+
+		// 9s: well short of the 22.5s a cadence-spending ask would have forced.
+		Core::$now = $epoch + 9;
+		$node->fire();
+		$batch = $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch, 'the heartbeat clock was never spent on asking' );
+		$this->assertSame( 'heartbeat', $batch[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_two_links_connect_one_per_queue_tick_not_all_at_once(): void {
+		// An aggregator brings every Remote_Source up in one tick; N simultaneous
+		// SSE connects are exactly what the spoke answers with HTTP 429. Ported
+		// from Tachikoma's JobSpawnTimer: one connect per timer fire.
+		$connects = [];
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$connects ): \CurlHandle {
+			$connects[] = $opts[ \CURLOPT_URL ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		\update_option(
+			Vault::OPTION_KEY,
+			[
+				'austin'  => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
+				'brisbane' => [ 'url' => 'https://brisbane.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ],
+			]
+		);
+		Vault::get_instance()->reset_cache();
+
+		// The timer sinks into the interpreter, as every node does in a live
+		// graph; without one Timer_Node::fire_cb() never reaches fire().
+		( new \Newspack_Nodes\Command_Interpreter_Node() )->name( '_command_interpreter' );
+		[ $one, $sink ] = $this->make_link( 'link-austin', [ 'austin', 'firehose.p0' ] );
+		$two = new Remote_Link_Node();
+		$two->name( 'link-brisbane' );
+		$two->sink( $sink );
+		$two->target( 'downstream' );
+		$two->arguments( [ 'brisbane', 'firehose.p0' ] );
+		$one->fire();
+		$two->fire();
+
+		$this->assertSame( [], $connects, 'both links only QUEUED their connect' );
+
+		$timer = Core::node( Connect_Queue_Timer_Node::NODE_NAME );
+		$this->assertInstanceOf( Connect_Queue_Timer_Node::class, $timer );
+
+		// Drive fire_cb(), the real dispatch path: Timer_Node::fire_cb() returns
+		// early on a null sink, BEFORE fire(), so a sinkless timer never drains
+		// the queue and nothing ever connects. Calling fire() directly hides it.
+		$timer->fire_cb();
+		$this->assertCount( 1, $connects, 'one connect per queue tick' );
+		$timer->fire_cb();
+		$this->assertCount( 2, $connects, 'the second lands on the next tick' );
+
+		// Dry queue retires the timer, exactly as JobSpawnTimer does.
+		$timer->fire_cb();
+		$this->assertNull( Core::node( Connect_Queue_Timer_Node::NODE_NAME ) );
+	}
+
+	public function test_a_simultaneous_session_loss_does_not_stampede_auth(): void {
+		// The connect stagger only spreads FIRST boot. A spoke restart or key
+		// rotation drops every session in the same instant, and every link is then
+		// long past its retry gate — so all N POST /v1/auth on one tick, which is
+		// the burst the whole change exists to prevent.
+		$this->stub_sse_connect();
+		HTTP_Out_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ] ] );
+		Vault::get_instance()->reset_cache();
+		( new \Newspack_Nodes\Command_Interpreter_Node() )->name( '_command_interpreter' );
+
+		$links = [];
+		foreach ( [ 'link-alfa', 'link-bravo', 'link-charlie', 'link-delta' ] as $name ) {
+			$node = new Remote_Link_Node();
+			$node->name( $name );
+			$node->arguments( [ 'austin', 'firehose.p0' ] );
+			$links[ $name ] = $node;
+		}
+
+		// Long-established links, every session lost at the same instant.
+		$start = 100000.0;
+		foreach ( $links as $node ) {
+			Core::$now = $start;
+			$node->fire();
+			$this->drain_connect_queue();
+		}
+		foreach ( $links as $name => $node ) {
+			Core::$now = $start + 1;
+			$node->fire();
+			$this->set_slot( Core::node( "{$name}:sse-in" ), 3, 42424243 );
+		}
+
+		// Walk a full cadence and record which second each link asks on.
+		$asked = [];
+		$floor = \intdiv( Remote_Link_Node::HEARTBEAT_INTERVAL, 2 );
+		for ( $t = 2; $t <= 2 + $floor + Remote_Link_Node::HEARTBEAT_INTERVAL; $t++ ) {
+			foreach ( $links as $name => $node ) {
+				if ( isset( $asked[ $name ] ) ) {
+					continue;
+				}
+				Core::$now = $start + $t;
+				$node->fire();
+				if ( true === $this->read_private( Core::node( "{$name}:http-out" ), 'auth_in_flight' ) ) {
+					$asked[ $name ] = $t;
+				}
+			}
+		}
+
+		$this->assertCount( 4, $asked, 'every link still asks within one cadence' );
+		$this->assertGreaterThan(
+			1,
+			\count( \array_unique( \array_values( $asked ) ) ),
+			'the asks must not all land on one second'
+		);
+	}
+
 	public function test_terminal_disconnect_retires_lease_before_blocked_reconnect_heartbeat(): void {
 		$this->seed_vault();
 		$this->stub_sse_connect();
@@ -470,32 +660,6 @@ class RemoteLinkNodeTest extends TestCase {
 	 * /auth per second, per link, for as long as the spoke keeps refusing.
 	 * The slot ttl is three cadences, so a beat deferred by one is free.
 	 */
-	public function test_a_session_less_tick_spends_the_heartbeat_cadence(): void {
-		$this->seed_vault();
-		$this->stub_sse_connect();
-		[ $node ] = $this->make_link( 'link-austin' );
-		$node->fire();
-		$this->set_slot( Core::node( 'link-austin:sse-in' ), 5 );
-		Command_Auth::forget_session( 'austin' );
-
-		Core::$now = 1000 + Remote_Link_Node::HEARTBEAT_INTERVAL;
-		$node->fire();
-
-		// The handshake lands one second later; the cadence is already spent.
-		Command_Auth::remember_session( 'austin', \str_repeat( 'c', 32 ), 'reauthed-session-key' );
-		++Core::$now;
-		$node->fire();
-		$this->assertCount(
-			0,
-			$this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ),
-			'the skipped tick must have spent the cadence'
-		);
-
-		Core::$now = Core::$now + Remote_Link_Node::HEARTBEAT_INTERVAL;
-		$node->fire();
-		$this->assertCount( 1, $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' ) );
-	}
-
 	/** The reply leg is what keeps the session: an answered beat never expires it. */
 	public function test_an_answered_heartbeat_keeps_the_session(): void {
 		$this->seed_vault();

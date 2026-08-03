@@ -495,7 +495,8 @@ jest.mock( '../components/Header', () => ( {
 							name: 'up.tsl',
 							text: () =>
 								Promise.resolve(
-									'make_node Echo uploaded_node\n'
+									globalThis.__uploadTsl ||
+										'make_node Echo uploaded_node\n'
 								),
 						} )
 					}
@@ -739,6 +740,7 @@ describe( 'TopologyConsole boot', () => {
 		hooks.reloadCatalog.mockReset();
 		hooks.catalog = null;
 		globalThis.__catalog = { classes: [], formatters: [] };
+		globalThis.__uploadTsl = null;
 		invalidateExpandedIncludes();
 	} );
 
@@ -4405,6 +4407,68 @@ describe( 'TopologyConsole boot', () => {
 				] );
 				expect( hulls[ 0 ].nodeIds ).toEqual( [ 'zebra:partition' ] );
 			} );
+		} );
+
+		it( 'UPLOADing a .tsl that includes a topology brings its borrowed nodes onto the canvas', async () => {
+			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
+			mockTopologyExpand( [ 'job-intake' ], {
+				nodes: [
+					{
+						name: 'zebra:fanout',
+						class: 'Settings_Sync',
+						fans_out: true,
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+					{
+						name: 'zebra:partition',
+						class: 'Partition',
+						fans_out: false,
+						args: [],
+						origin: [ 'job-intake' ],
+						via: [ 'job-intake' ],
+					},
+				],
+				edges: [],
+				tree: { 'job-intake': {} },
+				hulls: {
+					'job-intake': [ 'zebra:fanout', 'zebra:partition' ],
+				},
+			} );
+
+			const { getByText } = await renderConsoleInEditMode();
+
+			globalThis.__uploadTsl =
+				'include job-intake\n' +
+				'make_node Null quokka-null\n' +
+				'make_node Echo quokka-echo\n' +
+				'connect_node zebra:fanout quokka-null\n' +
+				'connect_node zebra:fanout quokka-echo\n';
+			await act( async () => {
+				fireEvent.click( getByText( 'upload' ) );
+			} );
+			// Settle past the reactive expand + include reconcile, not just the
+			// upload's own await chain — that is where a borrowed node is lost.
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			} );
+
+			const ids = lastCanvasProps.parsed.nodes.map( ( n ) => n.id );
+			expect( ids ).toContain( 'quokka-null' );
+			expect( ids ).toContain( 'quokka-echo' );
+			expect( ids ).toContain( 'zebra:fanout' );
+			expect( ids ).toContain( 'zebra:partition' );
+			// A fan-out source keeps EVERY connect; collapsing to the last one
+			// is the "nothing is connected" bug.
+			expect(
+				lastCanvasProps.parsed.edges.filter(
+					( e ) => 'zebra:fanout' === e.from
+				)
+			).toHaveLength( 2 );
 		} );
 
 		it( 'drilling into a hull with unsaved edits asks before dropping them', async () => {

@@ -7,14 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Remote_Link connects are staggered, one per second.** An aggregator brings
+  every `Remote_Source` up in the same tick, and N simultaneous SSE connects are
+  what a spoke answers with HTTP 429. Connects now queue and drain one per tick
+  through a shared `Connect_Queue_Timer_Node` — a port of Tachikoma's
+  `JobSpawnTimer` + `Job.pm`'s `@SPAWN_QUEUE`, including retiring the timer once
+  the queue is dry.
+
+- **Asking for a command session no longer spends the heartbeat cadence, and no
+  longer stampedes.** The session request rides its own clock, offset half a
+  cadence (7.5s) from the heartbeat grid, so a booting link never sends both in
+  one tick. Previously the session-less tick set `last_heartbeat_sent`, which
+  pushed the first heartbeat a full extra interval out. Past that floor each link
+  may only ask on its own second of the cadence, derived from its name — the
+  connect queue spreads first boot, but a spoke restart or key rotation drops
+  every session at once and left every link past its retry gate, asking together.
+  A phase on the absolute clock survives that because no session loss resets it. `tests/unit/RemoteLinkNodeTest.php` carries the named
+  revert signal: `test_asking_for_a_session_does_not_move_the_heartbeat_clock`
+  replaces the old `test_a_session_less_tick_spends_the_heartbeat_cadence`.
+
 ### Fixed
 
-- **The prompt modals no longer grow a horizontal scrollbar.** Two causes, both
-  fixed at the source: `.topology-modal__input` had no `box-sizing`, so its
-  `width: 100%` overflowed the body by exactly its own border and padding; and
-  `.topology-modal__body` set `overflow-y: auto` with x left at `visible`, which
-  CSS computes to `auto` — so the body offered to scroll an axis it had no
-  business scrolling. Wide content belongs in its own scroller.
+- **SSE slot pools no longer collapse across co-located sites.** The pool keyed
+  on `gethostname()`, which on Atomic is the shared POOL host — and a hub
+  authenticates as the same user from the same IP on every spoke, so every
+  component of the key matched across neighbours. Fifteen sites on one pool host
+  therefore shared a single 10-slot budget and the surplus was refused with a
+  permanent HTTP 429. Confirmed in the field: two different sites reported the
+  identical random owner id for the same slot, and a saturated pool read 7/10 and
+  8/10 from a site holding one stream. The namespace is now `hostname:site`
+  (`substr( md5( home_url() ), 0, 12 )`) — each deployment gets its discriminator
+  from whichever half varies there, since dndocker is the mirror case of one site
+  across many containers on a shared database and cache. `SERVER_NAME` was
+  considered and rejected: it follows the `Host` header, and a rate-limit
+  namespace the caller can choose is not a rate limit. Every slot key changes, so
+  live leases orphan on upgrade and clear within their 60s TTL.
+
+- **Auto-layout no longer drops nodes off the canvas.** A component that shares
+  no node with the anchor column was seeded by neither row sweep, and the
+  spread pass then carried its unset row into `NaN` — `?? 0` catches `undefined`
+  but not `NaN`, so those cards rendered at `y = NaN` and simply vanished, with
+  nothing logged. Uploading a `.tsl` whose `include` brought its own disjoint
+  components lost six of nineteen nodes this way, and Reset Layout reproduced it
+  every time. Leftover rows now stack under their own column.
+
+- **Stored layout coordinates are validated on read.** A `NaN` row serializes to
+  `null`, so a browser that hit the auto-layout bug above kept a broken position
+  in `localStorage` — and `modified` makes that copy win over the server layout
+  while the one-shot init skips any non-null map, so the card stayed off-graph
+  across reloads with Reset Layout the only way back. Non-finite entries are now
+  dropped on load and re-placed.
+
+- **The prompt modals no longer grow a horizontal scrollbar.** WordPress admin
+  gives inputs `margin: 1px`, so `.topology-modal__input` at `width: 100%` filled
+  the body's 390px content box while its MARGIN box measured 392 — a real 2px
+  overflow, measured in the browser and confirmed by watching it fall to 0 when
+  the inline margin was zeroed. That margin is now zeroed at the source.
+  `.topology-modal__body` also set `overflow-y: auto` with x left at `visible`,
+  which CSS computes to `auto`; both axes are now explicit, so wide content goes
+  in its own scroller rather than on the modal body. (An earlier draft of this
+  entry credited a missing `box-sizing` on the input; the shared field rule
+  already sets `border-box` at higher specificity, so that was never a cause.)
 
 ## [2.4.2] - 2026-08-02
 

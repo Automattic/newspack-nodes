@@ -14,5 +14,6 @@
 	"SSE": "_sse",
 	"STDIN": "_stdin",
 	"STDOUT": "_stdout",
-	"UPTIME": "_uptime"
+	"UPTIME": "_uptime",
+	"CONNECT_TIMER": "_connect_timer"
 }

@@ -323,6 +323,25 @@ export function autoLayout( parsed ) {
 				}
 			}
 		}
+		// @longform A component that never reaches the anchor column is
+		// seeded by neither sweep, and the spread pass below turns an
+		// unset row into NaN — the card then renders off-graph, silently.
+		// Stack the leftovers under their own column instead.
+		for ( let c = 0; c <= maxDepth; c++ ) {
+			let next = null;
+			for ( const id of columns[ c ] ) {
+				if ( r[ id ] !== undefined ) {
+					continue;
+				}
+				if ( null === next ) {
+					const taken = columns[ c ]
+						.map( ( x ) => r[ x ] )
+						.filter( ( v ) => v !== undefined );
+					next = taken.length ? Math.max( ...taken ) + 1 : 0;
+				}
+				r[ id ] = next++;
+			}
+		}
 		return r;
 	};
 	let row = assignRows();

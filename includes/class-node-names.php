@@ -27,6 +27,7 @@ final class Node_Names {
 	public const REPL                = '_repl';
 	public const ROUTER              = '_router';
 	public const SETTINGS_LOG        = '_settings:log';
+	public const CONNECT_TIMER       = '_connect_timer';
 	public const SSE                 = '_sse';
 	public const STDIN               = '_stdin';
 	public const STDOUT              = '_stdout';
@@ -40,6 +41,7 @@ final class Node_Names {
 	 */
 	public const SESSION_SCAFFOLDING = [
 		self::COMMAND_INTERPRETER,
+		self::CONNECT_TIMER,
 		self::ROUTER,
 		self::OUTPUT,
 		self::CONSOLE_TAP,

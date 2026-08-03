@@ -180,7 +180,7 @@ class SseSlotPoolTest extends TestCase {
 	public function test_hostname_is_always_a_non_empty_string(): void {
 		// The `?: 'unknown'` fallback guarantees a gethostname() failure can never
 		// pass false to the string-typed slot methods.
-		$host = SSE_Slot_Pool::hostname();
+		$host = SSE_Slot_Pool::namespace_key();
 		$this->assertIsString( $host );
 		$this->assertNotSame( '', $host );
 	}
@@ -742,6 +742,42 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	// ── wire() installs the SSE_Out seams ────────────────────────────────────
+
+	public function test_the_wired_pool_separates_sites_that_share_a_machine(): void {
+		// Atomic hands every co-located site the same gethostname() (the pool
+		// host), and a hub authenticates as user 1 from one IP on all of them, so
+		// a machine-only key collapsed 15 sites onto ONE 10-slot budget — five of
+		// them permanently 429'd. Proven in the field: two sites reported the
+		// identical random owner id for one slot. The machine half still has to
+		// survive; dndocker is the mirror image, many containers sharing one site,
+		// one database and one memcached.
+		Core::$memd = new InMemoryMemcached();
+
+		// Saturate one site's whole budget.
+		$GLOBALS['_wp_test_home_url'] = 'https://leoweekly.example';
+		SSE_Slot_Pool::wire();
+		for ( $i = 0; $i < SSE_Slot_Pool::$max_slots; $i++ ) {
+			$this->assertIsArray( ( SSE_Out_Node::$acquire_slot )( -1 ) );
+		}
+		$this->assertFalse( ( SSE_Out_Node::$acquire_slot )( -1 ), 'that site is full' );
+
+		// A co-located site — same hostname, same user, same caller IP — has its
+		// own budget and is unaffected.
+		$GLOBALS['_wp_test_home_url'] = 'https://okgazette.example';
+		SSE_Slot_Pool::wire();
+		$this->assertIsArray(
+			( SSE_Out_Node::$acquire_slot )( -1 ),
+			'a neighbour site must not inherit a full pool'
+		);
+
+		$machine = \gethostname() ?: 'unknown';
+		$this->assertStringContainsString(
+			$machine,
+			\array_keys( Core::$memd->expiries() )[0],
+			'the machine half survives, for one site across many containers'
+		);
+		unset( $GLOBALS['_wp_test_home_url'] );
+	}
 
 	public function test_wire_populates_all_four_seams_with_endpoint_signatures(): void {
 		$this->assertNull( SSE_Out_Node::$acquire_slot );

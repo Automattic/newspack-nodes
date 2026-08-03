@@ -411,6 +411,12 @@ if ( ! function_exists( 'get_option' ) ) {
 	}
 }
 
+if ( ! function_exists( 'home_url' ) ) {
+	function home_url( string $path = '' ): string {
+		return ( $GLOBALS['_wp_test_home_url'] ?? 'https://test.example' ) . $path;
+	}
+}
+
 if ( ! function_exists( 'wp_salt' ) ) {
 	function wp_salt( string $scheme = 'auth' ): string {
 		return 'TEST_SALT_FOR_' . $scheme;
