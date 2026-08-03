@@ -109,6 +109,179 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		$this->assertSame( [], $result['logs'] );
 	}
 
+	public function test_a_topic_declares_its_OWN_partition_count_not_the_workers(): void {
+		// aggregator-fdn runs ONE worker but its Topic re-partitions to four, so
+		// firehose.p1..p3 were undeclared — invisible on the dashboard, and
+		// orphans to Log_Cleaner::sweep(), which deletes undeclared dirs.
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 4\n"
+		);
+
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		\ksort( $result['logs'] );
+
+		$this->assertSame(
+			[ 'firehose.p0' => 0, 'firehose.p1' => 1, 'firehose.p2' => 2, 'firehose.p3' => 3 ],
+			$result['logs']
+		);
+	}
+
+	public function test_a_topic_count_may_be_a_config_token(): void {
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} <config:num_partitions>\n"
+		);
+		// Distinct from the caller's N below, so a fallback cannot fake a pass.
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 3 ] );
+		Config::register_token_namespace();
+
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		\ksort( $result['logs'] );
+
+		$this->assertSame(
+			[ 'firehose.p0' => 0, 'firehose.p1' => 1, 'firehose.p2' => 2 ],
+			$result['logs']
+		);
+	}
+
+	public function test_a_topic_declaring_fewer_than_the_workers_declares_only_its_own(): void {
+		// Declaring fewer is deliberate and frequent; max() would declare dirs
+		// the Topic never writes.
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 2\n"
+		);
+
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 4 );
+		\ksort( $result['logs'] );
+
+		$this->assertSame( [ 'firehose.p0' => 0, 'firehose.p1' => 1 ], $result['logs'] );
+	}
+
+	public function test_pinned_partitions_still_collapse_to_one_dir(): void {
+		// alerts/errors/completed/gyroscope are plain Partitions on literal .p0
+		// paths, pinned across all four workers. No token to expand, so N
+		// iterations must still yield ONE dir stamped partition 0.
+		// The countless Topic takes the schema default, so config carries the 4
+		// here exactly as it does on the live hub.
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 4 ] );
+		Config::register_token_namespace();
+		$this->write_tsl(
+			'combined',
+			"make_node Partition alerts <config:logs_dir>/alerts.p0 65536\n"
+				. "make_node Partition errors <config:logs_dir>/errors.p0 65536\n"
+				. "make_node Topic requests <config:logs_dir>/requests.p<partition>\n"
+		);
+
+		$result = Topology_Registry::resolved_resource_dirs( 'combined', 4 );
+		\ksort( $result['logs'] );
+
+		$this->assertSame(
+			[
+				'alerts.p0'   => 0,
+				'errors.p0'   => 0,
+				'requests.p0' => 0,
+				'requests.p1' => 1,
+				'requests.p2' => 2,
+				'requests.p3' => 3,
+			],
+			$result['logs']
+		);
+	}
+
+	public function test_a_topic_whose_template_cannot_expand_says_so(): void {
+		// A literal path with a count of 4 writes everything to one dir. Silent
+		// today; the pinned-Partition case above must NOT trip this.
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p0 4\n"
+		);
+
+		$errors = [];
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( string $line ) use ( &$errors ): void {
+				$errors[] = $line;
+			}
+		);
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+
+		$this->assertSame( [ 'firehose.p0' => 0 ], $result['logs'] );
+		$this->assertNotEmpty( $errors, 'a Topic that cannot expand must say so' );
+		$this->assertStringContainsString( 'firehose.p0', $errors[0] );
+	}
+
+	public function test_an_omitted_topic_count_uses_the_schema_default_not_the_workers(): void {
+		// Omitting the arg does NOT mean "use the worker count" — Topic's schema
+		// defaults it to <config:num_partitions>. A topology pinning
+		// `var num_partitions = 1` under a global 3 therefore creates three dirs
+		// at runtime while declaring one, and the GC deletes the other two.
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 3 ] );
+		Config::register_token_namespace();
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition}\n"
+		);
+
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		\ksort( $result['logs'] );
+
+		$this->assertSame(
+			[ 'firehose.p0' => 0, 'firehose.p1' => 1, 'firehose.p2' => 2 ],
+			$result['logs']
+		);
+	}
+
+	public function test_the_omitted_count_default_tracks_the_topic_schema(): void {
+		// One source of truth: if Topic's schema default ever changes, the
+		// registry's assumption must move with it.
+		$args = \Newspack_Nodes\Topic_Node::node_schema()['arguments'];
+		$num  = null;
+		foreach ( $args as $arg ) {
+			if ( 'num_partitions' === ( $arg['name'] ?? '' ) ) {
+				$num = $arg['default'] ?? null;
+			}
+		}
+		$this->assertSame( Topology_Registry::TOPIC_PARTITIONS_DEFAULT, $num );
+	}
+
+	public function test_a_nested_layout_does_not_report_a_failed_expansion(): void {
+		// Nested layouts are supported and documented: several partitions collapse
+		// to ONE first-level dir. Counting first-level names would call that a
+		// failed expansion on every sweep.
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose/p{partition} 4\n"
+		);
+
+		$errors = [];
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( string $line ) use ( &$errors ): void {
+				$errors[] = $line;
+			}
+		);
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+
+		$this->assertSame( [ 'firehose' => 0 ], $result['logs'] );
+		$this->assertSame( [], $errors, 'a nested layout expanded fine' );
+	}
+
+	public function test_a_declared_count_is_clamped_like_every_other_path(): void {
+		// A typo'd count would otherwise loop that many times per sweep and
+		// return that many declared dirs. Every sibling path clamps.
+		$this->write_tsl(
+			'agg',
+			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 9999\n"
+		);
+
+		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+
+		$this->assertCount(
+			\Newspack_Nodes\Supervisor_Base::MAX_PARTITIONS,
+			$result['logs']
+		);
+	}
+
 	public function test_unknown_topology_returns_empty_buckets(): void {
 		$result = Topology_Registry::resolved_resource_dirs( 'does-not-exist', 2 );
 

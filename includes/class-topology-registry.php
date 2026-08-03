@@ -52,11 +52,19 @@ class Topology_Registry {
 
 	/**
 	 * Per-topology `partition:` entry metadata for the sharing exemption:
-	 * `entry => { sig: normalized make_node line, warranty: cap lifted }`.
+	 * `entry => { sig: normalized make_node line, warranty: cap lifted,
+	 * partitions: a Topic's own declared count, raw }`.
 	 *
-	 * @var array<string, array<string, array{sig: string, warranty: bool}>>
+	 * @var array<string, array<string, array{sig: string, warranty: bool, partitions: string}>>
 	 */
 	private static array $write_meta_cache = [];
+
+	/**
+	 * What a Topic's `num_partitions` means when the argument is OMITTED —
+	 * Topic_Node's schema default, not the worker count. Pinned to that schema
+	 * by TopologyRegistryResolvedDirsTest so the two cannot drift.
+	 */
+	public const TOPIC_PARTITIONS_DEFAULT = '<config:num_partitions>';
 
 	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
@@ -215,9 +223,16 @@ class Topology_Registry {
 				$node_name      = $values[2] ?? '';
 				$entry          = 'partition:' . ( $values[3] ?? '' );
 				$seen[ $entry ] = true;
-				$meta[ $entry ] = [
-					'sig'      => (string) \preg_replace( '/\s+/', ' ', \trim( \str_replace( '<topology>', $name, $statement['line'] ) ) ),
-					'warranty' => $meta[ $entry ]['warranty'] ?? false,
+				// @longform A Topic re-partitions on its OWN count, whatever
+				// the worker count. Partition has no such argument — its
+				// 4th value is segment_size.
+				$declared_partitions = 'Topic' === $class
+					? Core::as_string( $values[4] ?? self::TOPIC_PARTITIONS_DEFAULT )
+					: '';
+				$meta[ $entry ]      = [
+					'sig'        => (string) \preg_replace( '/\s+/', ' ', \trim( \str_replace( '<topology>', $name, $statement['line'] ) ) ),
+					'warranty'   => $meta[ $entry ]['warranty'] ?? false,
+					'partitions' => $declared_partitions,
 				];
 				$nodes[ $node_name ] = $entry;
 				continue;
@@ -229,8 +244,10 @@ class Topology_Registry {
 				if ( isset( $nodes[ $node_name ] ) ) {
 					$entry          = $nodes[ $node_name ];
 					$meta[ $entry ] = [
-						'sig'      => $meta[ $entry ]['sig'] ?? '',
-						'warranty' => true,
+						'sig'        => Core::as_string( $meta[ $entry ]['sig'] ?? '' ),
+						'warranty'   => true,
+						// Preserve the count; this branch only lifts the cap.
+						'partitions' => Core::as_string( $meta[ $entry ]['partitions'] ?? '' ),
 					];
 				}
 				continue;
@@ -856,8 +873,17 @@ class Topology_Registry {
 		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
 		$logs         = [];
 		$offsets      = [];
-		foreach ( self::write_set( $name ) as $entry ) {
+		// write_set() populates the meta cache; read it AFTER.
+		$entries = self::write_set( $name );
+		$meta    = self::$write_meta_cache[ $name ] ?? [];
+		foreach ( $entries as $entry ) {
 			[ $kind, $token ] = \explode( ':', $entry, 2 );
+			// @longform A Topic's declared count wins: it re-partitions
+			// above the worker count (aggregator fan-in) or below it
+			// (deliberate narrowing). An unresolvable token falls back
+			// rather than declaring nothing — the GC deletes undeclared.
+			$declared = self::declared_partition_count( $meta[ $entry ]['partitions'] ?? '' );
+			$count    = $declared > 0 ? $declared : $num_partitions;
 			// Explicit kind→root map; a new entry can't hit offsets.
 			$root = match ( $kind ) {
 				'partition' => $logs_root,
@@ -867,8 +893,14 @@ class Topology_Registry {
 			if ( '' === $root ) {
 				continue;
 			}
-			for ( $p = 0; $p < $num_partitions; $p++ ) {
+			$produced = [];
+			for ( $p = 0; $p < $count; $p++ ) {
 				$concrete = Core::resolve_partition_template( $token, $p, $name );
+				// @longform Distinct CONCRETE paths, before the root filter:
+				// a nested layout collapses to one first-level dir while
+				// still expanding, and a path outside the root produces
+				// none. Neither is a failed expansion.
+				$produced[ $concrete ] = true;
 				$prefix   = $root . '/';
 				if ( 0 !== \strpos( $concrete, $prefix ) ) {
 					continue;
@@ -884,11 +916,39 @@ class Topology_Registry {
 					$offsets[ $first ] ??= $p;
 				}
 			}
+			// @longform Declared N but no partition token to expand: every
+			// partition writes ONE dir. Silent data concentration.
+			if ( $declared > 1 && \count( $produced ) < $declared ) {
+				// @longform print_less_often keys on the FIRST argument, so
+				// the token must be in it or a second bad Topic is swallowed.
+				Core::print_less_often(
+					'ERROR: ' . $name . ': dir_template cannot expand to num_partitions: ' . $token
+				);
+			}
 		}
 		return [
 			'logs'    => $logs,
 			'offsets' => $offsets,
 		];
+	}
+
+	/**
+	 * A Topic's declared partition count: a literal, or a `<config:…>` token
+	 * resolved the same way the runtime resolves it. 0 means "not declared, or
+	 * unresolvable" — the caller falls back to the worker count.
+	 */
+	private static function declared_partition_count( string $raw ): int {
+		if ( '' === $raw ) {
+			return 0;
+		}
+		$resolved = Core::resolve_config_tokens( $raw );
+		if ( ! \is_numeric( $resolved ) || (int) $resolved <= 0 ) {
+			return 0;
+		}
+		// @longform Bounded like Bootstrap::num_partitions_for and
+		// Log_Cleaner: a typo'd count would otherwise loop that many times
+		// per sweep and return a declared set that size.
+		return \min( (int) $resolved, Supervisor_Base::MAX_PARTITIONS );
 	}
 
 	/**
