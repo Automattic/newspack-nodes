@@ -124,7 +124,7 @@ class ServiceCITest extends TestCase {
 	public function test_schema_verb_runs_with_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
-		$this->assertSame( 'pong', $result );
+		$this->assertSame( "pong\n", $result );
 	}
 
 	public function test_auto_injected_help_is_also_gated(): void {
@@ -154,7 +154,7 @@ class ServiceCITest extends TestCase {
 
 		$result = VerbHarness::fire( new ServiceCINonArrayVerbProbe(), 'probe', 'ok' );
 
-		$this->assertSame( 'ok', $result );
+		$this->assertSame( "ok\n", $result );
 	}
 
 	public function test_split_first_token_preserves_verbatim_remainder(): void {
@@ -204,7 +204,7 @@ class ServiceCITest extends TestCase {
 
 		$result = VerbHarness::fire( new ServiceCISliceVerbProbe(), 'probe', 'slice' );
 
-		$this->assertSame( '{"sliced":true}', $result );
+		$this->assertSame( "{\"sliced\":true}\n", $result );
 	}
 
 	// ── command_message ───────────────────────────────────────────────────

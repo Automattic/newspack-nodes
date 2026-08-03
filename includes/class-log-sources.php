@@ -76,7 +76,7 @@ class Log_Sources {
 		}
 		if ( ! isset( $registry[ $source ] ) ) {
 			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ')';
+			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
 		}
 		// Segmented sources tail their NEWEST {path}.{seg}; file mode the path.
 		$path = self::tail_path( $registry[ $source ] );

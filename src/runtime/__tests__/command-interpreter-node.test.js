@@ -125,7 +125,35 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	expect( got[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'echo',
 		arguments: [ 'hi' ],
-		payload: 'echoed: hi',
+		// Newline-terminated like every string reply — see below.
+		payload: 'echoed: hi\n',
+	} );
+} );
+
+test( 'a string reply is newline-terminated, and not doubly so', () => {
+	// A handler that forgets its terminator leaves the REPL printing the next
+	// prompt on the same line. Normalized once, in _respond.
+	const cases = [
+		[ 'no terminator here', 'no terminator here\n' ],
+		[ 'already there\n', 'already there\n' ],
+	];
+	cases.forEach( ( [ returned, expected ], i ) => {
+		const sink = new Node();
+		const got = [];
+		sink.fill = ( m ) => got.push( [ ...m ] );
+		const interpreter = new CommandInterpreterNode();
+		interpreter.name = `terminator_probe_${ i }`;
+		interpreter.sink = sink;
+		interpreter.commands( { probe: () => returned } );
+
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = 'caller';
+		m[ VALUE ] = { name: 'probe', arguments: [] };
+		m[ LOCAL ] = true;
+		interpreter.fill( m );
+
+		expect( got[ 0 ][ VALUE ].payload ).toBe( expected );
 	} );
 } );
 
@@ -207,7 +235,7 @@ test( 'instance authorize override allows a command without LOCAL', () => {
 	interpreter.fill( m );
 
 	expect( got[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
-	expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok' );
+	expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok\n' );
 } );
 
 test( 'static defaultAuthorize can refuse even with LOCAL set', () => {

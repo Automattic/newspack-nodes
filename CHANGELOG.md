@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-08-03
+
+### Fixed
+
+- **Every string command reply is newline-terminated.** A handler that returned
+  an unterminated string left the REPL printing its next prompt on the same
+  line (`taillog` with an unknown source was the visible case). Normalized once
+  where the reply is built, in both the PHP and JS interpreters, rather than at
+  each of the ~160 return sites; structs pass through untouched.
+- **All command help fits in 80 columns.** Sixteen lines across the two help
+  tables ran past it — `dump_metadata` at 201 columns, `reply_to` at 158 —
+  wrapping badly in any normal terminal.
+
 ## [2.5.0] - 2026-08-03
 
 ### Fixed

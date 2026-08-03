@@ -250,7 +250,7 @@ class HTTPInTest extends TestCase {
 		// Response VALUE rides as a live `['name'=>,'payload'=>]` array.
 		$payload = $message[ Message::VALUE ];
 		$this->assertSame( 'echo', $payload['name'] );
-		$this->assertSame( 'got: hi', $payload['payload'] );
+		$this->assertSame( "got: hi\n", $payload['payload'] );
 	}
 
 	public function test_log_verb_broadcasts_its_stderr_line_into_the_jsonl_body(): void {
@@ -597,7 +597,7 @@ class HTTPInTest extends TestCase {
 		);
 		$this->assertSame( 'cmd-lazy-1', $message[ Message::ID ] );
 		$payload = $message[ Message::VALUE ];
-		$this->assertSame( 'got: hi', $payload['payload'] );
+		$this->assertSame( "got: hi\n", $payload['payload'] );
 	}
 
 	public function test_dispatch_lazy_init_is_idempotent_when_graph_already_present(): void {

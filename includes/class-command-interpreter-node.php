@@ -174,6 +174,11 @@ class Command_Interpreter_Node extends Node {
 			}
 		}
 
+		// One terminator per string reply; structs pass through untouched.
+		if ( \is_string( $result ) && '' !== $result && ! \str_ends_with( $result, "\n" ) ) {
+			$result .= "\n";
+		}
+
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
 		}
@@ -330,8 +335,8 @@ class Command_Interpreter_Node extends Node {
 			'insecure' => "insecure\n    note: declares this process deliberately unratcheted; refused once secured.\n",
 			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
-			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails the node's flow back to your own cli/SSE session.\n",
-			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: for a Tee, <target> defaults to the issuing message's FROM — undoes a default `connect_node <tee>` for this session.\n",
+			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails\n          the node's flow back to your own cli/SSE session.\n",
+			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: for a Tee, <target> defaults to the issuing message's FROM\n          — undoes a default `connect_node <tee>` for this session.\n",
 			'register' => "register <source name> <target name> <event>\n",
 			'unregister' => "unregister <source name> <target name> <event>\n",
 			'remove_node' => "remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n",
@@ -346,16 +351,18 @@ class Command_Interpreter_Node extends Node {
 				. "    note: Without -a, the argument specifies a node;\n"
 				. "          all nodes sinking into the specified node are displayed.\n"
 				. "    alias: ls\n",
-			'list_timers' => "list_timers [-s]\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms, ONESHOT, FIRES, TYPE, NAME); NEXT <= 0 with a climbing FIRES = a spinner.\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
-			'list_handles' => "list_handles [-s]\n    note: registered cURL multi handles the drain loop selects on (ID, COUNT msgs, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
+			'list_timers' => "list_timers [-s]\n    note: all timers (ID, ACTIVE, INTERVAL ms, MODE, NEXT ms,\n          ONESHOT, FIRES, TYPE, NAME). NEXT <= 0 with a climbing\n          FIRES = a spinner.\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
+			'list_handles' => "list_handles [-s]\n    note: registered cURL multi handles the drain loop selects on\n          (ID, COUNT msgs, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n",
 			'profile' => "profile [ on | off ]\n"
 				. "    no args: toggle _router dispatch profiling (per-node self time).\n"
-				. "    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n"
-				. "    note: while on, _router times each dispatch; read the table with list_profiles.\n",
-			'list_profiles' => "list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view that wants to sort them.\n",
+				. "    on|off:  idempotent set — the form scripts and UI use, since\n"
+				. "             a known desired state never races a stale toggle.\n"
+				. "    note: while on, _router times each dispatch; read the table\n"
+				. "          with list_profiles.\n",
+			'list_profiles' => "list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total`\n          shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view\n        that wants to sort them.\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config [ <regex glob> ]\n",
-			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
+			'dump_metadata' => "dump_metadata\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n          One round-trip gives a GUI everything it needs to render\n          the graph.\n",
 			'trace' => "trace [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
@@ -367,14 +374,14 @@ class Command_Interpreter_Node extends Node {
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
-			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME (php | debug), never a path — no traversal.\n          Returns the last min(max_kb, 64)KB (default 16), partial first line dropped. No args lists the sources with availability;\n          the reserved name `sources` returns them as a { name, path, mode, available, bytes } struct for a GUI picker.\n",
+			'taillog' => "taillog <source> [max_kb]\n    note: tail a durable aggregated log FILE by registry NAME\n          (php | debug), never a path — no traversal. Returns the\n          last min(max_kb, 64)KB (default 16), partial first line\n          dropped. No args lists the sources with availability; the\n          reserved name `sources` returns them as a\n          { name, path, mode, available, bytes } struct for a picker.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
-			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this interpreter; -a: all nodes.\n",
+			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN.\n    default: sibling nodes of this interpreter; -a: all nodes.\n",
 			'help' => "help [ <topic> ]\n",
 
 			// Shell-level builtins: Shell intercepts; listed for `help`.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
-			'include' => "include <file>\n    note: shell builtin — reads <file> and evals each line through THIS shell,\n          as though piped into the REPL (cwd and vars apply). Never a wire command.\n",
+			'include' => "include <file>\n    note: shell builtin — reads <file> and evals each line through\n          THIS shell, as though piped into the REPL (cwd and vars\n          apply). Never a wire command.\n",
 			'debug_level' => "debug_level [0|1|2]\n    note: sets the local Dumper verbosity level.\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
 			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",
@@ -382,7 +389,7 @@ class Command_Interpreter_Node extends Node {
 			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
 			'command_node' => "command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n    note: dispatches a TM_COMMAND at prefix(<path>) without changing cwd.\n",
 			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
-			'reply_to' => "reply_to <node path> <command>\n    note: runs <command> HERE but routes its reply to <node path> (inverse of command_node). Lets a worker drive a remote interpreter's output to one session.\n",
+			'reply_to' => "reply_to <node path> <command>\n    note: runs <command> HERE but routes its reply to <node path>\n          (inverse of command_node). Lets a worker drive a remote\n          interpreter's output to one session.\n",
 			'ping' => "ping <path>\n    note: round-trips a TM_PING; receiver bounces TO=FROM. Output shows RTT.\n",
 			'show_parse' => "show_parse\n   note: toggles parsed command dump for every command.\n",
 			'status' => "status\n    note: local cli mode summary (no command sent).\n",
