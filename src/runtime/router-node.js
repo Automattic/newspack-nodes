@@ -19,6 +19,9 @@ import {
  * Router::fire_cb → notify_timer). The Router has no sink; it routes by peeling
  * TO and drops what it cannot peel.
  */
+// The shared heartbeat every hitchhiking poller rides.
+export const ROUTER_TICK_MS = 1000;
+
 export class RouterNode extends TimerNode {
 	/** Idle profile entries older than this are trimmed each tick (Tachikoma: 900). */
 	static PROFILE_TTL_S = 900;
@@ -39,7 +42,7 @@ export class RouterNode extends TimerNode {
 		this.afterTimerNotify = null;
 		// Router self-starts its own 1s slot; isRouter skips the hitchhike.
 		this.isRouter = true;
-		this.setTimer( 1000 );
+		this.setTimer( ROUTER_TICK_MS );
 	}
 
 	fill( message ) {
