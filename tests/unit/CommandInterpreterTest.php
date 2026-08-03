@@ -2105,6 +2105,30 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	public function test_dump_metadata_skips_a_node_whose_schema_is_hidden(): void {
+		// Hook-mounted infrastructure has no owner to patron it — _connect_timer
+		// is shared process-wide by every Remote_Link — so it declared
+		// `hidden => true` and the canvas drew it anyway: dump_metadata read the
+		// schema only for accepts_fill / has_target.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'visible_node' ] );
+
+		$timer = new \Newspack_Nodes\Connect_Queue_Timer_Node();
+		$timer->name( \Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME );
+		$this->assertNull( $timer->patron(), 'nothing patrons it — the point' );
+
+		$metadata = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertIsArray( $metadata );
+		$this->assertArrayHasKey( 'visible_node', $metadata );
+		$this->assertArrayNotHasKey(
+			\Newspack_Nodes\Connect_Queue_Timer_Node::NODE_NAME,
+			$metadata,
+			'a schema that says hidden must be hidden on the canvas too'
+		);
+	}
+
 	public function test_dump_metadata_skips_patron_linked_sibling_interpreters(): void {
 		// Patron data node — visible to the canvas.
 		$interpreter = new Command_Interpreter_Node();
