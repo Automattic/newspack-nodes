@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.6] - 2026-08-03
+
+### Fixed
+
+- **The router tick stops while the console tab is hidden.** Four pollers
+  hitchhike the shared tick — `dump_metadata` (1s), `uptime` (5s), `dmesg` (10s)
+  and `topologies list` (10s) — and only the SSE connection was gated on
+  visibility, so a hidden console kept POSTing all of them indefinitely.
+  `dump_metadata` at 1Hz is the bulk of it and the most expensive: it walks every
+  registered node and calls `node_schema()` on each. Gating the tick they share
+  stops them coherently and resumes them in step. Deliberately not gated on
+  `enabled`, which is false in edit mode where the catalog poller stays mounted
+  by design.
+
+- **The browser pokes its SSE slot every 15s, not every 5s.** The poke is the
+  only thing that refreshes a lease — the server's `check_slot` never does — but
+  5s against `SSE_Slot_Pool::$ttl` of 60s is twelve times more often than the
+  lease needs, and three times harder than `Remote_Link_Node::HEARTBEAT_INTERVAL`
+  doing the identical job server-side. 15s matches that and clears the TTL four
+  times over.
+
 ## [2.4.5] - 2026-08-03
 
 ### Fixed
