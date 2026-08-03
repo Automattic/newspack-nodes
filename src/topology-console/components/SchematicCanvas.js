@@ -24,6 +24,8 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
+import { useLayout } from '../LayoutContext';
+import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullGeometry } from '../utils/hullPath';
 import { edgeHasConnectRole } from '../utils/draftGraph';
@@ -239,21 +241,15 @@ export default function SchematicCanvas( {
 	onDeselect,
 	hoveredId,
 	onHover,
-	positionOverrides,
-	onPositionChange,
 	rateRef,
 	// (parent bumps a changing prop to force a re-render; not read here)
-	viewport,
 	viewportDelta,
-	onViewportChange,
 	// interactive gates gestures; editMode gates only draft-only affordances.
 	onConnect,
 	interactive = true,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
-	// Canvas px obstructed at the bottom (expanded REPL); autofit reserves it.
-	bottomObstructionPx = 0,
 	// Ids live but NOT in the .tsl (runtime drift); painted via `is-drift`.
 	driftIds = null,
 	// One soft hull per include, at ANY depth: { include, nodeIds }.
@@ -261,6 +257,9 @@ export default function SchematicCanvas( {
 	selectedHull = null,
 	onSelectHull,
 } ) {
+	const { positionOverrides, onPositionChange, viewport, onViewportChange } =
+		useLayout();
+	const { bottomObstructionPx } = useChrome();
 	const { classCatalog } = useCatalog();
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
 	const hullPaths = useMemo(

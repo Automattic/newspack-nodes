@@ -91,6 +91,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const nodes = container.querySelectorAll( '.topology-node' );
@@ -107,7 +112,14 @@ describe( 'SchematicCanvas', () => {
 				} }
 				editMode
 				onSelectEdge={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 
 		expect( container.querySelector( '.topology-edge' ) ).not.toBeNull();
@@ -129,6 +141,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const cards = container.querySelectorAll( '.topology-node' );
@@ -152,6 +169,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -168,6 +190,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {
@@ -192,17 +219,18 @@ describe( 'SchematicCanvas', () => {
 			edges.push( { from: 's', to: `t${ i }` } );
 		}
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				parsed={ { nodes, edges } }
-				positionOverrides={ positionOverrides }
-			/>,
+			<SchematicCanvas { ...baseProps } parsed={ { nodes, edges } } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides,
 			}
 		);
 		expect(
@@ -219,6 +247,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -241,6 +274,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
@@ -264,6 +302,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
@@ -274,7 +317,17 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'adds is-drift to nodes in driftIds (runtime drift vs the canonical .tsl)', () => {
 		const { container } = renderWithCatalog(
-			<SchematicCanvas { ...baseProps } driftIds={ new Set( [ 'b' ] ) } />
+			<SchematicCanvas
+				{ ...baseProps }
+				driftIds={ new Set( [ 'b' ] ) }
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
 		const byId = ( id ) =>
@@ -296,6 +349,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
@@ -313,6 +371,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const nodes = [ ...container.querySelectorAll( '.topology-node' ) ];
@@ -330,17 +393,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'arrow keys pan the viewport (Right → +x, Down → +y, by 8% of the viewport)', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange,
 			}
 		);
 		hoverCanvas( container );
@@ -359,17 +423,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'shift+arrow pans faster', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange,
 			}
 		);
 		hoverCanvas( container );
@@ -383,17 +448,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'arrow keys do NOT pan while typing in a form field', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange,
 			}
 		);
 		hoverCanvas( container );
@@ -406,20 +472,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'arrow keys do NOT pan when the canvas is not hovered (overlay host-page protection)', () => {
 		const onViewportChange = jest.fn();
-		renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ onViewportChange }
-			/>,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
+		renderWithCatalog( <SchematicCanvas { ...baseProps } />, {
+			classes: baseProps.catalog,
+			formatters: baseProps.formatters,
+			vaults: baseProps.vaults,
+			composeTargets: baseProps.composeTargets,
+			classCatalog: baseProps.classCatalog,
+			positionOverrides: baseProps.positionOverrides,
+			onPositionChange: baseProps.onPositionChange,
+			bottomObstructionPx: baseProps.bottomObstructionPx,
+			viewport: { x: 0, y: 0, w: 1000, h: 700 },
+			onViewportChange,
+		} );
 		// No hover → the arrow handler must NOT pan or preventDefault.
 		fireEvent.keyDown( document, { key: 'ArrowRight' } );
 		expect( onViewportChange ).not.toHaveBeenCalled();
@@ -434,6 +498,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const edges = container.querySelectorAll( '.topology-edge--active' );
@@ -449,6 +518,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const selected = container.querySelector(
@@ -467,6 +541,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
@@ -476,16 +555,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'renders a node at its exact positionOverrides coordinates', () => {
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				positionOverrides={ { a: { x: 999, y: 222 } } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: { a: { x: 999, y: 222 } },
 			}
 		);
 		// The canvas renders the node verbatim at the supplied position.
@@ -509,7 +590,6 @@ describe( 'SchematicCanvas', () => {
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ localParsed }
-				positionOverrides={ positionOverrides }
 				onSeedLayout={ onSeedLayout }
 			/>,
 			{
@@ -518,6 +598,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides,
 			}
 		);
 		expect( onSeedLayout ).not.toHaveBeenCalled();
@@ -531,7 +616,6 @@ describe( 'SchematicCanvas', () => {
 					nodes: [ { id: 'a' }, { id: 'late' } ],
 					edges: [],
 				} }
-				positionOverrides={ { a: { x: 60, y: 80 } } }
 			/>,
 			{
 				classes: baseProps.catalog,
@@ -539,6 +623,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: { a: { x: 60, y: 80 } },
 			}
 		);
 		// 'late' has no position → only one node renders.
@@ -554,7 +643,14 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				editMode={ false }
 				onConnect={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		const out = container.querySelector( '.topology-port--out' );
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( true );
@@ -566,7 +662,14 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				editMode={ true }
 				onConnect={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		const out = container.querySelector( '.topology-port--out' );
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( true );
@@ -581,6 +684,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const out = container.querySelector( '.topology-port--out' );
@@ -593,7 +701,14 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				interactive={ false }
 				onConnect={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		const out = container.querySelector( '.topology-port--out' );
 		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
@@ -601,16 +716,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'honors the parent-provided viewport as the SVG viewBox', () => {
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 100, y: 100, w: 800, h: 600 } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 100, y: 100, w: 800, h: 600 },
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -626,6 +743,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -642,6 +764,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const [ , , w ] = container
@@ -667,19 +794,26 @@ describe( 'SchematicCanvas', () => {
 			vaults: baseProps.vaults,
 			composeTargets: baseProps.composeTargets,
 			classCatalog: baseProps.classCatalog,
+			positionOverrides: baseProps.positionOverrides,
+			onPositionChange: baseProps.onPositionChange,
+			viewport: baseProps.viewport,
+			onViewportChange: baseProps.onViewportChange,
+			bottomObstructionPx: baseProps.bottomObstructionPx,
 		} );
 		const baseY = yOf( base );
 		base.unmount();
-		const inset = renderWithCatalog(
-			<SchematicCanvas { ...baseProps } bottomObstructionPx={ 200 } />,
-			{
-				classes: baseProps.catalog,
-				formatters: baseProps.formatters,
-				vaults: baseProps.vaults,
-				composeTargets: baseProps.composeTargets,
-				classCatalog: baseProps.classCatalog,
-			}
-		);
+		const inset = renderWithCatalog( <SchematicCanvas { ...baseProps } />, {
+			classes: baseProps.catalog,
+			formatters: baseProps.formatters,
+			vaults: baseProps.vaults,
+			composeTargets: baseProps.composeTargets,
+			classCatalog: baseProps.classCatalog,
+			positionOverrides: baseProps.positionOverrides,
+			onPositionChange: baseProps.onPositionChange,
+			viewport: baseProps.viewport,
+			onViewportChange: baseProps.onViewportChange,
+			bottomObstructionPx: 200,
+		} );
 		// Reserving the bottom band moves viewBox down → graph up on screen.
 		expect( yOf( inset ) ).toBeGreaterThan( baseY );
 	} );
@@ -696,6 +830,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -717,6 +856,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		// Missing endpoint short-circuits the edge render.
@@ -731,7 +875,14 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				editMode
 				onSelectEdge={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-edge-hit' )
@@ -762,6 +913,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const hit = container.querySelector( '.topology-edge-hit' );
@@ -779,7 +935,14 @@ describe( 'SchematicCanvas', () => {
 				editMode
 				onSelectEdge={ () => {} }
 				selectedEdge={ { from: 'a', to: 'b' } }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		const edge = container.querySelector(
 			'.topology-edge--active.is-selected'
@@ -802,6 +965,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const edge = container.querySelector(
@@ -825,6 +993,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -841,6 +1014,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect( container.querySelector( 'title' )?.textContent ).toBe( 'EVT' );
@@ -853,7 +1031,14 @@ describe( 'SchematicCanvas', () => {
 				parsed={ registrationParsed }
 				editMode
 				onSelectEdge={ () => {} }
-			/>
+			/>,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		expect( container.querySelector( '.topology-edge-hit' ) ).toBeNull();
 	} );
@@ -867,6 +1052,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const dimmed = container.querySelector(
@@ -880,16 +1070,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'pointer-down on a node starts a drag (sets pointer capture)', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
@@ -912,16 +1104,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'drag past threshold commits a snapped position', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
@@ -951,16 +1145,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'right-click on a node does not start drag', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
@@ -978,17 +1174,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'pan: drag on empty canvas updates viewport', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onViewportChange={ onViewportChange }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1026,17 +1223,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'pan-click without drag with no selection autofits the viewport', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onViewportChange={ onViewportChange }
-				viewport={ { x: 0, y: 0, w: 100, h: 100 } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 100, h: 100 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1073,8 +1271,6 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				selectedId="a"
 				onDeselect={ onDeselect }
-				onViewportChange={ onViewportChange }
-				viewport={ { x: 0, y: 0, w: 100, h: 100 } }
 			/>,
 			{
 				classes: baseProps.catalog,
@@ -1082,6 +1278,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 100, h: 100 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1116,17 +1317,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'wheel: scrolling down zooms out', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1139,17 +1341,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'wheel: scrolling up zooms in', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1163,17 +1366,18 @@ describe( 'SchematicCanvas', () => {
 		// Large viewport: zoom-in shrinks it; clamp floors at baseW/ZOOM_MAX.
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 100, h: 80 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 100, h: 80 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1192,17 +1396,18 @@ describe( 'SchematicCanvas', () => {
 		// Bug: viewBox ≠ canvas width → world-fraction anchor flings graph.
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1700, h: 1700 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1700, h: 1700 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1236,6 +1441,11 @@ describe( 'SchematicCanvas', () => {
 			vaults: baseProps.vaults,
 			composeTargets: baseProps.composeTargets,
 			classCatalog: baseProps.classCatalog,
+			positionOverrides: baseProps.positionOverrides,
+			onPositionChange: baseProps.onPositionChange,
+			viewport: baseProps.viewport,
+			onViewportChange: baseProps.onViewportChange,
+			bottomObstructionPx: baseProps.bottomObstructionPx,
 		} );
 		const wheelCall = addSpy.mock.calls.find( ( c ) => c[ 0 ] === 'wheel' );
 		expect( wheelCall ).toBeDefined();
@@ -1259,6 +1469,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const outPort = container.querySelector(
@@ -1292,6 +1507,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const outPort = container.querySelector(
@@ -1318,6 +1538,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const outPort = container.querySelector(
@@ -1349,6 +1574,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const outPort = container.querySelector(
@@ -1380,6 +1610,11 @@ describe( 'SchematicCanvas', () => {
 				classCatalog: {
 					Source: { accepts_fill: false, has_target: true },
 				},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -1400,6 +1635,11 @@ describe( 'SchematicCanvas', () => {
 				classCatalog: {
 					Sink: { accepts_fill: true, has_target: false },
 				},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -1420,7 +1660,14 @@ describe( 'SchematicCanvas', () => {
 					edges: [],
 				} }
 			/>,
-			{ classCatalog: {} }
+			{
+				classCatalog: {},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
@@ -1436,7 +1683,14 @@ describe( 'SchematicCanvas', () => {
 					edges: [],
 				} }
 			/>,
-			{ classCatalog: {} }
+			{
+				classCatalog: {},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--out' ).length
@@ -1452,7 +1706,14 @@ describe( 'SchematicCanvas', () => {
 					edges: [],
 				} }
 			/>,
-			{ classCatalog: {} }
+			{
+				classCatalog: {},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
 		);
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
@@ -1485,6 +1746,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const spark = container.querySelector( '.topology-node__spark' );
@@ -1505,6 +1771,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect( container.querySelector( '.topology-node__spark' ) ).toBeNull();
@@ -1525,6 +1796,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const counter = container.querySelector( '.topology-node__counter' );
@@ -1547,6 +1823,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const counter = container.querySelector( '.topology-node__counter' );
@@ -1567,6 +1848,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
@@ -1588,6 +1874,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
@@ -1608,6 +1899,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const rateText = container.querySelector( '.topology-node__rate' );
@@ -1629,6 +1925,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const all = container.querySelectorAll( '.topology-node' );
@@ -1651,6 +1952,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -1670,6 +1976,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const firstNode = container.querySelector( '.topology-node' );
@@ -1688,6 +1999,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -1702,17 +2018,18 @@ describe( 'SchematicCanvas', () => {
 
 	it( 'arrow pan does nothing when no onViewportChange is provided (setViewport short-circuits)', () => {
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ undefined }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange: undefined,
 			}
 		);
 		hoverCanvas( container );
@@ -1727,17 +2044,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'ignores a non-arrow key (no pan)', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
-				onViewportChange={ onViewportChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 700 },
+				onViewportChange,
 			}
 		);
 		hoverCanvas( container );
@@ -1748,17 +2066,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'right-button press on the background does not start a pan', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onViewportChange={ onViewportChange }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1780,17 +2099,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'a sub-threshold background move does not pan (stays a click)', () => {
 		const onViewportChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onViewportChange={ onViewportChange }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
+				onViewportChange,
 			}
 		);
 		const svg = container.querySelector( 'svg' );
@@ -1825,16 +2145,18 @@ describe( 'SchematicCanvas', () => {
 	it( 'pointerMove / pointerUp on a node with no active drag are no-ops', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...baseProps } />,
 			{
 				classes: baseProps.catalog,
 				formatters: baseProps.formatters,
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 		const node = container.querySelector( '.topology-node' );
@@ -1855,6 +2177,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		const node = container.querySelector( '.topology-node' );
@@ -1872,11 +2199,14 @@ describe( 'SchematicCanvas', () => {
 	it( 'a click after a real drag suppresses selection (draggedRef gate)', () => {
 		const onSelect = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...baseProps }
-				onSelect={ onSelect }
-				onPositionChange={ () => {} }
-			/>
+			<SchematicCanvas { ...baseProps } onSelect={ onSelect } />,
+			{
+				positionOverrides: baseProps.positionOverrides,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				onPositionChange: () => {},
+			}
 		);
 		const node = container.querySelector( '.topology-node' );
 		fireEvent.mouseDown( node, {
@@ -1913,6 +2243,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
 			}
 		);
 		// Node b's IN port sits at ( x=300, y=80 + NODE_H/2=42 ) = (300, 122).
@@ -1943,10 +2278,6 @@ describe( 'SchematicCanvas', () => {
 					],
 					edges: [],
 				} }
-				positionOverrides={ {
-					'shared-tee': { x: 100, y: 100 },
-					'wombat-echo': { x: 400, y: 100 },
-				} }
 				hulls={ [
 					{ include: 'performance', nodeIds: [ 'shared-tee' ] },
 				] }
@@ -1958,6 +2289,14 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: {
+					'shared-tee': { x: 100, y: 100 },
+					'wombat-echo': { x: 400, y: 100 },
+				},
 			}
 		);
 		const hull = container.querySelector(
@@ -1983,11 +2322,6 @@ describe( 'SchematicCanvas', () => {
 					],
 					edges: [],
 				} }
-				positionOverrides={ {
-					'jobintake:consumer': { x: 100, y: 100 },
-					'jobs:partition': { x: 900, y: 100 },
-					'job-router': { x: 500, y: 100 },
-				} }
 				hulls={ [
 					{
 						include: 'job-intake',
@@ -2012,6 +2346,15 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: {
+					'jobintake:consumer': { x: 100, y: 100 },
+					'jobs:partition': { x: 900, y: 100 },
+					'job-router': { x: 500, y: 100 },
+				},
 			}
 		);
 		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
@@ -2031,11 +2374,6 @@ describe( 'SchematicCanvas', () => {
 						{ id: 'outer-b', class: 'Echo' },
 					],
 					edges: [],
-				} }
-				positionOverrides={ {
-					'inner-probe': { x: 400, y: 300 },
-					'outer-a': { x: 100, y: 100 },
-					'outer-b': { x: 900, y: 600 },
 				} }
 				hulls={ [
 					{
@@ -2057,6 +2395,15 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: {
+					'inner-probe': { x: 400, y: 300 },
+					'outer-a': { x: 100, y: 100 },
+					'outer-b': { x: 900, y: 600 },
+				},
 			}
 		);
 		const order = [ ...container.querySelectorAll( '.topology-hull' ) ].map(
@@ -2079,7 +2426,6 @@ describe( 'SchematicCanvas', () => {
 					],
 					edges: [],
 				} }
-				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
 				hulls={ [] }
 				editMode
 			/>,
@@ -2089,6 +2435,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: { 'shared-tee': { x: 100, y: 100 } },
 			}
 		);
 		expect(
@@ -2113,7 +2464,6 @@ describe( 'SchematicCanvas', () => {
 					],
 					edges: [],
 				} }
-				positionOverrides={ { 'shared-tee': { x: 100, y: 100 } } }
 				hulls={ [] }
 				editMode
 			/>,
@@ -2123,6 +2473,11 @@ describe( 'SchematicCanvas', () => {
 				vaults: baseProps.vaults,
 				composeTargets: baseProps.composeTargets,
 				classCatalog: baseProps.classCatalog,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+				positionOverrides: { 'shared-tee': { x: 100, y: 100 } },
 			}
 		);
 
@@ -2187,16 +2542,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubH = 1000;
 		// 0.2 px/unit: below 0.35 detail scale, so edges LOD away with labels.
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 5000, h: 5000 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 5000, h: 5000 },
 			}
 		);
 		expect(
@@ -2211,16 +2568,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 50000, h: 50000 },
 			}
 		);
 		expect(
@@ -2233,16 +2592,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubH = 1000;
 		// 1000/1000 = 1.0 px/unit: detail on, edge layer + node fade restored.
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		expect(
@@ -2258,16 +2619,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubH = 1000;
 		// 0.0025 px/unit: a 196-unit node → ~0.5px; floor enlarges it to ~2px.
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 400000, h: 400000 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 400000, h: 400000 },
 			}
 		);
 		const bg = container.querySelector( '.topology-node__bg' );
@@ -2287,16 +2650,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		const bg = container.querySelector( '.topology-node__bg' );
@@ -2313,11 +2678,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 					nodes: [ { id: 'a' }, { id: 'b' } ],
 					edges: [ { from: 'a', to: 'b' } ],
 				} }
-				positionOverrides={ {
-					a: { x: 100, y: 100 },
-					b: { x: 90000, y: 100 }, // far off-screen to the right
-				} }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
 			/>,
 			{
 				classes: lodProps.catalog,
@@ -2325,6 +2685,14 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				positionOverrides: {
+					a: { x: 100, y: 100 },
+					b: { x: 90000, y: 100 }, // far off-screen to the right
+				},
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
@@ -2338,16 +2706,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		const edge = container.querySelector( '.topology-edge--active' );
@@ -2361,16 +2731,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		// Exactly one nodes group, carrying --bloom, holding every card.
@@ -2388,16 +2760,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 50000, h: 50000 },
 			}
 		);
 		const group = container.querySelector( '.topology-nodes' );
@@ -2415,6 +2789,11 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				viewport: lodProps.viewport,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
 			}
 		);
 		// The clip def + a label layer that references it.
@@ -2439,11 +2818,6 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 					nodes: [ { id: 'a' }, { id: 'b' } ],
 					edges: [ { from: 'a', to: 'b' } ],
 				} }
-				positionOverrides={ {
-					a: { x: 100, y: 100 },
-					b: { x: 90000, y: 100 }, // far off-screen → stub
-				} }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
 			/>,
 			{
 				classes: lodProps.catalog,
@@ -2451,6 +2825,14 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				positionOverrides: {
+					a: { x: 100, y: 100 },
+					b: { x: 90000, y: 100 }, // far off-screen → stub
+				},
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
@@ -2467,16 +2849,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubW = 1000;
 		stubH = 1000;
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
+				viewport: { x: 0, y: 0, w: 1000, h: 800 },
 			}
 		);
 		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
@@ -2494,6 +2878,11 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				viewport: lodProps.viewport,
+				onViewportChange: lodProps.onViewportChange,
+				bottomObstructionPx: lodProps.bottomObstructionPx,
 			}
 		);
 		expect(
@@ -2510,32 +2899,30 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		const onViewportChange = jest.fn();
 		// Panned/zoomed off autofit; inset-shifted box → a different viewport.
 		const viewport = { x: 100, y: 100, w: 2000, h: 2000 };
-		const { rerender } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ viewport }
-				onViewportChange={ onViewportChange }
-				bottomObstructionPx={ 0 }
-			/>,
-			{
-				classes: lodProps.catalog,
-				formatters: lodProps.formatters,
-				vaults: lodProps.vaults,
-				composeTargets: lodProps.composeTargets,
-				classCatalog: lodProps.classCatalog,
-			}
+		const ambient = {
+			classes: lodProps.catalog,
+			formatters: lodProps.formatters,
+			vaults: lodProps.vaults,
+			composeTargets: lodProps.composeTargets,
+			classCatalog: lodProps.classCatalog,
+			positionOverrides: lodProps.positionOverrides,
+			onPositionChange: lodProps.onPositionChange,
+			viewport,
+			onViewportChange,
+			bottomObstructionPx: 0,
+		};
+		const { rerenderWithCatalog } = renderWithCatalog(
+			<SchematicCanvas { ...lodProps } />,
+			ambient
 		);
 		// Ignore mount-measure onViewportChange calls; watch only the reflow.
 		onViewportChange.mockClear();
-		// Overlay obstructs 200px; new inset → reflow persists a new frame.
-		rerender(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ viewport }
-				onViewportChange={ onViewportChange }
-				bottomObstructionPx={ 200 }
-			/>
-		);
+		// The obstruction is AMBIENT now, so re-provide it — `rerender` alone
+		// replays the value the wrapper was built with.
+		rerenderWithCatalog( <SchematicCanvas { ...lodProps } />, {
+			...ambient,
+			bottomObstructionPx: 200,
+		} );
 		expect( onViewportChange ).toHaveBeenCalled();
 		const [ next ] = onViewportChange.mock.calls.at( -1 );
 		expect( next ).toEqual(
@@ -2553,18 +2940,18 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		stubH = 1000;
 		const onViewportChange = jest.fn();
 		const { rerender } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...lodProps }
-				viewport={ null }
-				onViewportChange={ onViewportChange }
-				bottomObstructionPx={ 0 }
-			/>,
+			<SchematicCanvas { ...lodProps } />,
 			{
 				classes: lodProps.catalog,
 				formatters: lodProps.formatters,
 				vaults: lodProps.vaults,
 				composeTargets: lodProps.composeTargets,
 				classCatalog: lodProps.classCatalog,
+				positionOverrides: lodProps.positionOverrides,
+				onPositionChange: lodProps.onPositionChange,
+				viewport: null,
+				onViewportChange,
+				bottomObstructionPx: 0,
 			}
 		);
 		onViewportChange.mockClear();
@@ -2612,6 +2999,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				onPositionChange: hullProps.onPositionChange,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
 			}
 		);
 		const hull = container.querySelector( '.topology-hull' );
@@ -2660,6 +3052,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: liveHullProps.vaults,
 				composeTargets: liveHullProps.composeTargets,
 				classCatalog: liveHullProps.classCatalog,
+				positionOverrides: liveHullProps.positionOverrides,
+				onPositionChange: liveHullProps.onPositionChange,
+				viewport: liveHullProps.viewport,
+				onViewportChange: liveHullProps.onViewportChange,
+				bottomObstructionPx: liveHullProps.bottomObstructionPx,
 			}
 		);
 
@@ -2680,6 +3077,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: liveHullProps.vaults,
 				composeTargets: liveHullProps.composeTargets,
 				classCatalog: liveHullProps.classCatalog,
+				positionOverrides: liveHullProps.positionOverrides,
+				onPositionChange: liveHullProps.onPositionChange,
+				viewport: liveHullProps.viewport,
+				onViewportChange: liveHullProps.onViewportChange,
+				bottomObstructionPx: liveHullProps.bottomObstructionPx,
 			}
 		);
 
@@ -2703,6 +3105,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: liveHullProps.vaults,
 				composeTargets: liveHullProps.composeTargets,
 				classCatalog: liveHullProps.classCatalog,
+				positionOverrides: liveHullProps.positionOverrides,
+				onPositionChange: liveHullProps.onPositionChange,
+				viewport: liveHullProps.viewport,
+				onViewportChange: liveHullProps.onViewportChange,
+				bottomObstructionPx: liveHullProps.bottomObstructionPx,
 			}
 		);
 		const hull = container.querySelector( '.topology-hull' );
@@ -2729,6 +3136,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: liveHullProps.vaults,
 				composeTargets: liveHullProps.composeTargets,
 				classCatalog: liveHullProps.classCatalog,
+				positionOverrides: liveHullProps.positionOverrides,
+				onPositionChange: liveHullProps.onPositionChange,
+				viewport: liveHullProps.viewport,
+				onViewportChange: liveHullProps.onViewportChange,
+				bottomObstructionPx: liveHullProps.bottomObstructionPx,
 			}
 		);
 
@@ -2763,6 +3175,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: liveHullProps.vaults,
 				composeTargets: liveHullProps.composeTargets,
 				classCatalog: liveHullProps.classCatalog,
+				positionOverrides: liveHullProps.positionOverrides,
+				onPositionChange: liveHullProps.onPositionChange,
+				viewport: liveHullProps.viewport,
+				onViewportChange: liveHullProps.onViewportChange,
+				bottomObstructionPx: liveHullProps.bottomObstructionPx,
 			}
 		);
 
@@ -2782,6 +3199,11 @@ describe( 'SchematicCanvas — hull interaction', () => {
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				onPositionChange: hullProps.onPositionChange,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
 			}
 		);
 
@@ -2793,16 +3215,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	it( 'dragging a hull moves EVERY member by the same delta, and nothing else', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...hullProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...hullProps } />,
 			{
 				classes: hullProps.catalog,
 				formatters: hullProps.formatters,
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 		const hull = container.querySelector( '.topology-hull' );
@@ -2849,16 +3273,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	it( 'snaps a hull drag onto the grid, moving every member by one delta', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...hullProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...hullProps } />,
 			{
 				classes: hullProps.catalog,
 				formatters: hullProps.formatters,
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 
@@ -2876,16 +3302,18 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	it( 'snaps a NEGATIVE hull drag too, off the left/top of the origin', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...hullProps }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...hullProps } />,
 			{
 				classes: hullProps.catalog,
 				formatters: hullProps.formatters,
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				onPositionChange,
 			}
 		);
 
@@ -2900,21 +3328,22 @@ describe( 'SchematicCanvas — hull interaction', () => {
 	it( 'tidies an off-grid cluster onto the grid without reshaping it', () => {
 		const onPositionChange = jest.fn();
 		const { container } = renderWithCatalog(
-			<SchematicCanvas
-				{ ...hullProps }
-				positionOverrides={ {
-					...hullProps.positionOverrides,
-					'inner-a': { x: 107, y: 103 },
-					'inner-b': { x: 307, y: 103 },
-				} }
-				onPositionChange={ onPositionChange }
-			/>,
+			<SchematicCanvas { ...hullProps } />,
 			{
 				classes: hullProps.catalog,
 				formatters: hullProps.formatters,
 				vaults: hullProps.vaults,
 				composeTargets: hullProps.composeTargets,
 				classCatalog: hullProps.classCatalog,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				positionOverrides: {
+					...hullProps.positionOverrides,
+					'inner-a': { x: 107, y: 103 },
+					'inner-b': { x: 307, y: 103 },
+				},
+				onPositionChange,
 			}
 		);
 
@@ -2939,12 +3368,14 @@ describe( 'SchematicCanvas — background click with only a hull selected', () =
 					nodes: [ { id: 'a', class: 'Echo', origin: [ 'perf' ] } ],
 					edges: [],
 				} }
-				positionOverrides={ { a: { x: 10, y: 10 } } }
 				hulls={ [ { include: 'perf', nodeIds: [ 'a' ] } ] }
 				selectedHull="perf"
 				onDeselect={ onDeselect }
 				editMode
-			/>
+			/>,
+			{
+				positionOverrides: { a: { x: 10, y: 10 } },
+			}
 		);
 		const svg = container.querySelector( 'svg.topology-canvas-svg' );
 

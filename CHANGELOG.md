@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Layout and chrome moved off the prop chain.** `LayoutContext` carries
+  `positionOverrides` / `onPositionChange` / `viewport` / `onViewportChange`;
+  `ChromeContext` carries the palette's collapse state and toggle plus the
+  transcript overlay's height. Both are provided by the two graph-surface
+  mounts. `GraphView` 38 → 31 props, `SchematicCanvas` 22 → 17, `Palette` 8 → 6.
+  `inspectorCollapsed` / `onInspectorToggle` deliberately stay props: GraphView
+  renders the inspector's own chevron and reads them, so lifting them would
+  move a prop away from its only consumer.
+
 ### Fixed
 
 - **`register` validated a listener where `notify` would not resolve it.** The

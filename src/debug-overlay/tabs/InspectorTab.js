@@ -27,6 +27,8 @@ import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
 import { useGraphReset } from '../useGraphReset';
 import { CatalogProvider } from '../../topology-console/CatalogContext';
+import { LayoutProvider } from '../../topology-console/LayoutContext';
+import { ChromeProvider } from '../../topology-console/ChromeContext';
 
 /**
  * Measure the DevtoolsTabHost tab bar (`.nodes-devtools__tabbar`) that the host
@@ -121,9 +123,11 @@ export default function InspectorTab( {
 	// Palette + skin shared with the topology console; overlay uses live key.
 	const {
 		paletteCollapsed,
+		togglePaletteCollapsed,
 		inspectorCollapsed,
+		toggleInspectorCollapsed,
+		transcriptOverlayPx,
 		openInspectorOnSelect,
-		canvasChromeProps,
 		replChromeProps,
 		setReplExpanded,
 	} = useGraphSurface( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
@@ -285,110 +289,126 @@ export default function InspectorTab( {
 	}
 
 	return (
-		<CatalogProvider
-			classCatalog={ schemasByShellName }
-			classes={ catalog.classes }
-			formatters={ catalog.formatters }
-			vaults={ vaultCatalog.vaults }
-			composeTargets={ composeTargets }
+		<ChromeProvider
+			paletteCollapsed={ paletteCollapsed }
+			onPaletteToggle={ togglePaletteCollapsed }
+			bottomObstructionPx={ transcriptOverlayPx }
 		>
-			<div
-				ref={ rootRef }
-				className="nodes-debug__inspector"
-				data-testid="inspector-tab"
+			<LayoutProvider
+				positionOverrides={ positions }
+				onPositionChange={ onPositionChange }
+				viewport={ viewport }
+				onViewportChange={ onViewportChange }
 			>
-				<div
-					className={ `topology-app is-inspector-open${
-						inspectorCollapsed ? ' is-inspector-collapsed' : ''
-					}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
+				<CatalogProvider
+					classCatalog={ schemasByShellName }
+					classes={ catalog.classes }
+					formatters={ catalog.formatters }
+					vaults={ vaultCatalog.vaults }
+					composeTargets={ composeTargets }
 				>
-					<ConsoleShell
-						ready={ ready }
-						graph={ graph }
-						// The panel owns the one shared header above the tabs.
-						showHeader={ false }
-						frame={ CanvasFrame }
-						frameProps={ {
-							topology: 'debug',
-							partition: null,
-							isWorker: false,
-							editMode: false,
-							// null tells CanvasFrame to skip the reset chips.
-							onResetLayout: hasLayoutToReset
-								? resetLayout
-								: null,
-							onResetGraph: canResetGraph ? resetGraph : null,
-						} }
-						buildingClassName="nodes-debug__canvas-building"
-						canvasProps={ {
-							...canvasChromeProps,
-							resetKey: storageKey,
-							// No cwd → local; header uses IoTelemetry.
-							local: ! cwd,
-							// Dumper verbosity; Verbose toggle reads it.
-							debugLevel,
-							interactive: true,
-							editMode: false,
-							showPalette: true,
-							paletteLoading: catalog.loading,
-							positionOverrides: positions,
-							onPositionChange,
-							viewport,
-							viewportDelta,
-							onViewportChange,
-							onConnect: handlers.onConnect,
-							onRemoveEdge: handlers.onRemoveEdge,
-							onRemoveNode: handlers.onRemoveNode,
-							onDropNode: handlers.onDropNode,
-							onInspectorAction: (
-								action,
-								nodeId,
-								payload,
-								flags
-							) => {
-								// Pop transcript footer on an inspector action.
-								setReplExpanded( true );
-								// Raw REPL line via Shell (special + builtins).
-								if ( 'command' === action ) {
-									sendLine( payload );
-									return;
-								}
-								handlers.onInspectorAction(
-									action,
-									nodeId,
-									payload,
-									flags
-								);
-							},
-							// Selecting auto-opens the inspector.
-							onSelectionChange: openInspectorOnSelect,
-						} }
-						replProps={ {
-							...replChromeProps,
-							prompt: `/${ cwd }`,
-							canSend: true,
-							onSubmit: sendLine,
-							onClear: clear,
-							transcript,
-							completion,
-							onComplete: requestCompletion,
-							onShowCandidates: handleShowCandidates,
-							maxHeightPx: replMaxHeightPx,
-						} }
-					/>
-				</div>
-				{ pendingDrop && (
-					<div style={ { display: 'contents' } }>
-						<NewNodeModal
-							shellName={ pendingDrop.shellName }
-							defaultName={ pendingDrop.defaultName }
-							argSchema={ pendingDrop.argSchema }
-							onConfirm={ commitDrop }
-							onCancel={ cancelDrop }
-						/>
+					<div
+						ref={ rootRef }
+						className="nodes-debug__inspector"
+						data-testid="inspector-tab"
+					>
+						<div
+							className={ `topology-app is-inspector-open${
+								inspectorCollapsed
+									? ' is-inspector-collapsed'
+									: ''
+							}${
+								paletteCollapsed ? ' is-palette-collapsed' : ''
+							}` }
+						>
+							<ConsoleShell
+								ready={ ready }
+								graph={ graph }
+								// The panel owns the header.
+								showHeader={ false }
+								frame={ CanvasFrame }
+								frameProps={ {
+									topology: 'debug',
+									partition: null,
+									isWorker: false,
+									editMode: false,
+									// null skips the reset chips.
+									onResetLayout: hasLayoutToReset
+										? resetLayout
+										: null,
+									onResetGraph: canResetGraph
+										? resetGraph
+										: null,
+								} }
+								buildingClassName="nodes-debug__canvas-building"
+								canvasProps={ {
+									inspectorCollapsed,
+									onInspectorToggle: toggleInspectorCollapsed,
+									resetKey: storageKey,
+									// No cwd → local; header uses IoTelemetry.
+									local: ! cwd,
+									// Verbose toggle reads it.
+									debugLevel,
+									interactive: true,
+									editMode: false,
+									showPalette: true,
+									paletteLoading: catalog.loading,
+									viewportDelta,
+									onConnect: handlers.onConnect,
+									onRemoveEdge: handlers.onRemoveEdge,
+									onRemoveNode: handlers.onRemoveNode,
+									onDropNode: handlers.onDropNode,
+									onInspectorAction: (
+										action,
+										nodeId,
+										payload,
+										flags
+									) => {
+										// Pop the transcript footer.
+										setReplExpanded( true );
+										// Raw REPL line via Shell.
+										if ( 'command' === action ) {
+											sendLine( payload );
+											return;
+										}
+										handlers.onInspectorAction(
+											action,
+											nodeId,
+											payload,
+											flags
+										);
+									},
+									// Selecting auto-opens the inspector.
+									onSelectionChange: openInspectorOnSelect,
+								} }
+								replProps={ {
+									...replChromeProps,
+									prompt: `/${ cwd }`,
+									canSend: true,
+									onSubmit: sendLine,
+									onClear: clear,
+									transcript,
+									completion,
+									onComplete: requestCompletion,
+									onShowCandidates: handleShowCandidates,
+									maxHeightPx: replMaxHeightPx,
+								} }
+							/>
+						</div>
+						{ pendingDrop && (
+							<div style={ { display: 'contents' } }>
+								<NewNodeModal
+									shellName={ pendingDrop.shellName }
+									defaultName={ pendingDrop.defaultName }
+									argSchema={ pendingDrop.argSchema }
+									onConfirm={ commitDrop }
+									onCancel={ cancelDrop }
+								/>
+							</div>
+						) }
 					</div>
-				) }
-			</div>
-		</CatalogProvider>
+				</CatalogProvider>
+			</LayoutProvider>
+		</ChromeProvider>
 	);
 }

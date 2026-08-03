@@ -280,10 +280,10 @@ describe( 'Palette', () => {
 
 	it( 'renders a collapse toggle button when onToggle is provided', () => {
 		const onToggle = jest.fn();
-		const { getByRole } = renderWithCatalog(
-			<Palette onToggle={ onToggle } />,
-			{ classes: sampleClasses }
-		);
+		const { getByRole } = renderWithCatalog( <Palette />, {
+			classes: sampleClasses,
+			onPaletteToggle: onToggle,
+		} );
 		const btn = getByRole( 'button', { name: /collapse palette/i } );
 		expect( btn.getAttribute( 'aria-expanded' ) ).toBe( 'true' );
 		btn.click();
@@ -357,10 +357,11 @@ describe( 'Palette', () => {
 
 	it( 'collapses to a slim expand handle when `collapsed` is true', () => {
 		const onToggle = jest.fn();
-		const { getByRole, container } = renderWithCatalog(
-			<Palette collapsed onToggle={ onToggle } />,
-			{ classes: sampleClasses }
-		);
+		const { getByRole, container } = renderWithCatalog( <Palette />, {
+			classes: sampleClasses,
+			paletteCollapsed: true,
+			onPaletteToggle: onToggle,
+		} );
 		// Class list is hidden; expand-handle button is visible and clickable.
 		expect(
 			container.querySelectorAll( '.topology-palette__item' ).length
@@ -654,10 +655,10 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	// children — structurally identical to `.topology-inspector-dock`, so the
 	// aside owns only its own padding/scroll and the dock owns grid placement.
 	it( 'wraps the aside in a dock; toggle and aside are sibling direct children of the dock', () => {
-		const { container } = renderWithCatalog(
-			<Palette onToggle={ jest.fn() } />,
-			{ classes: sampleClasses }
-		);
+		const { container } = renderWithCatalog( <Palette />, {
+			classes: sampleClasses,
+			onPaletteToggle: jest.fn(),
+		} );
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
 		const toggle = container.querySelector( '.topology-palette__toggle' );
@@ -669,10 +670,11 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	} );
 
 	it( 'collapsed: dock gains --collapsed, keeps the toggle, and drops the aside entirely', () => {
-		const { container } = renderWithCatalog(
-			<Palette collapsed onToggle={ jest.fn() } />,
-			{ classes: sampleClasses }
-		);
+		const { container } = renderWithCatalog( <Palette />, {
+			classes: sampleClasses,
+			paletteCollapsed: true,
+			onPaletteToggle: jest.fn(),
+		} );
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
 		expect(
@@ -689,10 +691,10 @@ describe( 'Palette — dock structure mirrors the inspector', () => {
 	} );
 
 	it( 'loading placeholder renders inside the aside, under the dock', () => {
-		const { container } = renderWithCatalog(
-			<Palette loading onToggle={ jest.fn() } />,
-			{ classes: [] }
-		);
+		const { container } = renderWithCatalog( <Palette loading />, {
+			classes: [],
+			onPaletteToggle: jest.fn(),
+		} );
 		const dock = container.querySelector( '.topology-palette-dock' );
 		expect( dock ).not.toBeNull();
 		const aside = container.querySelector( 'aside.topology-palette' );
