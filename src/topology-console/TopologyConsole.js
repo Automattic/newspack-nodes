@@ -1810,7 +1810,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 							body={ sprintf(
 								// translators: %s: topology name.
 								__(
-									'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
+									'Delete user-saved topology "%s"? This cannot be undone.',
 									'newspack-nodes'
 								),
 								deleteModal.name
