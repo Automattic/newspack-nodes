@@ -37,6 +37,44 @@ class CommandInterpreterTest extends TestCase {
 		return $m;
 	}
 
+	// ── every string reply ends with a newline (Tachikoma convention) ──────
+
+	public function test_a_string_reply_is_newline_terminated(): void {
+		// taillog's unknown-source reply had no terminator, so the REPL printed
+		// the next prompt on the same line. Normalize once, at the reply, rather
+		// than at every return site.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->commands(
+			$interpreter->commands() + [ 'unterminated_probe' => static fn (): string => 'no terminator here' ]
+		);
+
+		$interpreter->fill( $this->command_message( 'unterminated_probe', '', true ) );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame(
+			"no terminator here\n",
+			(string) $sink->captured[0][ Message::VALUE ]['payload']
+		);
+	}
+
+	public function test_an_already_terminated_reply_gains_no_second_newline(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->commands(
+			$interpreter->commands() + [ 'terminated_probe' => static fn (): string => "already there\n" ]
+		);
+
+		$interpreter->fill( $this->command_message( 'terminated_probe', '', true ) );
+
+		$this->assertSame(
+			"already there\n",
+			(string) $sink->captured[0][ Message::VALUE ]['payload']
+		);
+	}
+
 	public function test_reply_to_runs_the_verb_locally_and_routes_its_reply_to_the_path(): void {
 		// reply_to <path> <verb> [<args>]: run <verb> HERE, but route its reply to
 		// <path> (the inverse of command_node, which runs it AT <path>). This is the
@@ -1883,7 +1921,7 @@ class CommandInterpreterTest extends TestCase {
 		$value = $sink->captured[0][ Message::VALUE ];
 		$this->assertSame( 'echo', $value['name'] );
 		$this->assertSame( [ 'hi' ], $value['arguments'] );
-		$this->assertSame( 'echoed: hi', $value['payload'] );
+		$this->assertSame( "echoed: hi\n", $value['payload'] );
 	}
 
 	public function test_dump_metadata_with_node_arg_returns_only_that_node(): void {

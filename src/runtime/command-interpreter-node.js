@@ -72,14 +72,14 @@ const HELP = {
 	list_handles:
 		'list_handles [-s]\n    note: nodes holding an EventSource (STATE, COUNT msgs, TYPE, NAME).\n    -s: the same rows as a struct, for a view that wants to sort them.\n',
 	profile:
-		'profile [ on | off ]\n    no args: toggle _router dispatch profiling (per-node self time).\n    on|off:  idempotent set — the form scripts and UI use, since a known desired state never races a stale toggle.\n    note: while on, _router times each dispatch; read the table with list_profiles.\n',
+		'profile [ on | off ]\n    no args: toggle _router dispatch profiling (per-node self time).\n    on|off:  idempotent set — the form scripts and UI use, since\n             a known desired state never races a stale toggle.\n    note: while on, _router times each dispatch; read the table\n          with list_profiles.\n',
 	list_profiles:
-		'list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total` shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view that wants to sort them.\n',
+		'list_profiles [-s] [ <regex glob> ]\n    note: per-node self-time table, slowest average first; `total`\n          shows only the --total-- row.\n    -s: the same rows as a struct, --total-- included, for a view\n        that wants to sort them.\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
 	dump_config:
-		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines; an optional regex glob filters by node name.\n',
+		'dump_config [ <regex glob> ]\n    note: emits every node as round-trippable make_node / set_sink /\n          connect_node lines; an optional regex glob filters by name.\n',
 	dump_metadata:
-		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
+		'dump_metadata\n    note: a JSON object keyed by node name, carrying `class`,\n          `counter`, `sink`, `target`, `debug_state` and `arguments`.\n',
 	trace: "trace [ <node name> [ <level> ] ]\n    no args: toggle this CommandInterpreter's debug_state.\n",
 	pwd: 'pwd\n',
 	log: 'log <message>\n    note: prints <message> to stderr (server-side debug log).\n',
@@ -100,7 +100,7 @@ const HELP = {
 		'command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n',
 	request_node: 'request_node <path> [<value>]\n    alias: request\n',
 	reply_to:
-		'reply_to <node path> <command>\n    note: runs <command> here but routes its reply to <node path> (inverse of command_node).\n',
+		'reply_to <node path> <command>\n    note: runs <command> here but routes its reply to <node path>\n          (inverse of command_node).\n',
 	ping: 'ping <path>\n',
 	show_parse:
 		'show_parse\n   note: toggles parsed command dump for every command.\n',
@@ -191,6 +191,10 @@ export class CommandInterpreterNode extends Node {
 	_respond( message, name, payload, kind ) {
 		if ( payload === '' || payload === undefined ) {
 			return;
+		}
+		// One terminator per string reply; structs untouched. Mirrors PHP.
+		if ( typeof payload === 'string' && ! payload.endsWith( '\n' ) ) {
+			payload += '\n';
 		}
 		// TM_NOREPLY: suppress the routed reply, but surface errors to stderr.
 		const inType = message[ TYPE ];

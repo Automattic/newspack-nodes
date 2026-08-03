@@ -107,7 +107,7 @@ class ServiceCiSchemaCommandsTest extends TestCase {
 	public function test_verb_handler_from_schema_is_dispatchable(): void {
 		$result = VerbHarness::fire( new Schema_Driven_CI_Node(), 'fixture', 'greet' );
 
-		$this->assertSame( 'hello from greet', $result );
+		$this->assertSame( "hello from greet\n", $result );
 	}
 
 	public function test_verb_handler_is_installed_in_commands_table(): void {
@@ -183,6 +183,6 @@ class ServiceCiSchemaCommandsTest extends TestCase {
 
 		$result = VerbHarness::fire( new Malformed_Verbs_CI_Node(), 'malformed', 'good' );
 
-		$this->assertSame( 'good result', $result );
+		$this->assertSame( "good result\n", $result );
 	}
 }
