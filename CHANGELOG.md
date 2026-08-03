@@ -19,7 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than a graph and touch no node table. `secure` is freely reversible here — the
   live one-way ratchet is a security property, not a shared behaviour.
   `dumpDocument()` emits the statement order a topology requires, with `secure`
-  last because `secure 1` disables `make_node` for everything after it.
+  last because `secure 1` disables `make_node` for everything after it. It also
+  answers `command_node`, which is one statement with two readings — a
+  `<node>:config` target routes a verb to the sidecar, a bare target is how an
+  interpreter-class node takes verbs directly — and which `cmd` and `command`
+  canonicalise to in the tokenizer, so there is exactly one handler.
 
 ### Changed
 

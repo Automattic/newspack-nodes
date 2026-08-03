@@ -36,11 +36,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		this.frontmatter = {};
 		this.includes = [];
 		this.secureLevel = '';
+		// Declared command_node lines per node — what the topology SAYS.
+		this._invocations = new Map();
 		this.commands( {
 			var: ( self, args ) => self._cmdVar( args ),
 			include: ( self, args ) => self._cmdInclude( args ),
 			remove_include: ( self, args ) => self._cmdRemoveInclude( args ),
 			secure: ( self, args ) => self._cmdDraftSecure( args ),
+			// `cmd` and `command` canonicalise to this in the tokenizer.
+			command_node: ( self, args ) => self._cmdCommandNode( args ),
 		} );
 	}
 
@@ -60,6 +64,43 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
+	 * Declared verb invocations for a node, in declaration order.
+	 *
+	 * @param {string} name Node name.
+	 * @return {Array} `{ verb, args }` entries; empty when none.
+	 */
+	invocationsFor( name ) {
+		return this._invocations.get( name ) ?? [];
+	}
+
+	/**
+	 * One statement form, two readings.
+	 *
+	 * `command_node <node>:config <verb> [args]` is the normal case — the verb
+	 * goes to the node's config sidecar. A bare `<node>` target is how an
+	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
+	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
+	 *
+	 * @param {string[]} args Token array after the verb.
+	 * @return {string} The reply line.
+	 */
+	_cmdCommandNode( args ) {
+		const [ path, verb, ...rest ] = args;
+		if ( ! path || ! verb ) {
+			return 'usage: command_node <node>[:config] <verb> [<args>...]';
+		}
+		const viaConfig = String( path ).endsWith( ':config' );
+		const name = viaConfig ? String( path ).slice( 0, -7 ) : path;
+		if ( ! this.childRegistry.node( name ) ) {
+			return `unknown node: ${ name }`;
+		}
+		const list = this._invocations.get( name ) ?? [];
+		list.push( { verb, args: rest, viaConfig } );
+		this._invocations.set( name, list );
+		return 'ok';
+	}
+
+	/**
 	 * Replace the whole document. Loading is not a verb — see DraftContext.
 	 *
 	 * @param {string} tsl Topology source.
@@ -68,6 +109,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		this.frontmatter = {};
 		this.includes = [];
 		this.secureLevel = '';
+		this._invocations = new Map();
 		for ( const name of [ ...this.childRegistry.nodes.keys() ] ) {
 			this.childRegistry.node( name )?.removeNode();
 		}
@@ -93,6 +135,14 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		return 'ok';
 	}
 
+	_cmdRemove( args ) {
+		const result = super._cmdRemove( args );
+		for ( const name of args ) {
+			this._invocations.delete( name );
+		}
+		return result;
+	}
+
 	// Unlike the live verb, references follow the rename.
 	_cmdMove( args ) {
 		const [ from, to ] = args;
@@ -100,6 +150,11 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		if ( 'ok' !== result || ! from || ! to ) {
 			return result;
 		}
+		if ( this._invocations.has( from ) ) {
+			this._invocations.set( to, this._invocations.get( from ) );
+			this._invocations.delete( from );
+		}
+
 		for ( const [ , node ] of this.childRegistry.nodes ) {
 			if ( Array.isArray( node.target ) ) {
 				node.target = node.target.map( ( t ) =>
@@ -165,6 +220,14 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const edges = [];
 		for ( const [ name, node ] of this.childRegistry.nodes ) {
 			lines.push( node.dumpConfig().split( '\n' )[ 0 ] );
+			for ( const inv of this.invocationsFor( name ) ) {
+				const target = inv.viaConfig ? `${ name }:config` : name;
+				lines.push(
+					[ 'command_node', target, inv.verb, ...inv.args ].join(
+						' '
+					)
+				);
+			}
 			const targets = Array.isArray( node.target )
 				? node.target
 				: [ node.target ].filter( Boolean );
