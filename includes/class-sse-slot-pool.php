@@ -34,20 +34,20 @@ class SSE_Slot_Pool {
 	 */
 	public static function wire(): void {
 		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1 ): array|false {
-			return self::acquire( self::hostname(), self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
+			return self::acquire( self::namespace_key(), self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
 		};
 		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1 ): void {
 			$lease = self::require_lease( $lease );
-			self::release( self::hostname(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			self::release( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
 		};
 		SSE_Out_Node::$check_slot = static function ( array $lease, int $_partition = -1 ): bool {
 			// Check-only, NEVER refresh TTL here (only client heartbeat does).
 			$lease = self::require_lease( $lease );
-			return self::check( self::hostname(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			return self::check( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
 		};
 		SSE_Out_Node::$inspect_slot = static function ( array $lease, int $_partition = -1 ): array {
 			$lease = self::require_lease( $lease );
-			return self::inspect( self::hostname(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			return self::inspect( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
 		};
 	}
 
@@ -81,7 +81,7 @@ class SSE_Slot_Pool {
 	 *
 	 * @return array{slot:int,owner:int}|false Lease, or false if all slots are live / no store.
 	 */
-	public static function acquire( string $hostname, int $user_id, string $ip_hash, int $max_slots, int $ttl ): array|false {
+	public static function acquire( string $namespace, int $user_id, string $ip_hash, int $max_slots, int $ttl ): array|false {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return false;
@@ -89,7 +89,7 @@ class SSE_Slot_Pool {
 
 		for ( $slot = 0; $slot < $max_slots; $slot++ ) {
 			$owner       = \random_int( 1, \PHP_INT_MAX );
-			$pointer_key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
+			$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
 			$lease_key   = self::lease_key( $pointer_key, $owner );
 
 			// Publish liveness before the pointer can advertise this owner.
@@ -152,8 +152,8 @@ class SSE_Slot_Pool {
 	 * Permanent slot-pointer key. The configured slot count bounds pointers
 	 * within each host/user/IP namespace; liveness lives only in lease keys.
 	 */
-	private static function slot_key( string $hostname, int $user_id, string $ip_hash, int $slot ): string {
-		return "newspack_nodes:sse:v2:{$hostname}:{$user_id}:{$ip_hash}:{$slot}";
+	private static function slot_key( string $namespace, int $user_id, string $ip_hash, int $slot ): string {
+		return "newspack_nodes:sse:v2:{$namespace}:{$user_id}:{$ip_hash}:{$slot}";
 	}
 
 	/** Owner-specific liveness key for one slot pointer. */
@@ -179,7 +179,7 @@ class SSE_Slot_Pool {
 	 *
 	 * @return array<string,int|string>
 	 */
-	public static function inspect( string $hostname, int $user_id, string $ip_hash, int $slot, int $owner ): array {
+	public static function inspect( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): array {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return [
@@ -188,7 +188,7 @@ class SSE_Slot_Pool {
 			];
 		}
 
-		$pointer_key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
 		$pointer     = $backend->read( $pointer_key );
 		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
 			return self::inspection_result( $backend, 'backend_read_error' );
@@ -234,12 +234,33 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Host component of the slot key — namespaces slots per host so multiple
-	 * hosts sharing one memcache don't collide. Falls back to 'unknown' so a
-	 * gethostname() failure can never pass false to the string-typed callees.
+	 * Machine half of the slot key — see namespace_key() for why it is only a
+	 * half. Falls back to 'unknown' so a gethostname() failure can never pass
+	 * false to the string-typed callees.
 	 */
-	public static function hostname(): string {
+	private static function hostname(): string {
 		return \gethostname() ?: 'unknown';
+	}
+
+	/** Per-site half of the namespace. Hashed for length; `home_url` is not secret. */
+	private static function site(): string {
+		return \substr( \md5( \home_url() ), 0, 12 );
+	}
+
+	/**
+	 * The pool namespace: this SITE on this MACHINE.
+	 *
+	 * @longform Neither half identifies the protected resource alone, and the
+	 * two deployments fail in opposite directions. On Atomic one pool host
+	 * serves many sites, so a machine-only key put 15 of them on one 10-slot
+	 * budget. In dndocker one site spans many containers over a shared database
+	 * and memcached, so a site-only key would collapse those instead. Each
+	 * environment gets its discriminator from whichever half actually varies.
+	 * Neither is caller-controllable — `SERVER_NAME` would be, and a rate-limit
+	 * namespace the caller chooses is not a rate limit.
+	 */
+	public static function namespace_key(): string {
+		return self::hostname() . ':' . self::site();
 	}
 
 	public static function user_id(): int {
@@ -257,7 +278,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Tombstone this exact owner, then remove its liveness. Fail-OPEN without a backend. */
-	public static function release( string $hostname, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+	public static function release( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -265,7 +286,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return true;
 		}
-		$pointer_key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
 		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
 			return false;
 		}
@@ -274,7 +295,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Whether the exact lease is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( string $hostname, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+	public static function check( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -282,7 +303,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return false;
 		}
-		$pointer_key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
 		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
 			return false;
 		}
@@ -292,7 +313,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable. */
-	public static function touch( string $hostname, int $user_id, string $ip_hash, int $slot, int $owner, int $ttl ): bool {
+	public static function touch( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner, int $ttl ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -300,7 +321,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return false;
 		}
-		$pointer_key = self::slot_key( $hostname, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
 		$lease_key   = self::lease_key( $pointer_key, $owner );
 		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
 			return false;

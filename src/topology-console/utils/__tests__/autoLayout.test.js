@@ -869,3 +869,55 @@ describe( 'snapToGrid', () => {
 		).toEqual( { x: X_PAD + X_STEP / 2, y: Y_PAD + Y_STEP / 2 } );
 	} );
 } );
+
+describe( 'autoLayout — disconnected components', () => {
+	// A hub fan-out beside two components that share no node with it. The
+	// widest column anchors the row assignment, so nothing seeds a row for
+	// the outsiders; the spread pass then carried `undefined` into NaN and
+	// those cards rendered at y=NaN — invisible, with no error anywhere.
+	const SPOKES = [
+		'settings:pub37',
+		'settings:pub41',
+		'settings:pub42',
+		'settings:pub43',
+		'settings:pub44',
+		'settings:pub46',
+		'settings:pub49',
+		'settings:pub53',
+		'settings:pub54',
+		'settings:pub55',
+		'settings:pub58',
+		'settings:pub59',
+	];
+	const graph = {
+		nodes: [
+			'null',
+			...SPOKES,
+			'_topicprobe',
+			'_topicprobe:log',
+			'settings:consumer',
+			'settings-sync',
+			'discovery-collector',
+			'_repl',
+		].map( ( id ) => ( { id } ) ),
+		edges: [
+			{ from: '_topicprobe', to: '_topicprobe:log' },
+			{ from: 'settings:consumer', to: 'settings-sync' },
+			...SPOKES.map( ( to ) => ( { from: 'settings-sync', to } ) ),
+			...SPOKES.map( ( to ) => ( { from: 'discovery-collector', to } ) ),
+			...SPOKES.map( ( from ) => ( { from, to: 'null' } ) ),
+		],
+	};
+
+	it( 'gives every node a finite position', () => {
+		const laid = autoLayout( graph );
+		const broken = laid.nodes
+			.filter(
+				( n ) =>
+					! Number.isFinite( n.position.x ) ||
+					! Number.isFinite( n.position.y )
+			)
+			.map( ( n ) => `${ n.id } (${ n.position.x }, ${ n.position.y })` );
+		expect( broken ).toEqual( [] );
+	} );
+} );

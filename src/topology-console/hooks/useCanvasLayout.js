@@ -22,7 +22,7 @@ function load( key ) {
 		return {
 			positions:
 				p && typeof p.positions === 'object' && p.positions
-					? p.positions
+					? sanitizePositions( p.positions )
 					: null,
 			// Start null; the freeze re-derives the live viewBox from delta.
 			viewport: null,
@@ -77,6 +77,21 @@ function materializeServerPositions( serverLayout, nodes ) {
 		}
 	}
 	return positions;
+}
+
+// @longform
+// Storage is not trusted input: a NaN coordinate serializes to null, and a
+// stored one outlives the bug that wrote it — `modified` makes the browser
+// copy beat the server layout, and the one-shot init skips a non-null map,
+// so the card stays off-graph. Drop the bad ones; the tuck re-places them.
+function sanitizePositions( positions ) {
+	const clean = {};
+	for ( const [ id, position ] of Object.entries( positions ) ) {
+		if ( isPosition( position ) ) {
+			clean[ id ] = position;
+		}
+	}
+	return clean;
 }
 
 function isPosition( value ) {

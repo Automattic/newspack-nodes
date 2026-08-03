@@ -222,6 +222,7 @@ class RemoteSourceTimeTravelTest extends TestCase {
 		$node = $this->make_remote( 'remote-aspen' );
 		Core::$now = 1000.0;
 		$node->fire();
+		$this->drain_connect_queue();
 		$sse = Core::node( 'remote-aspen:sse-in' );
 		$this->assertInstanceOf( \CurlHandle::class, $sse->test_get_handle(), 'precondition: connected' );
 
