@@ -18,6 +18,9 @@ module.exports = {
 		'plugin:@wordpress/eslint-plugin/i18n',
 	],
 	rules: {
+		// knip suppression tag: an export that exists for its unit test, not
+		// for callers. jsdoc/check-tag-names rejects unknown tags otherwise.
+		'jsdoc/check-tag-names': [ 'error', { definedTags: [ 'testonly' ] } ],
 		'@wordpress/i18n-text-domain': [
 			'error',
 			{ allowedTextDomain: [ 'newspack-nodes' ] },

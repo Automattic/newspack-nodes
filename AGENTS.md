@@ -105,16 +105,20 @@ npm run lint:js
 npm run lint:scss
 npm run lint:shell
 
-# Opt-in dead-code audit (NOT in the lint gate). Substrate caveat: most findings
-# are public API / WP-CLI entrypoints / JS-PHP wire constants / test seams, not
-# real dead code — verify every call path (incl siblings + JS + dynamic) first.
+# PHP dead-code audit (phpstan-deadcode). GATED: lint-staged runs it on any
+# staged .php. Substrate caveat: most findings are public API / WP-CLI
+# entrypoints / JS-PHP wire constants / test seams, not real dead code — verify
+# every call path (incl siblings + JS + dynamic) first.
 npm run lint:deadcode
 
-# The JS half of the same audit (knip). Same caveat, plus two of its own: the
-# `@newspack-nodes/*` surface is entry, so a dead export there needs a manual
-# cross-repo sweep; and knip cannot parse JSX in a `.js` file, which drops that
-# file's `import()` expressions — a `lazy( () => import( './X' ) )` target must
-# be listed as `entry` in knip.json or it reads as an unused file.
+# The JS half (knip). GATED: pre-commit runs it on any staged .js/.jsx, the
+# same way lint:phpstan gates PHP. Tests are excluded as consumers, so an
+# export only its test imports reads as unused — mark those `@testonly` in the
+# docblock (knip `tags`, and eslint's definedTags). Two blind spots remain: the
+# `@newspack-nodes/*` surface is entry, so a dead export there is NOT caught and
+# needs a manual cross-repo sweep; and knip cannot parse JSX in a `.js` file,
+# which drops that file's `import()` expressions — a `lazy( () => import( './X' ) )`
+# target must be listed as `entry` in knip.json or it reads as an unused file.
 npm run lint:deadcode:js
 
 # REPL against a live worker.

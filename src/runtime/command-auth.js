@@ -132,7 +132,10 @@ let retryAfter = 0;
 /** Clock seam so the backoff can be tested without waiting on it. */
 let now = null;
 
-/** @param {Function|null} fn Replacement clock, or null to restore. */
+/**
+ * @testonly Exported for the backoff test; production reaches `now` directly.
+ * @param {Function|null} fn Replacement clock, or null to restore.
+ */
 export function __setBackoffClock( fn ) {
 	now = fn;
 }

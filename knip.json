@@ -14,15 +14,29 @@
 		"!src/**/test-utils/**"
 	],
 	"paths": {
-		"@newspack-nodes/runtime": [ "src/runtime/index.js" ],
-		"@newspack-nodes/shared/*": [ "src/shared/*" ],
-		"@newspack-nodes/shared": [ "src/shared/index.js" ],
+		"@newspack-nodes/runtime": [
+			"src/runtime/index.js"
+		],
+		"@newspack-nodes/shared/*": [
+			"src/shared/*"
+		],
+		"@newspack-nodes/shared": [
+			"src/shared/index.js"
+		],
 		"@newspack-nodes/debug-overlay": [
 			"src/debug-overlay/DebugOverlay.js"
 		],
-		"@newspack-nodes/build-kit": [ "src/build-kit/index.mjs" ]
+		"@newspack-nodes/build-kit": [
+			"src/build-kit/index.mjs"
+		]
 	},
-	"ignoreBinaries": [ "php", "phpcs", "phpcbf", "shellcheck", "wp" ],
+	"ignoreBinaries": [
+		"php",
+		"phpcs",
+		"phpcbf",
+		"shellcheck",
+		"wp"
+	],
 	"ignoreDependencies": [
 		"@commitlint/cli",
 		"lint-staged",
@@ -35,5 +49,11 @@
 		"postcss-selector-parser",
 		"@babel/parser"
 	],
-	"jest": false
+	"jest": false,
+	"tags": [
+		"-@testonly"
+	],
+	"rules": {
+		"duplicates": "off"
+	}
 }
