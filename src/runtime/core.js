@@ -1,6 +1,7 @@
 import { newMessage, TYPE, TIMESTAMP, VALUE, TM_BYTESTREAM } from './message';
 import names from './reserved-node-names.json';
 import { IoTelemetry } from './io-telemetry';
+import { NodeRegistry } from './node-registry';
 
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
@@ -12,7 +13,8 @@ class CoreImpl {
 	}
 
 	reset() {
-		this.nodes = new Map();
+		// The name table is its own class; Core keeps ONE as its default.
+		this._registry = new NodeRegistry();
 		this._msgCounter = 0;
 		this._lastPrint = new Map(); // message → last-printed ms timestamp
 		this._countSince = new Map(); // message → count since last print
@@ -120,8 +122,13 @@ class CoreImpl {
 		}
 	}
 
+	// Callers iterate this Map directly; keep it reachable.
+	get nodes() {
+		return this._registry.nodes;
+	}
+
 	node( name ) {
-		return this.nodes.get( name ) ?? null;
+		return this._registry.node( name );
 	}
 
 	// Bump full-rebuild signal: increment + notify every subscriber.
@@ -158,16 +165,16 @@ class CoreImpl {
 	}
 
 	registerNode( name, node ) {
-		if ( this.nodes.has( name ) ) {
-			throw new Error(
-				`node name collision: ${ name } already registered`
-			);
-		}
-		this.nodes.set( name, node );
+		this._registry.registerNode( name, node );
 	}
 
 	unregisterNode( name ) {
-		this.nodes.delete( name );
+		this._registry.unregisterNode( name );
+	}
+
+	// The registry a Node registers in unless it was given another.
+	get registry() {
+		return this._registry;
 	}
 
 	msgCounter() {

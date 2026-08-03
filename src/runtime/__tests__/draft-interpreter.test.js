@@ -13,6 +13,7 @@
 import { Core } from '../core';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { StubNode } from '../stub-node';
+import { NodeRegistry } from '../node-registry';
 import { parseStatements } from '../shell-node';
 import { newMessage, TYPE, VALUE, TM_COMMAND } from '../message';
 import { markLocal } from '../command-auth';
@@ -44,6 +45,13 @@ beforeEach( () => Core.reset() );
  * @return {CommandInterpreterNode} The draft interpreter, named and registered.
  */
 class DraftInterpreter extends CommandInterpreterNode {
+	constructor() {
+		super();
+		// Its own name table for its CONTENTS. The interpreter itself still
+		// lives in Core under one reserved name — the Job shape.
+		this.childRegistry = new NodeRegistry();
+	}
+
 	_cmdMakeNode( args ) {
 		if ( args.length < 2 ) {
 			return super._cmdMakeNode( args );
@@ -53,6 +61,7 @@ class DraftInterpreter extends CommandInterpreterNode {
 			return super._cmdMakeNode( args );
 		}
 		const node = new StubNode();
+		node.registry = this.childRegistry;
 		node.shellName = type;
 		node.name = name;
 		node.arguments = args.slice( 2 );
@@ -61,9 +70,10 @@ class DraftInterpreter extends CommandInterpreterNode {
 	}
 }
 
-function draftInterpreter() {
+function draftInterpreter( name = '_draft' ) {
 	const interpreter = new DraftInterpreter();
-	interpreter.name = '_draft';
+	// Lives in Core under ONE reserved name; its contents do not.
+	interpreter.name = name;
 	return interpreter;
 }
 
@@ -95,19 +105,24 @@ describe( 'a draft interpreter holding a server topology', () => {
 	// dump_config groups each node's statements together, so the INPUT order is
 	// not the oracle — a dump re-evaluating to itself is. That is the parity
 	// property a save/load cycle actually depends on.
-	const dumpAll = () =>
-		[ 'firehose', 'firehose-in', 'firehose-fanout', 'flames' ]
-			.map( ( name ) => Core.node( name )?.dumpConfig() ?? '' )
-			.join( '' );
+	const NAMES = [ 'firehose', 'firehose-in', 'firehose-fanout', 'flames' ];
+	const dumpAll = ( interpreter ) =>
+		NAMES.map(
+			( name ) =>
+				interpreter.childRegistry.node( name )?.dumpConfig() ?? ''
+		).join( '' );
 
 	it( 'round-trips TSL it cannot run', () => {
-		evalTsl( draftInterpreter(), TSL );
-		const first = dumpAll();
+		const first = ( () => {
+			const draft = draftInterpreter();
+			evalTsl( draft, TSL );
+			return dumpAll( draft );
+		} )();
 
-		Core.reset();
-		evalTsl( draftInterpreter(), first );
+		const reloaded = draftInterpreter( '_draft2' );
+		evalTsl( reloaded, first );
 
-		expect( dumpAll() ).toBe( first );
+		expect( dumpAll( reloaded ) ).toBe( first );
 		// And it really did carry the server classes, not a Stub placeholder.
 		expect( first ).toContain( 'make_node Topic firehose firehose.log' );
 		expect( first ).toContain( 'make_node Flame_Builder flames' );
@@ -115,13 +130,52 @@ describe( 'a draft interpreter holding a server topology', () => {
 	} );
 
 	it( 'builds a real node when the browser has the class, a stub when not', () => {
-		const interpreter = draftInterpreter();
+		const draft = draftInterpreter();
 
-		evalTsl( interpreter, TSL );
+		evalTsl( draft, TSL );
 
-		expect( Core.node( 'firehose-fanout' ) ).not.toBeInstanceOf( StubNode );
-		expect( Core.node( 'firehose' ) ).toBeInstanceOf( StubNode );
-		expect( Core.node( 'flames' ) ).toBeInstanceOf( StubNode );
+		expect(
+			draft.childRegistry.node( 'firehose-fanout' )
+		).not.toBeInstanceOf( StubNode );
+		expect( draft.childRegistry.node( 'firehose' ) ).toBeInstanceOf(
+			StubNode
+		);
+		expect( draft.childRegistry.node( 'flames' ) ).toBeInstanceOf(
+			StubNode
+		);
+	} );
+
+	it( 'keeps its nodes out of Core entirely', () => {
+		const draft = draftInterpreter();
+
+		evalTsl( draft, TSL );
+
+		for ( const name of NAMES ) {
+			expect( Core.node( name ) ).toBeNull();
+		}
+	} );
+
+	it( 'cannot reach a live node of the same name', () => {
+		// The isolation the design rests on. A draft that connected to a live
+		// node would edit one document and wire another.
+		const live = new StubNode();
+		live.shellName = 'Topic';
+		live.name = 'audit-log';
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
+
+		draft.fill(
+			command( 'connect_node', [ 'firehose-fanout', 'audit-log' ] )
+		);
+
+		// `connect_node` stores a PATH, resolved at send time — so the edge is
+		// accepted, exactly as Tachikoma accepts one to a node not yet made.
+		// Isolation shows in where that path resolves: nowhere, in the draft.
+		expect(
+			draft.childRegistry.node( 'firehose-fanout' ).dumpConfig()
+		).toContain( 'connect_node firehose-fanout audit-log' );
+		expect( draft.childRegistry.node( 'audit-log' ) ).toBeNull();
+		expect( Core.node( 'audit-log' ) ).toBe( live );
 	} );
 
 	it( 'applies move_node to a stub, and leaves references dangling as Tachikoma does', () => {
@@ -134,26 +188,26 @@ describe( 'a draft interpreter holding a server topology', () => {
 		// edges, because silently breaking the topology you are editing is not
 		// a defensible editor. Same verb, different interpreter, different
 		// meaning — the `secure` split again.
-		const interpreter = draftInterpreter();
-		evalTsl( interpreter, TSL );
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
 
-		interpreter.fill(
-			command( 'move_node', [ 'flames', 'flame-builder' ] )
-		);
+		draft.fill( command( 'move_node', [ 'flames', 'flame-builder' ] ) );
 
-		expect( Core.node( 'flames' ) ).toBeNull();
-		expect( Core.node( 'flame-builder' ) ).toBeInstanceOf( StubNode );
-		expect( Core.node( 'firehose-fanout' ).dumpConfig() ).toContain(
-			'connect_node firehose-fanout flames'
+		expect( draft.childRegistry.node( 'flames' ) ).toBeNull();
+		expect( draft.childRegistry.node( 'flame-builder' ) ).toBeInstanceOf(
+			StubNode
 		);
+		expect(
+			draft.childRegistry.node( 'firehose-fanout' ).dumpConfig()
+		).toContain( 'connect_node firehose-fanout flames' );
 	} );
 
 	it( 'applies remove_node to a stub', () => {
-		const interpreter = draftInterpreter();
-		evalTsl( interpreter, TSL );
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
 
-		interpreter.fill( command( 'remove_node', [ 'flames' ] ) );
+		draft.fill( command( 'remove_node', [ 'flames' ] ) );
 
-		expect( Core.node( 'flames' ) ).toBeNull();
+		expect( draft.childRegistry.node( 'flames' ) ).toBeNull();
 	} );
 } );
