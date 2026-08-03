@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-08-03
+
+### Fixed
+
+- **`ping` reported a negative round-trip time.** The send stamp was written
+  with a plain `(string)` cast, which renders a `microtime(true)` double at
+  PHP's default `precision=14` and drops digits. Rounding up made the stamp read
+  as sent *after* it was received, so the subtraction went negative — the
+  observed values scattered ±0.04 ms around zero, sign depending on the digits.
+  Stamped with `%.6F` now, which round-trips exactly, so a local ping reads
+  `0.00 ms` as it does in Tachikoma (a local bounce completes inside one
+  event-loop iteration, against the same cached clock at both ends).
+
 ## [2.5.1] - 2026-08-03
 
 ### Fixed

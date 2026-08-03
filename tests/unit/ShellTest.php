@@ -619,7 +619,14 @@ class ShellTest extends TestCase {
 		$this->assertNotNull( $message );
 		$this->assertSame( Message::TM_PING, $message[ Message::TYPE ] );
 		$this->assertSame( '_command_interpreter', $message[ Message::TO ] );
-		$this->assertSame( '1234567890.1235', $message[ Message::VALUE ] );
+		// Must round-trip EXACTLY. A lossy stamp that rounds up reads as sent
+		// later than received, so a local ping's RTT comes out negative.
+		$this->assertSame( '1234567890.123456', $message[ Message::VALUE ] );
+		$this->assertSame(
+			\Newspack_Nodes\Core::$now,
+			(float) $message[ Message::VALUE ],
+			'ping stamp lost precision'
+		);
 		$this->assertStringStartsWith( '_output/', $message[ Message::FROM ] );
 	}
 
