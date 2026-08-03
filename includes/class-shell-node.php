@@ -999,14 +999,17 @@ class Shell_Node extends Node {
 
 	/** A topology NAME resolves through the registry; a literal path is taken as-is. */
 	private function resolve_include( string $file ): ?string {
-		if ( '' === $file ) {
+		// @longform Registered topology dirs ONLY. Worker boot eval_script()s
+		// admin-authored TSL, so anything an include can reach, an admin who
+		// can save a topology can execute. A bare `is_file()` fallback reached
+		// the whole disk; a name carrying separators walks out of the dir
+		// resolve() interpolates it into. Same reasoning as resolve()'s own
+		// "stock owns its names" rule. If topologies ever become a tree,
+		// replace this with canonicalize-then-contain, not a looser pattern.
+		if ( '' === $file || \preg_match( '{[/\\\\]|^\.\.$}', $file ) ) {
 			return null;
 		}
-		$resolved = Topology_Registry::resolve( $file );
-		if ( null !== $resolved ) {
-			return $resolved;
-		}
-		return \is_file( $file ) ? $file : null;
+		return Topology_Registry::resolve( $file );
 	}
 
 	/**
