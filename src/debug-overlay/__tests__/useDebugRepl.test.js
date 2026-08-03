@@ -117,6 +117,29 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'surfaces the Dumper node as the transcript source of truth', () => {
+		// Characterisation, not a regression: the read moved from a
+		// hand-rolled register+useState mirror to useNodeState, which is what
+		// the console does and what this file already does for `completion`.
+		// Behaviour is identical either way — this pins WHERE it comes from.
+		const shell = new ShellNode();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		const dumper = Core.node( names.OUTPUT );
+		act( () => {
+			dumper.setState( 'transcript', [
+				{ text: 'quokka census 2026', kind: 'out' },
+			] );
+		} );
+
+		expect( result.current.transcript.map( ( e ) => e.text ) ).toEqual( [
+			'quokka census 2026',
+		] );
+		// The React read must come off the node's cache, so a fresh consumer
+		// mounting later sees the same value with no replay.
+		expect( dumper.setStateCache.transcript ).toHaveLength( 1 );
+	} );
+
 	it( 'registers a transcript node on mount and unregisters on unmount', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

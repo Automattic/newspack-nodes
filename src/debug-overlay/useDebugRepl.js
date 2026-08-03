@@ -9,7 +9,7 @@ import { Core } from '../runtime/core';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
-import { useGraphGeneration } from '../runtime/react';
+import { useGraphGeneration, useNodeState } from '../runtime/react';
 import { FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
@@ -25,7 +25,7 @@ import {
 const EMPTY_TRANSCRIPT = [];
 
 // Build overlay infra on the backbone render-phase (no dispatch-time race).
-function buildInfra( shell, debugLevelRef, onTranscript ) {
+function buildInfra( shell, debugLevelRef ) {
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	// Idempotent under StrictMode's double-invoke: reuse an existing Dumper.
 	const existing = Core.node( names.OUTPUT );
@@ -46,10 +46,10 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 	dumper.debugLevelRef = debugLevelRef;
 	dumper.name = names.OUTPUT;
 	dumper.sink = interpreter;
+	// Persist only. The React read is useNodeState below, as in the console.
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {
-		onTranscript( next || EMPTY_TRANSCRIPT );
-		saveTranscript( next || EMPTY_TRANSCRIPT ); // persist recent transcript [87].
+		saveTranscript( next || EMPTY_TRANSCRIPT );
 		return true;
 	} );
 	// Seed transcript + interpreter debug_state from last session [87].
@@ -110,8 +110,9 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Ref so the []-dep dispatchStatement calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
-	// Transcript mirror from the Dumper sub; start empty, no double-seed [87].
-	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
+	// The Dumper owns the transcript; read it where every other slice is read.
+	const transcript =
+		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 	// cwd mirrors Shell.path; re-rendered so Header + _cwd follow REPL `cd`.
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , bumpRemount ] = useState( 0 );
@@ -123,7 +124,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Build-before-render: build infra in this lazy initializer, before paint.
 	const infraRef = useRef( null );
 	const buildNow = useCallback( () => {
-		const infra = buildInfra( shell, debugLevelRef, setTranscript );
+		const infra = buildInfra( shell, debugLevelRef );
 		dumperRef.current = infra.dumper;
 		shellRef.current = shell;
 		infraRef.current = infra;
@@ -136,7 +137,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 
 	useEffect( () => {
 		if ( ! active ) {
-			setTranscript( EMPTY_TRANSCRIPT );
+			// No clear needed: the Dumper goes, so useNodeState reads empty.
 			setReady( false );
 			return undefined;
 		}
@@ -152,7 +153,6 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			dumperRef.current = null;
 			shellRef.current = null;
 			infraRef.current = null;
-			setTranscript( EMPTY_TRANSCRIPT );
 			setReady( false );
 		};
 	}, [ active, shell, generation, buildNow ] );
