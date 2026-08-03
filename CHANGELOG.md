@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`move_node` / `move` / `mv`** — Tachikoma's `CommandInterpreter.pm:643` verb,
+  never ported. Its sibling `remove_node` came over complete with all three
+  aliases and the `-a` glob, so the gap was an oversight rather than a
+  divergence; nothing documented it because there was nothing to document.
+  Authorised under `make_node`, as in the reference — renaming is a construction
+  privilege, not one of its own. `Node::name()` already owned the registry
+  re-key, the collision guard and the sibling cascade, so the verb is as thin as
+  the Perl. Ported to both interpreters.
+
 ## [2.5.2] - 2026-08-03
 
 ### Fixed

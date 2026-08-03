@@ -340,6 +340,7 @@ class Command_Interpreter_Node extends Node {
 			'register' => "register <source name> <target name> <event>\n",
 			'unregister' => "unregister <source name> <target name> <event>\n",
 			'remove_node' => "remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n",
+			'move_node' => "move_node <node name> <new name>\n    aliases: move, mv\n",
 			'list_nodes' => "list_nodes [ -clst ] [ <node name> ]\n"
 				. "list_nodes -a [ -clst ] [ <regex glob> ]\n"
 				. "    -c show message counters\n"
@@ -407,6 +408,9 @@ class Command_Interpreter_Node extends Node {
 			'disconnect'      => fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string => self::cmd_disconnect_node( self::arg_strings( $args ), $envelope ),
 			'register'        => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_register( self::arg_strings( $args ) ),
 			'unregister'      => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_unregister( self::arg_strings( $args ) ),
+			'move_node'       => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_move_node( self::arg_strings( $args ) ),
+			'move'            => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_move_node( self::arg_strings( $args ) ),
+			'mv'              => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_move_node( self::arg_strings( $args ) ),
 			'remove_node'     => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
 			'remove'          => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
 			'rm'              => fn ( Command_Interpreter_Node $self, array $args ): string => self::cmd_remove_node( $self, self::arg_strings( $args ) ),
@@ -653,6 +657,29 @@ class Command_Interpreter_Node extends Node {
 			return "usage: unregister <source name> <target name> <event>\n";
 		}
 		$node->unregister( $event, $target );
+		return "ok\n";
+	}
+
+	/**
+	 * `move_node <node name> <new name>` — Tachikoma CommandInterpreter.pm:643.
+	 *
+	 * Node::name() owns the work: registry re-key, collision guard, and the
+	 * cascade to owned siblings. Authorised under `make_node`, as in the
+	 * reference — renaming is a construction privilege, not one of its own.
+	 *
+	 * @param list<string> $args
+	 */
+	private static function cmd_move_node( array $args ): string {
+		$name     = $args[0] ?? '';
+		$new_name = $args[1] ?? '';
+		if ( '' === $name || '' === $new_name ) {
+			return "usage: move_node <node name> <new name>\n";
+		}
+		$node = Core::node( $name );
+		if ( null === $node ) {
+			throw new \RuntimeException( \esc_html( "can't find node \"{$name}\"" ) );
+		}
+		$node->name( $new_name );
 		return "ok\n";
 	}
 
@@ -1434,6 +1461,8 @@ class Command_Interpreter_Node extends Node {
 			'disconnect'   => 'disconnect_node',
 			'remove'       => 'remove_node',
 			'rm'           => 'remove_node',
+			'move'         => 'move_node',
+			'mv'           => 'move_node',
 			'chdir'        => 'cd',
 			'tell'         => 'tell_node',
 			'send'         => 'send_node',
