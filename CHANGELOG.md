@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`register` validated a listener where `notify` would not resolve it.** The
+  verb checked the target in the interpreter's own registry while `notify()`
+  resolves in the SOURCE node's — two expressions for one lookup, and the
+  failure mode when they drift is a listener that registers cleanly and is then
+  silently dropped on the first notify. Now one expression.
+- **`dump_config` omitted `set_sink` for ANY interpreter**, so a node sinked to
+  a second one re-evaluated as bound to whichever interpreter made it.
+  `make_node` now records the sink it wires, and only that one is implicit.
+
 ## [2.7.0] - 2026-08-03
 
 ### Added

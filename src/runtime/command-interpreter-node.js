@@ -283,6 +283,8 @@ export class CommandInterpreterNode extends Node {
 			throw error;
 		}
 		node.sink = this;
+		// The sink dump_config may omit: the one make_node wired.
+		node.defaultSink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			node.debugState = this.debugState;
 		}
@@ -537,7 +539,8 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === target ) {
 			return 'usage: register <source name> <target name> <event>';
 		}
-		if ( null === registry.node( target ) ) {
+		// Validate where notify() RESOLVES, or a listener drops silently.
+		if ( null === src.registry.node( target ) ) {
 			return `unknown node: ${ target }`;
 		}
 		src.register( parts.slice( 2 ).join( ' ' ), target );

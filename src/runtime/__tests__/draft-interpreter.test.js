@@ -67,6 +67,9 @@ class DraftInterpreter extends CommandInterpreterNode {
 		node.name = name;
 		node.arguments = args.slice( 2 );
 		node.sink = this;
+		// Same rule makeNode follows: record the sink you wired, or
+		// dump_config emits a set_sink line for your own default.
+		node.defaultSink = this;
 		return 'ok';
 	}
 }
@@ -262,6 +265,23 @@ describe( 'a draft interpreter holding a server topology', () => {
 		expect( () =>
 			CommandInterpreterNode._cmdProfile( 'on', draft.childRegistry )
 		).toThrow( /_router/ );
+	} );
+
+	it( 'emits set_sink when a node is sinked to a DIFFERENT interpreter', () => {
+		// dump_config omits set_sink for the interpreter make_node wired. It
+		// must not omit it for another one, or the dump re-evaluates with the
+		// node silently rebound to whichever interpreter made it.
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
+		const other = new CommandInterpreterNode();
+		other.name = 'other-ci';
+		const node = draft.childRegistry.node( 'firehose-fanout' );
+
+		node.sink = other;
+
+		expect( node.dumpConfig() ).toContain(
+			'set_sink firehose-fanout other-ci'
+		);
 	} );
 
 	it( 'applies remove_node to a stub', () => {
