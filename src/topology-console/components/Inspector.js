@@ -26,7 +26,7 @@ import { processStats } from '../utils/processStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
-import { edgeHasConnectRole } from '../utils/draftGraph';
+import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { useCatalog } from '../CatalogContext';
 

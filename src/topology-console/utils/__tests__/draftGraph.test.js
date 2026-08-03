@@ -5,16 +5,18 @@ import {
 	moveNode,
 	updateNodeArgs,
 	updateNodeVerbs,
+	addInclude,
+	removeInclude,
+	connectDraftEdge,
+} from '../draftGraph';
+import {
 	draftIsDirty,
 	generateNodeName,
 	withReplAnchor,
-	addInclude,
-	removeInclude,
 	reconcileIncludes,
 	applyLoadedBaseline,
-	connectDraftEdge,
 	withResolvedConfigEdges,
-} from '../draftGraph';
+} from '../consoleGraph';
 import { parseTsl } from '../parseTsl';
 import { serializeTsl } from '../serializeTsl';
 

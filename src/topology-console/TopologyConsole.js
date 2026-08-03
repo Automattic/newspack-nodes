@@ -52,7 +52,7 @@ import {
 	reconcileIncludes,
 	withReplAnchor,
 	withResolvedConfigEdges,
-} from './utils/draftGraph';
+} from './utils/consoleGraph';
 import { draftReducer, revertIncludes } from './utils/draftReducer';
 import { DraftProvider, useDraftDispatch } from './DraftContext';
 import { CatalogProvider } from './CatalogContext';

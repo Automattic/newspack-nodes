@@ -35,7 +35,7 @@ import {
 	answerBatch,
 	installFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import * as draftGraph from '../utils/draftGraph';
+import * as consoleGraph from '../utils/consoleGraph';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
@@ -4911,7 +4911,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 
 		it( 'reconcile effect does not run in VIEW mode (no wasted setDraft on mount)', async () => {
-			const spy = jest.spyOn( draftGraph, 'reconcileIncludes' );
+			const spy = jest.spyOn( consoleGraph, 'reconcileIncludes' );
 
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			render( <TopologyConsole /> );
