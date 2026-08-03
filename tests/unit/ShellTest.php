@@ -965,16 +965,17 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_include_file_processes_each_line(): void {
-		$dir  = $this->make_temp_dir();
-		$file = "$dir/script.tsl";
-		\file_put_contents( $file, "tell alpha first\ntell beta second\n# comment\n" );
+		$dir = $this->make_temp_dir();
+		\file_put_contents( "$dir/script.tsl", "tell alpha first\ntell beta second\n# comment\n" );
+		// include takes a registry NAME, not a path — register the dir.
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $dir );
 
 		// include is processed inline; each parsed line goes through fill() → sink.
 		$shell = new Shell_Node();
 		$sink  = new Capture_Sink_Node();
 		$shell->sink( $sink );
 
-		$result = $shell->parse( "include $file" );
+		$result = $shell->parse( 'include script' );
 		$this->assertNull( $result, 'include returns null (handled inline)' );
 		$this->assertCount( 2, $sink->captured, 'include should fire two TM_INFOs' );
 		$this->assertSame( 'alpha', $sink->captured[0][ Message::TO ] );
@@ -1259,14 +1260,14 @@ class ShellTest extends TestCase {
 		// through the Shell's sink.
 		$tmp = $this->make_temp_dir();
 		try {
-			$script = "{$tmp}/cmds.txt";
-			\file_put_contents( $script, "ls\ntell node hi\n" );
+			\file_put_contents( "{$tmp}/cmds.tsl", "ls\ntell node hi\n" );
+			\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
 
 			$shell = new Shell_Node();
 			$sink  = new Capture_Sink_Node();
 			$shell->sink( $sink );
 
-			$shell->parse( 'include ' . $script );
+			$shell->parse( 'include cmds' );
 
 			$this->assertCount( 2, $sink->captured );
 			// First line was `ls` → TM_COMMAND.

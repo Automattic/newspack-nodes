@@ -32,6 +32,59 @@ class ShellIncludeTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
+	// ── include is confined to the registered topology directories ─────────
+
+	public function test_include_refuses_a_path_outside_the_registered_dirs(): void {
+		// Worker boot eval_script()s admin-authored TSL, so an include that
+		// resolves anywhere on disk executes whatever it finds there.
+		$outside = $this->make_temp_dir( 'shell-include-outside-' );
+		\file_put_contents( "{$outside}/evil.tsl", "tell pwned hello\n" );
+		$captured = [];
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $m ) use ( &$captured ): void {
+			$captured[] = $m;
+		} );
+
+		try {
+			$shell = new \Newspack_Nodes\Shell_Node();
+			$sink  = new Capture_Sink_Node();
+			$shell->sink( $sink );
+
+			$shell->parse( "include {$outside}/evil.tsl" );
+
+			$this->assertSame( [], $sink->captured, 'include executed a file outside the topology dirs' );
+			$this->assertStringContainsString( 'file not found', \implode( "\n", $captured ) );
+		} finally {
+			\Newspack_Nodes\Core::set_stderr_handler( static function (): void {} );
+			$this->rmdir_recursive( $outside );
+		}
+	}
+
+	public function test_include_refuses_a_traversal_name(): void {
+		// resolve() interpolates the name into "<dir>/<name>.tsl", so a name
+		// carrying separators escapes the dir even with the fallback gone.
+		$outside = $this->make_temp_dir( 'shell-include-traversal-' );
+		\file_put_contents( "{$outside}/escaped.tsl", "tell pwned hello\n" );
+		$captured = [];
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $m ) use ( &$captured ): void {
+			$captured[] = $m;
+		} );
+
+		try {
+			$shell = new \Newspack_Nodes\Shell_Node();
+			$sink  = new Capture_Sink_Node();
+			$shell->sink( $sink );
+
+			$relative = '../' . \basename( $outside ) . '/escaped';
+			$shell->parse( "include {$relative}" );
+
+			$this->assertSame( [], $sink->captured, 'include traversed out of the topology dirs' );
+			$this->assertStringContainsString( 'file not found', \implode( "\n", $captured ) );
+		} finally {
+			\Newspack_Nodes\Core::set_stderr_handler( static function (): void {} );
+			$this->rmdir_recursive( $outside );
+		}
+	}
+
 	/**
 	 * Every command line the Shell dispatched, in order, reconstructed from the
 	 * captured Message. `command`-shaped verbs (make_node, connect_node, ...) carry
@@ -76,13 +129,14 @@ class ShellIncludeTest extends TestCase {
 		$this->assertContains( 'make_node Echo caller-echo', $lines );
 	}
 
-	public function test_include_still_accepts_a_literal_file_path(): void {
+	public function test_include_takes_a_name_not_a_path_even_inside_a_registered_dir(): void {
+		// Names only. Allowing any path means canonicalize-and-contain; the
+		// registry already owns which dirs are includable, so let it answer.
 		$path = "{$this->tmp}/loose.tsl";
 		\file_put_contents( $path, "make_node Echo loose-echo\n" );
 
-		$lines = $this->run_script( "include {$path}\n" );
-
-		$this->assertContains( 'make_node Echo loose-echo', $lines );
+		$this->assertSame( [], $this->run_script( "include {$path}\n" ) );
+		$this->assertContains( 'make_node Echo loose-echo', $this->run_script( "include loose\n" ) );
 	}
 
 	public function test_include_is_a_builtin_and_never_emits_an_include_message(): void {
