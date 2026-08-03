@@ -375,8 +375,9 @@ export class Node {
 
 	// Emit round-trippable config: make_node + set_sink? + connect_node lines.
 	dumpConfig() {
-		// Subclasses carry a `Node` suffix; the shell name strips it.
+		// `Node` suffix stripped; a stub declares the class it stands for.
 		const shellName =
+			this.shellName ||
 			this.constructor.name.replace( /Node$/, '' ) ||
 			this.constructor.name;
 		let out = `make_node ${ shellName } ${ this.name }`;
@@ -386,7 +387,11 @@ export class Node {
 		out += '\n';
 
 		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
-		if ( '' !== sinkName && names.COMMAND_INTERPRETER !== sinkName ) {
+		// make_node wires the interpreter as sink, so that needs no statement.
+		const implicit =
+			names.COMMAND_INTERPRETER === sinkName ||
+			true === this.sink?.constructor?.isCommandInterpreter;
+		if ( '' !== sinkName && ! implicit ) {
 			out += `set_sink ${ this.name } ${ sinkName }\n`;
 		}
 
