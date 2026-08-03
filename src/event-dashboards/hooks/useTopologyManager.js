@@ -251,7 +251,7 @@ function flushed( pending ) {
 
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, paused = false } = opts;
-	const refreshMs = opts.refreshMs ?? 4000;
+	const refreshMs = opts.refreshMs ?? 5000;
 
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
@@ -265,6 +265,8 @@ export function useTopologyManager( opts = {} ) {
 		teeName: 'topologymanager:tee',
 		commandClient,
 		paused,
+		// Omitted = every router tick; refreshMs only reached the bump.
+		intervalMs: parseInt( refreshMs, 10 ),
 	} );
 
 	// One node per mutation verb; the reply that lands on it IS its answer.
