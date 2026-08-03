@@ -7,12 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-08-02
+
 ### Changed
 
-- **Remote_Link connects are staggered, one per second.** An aggregator brings
+- **Remote_Link connects are staggered, one per 500ms.** An aggregator brings
   every `Remote_Source` up in the same tick, and N simultaneous SSE connects are
-  what a spoke answers with HTTP 429. Connects now queue and drain one per tick
-  through a shared `Connect_Queue_Timer_Node` — a port of Tachikoma's
+  what a spoke answers with HTTP 429. Connects now queue and drain one per
+  500ms tick through a shared `Connect_Queue_Timer_Node` — a port of Tachikoma's
   `JobSpawnTimer` + `Job.pm`'s `@SPAWN_QUEUE`, including retiring the timer once
   the queue is dry.
 
