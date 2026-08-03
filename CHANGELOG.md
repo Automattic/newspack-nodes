@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-08-03
+
 ### Changed
 
 - **The console's draft document is a reducer.** `draftGraph`'s functions were
