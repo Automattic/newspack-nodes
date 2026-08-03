@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Every console document mutation goes through one door.** `DraftContext.js`
+  adds `useDraftDispatch( setDraft )` — the binding of the reducer to the
+  draft — and `TopologyConsole` now dispatches TSL-verb actions instead of
+  reaching for `draftGraph` functions directly. Two sites keep a functional
+  updater because they read the current graph before acting (dropping a node
+  derives its name from the graph; renaming rewrites verb args off the result),
+  and both route through `draftReducer` inside it. Whole-document *loads* —
+  open, discard, upload, the include reconcile — deliberately stay on
+  `setDraft`: replacing a document is not a verb, and dressing it as one would
+  put a word in the grammar no topology can contain.
+- **`draftGraph.renameNode` is now `moveNode`**, matching the `move_node` verb
+  ported in 2.6.0. The action set and the grammar are one vocabulary.
+- **`DraftProvider` / `useDraft` carry `{ draft, dispatch }`** so the canvas and
+  inspector can stop taking the document as pass-through props. `useDraft`
+  throws outside a provider rather than serving an empty document. `baseline`
+  stays with the load door: `draftIsDirty` compares the pair, but carrying it
+  here would re-render every consumer on a save for data none of them read.
+- **The expand-error backstop reverts through `remove_include`.** It used to
+  rewrite the `includes` field the include verbs own, which made an
+  error-triggered revert invisible to anything watching the action stream. The
+  new `revertIncludes` is remove-only on purpose: the last-good tree lags a
+  removal until the next successful expand, so rewriting from it wholesale
+  could resurrect an include the operator had just dropped.
+- **`TopologySettingsPanel` reads and writes the document directly** — 6 props
+  down to 2. It takes `draft.frontmatter` / `draft.secureLevel` from the
+  context and dispatches `var` / `secure`, so the two forwarding callbacks in
+  `TopologyConsole` are gone.
+
 ## [2.6.0] - 2026-08-03
 
 ### Changed
