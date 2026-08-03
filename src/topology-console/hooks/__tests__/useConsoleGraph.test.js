@@ -424,6 +424,64 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		expect( lastConnector.startCount ).toBe( 1 );
 	} );
 
+	it( 'stops the router tick when hidden, so every poller stops with it', () => {
+		// Pollers hitchhike the tick — dump_metadata (1s), uptime (5s), dmesg
+		// (10s), topologies list (10s). Only the SSE was gated, so a hidden
+		// console kept POSTing all of them. (The heartbeat was already silent:
+		// closing the stream calls clearSlot, which stopTimers on the last
+		// lease.) Gating the tick they share stops them coherently.
+		renderGraph( { streamEnabled: true } );
+		const router = Core.node( names.ROUTER );
+		expect( router.mode ).not.toBe( 'inactive' );
+
+		// Prove the mechanism, not just the router's own flag: a hitchhiking
+		// poller fires from notify_timer, so a stopped tick must silence it.
+		const metadata = Core.node( names.METADATA );
+		const before = metadata.counter;
+		act( () => router.fireCb() );
+		expect( metadata.counter ).toBeGreaterThan( before );
+
+		// …so an inactive router is a silent poller: notify_timer only runs
+		// from the router's own fire path.
+		act( () => setVisibility( 'hidden' ) );
+		expect( router.mode ).toBe( 'inactive' );
+
+		// Resuming must actually repaint: at cwd '/' this poll is LOCAL (it
+		// dumps the browser's own graph, no request), so pausing it while
+		// hidden is only acceptable if it comes straight back.
+		act( () => setVisibility( 'visible' ) );
+		expect( router.mode ).not.toBe( 'inactive' );
+		const resumed = metadata.counter;
+		// Metadata self-throttles to its own 1s interval off Core.now(), so a
+		// frozen clock hides the resume. Step past it.
+		const realNow = Date.now;
+		Date.now = () => realNow() + 2000;
+		try {
+			act( () => router.fireCb() );
+		} finally {
+			Date.now = realNow;
+		}
+		expect( metadata.counter ).toBeGreaterThan( resumed );
+	} );
+
+	it( 'gates the tick in EDIT mode too, where the catalog poller lives on', () => {
+		// `enabled` is false in edit mode (mode !== 'edit'), but
+		// useTopologyCatalog deliberately keeps its 10s router-hitchhiking
+		// poll mounted there. Honouring `enabled` would leave the leak open on
+		// the one path guaranteed to still be polling.
+		renderGraph( { enabled: false } );
+		const router = Core.node( names.ROUTER );
+
+		act( () => setVisibility( 'hidden' ) );
+		expect( router.mode ).toBe( 'inactive' );
+		// The tick interval survives the pause: a bare setTimer() hitchhike
+		// reads it, and would inherit 0 from stopTimer.
+		expect( router.interval_ms ).toBe( 1000 );
+
+		act( () => setVisibility( 'visible' ) );
+		expect( router.mode ).not.toBe( 'inactive' );
+	} );
+
 	it( 'does NOT open the stream while streaming is off, even when visible', () => {
 		renderGraph( { streamEnabled: false } );
 		// The session worker's RemoteIpc EXISTS (it's always mounted)…

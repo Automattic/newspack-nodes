@@ -43,6 +43,7 @@ import {
 } from '../core/consolePersistence';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
+import { ROUTER_TICK_MS } from '../../runtime/router-node';
 
 const EMPTY_TRANSCRIPT = [];
 
@@ -317,6 +318,28 @@ export function useConsoleGraph( {
 		}
 		return undefined;
 	}, [ streamEnabled, isPageVisible, topology, partition, enabled ] );
+
+	// @longform Pollers hitchhike the router tick — dump_metadata, uptime,
+	// dmesg, topologies list. Gating each arm site is one site away from a
+	// leak; gating the tick they share stops them together and resumes them in
+	// step. NOT gated on `enabled`: that is false in edit mode, where the
+	// catalog poller deliberately stays mounted, so honouring it would leave
+	// the leak open on the one path guaranteed to still be polling — and a
+	// router stopped while hidden would never re-arm.
+	useEffect( () => {
+		const router = Core.node( names.ROUTER );
+		if ( ! router ) {
+			return undefined;
+		}
+		if ( isPageVisible ) {
+			router.setTimer( ROUTER_TICK_MS );
+		} else {
+			router.stopTimer();
+			// stopTimer zeroes interval_ms; a bare setTimer() inherits it.
+			router.interval_ms = ROUTER_TICK_MS;
+		}
+		return undefined;
+	}, [ isPageVisible, generation ] );
 
 	let status = 'open';
 	if ( ! enabled ) {
