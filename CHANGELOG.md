@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.5] - 2026-08-03
+
+### Fixed
+
+- **A node's `hidden` schema flag is honored on the canvas.** `dump_metadata`
+  excluded only patron-linked nodes, reading `node_schema()` solely for
+  `accepts_fill` / `has_target`. Hook-mounted infrastructure has no owner to
+  patron it — the connect-queue timer is shared process-wide by every
+  `Remote_Link` — so `hidden => true` was the only signal it could give, and the
+  topology console drew it anyway. Eight of the ten `hidden` flags in the tree
+  are per-verb (Inspector buttons); the two node-level ones are `SSE_In`, already
+  hidden by its `Remote_Link` patron, and the connect timer, so exactly one node
+  changes.
+
 ## [2.4.4] - 2026-08-03
 
 ### Fixed
