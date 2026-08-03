@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retrying a definitive "not found" never terminates. The default stays "we do
   not know", which is the safe assumption.
 
+### Fixed
+
+- **The expand-error include revert no longer runs in view mode.** The error
+  toast belongs to either mode, but the revert does not: outside edit mode the
+  draft is a leftover from a previous edit session, and the failed expansion is
+  a different topology's. Its sibling reconcile effect has always been gated;
+  this one was not, and was masked only because every route back into edit mode
+  replaces the draft first.
+
 ### Changed
 
 - **The graph surface's catalogs moved off the prop chain.** `classCatalog`,
@@ -27,7 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Palette` 10 → 8. These lift where the mutation handlers cannot, and the
   reason is worth keeping: a class list is the same list whether you are
   editing a topology or watching a live worker, so there is no edit-vs-live
-  branch to resolve.
+  branch to resolve. Absent catalogs default to frozen module-level constants,
+  so a provider that omits one (the debug overlay declares no topologies) keeps
+  one context identity across renders instead of defeating its own memo.
 - **Every console document mutation goes through one door.** `DraftContext.js`
   adds `useDraftDispatch( setDraft )` — the binding of the reducer to the
   draft — and `TopologyConsole` now dispatches TSL-verb actions instead of

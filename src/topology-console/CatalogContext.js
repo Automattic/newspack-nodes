@@ -17,6 +17,10 @@ import { createContext, useContext, useMemo } from '@wordpress/element';
 
 const CatalogContext = createContext( null );
 
+// Module-level: a fresh [] per render would defeat the memo below.
+const NO_ENTRIES = Object.freeze( [] );
+const NO_SCHEMAS = Object.freeze( {} );
+
 /**
  * @param {Object} props                  Component props.
  * @param {Object} [props.classCatalog]   shell_name → schema (canvas ports).
@@ -30,11 +34,11 @@ const CatalogContext = createContext( null );
  * @return {Element} The provider.
  */
 export function CatalogProvider( {
-	classCatalog = {},
-	classes = [],
-	formatters = [],
-	vaults = [],
-	topologies = [],
+	classCatalog = NO_SCHEMAS,
+	classes = NO_ENTRIES,
+	formatters = NO_ENTRIES,
+	vaults = NO_ENTRIES,
+	topologies = NO_ENTRIES,
 	// NOT defaulted: `composeTargets ?? parsed.nodes` needs undefined.
 	composeTargets,
 	children,
