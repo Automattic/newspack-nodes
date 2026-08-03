@@ -12,6 +12,7 @@
 
 import { Core } from '../core';
 import { CommandInterpreterNode } from '../command-interpreter-node';
+import { TimerNode } from '../timer-node';
 import { StubNode } from '../stub-node';
 import { NodeRegistry } from '../node-registry';
 import { parseStatements } from '../shell-node';
@@ -240,6 +241,27 @@ describe( 'a draft interpreter holding a server topology', () => {
 		expect( tee.dumpConfig() ).toContain(
 			'connect_node firehose-fanout flames'
 		);
+	} );
+
+	it( 'reports its own timers, and refuses to profile a graph it does not own', () => {
+		// list_timers reports a GRAPH, so it scopes like dump_metadata. And
+		// profiling is process-wide: a document registry owns no router and
+		// must not reach the live one to switch it on.
+		const liveTimer = new TimerNode();
+		liveTimer.name = 'live-ticker';
+		liveTimer.mode = 'router';
+		const draft = draftInterpreter();
+		evalTsl( draft, TSL );
+
+		const rows = CommandInterpreterNode._cmdListTimers(
+			true,
+			draft.childRegistry
+		);
+
+		expect( rows ).toEqual( [] );
+		expect( () =>
+			CommandInterpreterNode._cmdProfile( 'on', draft.childRegistry )
+		).toThrow( /_router/ );
 	} );
 
 	it( 'applies remove_node to a stub', () => {
