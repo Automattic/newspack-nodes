@@ -49,7 +49,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * Each entry is `[ closure, owning link ]` so a removed link's pending
 	 * connect can be purged rather than resurrect it.
 	 *
-	 * @var list<array{0: callable, 1: self}>
+	 * @var list<array{0: callable, 1: self|null}>
 	 */
 	private static array $connect_queue = [];
 
@@ -231,13 +231,13 @@ class Remote_Link_Node extends Timer_Node {
 			return;
 		}
 		$this->connect_queued = true;
-		self::$connect_queue[] = [
+		self::push_connect_queue(
 			function () use ( $sse ): void {
 				$this->connect_queued = false;
 				$sse->maybe_connect();
 			},
-			$this,
-		];
+			$this
+		);
 		if ( null === Core::node( Connect_Queue_Timer_Node::NODE_NAME ) ) {
 			$timer = new Connect_Queue_Timer_Node();
 			$timer->name( Connect_Queue_Timer_Node::NODE_NAME );
@@ -252,6 +252,17 @@ class Remote_Link_Node extends Timer_Node {
 	 *
 	 * @api Called by Connect_Queue_Timer_Node::fire().
 	 */
+	/**
+	 * Append a connect for the drain timer to run. The owner may be null for a
+	 * queue entry with no link to purge it (tests).
+	 *
+	 * @param callable   $connect The queued connect.
+	 * @param self|null  $owner   Link whose remove_node() should purge it.
+	 */
+	public static function push_connect_queue( callable $connect, ?self $owner ): void {
+		self::$connect_queue[] = [ $connect, $owner ];
+	}
+
 	/** Drop every pending connect. Teardown only; a live graph purges per link. */
 	public static function reset_connect_queue(): void {
 		self::$connect_queue = [];
