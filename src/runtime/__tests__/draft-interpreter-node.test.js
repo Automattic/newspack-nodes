@@ -198,6 +198,41 @@ describe( 'dumpDocument', () => {
 		expect( reloaded.dumpDocument() ).toBe( first );
 	} );
 
+	it( 'emits disconnect_node for an edge the baseline had and we do not', () => {
+		// `connect_node` APPENDS on a Tee, so dropping an edge is not the
+		// absence of a line — it needs an explicit disconnect against what was
+		// loaded. Absolute state cannot express a removal.
+		const d = draft();
+		d.load(
+			[
+				'make_node Tee fan',
+				'make_node Partition a a.log',
+				'make_node Partition b b.log',
+				'connect_node fan a',
+				'connect_node fan b',
+			].join( '\n' )
+		);
+		const baseline = d.dumpDocument();
+
+		d.run( 'disconnect_node fan b' );
+
+		expect( d.dumpDocument( baseline ) ).toContain(
+			'disconnect_node fan b'
+		);
+	} );
+
+	it( 'emits no disconnect when nothing was dropped', () => {
+		const d = draft();
+		d.load(
+			[ 'make_node Tee fan', 'make_node Partition a a.log' ].join( '\n' )
+		);
+		const baseline = d.dumpDocument();
+
+		d.run( 'connect_node fan a' );
+
+		expect( d.dumpDocument( baseline ) ).not.toContain( 'disconnect_node' );
+	} );
+
 	it( 'is empty for an empty document, not a stray newline', () => {
 		expect( draft().dumpDocument() ).toBe( '' );
 	} );

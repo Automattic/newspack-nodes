@@ -207,9 +207,14 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * a required order, and `secure` must come last or it disables `make_node`
 	 * for everything after it.
 	 *
+	 * @param {string} [baseline] The TSL this document was loaded from. Edges
+	 *                            it declared that we no longer do become
+	 *                            explicit `disconnect_node` lines — a Tee's
+	 *                            `connect_node` APPENDS, so absolute state
+	 *                            cannot express a removal.
 	 * @return {string} TSL, or '' for an empty document.
 	 */
-	dumpDocument() {
+	dumpDocument( baseline = '' ) {
 		const lines = [];
 		for ( const [ name, value ] of Object.entries( this.frontmatter ) ) {
 			lines.push( `var ${ name } = ${ value }` );
@@ -235,6 +240,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				edges.push( `connect_node ${ name } ${ t }` );
 			}
 		}
+		// A dropped edge needs saying; an added one is just its own line.
+		const have = new Set( edges );
+		for ( const was of DraftInterpreterNode._connectLines( baseline ) ) {
+			if ( ! have.has( was ) ) {
+				lines.push(
+					was.replace( /^connect_node /, 'disconnect_node ' )
+				);
+			}
+		}
 		lines.push( ...edges );
 		if ( this.secureLevel ) {
 			lines.push(
@@ -244,5 +258,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			);
 		}
 		return lines.length ? lines.join( '\n' ) + '\n' : '';
+	}
+
+	// The `connect_node` lines a TSL source declares, verbatim.
+	static _connectLines( tsl ) {
+		if ( ! tsl ) {
+			return [];
+		}
+		return parseStatements( tsl )
+			.filter( ( st ) => 'connect_node' === st.verb )
+			.map( ( st ) => st.values.join( ' ' ) );
 	}
 }

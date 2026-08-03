@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `<node>:config` target routes a verb to the sidecar, a bare target is how an
   interpreter-class node takes verbs directly — and which `cmd` and `command`
   canonicalise to in the tokenizer, so there is exactly one handler.
+  `dumpDocument( baseline )` diffs edges against the TSL it was loaded from and
+  emits `disconnect_node` for a dropped one — a Tee's `connect_node` APPENDS,
+  so absolute state cannot express a removal.
 
 ### Changed
 
