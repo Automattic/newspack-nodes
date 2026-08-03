@@ -377,15 +377,25 @@ export class CommandInterpreterNode extends Node {
 			list_nodes: ( self, args, env ) => self._cmdList( args, env ),
 			ls: ( self, args, env ) => self._cmdList( args, env ),
 			list_timers: ( self, args ) =>
-				CommandInterpreterNode._cmdListTimers( args.includes( '-s' ) ),
+				CommandInterpreterNode._cmdListTimers(
+					args.includes( '-s' ),
+					self.childRegistry
+				),
 			list_handles: ( self, args ) =>
-				CommandInterpreterNode._cmdListHandles( args.includes( '-s' ) ),
+				CommandInterpreterNode._cmdListHandles(
+					args.includes( '-s' ),
+					self.childRegistry
+				),
 			profile: ( self, args ) =>
-				CommandInterpreterNode._cmdProfile( args[ 0 ] ?? '' ),
+				CommandInterpreterNode._cmdProfile(
+					args[ 0 ] ?? '',
+					self.childRegistry
+				),
 			list_profiles: ( self, args ) =>
 				CommandInterpreterNode._cmdListProfiles(
 					args.find( ( a ) => '-s' !== a ) ?? '',
-					args.includes( '-s' )
+					args.includes( '-s' ),
+					self.childRegistry
 				),
 			log: ( self, args ) => {
 				self.stderr( args.join( ' ' ) );
@@ -1196,19 +1206,21 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// `list_timers` — active timers; MODE = own-slot vs router-hitchhike.
-	static _cmdListTimers( structured = false ) {
+	static _cmdListTimers( structured = false, registry = Core.registry ) {
 		if ( structured ) {
-			return CommandInterpreterNode._timerRows();
+			return CommandInterpreterNode._timerRows( registry );
 		}
-		const rows = CommandInterpreterNode._timerRows().map( ( r ) => [
-			r.active ? 'yes' : 'no',
-			String( r.interval_ms ),
-			r.mode,
-			r.oneshot ? 'yes' : 'no',
-			String( r.fires ),
-			r.type,
-			r.name,
-		] );
+		const rows = CommandInterpreterNode._timerRows( registry ).map(
+			( r ) => [
+				r.active ? 'yes' : 'no',
+				String( r.interval_ms ),
+				r.mode,
+				r.oneshot ? 'yes' : 'no',
+				String( r.fires ),
+				r.type,
+				r.name,
+			]
+		);
 		rows.sort( ( a, b ) => a[ 6 ].localeCompare( b[ 6 ] ) );
 		return CommandInterpreterNode._tabulate(
 			[ 'right', 'right', 'right', 'right', 'right', 'right', 'left' ],
@@ -1226,16 +1238,18 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// `list_handles` — nodes holding an EventSource; STATE = its readyState.
-	static _cmdListHandles( structured = false ) {
+	static _cmdListHandles( structured = false, registry = Core.registry ) {
 		if ( structured ) {
-			return CommandInterpreterNode._handleRows();
+			return CommandInterpreterNode._handleRows( registry );
 		}
-		const rows = CommandInterpreterNode._handleRows().map( ( r ) => [
-			r.id, // the EventSource readyState label (CONNECTING/OPEN/CLOSED)
-			String( r.count ),
-			r.type,
-			r.name,
-		] );
+		const rows = CommandInterpreterNode._handleRows( registry ).map(
+			( r ) => [
+				r.id, // the EventSource readyState label (CONNECTING/OPEN/CLOSED)
+				String( r.count ),
+				r.type,
+				r.name,
+			]
+		);
 		rows.sort( ( a, b ) => a[ 3 ].localeCompare( b[ 3 ] ) );
 		return CommandInterpreterNode._tabulate(
 			[ 'right', 'right', 'right', 'left' ],
@@ -1284,9 +1298,9 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// Keyed TimerNode rows for list_timers; next_ms is null.
-	static _timerRows() {
+	static _timerRows( registry = Core.registry ) {
 		const rows = [];
-		for ( const [ name, node ] of Core.nodes ) {
+		for ( const [ name, node ] of registry.nodes ) {
 			if ( ! ( node instanceof TimerNode ) ) {
 				continue;
 			}
@@ -1306,10 +1320,10 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// Keyed handle rows for list_handles; id = readyState.
-	static _handleRows() {
+	static _handleRows( registry = Core.registry ) {
 		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
 		const rows = [];
-		for ( const [ name, node ] of Core.nodes ) {
+		for ( const [ name, node ] of registry.nodes ) {
 			if ( ! node._es ) {
 				continue;
 			}
@@ -1333,11 +1347,13 @@ export class CommandInterpreterNode extends Node {
 	 * that knows its desired state never races a stale toggle. A deliberate
 	 * single-verb divergence from Tachikoma's enable/disable pair.
 	 *
-	 * @param {string} arg '' (toggle), 'on', or 'off'.
+	 * @param {string} arg        '' (toggle), 'on', or 'off'.
+	 * @param {Object} [registry] Graph to check for a router; Core's default.
 	 * @return {string} The reply line.
 	 */
-	static _cmdProfile( arg ) {
-		if ( null === Core.node( '_router' ) ) {
+	static _cmdProfile( arg, registry = Core.registry ) {
+		// Process-wide, so only a graph that OWNS the router may toggle it.
+		if ( null === registry.node( '_router' ) ) {
 			throw new Error( "can't find _router" );
 		}
 		const on = null !== RouterNode.profiles();
@@ -1361,8 +1377,12 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// list_profiles [glob] — per-node self-time, slowest avg first, --total--.
-	static _cmdListProfiles( glob, structured = false ) {
-		if ( null === Core.node( '_router' ) ) {
+	static _cmdListProfiles(
+		glob,
+		structured = false,
+		registry = Core.registry
+	) {
+		if ( null === registry.node( '_router' ) ) {
 			throw new Error( "can't find _router" );
 		}
 		// Core.now() (not wall time) so a shadowed clock stays deterministic.
