@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-08-03
+
+### Fixed
+
+- **A Topic's own partition directories are declared, not the worker's.**
+  `resolved_resource_dirs()` expanded `{partition}` over the topology's WORKER
+  count, but a Topic re-partitions on its own `num_partitions`. An aggregator
+  running one worker whose Topic fans out to four created `firehose.p1..p3` and
+  declared none of them — missing from worker status, and orphans to
+  `Log_Cleaner::sweep()`, which deletes undeclared dirs once they fall quiet past
+  the grace window. The count is read only for `Topic` (a `Partition`'s 4th value
+  is `segment_size`), resolves `<config:…>` tokens as the runtime does, and falls
+  back to the worker count rather than declaring nothing. An omitted argument
+  means Topic's schema default, NOT the worker count — a topology pinning
+  `var num_partitions = 1` under a larger global would otherwise hit the same
+  deletion path. Declared counts are clamped like every sibling path. A Topic
+  declaring N whose template cannot expand to N now says so instead of silently
+  funnelling every partition into one dir; nested layouts and paths outside the
+  log root are not failed expansions, and plain Partitions on literal `.p0` paths
+  still collapse to one dir across every worker.
+
 ## [2.4.3] - 2026-08-02
 
 ### Changed
