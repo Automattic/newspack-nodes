@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The console's draft document is a reducer.** `draftGraph`'s functions were
+  already `( graph, args ) => newGraph` — a reducer's signature — so
+  `draftReducer.js` adds naming and routing and nothing else; not one
+  `draftGraph` function changed. Action types are the TSL **verbs**
+  (`make_node`, `connect_node`, `disconnect_node`, `move_node`, `cmd`,
+  `include`, `var`, `secure`, `set_arguments`), because the draft's mutation
+  vocabulary and the grammar are the same vocabulary. Six call sites in
+  `TopologyConsole` dispatch through it so far; the rest follow.
+
 ### Added
 
 - **`move_node` / `move` / `mv`** — Tachikoma's `CommandInterpreter.pm:643` verb,
