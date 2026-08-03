@@ -120,6 +120,26 @@ export class CommandInterpreterNode extends Node {
 	// dump_config suppresses set_sink to ANY interpreter, not just `_ci`.
 	static isCommandInterpreter = true;
 
+	/**
+	 * The name table this interpreter's verbs operate on, and that the nodes it
+	 * makes register in. Defaults to its OWN registry, so a live interpreter is
+	 * unchanged.
+	 *
+	 * These are two different things and conflating them is a bug: a draft
+	 * interpreter lives in Core under one reserved name while its contents live
+	 * somewhere Core cannot see — exactly a Tachikoma Job, whose node sits in
+	 * the parent's table while its process owns its own.
+	 *
+	 * @return {Object} The registry.
+	 */
+	get childRegistry() {
+		return this._childRegistry ?? this.registry;
+	}
+
+	set childRegistry( registry ) {
+		this._childRegistry = registry;
+	}
+
 	constructor() {
 		super();
 		// Per-instance authorize override; null → static default → LOCAL check.
@@ -251,6 +271,7 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `unknown class: ${ type }` );
 		}
 		const node = new NodeClass();
+		node.registry = this.childRegistry;
 		node.name = name;
 		try {
 			node.arguments = Array.isArray( args ) ? args : [];
@@ -312,19 +333,38 @@ export class CommandInterpreterNode extends Node {
 			pwd: ( self, args, env ) =>
 				CommandInterpreterNode._cmdPwd( args, env ),
 			set_sink: ( self, args ) =>
-				CommandInterpreterNode._cmdSetSink( args ),
+				CommandInterpreterNode._cmdSetSink( args, self.childRegistry ),
 			connect_node: ( self, args, env ) =>
-				CommandInterpreterNode._cmdConnect( args, env ),
+				CommandInterpreterNode._cmdConnect(
+					args,
+					env,
+					self.childRegistry
+				),
 			connect: ( self, args, env ) =>
-				CommandInterpreterNode._cmdConnect( args, env ),
+				CommandInterpreterNode._cmdConnect(
+					args,
+					env,
+					self.childRegistry
+				),
 			disconnect_node: ( self, args, env ) =>
-				CommandInterpreterNode._cmdDisconnect( args, env ),
+				CommandInterpreterNode._cmdDisconnect(
+					args,
+					env,
+					self.childRegistry
+				),
 			disconnect: ( self, args, env ) =>
-				CommandInterpreterNode._cmdDisconnect( args, env ),
+				CommandInterpreterNode._cmdDisconnect(
+					args,
+					env,
+					self.childRegistry
+				),
 			register: ( self, args ) =>
-				CommandInterpreterNode._cmdRegister( args ),
+				CommandInterpreterNode._cmdRegister( args, self.childRegistry ),
 			unregister: ( self, args ) =>
-				CommandInterpreterNode._cmdUnregister( args ),
+				CommandInterpreterNode._cmdUnregister(
+					args,
+					self.childRegistry
+				),
 			move_node: ( self, args ) => self._cmdMove( args ),
 			move: ( self, args ) => self._cmdMove( args ),
 			mv: ( self, args ) => self._cmdMove( args ),
@@ -350,12 +390,16 @@ export class CommandInterpreterNode extends Node {
 			},
 			dmesg: () => CommandInterpreterNode._cmdDmesg(),
 			dump_node: ( self, args ) =>
-				CommandInterpreterNode._cmdDumpNode( args ),
-			dump: ( self, args ) => CommandInterpreterNode._cmdDumpNode( args ),
+				CommandInterpreterNode._cmdDumpNode( args, self.childRegistry ),
+			dump: ( self, args ) =>
+				CommandInterpreterNode._cmdDumpNode( args, self.childRegistry ),
 			dump_metadata: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpMetadata( args[ 0 ] ?? '' ),
 			dump_config: ( self, args ) =>
-				CommandInterpreterNode._cmdDumpConfig( args[ 0 ] ?? '' ),
+				CommandInterpreterNode._cmdDumpConfig(
+					args[ 0 ] ?? '',
+					self.childRegistry
+				),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreterNode._cmdUptime(),
 			trace: ( self, args ) => self._cmdTrace( args ),
@@ -393,15 +437,15 @@ export class CommandInterpreterNode extends Node {
 		return ` ${ cwd } -> ${ from }`;
 	}
 
-	static _cmdSetSink( args ) {
+	static _cmdSetSink( args, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		const target = parts.slice( 1 ).join( ' ' );
 		if ( '' === name || '' === target ) {
 			return 'usage: set_sink <node> <target>';
 		}
-		const src = Core.node( name );
-		const dst = Core.node( target );
+		const src = registry.node( name );
+		const dst = registry.node( target );
 		if ( null === src || null === dst ) {
 			return 'unknown node';
 		}
@@ -409,13 +453,13 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	static _cmdConnect( args, envelope = {} ) {
+	static _cmdConnect( args, envelope = {}, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'usage: connect_node <node> [<target>]';
 		}
-		const src = Core.node( name );
+		const src = registry.node( name );
 		if ( null === src ) {
 			return `unknown node: ${ name }`;
 		}
@@ -432,13 +476,13 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	static _cmdDisconnect( args, envelope = {} ) {
+	static _cmdDisconnect( args, envelope = {}, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'usage: disconnect_node <node> [<target>]';
 		}
-		const src = Core.node( name );
+		const src = registry.node( name );
 		if ( null === src ) {
 			return `unknown node: ${ name }`;
 		}
@@ -463,13 +507,13 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// register: arg order src/tgt/event, but Node.register takes event first.
-	static _cmdRegister( args ) {
+	static _cmdRegister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
 			return 'usage: register <source name> <target name> <event>';
 		}
-		const src = Core.node( source );
+		const src = registry.node( source );
 		if ( null === src ) {
 			return `unknown node: ${ source }`;
 		}
@@ -477,7 +521,7 @@ export class CommandInterpreterNode extends Node {
 		if ( '' === target ) {
 			return 'usage: register <source name> <target name> <event>';
 		}
-		if ( null === Core.node( target ) ) {
+		if ( null === registry.node( target ) ) {
 			return `unknown node: ${ target }`;
 		}
 		src.register( parts.slice( 2 ).join( ' ' ), target );
@@ -485,13 +529,13 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// unregister: drop tgt's registration on src; no target-existence check.
-	static _cmdUnregister( args ) {
+	static _cmdUnregister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
 			return 'usage: unregister <source name> <target name> <event>';
 		}
-		const src = Core.node( source );
+		const src = registry.node( source );
 		if ( null === src ) {
 			return `unknown node: ${ source }`;
 		}
@@ -509,7 +553,7 @@ export class CommandInterpreterNode extends Node {
 		if ( ! name || ! newName ) {
 			return 'usage: move_node <node name> <new name>';
 		}
-		const node = Core.node( name );
+		const node = this.childRegistry.node( name );
 		if ( null === node ) {
 			throw new Error( `can't find node "${ name }"` );
 		}
@@ -543,7 +587,7 @@ export class CommandInterpreterNode extends Node {
 				re = null;
 			}
 			if ( re ) {
-				for ( const candidate of Core.nodes.keys() ) {
+				for ( const candidate of this.childRegistry.nodes.keys() ) {
 					if ( re.test( candidate ) ) {
 						names.push( candidate );
 					}
@@ -560,7 +604,7 @@ export class CommandInterpreterNode extends Node {
 			if ( '' === name ) {
 				continue;
 			}
-			const node = Core.node( name );
+			const node = this.childRegistry.node( name );
 			if ( null === node ) {
 				errors.push( `can't find node "${ name }"` );
 				continue;
@@ -641,14 +685,14 @@ export class CommandInterpreterNode extends Node {
 
 		if ( ! listMatches && argv.length > 0 ) {
 			for ( const name of argv ) {
-				if ( null === Core.node( name ) ) {
+				if ( null === this.childRegistry.node( name ) ) {
 					return `can't find node "${ name }"`;
 				}
 			}
 		}
 
 		const globs = 0 === argv.length ? [ null ] : argv;
-		const allNames = [ ...Core.nodes.keys() ].sort();
+		const allNames = [ ...this.childRegistry.nodes.keys() ].sort();
 		const rows = [];
 
 		for ( const glob of globs ) {
@@ -662,7 +706,7 @@ export class CommandInterpreterNode extends Node {
 				}
 			}
 			for ( const name of allNames ) {
-				const node = Core.node( name );
+				const node = this.childRegistry.node( name );
 				if ( null === node ) {
 					continue;
 				}
@@ -722,13 +766,13 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// dump_node <name> [<keys>]: class header + pretty-JSON of state.
-	static _cmdDumpNode( args ) {
+	static _cmdDumpNode( args, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
 			return 'no node specified';
 		}
-		const node = Core.node( name );
+		const node = registry.node( name );
 		if ( null === node ) {
 			return `can't find node "${ name }"`;
 		}
@@ -764,7 +808,7 @@ export class CommandInterpreterNode extends Node {
 	}
 
 	// dump_config — round-trippable make_node/set_sink/connect_node lines.
-	static _cmdDumpConfig( glob = '' ) {
+	static _cmdDumpConfig( glob = '', registry ) {
 		const pattern = ( glob || '' ).trim();
 		let re = null;
 		if ( pattern ) {
@@ -776,7 +820,7 @@ export class CommandInterpreterNode extends Node {
 			}
 		}
 		let out = '';
-		for ( const [ name, node ] of Core.nodes ) {
+		for ( const [ name, node ] of registry.nodes ) {
 			// Skip only the backbone; _output is a real node now, dumpable.
 			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
@@ -815,7 +859,7 @@ export class CommandInterpreterNode extends Node {
 		const header = [ 'NAME', 'COUNT', 'LGST_MSG', 'READ', 'WRITTEN' ];
 		const dirs = [ 'left', 'right', 'right', 'right', 'right' ];
 		const rows = [];
-		const allNames = [ ...Core.nodes.keys() ].sort();
+		const allNames = [ ...this.childRegistry.nodes.keys() ].sort();
 		let re = null;
 		if ( listMatches && null !== glob ) {
 			try {
@@ -825,7 +869,7 @@ export class CommandInterpreterNode extends Node {
 			}
 		}
 		for ( const name of allNames ) {
-			const node = Core.node( name );
+			const node = this.childRegistry.node( name );
 			const sinkName = node.sink && node.sink.name ? node.sink.name : '';
 			if ( listMatches ) {
 				if ( null !== glob && ( ! re || ! re.test( name ) ) ) {
@@ -869,7 +913,7 @@ export class CommandInterpreterNode extends Node {
 				next = Math.max( 0, parseInt( second, 10 ) || 0 );
 			}
 			let count = 0;
-			for ( const [ , node ] of Core.nodes ) {
+			for ( const [ , node ] of this.childRegistry.nodes ) {
 				node.debugState = next;
 				count++;
 			}
@@ -881,7 +925,7 @@ export class CommandInterpreterNode extends Node {
 			return `_command_interpreter debug_state: ${ this.debugState }`;
 		}
 
-		const node = Core.node( first );
+		const node = this.childRegistry.node( first );
 		if ( null === node ) {
 			return `unknown node: ${ first }`;
 		}

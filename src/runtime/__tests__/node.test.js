@@ -361,9 +361,11 @@ test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half
 
 	let selfWhenInterpreterGone = 'unset';
 	// When the interpreter is removed the parent must still resolve by name.
-	const orig = Core.unregisterNode.bind( Core );
+	// The seam is the registry now; Core delegates to it.
+	const registry = Core.registry;
+	const orig = registry.unregisterNode.bind( registry );
 	const spy = jest
-		.spyOn( Core, 'unregisterNode' )
+		.spyOn( registry, 'unregisterNode' )
 		.mockImplementation( ( name ) => {
 			if ( 'self-last:config' === name ) {
 				selfWhenInterpreterGone = Core.node( 'self-last' );

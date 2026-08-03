@@ -148,7 +148,7 @@ export class Node {
 			return cb( payload );
 		}
 		// Node-name mode: deliver TM_INFO directly to the resolved node, no TO.
-		const target = Core.node( listener );
+		const target = this.registry.node( listener );
 		if ( ! target ) {
 			// Stale listener could fire on every notify — rate-limit.
 			Core.printLessOften(
@@ -325,17 +325,38 @@ export class Node {
 		return this._name;
 	}
 
-	set name( name ) {
+	/**
+	 * The name table this node lives in; Core's unless told otherwise.
+	 *
+	 * An interpreter that owns a registry hands it to the nodes it makes, and
+	 * those become invisible to every other registry — which is how an edit
+	 * buffer and a live graph both hold a node called `firehose`.
+	 *
+	 * @return {Object} The registry.
+	 */
+	get registry() {
+		return this._registry ?? Core.registry;
+	}
+
+	set registry( registry ) {
 		if ( '' !== this._name ) {
-			Core.unregisterNode( this._name );
+			throw new Error( 'registry must be set before name' );
 		}
-		if ( null !== Core.node( name ) ) {
+		this._registry = registry;
+	}
+
+	set name( name ) {
+		const registry = this.registry;
+		if ( '' !== this._name ) {
+			registry.unregisterNode( this._name );
+		}
+		if ( null !== registry.node( name ) ) {
 			throw new Error(
 				`node name collision: ${ name } already registered`
 			);
 		}
 		this._name = name;
-		Core.registerNode( name, this );
+		registry.registerNode( name, this );
 	}
 
 	unregister( event, listener ) {
@@ -449,11 +470,11 @@ export class Node {
 		this.patron = null;
 		// Cascade-unregister the sibling interpreter; avoids recycle collision.
 		if ( this.interpreter && '' !== this.interpreter.name ) {
-			Core.unregisterNode( this.interpreter.name );
+			this.interpreter.registry.unregisterNode( this.interpreter.name );
 		}
 		this.interpreter = null;
 		if ( '' !== this.name ) {
-			Core.unregisterNode( this.name );
+			this.registry.unregisterNode( this.name );
 			this._name = '';
 		}
 	}
