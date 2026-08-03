@@ -408,10 +408,11 @@ export class Node {
 		out += '\n';
 
 		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
-		// make_node wires the interpreter as sink, so that needs no statement.
+		// Only the sink make_node wired is implicit; another must be stated.
 		const implicit =
 			names.COMMAND_INTERPRETER === sinkName ||
-			true === this.sink?.constructor?.isCommandInterpreter;
+			( undefined !== this.defaultSink &&
+				this.sink === this.defaultSink );
 		if ( '' !== sinkName && ! implicit ) {
 			out += `set_sink ${ this.name } ${ sinkName }\n`;
 		}
