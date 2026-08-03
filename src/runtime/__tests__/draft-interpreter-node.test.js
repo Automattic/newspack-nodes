@@ -158,6 +158,55 @@ describe( 'command_node — one statement, two readings', () => {
 	} );
 } );
 
+describe( 'the two verbs an editor needs and TSL only appends', () => {
+	it( "set_arguments replaces a node's constructor args", () => {
+		// The one real gap the parity table found: Tachikoma has it, aliased
+		// `set`, and we never ported it. An editor rewriting ctor args needs it.
+		const d = draft();
+		d.run( 'make_node Partition firehose old.log 100' );
+
+		d.run( 'set_arguments firehose new.log 200' );
+
+		expect( d.dumpDocument() ).toBe(
+			'make_node Partition firehose new.log 200\n'
+		);
+	} );
+
+	it( 'set_arguments with no args clears them', () => {
+		const d = draft();
+		d.run( 'make_node Partition firehose old.log' );
+
+		d.run( 'set_arguments firehose' );
+
+		expect( d.dumpDocument() ).toBe( 'make_node Partition firehose\n' );
+	} );
+
+	it( 'replaceInvocations swaps the whole declared list', () => {
+		// `command_node` only ever appends, and a topology file cannot say
+		// "forget the previous cmd lines" — so replacement is an EDITOR
+		// operation with no TSL spelling, and it is a method, not a verb.
+		const d = draft();
+		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'cmd firehose void_warranty' );
+
+		d.replaceInvocations( 'firehose', [
+			{
+				verb: 'set_stats_partition',
+				args: [ 'stats.p0' ],
+				viaConfig: true,
+			},
+		] );
+
+		expect( d.dumpDocument() ).toBe(
+			[
+				'make_node Partition firehose firehose.log',
+				'command_node firehose:config set_stats_partition stats.p0',
+				'',
+			].join( '\n' )
+		);
+	} );
+} );
+
 describe( 'dumpDocument', () => {
 	it( 'emits the statement order a topology file requires', () => {
 		const d = draft();

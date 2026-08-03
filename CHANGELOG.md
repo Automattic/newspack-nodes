@@ -38,7 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   canonicalise to in the tokenizer, so there is exactly one handler.
   `dumpDocument( baseline )` diffs edges against the TSL it was loaded from and
   emits `disconnect_node` for a dropped one — a Tee's `connect_node` APPENDS,
-  so absolute state cannot express a removal.
+  so absolute state cannot express a removal. It also answers `set_arguments`
+  (alias `set`) — the one real gap the interpreter parity triage found — and
+  exposes `replaceInvocations()` as a METHOD rather than a verb, because
+  `command_node` only appends and a topology file cannot say "forget the
+  previous cmd lines".
 
 ### Changed
 
