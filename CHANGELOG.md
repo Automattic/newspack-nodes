@@ -7,16 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-08-03
+
+### Fixed
+
+- **The hub Overview polled at 1Hz instead of its configured interval.**
+  `useTopologyManager` passed no `intervalMs` to `useBatchedPoll`, which means
+  "every router tick"; the `refreshMs` option reached only the freshness bump.
+  Default raised to 5s and actually wired. `deriveConnected` computes staleness
+  as `STALE_POLL_INTERVALS * refreshMs`, so it had been judging a 1Hz poll
+  against a multi-second assumption — the two now agree.
+
 ### Security
 
-- **`include` is confined to the registered topology directories.** Worker boot
-  `eval_script()`s admin-authored TSL — `Topologies_CI_Node::save` writes it over
-  REST — so anything `include` could reach, an admin able to save a topology
-  could execute. `resolve_include()` fell back to a bare `is_file()` on the raw
-  argument, which reached the whole disk, and a name carrying separators walked
-  out of the directory `Topology_Registry::resolve()` interpolates it into.
-  Includes now take a registry NAME and nothing else. Same reasoning as
-  `resolve()`'s existing "stock owns its names" rule.
+- **`include` is confined to the registered topology directories.** It
+  previously accepted arguments that could resolve outside them. Includes now
+  take a registry name and nothing else — which is how every shipped topology
+  already writes them — following the same reasoning as
+  `Topology_Registry::resolve()`'s existing "stock owns its names" rule.
 
 ### Added
 
