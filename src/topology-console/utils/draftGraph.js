@@ -176,15 +176,16 @@ export function removeInclude( graph, name ) {
 }
 
 /**
- * Rename a node + rewrite edges referencing the old id (no-op on empty,
- * unchanged, or taken name). Does NOT rewrite verb-arg refs — caller does.
+ * The `move_node` verb: rename a node + rewrite edges referencing the old id
+ * (no-op on empty, unchanged, or taken name). Does NOT rewrite verb-arg refs
+ * — the caller does, since that needs the class catalog.
  *
  * @param {Object} graph   Current graph.
  * @param {string} oldId   Existing node id.
  * @param {string} newName Desired new name.
  * @return {Object} New graph reference, or the original on a no-op.
  */
-export function renameNode( graph, oldId, newName ) {
+export function moveNode( graph, oldId, newName ) {
 	const target = graph.nodes.find( ( n ) => n.id === oldId );
 	if ( target && target.reserved ) {
 		return graph;

@@ -2,7 +2,7 @@ import {
 	addNode,
 	removeNode,
 	removeEdge,
-	renameNode,
+	moveNode,
 	updateNodeArgs,
 	updateNodeVerbs,
 	draftIsDirty,
@@ -60,7 +60,7 @@ describe( 'draftGraph', () => {
 		).toEqual( fm );
 		expect( connectDraftEdge( base, 'b', 'a' ).frontmatter ).toEqual( fm );
 		expect( removeNode( base, 'a' ).frontmatter ).toEqual( fm );
-		expect( renameNode( base, 'a', 'z' ).frontmatter ).toEqual( fm );
+		expect( moveNode( base, 'a', 'z' ).frontmatter ).toEqual( fm );
 		expect( removeEdge( base, 'a', 'b' ).frontmatter ).toEqual( fm );
 		expect( updateNodeArgs( base, 'a', [ 'x' ] ).frontmatter ).toEqual(
 			fm
@@ -210,7 +210,7 @@ describe( 'draftGraph', () => {
 		} );
 	} );
 
-	describe( 'renameNode', () => {
+	describe( 'moveNode', () => {
 		const seed = () => {
 			let g = addNode( empty, {
 				shellName: 'Echo',
@@ -230,7 +230,7 @@ describe( 'draftGraph', () => {
 
 		it( 'renames the node id + name and rewrites incident edges', () => {
 			const g = seed();
-			const next = renameNode( g, 'a', 'alpha' );
+			const next = moveNode( g, 'a', 'alpha' );
 			expect( next ).not.toBe( g );
 			expect( next.nodes.map( ( n ) => n.id ) ).toEqual( [
 				'alpha',
@@ -242,29 +242,29 @@ describe( 'draftGraph', () => {
 
 		it( 'rewrites the to side of an edge too', () => {
 			const g = seed();
-			const next = renameNode( g, 'b', 'beta' );
+			const next = moveNode( g, 'b', 'beta' );
 			expect( next.edges ).toEqual( [ { from: 'a', to: 'beta' } ] );
 		} );
 
 		it( 'is a no-op when newName is empty', () => {
 			const g = seed();
-			expect( renameNode( g, 'a', '' ) ).toBe( g );
-			expect( renameNode( g, 'a', '   ' ) ).toBe( g );
+			expect( moveNode( g, 'a', '' ) ).toBe( g );
+			expect( moveNode( g, 'a', '   ' ) ).toBe( g );
 		} );
 
 		it( 'is a no-op when newName equals the existing name', () => {
 			const g = seed();
-			expect( renameNode( g, 'a', 'a' ) ).toBe( g );
+			expect( moveNode( g, 'a', 'a' ) ).toBe( g );
 		} );
 
 		it( 'is a no-op when newName is already taken by another node', () => {
 			const g = seed();
-			expect( renameNode( g, 'a', 'b' ) ).toBe( g );
+			expect( moveNode( g, 'a', 'b' ) ).toBe( g );
 		} );
 
 		it( 'trims surrounding whitespace before applying', () => {
 			const g = seed();
-			const next = renameNode( g, 'a', '  alpha  ' );
+			const next = moveNode( g, 'a', '  alpha  ' );
 			expect( next.nodes[ 0 ].id ).toBe( 'alpha' );
 		} );
 
@@ -277,7 +277,7 @@ describe( 'draftGraph', () => {
 				y: 0,
 			} );
 			g = connectDraftEdge( g, 'b', 'c' );
-			const next = renameNode( g, 'a', 'alpha' );
+			const next = moveNode( g, 'a', 'alpha' );
 			// b → c is unrelated; same reference, not re-mapped.
 			const bc = next.edges.find(
 				( e ) => e.from === 'b' && e.to === 'c'
@@ -287,7 +287,7 @@ describe( 'draftGraph', () => {
 
 		it( 'coerces non-string newName via String()', () => {
 			const g = seed();
-			expect( renameNode( g, 'a', 42 ).nodes[ 0 ].id ).toBe( '42' );
+			expect( moveNode( g, 'a', 42 ).nodes[ 0 ].id ).toBe( '42' );
 		} );
 
 		it( 'rewrites config-override targets when their own node is renamed', () => {
@@ -303,7 +303,7 @@ describe( 'draftGraph', () => {
 				],
 			};
 
-			const next = renameNode( graph, 'b', 'new-lynx-errors-677' );
+			const next = moveNode( graph, 'b', 'new-lynx-errors-677' );
 			expect( next.configOverrides[ 0 ].to ).toBe(
 				'new-lynx-errors-677'
 			);
@@ -401,9 +401,9 @@ describe( 'draftGraph', () => {
 	} );
 
 	describe( 'reserved-node refusal', () => {
-		it( 'renameNode is a no-op for a reserved node', () => {
+		it( 'moveNode is a no-op for a reserved node', () => {
 			const g = withReplAnchor( empty );
-			expect( renameNode( g, '_repl', 'something' ) ).toBe( g );
+			expect( moveNode( g, '_repl', 'something' ) ).toBe( g );
 		} );
 
 		it( 'removeNode is a no-op for a reserved node', () => {

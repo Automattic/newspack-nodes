@@ -1,11 +1,12 @@
 /**
  * TopologySettingsPanel — edit-mode read/write editor for a topology's
  * `var name = value` frontmatter. Recognized substrate keys render as typed
- * inputs; every other var is a generic name/value row. Commits the whole map
- * to onChange whenever it changes (empty values are filtered, never emitted).
+ * inputs; every other var is a generic name/value row. Dispatches the whole map
+ * as `var` whenever it changes (empty values are filtered, never emitted).
  */
 
 import { useState, createPortal } from '@wordpress/element';
+import { useDraft } from '../DraftContext';
 import { __, sprintf } from '@wordpress/i18n';
 
 export const RECOGNIZED_KEYS = [ 'num_partitions', 'stale_timeout' ];
@@ -47,13 +48,12 @@ function getPortalTarget() {
 }
 
 export default function TopologySettingsPanel( {
-	frontmatter,
 	configDefaultPartitions = 1,
-	secureLevel = '',
-	onChange,
-	onSecureLevelChange = () => {},
 	onClose,
 } ) {
+	const { draft, dispatch } = useDraft();
+	const frontmatter = draft.frontmatter || {};
+	const secureLevel = draft.secureLevel || '';
 	// Seeded once per mount (the panel mounts on open, keyed by editing name).
 	const [ entries, setEntries ] = useState( () => toEntries( frontmatter ) );
 	const [ newName, setNewName ] = useState( '' );
@@ -75,7 +75,7 @@ export default function TopologySettingsPanel( {
 				map[ n ] = tv;
 			}
 		}
-		onChange( map );
+		dispatch( { type: 'var', frontmatter: map } );
 	};
 
 	// Set a key (recognized or generic). Preserves position if present.
@@ -218,7 +218,12 @@ export default function TopologySettingsPanel( {
 				<select
 					id="ts-secure-level"
 					value={ secureLevel }
-					onChange={ ( e ) => onSecureLevelChange( e.target.value ) }
+					onChange={ ( e ) =>
+						dispatch( {
+							type: 'secure',
+							level: e.target.value,
+						} )
+					}
 				>
 					<option value="">
 						{ __( 'Not declared', 'newspack-nodes' ) }

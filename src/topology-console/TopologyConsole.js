@@ -46,17 +46,15 @@ import {
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
 import {
-	connectDraftEdge,
 	draftIsDirty,
-	addNode,
 	applyLoadedBaseline,
 	generateNodeName,
 	reconcileIncludes,
-	renameNode,
 	withReplAnchor,
 	withResolvedConfigEdges,
 } from './utils/draftGraph';
-import { draftReducer } from './utils/draftReducer';
+import { draftReducer, revertIncludes } from './utils/draftReducer';
+import { DraftProvider, useDraftDispatch } from './DraftContext';
 import { snapToGrid } from './utils/autoLayout';
 import { stampOrigins } from './utils/stampOrigins';
 import { clusterLayout } from './utils/clusterLayout';
@@ -254,6 +252,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		edges: [],
 		frontmatter: {},
 	} );
+	// The mutation door. Loads still go through setDraft — see DraftContext.
+	const dispatch = useDraftDispatch( setDraft );
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
@@ -1025,10 +1025,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 			// Snap to the grid so dropped nodes line up and don't drift.
 			const snapped = snapToGrid( x, y );
+			// The name is derived from the graph, so route inside the updater.
 			setDraft( ( g ) => {
 				const name = generateNodeName( g, shellName );
 				handlePositionChange( name, snapped );
-				return addNode( g, {
+				return draftReducer( g, {
+					type: 'make_node',
 					shellName,
 					name,
 					x: snapped.x,
@@ -1047,9 +1049,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				return;
 			}
 			pendingClusterRef.current = { name, drop: snapToGrid( x, y ) };
-			setDraft( ( g ) => draftReducer( g, { type: 'include', name } ) );
+			dispatch( { type: 'include', name } );
 		},
-		[ mode ]
+		[ mode, dispatch ]
 	);
 
 	// Unpositioned borrowed node is invisible; lay out below.
@@ -1083,20 +1085,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			return;
 		}
 		setToast( { kind: 'error', text: expandError } );
-		setDraft( ( g ) => ( {
-			...g,
-			includes: Object.keys( expandBaseline.tree || {} ),
-		} ) );
+		setDraft( ( g ) => revertIncludes( g, expandBaseline.tree ) );
 		pendingClusterRef.current = null;
 	}, [ expandError, expandBaseline ] );
 
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(
-		( name ) =>
-			setDraft( ( g ) =>
-				draftReducer( g, { type: 'remove_include', name } )
-			),
-		[]
+		( name ) => dispatch( { type: 'remove_include', name } ),
+		[ dispatch ]
 	);
 
 	// NewNodeModal commit/cancel (live mode).
@@ -1130,11 +1126,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onConnect( from, to );
 				return;
 			}
-			setDraft( ( graph ) =>
-				connectDraftEdge( graph, from, to, catalog.classes )
-			);
+			dispatch( {
+				type: 'connect_node',
+				from,
+				to,
+				catalog: catalog.classes,
+			} );
 		},
-		[ mode, liveHandlers, catalog.classes ]
+		[ mode, liveHandlers, catalog.classes, dispatch ]
 	);
 
 	const handleRemoveNode = useCallback(
@@ -1144,9 +1143,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onRemoveNode( id );
 				return;
 			}
-			setDraft( ( g ) => draftReducer( g, { type: 'remove_node', id } ) );
+			dispatch( { type: 'remove_node', id } );
 		},
-		[ mode, liveHandlers ]
+		[ mode, liveHandlers, dispatch ]
 	);
 
 	const handleRemoveEdge = useCallback(
@@ -1156,11 +1155,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				liveHandlers.onRemoveEdge( from, to );
 				return;
 			}
-			setDraft( ( g ) =>
-				draftReducer( g, { type: 'disconnect_node', from, to } )
-			);
+			dispatch( { type: 'disconnect_node', from, to } );
 		},
-		[ mode, liveHandlers ]
+		[ mode, liveHandlers, dispatch ]
 	);
 
 	// DELETE shows only for a topology with a user-saved copy (stock kept).
@@ -1236,8 +1233,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			for ( const c of catalog.classes || [] ) {
 				classByName.set( c.shell_name, c );
 			}
+			// Verb-arg refs are rewritten off the result, so route inline.
 			setDraft( ( g ) => {
-				const renamed = renameNode( g, oldId, newName );
+				const renamed = draftReducer( g, {
+					type: 'move_node',
+					id: oldId,
+					newName,
+				} );
 				if ( renamed === g ) {
 					return g;
 				}
@@ -1285,26 +1287,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ draft.nodes, catalog.classes, selectedId, renamePosition ]
 	);
 
-	const handleUpdateArgs = useCallback( ( id, args ) => {
-		setDraft( ( g ) =>
-			draftReducer( g, { type: 'set_arguments', id, ctorArgs: args } )
-		);
-	}, [] );
+	const handleUpdateArgs = useCallback(
+		( id, args ) =>
+			dispatch( { type: 'set_arguments', id, ctorArgs: args } ),
+		[ dispatch ]
+	);
 
-	const handleUpdateVerbs = useCallback( ( id, verbs ) => {
-		setDraft( ( g ) =>
-			draftReducer( g, { type: 'cmd', id, verbInvocations: verbs } )
-		);
-	}, [] );
-
-	const handleFrontmatterChange = useCallback( ( nextFrontmatter ) => {
-		setDraft( ( g ) => ( { ...g, frontmatter: nextFrontmatter } ) );
-	}, [] );
-
-	// Not frontmatter: serializeTsl emits it as the file's last statement.
-	const handleSecureLevelChange = useCallback( ( next ) => {
-		setDraft( ( g ) => ( { ...g, secureLevel: next } ) );
-	}, [] );
+	const handleUpdateVerbs = useCallback(
+		( id, verbs ) =>
+			dispatch( { type: 'cmd', id, verbInvocations: verbs } ),
+		[ dispatch ]
+	);
 
 	// Opening a topology lands you in the editor, from live too — like New.
 	const handleOpenPick = useCallback(
@@ -1678,223 +1671,229 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}
 
 	return (
-		<div
-			ref={ appRef }
-			className={ `topology-app newspack-nodes-theme newspack-nodes-ui is-inspector-open${
-				mode === 'edit' ? ' is-edit-mode' : ''
-			}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
-				inspectorCollapsed ? ' is-inspector-collapsed' : ''
-			}` }
-		>
-			{ /* Console controls — portaled into the hub header slot. */ }
-			{ renderedHeaderControls }
-			<ConsoleShell
-				ready={ layoutReady }
-				graph={ canvasGraph }
-				frame={ CanvasFrame }
-				frameProps={ {
-					topology:
-						mode === 'edit'
-							? editingName || 'untitled'
-							: scope.label,
-					partition: mode === 'edit' ? null : scope.partition,
-					isWorker: mode === 'edit' ? true : scope.isWorker,
-					onResetLayout: showResetLayoutChip
-						? handleResetLayout
-						: null,
-					onSaveLayout: layoutDivergesFromSaved
-						? handleSaveLayout
-						: null,
-					// Only the local (cwd root) graph is resettable.
-					onResetGraph: canResetGraph ? handleResetGraph : null,
-					editMode: mode === 'edit',
-				} }
-				buildingClassName="topology-canvas-building"
-				showRepl={ mode !== 'edit' }
-				// Hub owns the shared brand header; Console controls portal in.
-				showHeader={ false }
-				canvasProps={ {
-					...canvasChromeProps,
-					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
-					// Empty cwd = local graph; worker cwd = dump_metadata.
-					local: '' === cwd,
-					interactive: true,
-					editMode: mode === 'edit',
-					showPalette: true,
-					paletteLoading: catalog.loading,
-					classCatalog: schemasByShellName,
-					catalog: catalog.classes,
-					driftIds,
-					formatters: catalog.formatters,
-					vaults: vaultCatalog.vaults,
-					streamStatus: status,
-					positionOverrides,
-					onPositionChange: handlePositionChange,
-					viewport,
-					viewportDelta,
-					onViewportChange: handleViewportChange,
-					onConnect: handleConnect,
-					onRemoveNode: handleRemoveNode,
-					onRemoveEdge: handleRemoveEdge,
-					onDropNode: handleDropNode,
-					onInspectorAction: handleInspectorAction,
-					// Live Dumper verbosity — the Verbose toggle reads it.
-					debugLevel,
-					composeTargets,
-					onRenameNode: handleRenameNode,
-					onUpdateArgs: handleUpdateArgs,
-					onUpdateVerbs: handleUpdateVerbs,
-					hulls,
-					topologies: topologyEntries,
-					currentTopology: editingName,
-					onDropTopology: handleDropTopology,
-					includeTree: expandBaseline.tree,
-					// Mode-aware: draft.includes would leak into live.
-					includes: activeIncludes,
-					onRemoveInclude: handleRemoveInclude,
-					// Drill into a hull (guarded when the draft is dirty).
-					onOpenTopology: handleDrillIntoHull,
-					onSelectionChange: ( id ) => {
-						setSelectedId( id );
-						// Auto-open inspector; NO refocus (breaks Delete).
-						openInspectorOnSelect( id );
-					},
-					selection: selectedId,
-				} }
-				replProps={ {
-					...replChromeProps,
-					prompt: `/${ cwd }`,
-					streamStatus: status,
-					// Input always enabled: any scope routes via _cwd.
-					canSend: true,
-					onSubmit: sendLine,
-					onClear: clearTranscript,
-					transcript,
-					completion,
-					onComplete: requestCompletion,
-					onShowCandidates: handleShowCandidates,
-					maxHeightPx: replMaxHeightPx,
-				} }
-			/>
-			{ discardModal && (
-				<ConfirmModal
-					title={ __( 'Discard unsaved changes?', 'newspack-nodes' ) }
-					body={ __(
-						'Leaving edit mode drops the draft topology. This cannot be undone.',
-						'newspack-nodes'
-					) }
-					confirmLabel={ __( 'Discard', 'newspack-nodes' ) }
-					cancelLabel={ __( 'Keep editing', 'newspack-nodes' ) }
-					danger
-					onConfirm={ discardModal.onConfirm }
-					onCancel={ discardModal.onCancel }
+		<DraftProvider draft={ draft } dispatch={ dispatch }>
+			<div
+				ref={ appRef }
+				className={ `topology-app newspack-nodes-theme newspack-nodes-ui is-inspector-open${
+					mode === 'edit' ? ' is-edit-mode' : ''
+				}${ paletteCollapsed ? ' is-palette-collapsed' : '' }${
+					inspectorCollapsed ? ' is-inspector-collapsed' : ''
+				}` }
+			>
+				{ /* Console controls — portaled into the hub header slot. */ }
+				{ renderedHeaderControls }
+				<ConsoleShell
+					ready={ layoutReady }
+					graph={ canvasGraph }
+					frame={ CanvasFrame }
+					frameProps={ {
+						topology:
+							mode === 'edit'
+								? editingName || 'untitled'
+								: scope.label,
+						partition: mode === 'edit' ? null : scope.partition,
+						isWorker: mode === 'edit' ? true : scope.isWorker,
+						onResetLayout: showResetLayoutChip
+							? handleResetLayout
+							: null,
+						onSaveLayout: layoutDivergesFromSaved
+							? handleSaveLayout
+							: null,
+						// Only the local (cwd root) graph is resettable.
+						onResetGraph: canResetGraph ? handleResetGraph : null,
+						editMode: mode === 'edit',
+					} }
+					buildingClassName="topology-canvas-building"
+					showRepl={ mode !== 'edit' }
+					// Hub owns the brand header; controls portal in.
+					showHeader={ false }
+					canvasProps={ {
+						...canvasChromeProps,
+						resetKey: `${ scope.key }|${ mode }|${ editingName }`,
+						// Empty cwd = local graph; worker cwd = dump_metadata.
+						local: '' === cwd,
+						interactive: true,
+						editMode: mode === 'edit',
+						showPalette: true,
+						paletteLoading: catalog.loading,
+						classCatalog: schemasByShellName,
+						catalog: catalog.classes,
+						driftIds,
+						formatters: catalog.formatters,
+						vaults: vaultCatalog.vaults,
+						streamStatus: status,
+						positionOverrides,
+						onPositionChange: handlePositionChange,
+						viewport,
+						viewportDelta,
+						onViewportChange: handleViewportChange,
+						onConnect: handleConnect,
+						onRemoveNode: handleRemoveNode,
+						onRemoveEdge: handleRemoveEdge,
+						onDropNode: handleDropNode,
+						onInspectorAction: handleInspectorAction,
+						// Live Dumper verbosity — the Verbose toggle reads it.
+						debugLevel,
+						composeTargets,
+						onRenameNode: handleRenameNode,
+						onUpdateArgs: handleUpdateArgs,
+						onUpdateVerbs: handleUpdateVerbs,
+						hulls,
+						topologies: topologyEntries,
+						currentTopology: editingName,
+						onDropTopology: handleDropTopology,
+						includeTree: expandBaseline.tree,
+						// Mode-aware: draft.includes would leak into live.
+						includes: activeIncludes,
+						onRemoveInclude: handleRemoveInclude,
+						// Drill into a hull (guarded when the draft is dirty).
+						onOpenTopology: handleDrillIntoHull,
+						onSelectionChange: ( id ) => {
+							setSelectedId( id );
+							// Auto-open inspector; NO refocus (breaks Delete).
+							openInspectorOnSelect( id );
+						},
+						selection: selectedId,
+					} }
+					replProps={ {
+						...replChromeProps,
+						prompt: `/${ cwd }`,
+						streamStatus: status,
+						// Input always enabled: any scope routes via _cwd.
+						canSend: true,
+						onSubmit: sendLine,
+						onClear: clearTranscript,
+						transcript,
+						completion,
+						onComplete: requestCompletion,
+						onShowCandidates: handleShowCandidates,
+						maxHeightPx: replMaxHeightPx,
+					} }
 				/>
-			) }
-			{ deleteModal && (
-				<ConfirmModal
-					title={ __( 'Delete topology?', 'newspack-nodes' ) }
-					body={ sprintf(
-						// translators: %s: topology name.
-						__(
-							'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
+				{ discardModal && (
+					<ConfirmModal
+						title={ __(
+							'Discard unsaved changes?',
 							'newspack-nodes'
-						),
-						deleteModal.name
-					) }
-					confirmLabel={ __( 'Delete', 'newspack-nodes' ) }
-					cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
-					danger
-					onConfirm={ confirmDelete }
-					onCancel={ () => setDeleteModal( null ) }
-				/>
-			) }
-			{ saveModal && (
-				<PromptModal
-					title={ __( 'Save topology', 'newspack-nodes' ) }
-					body={ __(
-						'Choose a name. Letters, numbers, dash, underscore.',
-						'newspack-nodes'
-					) }
-					placeholder={ __( 'my-topology', 'newspack-nodes' ) }
-					// Live: captured topology name; edit: the edited name.
-					initialValue={ saveModal.initialName ?? editingName }
-					pattern={ /^[a-zA-Z0-9_-]+$/ }
-					confirmLabel={ __( 'Save', 'newspack-nodes' ) }
-					onConfirm={ handleSaveConfirm }
-					onCancel={ () => setSaveModal( null ) }
-				/>
-			) }
-			{ activateModal && (
-				<ConfirmModal
-					title={ __( 'Activate now?', 'newspack-nodes' ) }
-					body={ sprintf(
-						// translators: %s: topology name.
-						__(
-							'Topology "%s" was saved but is not running. Activate it now to spawn its workers?',
+						) }
+						body={ __(
+							'Leaving edit mode drops the draft topology. This cannot be undone.',
 							'newspack-nodes'
-						),
-						activateModal.name
-					) }
-					confirmLabel={ __( 'Activate', 'newspack-nodes' ) }
-					cancelLabel={ __( 'Not now', 'newspack-nodes' ) }
-					onConfirm={ confirmActivate }
-					onCancel={ () => setActivateModal( null ) }
-				/>
-			) }
-			{ resetConfirm && (
-				<ConfirmModal
-					title={ __( 'Reset to saved layout?', 'newspack-nodes' ) }
-					body={ __(
-						"This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent.",
-						'newspack-nodes'
-					) }
-					confirmLabel={ __( 'Reset', 'newspack-nodes' ) }
-					cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
-					danger
-					onConfirm={ resetConfirm.onConfirm }
-					onCancel={ resetConfirm.onCancel }
-				/>
-			) }
-			{ openModalShown && (
-				<OpenTopologyModal
-					topologies={ topologyList.topologies }
-					loading={ topologyList.loading }
-					error={ topologyList.error }
-					onPick={ handleOpenPick }
-					onCancel={ () => setOpenModalShown( false ) }
-				/>
-			) }
-			{ pendingDrop && (
-				<NewNodeModal
-					shellName={ pendingDrop.shellName }
-					defaultName={ pendingDrop.defaultName }
-					argSchema={ pendingDrop.argSchema }
-					nodeNames={ parsed.nodes.map( ( n ) => n.name || n.id ) }
-					formatters={ catalog.formatters }
-					vaults={ vaultCatalog.vaults }
-					onConfirm={ commitPendingDrop }
-					onCancel={ cancelPendingDrop }
-				/>
-			) }
-			{ mode === 'edit' && settingsOpen && (
-				<TopologySettingsPanel
-					key={ editingName || 'untitled' }
-					frontmatter={ draft.frontmatter || {} }
-					configDefaultPartitions={ configDefaultPartitions }
-					secureLevel={ draft.secureLevel || '' }
-					onChange={ handleFrontmatterChange }
-					onSecureLevelChange={ handleSecureLevelChange }
-					onClose={ () => setSettingsOpen( false ) }
-				/>
-			) }
-			{ toast && (
-				<div
-					className={ `topology-toast topology-toast--${ toast.kind }` }
-					role="status"
-				>
-					{ toast.text }
-				</div>
-			) }
-		</div>
+						) }
+						confirmLabel={ __( 'Discard', 'newspack-nodes' ) }
+						cancelLabel={ __( 'Keep editing', 'newspack-nodes' ) }
+						danger
+						onConfirm={ discardModal.onConfirm }
+						onCancel={ discardModal.onCancel }
+					/>
+				) }
+				{ deleteModal && (
+					<ConfirmModal
+						title={ __( 'Delete topology?', 'newspack-nodes' ) }
+						body={ sprintf(
+							// translators: %s: topology name.
+							__(
+								'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
+								'newspack-nodes'
+							),
+							deleteModal.name
+						) }
+						confirmLabel={ __( 'Delete', 'newspack-nodes' ) }
+						cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
+						danger
+						onConfirm={ confirmDelete }
+						onCancel={ () => setDeleteModal( null ) }
+					/>
+				) }
+				{ saveModal && (
+					<PromptModal
+						title={ __( 'Save topology', 'newspack-nodes' ) }
+						body={ __(
+							'Choose a name. Letters, numbers, dash, underscore.',
+							'newspack-nodes'
+						) }
+						placeholder={ __( 'my-topology', 'newspack-nodes' ) }
+						// Live: captured topology name; edit: the edited name.
+						initialValue={ saveModal.initialName ?? editingName }
+						pattern={ /^[a-zA-Z0-9_-]+$/ }
+						confirmLabel={ __( 'Save', 'newspack-nodes' ) }
+						onConfirm={ handleSaveConfirm }
+						onCancel={ () => setSaveModal( null ) }
+					/>
+				) }
+				{ activateModal && (
+					<ConfirmModal
+						title={ __( 'Activate now?', 'newspack-nodes' ) }
+						body={ sprintf(
+							// translators: %s: topology name.
+							__(
+								'Topology "%s" was saved but is not running. Activate it now to spawn its workers?',
+								'newspack-nodes'
+							),
+							activateModal.name
+						) }
+						confirmLabel={ __( 'Activate', 'newspack-nodes' ) }
+						cancelLabel={ __( 'Not now', 'newspack-nodes' ) }
+						onConfirm={ confirmActivate }
+						onCancel={ () => setActivateModal( null ) }
+					/>
+				) }
+				{ resetConfirm && (
+					<ConfirmModal
+						title={ __(
+							'Reset to saved layout?',
+							'newspack-nodes'
+						) }
+						body={ __(
+							"This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent.",
+							'newspack-nodes'
+						) }
+						confirmLabel={ __( 'Reset', 'newspack-nodes' ) }
+						cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
+						danger
+						onConfirm={ resetConfirm.onConfirm }
+						onCancel={ resetConfirm.onCancel }
+					/>
+				) }
+				{ openModalShown && (
+					<OpenTopologyModal
+						topologies={ topologyList.topologies }
+						loading={ topologyList.loading }
+						error={ topologyList.error }
+						onPick={ handleOpenPick }
+						onCancel={ () => setOpenModalShown( false ) }
+					/>
+				) }
+				{ pendingDrop && (
+					<NewNodeModal
+						shellName={ pendingDrop.shellName }
+						defaultName={ pendingDrop.defaultName }
+						argSchema={ pendingDrop.argSchema }
+						nodeNames={ parsed.nodes.map(
+							( n ) => n.name || n.id
+						) }
+						formatters={ catalog.formatters }
+						vaults={ vaultCatalog.vaults }
+						onConfirm={ commitPendingDrop }
+						onCancel={ cancelPendingDrop }
+					/>
+				) }
+				{ mode === 'edit' && settingsOpen && (
+					<TopologySettingsPanel
+						key={ editingName || 'untitled' }
+						configDefaultPartitions={ configDefaultPartitions }
+						onClose={ () => setSettingsOpen( false ) }
+					/>
+				) }
+				{ toast && (
+					<div
+						className={ `topology-toast topology-toast--${ toast.kind }` }
+						role="status"
+					>
+						{ toast.text }
+					</div>
+				) }
+			</div>
+		</DraftProvider>
 	);
 }

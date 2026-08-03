@@ -29,7 +29,7 @@ import {
 	removeNode,
 	addInclude,
 	removeInclude,
-	renameNode,
+	moveNode,
 	removeEdge,
 	connectDraftEdge,
 	updateNodeArgs,
@@ -57,6 +57,32 @@ export const DRAFT_ACTIONS = [
 ];
 
 /**
+ * Revert the include set to the last successful `topologies expand`.
+ *
+ * The expand-error backstop's only job. Expressed as a sequence of the verb
+ * that OWNS includes rather than a rewrite of the field it owns, so the revert
+ * is visible to anything watching the action stream and has something to become
+ * when a draft interpreter takes over. Remove-only on purpose: the last-good
+ * tree lags a removal until the next successful expand, so rewriting from it
+ * wholesale would resurrect an include the operator had just dropped.
+ *
+ * @param {Object} state    The draft graph.
+ * @param {Object} lastGood `topologies expand`'s `tree` — keyed by the direct
+ *                          includes that resolved.
+ * @return {Object} The next graph, or the SAME object when nothing is stale.
+ */
+export function revertIncludes( state, lastGood ) {
+	const good = lastGood || {};
+	return ( state.includes || [] )
+		.filter( ( name ) => ! ( name in good ) )
+		.reduce(
+			( graph, name ) =>
+				draftReducer( graph, { type: 'remove_include', name } ),
+			state
+		);
+}
+
+/**
  * @param {Object} state  The draft graph: { nodes, edges, frontmatter }.
  * @param {Object} action { type, ...args } — type is a TSL verb.
  * @return {Object} The next draft graph; the SAME object for an unknown type.
@@ -82,7 +108,7 @@ export function draftReducer( state, action ) {
 		case 'disconnect_node':
 			return removeEdge( state, action.from, action.to );
 		case 'move_node':
-			return renameNode( state, action.id, action.newName );
+			return moveNode( state, action.id, action.newName );
 		case 'set_arguments':
 			return updateNodeArgs( state, action.id, action.ctorArgs );
 		case 'cmd':

@@ -1,19 +1,26 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import TopologySettingsPanel from '../TopologySettingsPanel';
+import { DraftProvider } from '../../DraftContext';
+
+// The panel edits the document, so it reads and dispatches through the draft
+// seam. `dispatch` stands in for the reducer; `var` carries the whole map.
+function renderInDraft( draft, dispatch, extra = {} ) {
+	render(
+		<DraftProvider draft={ draft } dispatch={ dispatch }>
+			<TopologySettingsPanel
+				configDefaultPartitions={ 2 }
+				onClose={ () => {} }
+				{ ...extra }
+			/>
+		</DraftProvider>
+	);
+}
 
 // No jest-dom in this repo — assert over bare DOM (value/getAttribute/null).
 function setup( frontmatter = {}, extra = {} ) {
-	const onChange = jest.fn();
-	render(
-		<TopologySettingsPanel
-			frontmatter={ frontmatter }
-			configDefaultPartitions={ 2 }
-			onChange={ onChange }
-			onClose={ () => {} }
-			{ ...extra }
-		/>
-	);
-	return { onChange };
+	const dispatch = jest.fn();
+	renderInDraft( { frontmatter }, dispatch, extra );
+	return { dispatch };
 }
 
 describe( 'TopologySettingsPanel', () => {
@@ -67,31 +74,40 @@ describe( 'TopologySettingsPanel', () => {
 	} );
 
 	it( 'clamps partitions to 1..16 and commits', () => {
-		const { onChange } = setup( {} );
+		const { dispatch } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
 			target: { value: '99' },
 		} );
-		expect( onChange ).toHaveBeenLastCalledWith( { num_partitions: '16' } );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: { num_partitions: '16' },
+		} );
 	} );
 
 	it( 'clearing partitions removes the key (config default)', () => {
-		const { onChange } = setup( { num_partitions: '4' } );
+		const { dispatch } = setup( { num_partitions: '4' } );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
 			target: { value: '' },
 		} );
-		expect( onChange ).toHaveBeenLastCalledWith( {} );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: {},
+		} );
 	} );
 
 	it( 'edits a generic var value and commits', () => {
-		const { onChange } = setup( { custom_thing: 'old' } );
+		const { dispatch } = setup( { custom_thing: 'old' } );
 		fireEvent.change( screen.getByLabelText( /value for custom_thing/i ), {
 			target: { value: 'new' },
 		} );
-		expect( onChange ).toHaveBeenLastCalledWith( { custom_thing: 'new' } );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: { custom_thing: 'new' },
+		} );
 	} );
 
 	it( 'adds a valid generic var', () => {
-		const { onChange } = setup( {} );
+		const { dispatch } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'foo' },
 		} );
@@ -99,11 +115,14 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: 'bar' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( onChange ).toHaveBeenLastCalledWith( { foo: 'bar' } );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: { foo: 'bar' },
+		} );
 	} );
 
 	it( 'rejects an invalid var name (contains colon)', () => {
-		const { onChange } = setup( {} );
+		const { dispatch } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'config:x' },
 		} );
@@ -111,12 +130,12 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: 'y' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( onChange ).not.toHaveBeenCalled();
+		expect( dispatch ).not.toHaveBeenCalled();
 		expect( screen.queryByRole( 'alert' ) ).not.toBeNull();
 	} );
 
 	it( 'rejects a name already in use, including reserved keys', () => {
-		const { onChange } = setup( { custom_thing: 'x' } );
+		const { dispatch } = setup( { custom_thing: 'x' } );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'num_partitions' },
 		} );
@@ -124,31 +143,43 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: '3' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( onChange ).not.toHaveBeenCalled();
+		expect( dispatch ).not.toHaveBeenCalled();
 		expect( screen.queryByRole( 'alert' ) ).not.toBeNull();
 	} );
 
 	it( 'removes a generic var via its × button', () => {
-		const { onChange } = setup( { custom_thing: 'x' } );
+		const { dispatch } = setup( { custom_thing: 'x' } );
 		fireEvent.click( screen.getByLabelText( /remove custom_thing/i ) );
-		expect( onChange ).toHaveBeenLastCalledWith( {} );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: {},
+		} );
 	} );
 
 	it( 'stale_timeout floors to 1 and clears non-numeric to empty', () => {
-		const { onChange } = setup( { stale_timeout: '120' } );
+		const { dispatch } = setup( { stale_timeout: '120' } );
 		const input = screen.getByLabelText( /stale timeout/i );
 		fireEvent.change( input, { target: { value: '0' } } );
-		expect( onChange ).toHaveBeenLastCalledWith( { stale_timeout: '1' } );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: { stale_timeout: '1' },
+		} );
 		fireEvent.change( input, { target: { value: 'abc' } } );
-		expect( onChange ).toHaveBeenLastCalledWith( {} );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: {},
+		} );
 	} );
 
 	it( 'strips newlines and semicolons from a generic value', () => {
-		const { onChange } = setup( { custom_thing: 'x' } );
+		const { dispatch } = setup( { custom_thing: 'x' } );
 		fireEvent.change( screen.getByLabelText( /value for custom_thing/i ), {
 			target: { value: 'a;b\nc' },
 		} );
-		expect( onChange ).toHaveBeenLastCalledWith( { custom_thing: 'abc' } );
+		expect( dispatch ).toHaveBeenLastCalledWith( {
+			type: 'var',
+			frontmatter: { custom_thing: 'abc' },
+		} );
 	} );
 
 	it( 'does not render recognized keys as generic rows', () => {
@@ -167,18 +198,9 @@ describe( 'TopologySettingsPanel', () => {
  */
 describe( 'TopologySettingsPanel secure level', () => {
 	function setupSecure( secureLevel = '' ) {
-		const onSecureLevelChange = jest.fn();
-		render(
-			<TopologySettingsPanel
-				frontmatter={ {} }
-				configDefaultPartitions={ 2 }
-				secureLevel={ secureLevel }
-				onChange={ () => {} }
-				onSecureLevelChange={ onSecureLevelChange }
-				onClose={ () => {} }
-			/>
-		);
-		return { onSecureLevelChange };
+		const dispatch = jest.fn();
+		renderInDraft( { frontmatter: {}, secureLevel }, dispatch );
+		return { dispatch };
 	}
 
 	it( 'defaults to declaring nothing', () => {
@@ -192,18 +214,24 @@ describe( 'TopologySettingsPanel secure level', () => {
 	} );
 
 	it( 'commits a chosen level', () => {
-		const { onSecureLevelChange } = setupSecure();
+		const { dispatch } = setupSecure();
 		fireEvent.change( screen.getByLabelText( /secure level/i ), {
 			target: { value: '2' },
 		} );
-		expect( onSecureLevelChange ).toHaveBeenCalledWith( '2' );
+		expect( dispatch ).toHaveBeenCalledWith( {
+			type: 'secure',
+			level: '2',
+		} );
 	} );
 
 	it( 'commits insecure', () => {
-		const { onSecureLevelChange } = setupSecure();
+		const { dispatch } = setupSecure();
 		fireEvent.change( screen.getByLabelText( /secure level/i ), {
 			target: { value: 'insecure' },
 		} );
-		expect( onSecureLevelChange ).toHaveBeenCalledWith( 'insecure' );
+		expect( dispatch ).toHaveBeenCalledWith( {
+			type: 'secure',
+			level: 'insecure',
+		} );
 	} );
 } );

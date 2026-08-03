@@ -7,7 +7,7 @@
  * `Draft_Node` later is a substrate swap rather than a redesign.
  */
 
-import { draftReducer, DRAFT_ACTIONS } from '../draftReducer';
+import { draftReducer, revertIncludes, DRAFT_ACTIONS } from '../draftReducer';
 import {
 	addNode,
 	removeNode,
@@ -77,7 +77,7 @@ describe( 'draftReducer', () => {
 		);
 	} );
 
-	test( 'move_node routes to renameNode — the verb Slice 0 ported', () => {
+	test( 'move_node routes to moveNode — the verb Slice 0 ported', () => {
 		const seeded = addNode( EMPTY, {
 			shellName: 'Tee',
 			name: 'before-move',
@@ -172,6 +172,49 @@ describe( 'draftReducer', () => {
 		expect(
 			draftReducer( linked, { type: 'disconnect_node', from: a, to: b } )
 		).toEqual( removeEdge( linked, a, b ) );
+	} );
+
+	test( 'revertIncludes drops what is not last-good, via remove_include', () => {
+		// The expand-error backstop. Reverting is a sequence of the verb that
+		// owns includes, not a wholesale rewrite of the field it owns.
+		const seeded = [ 'topic-probe', 'job-intake', 'wombat-probe' ].reduce(
+			( g, name ) => draftReducer( g, { type: 'include', name } ),
+			EMPTY
+		);
+
+		const reverted = revertIncludes( seeded, {
+			'topic-probe': {},
+			'job-intake': {},
+		} );
+
+		expect( reverted.includes ).toEqual( [ 'topic-probe', 'job-intake' ] );
+	} );
+
+	test( 'revertIncludes never ADDS an include the draft dropped', () => {
+		// The wholesale rewrite it replaces would resurrect one, because the
+		// last-good tree lags a removal until the next successful expand.
+		const seeded = draftReducer( EMPTY, {
+			type: 'include',
+			name: 'topic-probe',
+		} );
+
+		const reverted = revertIncludes( seeded, {
+			'topic-probe': {},
+			'job-intake': {},
+		} );
+
+		expect( reverted.includes ).toEqual( [ 'topic-probe' ] );
+	} );
+
+	test( 'revertIncludes with nothing stale returns the same object', () => {
+		const seeded = draftReducer( EMPTY, {
+			type: 'include',
+			name: 'topic-probe',
+		} );
+
+		expect( revertIncludes( seeded, { 'topic-probe': {} } ) ).toBe(
+			seeded
+		);
 	} );
 
 	test( 'an unknown action returns the same object, not a copy', () => {
