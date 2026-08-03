@@ -565,7 +565,8 @@ class Shell_Node extends Node {
 				// Receiver bounces TO=FROM; VALUE is the send timestamp.
 				$message[ Message::TYPE ]  = Message::TM_PING;
 				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$message[ Message::VALUE ] = (string) Core::$now;
+				// %.6F: a (string) cast rounds, and rounding up = negative RTT.
+				$message[ Message::VALUE ] = \sprintf( '%.6F', Core::$now );
 				break;
 			case 'request':
 			case 'request_node':
