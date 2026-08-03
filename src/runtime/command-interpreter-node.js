@@ -117,6 +117,9 @@ const HELP = {
  * set as built-in defaults; commands( table ) merges over them.
  */
 export class CommandInterpreterNode extends Node {
+	// dump_config suppresses set_sink to ANY interpreter, not just `_ci`.
+	static isCommandInterpreter = true;
+
 	constructor() {
 		super();
 		// Per-instance authorize override; null → static default → LOCAL check.

@@ -10,6 +10,7 @@ export { TimerNode } from './timer-node';
 export { RequestNode } from './request-node';
 export { HeartbeatNode } from './heartbeat-node';
 export { CommandInterpreterNode } from './command-interpreter-node';
+export { StubNode } from './stub-node';
 export { mountExospine } from './exospine';
 // The reserved node names, for shared code that cannot reach the JSON itself.
 export { default as reservedNames } from './reserved-node-names.json';
