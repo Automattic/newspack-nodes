@@ -34,7 +34,7 @@ import {
 	applyLoadedBaseline,
 	withReplAnchor,
 	withResolvedConfigEdges,
-} from '../utils/draftGraph';
+} from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
 import {

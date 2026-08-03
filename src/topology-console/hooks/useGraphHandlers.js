@@ -9,7 +9,7 @@ import {
 	VALUE,
 	TM_REQUEST,
 } from '../../runtime/message';
-import { generateNodeName } from '../utils/draftGraph';
+import { generateNodeName } from '../utils/consoleGraph';
 import { quoteToken, tokenize } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';

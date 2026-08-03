@@ -731,7 +731,7 @@ describe( 'serializeTsl', () => {
 
 	describe( 'reserved anchor (_repl)', () => {
 		const { parseTsl } = require( '../parseTsl' );
-		const { withReplAnchor } = require( '../draftGraph' );
+		const { withReplAnchor } = require( '../consoleGraph' );
 
 		it( 'emits no make_node for a reserved node', () => {
 			const g = {

@@ -28,7 +28,7 @@ import { useLayout } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullGeometry } from '../utils/hullPath';
-import { edgeHasConnectRole } from '../utils/draftGraph';
+import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
 
 // Exported so the palette drag ghost can render the same node-card geometry.

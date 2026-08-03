@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`draftGraph.js` was two things under one misleading name; it is now two
+  files.** Measured: 147 of its 735 lines were draft mutation, and 581 were
+  graph shaping that `Inspector`, `SchematicCanvas`, `useConsoleGraph`,
+  `useExpandedIncludes` and `useGraphHandlers` use to render **live** graphs.
+  That half is `consoleGraph.js` — shaping and reading a console graph in
+  either mode. `draftGraph.js` keeps only the operations that have a TSL verb,
+  and now has exactly ONE production consumer: `draftReducer.js`. Deleting the
+  pair, once the console runs on a draft interpreter, is now a `rm` rather than
+  an excavation.
+
 ### Added
 
 - **`DraftInterpreterNode` — an edit buffer that is an interpreter.** It differs

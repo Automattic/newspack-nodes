@@ -33,7 +33,7 @@ function emitDraftArg( value ) {
 		1 === spans.length && spans[ 0 ] === s && ! scanned.openQuote;
 	return stable ? s : serializeArg( s );
 }
-import { edgeHasConnectRole } from './draftGraph';
+import { edgeHasConnectRole } from './consoleGraph';
 
 function trimTrailingEmpties( args ) {
 	const out = args.slice();
