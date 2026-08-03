@@ -16,44 +16,37 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * the canvas `frame`, and display flags are injected.
  *
  * @param {Object}           props
- * @param {Object}           props.graph               { nodes, edges } to render.
- * @param {Function}         props.frame               Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
- * @param {Object}           props.frameProps          Props forwarded to `frame`.
- * @param {string}           props.resetKey            Identity key; bumps clears rate history.
- * @param {boolean}          props.interactive         Gesture machinery on (default true).
- * @param {boolean}          props.editMode            Draft-only canvas affordances.
- * @param {boolean}          props.showPalette         Render the class palette.
- * @param {boolean}          props.paletteLoading      Catalog fetch-in-flight flag for the palette (default false).
- * @param {string}           props.streamStatus        For Inspector display.
- * @param {Object}           props.positionOverrides   Layout positions (consumer-owned).
- * @param {Function}         props.onPositionChange    (id, pos)
- * @param {Object}           props.viewport
- * @param {Function}         props.onViewportChange    (viewport)
- * @param {Function}         props.onConnect           (from, to)
- * @param {Function}         props.onRemoveNode        (id)
- * @param {Function}         props.onRemoveEdge        (from, to)
- * @param {Function}         props.onDropNode          (shellName, pos)
- * @param {Function}         props.onInspectorAction   (action, nodeId, payload)
- * @param {Function}         props.onRenameNode        (id, next)
- * @param {Function}         props.onUpdateArgs        (id, args)
- * @param {Function}         props.onUpdateVerbs       (id, verbs)
- * @param {boolean}          props.paletteCollapsed    When true, the palette renders as a slim expand-handle rail (consumer-owned state so the choice can persist across mounts).
- * @param {Function}         props.onPaletteToggle     () — fires when the user clicks the collapse/expand chevron; consumer toggles its `paletteCollapsed` state.
- * @param {Function}         props.onSelectionChange   (selectedId) — optional side-effect.
- * @param {string}           props.selection           Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
- * @param {number}           props.bottomObstructionPx Canvas px obstructed at the bottom (expanded transcript overlay); the autofit reserves that band. Default 0.
- * @param {boolean}          props.inspectorCollapsed  When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
- * @param {Function}         props.onInspectorToggle   () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
- * @param {boolean}          props.local               When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
- * @param {Set<string>|null} props.driftIds            Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
- * @param {number}           [props.debugLevel]        Live Dumper verbosity dial (0/1/2); the Inspector's no-node Verbose toggle reads it. Default 0.
- * @param {Array}            [props.hulls]             One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
- * @param {string}           [props.currentTopology]   The topology being edited; disables dragging it (or an ancestor) onto itself.
- * @param {Function}         [props.onDropTopology]    ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
- * @param {Object}           [props.includeTree]       `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
- * @param {Array}            [props.includes]          The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector, which gates both the IncludeTree rows and the hull panel's remove button on it.
- * @param {Function}         [props.onRemoveInclude]   (name) — removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
- * @param {Function}         [props.onOpenTopology]    (name) — drill into a hull's topology (open its .tsl).
+ * @param {Object}           props.graph              { nodes, edges } to render.
+ * @param {Function}         props.frame              Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
+ * @param {Object}           props.frameProps         Props forwarded to `frame`.
+ * @param {string}           props.resetKey           Identity key; bumps clears rate history.
+ * @param {boolean}          props.interactive        Gesture machinery on (default true).
+ * @param {boolean}          props.editMode           Draft-only canvas affordances.
+ * @param {boolean}          props.showPalette        Render the class palette.
+ * @param {boolean}          props.paletteLoading     Catalog fetch-in-flight flag for the palette (default false).
+ * @param {string}           props.streamStatus       For Inspector display.
+ * @param {Function}         props.onConnect          (from, to)
+ * @param {Function}         props.onRemoveNode       (id)
+ * @param {Function}         props.onRemoveEdge       (from, to)
+ * @param {Function}         props.onDropNode         (shellName, pos)
+ * @param {Function}         props.onInspectorAction  (action, nodeId, payload)
+ * @param {Function}         props.onRenameNode       (id, next)
+ * @param {Function}         props.onUpdateArgs       (id, args)
+ * @param {Function}         props.onUpdateVerbs      (id, verbs)
+ * @param {Function}         props.onSelectionChange  (selectedId) — optional side-effect.
+ * @param {string}           props.selection          Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
+ * @param {boolean}          props.inspectorCollapsed When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
+ * @param {Function}         props.onInspectorToggle  () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
+ * @param {boolean}          props.local              When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
+ * @param {Set<string>|null} props.driftIds           Node ids that exist live but not in the registered .tsl (runtime drift); painted distinctly. null = no drift info.
+ * @param {number}           [props.debugLevel]       Live Dumper verbosity dial (0/1/2); the Inspector's no-node Verbose toggle reads it. Default 0.
+ * @param {Array}            [props.hulls]            One soft hull per directly-declared include: `{ include, nodeIds }[]`, forwarded to SchematicCanvas.
+ * @param {string}           [props.currentTopology]  The topology being edited; disables dragging it (or an ancestor) onto itself.
+ * @param {Function}         [props.onDropTopology]   ({ name, x, y }) — a topology dragged from the Palette onto the canvas.
+ * @param {Object}           [props.includeTree]      `topologies expand`'s `tree`; forwarded to Inspector's IncludeTree as `tree`.
+ * @param {Array}            [props.includes]         The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector, which gates both the IncludeTree rows and the hull panel's remove button on it.
+ * @param {Function}         [props.onRemoveInclude]  (name) — removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
+ * @param {Function}         [props.onOpenTopology]   (name) — drill into a hull's topology (open its .tsl).
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -65,13 +58,7 @@ export default function GraphView( {
 	editMode = false,
 	showPalette = false,
 	paletteLoading = false,
-	paletteCollapsed = false,
-	onPaletteToggle,
 	streamStatus,
-	positionOverrides = {},
-	onPositionChange,
-	viewport = null,
-	onViewportChange,
 	onConnect,
 	onRemoveNode,
 	onRemoveEdge,
@@ -82,7 +69,6 @@ export default function GraphView( {
 	onUpdateVerbs,
 	onSelectionChange,
 	selection,
-	bottomObstructionPx = 0,
 	inspectorCollapsed = false,
 	onInspectorToggle,
 	driftIds = null,
@@ -240,8 +226,6 @@ export default function GraphView( {
 				<Palette
 					editMode={ editMode }
 					loading={ paletteLoading }
-					collapsed={ paletteCollapsed }
-					onToggle={ onPaletteToggle }
 					onDropNode={ onDropNode }
 					currentTopology={ currentTopology }
 					declaredIncludes={ includes }
@@ -261,8 +245,6 @@ export default function GraphView( {
 						setSelectedHull( include );
 						onSelectionChange?.( null );
 					} }
-					positionOverrides={ positionOverrides }
-					onPositionChange={ onPositionChange }
 					onDeselect={ () => {
 						setSelectedId( null );
 						setSelectedEdge( null );
@@ -270,13 +252,10 @@ export default function GraphView( {
 						setSelectedHull( null );
 						onSelectionChange?.( null );
 					} }
-					bottomObstructionPx={ bottomObstructionPx }
 					hoveredId={ hoveredId }
 					onHover={ setHoveredId }
 					rateRef={ rateRef }
 					rateVersion={ rateVersion }
-					viewport={ viewport }
-					onViewportChange={ onViewportChange }
 					interactive={ interactive }
 					editMode={ editMode }
 					onConnect={ onConnect }

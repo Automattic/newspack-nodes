@@ -9,6 +9,7 @@ import { useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { NODE_W, NODE_H, PORT_R } from './SchematicCanvas';
 import { useCatalog } from '../CatalogContext';
+import { useChrome } from '../ChromeContext';
 
 // Categories kept in the catalog but NOT draggable (Service CIs are mounted).
 const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service', 'Remote' ] );
@@ -47,8 +48,6 @@ function includeClosure( name, byName, seen = new Set() ) {
 
 export default function Palette( {
 	loading = false,
-	collapsed = false,
-	onToggle,
 	onDropNode,
 	editMode = false,
 	currentTopology = '',
@@ -56,6 +55,8 @@ export default function Palette( {
 	onDropTopology,
 } ) {
 	const { classes, topologies } = useCatalog();
+	const { paletteCollapsed: collapsed, onPaletteToggle: onToggle } =
+		useChrome();
 	// Drag ghost following the cursor (or null); dragRef keeps handlers stable.
 	const [ ghost, setGhost ] = useState( null );
 	const dragRef = useRef( null );

@@ -289,14 +289,18 @@ jest.mock( '../hooks/useDeleteTopology', () => ( {
 	useDeleteTopology: () => globalThis.__hooks.deleteTopology,
 } ) );
 // Capture canvas + inspector props so tests can invoke any threaded handler.
-let lastCanvasProps = null;
+let mockCanvasProps = null;
 let lastInspectorProps = null;
 let lastHeaderProps = null;
 jest.mock( '../components/SchematicCanvas', () => {
-	// Pure renderer: useCanvasLayout owns positions; mock records props.
-	return ( props ) => {
-		lastCanvasProps = props;
-		return mockCanvasMarkup( props );
+	// Pure renderer: useCanvasLayout owns positions; mock records props. The
+	// real canvas reads layout + chrome from context now, so the double must
+	// too, or these assertions test a prop chain it stopped using.
+	return function SchematicCanvasDouble( props ) {
+		const { useLayout } = require( '../LayoutContext' );
+		const { useChrome } = require( '../ChromeContext' );
+		mockCanvasProps = { ...props, ...useLayout(), ...useChrome() };
+		return mockCanvasMarkup( mockCanvasProps );
 	};
 } );
 function mockCanvasMarkup( props ) {
@@ -1927,7 +1931,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'connect-a-b' ) );
 		} );
-		expect( lastCanvasProps ).not.toBeNull();
+		expect( mockCanvasProps ).not.toBeNull();
 	} );
 
 	it( 'edit mode: handleConnect uses catalog Tee semantics for an own Tap', async () => {
@@ -1952,7 +1956,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'connect-a-b' ) );
 		} );
 
-		expect( lastCanvasProps.parsed.edges ).toEqual(
+		expect( mockCanvasProps.parsed.edges ).toEqual(
 			expect.arrayContaining( [
 				expect.objectContaining( { from: 'a', to: 'c' } ),
 				{ from: 'a', to: 'b' },
@@ -2012,7 +2016,7 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'live canvas: SchematicCanvas receives interactive=true in view mode', () => {
 		render( <TopologyConsole /> );
-		expect( lastCanvasProps.interactive ).toBe( true );
+		expect( mockCanvasProps.interactive ).toBe( true );
 	} );
 
 	it( 'live canvas: reset-graph control re-mounts the graph without throwing', async () => {
@@ -2312,7 +2316,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'select-edge' ) );
 		} );
-		expect( lastCanvasProps.selectedEdge ).toEqual( {
+		expect( mockCanvasProps.selectedEdge ).toEqual( {
 			from: 'n1',
 			to: 'n2',
 		} );
@@ -2357,8 +2361,8 @@ describe( 'TopologyConsole boot', () => {
 	it( 'canvas background click does not dismiss the transcript (no consumed handler)', () => {
 		render( <TopologyConsole /> );
 		// Canvas only deselects/autofits now; it never touches transcript.
-		expect( lastCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
-		expect( lastCanvasProps.backgroundClickAutofitsOnly ).toBeUndefined();
+		expect( mockCanvasProps.onBackgroundClickConsumed ).toBeUndefined();
+		expect( mockCanvasProps.backgroundClickAutofitsOnly ).toBeUndefined();
 	} );
 
 	it( 'toast clears after 5 seconds', () => {
@@ -2401,8 +2405,8 @@ describe( 'TopologyConsole boot', () => {
 				},
 			},
 		} );
-		expect( lastCanvasProps ).not.toBeNull();
-		expect( lastCanvasProps.rateRef.current.size ).toBeGreaterThanOrEqual(
+		expect( mockCanvasProps ).not.toBeNull();
+		expect( mockCanvasProps.rateRef.current.size ).toBeGreaterThanOrEqual(
 			1
 		);
 	} );
@@ -2422,7 +2426,7 @@ describe( 'TopologyConsole boot', () => {
 			to: names.METADATA,
 			value: { n1: { counter: 5, class: 'Echo' } },
 		} );
-		const entry = lastCanvasProps.rateRef.current.get( 'n1' );
+		const entry = mockCanvasProps.rateRef.current.get( 'n1' );
 		expect( entry ).not.toBeUndefined();
 		expect( entry.rate ).toBeGreaterThanOrEqual( 0 );
 	}, 5000 );
@@ -2550,7 +2554,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.keyDown( document, { key: 'Delete' } );
 		} );
-		expect( lastCanvasProps.selectedEdge ).toBeNull();
+		expect( mockCanvasProps.selectedEdge ).toBeNull();
 	} );
 
 	it( 'handleSaveConfirm calls saveTopology + toasts on success', async () => {
@@ -3176,7 +3180,7 @@ describe( 'TopologyConsole boot', () => {
 
 		await waitFor( () => {
 			expect(
-				lastCanvasProps.parsed.edges.filter(
+				mockCanvasProps.parsed.edges.filter(
 					( edge ) => edge.from === 'zebra-fanout'
 				)
 			).toHaveLength( 2 );
@@ -3228,7 +3232,7 @@ describe( 'TopologyConsole boot', () => {
 
 		await waitFor( () => {
 			expect(
-				lastCanvasProps.parsed.edges.filter(
+				mockCanvasProps.parsed.edges.filter(
 					( edge ) => edge.from === 'zebra-fanout'
 				)
 			).toHaveLength( 2 );
@@ -3277,7 +3281,7 @@ describe( 'TopologyConsole boot', () => {
 
 		await waitFor( () => {
 			expect(
-				lastCanvasProps.parsed.edges.filter(
+				mockCanvasProps.parsed.edges.filter(
 					( edge ) => edge.from === 'zebra-fanout'
 				)
 			).toHaveLength( 2 );
@@ -3396,7 +3400,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		expect( lastCanvasProps.positionOverrides.n1 ).toEqual( {
+		expect( mockCanvasProps.positionOverrides.n1 ).toEqual( {
 			x: 111,
 			y: 222,
 		} );
@@ -3409,7 +3413,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		const repl = lastCanvasProps.parsed.nodes.find(
+		const repl = mockCanvasProps.parsed.nodes.find(
 			( n ) => n.id === '_repl'
 		);
 		expect( repl ).toBeDefined();
@@ -3430,13 +3434,13 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		const repl = lastCanvasProps.parsed.nodes.find(
+		const repl = mockCanvasProps.parsed.nodes.find(
 			( n ) => n.id === '_repl'
 		);
 		expect( repl ).toBeDefined();
 		expect( repl.class ).toBe( 'Partition' );
 		expect(
-			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === 'n1' )
+			mockCanvasProps.parsed.nodes.find( ( n ) => n.id === 'n1' )
 		).toBeDefined();
 		// _repl is in the baseline too, so its presence isn't a change.
 		await act( async () => {
@@ -4125,7 +4129,7 @@ describe( 'TopologyConsole boot', () => {
 				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
-		expect( lastCanvasProps.positionOverrides.n1 ).toEqual( {
+		expect( mockCanvasProps.positionOverrides.n1 ).toEqual( {
 			x: 700,
 			y: 800,
 		} );
@@ -4140,7 +4144,7 @@ describe( 'TopologyConsole boot', () => {
 		const pendingLayouts = {};
 		const stalePosition = { x: -377, y: 1093 };
 		const currentPosition = { x: 841, y: -619 };
-		lastCanvasProps = null;
+		mockCanvasProps = null;
 		hooks.catalog = {
 			partitions: { demo: 1, other: 1 },
 			active: [ 'demo', 'other' ],
@@ -4170,7 +4174,7 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			await Promise.resolve();
 		} );
-		expect( lastCanvasProps?.positionOverrides.n1 ).toBeUndefined();
+		expect( mockCanvasProps?.positionOverrides.n1 ).toBeUndefined();
 
 		await act( async () => {
 			pendingLayouts.other( {
@@ -4180,7 +4184,7 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			await Promise.resolve();
 		} );
-		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+		expect( mockCanvasProps.positionOverrides.n1 ).toEqual(
 			currentPosition
 		);
 		const stored = JSON.parse(
@@ -4196,7 +4200,7 @@ describe( 'TopologyConsole boot', () => {
 		const currentPosition = { x: 887, y: -653 };
 		const staleSavePosition = { x: -977, y: 1559 };
 		let resolveSave;
-		lastCanvasProps = null;
+		mockCanvasProps = null;
 		hooks.catalog = {
 			partitions: { demo: 1, other: 1 },
 			active: [ 'demo', 'other' ],
@@ -4227,7 +4231,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		await publishMeta();
 		await act( async () => {
-			lastCanvasProps.onPositionChange( 'n1', draggedPosition );
+			mockCanvasProps.onPositionChange( 'n1', draggedPosition );
 		} );
 		act( () => {
 			fireEvent.click( getByText( 'save-layout' ) );
@@ -4252,7 +4256,7 @@ describe( 'TopologyConsole boot', () => {
 			await Promise.resolve();
 		} );
 		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
-		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+		expect( mockCanvasProps.positionOverrides.n1 ).toEqual(
 			currentPosition
 		);
 
@@ -4266,7 +4270,7 @@ describe( 'TopologyConsole boot', () => {
 			await Promise.resolve();
 		} );
 		expect( queryByTestId( 'canvas' ) ).not.toBeNull();
-		expect( lastCanvasProps.positionOverrides.n1 ).toEqual(
+		expect( mockCanvasProps.positionOverrides.n1 ).toEqual(
 			currentPosition
 		);
 		const stored = JSON.parse(
@@ -4330,7 +4334,7 @@ describe( 'TopologyConsole boot', () => {
 			await waitFor( () => {
 				expect( lastPaletteProps.declaredIncludes ).toContain( name );
 				expect(
-					( lastCanvasProps.hulls || [] ).some(
+					( mockCanvasProps.hulls || [] ).some(
 						( h ) => h.include === name
 					)
 				).toBe( true );
@@ -4404,8 +4408,8 @@ describe( 'TopologyConsole boot', () => {
 			} );
 
 			await waitFor( () => {
-				expect( lastCanvasProps ).not.toBeNull();
-				const hulls = lastCanvasProps.hulls || [];
+				expect( mockCanvasProps ).not.toBeNull();
+				const hulls = mockCanvasProps.hulls || [];
 				expect( hulls.map( ( h ) => h.include ) ).toEqual( [
 					'job-intake',
 				] );
@@ -4461,7 +4465,7 @@ describe( 'TopologyConsole boot', () => {
 				await new Promise( ( r ) => setTimeout( r, 0 ) );
 			} );
 
-			const ids = lastCanvasProps.parsed.nodes.map( ( n ) => n.id );
+			const ids = mockCanvasProps.parsed.nodes.map( ( n ) => n.id );
 			expect( ids ).toContain( 'quokka-null' );
 			expect( ids ).toContain( 'quokka-echo' );
 			expect( ids ).toContain( 'zebra:fanout' );
@@ -4469,7 +4473,7 @@ describe( 'TopologyConsole boot', () => {
 			// A fan-out source keeps EVERY connect; collapsing to the last one
 			// is the "nothing is connected" bug.
 			expect(
-				lastCanvasProps.parsed.edges.filter(
+				mockCanvasProps.parsed.edges.filter(
 					( e ) => 'zebra:fanout' === e.from
 				)
 			).toHaveLength( 2 );
@@ -4493,7 +4497,7 @@ describe( 'TopologyConsole boot', () => {
 
 			// Select a node so the inspector dock mounts (collapsed by default).
 			await act( async () => {
-				lastCanvasProps.onSelect( 'own-echo' );
+				mockCanvasProps.onSelect( 'own-echo' );
 			} );
 
 			await act( async () => {
@@ -4507,7 +4511,7 @@ describe( 'TopologyConsole boot', () => {
 			);
 			// The draft is untouched until the user confirms.
 			expect(
-				lastCanvasProps.parsed.nodes.some(
+				mockCanvasProps.parsed.nodes.some(
 					( n ) => n.id === 'own-echo'
 				)
 			).toBe( true );
@@ -4608,7 +4612,7 @@ describe( 'TopologyConsole boot', () => {
 
 			// The borrowed edge is in the edited graph, not silently dropped.
 			expect(
-				lastCanvasProps.parsed.edges.some(
+				mockCanvasProps.parsed.edges.some(
 					( e ) =>
 						e.from === 'zebra:consumer' &&
 						e.to === 'zebra:partition'
@@ -4652,10 +4656,10 @@ describe( 'TopologyConsole boot', () => {
 			// borrowedNode() x:0/y:0 default) — otherwise it's invisible, since
 			// SchematicCanvas only renders nodes present in positionOverrides.
 			expect(
-				lastCanvasProps.positionOverrides[ 'shared-tee' ]
+				mockCanvasProps.positionOverrides[ 'shared-tee' ]
 			).not.toEqual( { x: 0, y: 0 } );
 			expect(
-				lastCanvasProps.parsed.nodes.find(
+				mockCanvasProps.parsed.nodes.find(
 					( n ) => n.id === 'shared-tee'
 				)?.origin
 			).toEqual( [ 'performance' ] );
@@ -4693,7 +4697,7 @@ describe( 'TopologyConsole boot', () => {
 
 			await waitFor( () => {
 				expect(
-					lastCanvasProps.parsed.nodes.find(
+					mockCanvasProps.parsed.nodes.find(
 						( n ) => n.id === 'shared-tee'
 					)?.origin
 				).toEqual( [ 'performance' ] );
@@ -4839,12 +4843,12 @@ describe( 'TopologyConsole boot', () => {
 			await renderConsoleInEditMode();
 			await dropTopologyFromPalette( 'performance', { x: 500, y: 300 } );
 			const sharedPos = {
-				...lastCanvasProps.positionOverrides[ 'shared-tee' ],
+				...mockCanvasProps.positionOverrides[ 'shared-tee' ],
 			};
 
 			await dropTopologyFromPalette( 'job-router', { x: 900, y: 900 } );
 
-			expect( lastCanvasProps.positionOverrides[ 'shared-tee' ] ).toEqual(
+			expect( mockCanvasProps.positionOverrides[ 'shared-tee' ] ).toEqual(
 				sharedPos
 			);
 		} );
@@ -4873,7 +4877,7 @@ describe( 'TopologyConsole boot', () => {
 
 			await waitFor( () => {
 				expect(
-					lastCanvasProps.parsed.nodes.find(
+					mockCanvasProps.parsed.nodes.find(
 						( n ) => n.id === 'shared-tee'
 					)?.origin
 				).toEqual( [ 'performance' ] );
