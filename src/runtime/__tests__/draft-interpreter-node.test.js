@@ -82,6 +82,82 @@ describe( 'document verbs touch no node table', () => {
 	} );
 } );
 
+describe( 'command_node — one statement, two readings', () => {
+	it( 'records a verb the tokenizer canonicalised from `cmd`', () => {
+		// `cmd` and `command` are not separate verbs: parseStatements rewrites
+		// both to `command_node`, so there is one handler and one grammar.
+		const d = draft();
+		d.run( 'make_node Partition firehose firehose.log' );
+
+		d.run( 'cmd firehose void_warranty' );
+
+		expect( d.invocationsFor( 'firehose' ) ).toEqual( [
+			{ verb: 'void_warranty', args: [], viaConfig: false },
+		] );
+	} );
+
+	it( 'routes a :config target to the sidecar, and remembers which', () => {
+		// A normal node takes verbs through `<name>:config`; a bare target is
+		// how an INTERPRETER-class node takes them directly. dumpDocument has
+		// to emit back whichever the topology wrote.
+		const d = draft();
+		d.run( 'make_node Tee fan' );
+
+		d.run( 'command_node fan:config set_target flames' );
+
+		expect( d.invocationsFor( 'fan' ) ).toEqual( [
+			{ verb: 'set_target', args: [ 'flames' ], viaConfig: true },
+		] );
+	} );
+
+	it( 'refuses a target that is not a node', () => {
+		const d = draft();
+
+		expect( d.dispatch( 'command_node', [ 'nope:config', 'x' ] ) ).toBe(
+			'unknown node: nope'
+		);
+	} );
+
+	it( 'emits each back after its make_node, sidecar suffix preserved', () => {
+		const d = draft();
+		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'cmd firehose void_warranty' );
+		d.run( 'command_node firehose:config set_target fan' );
+
+		expect( d.dumpDocument() ).toBe(
+			[
+				'make_node Partition firehose firehose.log',
+				'command_node firehose void_warranty',
+				'command_node firehose:config set_target fan',
+				'',
+			].join( '\n' )
+		);
+	} );
+
+	it( "drops a node's declarations when the node goes", () => {
+		const d = draft();
+		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'cmd firehose void_warranty' );
+
+		d.run( 'remove_node firehose' );
+
+		expect( d.invocationsFor( 'firehose' ) ).toEqual( [] );
+		expect( d.dumpDocument() ).toBe( '' );
+	} );
+
+	it( 'carries declarations across a rename, like the edges do', () => {
+		const d = draft();
+		d.run( 'make_node Partition flames flames.log' );
+		d.run( 'cmd flames void_warranty' );
+
+		d.run( 'move_node flames flame-builder' );
+
+		expect( d.invocationsFor( 'flame-builder' ) ).toEqual( [
+			{ verb: 'void_warranty', args: [], viaConfig: false },
+		] );
+	} );
+} );
+
 describe( 'dumpDocument', () => {
 	it( 'emits the statement order a topology file requires', () => {
 		const d = draft();
