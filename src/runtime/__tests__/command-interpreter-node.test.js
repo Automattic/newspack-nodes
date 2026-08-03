@@ -130,6 +130,47 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	} );
 } );
 
+test( 'move_node renames a node in the registry', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'move_probe';
+	interpreter.sink = sink;
+	interpreter.makeNode( 'Echo', 'wombat-before' );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'caller';
+	m[ VALUE ] = {
+		name: 'move_node',
+		arguments: [ 'wombat-before', 'wombat-after' ],
+	};
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( Core.node( 'wombat-before' ) ).toBeNull();
+	expect( Core.node( 'wombat-after' ) ).not.toBeNull();
+} );
+
+test( 'move_node without both names returns usage', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'move_usage_probe';
+	interpreter.sink = sink;
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'caller';
+	m[ VALUE ] = { name: 'mv', arguments: [ 'only-one' ] };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( got[ 0 ][ VALUE ].payload ).toContain( 'usage: move_node' );
+} );
+
 test( 'a string reply is newline-terminated, and not doubly so', () => {
 	// A handler that forgets its terminator leaves the REPL printing the next
 	// prompt on the same line. Normalized once, in _respond.

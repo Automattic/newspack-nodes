@@ -45,6 +45,8 @@ const ALIAS_TO_CANONICAL = {
 	disconnect: 'disconnect_node',
 	remove: 'remove_node',
 	rm: 'remove_node',
+	move: 'move_node',
+	mv: 'move_node',
 	chdir: 'cd',
 	tell: 'tell_node',
 	send: 'send_node',
@@ -65,6 +67,7 @@ const HELP = {
 	unregister: 'unregister <source name> <target name> <event>\n',
 	remove_node:
 		'remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n',
+	move_node: 'move_node <node name> <new name>\n    aliases: move, mv\n',
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	list_timers:
@@ -319,6 +322,9 @@ export class CommandInterpreterNode extends Node {
 				CommandInterpreterNode._cmdRegister( args ),
 			unregister: ( self, args ) =>
 				CommandInterpreterNode._cmdUnregister( args ),
+			move_node: ( self, args ) => self._cmdMove( args ),
+			move: ( self, args ) => self._cmdMove( args ),
+			mv: ( self, args ) => self._cmdMove( args ),
 			remove_node: ( self, args ) => self._cmdRemove( args ),
 			remove: ( self, args ) => self._cmdRemove( args ),
 			rm: ( self, args ) => self._cmdRemove( args ),
@@ -491,6 +497,20 @@ export class CommandInterpreterNode extends Node {
 			return 'usage: unregister <source name> <target name> <event>';
 		}
 		src.unregister( parts.slice( 2 ).join( ' ' ), target );
+		return 'ok';
+	}
+
+	// `move_node <old> <new>` — Node's name setter re-keys and guards.
+	_cmdMove( args ) {
+		const [ name, newName ] = args;
+		if ( ! name || ! newName ) {
+			return 'usage: move_node <node name> <new name>';
+		}
+		const node = Core.node( name );
+		if ( null === node ) {
+			throw new Error( `can't find node "${ name }"` );
+		}
+		node.name = newName;
 		return 'ok';
 	}
 

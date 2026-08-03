@@ -37,6 +37,63 @@ class CommandInterpreterTest extends TestCase {
 		return $m;
 	}
 
+	// ── move_node (Tachikoma CommandInterpreter.pm:643) ────────────────────
+
+	public function test_move_node_renames_a_node_in_the_registry(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->fill( $this->command_message( 'make_node', 'Echo wombat-before', true ) );
+
+		$interpreter->fill( $this->command_message( 'move_node', 'wombat-before wombat-after', true ) );
+
+		$this->assertNull( \Newspack_Nodes\Core::node( 'wombat-before' ), 'old name still registered' );
+		$this->assertNotNull( \Newspack_Nodes\Core::node( 'wombat-after' ), 'new name not registered' );
+	}
+
+	public function test_move_node_answers_to_move_and_mv(): void {
+		foreach ( [ 'move', 'mv' ] as $i => $alias ) {
+			$interpreter = new Command_Interpreter_Node();
+			$sink        = new Capture_Sink_Node();
+			$interpreter->sink( $sink );
+			$from = "alias-src-{$i}";
+			$to   = "alias-dst-{$i}";
+			$interpreter->fill( $this->command_message( 'make_node', "Echo {$from}", true ) );
+
+			$interpreter->fill( $this->command_message( $alias, "{$from} {$to}", true ) );
+
+			$this->assertNotNull( \Newspack_Nodes\Core::node( $to ), "{$alias} did not rename" );
+		}
+	}
+
+	public function test_move_node_without_both_names_returns_usage(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		$interpreter->fill( $this->command_message( 'move_node', 'only-one-name', true ) );
+
+		$this->assertStringContainsString(
+			'usage: move_node',
+			(string) $sink->captured[0][ Message::VALUE ]['payload']
+		);
+	}
+
+	public function test_move_node_of_an_unknown_node_errors(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		$interpreter->fill( $this->command_message( 'move_node', 'no-such-node somewhere-else', true ) );
+
+		$resp = $sink->captured[0];
+		$this->assertTrue( (bool) ( $resp[ Message::TYPE ] & Message::TM_ERROR ) );
+		$this->assertStringContainsString(
+			"can't find node",
+			(string) $resp[ Message::VALUE ]['payload']
+		);
+	}
+
 	// ── every string reply ends with a newline (Tachikoma convention) ──────
 
 	public function test_a_string_reply_is_newline_terminated(): void {
