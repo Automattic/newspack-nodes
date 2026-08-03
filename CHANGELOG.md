@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`DraftInterpreterNode` — an edit buffer that is an interpreter.** It differs
+  from the live one in exactly three ways, each deliberate: `make_node` builds a
+  stub for a class this runtime cannot construct; `move_node` rewrites
+  references, because an editor that silently strands the edges of the topology
+  you are editing is indefensible even though the live verb is faithfully
+  `$node->name($new)` and nothing else; and it answers the DOCUMENT verbs
+  (`var`, `include`, `remove_include`, `secure`), which belong to a file rather
+  than a graph and touch no node table. `secure` is freely reversible here — the
+  live one-way ratchet is a security property, not a shared behaviour.
+  `dumpDocument()` emits the statement order a topology requires, with `secure`
+  last because `secure 1` disables `make_node` for everything after it.
+
 ### Changed
 
 - **Layout and chrome moved off the prop chain.** `LayoutContext` carries
