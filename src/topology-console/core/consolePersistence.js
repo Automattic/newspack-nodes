@@ -81,6 +81,13 @@ const REDACTED = '<redacted>';
  * REPL echoes verbatim), and a `"password":"…"` pair inside a rendered command
  * payload. The name survives so the line still reads; only the value goes.
  *
+ * A value ends where its QUOTING says it ends, not at the first space. A
+ * passphrase makes `Node::serialize_args()` quote the whole token —
+ * `'--auth_password=correct horse battery'` — and an earlier value matcher
+ * that stopped at whitespace left everything past the first word sitting in
+ * localStorage beside the redaction marker. Both quote characters appear:
+ * serialize_args emits single quotes, the JSON payload shape double.
+ *
  * @param {string} text A transcript line.
  * @return {string} The line with credential values masked.
  */
@@ -90,13 +97,32 @@ function redactSecrets( text ) {
 	}
 	const secret = ( name ) =>
 		SECRET_NAME_PATTERNS.some( ( n ) => name.toLowerCase().includes( n ) );
-	return text
-		.replace( /(--[\w.-]+=)("?)([^\s"]*)\2/g, ( all, lead, quote ) =>
-			secret( lead ) ? `${ lead }${ quote }${ REDACTED }${ quote }` : all
-		)
-		.replace( /("[\w.-]+"\s*:\s*)"([^"]*)"/g, ( all, lead ) =>
-			secret( lead ) ? `${ lead }"${ REDACTED }"` : all
-		);
+	return (
+		text
+			// Whole token quoted by serialize_args: '--key=value with spaces'.
+			.replace(
+				/(['"])(--[\w.-]+=)(?:\\.|(?!\1)[^\\])*\1/g,
+				( all, quote, lead ) =>
+					secret( lead )
+						? `${ quote }${ lead }${ REDACTED }${ quote }`
+						: all
+			)
+			// Value quoted on its own: --key="value with spaces".
+			.replace(
+				/(--[\w.-]+=)(['"])(?:\\.|(?!\2)[^\\])*\2/g,
+				( all, lead, quote ) =>
+					secret( lead )
+						? `${ lead }${ quote }${ REDACTED }${ quote }`
+						: all
+			)
+			// Bare token: --key=value, ending at whitespace.
+			.replace( /(--[\w.-]+=)\S*/g, ( all, lead ) =>
+				secret( lead ) ? `${ lead }${ REDACTED }` : all
+			)
+			.replace( /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g, ( all, lead ) =>
+				secret( lead ) ? `${ lead }"${ REDACTED }"` : all
+			)
+	);
 }
 
 function saveTranscriptTo( key, entries ) {
