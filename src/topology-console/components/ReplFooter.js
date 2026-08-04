@@ -61,6 +61,30 @@ function loadStoredHeight() {
 	}
 }
 
+/**
+ * The REPL footer: a resizable transcript pane, the prompt, the command input,
+ * and the connection-status pill. It owns the pieces a terminal is expected to
+ * have — persisted command history, Tab completion, Ctrl/Cmd+L clear, `/` to
+ * focus and Esc to minimize, and a transcript height that survives reloads —
+ * while the parent owns the transcript itself and the expanded state.
+ *
+ * @param {Object}   props
+ * @param {string}   props.prompt                  Text shown before `>`; both consumers pass the shell cwd.
+ * @param {string}   [props.streamStatus]          Stream state: `connecting`, `open`, `error`, or `closed`. Absent (local overlay) reads as LIVE.
+ * @param {boolean}  props.canSend                 False disables the input and shows the connecting placeholder.
+ * @param {Function} props.onSubmit                Receives the trimmed command line on Enter.
+ * @param {Function} [props.onClear]               Clears the transcript; bound to Ctrl/Cmd+L and the ✕ button.
+ * @param {Object[]} [props.transcript]            Entries to render, each `{ key, kind, text, prompt? }`.
+ * @param {boolean}  props.expanded                Whether the transcript pane is open.
+ * @param {Function} [props.onExpandedChange]      Receives the next expanded state, or an updater function.
+ * @param {Object}   [props.inputRef]              External ref to the prompt input, so the parent can blur or refocus it.
+ * @param {Function} [props.onComplete]            Receives the whole input line on Tab to request candidates.
+ * @param {?Object}  [props.completion]            Completion reply `{ seq, candidates }`; a fresh `seq` re-applies it.
+ * @param {Function} [props.onShowCandidates]      Receives the ambiguous matches on the second and later Tab of a run.
+ * @param {?number}  [props.maxHeightPx]           Ceiling for the transcript height; null measures against the window.
+ * @param {Function} [props.onOverlayHeightChange] Receives the px the transcript covers of the canvas (0 when collapsed).
+ * @return {import('react').ReactElement} The footer element.
+ */
 export default function ReplFooter( {
 	prompt,
 	streamStatus,

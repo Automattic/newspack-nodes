@@ -22,6 +22,12 @@ export class SettingsAuditViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
 
+	/**
+	 * Sizes the ring and zeroes the throttle state.
+	 *
+	 * @param {number} [maxEntries] Ring cap; MAX_ENTRIES when omitted. Tests pass a
+	 *                              small value to exercise the oldest-drop path.
+	 */
 	constructor( maxEntries ) {
 		super();
 		this.maxEntries = maxEntries || MAX_ENTRIES;
@@ -32,6 +38,19 @@ export class SettingsAuditViewNode extends Node {
 		this._flushTimer = null;
 	}
 
+	/**
+	 * Append one settings-change event to the ring, then publish (throttled).
+	 *
+	 * A frame whose VALUE is not an object carrying a non-empty `option` string is
+	 * not a settings-change record and is ignored — the counter still advances, so
+	 * the overlay's throughput reflects everything that arrived. `old` and `new`
+	 * ride only when the writer's allowlist let the value excerpts through, so both
+	 * are copied only when present as strings.
+	 *
+	 * @param {Array} message The 7-field positional message; VALUE is the event
+	 *                        record, TIMESTAMP the instant of the change.
+	 * @return {void}
+	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
@@ -65,7 +84,15 @@ export class SettingsAuditViewNode extends Node {
 		this._maybePublish();
 	}
 
-	// Leading-edge throttle + trailing flush so a burst's newest entry lands.
+	/**
+	 * Publish now, or arm a trailing flush when inside the throttle window.
+	 *
+	 * Leading-edge throttle plus a single trailing timer, so a full-replay burst
+	 * publishes once at its start and once more when it settles — the newest entry
+	 * always lands without a setState per frame.
+	 *
+	 * @return {void}
+	 */
 	_maybePublish() {
 		const now = Date.now();
 		if ( now - this._lastPublish < PUBLISH_THROTTLE_MS ) {
@@ -81,6 +108,14 @@ export class SettingsAuditViewNode extends Node {
 		this._publishNow();
 	}
 
+	/**
+	 * Publish the snapshot immediately and reset the throttle window.
+	 *
+	 * Cancels any armed trailing flush first, so an entry that arrives just before
+	 * a leading-edge publish does not trigger a redundant second one.
+	 *
+	 * @return {void}
+	 */
 	_publishNow() {
 		if ( null !== this._flushTimer ) {
 			clearTimeout( this._flushTimer );
@@ -90,14 +125,29 @@ export class SettingsAuditViewNode extends Node {
 		this.setState( 'view', { entries: this.snapshot() } );
 	}
 
-	// Newest-first fresh copy: sort ts desc, arrival-seq (id) desc as tiebreak.
+	/**
+	 * The published timeline: a newest-first copy of the ring.
+	 *
+	 * Sorted by timestamp descending, with the arrival sequence (`id`) descending as
+	 * the tiebreak, so changes sharing one second still read in the order they
+	 * happened. A fresh array every time — React must not see the live ring mutate.
+	 *
+	 * @return {Array<Object>} Entries shaped `{ id, ts, option, old?, new? }`.
+	 */
 	snapshot() {
 		return this._entries
 			.slice()
 			.sort( ( a, b ) => b.ts - a.ts || b.id - a.id );
 	}
 
-	// Cancel a pending trailing flush so no setState fires after teardown.
+	/**
+	 * Tear down, cancelling any armed trailing flush.
+	 *
+	 * Without the cancel, a pending timer would fire `setState` on a node the graph
+	 * has already dropped.
+	 *
+	 * @return {void}
+	 */
 	removeNode() {
 		if ( null !== this._flushTimer ) {
 			clearTimeout( this._flushTimer );
@@ -106,6 +156,12 @@ export class SettingsAuditViewNode extends Node {
 		super.removeNode();
 	}
 
+	/**
+	 * Hidden from the node palette: the dashboard wires this sink itself, and it
+	 * takes no arguments and no target.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

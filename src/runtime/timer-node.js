@@ -24,6 +24,10 @@ import {
  * Subclasses override `fire()`; consumers register on 'FIRE'.
  */
 export class TimerNode extends Node {
+	/**
+	 * Start disarmed: no slot, no Router registration, `interval_ms` 0.
+	 * `setTimer()` — from `set arguments` or from a subclass — arms the node.
+	 */
 	constructor() {
 		super();
 		this._handle = null;
@@ -41,11 +45,24 @@ export class TimerNode extends Node {
 		this.key = '';
 	}
 
+	/**
+	 * The token list as stored by the base Node — Timer keeps it verbatim and
+	 * reads it only in the setter below.
+	 *
+	 * @return {string[]} Last-set argument tokens.
+	 */
 	get arguments() {
 		return super.arguments;
 	}
 
-	// Only the BASE Timer auto-arms; interval_ms comes from setTimer().
+	/**
+	 * Arm the BASE Timer from its one optional token: no token hitchhikes the
+	 * Router tick, an integer arms a slot of that many milliseconds, anything
+	 * else throws. A subclass sets its own interval from `setTimer()`, so this
+	 * auto-arm deliberately stops at `TimerNode` itself.
+	 *
+	 * @param {string[]} value Argument tokens; token 0 is the interval in ms.
+	 */
 	set arguments( value ) {
 		super.arguments = value;
 		if ( TimerNode !== this.constructor ) {
@@ -62,7 +79,12 @@ export class TimerNode extends Node {
 		}
 	}
 
-	// fireCb (Timer::fire_cb): oneshot stops fully; no-op without a sink.
+	/**
+	 * One tick of whichever slot is armed (Timer::fire_cb). A oneshot timer
+	 * disarms itself first; a sinkless timer does nothing. A hitchhiking timer
+	 * whose `interval_ms` exceeds the 1s Router tick throttles here, so only
+	 * ticks at or past its own cadence reach `fire()`.
+	 */
 	fireCb() {
 		if ( this.oneshot ) {
 			this.stopTimer();
@@ -82,7 +104,13 @@ export class TimerNode extends Node {
 		this.fire();
 	}
 
-	// One tick (Timer::fire): emit a TM_BYTESTREAM heartbeat, notify 'FIRE'.
+	/**
+	 * Emit one heartbeat (Timer::fire): a TM_BYTESTREAM whose VALUE is the
+	 * current timestamp, sent through the sink to `target`, then notify 'FIRE'
+	 * subscribers. An untargeted timer sinking straight into the command
+	 * interpreter skips the send — the interpreter has nothing to do with it —
+	 * and only notifies. Subclasses override this to define a tick.
+	 */
 	fire() {
 		if (
 			'' !== this.target ||
@@ -103,7 +131,17 @@ export class TimerNode extends Node {
 		this.notify( 'FIRE', Core.now() );
 	}
 
-	// Named + (no ms | >=1000) → hitchhike; anything else → own slot.
+	/**
+	 * Arm the timer in one of the two modes. A named non-Router node asking
+	 * for no interval, or for one of at least 1000ms, registers 'TIMER' on
+	 * `_router` and rides its tick; everything else takes its own setInterval
+	 * slot, which requires a concrete interval. Any live slot is cleared
+	 * first, so re-arming never leaks one.
+	 *
+	 * @param {?number} ms      Interval in milliseconds; null means the Router's own cadence.
+	 * @param {boolean} oneshot Disarm after the first fire.
+	 * @throws {Error} When the hitchhike finds no `_router`, or an own slot gets no interval.
+	 */
 	setTimer( ms = null, oneshot = false ) {
 		if (
 			( null === ms || ms >= 1000 ) &&
@@ -144,12 +182,21 @@ export class TimerNode extends Node {
 		this.oneshot = oneshot;
 	}
 
+	/**
+	 * Disarm before teardown, so neither a setInterval slot nor a Router
+	 * 'TIMER' registration outlives the node.
+	 */
 	removeNode() {
 		this.stopTimer();
 		super.removeNode();
 	}
 
-	// Unregister the active slot; a mid-notify self-stop is safe.
+	/**
+	 * Disarm whichever slot is active — unregister from the Router's 'TIMER'
+	 * list, or clear the interval handle — and reset `interval_ms` and the
+	 * oneshot flag. Stopping from inside a fire is safe: the Router iterates a
+	 * snapshot of its registration keys.
+	 */
 	stopTimer() {
 		const mode = this.mode;
 		this.mode = 'inactive';
@@ -168,14 +215,31 @@ export class TimerNode extends Node {
 		}
 	}
 
+	/**
+	 * The stream key stamped onto each emitted message's KEY (Tachikoma's
+	 * STREAM field); '' leaves KEY unset.
+	 *
+	 * @return {string} Current key.
+	 */
 	get key() {
 		return this._key;
 	}
 
+	/**
+	 * Set the stream key every `fire()` stamps onto KEY.
+	 *
+	 * @param {string} key Stream key; '' stamps none.
+	 */
 	set key( key ) {
 		this._key = key;
 	}
 
+	/**
+	 * Console-palette entry. The one optional positional is the interval in
+	 * milliseconds; omitting it rides the Router tick instead of taking a slot.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Control',

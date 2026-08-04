@@ -1,3 +1,9 @@
+import { useEffect, useRef, useState } from '@wordpress/element';
+import { processStats } from '../utils/processStats';
+
+// ~1 minute of trailing samples at the ~1s metadata cadence.
+const RATE_HISTORY_MAX = 60;
+
 /**
  * useAggregateRateSeries — derive fleet In/Out message-rate sparkline series from
  * the dump_metadata polls already feeding the graph. Each new `nodes` snapshot (a
@@ -9,18 +15,11 @@
  * when the scope changes (e.g. switching to a different worker), so the new
  * scope's cumulative counters never delta against the prior scope's baseline.
  *
- * @param {Array}  nodes    The latest dump_metadata node list (`parsed.nodes`).
- * @param {string} resetKey Scope identity; a change clears the baseline + history.
+ * @param {Array}  nodes      The latest dump_metadata node list (`parsed.nodes`).
+ * @param {string} [resetKey] Scope identity; a change clears the baseline + history.
  * @return {{ in: number[], out: number[], read: number[], write: number[] }}
  *   Trailing In/Out msg/s + bytes read/written per-second sample rings.
  */
-
-import { useEffect, useRef, useState } from '@wordpress/element';
-import { processStats } from '../utils/processStats';
-
-// ~1 minute of trailing samples at the ~1s metadata cadence.
-const RATE_HISTORY_MAX = 60;
-
 export function useAggregateRateSeries( nodes, resetKey ) {
 	const [ series, setSeries ] = useState( {
 		in: [],

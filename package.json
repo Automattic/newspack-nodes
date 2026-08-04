@@ -23,7 +23,8 @@
 		"make-pot": "wp i18n make-pot . languages/newspack-nodes.pot --domain=newspack-nodes --exclude=node_modules,build,vendor,tests,release",
 		"test:js": "jest --passWithNoTests",
 		"test:js:coverage": "jest --passWithNoTests --coverage --collectCoverageFrom='src/**/*.{js,jsx}' --coverageReporters=json-summary --coverageReporters=text",
-		"lint:deadcode:js": "knip --no-progress"
+		"lint:deadcode:js": "knip --no-progress",
+		"lint:types": "tsc -p tsconfig.check.json --pretty false"
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.2.0",
@@ -40,6 +41,8 @@
 		"@commitlint/config-conventional": "^19.8.1",
 		"@csstools/selector-specificity": "^5.0.0",
 		"@testing-library/react": "^16.3.2",
+		"@types/node": "20.19.40",
+		"@types/react": "18.3.28",
 		"@wordpress/eslint-plugin": "^24.5.0",
 		"@wordpress/prettier-config": "^4.46.0",
 		"@wordpress/stylelint-config": "^23.38.0",
@@ -56,17 +59,21 @@
 		"prettier": "npm:wp-prettier@^3.0.3",
 		"rtlcss": "^4.3.0",
 		"sass": "^1.99.0",
-		"stylelint": "^16.26.1"
+		"stylelint": "^16.26.1",
+		"typescript": "6.0.3"
 	},
 	"lint-staged": {
 		"*.{js,jsx}": [
 			"eslint",
+			"node scripts/reorder-node-methods.js --check",
 			"node scripts/lint-comment-length.mjs",
-			"sh -c 'npm run lint:deadcode:js --silent'"
+			"sh -c 'npm run lint:deadcode:js --silent'",
+			"sh -c 'npm run lint:types --silent'"
 		],
 		"*.scss": "stylelint --customSyntax postcss-scss",
 		"*.php": [
 			"./vendor/bin/phpcs",
+			"php scripts/reorder-node-methods.php --check",
 			"sh -c 'npm run lint:phpstan --silent'",
 			"php scripts/lint-comment-length.php"
 		],

@@ -11,6 +11,15 @@ import { PartitionViewerViewNode } from './partition-viewer-view-node';
  * the other, while sharing the ring implementation.
  */
 export class LogViewerViewNode extends PartitionViewerViewNode {
+	/**
+	 * Node metadata behind `help <Type>` and the console's node palette.
+	 * Inherits the shared log-stream view schema — Hidden category, no target,
+	 * no arguments — and restates only the description in the Log Viewer's
+	 * terms, so the palette entry names raw log lines rather than partitions.
+	 *
+	 * @return {Object} Schema: category, description, has_target, arguments,
+	 *                  commands.
+	 */
 	static nodeSchema() {
 		return {
 			...super.nodeSchema(),

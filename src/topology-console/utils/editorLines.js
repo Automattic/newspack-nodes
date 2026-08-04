@@ -65,28 +65,6 @@ export function verbUsesConfig( invocation, schema ) {
 }
 
 /**
- * Whether an expansion belongs to the document currently loaded.
- *
- * `topologies expand` keys its `tree` by the direct includes that resolved, so
- * the top-level keys are exactly what was asked for. Opening a child topology
- * leaves the PARENT's expansion in state for a tick, and re-seeding from it
- * marks the child's own nodes borrowed — after which the document stops
- * declaring them and a save writes an empty file.
- *
- * @param {Object} expansion `topologies expand` result.
- * @param {Array}  includes  The document's direct includes.
- * @return {boolean} True when the expansion is this document's.
- */
-export function expansionMatchesIncludes( expansion, includes ) {
-	const tree = expansion?.tree ?? {};
-	const declared = includes ?? [];
-	return (
-		Object.keys( tree ).length === declared.length &&
-		declared.every( ( name ) => name in tree )
-	);
-}
-
-/**
  * A verb invocation's arguments, defaults filled and trailing empties dropped.
  *
  * The Inspector's toggle seeds one empty slot per declared argument. Written

@@ -1,3 +1,24 @@
+import { useState, useEffect, useRef, useCallback } from '@wordpress/element';
+import { Core } from '../runtime/core';
+import { VALUE } from '../runtime/message';
+import names from '../runtime/reserved-node-names.json';
+
+// Verbs (and their interpreter aliases) that structurally mutate the graph.
+const MUTATING_VERBS = new Set( [
+	'make_node',
+	'make',
+	'connect_node',
+	'connect',
+	'disconnect_node',
+	'disconnect',
+	'remove_node',
+	'remove',
+	'rm',
+] );
+
+// Substrate's own node names — anything else in the local graph is user-added.
+const RESERVED_NAMES = new Set( Object.values( names ) );
+
 /**
  * useGraphReset — shared graph-dirty + Reset Graph logic for BOTH the debug
  * overlay and the topology console (one implementation, identical behavior).
@@ -20,36 +41,14 @@
  * clears structureDirty, e.g. a topology change). This mirrors the overlay's
  * original `graphDirty || hasUserNodes`, with the tap fixing the REPL gap.
  *
- * @param {Object}   params
+ * @param {Object}   params              Hook options.
  * @param {?Object}  params.shell        The session Shell (its onDispatch is tapped).
- * @param {Array}    params.nodes        Live graph nodes ({id}); non-reserved = user-added.
+ * @param {?Array}   params.nodes        Live graph nodes ({id}); non-reserved = user-added.
  * @param {boolean}  params.isLocalScope Reset only makes sense on the in-browser graph.
  * @param {boolean}  params.canRebuild   A rebuild path exists (overlay: reinit; console: mounted).
  * @param {Function} params.markDirty    Layout-dirty hook; called on every structural mutation (and by resetGraph) so Reset Layout surfaces alongside Reset Graph.
  * @return {{structureDirty: boolean, resetGraph: Function, canResetGraph: boolean}} Reset state.
  */
-
-import { useState, useEffect, useRef, useCallback } from '@wordpress/element';
-import { Core } from '../runtime/core';
-import { VALUE } from '../runtime/message';
-import names from '../runtime/reserved-node-names.json';
-
-// Verbs (and their interpreter aliases) that structurally mutate the graph.
-const MUTATING_VERBS = new Set( [
-	'make_node',
-	'make',
-	'connect_node',
-	'connect',
-	'disconnect_node',
-	'disconnect',
-	'remove_node',
-	'remove',
-	'rm',
-] );
-
-// Substrate's own node names — anything else in the local graph is user-added.
-const RESERVED_NAMES = new Set( Object.values( names ) );
-
 export function useGraphReset( {
 	shell,
 	nodes,

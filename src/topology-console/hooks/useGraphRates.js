@@ -7,7 +7,9 @@ const RATE_HISTORY_MAX = 60;
  * Per-node msg/s + byte/s rate tracking, one tick per graph object. Negative
  * deltas (a worker respawn resets counters) clamp to zero. `resetKey` clears
  * the accumulated map when the graph identity changes (e.g. the console swaps
- * worker/topology). Returns { rateRef, rateVersion } for SchematicCanvas.
+ * worker/topology). `rateRef` is a stable ref SchematicCanvas reads during
+ * render; `rateVersion` is the state bump that both re-renders it and gives
+ * derivations off `rateRef.current` a dependency they can list.
  *
  * @param {Object} graph    { nodes, edges } whose per-node counters drive the rates.
  * @param {string} resetKey Identity key; a change clears the accumulated rate map.

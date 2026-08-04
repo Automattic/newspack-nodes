@@ -95,6 +95,15 @@ function wire( wrapper ) {
 	} );
 }
 
+/**
+ * Wire every reset-capable field found under `root`.
+ *
+ * Idempotent: a wrapper already wired is skipped, so this is safe to call
+ * again after part of the settings form is re-rendered.
+ *
+ * @param {Document|Element} root Subtree to scan for `[data-nn-reset]`
+ *                                wrappers. Defaults to the whole document.
+ */
 export function initFieldReset( root = document ) {
 	root.querySelectorAll( '[data-nn-reset]' ).forEach( wire );
 }

@@ -14,6 +14,24 @@ import { __ } from '@wordpress/i18n';
 import { SegmentBar } from './SegmentBar';
 import { formatByteRate, formatBytes, formatEta } from './formatters';
 
+/**
+ * Props for the worker row of a `node` entity.
+ *
+ * @typedef {Object} NodeRowProps
+ * @property {Object}                entity    A `node` entity from
+ *                                             `buildTopologySections`; its
+ *                                             `workers` array carries one live
+ *                                             row per partition.
+ * @property {Object<string,number>} byteRates Read rate in bytes per second,
+ *                                             keyed `handler-partition-source`.
+ */
+
+/**
+ * The status strip of a `node` entity: one badge per partition, each carrying
+ * that worker's read rate, backlog, ETA, and restart-pending marker.
+ *
+ * @type {import('react').NamedExoticComponent<NodeRowProps>}
+ */
 const NodeRow = memo( function NodeRow( { entity, byteRates } ) {
 	const sorted = [ ...entity.workers ].sort(
 		( a, b ) => a.partition - b.partition
@@ -75,6 +93,41 @@ const NodeRow = memo( function NodeRow( { entity, byteRates } ) {
 	);
 } );
 
+/**
+ * Props for the per-partition rows of a `log` entity.
+ *
+ * `prevSegments` and `removingSegments` drive the segment animations. Both are
+ * keyed by CONCRETE partition name (`firehose.p0`), the same key `writeRates`
+ * uses.
+ *
+ * @typedef {Object} LogRowsProps
+ * @property {Object}                entity           A `log` entity from
+ *                                                    `buildTopologySections`;
+ *                                                    its `partitions` array
+ *                                                    carries one entry per
+ *                                                    concrete catalog partition.
+ * @property {Object<string,number>} writeRates       Write rate in bytes per
+ *                                                    second.
+ * @property {number}                segmentSize      Fleet-wide segment size in
+ *                                                    bytes, scaling the bars of
+ *                                                    a log that declares none of
+ *                                                    its own.
+ * @property {Object}                prevSegments     The PRIOR snapshot's
+ *                                                    segment ids, each value a
+ *                                                    `Set`; a segment missing
+ *                                                    from it animates in.
+ * @property {Object}                removingSegments Segments gone since the
+ *                                                    prior snapshot, each value
+ *                                                    an array, drawn until they
+ *                                                    finish animating out.
+ */
+
+/**
+ * One `log` entity's per-partition rows: the partition's write rate and its
+ * segment bars, departed segments included so they can animate out.
+ *
+ * @type {import('react').NamedExoticComponent<LogRowsProps>}
+ */
 const LogRows = memo( function LogRows( {
 	entity,
 	writeRates,
@@ -144,6 +197,39 @@ const LogRows = memo( function LogRows( {
 	} );
 } );
 
+/**
+ * Props for one entity of a topology tree. Everything but `entity` and `depth`
+ * passes straight down to the children, so one call renders a whole subtree.
+ *
+ * @typedef {Object} TreeEntityProps
+ * @property {Object}                entity           The entity to render: its
+ *                                                    `kind` is `node` or `log`,
+ *                                                    its `children` are the
+ *                                                    entities beneath it.
+ * @property {number}                depth            Nesting level; each level
+ *                                                    indents 14px.
+ * @property {Set<string>}           collapsed        Keys of the folded
+ *                                                    entities, owned by the
+ *                                                    caller.
+ * @property {Function}              onToggle         Called with an entity key
+ *                                                    to fold or unfold it.
+ * @property {Object<string,number>} byteRates        Read rates, for `NodeRow`.
+ * @property {Object<string,number>} writeRates       Write rates, for `LogRows`.
+ * @property {number}                segmentSize      Fleet-wide segment size in
+ *                                                    bytes.
+ * @property {Object}                prevSegments     The PRIOR snapshot's
+ *                                                    segment ids per partition
+ *                                                    name.
+ * @property {Object}                removingSegments Segments gone since the
+ *                                                    prior snapshot, per
+ *                                                    partition name.
+ */
+
+/**
+ * One foldable tree entity plus, unless it is collapsed, its children.
+ *
+ * @type {import('react').NamedExoticComponent<TreeEntityProps>}
+ */
 const TreeEntity = memo( function TreeEntity( props ) {
 	const {
 		entity,

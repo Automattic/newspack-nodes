@@ -173,6 +173,11 @@ function renderMessage( message ) {
 	return null;
 }
 
+/**
+ * The `_output` node: owns the `transcript` state slot React subscribes to, the
+ * bounded ring that backs it, and the coalesced publish that holds a flood of
+ * frames to one render per animation frame.
+ */
 export class DumperNode extends Node {
 	/**
 	 * Tachikoma-parity: no-arg ctor. The `debugLevelRef` is a programmatic
@@ -204,6 +209,15 @@ export class DumperNode extends Node {
 		this._captureReply = null;
 	}
 
+	/**
+	 * Render one delivered Message into the transcript. `debugLevelRef.current`
+	 * picks the form: level 2 replaces the render with the full envelope dump,
+	 * level 1 prefixes a type-and-FROM header, level 0 renders the payload
+	 * alone. A command reply publishes immediately because it answers a typed
+	 * statement; every other frame is floodable, so it coalesces to a frame.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		this.counter++;
 		this._maybeCapture( message );
@@ -235,7 +249,10 @@ export class DumperNode extends Node {
 		}
 	}
 
-	// Queue one publish per frame; coalesces a burst into a single flush.
+	/**
+	 * Queue one publish for the next frame, coalescing a burst of writes into a
+	 * single flush. A no-op while a flush is already queued.
+	 */
 	_scheduleFlush() {
 		if ( this._flushScheduled ) {
 			return;
@@ -247,7 +264,14 @@ export class DumperNode extends Node {
 		} );
 	}
 
-	// Fork a matching command reply to a one-shot capture, then clear it.
+	/**
+	 * Fork a matching command reply to the pending one-shot capture, then clear
+	 * it. A match is TM_COMMAND carrying TM_RESPONSE or TM_ERROR whose
+	 * `VALUE.name` equals the captured verb; the callback receives the unwrapped
+	 * payload and whether the reply was an error.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	_maybeCapture( message ) {
 		const cap = this._captureReply;
 		if ( ! cap ) {
@@ -270,25 +294,44 @@ export class DumperNode extends Node {
 		cap.callback( payload, isError );
 	}
 
-	// REPL echo / local info: user-driven + low-freq, so publish immediately.
+	/**
+	 * Append a locally-produced entry — the REPL's echo of a typed statement, or
+	 * a local info/error line — and publish at once. These are user-driven and
+	 * low-frequency, so they never need the frame coalescing `fill()` uses.
+	 *
+	 * @param {Object} entry Transcript entry: `text`, a `kind` that selects the
+	 *                       line's style ('sent', 'recv', 'info', 'error'), and
+	 *                       the `prompt` an echo renders ahead of its text.
+	 */
 	append( entry ) {
 		this._write( entry );
 		this._flushNow();
 	}
 
-	// Buffer one entry into the ring (O(1)); caller picks the flush cadence.
+	/**
+	 * Buffer one entry into the ring in O(1) and count it toward this flush's
+	 * flood accounting. The caller picks the flush cadence.
+	 *
+	 * @param {Object} entry Unstamped transcript entry.
+	 */
 	_write( entry ) {
 		this._writeRing( this._stamp( entry ) );
 		this._sinceFlush += 1;
 	}
 
-	// Publish synchronously: supersede any queued frame flush and emit now.
+	/**
+	 * Publish synchronously: supersede any queued frame flush and emit now.
+	 */
 	_flushNow() {
 		this._cancelPendingFlush();
 		this._flush();
 	}
 
-	// Materialize + publish once; overflow past the cap drops (rate-limited).
+	/**
+	 * Materialize the ring and publish it once. Writes past the ring cap since
+	 * the previous flush are already gone; they are counted and announced as a
+	 * single rate-limited drop notice rather than one line per loss.
+	 */
 	_flush() {
 		const dropped = Math.max( 0, this._sinceFlush - TRANSCRIPT_MAX );
 		this._sinceFlush = 0;
@@ -310,7 +353,13 @@ export class DumperNode extends Node {
 		this._publish();
 	}
 
-	// Stamp an entry with a timeline ts + a unique React key.
+	/**
+	 * Stamp an entry with a timeline `ts` in seconds (an entry that already
+	 * carries one keeps it) and a `key` that serves as the React list key.
+	 *
+	 * @param {Object} entry Unstamped transcript entry.
+	 * @return {Object} A copy carrying `ts` and `key`.
+	 */
 	_stamp( entry ) {
 		return {
 			...entry,
@@ -321,7 +370,14 @@ export class DumperNode extends Node {
 		};
 	}
 
-	// Seed the transcript from a persisted snapshot; caps to TRANSCRIPT_MAX.
+	/**
+	 * Seed the transcript from a persisted snapshot — the console and the debug
+	 * overlay both restore last session's lines this way. Entries are taken
+	 * as-is (already stamped) and the oldest beyond TRANSCRIPT_MAX are dropped.
+	 *
+	 * @param {Object[]} entries Stamped transcript entries, oldest first;
+	 *                           anything else restores an empty transcript.
+	 */
 	restore( entries ) {
 		const list = Array.isArray( entries ) ? entries : [];
 		this._resetRing();
@@ -334,14 +390,24 @@ export class DumperNode extends Node {
 		this._publish();
 	}
 
-	// Write into the ring at the head; overwrite the oldest once full (O(1)).
+	/**
+	 * Write into the ring at the head, overwriting the oldest entry once full.
+	 * O(1) — no shifting, which is what keeps per-message work constant.
+	 *
+	 * @param {Object} entry Stamped transcript entry.
+	 */
 	_writeRing( entry ) {
 		this._ring[ this._head ] = entry;
 		this._head = ( this._head + 1 ) % TRANSCRIPT_MAX;
 		this._count = Math.min( this._count + 1, TRANSCRIPT_MAX );
 	}
 
-	// The ring's live entries oldest-first as a fresh array (O(count)).
+	/**
+	 * Unroll the ring into a fresh array, oldest first. Fresh each flush so
+	 * React sees a new identity and re-renders.
+	 *
+	 * @return {Object[]} The live transcript entries, oldest first.
+	 */
 	_materialize() {
 		const out = new Array( this._count );
 		const start =
@@ -352,7 +418,10 @@ export class DumperNode extends Node {
 		return out;
 	}
 
-	// Empty the transcript (the `clear` builtin); emits a fresh empty array.
+	/**
+	 * Empty the transcript — the REPL's `clear` builtin. Publishes a fresh empty
+	 * array, which also clears the persisted snapshot through the subscriber.
+	 */
 	clear() {
 		this._resetRing();
 		this._droppedPending = 0;
@@ -361,12 +430,18 @@ export class DumperNode extends Node {
 		this._publish();
 	}
 
-	// Emit the transcript to subscribers (React render + persistence).
+	/**
+	 * Emit the transcript to the `transcript` subscribers — the React render and
+	 * the localStorage persist both hang off this one `setState`.
+	 */
 	_publish() {
 		this.setState( 'transcript', this._transcript );
 	}
 
-	// Drop every buffered entry + flood accounting.
+	/**
+	 * Drop every buffered entry and the flood accounting that goes with it.
+	 * Leaves the drop-notice rate limit alone — that paces notices, not lines.
+	 */
 	_resetRing() {
 		this._ring = [];
 		this._head = 0;
@@ -374,13 +449,19 @@ export class DumperNode extends Node {
 		this._sinceFlush = 0;
 	}
 
-	// A node owns its teardown: cancel any queued flush before unregistering.
+	/**
+	 * A node owns its teardown: cancel any queued flush before unregistering, so
+	 * no frame callback fires against a node that has left the registry.
+	 */
 	removeNode() {
 		this._cancelPendingFlush();
 		super.removeNode();
 	}
 
-	// Drop a queued flush (teardown / clear / restore supersede it).
+	/**
+	 * Drop a queued frame flush. Teardown, `clear`, `restore`, and every
+	 * synchronous publish supersede it.
+	 */
 	_cancelPendingFlush() {
 		if ( this._flushScheduled ) {
 			this._cancelSchedule( this._flushHandle );
@@ -403,7 +484,13 @@ export class DumperNode extends Node {
 		this._captureReply = { verb, callback };
 	}
 
-	// Programmatic-deps node: no positional config to round-trip.
+	/**
+	 * Console-palette entry. Hidden because the REPL graph wires this node
+	 * itself, and its one dependency (`debugLevelRef`) is a programmatic
+	 * assignment, so there is no positional config to round-trip.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

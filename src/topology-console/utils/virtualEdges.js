@@ -13,9 +13,9 @@
  * Pure: returns the SAME graph reference when there's nothing to add (so React
  * bails on a true no-op), else a new graph with the virtual edges appended.
  *
- * @param {{nodes: Array, edges: Array}}                  graph   The graph to augment.
- * @param {Array<{shell_name: string, commands?: Array}>} classes Catalog class specs.
- * @return {{nodes: Array, edges: Array}} The graph, possibly with virtual edges added.
+ * @param {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} graph   The graph to augment; `resolvedConfigEdges` is the server's answer for `<ns:key>` config targets, and is absent or null when the document needs no resolution.
+ * @param {Array<{shell_name: string, commands?: Array}>}              classes Catalog class specs.
+ * @return {{nodes: Array, edges: Array, resolvedConfigEdges?: ?Array}} The graph, possibly with virtual edges added.
  */
 export function augmentWithVirtualEdges( graph, classes ) {
 	const classByName = new Map();

@@ -98,8 +98,12 @@ const SLICES = [
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] transport seam assigned to `_http.client`;
  *                                      defaults (inside HttpOut) to the localized transport.
- * @return {{ setRefreshInterval: Function, refreshInterval: string }} Control
- *   callbacks for the thin React view (each slice is read via useNodeState).
+ * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => Promise<*>, probes: Object<string, { ok: boolean, rollup?: *, error?: string }> }}
+ *   The controls the thin React view needs: `setRefreshInterval` takes a
+ *   REFRESH_OPTIONS value (string ms), `probe` deep-probes one spoke by id and
+ *   resolves with its roll-up, and `probes` maps spoke id to the settled
+ *   result of that spoke's last probe. Each polled slice is read separately
+ *   via useNodeState.
  */
 export function useAggregatorStatusGraph( opts = {} ) {
 	// The persisted refresh interval (string ms); seeds from localStorage.

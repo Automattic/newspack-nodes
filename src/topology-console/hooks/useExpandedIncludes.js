@@ -1,9 +1,9 @@
 /**
- * useExpandedIncludes — the composed baseline for the draft's include set.
+ * useExpandedIncludes — the composed expansion for the draft's include set.
  *
  * One `topologies expand` round trip per include-set change (none at all when
  * the set is empty). A cycle/conflict/unknown-name throws server-side; we keep
- * the last-good baseline and surface the message so the caller can revert.
+ * the last-good expansion and surface the message so the caller can revert.
  *
  * A module-level cache (keyed by the joined include string) is shared with
  * TopologyConsole's `fetchIncludeBaseline` — its synchronous open-path fetch
@@ -34,8 +34,27 @@ export function invalidateExpandedIncludes() {
 }
 
 /**
+ * Seed the cache with an expansion that arrived some other way (`topologies get`
+ * ships one with the file), so the reactive pass below is a cache hit.
+ *
+ * @param {string[]} includes  Directly-declared includes the expansion covers.
+ * @param {Object}   expansion `{ nodes, edges, tree, hulls }`.
+ */
+export function primeExpandedIncludes( includes, expansion ) {
+	if ( ! includes || ! includes.length || ! expansion ) {
+		return;
+	}
+	cache.set( includes.join( ' ' ), {
+		nodes: expansion.nodes || [],
+		edges: expansion.edges || [],
+		tree: expansion.tree || {},
+		hulls: expansion.hulls || {},
+	} );
+}
+
+/**
  * One-off `topologies expand` round trip for a topology-open/edit-entry load
- * (applyLoadedBaseline needs the composed baseline BEFORE the draft is set,
+ * (applyLoadedBaseline needs the composed expansion BEFORE the draft is set,
  * so it can subtract `disconnects`; useExpandedIncludes only reacts AFTER).
  *
  * Shares useExpandedIncludes' module-level cache: a cache hit here skips the
@@ -44,27 +63,9 @@ export function invalidateExpandedIncludes() {
  * draft) is itself a cache hit — one `topologies expand` per open, not two.
  *
  * @param {string[]} includes Directly-declared includes to expand.
- * @return {Promise<Object>} `{ nodes, edges, tree }`.
+ * @return {Promise<Object>} `{ nodes, edges, tree, hulls }`; empty when
+ *                           `includes` is empty.
  */
-/**
- * Seed the cache with an expansion that arrived some other way (`topologies get`
- * ships one with the file), so the reactive pass below is a cache hit.
- *
- * @param {string[]} includes Directly-declared includes the expansion covers.
- * @param {Object}   baseline `{ nodes, edges, tree }`.
- */
-export function primeExpandedIncludes( includes, baseline ) {
-	if ( ! includes || ! includes.length || ! baseline ) {
-		return;
-	}
-	cache.set( includes.join( ' ' ), {
-		nodes: baseline.nodes || [],
-		edges: baseline.edges || [],
-		tree: baseline.tree || {},
-		hulls: baseline.hulls || {},
-	} );
-}
-
 export async function fetchExpandedIncludes( includes ) {
 	if ( ! includes || ! includes.length ) {
 		return EMPTY;
@@ -80,23 +81,41 @@ export async function fetchExpandedIncludes( includes ) {
 			'expand',
 			formatCommandArgs( includes )
 		) ) || {};
-	const baseline = {
+	const expansion = {
 		nodes: value.nodes || [],
 		edges: value.edges || [],
 		tree: value.tree || {},
 		hulls: value.hulls || {},
 	};
-	cache.set( key, baseline );
-	return baseline;
+	cache.set( key, expansion );
+	return expansion;
 }
 
+/**
+ * Track the composed expansion of the draft's include set, reactively.
+ *
+ * The include set is held as desired state (`useReconcile`), not fetched once:
+ * an expansion that failed — a refused command session, a restarted worker —
+ * keeps being retried until it resolves, while an already-expanded set is
+ * served from the module cache instead of re-requested. An empty set resets to
+ * the empty expansion synchronously, with no round trip at all.
+ *
+ * A server-side cycle, conflict, or unknown include name throws; the last-good
+ * expansion is kept and `error` carries the message, so the caller can revert
+ * the include that broke it.
+ *
+ * @param {string[]} includes The draft's directly-declared includes.
+ * @return {{expansion: Object, error: string|null, loading: boolean}} The
+ *         composed `{ nodes, edges, tree, hulls }`, the last failure message,
+ *         and whether a round trip is in flight.
+ */
 export function useExpandedIncludes( includes ) {
 	const key = ( includes || [] ).join( ' ' );
 	// Latest includes for the effect (it depends on the stable key).
 	const includesRef = useRef( includes );
 	includesRef.current = includes;
 	const [ state, setState ] = useState( {
-		baseline: EMPTY,
+		expansion: EMPTY,
 		error: null,
 		loading: false,
 	} );
@@ -104,16 +123,16 @@ export function useExpandedIncludes( includes ) {
 
 	// @longform
 	// The lastKey latch was set BEFORE the request, so one failed expansion
-	// was permanent for that key — the baseline stayed missing until the key
+	// was permanent for that key — the expansion stayed missing until the key
 	// changed. The loop owns whether another attempt is due; the cache still
 	// serves an already-expanded key, so only an unresolved one is retried.
 	const load = useCallback( async () => {
 		const cached = cache.get( key );
 		if ( cached ) {
 			setState( ( s ) =>
-				cached === s.baseline && ! s.error && ! s.loading
+				cached === s.expansion && ! s.error && ! s.loading
 					? s
-					: { baseline: cached, error: null, loading: false }
+					: { expansion: cached, error: null, loading: false }
 			);
 			return;
 		}
@@ -123,17 +142,17 @@ export function useExpandedIncludes( includes ) {
 				'expand',
 				formatCommandArgs( includesRef.current || [] )
 			);
-			const baseline = {
+			const expansion = {
 				nodes: value.nodes || [],
 				edges: value.edges || [],
 				tree: value.tree || {},
 				hulls: value.hulls || {},
 			};
-			cache.set( key, baseline );
-			setState( { baseline, error: null, loading: false } );
+			cache.set( key, expansion );
+			setState( { expansion, error: null, loading: false } );
 		} catch ( e ) {
 			setState( ( s ) => ( {
-				baseline: s.baseline,
+				expansion: s.expansion,
 				error: e?.message || 'expand failed',
 				loading: false,
 			} ) );
@@ -144,11 +163,33 @@ export function useExpandedIncludes( includes ) {
 	// An empty include set resets synchronously, as it always did.
 	useEffect( () => {
 		if ( '' === key ) {
-			setState( { baseline: EMPTY, error: null, loading: false } );
+			setState( { expansion: EMPTY, error: null, loading: false } );
 		}
 	}, [ key ] );
 
 	useReconcile( { load, enabled: '' !== key, deps: [ key ] } );
 
 	return state;
+}
+
+/**
+ * Whether an expansion belongs to the document currently loaded.
+ *
+ * `topologies expand` keys its `tree` by the direct includes that resolved, so
+ * the top-level keys are exactly what was asked for. Opening a child topology
+ * leaves the PARENT's expansion in state for a tick, and re-seeding from it
+ * marks the child's own nodes borrowed — after which the document stops
+ * declaring them and a save writes an empty file.
+ *
+ * @param {Object} expansion `topologies expand` result.
+ * @param {Array}  includes  The document's direct includes.
+ * @return {boolean} True when the expansion is this document's.
+ */
+export function expansionMatchesIncludes( expansion, includes ) {
+	const tree = expansion?.tree ?? {};
+	const declared = includes ?? [];
+	return (
+		Object.keys( tree ).length === declared.length &&
+		declared.every( ( name ) => name in tree )
+	);
 }

@@ -201,27 +201,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Require the coordinated two-field lease shape; no slot-only fallback.
-	 *
-	 * @return array{slot:int,owner:int}
-	 */
-	private static function require_lease( mixed $lease ): array {
-		if (
-			! \is_array( $lease )
-			|| 2 !== \count( $lease )
-			|| ! \array_key_exists( 'slot', $lease )
-			|| ! \is_int( $lease['slot'] )
-			|| $lease['slot'] < -1
-			|| ! \array_key_exists( 'owner', $lease )
-			|| ! \is_int( $lease['owner'] )
-			|| $lease['owner'] <= 0
-		) {
-			throw new \UnexpectedValueException( 'SSE slot acquisition did not return a complete lease.' );
-		}
-		return $lease;
-	}
-
-	/**
 	 * Drain loop body — split out from `stream()` so tests can call without
 	 * the headers / exit. Emits the `connected` envelope, builds the
 	 * SSE-process substrate graph, opens one-or-more Consumers per
@@ -406,6 +385,27 @@ class SSE_Out_Node extends Node {
 				$release( $active_lease, $partition );
 			}
 		}
+	}
+
+	/**
+	 * Require the coordinated two-field lease shape; no slot-only fallback.
+	 *
+	 * @return array{slot:int,owner:int}
+	 */
+	private static function require_lease( mixed $lease ): array {
+		if (
+			! \is_array( $lease )
+			|| 2 !== \count( $lease )
+			|| ! \array_key_exists( 'slot', $lease )
+			|| ! \is_int( $lease['slot'] )
+			|| $lease['slot'] < -1
+			|| ! \array_key_exists( 'owner', $lease )
+			|| ! \is_int( $lease['owner'] )
+			|| $lease['owner'] <= 0
+		) {
+			throw new \UnexpectedValueException( 'SSE slot acquisition did not return a complete lease.' );
+		}
+		return $lease;
 	}
 
 	/**
@@ -689,23 +689,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Base redacted context shared by deliberate closes and exceptions.
-	 *
-	 * @param array{slot:int,owner:int} $lease
-	 * @param array<int,string>         $subs
-	 * @return array<string,mixed>
-	 */
-	private function stream_context( string $reason, array $lease, int $partition, array $subs ): array {
-		return [
-			'reason'        => $reason,
-			'pid'           => \getmypid(),
-			'slot'          => $lease['slot'],
-			'partition'     => $partition,
-			'subscriptions' => \array_values( $subs ),
-		];
-	}
-
-	/**
 	 * Add one failure-only, whitelisted lease inspection to the close context.
 	 *
 	 * @param array{slot:int,owner:int} $lease
@@ -745,6 +728,23 @@ class SSE_Out_Node extends Node {
 			}
 		}
 		return $context;
+	}
+
+	/**
+	 * Base redacted context shared by deliberate closes and exceptions.
+	 *
+	 * @param array{slot:int,owner:int} $lease
+	 * @param array<int,string>         $subs
+	 * @return array<string,mixed>
+	 */
+	private function stream_context( string $reason, array $lease, int $partition, array $subs ): array {
+		return [
+			'reason'        => $reason,
+			'pid'           => \getmypid(),
+			'slot'          => $lease['slot'],
+			'partition'     => $partition,
+			'subscriptions' => \array_values( $subs ),
+		];
 	}
 
 	/**

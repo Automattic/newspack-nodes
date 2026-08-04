@@ -93,9 +93,12 @@ function buildInfra( shell, debugLevelRef ) {
  * @param {boolean}  active      When false the Dumper is torn down (no transcript).
  * @param {Object}   shell       Shell instance owned by DebugOverlay; sink wired to the local interpreter.
  * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin` builtin.
- * @return {{ transcript: Array, sendLine: Function, clear: Function }} Reactive
- *   transcript + a `sendLine( line )` that runs the line through Shell and the
- *   matching subset of TopologyConsole's local-scope dispatch.
+ * @return {{ transcript: Array, sendLine: Function, append: Function, clear: Function, cwd: string, setPath: Function, ready: boolean, debugLevel: number }}
+ *   Reactive transcript plus a `sendLine( line )` that runs the line through
+ *   Shell and the matching subset of TopologyConsole's local-scope dispatch;
+ *   `append`/`clear` write the transcript directly, `cwd` mirrors Shell.path
+ *   and `setPath` changes it, `ready` is true once the overlay infra nodes are
+ *   mounted, and `debugLevel` is the persisted REPL verbosity.
  */
 export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.

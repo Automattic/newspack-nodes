@@ -536,10 +536,12 @@ function write_atomic( string $f, string $out ): bool {
 /** @var list<string> $argv */
 $argv_rest   = array_slice( $argv, 1 );
 $write       = in_array( '--write', $argv_rest, true );
+// --check: dry-run that FAILS when a file is out of order, for the hook.
+$check       = in_array( '--check', $argv_rest, true );
 $all_classes = in_array( '--all-classes', $argv_rest, true );
 $sort_fields = in_array( '--sort-fields', $argv_rest, true );
 $files       = array_values( array_filter( $argv_rest, fn( $a ) => ! str_starts_with( $a, '--' ) ) );
-if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--write] [--all-classes] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
+if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--check|--write] [--all-classes] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
 $failed = false;
 foreach ( $files as $f ) {
 	$src = file_get_contents( $f );
@@ -559,5 +561,6 @@ foreach ( $files as $f ) {
 		continue;
 	}
 	echo "~ $f  " . implode( '; ', array_unique( $notes ) ) . "\n";
+	if ( $check ) { $failed = true; }
 }
 exit( $failed ? 1 : 0 );

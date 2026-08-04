@@ -28,6 +28,18 @@ import {
 // Poll cadence; >1000 so the Router hitchhike throttles rather than every tick.
 const POLL_INTERVAL_MS = 10000;
 
+/**
+ * Mount the catalog node and read its published catalog.
+ *
+ * Before the first reply lands the returned values are the page-load seed the
+ * PHP localizer wrote, so the Path menu is never empty.
+ *
+ * @return {{partitions: Object<string, number>, active: string[], entries: Object[], reload: () => void}}
+ *   `partitions` maps each topology name to its partition count; `active` lists
+ *   the activated topology names; `entries` are the raw `topologies list`
+ *   entries the palette reads `includes` from; `reload` fires the poll now,
+ *   which is what save and delete call in edit mode.
+ */
 export function useTopologyCatalog() {
 	const [ attachEpoch, setAttachEpoch ] = useState( 0 );
 	useEffect( () => {

@@ -146,20 +146,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * A topology's DIRECT `include` lines, in declaration order.
-	 *
-	 * @return list<string>
-	 */
-	private static function direct_includes( string $name ): array {
-		$path = Topology_Registry::resolve( $name );
-		if ( null === $path ) {
-			return [];
-		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
-	}
-
-	/**
 	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
 	 * label (shared by list+get so the source flag stays consistent).
 	 *
@@ -268,81 +254,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Restart every registered topology whose graph this one is part of.
-	 *
-	 * A topology's content is its own statements PLUS its includes', so saving
-	 * a child changes every parent that composes it. The child itself is
-	 * usually not an active fleet, so restarting only the saved name leaves
-	 * those parents running the old graph with nothing to say so.
-	 *
-	 * @param string $name Topology just written.
-	 *
-	 * @return list<string> Fleet names restarted, in catalog order.
-	 */
-	private static function restart_affected_fleets( string $name ): array {
-		// Keyed off the catalog filter, not the overlay.
-		$resolved = \function_exists( 'apply_filters' )
-			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-			: [];
-		$restarted = [];
-		foreach ( \array_keys( $resolved ) as $fleet ) {
-			$fleet = (string) $fleet;
-			if ( $fleet !== $name && ! self::fleet_includes( $fleet, $name ) ) {
-				continue;
-			}
-			\do_action( 'newspack_nodes/restart_fleet', $fleet );
-			$restarted[] = $fleet;
-		}
-		return $restarted;
-	}
-
-	/**
-	 * Whether a fleet composes `$name`, transitively.
-	 *
-	 * The write has already happened by the time this runs, so an include
-	 * graph that will not resolve — including the dangling one a delete just
-	 * created — must not turn a completed write into a reported failure.
-	 *
-	 * @param string $fleet Active fleet to inspect.
-	 * @param string $name  Topology just written.
-	 *
-	 * @return bool True when the fleet's graph contains `$name`.
-	 */
-	private static function fleet_includes( string $fleet, string $name ): bool {
-		try {
-			return \in_array(
-				$name,
-				Topology_Registry::includes( $fleet ),
-				true
-			);
-		} catch ( \RuntimeException $e ) {
-			// Token boundary: `catalog` must not match a save of `log`.
-			return 1 === \preg_match(
-				'/(?<![\w.-])' . \preg_quote( $name, '/' ) . '(?![\w.-])/',
-				$e->getMessage()
-			);
-		}
-	}
-
-	/**
-	 * `include` lines parsed straight out of a TSL body string — used by save's
-	 * dry-run validation, where the body isn't on disk yet.
-	 *
-	 * @param string $tsl Topology source.
-	 *
-	 * @return list<string> Direct include names.
-	 */
-	private static function direct_includes_from_tsl( string $tsl ): array {
-		$out = [];
-		foreach ( Shell_Node::parse_statements( $tsl ) as $statement ) {
-			if ( 'include' === $statement['verb'] && '' !== ( $statement['values'][1] ?? '' ) ) {
-				$out[] = $statement['values'][1];
-			}
-		}
-		return $out;
-	}
-
-	/**
 	 * Throw if the saved body redeclares a borrowed node differently.
 	 *
 	 * `make_node` collapses an IDENTICAL redeclaration and throws on a
@@ -380,22 +291,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "make_node conflict: '{$node_name}' is provided by an include as {$prior['class']} '{$prior['args']}', redeclared as {$class} '{$args}'" )
 			);
 		}
-	}
-
-	/**
-	 * `expand` verb handler — compose an include set for the console.
-	 *
-	 * @param list<string> $args Space-separated topology names.
-	 *
-	 * @return array<int|string, mixed>
-	 */
-	public static function cmd_expand( array $args ): array {
-		$names = $args;
-		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
-		foreach ( $names as $name ) {
-			self::require_valid_name( $name );
-		}
-		return Topology_Registry::expand( $names );
 	}
 
 	/**
@@ -453,6 +348,116 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'pruned_active'    => $pruned,
 			'restarted_fleets' => $restarted,
 		];
+	}
+
+	/**
+	 * Restart every registered topology whose graph this one is part of.
+	 *
+	 * A topology's content is its own statements PLUS its includes', so saving
+	 * a child changes every parent that composes it. The child itself is
+	 * usually not an active fleet, so restarting only the saved name leaves
+	 * those parents running the old graph with nothing to say so.
+	 *
+	 * @param string $name Topology just written.
+	 *
+	 * @return list<string> Fleet names restarted, in catalog order.
+	 */
+	private static function restart_affected_fleets( string $name ): array {
+		// Keyed off the catalog filter, not the overlay.
+		$resolved = \function_exists( 'apply_filters' )
+			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
+			: [];
+		$restarted = [];
+		foreach ( \array_keys( $resolved ) as $fleet ) {
+			$fleet = (string) $fleet;
+			if ( $fleet !== $name && ! self::fleet_includes( $fleet, $name ) ) {
+				continue;
+			}
+			\do_action( 'newspack_nodes/restart_fleet', $fleet );
+			$restarted[] = $fleet;
+		}
+		return $restarted;
+	}
+
+	/**
+	 * Whether a fleet composes `$name`, transitively.
+	 *
+	 * Walks the `include` lines themselves rather than composing the graph:
+	 * the write has already happened, so a graph that will not resolve — the
+	 * dangling one a delete just created, or a `make_node` conflict — must
+	 * neither fail the write nor hide a parent that does compose `$name`.
+	 * `direct_includes` reads a file; it never merges, so it never throws.
+	 *
+	 * @param string $fleet Active fleet to inspect.
+	 * @param string $name  Topology just written.
+	 *
+	 * @return bool True when the fleet's graph contains `$name`.
+	 */
+	private static function fleet_includes( string $fleet, string $name ): bool {
+		$seen  = [];
+		$queue = [ $fleet ];
+		while ( $queue ) {
+			$current = \array_shift( $queue );
+			if ( isset( $seen[ $current ] ) ) {
+				continue;
+			}
+			$seen[ $current ] = true;
+			foreach ( self::direct_includes( $current ) as $child ) {
+				if ( $child === $name ) {
+					return true;
+				}
+				$queue[] = $child;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * A topology's DIRECT `include` lines, in declaration order.
+	 *
+	 * @return list<string>
+	 */
+	private static function direct_includes( string $name ): array {
+		$path = Topology_Registry::resolve( $name );
+		if ( null === $path ) {
+			return [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
+	}
+
+	/**
+	 * `include` lines parsed straight out of a TSL body string — used by save's
+	 * dry-run validation, where the body isn't on disk yet.
+	 *
+	 * @param string $tsl Topology source.
+	 *
+	 * @return list<string> Direct include names.
+	 */
+	private static function direct_includes_from_tsl( string $tsl ): array {
+		$out = [];
+		foreach ( Shell_Node::parse_statements( $tsl ) as $statement ) {
+			if ( 'include' === $statement['verb'] && '' !== ( $statement['values'][1] ?? '' ) ) {
+				$out[] = $statement['values'][1];
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * `expand` verb handler — compose an include set for the console.
+	 *
+	 * @param list<string> $args Space-separated topology names.
+	 *
+	 * @return array<int|string, mixed>
+	 */
+	public static function cmd_expand( array $args ): array {
+		$names = $args;
+		$names = \array_values( \array_filter( $names, fn ( $n ) => '' !== $n ) );
+		foreach ( $names as $name ) {
+			self::require_valid_name( $name );
+		}
+		return Topology_Registry::expand( $names );
 	}
 
 	/**

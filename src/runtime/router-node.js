@@ -12,6 +12,9 @@ import {
 	newMessage,
 } from './message';
 
+/** The shared heartbeat every hitchhiking poller rides, in milliseconds. */
+export const ROUTER_TICK_MS = 1000;
+
 /**
  * Router — path-based dispatch + the TIMER event hub. Extends Timer: it owns a
  * self-started 1s event-framework slot whose `fireCb` runs `notifyTimer`, the
@@ -19,9 +22,6 @@ import {
  * Router::fire_cb → notify_timer). The Router has no sink; it routes by peeling
  * TO and drops what it cannot peel.
  */
-// The shared heartbeat every hitchhiking poller rides.
-export const ROUTER_TICK_MS = 1000;
-
 export class RouterNode extends TimerNode {
 	/** Idle profile entries older than this are trimmed each tick (Tachikoma: 900). */
 	static PROFILE_TTL_S = 900;
@@ -35,6 +35,10 @@ export class RouterNode extends TimerNode {
 	/** Open dispatch frames (innermost last). */
 	static _profileStack = [];
 
+	/**
+	 * Arm the Router's own 1s slot. Every other Timer hitchhikes that tick, so
+	 * the Router cannot hitchhike itself — `isRouter` is what opts it out.
+	 */
 	constructor() {
 		super();
 		// Optional hooks to bracket each tick's notify (HttpOut lock/flush).
@@ -45,6 +49,15 @@ export class RouterNode extends TimerNode {
 		this.setTimer( ROUTER_TICK_MS );
 	}
 
+	/**
+	 * Route one message: peel the leading segment off TO, and hand the rest to
+	 * the node that segment names. Unaddressed messages and FROM trails past
+	 * MAX_FROM_SIZE are dropped. A name that resolves to nothing sets state
+	 * NOT_AVAILABLE and bounces a TM_ERROR back down the FROM trail — unless the
+	 * message is already an error, which would loop.
+	 *
+	 * @param {Array} message The 7-field positional message; TO is peeled in place.
+	 */
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (PHP).
 		this.counter++;
@@ -104,7 +117,12 @@ export class RouterNode extends TimerNode {
 		target.fill( message );
 	}
 
-	// fireCb (Router::fire_cb): bracket notifyTimer with lock/flush.
+	/**
+	 * The Router tick (Router::fire_cb): run `notifyTimer()` bracketed by the
+	 * optional `beforeTimerNotify` / `afterTimerNotify` hooks, which HttpOut
+	 * uses to batch a whole tick's commands into one POST. Idle profile entries
+	 * are trimmed here while profiling is on.
+	 */
 	fireCb() {
 		this.fireCount++;
 		if ( this.beforeTimerNotify ) {
@@ -187,7 +205,11 @@ export class RouterNode extends TimerNode {
 		}
 	}
 
-	// notifyTimer (Router::notify_timer): call each TIMER node's fireCb.
+	/**
+	 * Call `fireCb()` DIRECTLY on every TIMER-registered node (Router::
+	 * notify_timer) — no message is routed. A registration whose node is gone
+	 * would fire on every tick forever, so it is warned about and dropped.
+	 */
 	notifyTimer() {
 		const registrations = this.registrations.TIMER;
 		for ( const name of Object.keys( registrations ) ) {
@@ -213,10 +235,26 @@ export class RouterNode extends TimerNode {
 		return RouterNode._profiles;
 	}
 
-	// The Router has no sink: it routes by peeling TO; reject any set.
+	/**
+	 * The Router has no sink: it routes by peeling TO.
+	 *
+	 * Accessor-over-property is the mechanism, not an accident: the base `Node`
+	 * constructor assigns `this.sink = null` in its BODY, so that assignment
+	 * runs through the setter below and every later one is refused.
+	 *
+	 * @return {null} Always null.
+	 */
+	// @ts-expect-error Accessor pair: ctor-body assign must hit the setter.
 	get sink() {
 		return null;
 	}
+
+	/**
+	 * Reject every sink but null, so wiring one fails loudly instead of quietly
+	 * creating a second, unrouted way out of the Router.
+	 *
+	 * @param {?Object} node Must be null; any node throws.
+	 */
 	set sink( node ) {
 		if ( null !== node ) {
 			throw new Error(
@@ -225,7 +263,13 @@ export class RouterNode extends TimerNode {
 		}
 	}
 
-	// FIRE + TIMER + NOT_AVAILABLE registrations; base ctor seeds all three.
+	/**
+	 * Console palette entry. Declares the three registration slots the base
+	 * constructor seeds: FIRE (Timer subscribers), TIMER (the hitchhiking
+	 * pollers this node ticks), and NOT_AVAILABLE (unroutable-TO watchers).
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return { registrations: [ 'FIRE', 'TIMER', 'NOT_AVAILABLE' ] };
 	}

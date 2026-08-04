@@ -9,6 +9,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { Core } from '../../runtime/core';
 import { DraftProvider, useDraft, useDraftInterpreter } from '../DraftContext';
 
 describe( 'useDraftInterpreter', () => {
@@ -81,10 +82,12 @@ describe( 'useDraftInterpreter', () => {
 			result.current.run( 'make_node Grep meerkat ^y' );
 		} );
 
-		// A draft `firehose` must never be the running one.
-		expect(
-			result.current.interpreter.childRegistry.node( 'meerkat' )
-		).not.toBeNull();
+		// A draft `firehose` must never be the running one: the node is in
+		// the document, and nowhere in the live table.
+		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
+			'meerkat'
+		);
+		expect( Core.node( 'meerkat' ) ).toBeNull();
 	} );
 } );
 
@@ -98,8 +101,11 @@ describe( 'useDraft', () => {
 
 		const { result } = renderHook( () => useDraft(), { wrapper } );
 
-		expect( result.current.interpreter ).toBe( draft.interpreter );
 		expect( result.current.run ).toBe( draft.run );
+		expect( result.current.graph ).toBe( draft.graph );
+		// The interpreter itself is NOT on the surface — reaching past these
+		// operations is how the last design drifted.
+		expect( result.current.interpreter ).toBeUndefined();
 	} );
 
 	it( 'throws outside a provider rather than serving an empty document', () => {
@@ -116,5 +122,39 @@ describe( 'useDraft', () => {
 		} finally {
 			quiet.mockRestore();
 		}
+	} );
+} );
+
+describe( 'revertIncludes', () => {
+	it( 'returns null when nothing was stale, so a caller cannot spin', () => {
+		// It used to commit regardless, minting a new graph every call. An
+		// effect keyed on graph identity then re-ran forever — which is what
+		// a persistent expand error does.
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.run( 'include shared' );
+		} );
+
+		let out;
+		act( () => {
+			out = result.current.revertIncludes( { shared: {} } );
+		} );
+
+		expect( out ).toBeNull();
+		expect( result.current.graph.includes ).toEqual( [ 'shared' ] );
+	} );
+
+	it( 'drops an include the last good tree lacks, and commits that', () => {
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.run( 'include shared' );
+			result.current.run( 'include gone' );
+		} );
+
+		act( () => {
+			result.current.revertIncludes( { shared: {} } );
+		} );
+
+		expect( result.current.graph.includes ).toEqual( [ 'shared' ] );
 	} );
 } );

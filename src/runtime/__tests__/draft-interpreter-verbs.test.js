@@ -11,8 +11,8 @@
  */
 
 import { Core } from '../core';
+import { serializeDraftArg } from '../shell-node';
 import { DraftInterpreterNode } from '../draft-interpreter-node';
-import { setArgumentsLine } from '../../topology-console/utils/editorLines';
 
 // A draft reports every non-`ok` reply, because nothing else would: several
 // cases here exercise a deliberate refusal, so capture and assert on it.
@@ -359,7 +359,8 @@ describe( 'what a save must not lose', () => {
 		// An Inspector value arrives PLAIN. Unquoted, `#` starts a comment and
 		// `;` ends the statement — both truncate the saved line.
 		const d = draft( 'make_node Echo aardvark' );
-		d.run( setArgumentsLine( 'aardvark', [ 'a#b', 'c;d' ], [] ) );
+		const args = [ 'a#b', 'c;d' ].map( serializeDraftArg ).join( ' ' );
+		d.run( `set_arguments aardvark ${ args }` );
 
 		const reloaded = draft( d.dumpDocument() );
 
@@ -676,5 +677,24 @@ describe( 'remove_include takes what the include brought', () => {
 		d.run( 'remove_include shared' );
 
 		expect( names( d ) ).toEqual( [ 'shared-node' ] );
+	} );
+} );
+
+describe( 'a borrowed node the file re-sinks', () => {
+	it( 'keeps the set_sink line', () => {
+		// The node is the include's, but the LINE is the file's — same rule
+		// that keeps a `command_node` aimed at a borrowed node.
+		const baseline = {
+			nodes: [ { name: 'borrowed', class: 'Echo', origin: [ 's' ] } ],
+			edges: [],
+		};
+		const d = draft(
+			'include shared\nmake_node Echo mine\nset_sink borrowed mine',
+			baseline
+		);
+
+		expect( d.dumpDocument( baseline ) ).toContain(
+			'set_sink borrowed mine'
+		);
 	} );
 } );

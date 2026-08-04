@@ -15,6 +15,14 @@ import { errorMessage } from '@newspack-nodes/shared/errorMessage';
  * base SliceViewNode's reset-to-empty error path is overridden here.
  */
 export class AggregatorServersViewNode extends SliceViewNode {
+	/**
+	 * Handle this slice's own reply. A TM_ERROR surfaces the error text and
+	 * clears loading while KEEPING the servers already on screen, so a
+	 * transient failure never blanks the card grid; every other reply falls
+	 * through to the base parse-and-publish path.
+	 *
+	 * @param {Array} message The 7-field positional reply message.
+	 */
 	fill( message ) {
 		// TM_ERROR: surface error, clear loading, KEEP prior servers.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
@@ -31,11 +39,26 @@ export class AggregatorServersViewNode extends SliceViewNode {
 		}
 		super.fill( message );
 	}
+	/**
+	 * The shaped-but-empty model rendered before the first reply: `servers`
+	 * null because nothing has been fetched, and `loading` set, which is the
+	 * flag the widget gates its server list and empty state on.
+	 *
+	 * @return {{servers: ?Array, error: ?string, loading: boolean}} Empty slice.
+	 */
 	emptySlice() {
 		return { servers: null, error: null, loading: true };
 	}
 
-	// Wrap the parsed array into the render model; null keeps prior slice.
+	/**
+	 * Wrap the verb's sequential array of server snapshots into the render
+	 * model, clearing error and loading.
+	 *
+	 * @param {*} payload The reply's VALUE.payload — the verb's JSON string.
+	 * @return {?{servers: Array, error: ?string, loading: boolean}} The render
+	 *   model; null when the payload is unparseable, which the base class reads
+	 *   as "keep the prior slice".
+	 */
 	_parse( payload ) {
 		const servers = super._parse( payload );
 		if ( null === servers ) {

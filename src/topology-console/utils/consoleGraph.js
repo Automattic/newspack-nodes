@@ -8,9 +8,17 @@
  * the draft's, and only that half goes when the draft becomes an interpreter.
  */
 
-// @longform Edges without role metadata predate the composed-baseline contract
-// and are physical connect_node edges. Config-only edges describe routing;
-// they are not editor-removable connections.
+/**
+ * True when an edge is a physical `connect_node` connection — the only kind
+ * the editor may remove.
+ *
+ * Edges without role metadata predate the composed-baseline contract and are
+ * physical connect_node edges. Config-only edges describe routing; they are
+ * not editor-removable connections.
+ *
+ * @param {Object} edge Graph edge; `roles` is absent on pre-contract edges.
+ * @return {boolean} True when the edge carries a connect role.
+ */
 export function edgeHasConnectRole( edge ) {
 	return ! Array.isArray( edge?.roles ) || edge.roles.includes( 'connect' );
 }
@@ -85,6 +93,14 @@ const REPL_ANCHOR = {
 	reserved: true,
 };
 
+/**
+ * Add the reserved `_repl` anchor node so the canvas can draw the edges a
+ * topology points at the worker's auto-mounted REPL Partition. Idempotent: a
+ * graph that already carries `_repl` comes back untouched.
+ *
+ * @param {Object} graph Graph whose `nodes` list receives the anchor.
+ * @return {Object} Graph carrying the `_repl` anchor node.
+ */
 export function withReplAnchor( graph ) {
 	if ( graph.nodes.some( ( n ) => n.id === '_repl' ) ) {
 		return graph;

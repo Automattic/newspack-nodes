@@ -36,6 +36,13 @@ import path from 'node:path';
  */
 const SUBSTRATE_VERSION = '2.7.0';
 
+/**
+ * The substrate version every bundle is stamped with, so a consumer's build
+ * can name (and a deployed bundle can report) the substrate it was built
+ * against.
+ *
+ * @return {string} Semver of newspack-nodes, e.g. `2.7.0`.
+ */
 export function substrateVersion() {
 	return SUBSTRATE_VERSION;
 }
@@ -194,6 +201,17 @@ function scssPlugin( sass, alias ) {
 	};
 }
 
+/**
+ * Render the `<base>.asset.php` enqueue manifest WordPress reads alongside a
+ * bundle, emitted sorted and deduped so the file only changes when the deps do.
+ *
+ * @param {Set<string>} handles Enqueue handles the bundle actually pulled from
+ *                              window globals, collected by the wp-externals
+ *                              plugin during the build.
+ * @param {string}      version Cache-busting version — the content hash of the
+ *                              emitted JS.
+ * @return {string} PHP source returning the `dependencies`/`version` array.
+ */
 export function emitAssetPhp( handles, version ) {
 	const deps = [ ...handles ]
 		.sort()

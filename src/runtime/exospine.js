@@ -1,3 +1,12 @@
+import { ensureSession } from './command-auth';
+import { Core } from './core';
+import { RouterNode } from './router-node';
+import { CommandInterpreterNode } from './command-interpreter-node';
+import { TapNode } from './tap-node';
+import { HttpOutNode } from './http-out-node';
+import { HeartbeatNode } from './heartbeat-node';
+import names from './reserved-node-names.json';
+
 /**
  * mountExospine — construct + register the canonical rule-#2 backbone every
  * node graph (console and dashboards) clips onto: `_command_interpreter` →
@@ -45,19 +54,12 @@
  * @param {boolean}  [opts.passenger] True to clip onto the backbone without
  *                                    owning it — see `ownsBackbone` below.
  * @return {{ interpreter: CommandInterpreterNode, router: RouterNode,
- *   reinit: Function, teardown: Function }} The backbone nodes, a `reinit()` that
- *   rebuilds the build-registered nodes, and a `teardown()` that additionally
- *   stops the router TIMER, removes the backbone, and unsubscribes the rebuild.
+ *   shell: TapNode, http: HttpOutNode, heartbeat: HeartbeatNode,
+ *   reinit: () => void, teardown: () => void }} The five backbone nodes
+ *   `syncSpineFromCore` assigns, a `reinit()` that rebuilds the
+ *   build-registered nodes, and a `teardown()` that additionally stops the
+ *   router TIMER, removes the backbone, and unsubscribes the rebuild.
  */
-import { ensureSession } from './command-auth';
-import { Core } from './core';
-import { RouterNode } from './router-node';
-import { CommandInterpreterNode } from './command-interpreter-node';
-import { TapNode } from './tap-node';
-import { HttpOutNode } from './http-out-node';
-import { HeartbeatNode } from './heartbeat-node';
-import names from './reserved-node-names.json';
-
 export function mountExospine( build, { passenger = false } = {} ) {
 	if ( passenger ) {
 		Core.backbonePassengers = ( Core.backbonePassengers ?? 0 ) + 1;
@@ -65,7 +67,8 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	// Signing is sync and reads this; start the round trip before any command.
 	void ensureSession();
 
-	const spine = {};
+	// Built empty; mountBackbone fills every field before the return below.
+	const spine = /** @type {ReturnType<typeof mountExospine>} */ ( {} );
 	let router;
 	let interpreter;
 

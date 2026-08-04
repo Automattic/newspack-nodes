@@ -19,7 +19,16 @@ import { errorMessage } from '../../shared/errorMessage';
  * failure the caller is already catching cannot also paint the table banner.
  */
 export class VaultListViewNode extends SliceViewNode {
-	// A `list` reply refreshes the model; a failure paints the banner.
+	/**
+	 * Handle a reply: a `list` result refreshes the model, a failure paints the
+	 * table banner, and both publish on `view`.
+	 *
+	 * A non-error reply is only read when it is the `list` verb's — any other
+	 * verb's reply is addressed to the node that minted it, so one arriving
+	 * here is not this slice's to render.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			this._applyError( message[ VALUE ] );
@@ -33,7 +42,14 @@ export class VaultListViewNode extends SliceViewNode {
 		}
 	}
 
-	// Turn the raw `{ id:public_shape }` map into the render model.
+	/**
+	 * Turn the raw server map the `list` verb returned into the render model:
+	 * the table wants an array, and a landed list means loading is over.
+	 *
+	 * @param {Object<string,Object>|null} servers The live `{ id: public_shape }`
+	 *                                             map, already decoded. Null or
+	 *                                             empty renders an empty table.
+	 */
 	_applyServers( servers ) {
 		this.model = {
 			servers: Object.values( servers || {} ),
@@ -42,7 +58,14 @@ export class VaultListViewNode extends SliceViewNode {
 		};
 	}
 
-	// Surface an un-correlated failure as the banner; keep prior servers.
+	/**
+	 * Surface an un-correlated failure as the table banner, keeping the servers
+	 * already on screen — a transient failure must not blank the table.
+	 *
+	 * @param {{name?: string, payload?: *}|string} value The TM_ERROR reply's
+	 *                                                    VALUE: the `{ name, payload }` envelope, or the bare string a
+	 *                                                    failure carrying no envelope arrives as.
+	 */
 	_applyError( value ) {
 		const payload =
 			value && 'object' === typeof value ? value.payload : value;
@@ -53,7 +76,12 @@ export class VaultListViewNode extends SliceViewNode {
 		};
 	}
 
-	// Shaped-but-empty list slice: a loading table before the first list lands.
+	/**
+	 * The shaped-but-empty list slice — what the table renders before the first
+	 * `list` reply lands: no servers yet, and loading true.
+	 *
+	 * @return {Object} Empty render model.
+	 */
 	emptySlice() {
 		return { servers: null, loading: true, error: null };
 	}

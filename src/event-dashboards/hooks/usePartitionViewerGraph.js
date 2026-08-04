@@ -64,8 +64,12 @@ const controlMsg = ( value ) => {
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] transport seam assigned to the link's
  *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
- * @return {{ selectLog: Function, setPaused: Function }} Control callbacks for
- *   the thin React view (the view's own state is read via useNodeState). Reset
+ * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void }}
+ *   Control callbacks for the thin React view (the view's own state is read via
+ *   useNodeState): `selectLog( log )` re-points the stream at a partition,
+ *   `setPaused( paused )` gates it, `fetchLogStatus( log )` resolves that
+ *   partition's segment metadata, `seek( log, positions, end )` switches between
+ *   follow and browse, and `step()` delivers one record while paused. Reset
  *   Graph is driven by a `Core.bumpGraphGeneration()` bump — mountExospine
  *   subscribes this reused mount's rebuild to it.
  */

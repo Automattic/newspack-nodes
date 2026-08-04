@@ -326,12 +326,12 @@ function NameField( { node, takenNames, onRenameNode } ) {
 				onKeyDown={ ( e ) => {
 					if ( e.key === 'Enter' ) {
 						e.preventDefault();
-						e.target.blur();
+						/** @type {HTMLInputElement} */ ( e.target ).blur();
 					}
 					if ( e.key === 'Escape' ) {
 						setValue( node.id );
 						setError( '' );
-						e.target.blur();
+						/** @type {HTMLInputElement} */ ( e.target ).blur();
 					}
 				} }
 			/>
@@ -342,6 +342,24 @@ function NameField( { node, takenNames, onRenameNode } ) {
 	);
 }
 
+/**
+ * One editable verb in the Verbs section. A plain verb renders a checkbox that
+ * toggles its invocation; a `multiple` verb renders one headed row per call,
+ * each removable. The two shapes need different callbacks, so each callback is
+ * optional and only the one its shape uses is ever called.
+ *
+ * @param {Object}                             props
+ * @param {Object}                             props.spec         Verb entry from the class schema — name, description, args.
+ * @param {?Object}                            props.invocation   This verb's call in the draft, or null when it isn't invoked.
+ * @param {(on: boolean) => void}              [props.onToggle]   Ticks a plain verb on or off; unused when `multiple`.
+ * @param {(argIdx: number, value: *) => void} props.onArgChange  Writes one positional arg into the draft.
+ * @param {() => void}                         [props.onRemove]   Drops this invocation; `multiple` rows only.
+ * @param {boolean}                            [props.multiple]   Verb the schema allows more than once: row per call, no checkbox.
+ * @param {string[]}                           [props.nodeNames]  Other draft node names, offered for `node_name` args.
+ * @param {Array}                              [props.formatters] Registered formatters, offered for `formatter` args.
+ * @param {Array}                              [props.vaults]     Vault entries, offered for `vault` args.
+ * @return {import('react').ReactElement} The verb row.
+ */
 function VerbRow( {
 	spec,
 	invocation,
@@ -442,14 +460,12 @@ function TargetsField( {
 } ) {
 	// A fan-out node (catalog fans_out) gets the multi-target editor.
 	const fansOut = nodeFansOut( node, catalog );
-	const datalistId = `topology-targets-${ node.id }`;
 	if ( fansOut ) {
 		return (
 			<TeeTargetsField
 				node={ node }
 				nodeNames={ nodeNames }
 				targets={ targets }
-				datalistId={ datalistId }
 				onConnect={ onConnect }
 				onRemoveEdge={ onRemoveEdge }
 			/>
@@ -460,7 +476,6 @@ function TargetsField( {
 			node={ node }
 			nodeNames={ nodeNames }
 			targets={ targets }
-			datalistId={ datalistId }
 			onConnect={ onConnect }
 			onRemoveEdge={ onRemoveEdge }
 		/>
@@ -1259,7 +1274,12 @@ function RegisterModal( { source, events, nodeNames, onConfirm, onCancel } ) {
 	);
 }
 
-// Message-composer types: each maps to a CLI verb. [label, action, takesValue].
+/**
+ * Message-composer types — `[ label, action, takesValue ]`, each mapping to the
+ * CLI verb that mints that TYPE.
+ *
+ * @type {Array<[string, string, boolean]>}
+ */
 const COMPOSE_TYPES = [
 	[ 'TM_COMMAND (command_node)', 'cmd', true ],
 	[ 'TM_BYTESTREAM (send_node)', 'send', true ],
@@ -1455,6 +1475,42 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 	);
 }
 
+/**
+ * Right-pane inspector. What it shows follows the selection: the hull panel when
+ * only a hull is selected, the `_command_interpreter` process view when nothing
+ * is, and the node view otherwise. Edit mode swaps the node view for a
+ * schema-driven config form — locked when the node is borrowed through an
+ * include, since its configuration belongs to the topology that defines it.
+ *
+ * @param {Object}      props
+ * @param {?string}     props.selectedId        Selected node id; null falls through to the hull or process view.
+ * @param {?string}     [props.selectedHull]    Selected include, shown only while no node is selected.
+ * @param {Array}       [props.hulls]           Every hull, `{ include, nodeIds }[]`.
+ * @param {Function}    [props.onOpenTopology]  (name) — drill into a hull's own topology.
+ * @param {Object}      props.parsed            The graph — `{ nodes, edges, pwd, profiling }`.
+ * @param {?string}     props.streamStatus      SSE state; absent or 'open' reads as live.
+ * @param {?Object}     props.rateInfo          Selected node's rate history and last-changed timestamp.
+ * @param {Object}      props.rateSeries        `{ in, out, read, write }` sample rings for the whole graph.
+ * @param {Object}      props.hullRateSeries    The same rings, scoped to the selected hull.
+ * @param {boolean}     [props.local]           Browser graph: read IoTelemetry rather than rolling up dump_metadata.
+ * @param {number}      [props.debugLevel]      Live `debug_level`; lights the debug and verbose toggles.
+ * @param {Function}    [props.onAction]        (action, nodeId, value, flags) — every command this pane sends.
+ * @param {Function}    [props.onSelect]        (name) — follow a node link.
+ * @param {Function}    [props.onHover]         (name|null) — highlight a link's target on the canvas.
+ * @param {Set<string>} [props.nodeIds]         Ids that exist; a name outside it renders as dim text, not a link.
+ * @param {boolean}     [props.editMode]        Draft graph: the node view becomes the config form.
+ * @param {Function}    [props.onUpdateArgs]    (nodeId, args) — writes constructor args back to the draft.
+ * @param {Function}    [props.onUpdateVerbs]   (nodeId, invocations) — writes verb calls back to the draft.
+ * @param {Function}    [props.onRemoveNode]    (nodeId) — delete the node from the draft.
+ * @param {Function}    [props.onRenameNode]    (oldId, newId) — returns false when the name is already taken.
+ * @param {Function}    [props.onRemoveEdge]    (from, to) — drop a physical edge.
+ * @param {Function}    [props.onConnect]       (from, to) — add a target; a non-fan-out node replaces its own.
+ * @param {Object}      [props.tree]            Nested include tree, for the no-selection Includes list.
+ * @param {string[]}    [props.includes]        Directly-declared includes — only those have a line to remove.
+ * @param {Function}    [props.onRemoveInclude] (name) — remove an include line.
+ * @param {Function}    [props.onRemoveHull]    (name) — remove the include a hull stands for.
+ * @return {import('react').ReactElement} The inspector pane.
+ */
 export default function Inspector( {
 	selectedId,
 	selectedHull = null,

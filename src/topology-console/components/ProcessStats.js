@@ -12,6 +12,14 @@ import { FieldRow, Section } from './InspectorFields';
 // Inspector sparkline (wider/taller variant of the node-card one).
 const INSP_SPARK_HISTORY_MAX = 60;
 
+/**
+ * Message-rate label whose precision shrinks as the rate grows: whole numbers
+ * from 100/s up, one decimal above 1/s, two below it — so a trickle stays
+ * legible without handing a busy node six digits.
+ *
+ * @param {number|null|undefined} rate Messages per second; nullish reads "—".
+ * @return {string} The rate, suffixed "/s".
+ */
 export function formatRate( rate ) {
 	if ( rate === undefined || rate === null ) {
 		return '— /s';
@@ -28,7 +36,13 @@ export function formatRate( rate ) {
 	return `${ rate.toFixed( 2 ) } /s`;
 }
 
-// Bytes-per-second formatter.
+/**
+ * Byte-rate label with the B/K/M/G suffix its magnitude calls for. Anything
+ * under 1 B/s floors to "0 B/s" — a sub-byte rate is noise, not information.
+ *
+ * @param {number|null|undefined} rate Bytes per second; nullish reads "—".
+ * @return {string} The rate, suffixed "/s".
+ */
 export function formatByteRate( rate ) {
 	if ( rate === undefined || rate === null ) {
 		return '— /s';
@@ -48,7 +62,13 @@ export function formatByteRate( rate ) {
 	return `${ ( rate / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G/s`;
 }
 
-// Bytes with K/M/G suffixes for glanceable values.
+/**
+ * Cumulative byte count with a K/M/G suffix, for glanceable totals. A
+ * non-number or a negative reads "—" rather than inventing a value.
+ *
+ * @param {number|null|undefined} n Byte count.
+ * @return {string} The formatted size.
+ */
 export function formatBytes( n ) {
 	if ( typeof n !== 'number' || n < 0 ) {
 		return '—';
@@ -65,7 +85,14 @@ export function formatBytes( n ) {
 	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
 }
 
-// Honest "last ~Ns" label: sample-count × poll interval, not a fixed minute.
+/**
+ * Label for the window the sparklines actually cover: ring capacity × the
+ * metadata poll interval, which itself scales with graph size. A fixed "last
+ * minute" would lie on a big graph, where one poll is already several seconds.
+ *
+ * @param {number} nodeCount Nodes in the whole graph; sets the poll interval.
+ * @return {string} A "last ~Ns" or "last ~Nm" label.
+ */
 export function formatActivityWindow( nodeCount ) {
 	const windowSec =
 		( INSP_SPARK_HISTORY_MAX * computePollIntervalMs( nodeCount ) ) / 1000;
@@ -102,7 +129,18 @@ function inspectorSparklinePath( history, width, height ) {
 		.join( ' ' );
 }
 
-// One labeled sparkline row; peak label makes the auto-scaled curve readable.
+/**
+ * One labeled sparkline row: the curve, its latest value, and its peak. The
+ * curve auto-scales to its own maximum, so the peak label is what keeps rows
+ * comparable — without it a trickle and a flood draw the same shape.
+ *
+ * @param {Object}                 props
+ * @param {string}                 props.label        Row label, e.g. "messages in /s".
+ * @param {number[]}               [props.history]    Trailing samples, oldest first; fewer than two draws no curve.
+ * @param {number}                 props.currentValue Latest sample; above zero it takes the accent style.
+ * @param {(value:number)=>string} props.format       Formats both the current value and the peak.
+ * @return {import('react').ReactElement} The sparkline row.
+ */
 export function SparklineRow( { label, history, currentValue, format } ) {
 	const W = 270;
 	const H = 32;
@@ -147,7 +185,16 @@ export function SparklineRow( { label, history, currentValue, format } ) {
 
 const lastSample = ( arr ) => ( arr.length ? arr[ arr.length - 1 ] : 0 );
 
-// Build the four Activity rows once so labels can't drift across stat sources.
+/**
+ * Builds the four Activity rows in one place, so their labels and formatters
+ * cannot drift between the stat sources that render them.
+ *
+ * @param {number[]} msgIn     Messages-in per-second samples.
+ * @param {number[]} msgOut    Messages-out per-second samples.
+ * @param {number[]} byteRead  Bytes-read per-second samples.
+ * @param {number[]} byteWrite Bytes-written per-second samples.
+ * @return {Array} Rows shaped for SparklineRow's props.
+ */
 export function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
 	const row = ( label, series, format ) => ( {
 		label,
@@ -180,9 +227,11 @@ export function buildActivity( msgIn, msgOut, byteRead, byteWrite ) {
  * @param {string}      props.windowMeta Trailing-window label for Activity.
  * @param {Array}       props.activity   Rows from buildActivity().
  * @param {Object}      props.totals     Cumulative msgsIn/msgsOut/bytes{Read,Written}.
- * @param {Object|null} props.levels     Process dmesg counts, or null to omit.
- * @param {string}      props.testId     data-testid for the wrapper.
- * @return {Element} The stats body.
+ * @param {Object|null} [props.levels]   Process dmesg counts; omitted or null
+ *                                       renders no dmesg strip.
+ * @param {string}      [props.testId]   data-testid for the wrapper; defaults to
+ *                                       `inspector-process-stats`.
+ * @return {import('react').ReactElement} The stats body.
  */
 export function ProcessStatsView( {
 	windowMeta,

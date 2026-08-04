@@ -9,6 +9,13 @@ import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
 
 /**
+ * Anything usable as a JSX tag — the injected canvas wrapper is a component,
+ * not a plain function that gets called.
+ *
+ * @typedef {import('react').ElementType} FrameComponent
+ */
+
+/**
  * The reusable graph-editing surface, shared by the topology console and the
  * debug overlay. Returns a Fragment (no wrapper element) so it drops into the
  * console's existing CSS-grid `topology-app` shell without changing the DOM.
@@ -17,9 +24,10 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  *
  * @param {Object}           props
  * @param {Object}           props.graph              { nodes, edges } to render.
- * @param {Function}         props.frame              Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
+ * @param {FrameComponent}   props.frame              Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
  * @param {Object}           props.frameProps         Props forwarded to `frame`.
  * @param {string}           props.resetKey           Identity key; bumps clears rate history.
+ * @param {?Object}          [props.viewportDelta]    Persisted `{ dcx, dcy, zoom }` offset from autofit; forwarded to the canvas, which restores it on the first freeze. Null autofits.
  * @param {boolean}          props.interactive        Gesture machinery on (default true).
  * @param {boolean}          props.editMode           Draft-only canvas affordances.
  * @param {boolean}          props.showPalette        Render the class palette.
@@ -47,13 +55,14 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {Array}            [props.includes]         The draft's directly-declared includes; forwarded to the Palette (as `declaredIncludes`, to grey out already-included entries) AND to Inspector, which gates both the IncludeTree rows and the hull panel's remove button on it.
  * @param {Function}         [props.onRemoveInclude]  (name) — removes a declared include; reached from the IncludeTree rows, the hull panel's remove button, and the Delete key on a selected hull.
  * @param {Function}         [props.onOpenTopology]   (name) — drill into a hull's topology (open its .tsl).
- * @return {Element} the graph-editing surface as a Fragment.
+ * @return {import('react').ReactElement} The graph-editing surface as a Fragment.
  */
 export default function GraphView( {
 	graph,
 	frame: Frame,
 	frameProps = {},
 	resetKey,
+	viewportDelta = null,
 	interactive = true,
 	editMode = false,
 	showPalette = false,
@@ -255,7 +264,7 @@ export default function GraphView( {
 					hoveredId={ hoveredId }
 					onHover={ setHoveredId }
 					rateRef={ rateRef }
-					rateVersion={ rateVersion }
+					viewportDelta={ viewportDelta }
 					interactive={ interactive }
 					editMode={ editMode }
 					onConnect={ onConnect }

@@ -22,16 +22,16 @@ const NO_ENTRIES = Object.freeze( [] );
 const NO_SCHEMAS = Object.freeze( {} );
 
 /**
- * @param {Object} props                  Component props.
- * @param {Object} [props.classCatalog]   shell_name → schema (canvas ports).
- * @param {Array}  [props.classes]        Class list (palette + verb schemas).
- * @param {Array}  [props.formatters]     Formatter list (arg editors).
- * @param {Array}  [props.vaults]         Vault catalog (vault_id args).
- * @param {Array}  [props.topologies]     `topologies list` entries.
- * @param {Array}  [props.composeTargets] The Compose modal's "To" list; stays
- *                                        undefined when absent, by design.
- * @param {*}      props.children         Consumers.
- * @return {Element} The provider.
+ * @param {Object}                props                  Component props.
+ * @param {Object}                [props.classCatalog]   shell_name → schema (canvas ports).
+ * @param {ReadonlyArray<Object>} [props.classes]        Class list (palette + verb schemas).
+ * @param {ReadonlyArray<string>} [props.formatters]     Formatter names (arg editors).
+ * @param {ReadonlyArray<Object>} [props.vaults]         Vault catalog (vault_id args).
+ * @param {ReadonlyArray<Object>} [props.topologies]     `topologies list` entries.
+ * @param {Array}                 [props.composeTargets] The Compose modal's "To" list; stays
+ *                                                       undefined when absent, by design.
+ * @param {*}                     props.children         Consumers.
+ * @return {import('react').ReactElement} The provider.
  */
 export function CatalogProvider( {
 	classCatalog = NO_SCHEMAS,

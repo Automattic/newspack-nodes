@@ -110,26 +110,64 @@ function saveTranscriptTo( key, entries ) {
 	write( key, JSON.stringify( safe ) );
 }
 
+/**
+ * Restore the debug overlay's transcript from the last session. Feed the result
+ * to `Dumper_Node.restore()`, which takes the entries as already stamped.
+ *
+ * @return {Object[]} Stamped transcript entries, oldest first; empty when
+ *                    nothing is stored, storage is unavailable, or the stored
+ *                    value is corrupt.
+ */
 export function loadTranscript() {
 	return readArray( TRANSCRIPT_KEY );
 }
 
+/**
+ * Persist the debug overlay's transcript, newest MAX_PERSISTED_TRANSCRIPT
+ * entries only, with credential values masked.
+ *
+ * @param {Object[]} entries Stamped transcript entries, oldest first.
+ */
 export function saveTranscript( entries ) {
 	saveTranscriptTo( TRANSCRIPT_KEY, entries );
 }
 
+/**
+ * Restore the topology console's hub transcript — the worker-realm lines, kept
+ * under their own key so the overlay's transcript never clobbers them.
+ *
+ * @return {Object[]} Stamped transcript entries, oldest first; empty when
+ *                    nothing is stored or the stored value is corrupt.
+ */
 export function loadHubTranscript() {
 	return readArray( HUB_TRANSCRIPT_KEY );
 }
 
+/**
+ * Persist the topology console's hub transcript under its own key, capped and
+ * redacted the same way the overlay transcript is.
+ *
+ * @param {Object[]} entries Stamped transcript entries, oldest first.
+ */
 export function saveHubTranscript( entries ) {
 	saveTranscriptTo( HUB_TRANSCRIPT_KEY, entries );
 }
 
+/**
+ * Restore the REPL's command history — what ReplFooter's up/down arrows recall.
+ *
+ * @return {string[]} Command lines, oldest first; empty when nothing is stored
+ *                    or the stored value is corrupt.
+ */
 export function loadHistory() {
 	return readArray( HISTORY_KEY );
 }
 
+/**
+ * Persist the REPL's command history, newest MAX_PERSISTED_HISTORY lines only.
+ *
+ * @param {string[]} entries Command lines, oldest first.
+ */
 export function saveHistory( entries ) {
 	write(
 		HISTORY_KEY,
@@ -137,18 +175,40 @@ export function saveHistory( entries ) {
 	);
 }
 
+/**
+ * Restore the transcript's rendering verbosity, so a reload keeps whatever the
+ * user last selected.
+ *
+ * @return {number} The stored debug level, 0 when unset or unparseable.
+ */
 export function loadDebugLevel() {
 	return readInt( DEBUG_LEVEL_KEY );
 }
 
+/**
+ * Persist the transcript's rendering verbosity.
+ *
+ * @param {number} level Debug level; anything non-numeric stores 0.
+ */
 export function saveDebugLevel( level ) {
 	write( DEBUG_LEVEL_KEY, String( Number( level ) || 0 ) );
 }
 
+/**
+ * Restore the interpreter's `debug_state` — what the REPL's `trace` builtin
+ * mutates — so tracing survives a reload.
+ *
+ * @return {number} The stored debug state, 0 when unset or unparseable.
+ */
 export function loadDebugState() {
 	return readInt( DEBUG_STATE_KEY );
 }
 
+/**
+ * Persist the interpreter's `debug_state`.
+ *
+ * @param {number} state Debug state; anything non-numeric stores 0.
+ */
 export function saveDebugState( state ) {
 	write( DEBUG_STATE_KEY, String( Number( state ) || 0 ) );
 }

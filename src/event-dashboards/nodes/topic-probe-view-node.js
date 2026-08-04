@@ -26,15 +26,42 @@ import {
  * @param {number} [ttlMs]      Consumer liveness TTL.
  */
 export class TopicProbeViewNode extends ProbeStreamViewNode {
+	/**
+	 * Publishes under the `consumers` model key; the rest is the base's machinery.
+	 *
+	 * @param {number} [maxSamples] Per-consumer ring cap; base default when omitted.
+	 * @param {number} [ttlMs]      Consumer liveness TTL (ms); base default when omitted.
+	 */
 	constructor( maxSamples, ttlMs ) {
 		super( maxSamples, ttlMs );
 		this.modelKey = 'consumers';
 	}
 
+	/**
+	 * The per-entry identity the base folds on: a probe record's `READER` slot,
+	 * which is the basename of the consumer's offsetlog dir.
+	 *
+	 * @param {Array<string|number>} value The positional `Probe_Record` VALUE.
+	 * @return {string|number} Consumer reader id.
+	 */
 	_identityOf( value ) {
 		return value[ READER ];
 	}
 
+	/**
+	 * Fold one probe record into its consumer's entry and push a derived sample.
+	 *
+	 * `backlog` and `cacheSize` are the record's DISTANCE and CACHE_SIZE verbatim;
+	 * `msgRate`/`byteRate` are derived against the prior record (Δ MSGS|END_BYTES over
+	 * Δts). A counter reset (worker restart) or the first sample yields rate 0, never
+	 * negative. A record older than the live window is dropped; an unseen reader gets
+	 * a fresh entry.
+	 *
+	 * @param {string}               reader Consumer reader id, from `_identityOf`.
+	 * @param {Array<string|number>} value  The positional `Probe_Record` VALUE.
+	 * @param {number}               ts     Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @return {void}
+	 */
 	_accumulate( reader, value, ts ) {
 		if ( this._isExpired( ts ) ) {
 			return;
@@ -76,6 +103,13 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		this._capSeries( c.series );
 	}
 
+	/**
+	 * The published per-consumer snapshot: the source partition, a copy of the newest
+	 * derived sample, and a copy of the series the charts plot.
+	 *
+	 * @param {Object} c The internal entry (series plus its `_last*` fold state).
+	 * @return {Object} { source, latest, series }.
+	 */
 	_entryView( c ) {
 		const latest = c.series[ c.series.length - 1 ];
 		return {
@@ -86,6 +120,12 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		};
 	}
 
+	/**
+	 * Hidden from the node palette: the dashboard wires this sink itself, and it
+	 * takes no arguments and no target.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

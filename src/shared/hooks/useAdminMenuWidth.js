@@ -1,12 +1,21 @@
 /**
- * Custom hook to track WordPress admin menu width.
+ * Admin Menu Width Hook
  *
- * @return {number} Current menu width in pixels.
+ * Tracks the WordPress admin menu width, which changes when the menu folds.
  */
+
 import { useState, useEffect } from '@wordpress/element';
 
 /* global MutationObserver */
 
+/**
+ * Hook to track the WordPress admin menu width.
+ *
+ * Reads `#adminmenuwrap.offsetWidth` on mount, then re-reads on body-class
+ * mutations (the fold/unfold toggle) and on window resize.
+ *
+ * @return {number} Menu width in pixels; 0 while no `#adminmenuwrap` exists.
+ */
 export default function useAdminMenuWidth() {
 	const [ menuWidth, setMenuWidth ] = useState( 0 );
 

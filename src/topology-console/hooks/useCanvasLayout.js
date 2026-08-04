@@ -121,6 +121,9 @@ function positionsEqual( left, right ) {
 	);
 }
 
+// Wait this long for the streamed node set to settle before one-shot layout.
+const LAYOUT_SETTLE_MS = 250;
+
 /**
  * The canvas position map: built once (autoLayout / server layout) when the
  * complete graph is ready, then reconciled with a late server layout or mutated
@@ -128,15 +131,16 @@ function positionsEqual( left, right ) {
  * resetLayout.
  *
  * @param {Object}  opts
- * @param {string}  opts.storageKey     localStorage key (scope-scoped).
+ * @param {?string} opts.storageKey     localStorage key (scope-scoped). Null for
+ *                                      an untitled draft, which never persists.
  * @param {Object}  opts.graph          { nodes, edges } — the COMPLETE graph for the scope.
  * @param {boolean} opts.ready          Graph fully built (and server fetch resolved for worker scopes).
- * @param {Object}  [opts.serverLayout] Worker-topology saved layout, or null.
- * @return {Object} { positions, viewport, canReset, onPositionChange, onViewportChange, renamePosition, resetLayout }.
+ * @param {?Object} [opts.serverLayout] Worker-topology saved layout — an id→{x,y}
+ *                                      map — or null when none is stored.
+ * @return {Object} { positions, viewport, viewportDelta, canReset,
+ *                  onPositionChange, onViewportChange, renamePosition,
+ *                  markDirty, resetLayout }.
  */
-// Wait this long for the streamed node set to settle before one-shot layout.
-const LAYOUT_SETTLE_MS = 250;
-
 export function useCanvasLayout( {
 	storageKey,
 	graph,

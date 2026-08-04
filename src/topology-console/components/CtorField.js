@@ -6,6 +6,13 @@
 
 import { __, sprintf } from '@wordpress/i18n';
 
+/**
+ * Attributes the `<input>` for a schema type needs. Every type stays a text
+ * input — any argument may hold a `<config:...>` token — so the type only
+ * narrows the on-screen keyboard or supplies a placeholder.
+ *
+ * @param {string} type Schema argument type (`bool`, `int`, `float`, …).
+ */
 function inputForType( type ) {
 	switch ( type ) {
 		case 'bool':
@@ -21,6 +28,17 @@ function inputForType( type ) {
 	}
 }
 
+/**
+ * Coerces what the user typed to what the TSL loader expects for the declared
+ * type. Only a complete number becomes a number: a `<config:...>` token, a
+ * `<partition>` token, and a half-typed number all pass through as the string
+ * they are, so editing never destroys input the loader would have accepted.
+ *
+ * @param {string} type Schema argument type (`bool`, `int`, `float`, …).
+ * @param {*}      raw  Raw input value.
+ * @return {*} A number for a complete `int`/`float`, `'true'`/`'false'` for a
+ *             `bool`, otherwise the value as a string or passed through.
+ */
 export function coerceValue( type, raw ) {
 	if ( 'bool' === type ) {
 		// Store strings as-is; normalize legacy JS booleans to "true"/"false".
@@ -49,6 +67,49 @@ export function coerceValue( type, raw ) {
 	return String( raw );
 }
 
+/**
+ * One constructor argument, as a node's `node_schema()` declares it.
+ *
+ * @typedef  {Object}  CtorArgSpec
+ * @property {string}  name          Argument name; labels the row and keys the
+ *                                   input id.
+ * @property {string}  [type]        Picks the widget: `formatter_name`,
+ *                                   `vault_id` and `node_name` render pickers;
+ *                                   `bool`, `int` and `float` render text with
+ *                                   a narrowed keyboard.
+ * @property {boolean} [required]    Marks the label with an asterisk.
+ * @property {string}  [description] Label tooltip.
+ * @property {*}       [default]     Fills the placeholder while the field is
+ *                                   empty.
+ */
+
+/**
+ * One entry of the credential store the `vault_id` picker offers.
+ *
+ * @typedef  {Object} VaultEntry
+ * @property {string} id    Vault key stored as the argument value.
+ * @property {string} [url] Remote URL, shown beside the id to disambiguate.
+ */
+
+/**
+ * Renders one constructor argument. The `formatter_name`, `vault_id` and
+ * `node_name` types get a picker — each falling back to free text when its list
+ * is empty — and every other type gets a text input, since any argument may
+ * hold a `<config:...>` token that a checkbox or number input would reject.
+ *
+ * @param {Object}       props              Component props.
+ * @param {CtorArgSpec}  props.spec         Schema entry this field edits.
+ * @param {*}            [props.value]      Current value; `spec.default` fills
+ *                                          the placeholder when it is empty.
+ * @param {Function}     props.onChange     Receives the new value, coerced to
+ *                                          the declared type.
+ * @param {string[]}     [props.nodeNames]  Node names the `node_name` picker
+ *                                          offers.
+ * @param {string[]}     [props.formatters] Registered formatter names.
+ * @param {VaultEntry[]} [props.vaults]     Vault entries the `vault_id` picker
+ *                                          offers.
+ * @return {import('react').ReactElement} The field row.
+ */
 export function CtorField( {
 	spec,
 	value,
@@ -226,7 +287,11 @@ export function CtorField( {
 				<input
 					id={ id }
 					type={ meta.type }
-					inputMode={ meta.inputMode }
+					inputMode={
+						/** @type {'numeric'|'decimal'|undefined} */ (
+							meta.inputMode
+						)
+					}
 					step={ meta.step }
 					className="topology-edit-row__input"
 					value={ currentValue }

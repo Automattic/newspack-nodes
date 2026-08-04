@@ -97,33 +97,44 @@ const debugHeader = ( hasKeyColumn ) => (
 );
 
 /**
- * @param {Object}   props                      Props.
- * @param {string}   props.className            Root class; the body wrapper is `${className}__body`.
- * @param {string}   props.ariaLabel            The region's accessible name.
- * @param {string}   [props.title]              Inline page heading (adopters without a hub header).
- * @param {Element}  [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
- * @param {?Array}   props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
- * @param {string}   props.selectedKey          The picked option's key.
- * @param {Function} props.onPick               `(key) => void` — switch the source.
- * @param {string}   props.pickerEmptyLabel     Status text when the catalog is empty.
- * @param {boolean}  props.isPaused             The view's paused flag.
- * @param {boolean}  props.connectionError      The view's reconnect flag.
- * @param {Function} props.onTogglePause        Pause/resume the stream.
- * @param {Function} [props.onStep]             Step one message (paused-only); absent = no step button.
- * @param {Function} [props.onJump]             Jump handler for the offset input; absent = no input.
- * @param {Function} props.getViewNode          `() => node` — the live ring node (rows + Clear).
- * @param {*}        props.sidebar              The configured `LogBrowser` element.
- * @param {Function} props.renderRow            One-row renderer for `LogRowList`.
- * @param {number}   props.rowHeight            Fixed row height (px).
- * @param {string}   [props.listClassName]      Extra `LogRowList` class.
- * @param {Function} [props.matchRow]           `(row, filterLower) => boolean` filter override.
- * @param {string}   [props.filterPlaceholder]  Filter input placeholder override.
- * @param {Function} [props.renderCount]        `(stats) => string` count label override.
- * @param {Function} [props.renderRate]         `(lps) => string` rate label override.
- * @param {*}        [props.toolbarExtras]      Extra toolbar controls (before Clear).
- * @param {*}        [props.belowToolbar]       Panel under the banner (e.g. a column picker).
- * @param {*}        [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
- * @param {boolean}  [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
+ * Toolbar-filter predicate: does this row survive the current filter?
+ *
+ * @callback MatchRow
+ * @param {Object} row         One row, as `LogRowList` yields it from the ring.
+ * @param {string} filterLower The filter text, lowercased once by the list.
+ * @return {boolean} True to keep the row visible.
+ */
+
+/** @typedef {import('./LogRowList').RenderRow} RenderRow */
+
+/**
+ * @param {Object}     props                      Props.
+ * @param {string}     props.className            Root class; the body wrapper is `${className}__body`.
+ * @param {string}     props.ariaLabel            The region's accessible name.
+ * @param {string}     [props.title]              Inline page heading (adopters without a hub header).
+ * @param {Element}    [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * @param {?Array}     props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
+ * @param {string}     props.selectedKey          The picked option's key.
+ * @param {Function}   props.onPick               `(key) => void` — switch the source.
+ * @param {string}     props.pickerEmptyLabel     Status text when the catalog is empty.
+ * @param {boolean}    props.isPaused             The view's paused flag.
+ * @param {boolean}    props.connectionError      The view's reconnect flag.
+ * @param {() => void} props.onTogglePause        Pause/resume the stream.
+ * @param {() => void} [props.onStep]             Step one message (paused-only); absent = no step button.
+ * @param {Function}   [props.onJump]             Jump handler for the offset input; absent = no input.
+ * @param {Function}   props.getViewNode          `() => node` — the live ring node (rows + Clear).
+ * @param {*}          props.sidebar              The configured `LogBrowser` element.
+ * @param {RenderRow}  props.renderRow            One-row renderer, forwarded to `LogRowList`.
+ * @param {number}     props.rowHeight            Fixed row height (px).
+ * @param {string}     [props.listClassName]      Extra `LogRowList` class.
+ * @param {MatchRow}   [props.matchRow]           Filter predicate override; the default matches `row.content`.
+ * @param {string}     [props.filterPlaceholder]  Filter input placeholder override.
+ * @param {Function}   [props.renderCount]        `(stats) => string` count label override.
+ * @param {Function}   [props.renderRate]         `(lps) => string` rate label override.
+ * @param {*}          [props.toolbarExtras]      Extra toolbar controls (before Clear).
+ * @param {*}          [props.belowToolbar]       Panel under the banner (e.g. a column picker).
+ * @param {*}          [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
+ * @param {boolean}    [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogStreamViewer( {

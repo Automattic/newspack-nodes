@@ -1,16 +1,27 @@
 /**
- * DraftContext — the draft document's React seam.
+ * DraftContext — the draft document's editor surface.
  *
- * Two doors, one per concern, and they are the two an interpreter has:
+ * The document has two faces, and only one of them is TSL.
  *
- *   - `run( line )` MUTATES, and takes a TSL LINE. The same line live mode
- *     sends; the only difference is which interpreter receives it, which is a
- *     cwd. This is the only way the document changes.
- *   - `load( tsl, expansion )` REPLACES. Opening a topology, discarding,
- *     uploading a .tsl. Loading is not a verb, and dressing it as one would put
- *     a word in the grammar no topology can contain.
+ * The COMMAND face is the grammar: `run( line )` sends the same line live mode
+ * sends, and the only difference is which interpreter receives it — a cwd.
  *
- * `graph` is a READ of the interpreter, re-derived after every run. The
+ * The EDITOR face is everything an editor needs that TSL cannot say. It exists
+ * because of one rule:
+ *
+ *   **TSL appends; an editor replaces.**
+ *
+ * `command_node` only ever appends, so "these are now the verbs" needs
+ * `replaceVerbs`. `var` sets and TSL cannot unset, so "this is now the
+ * frontmatter" needs `replaceFrontmatter`. `secure` sets a level and a bare
+ * `secure` means 1, so "undeclared" needs `clearSecure`. `load` replaces a
+ * whole document, which is why loading is not a verb either.
+ *
+ * This module IS that editor face. Nothing outside it touches the interpreter:
+ * a consumer that reached past these operations would be inventing a second,
+ * undocumented way to change the document, which is how the last one drifted.
+ *
+ * `graph` is a READ of the interpreter, re-derived after every change. The
  * interpreter is the document; the graph is what the canvas draws.
  */
 
@@ -23,15 +34,16 @@ import {
 	useState,
 } from '@wordpress/element';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
-import { draftToGraph } from './utils/draftToGraph';
+import { assertResolvedConfigEdges, draftToGraph } from './utils/draftToGraph';
 
 const DraftContext = createContext( null );
 
 /**
- * Own a draft interpreter and the graph read off it.
+ * Own a draft document and expose its editor surface.
  *
- * @return {{interpreter: Object, graph: Object, run: Function, load: Function}}
- *         The document and its two doors.
+ * @return {Object} `{ graph, run, load, reseed, dump, replaceVerbs,
+ *                     replaceFrontmatter, clearSecure, setCatalog,
+ *                     assertResolved, revertIncludes }`.
  */
 export function useDraftInterpreter() {
 	const ref = useRef( null );
@@ -41,24 +53,143 @@ export function useDraftInterpreter() {
 	}
 	const [ graph, setGraph ] = useState( () => draftToGraph( ref.current ) );
 
-	// Both return the graph, for the caller that also records a baseline.
-	const run = useCallback( ( line ) => {
-		ref.current.run( line );
+	// Every mutation ends here, so every mutation re-reads exactly once.
+	const commit = useCallback( () => {
 		const next = draftToGraph( ref.current );
 		setGraph( next );
 		return next;
 	}, [] );
 
-	const load = useCallback( ( tsl, expansion = null, configEdges = null ) => {
-		ref.current.load( tsl, expansion, configEdges );
-		const next = draftToGraph( ref.current );
-		setGraph( next );
-		return next;
+	// Returns the graph, for the caller that also records a dirty snapshot.
+	const run = useCallback(
+		( line ) => {
+			ref.current.run( line );
+			return commit();
+		},
+		[ commit ]
+	);
+
+	const load = useCallback(
+		( tsl, expansion = null, configEdges = null ) => {
+			ref.current.load( tsl, expansion, configEdges );
+			return commit();
+		},
+		[ commit ]
+	);
+
+	/**
+	 * Re-run this document against a different include expansion.
+	 *
+	 * Dumping against the expansion it was loaded with and loading against the
+	 * new one is what keeps the document while its borrowed half changes.
+	 */
+	const reseed = useCallback(
+		( from, to ) => {
+			ref.current.load(
+				ref.current.dumpDocument( from ),
+				to,
+				ref.current.resolvedConfigEdges
+			);
+			return commit();
+		},
+		[ commit ]
+	);
+
+	const dump = useCallback(
+		( expansion = null ) => ref.current.dumpDocument( expansion ),
+		[]
+	);
+
+	const replaceVerbs = useCallback(
+		( name, invocations ) => {
+			ref.current.replaceInvocations( name, invocations );
+			return commit();
+		},
+		[ commit ]
+	);
+
+	const replaceFrontmatter = useCallback(
+		( map ) => {
+			ref.current.replaceFrontmatter( map );
+			return commit();
+		},
+		[ commit ]
+	);
+
+	const clearSecure = useCallback( () => {
+		ref.current.clearSecureLevel();
+		return commit();
+	}, [ commit ] );
+
+	// Which classes fan out, and which verb arguments are node references.
+	const setCatalog = useCallback( ( classes ) => {
+		ref.current.catalog = classes || [];
 	}, [] );
+
+	/**
+	 * Throw when a `<ns:key>` config target has no resolved edge to name.
+	 *
+	 * Only a load that HAD a server response can check this; an uploaded file
+	 * carries tokens nothing client-side can resolve, and always did.
+	 */
+	const assertResolved = useCallback( ( configEdges ) => {
+		assertResolvedConfigEdges( ref.current, configEdges );
+	}, [] );
+
+	/**
+	 * Expand-error backstop: drop the includes the last good tree lacks.
+	 *
+	 * Commits only when an include actually WENT. Committing regardless makes
+	 * a new graph on every call, and a caller re-running on graph identity
+	 * would then spin — which is what a persistent expand error does.
+	 *
+	 * @param {Object} lastGood `topologies expand`'s last good `tree`.
+	 * @return {?Object} The new graph, or null when nothing was removed.
+	 */
+	const revertIncludes = useCallback(
+		( lastGood ) => {
+			const good = lastGood || {};
+			const stale = ref.current.includes.filter(
+				( name ) => ! ( name in good )
+			);
+			if ( ! stale.length ) {
+				return null;
+			}
+			for ( const name of stale ) {
+				ref.current.run( `remove_include ${ name }` );
+			}
+			return commit();
+		},
+		[ commit ]
+	);
 
 	return useMemo(
-		() => ( { interpreter: ref.current, graph, run, load } ),
-		[ graph, run, load ]
+		() => ( {
+			graph,
+			run,
+			load,
+			reseed,
+			dump,
+			replaceVerbs,
+			replaceFrontmatter,
+			clearSecure,
+			setCatalog,
+			assertResolved,
+			revertIncludes,
+		} ),
+		[
+			graph,
+			run,
+			load,
+			reseed,
+			dump,
+			replaceVerbs,
+			replaceFrontmatter,
+			clearSecure,
+			setCatalog,
+			assertResolved,
+			revertIncludes,
+		]
 	);
 }
 
@@ -66,7 +197,7 @@ export function useDraftInterpreter() {
  * @param {Object} props          Component props.
  * @param {Object} props.draft    From `useDraftInterpreter`.
  * @param {*}      props.children Consumers.
- * @return {Element} The provider.
+ * @return {import('react').ReactElement} The provider.
  */
 export function DraftProvider( { draft, children } ) {
 	return (
@@ -77,8 +208,7 @@ export function DraftProvider( { draft, children } ) {
 }
 
 /**
- * @return {{interpreter: Object, graph: Object, run: Function, load: Function}}
- *         The document.
+ * @return {Object} The document's editor surface.
  */
 export function useDraft() {
 	const value = useContext( DraftContext );

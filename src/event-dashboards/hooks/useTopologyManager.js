@@ -144,7 +144,9 @@ function sectionsByName( model ) {
  * else `ok`. An inactive topology (no section) gets no partitions and `ok`.
  *
  * @param {?Object} section A topology's enriched status section (or null).
- * @return {{ partitions: Array, health: string }} Partition stall flags + health.
+ * @return {{ partitions: Array, health: string, etaSeconds: number }} Partition
+ *   stall flags, rolled-up health, and the worst catch-up ETA across the
+ *   topology's consumers in seconds (0 = caught up, Infinity = stalled).
  */
 function deriveHealth( section ) {
 	if ( ! section ) {
@@ -226,18 +228,6 @@ function deriveConnected( {
 }
 
 /**
- * @param {Object}  [opts]               Options (testing seams).
- * @param {Object}  [opts.commandClient] transport seam assigned to `_http.client`.
- * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
- * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
- *   readRate: number, writeRate: number, logPartitions: number,
- *   activate: Function, deactivate: Function, restart: Function,
- *   connected: boolean }} The Topology Manager data + mutations: every topology
- *   row (status merged onto the active ones), the supervisor card, the clock for
- *   supervisor uptime, the fleet-global R/W byte rates + on-disk log-partition
- *   count for the summary cards, the mutation verbs, and connected.
- */
-/**
  * Put the just-minted command on the wire NOW: a mutation is event-driven, not
  * part of the batched poll tick that would otherwise carry it.
  *
@@ -249,9 +239,27 @@ function flushed( pending ) {
 	return pending;
 }
 
+/**
+ * Mount the Topology Manager graph and expose its model plus mutations. See the
+ * file header for the graph and the merge it performs.
+ *
+ * @param {Object}  [opts]               Options (testing seams).
+ * @param {Object}  [opts.commandClient] transport seam assigned to `_http.client`.
+ * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
+ * @param {number}  [opts.refreshMs]     Poll interval in ms; also the unit of the
+ *                                       staleness window. Defaults to 5000.
+ * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
+ *   readRate: number, writeRate: number, logPartitions: number,
+ *   activate: Function, deactivate: Function, restart: Function,
+ *   connected: boolean }} The Topology Manager data + mutations: every topology
+ *   row (status merged onto the active ones), the supervisor card, the clock for
+ *   supervisor uptime, the fleet-global R/W byte rates + on-disk log-partition
+ *   count for the summary cards, the mutation verbs, and connected.
+ */
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, paused = false } = opts;
-	const refreshMs = opts.refreshMs ?? 5000;
+	// Parsed once here; parseInt stringifies its argument anyway.
+	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
 
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
@@ -266,7 +274,7 @@ export function useTopologyManager( opts = {} ) {
 		commandClient,
 		paused,
 		// Omitted = every router tick; refreshMs only reached the bump.
-		intervalMs: parseInt( refreshMs, 10 ),
+		intervalMs: refreshMs,
 	} );
 
 	// One node per mutation verb; the reply that lands on it IS its answer.
@@ -322,7 +330,7 @@ export function useTopologyManager( opts = {} ) {
 	useRouterTick( {
 		name: 'topology-manager:freshness',
 		onTick: bump,
-		intervalMs: parseInt( refreshMs, 10 ),
+		intervalMs: refreshMs,
 	} );
 
 	const connected = deriveConnected( {
@@ -330,7 +338,7 @@ export function useTopologyManager( opts = {} ) {
 		workerError: Boolean( workerModel?.error ),
 		lastPollMs: lastSuccessRef.current,
 		now: Date.now(),
-		refreshMs: parseInt( refreshMs, 10 ),
+		refreshMs,
 		pageVisible,
 	} );
 	// Fleet-global byte rates + on-disk log-partition count for SummaryCards.

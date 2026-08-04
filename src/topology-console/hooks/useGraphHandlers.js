@@ -41,7 +41,7 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
  * @param {Function} [args.prefix]       Wrap the invoke TO (defaults to identity).
  * @param {Function} [args.replyFrom]    Wrap the invoke FROM (defaults to identity).
  * @param {Function} [args.sseGuard]     (to) → false to block + error an invoke (defaults to always-allow).
- * @return {{ onConnect: Function, onRemoveNode: Function, onDropNode: Function, onInspectorAction: Function }} The handlers.
+ * @return {{ onConnect: Function, onRemoveEdge: Function, onRemoveNode: Function, onDropNode: Function, onInspectorAction: Function }} The handlers.
  */
 export function useGraphHandlers( {
 	shell,

@@ -58,13 +58,30 @@ export function tabulateCandidates( candidates ) {
 		.replace( /\s+$/, '' );
 }
 
+/**
+ * The `_completion` node: owns the `candidates` state slot the ReplFooter
+ * subscribes to, and the `seq` counter that makes a repeated candidate list
+ * still notify that subscriber.
+ */
 export class CompletionNode extends Node {
+	/**
+	 * Seeds the `candidates` registration slot by hand — `nodeSchema()`
+	 * declares no `registrations`, so `seedRegistrations()` leaves none — and
+	 * starts the notification sequence at zero.
+	 */
 	constructor() {
 		super();
 		this.registrations.candidates = {};
 		this._seq = 0;
 	}
 
+	/**
+	 * Publish the candidates carried by a completion reply. The reply VALUE is
+	 * either the bare newline-separated candidate text or a `{ name, payload }`
+	 * object whose payload holds it; any other shape publishes an empty list.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
@@ -82,6 +99,12 @@ export class CompletionNode extends Node {
 		this.setState( 'candidates', { candidates, seq: this._seq } );
 	}
 
+	/**
+	 * Console-palette entry. Hidden because the REPL graph wires this node
+	 * itself; it takes no arguments and exposes no commands.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

@@ -29,15 +29,6 @@
  * Returns `{ interpreterRef }` — the live interpreter consumers fire awaited
  * verbs against — and re-renders (the `bumpBuild` semantics) after each build so
  * each widget's `useNodeState` re-subscribes to the freshly-mounted view nodes.
- *
- * @param {Object}   opts
- * @param {Function} opts.build           `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
- * @param {string}   opts.timerName       Name for the owned router-hitchhike Timer.
- * @param {string}   opts.teeName         Name for the owned fan-out Tee.
- * @param {Object}   [opts.commandClient] transport seam assigned to `_http.client`.
- * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
- * @param {number}   [opts.intervalMs]    Poll cadence in ms: > 1000 hitchhikes + throttles to it; omitted/0 fires every router tick. Changing it re-arms the Timer.
- * @return {{ interpreterRef: Object }} A ref to the live interpreter.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -77,6 +68,19 @@ function syncTimer( timer, isPageVisible, paused, intervalMs ) {
 	}
 }
 
+/**
+ * Mounts the batched-poll graph once and keeps it in step with page visibility,
+ * pause, and cadence. See the module overview above for what it wires up.
+ *
+ * @param {Object}   opts
+ * @param {Function} opts.build           `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
+ * @param {string}   opts.timerName       Name for the owned router-hitchhike Timer.
+ * @param {string}   opts.teeName         Name for the owned fan-out Tee.
+ * @param {Object}   [opts.commandClient] Transport seam assigned to `_http.client`.
+ * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
+ * @param {number}   [opts.intervalMs]    Poll cadence in ms: > 1000 hitchhikes + throttles to it; omitted/0 fires every router tick. Changing it re-arms the Timer.
+ * @return {{ interpreterRef: Object }} A ref to the live interpreter.
+ */
 export function useBatchedPoll( opts ) {
 	// Read opts live inside build without re-running once-only mount effect.
 	const optsRef = useRef( opts );

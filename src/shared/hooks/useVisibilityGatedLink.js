@@ -21,6 +21,14 @@
  * The Partition/Log Viewers deliberately do NOT use this hook: their
  * catalog-driven, user-selected `setSubscribe([selected], …)` flow is not
  * visibility-gated connect and does not fit the `mountNodes`/`onConnect` shape.
+ */
+
+import { useEffect, useRef, useState } from '@wordpress/element';
+import { mountExospine } from '@newspack-nodes/runtime';
+
+/**
+ * Mounts the caller's SSE graph once and keeps the link open only while active.
+ * See the module overview above for the two resume guards it owns.
  *
  * @param {Object}   o
  * @param {Function} o.mountNodes `(interpreter) => { link, view? }` — construct the
@@ -33,10 +41,6 @@
  * @return {{ viewRef: Object }} The live view-node ref, for the caller's control
  *   callbacks (e.g. setPaused / clear publishing through the view).
  */
-
-import { useEffect, useRef, useState } from '@wordpress/element';
-import { mountExospine } from '@newspack-nodes/runtime';
-
 export function useVisibilityGatedLink( { mountNodes, isActive, onConnect } ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );

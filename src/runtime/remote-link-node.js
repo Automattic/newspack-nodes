@@ -24,7 +24,31 @@ import { SseInNode } from './sse-in-node';
 import { defaultTransport } from './command-transport';
 import names from './reserved-node-names.json';
 
+/**
+ * A resume seed: the next-record `{segment, offset}` for each partition
+ * directory the stream has delivered, as `SseIn.resumePositions()` builds it.
+ * Passed back to the server as the `positions=` seek so a reopened stream
+ * neither gaps nor replays.
+ *
+ * @typedef {Object<string,{segment:number,offset:number}>} ResumePositions
+ */
+
+/**
+ * The composed SSE+HTTP channel: one node standing in for an SseIn stream, the
+ * shared HttpOut command boundary, and the Heartbeat that keeps the stream's
+ * slot lease alive.
+ *
+ * `subscribe` (the sole positional argument) names what the stream carries, and
+ * nothing opens until `connect()`, `send()` or `connectNode()` builds the
+ * children. Records arrive on the link's own `sink`/`target`, so a consumer
+ * wires a RemoteLink exactly as it would wire any other source node.
+ */
 export class RemoteLinkNode extends Node {
+	/**
+	 * Start unconfigured and childless: `ensureChildren()` builds the stream on
+	 * the first connect or send, and `_assertConfigured()` refuses until
+	 * `arguments` has supplied a subscription.
+	 */
 	constructor() {
 		super();
 		// Transport for the HttpOut; ensureChildren defaults it if unset.
@@ -42,17 +66,32 @@ export class RemoteLinkNode extends Node {
 		this.onClose = null;
 	}
 
+	/**
+	 * @return {string[]} The argument tokens last assigned.
+	 */
 	get arguments() {
 		return super.arguments;
 	}
 
+	/**
+	 * Take the positional tokens and run the Schema_Reflection walk, which
+	 * assigns the one declared argument, `subscribe`. The reset first means a
+	 * re-assignment cannot inherit the previous subscription.
+	 *
+	 * @param {string[]} value Positional tokens; the first is the comma-separated subscription list.
+	 */
 	set arguments( value ) {
 		super.arguments = value;
 		this.subscribe = '';
 		parseSchemaArgs( this, value );
 	}
 
-	// Re-point the stream at a new subscription; optional `positions` seed.
+	/**
+	 * Re-point the stream at a new subscription, closing and reopening it.
+	 *
+	 * @param {string[]}         subscribe Subscriptions the reopened stream carries.
+	 * @param {?ResumePositions} positions Where to resume each partition; null tail-seeks.
+	 */
 	setSubscribe( subscribe, positions = null ) {
 		this.ensureChildren();
 		this.sseIn.close();
@@ -61,16 +100,23 @@ export class RemoteLinkNode extends Node {
 		this.sseIn.start();
 	}
 
-	// @longform
-	// Out through the ONE `_http` boundary — every browser graph has exactly
-	// one, and a shared buffer is what lets a tick's commands batch into a
-	// single POST regardless of which TO each of them carries.
+	/**
+	 * Send out through the ONE `_http` boundary — every browser graph has
+	 * exactly one, and that shared buffer is what lets a tick's commands batch
+	 * into a single POST regardless of which TO each of them carries.
+	 *
+	 * @param {Array} message Positional Message to post.
+	 */
 	send( message ) {
 		this.ensureChildren();
 		Core.node( names.HTTP ).fill( message );
 	}
 
-	// Tear down OUR SseIn — close() first (removeNode won't close the stream).
+	/**
+	 * Tear down OUR SseIn. `close()` runs first because `removeNode()` alone
+	 * would leave the EventSource open, and the shared `_http` / `_heartbeat`
+	 * backbone is left for the graph to tear down.
+	 */
 	removeNode() {
 		this.close();
 		this.sseIn?.unregister( 'CONNECTING', this.name );
@@ -82,7 +128,12 @@ export class RemoteLinkNode extends Node {
 		super.removeNode();
 	}
 
-	// `connect_node` is a source link's start lifecycle on the canvas.
+	/**
+	 * `connect_node` is a source link's start lifecycle on the canvas: wiring
+	 * the output edge also points the stream at it and opens the stream.
+	 *
+	 * @param {string} target Node path each received record is re-homed to.
+	 */
 	connectNode( target ) {
 		this._assertConfigured();
 		super.connectNode( target );
@@ -94,7 +145,11 @@ export class RemoteLinkNode extends Node {
 		}
 	}
 
-	// Open the inbound stream; optional `positions` seed seeks the cursor.
+	/**
+	 * Open the inbound stream, building the children on first use.
+	 *
+	 * @param {?ResumePositions} positions Where to resume each partition; null tail-seeks.
+	 */
 	connect( positions = null ) {
 		this.ensureChildren();
 		this.sseIn.positions = positions;
@@ -111,6 +166,7 @@ export class RemoteLinkNode extends Node {
 			return;
 		}
 
+		/** @type {SseInNode & import('./sse-in-node').PatronConfigured} */
 		const sse = new SseInNode();
 		sse.arguments = this.arguments; // `{subscribe}`; baseUrl/nonce from global
 		if ( this.endpoint ) {
@@ -157,7 +213,12 @@ export class RemoteLinkNode extends Node {
 		} );
 	}
 
-	// Removing the output edge closes the stream and its heartbeat slot.
+	/**
+	 * Removing the output edge closes the stream and its heartbeat slot —
+	 * a link with nowhere to deliver has no reason to hold one open.
+	 *
+	 * @param {string} target Edge to drop; the base clears the single target.
+	 */
 	disconnectNode( target = '' ) {
 		super.disconnectNode( target );
 		if ( this.sseIn ) {
@@ -166,45 +227,95 @@ export class RemoteLinkNode extends Node {
 		this.close();
 	}
 
-	// Close the inbound stream, forget the slot, then fire the onClose hook.
+	/**
+	 * Close the inbound stream, forget this link's heartbeat slot, then fire
+	 * the `onClose` hook so the owner can reset stream-tied state.
+	 */
 	close() {
 		this.sseIn?.close();
 		this.heartbeat?.clearSlot( this );
 		this.onClose?.();
 	}
 
+	/**
+	 * Refuse every operation that would open a stream until a subscription has
+	 * been supplied — an unsubscribed EventSource has nothing to carry.
+	 *
+	 * @throws {Error} When `subscribe` is still empty.
+	 */
 	_assertConfigured() {
 		if ( '' === this.subscribe ) {
 			throw new Error( 'RemoteLink requires an SSE subscription' );
 		}
 	}
 
-	// Composite stat delegation: surface the children's byte tallies.
+	/**
+	 * Composite stat delegation: the records arrive on the SseIn child, so its
+	 * tally is the link's own until a stream exists.
+	 *
+	 * @return {number} Records received.
+	 */
 	get counter() {
 		return this.sseIn ? this.sseIn.counter : super.counter;
 	}
-	// Derived from the sseIn child; base fill()'s `counter += 1` is a no-op.
+
+	/**
+	 * Ignored — the count is derived from the sseIn child, which makes the base
+	 * `fill()`'s `counter++` a no-op here.
+	 *
+	 * @param {number} _v Discarded.
+	 */
 	set counter( _v ) {}
+
+	/**
+	 * @return {number} Bytes the composed stream has received.
+	 */
 	get bytesRead() {
 		return this.sseIn ? this.sseIn.bytesRead : super.bytesRead;
 	}
+
+	/**
+	 * Egress leaves through the shared `_http`, not this link, so the base
+	 * tally stands.
+	 *
+	 * @return {number} Bytes written.
+	 */
 	get bytesWritten() {
 		return super.bytesWritten;
 	}
+
+	/**
+	 * @return {number} Largest single frame the composed stream has seen.
+	 */
 	get largestMsgSent() {
 		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;
 	}
 
-	// Resume seed (last `{segment,offset}` per sub/partition); null → tail.
+	/**
+	 * The seed a reconnect resumes from, one entry per partition seen.
+	 *
+	 * @return {?ResumePositions} Positions to resume at, or null to tail-seek.
+	 */
 	resumePositions() {
 		return this.sseIn?.resumePositions() ?? null;
 	}
 
-	// Session pid, read from the composed SseIn's `connected` snoop.
+	/**
+	 * The remote session's process id, snooped from the SseIn's `connected`
+	 * handshake. RemoteIpc puts it in the `_sse:{pid}` reply address.
+	 *
+	 * @return {?number} Session pid, or null before the handshake lands.
+	 */
 	pid() {
 		return this.sseIn?.pid() ?? null;
 	}
 
+	/**
+	 * Console-palette entry. It borrows SseIn's argument list, since the
+	 * subscription is the one thing that configures both.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'I/O',

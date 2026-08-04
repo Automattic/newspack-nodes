@@ -16,7 +16,7 @@ test( 'arguments parses receiver + command with no command args', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'countsIn', 'counts' ];
 	expect( f.receiver ).toBe( 'countsIn' );
-	expect( f.command ).toBe( 'counts' );
+	expect( f.verb ).toBe( 'counts' );
 	expect( f.command_args ).toEqual( [] );
 } );
 
@@ -24,7 +24,7 @@ test( 'arguments parses receiver + command + variadic command args', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'topIn', 'rank', '--limit', '10' ];
 	expect( f.receiver ).toBe( 'topIn' );
-	expect( f.command ).toBe( 'rank' );
+	expect( f.verb ).toBe( 'rank' );
 	expect( f.command_args ).toEqual( [ '--limit', '10' ] );
 } );
 
@@ -154,7 +154,7 @@ test( "makeNode('Fetcher', name) resolves the registered class", () => {
 	] );
 	expect( node ).toBeInstanceOf( FetcherNode );
 	expect( node.receiver ).toBe( 'countsIn' );
-	expect( node.command ).toBe( 'counts' );
+	expect( node.verb ).toBe( 'counts' );
 } );
 
 /**
@@ -188,6 +188,44 @@ test( 'a poll tick with no session re-authenticates', async () => {
 
 	expect( issued ).toBe( 1 );
 	expect( hasSession() ).toBe( true );
+
+	forgetSession();
+	__setAuthFetch( null );
+} );
+
+test( 'keeps the inherited command() minting helper', async () => {
+	forgetSession();
+	__setAuthFetch( async () => ( {
+		handle: 'cccc3333cccc3333cccc3333cccc3333',
+		key: 'key-for-mint-helper',
+		expires_in: 3600,
+		now: 1771000000,
+	} ) );
+
+	const f = new FetcherNode();
+	f.name = 'spline-fetcher';
+	f.arguments = [ 'splineIn', 'reticulate', '--depth', '7' ];
+
+	// The configured verb must not displace Node#command, which six sibling
+	// nodes call and any generic `Core.node(x)?.command(...)` walk expects.
+	expect( typeof f.command ).toBe( 'function' );
+
+	f.sink = { fill: () => {} };
+	const trigger = newMessage();
+	trigger[ TYPE ] = TM_BYTESTREAM;
+	f.fill( trigger );
+	await Promise.resolve();
+	await Promise.resolve();
+
+	const m = f.command( 'reticulate', [ '--depth', '7' ] );
+	expect( m[ VALUE ] ).toMatchObject( {
+		name: 'reticulate',
+		arguments: [ '--depth', '7' ],
+	} );
+	// It signs, too — the helper is whole, not merely present.
+	expect( m[ VALUE ].auth ).toMatchObject( {
+		handle: 'cccc3333cccc3333cccc3333cccc3333',
+	} );
 
 	forgetSession();
 	__setAuthFetch( null );

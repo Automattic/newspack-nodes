@@ -19,17 +19,34 @@
 
 import { useState, useEffect, useMemo, useCallback } from '@wordpress/element';
 
-// Live tail: no positions for the sub ⇒ the server seeks 'end'.
+/**
+ * The live-tail positions: none at all. Sending no position for a
+ * subscription is what makes the server default its seek to 'end'.
+ *
+ * @return {null} Always null — the absent seek IS the tail.
+ */
 export function tailPositions() {
 	return null;
 }
 
-// Open a concrete segment at its head.
+/**
+ * Seek a subscription to the head of one concrete segment.
+ *
+ * @param {string} sub       The subscription (partition dir or log-source name).
+ * @param {number} segmentId The segment to open; in file mode, the inode.
+ * @return {Object} Positions keyed by subscription, holding a `{segment, offset}` seek.
+ */
 export function segmentPositions( sub, segmentId ) {
 	return { [ sub ]: { segment: segmentId, offset: 0 } };
 }
 
-// Replay from the earliest retained record (the magic 'start' seek).
+/**
+ * Seek a subscription to the earliest retained record, using the magic
+ * 'start' token the server resolves to offset 0 of the oldest segment.
+ *
+ * @param {string} sub The subscription (partition dir or log-source name).
+ * @return {Object} Positions keyed by subscription, holding the 'start' token.
+ */
 export function replayPositions( sub ) {
 	return { [ sub ]: 'start' };
 }
@@ -56,7 +73,15 @@ export function stepPosition( link, sub, positions ) {
 	return null;
 }
 
-// Largest existing segment id below currentId (spans gaps); null at the oldest.
+/**
+ * The segment to page back to: the largest EXISTING id below currentId, so a
+ * page spans the ids retention has already reaped.
+ *
+ * @param {Array}            segments  The catalog's `{id, size}` segments.
+ * @param {?(number|string)} currentId The segment being browsed. A magic token
+ *                                     ('start') has no predecessor.
+ * @return {?number} The previous segment id, or null at the oldest.
+ */
 export function previousSegmentId( segments, currentId ) {
 	if ( 'number' !== typeof currentId ) {
 		return null;

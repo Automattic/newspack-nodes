@@ -3740,6 +3740,29 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	} );
 
+	it( 'reserves no transcript band in edit mode, even after expanding one', async () => {
+		// Edit mode renders no ReplFooter, so its last height is stale — the
+		// canvas would autofit around a transcript that is not on screen.
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {} );
+
+		// View mode: the footer reports an expanded transcript.
+		await act( async () => {
+			mockCanvasProps.onOverlayHeightChange?.( 120 );
+		} );
+
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+
+		expect( mockCanvasProps.bottomObstructionPx ).toBe( 0 );
+	} );
+
 	it( 'handleRenameNode: rejects the reserved canvas anchor', async () => {
 		// `_repl` is the worker's auto-mounted Partition. It lives on the
 		// canvas graph, not in the document, so a guard reading the document

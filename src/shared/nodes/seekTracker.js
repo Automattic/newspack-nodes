@@ -53,7 +53,17 @@ export function endPosition( segments ) {
 	return null === segment ? null : { segment, offset };
 }
 
+/**
+ * Node-side seek state for a log-stream view node: the segment the last record
+ * arrived from, and whether a replay has caught up to the live tail. A view node
+ * composes one (`this.seek = new SeekTracker()`), drives `track()` from `fill()`,
+ * and publishes only when `track()` reports a change. See the module docblock
+ * above for the mode contract, including the null-segment file-mode case.
+ */
 export class SeekTracker {
+	/**
+	 * Start live at the head, with no received segment and no catch-up boundary.
+	 */
 	constructor() {
 		// 'live' tails the head; 'replay' browses until caught up.
 		this.mode = 'live';
@@ -102,7 +112,13 @@ export class SeekTracker {
 		return segmentChanged || modeChanged;
 	}
 
-	// Whether a replayed record has reached the captured live boundary.
+	/**
+	 * Whether a replayed record has reached the boundary captured at `browse()`.
+	 *
+	 * @param {number} segment   The record's segment id (an inode in file mode).
+	 * @param {number} offsetEnd The record's end byte, `offset + length`.
+	 * @return {boolean} True once the record is at or past the live boundary.
+	 */
 	_caughtUp( segment, offsetEnd ) {
 		if ( this.fileMode ) {
 			// Opaque inode: caught up by size, or when a new inode rotates in.
@@ -136,7 +152,10 @@ export class SeekTracker {
 		this.referenceSegment = null;
 	}
 
-	// Return to the live tail; drop the catch-up boundary.
+	/**
+	 * Return to the live tail, dropping the catch-up boundary. The last received
+	 * segment survives, so the rail highlight stays where the records are.
+	 */
 	follow() {
 		this.mode = 'live';
 		this.endSegment = null;
@@ -144,7 +163,10 @@ export class SeekTracker {
 		this.referenceSegment = null;
 	}
 
-	// Fresh subscription: live from a clean slate (drops the highlight too).
+	/**
+	 * Reset for a fresh subscription: live from a clean slate. Unlike `follow()`,
+	 * this also forgets the last received segment, so the rail highlight clears.
+	 */
 	select() {
 		this.mode = 'live';
 		this.endSegment = null;

@@ -8,7 +8,14 @@
 import { useMemo, useState } from '@wordpress/element';
 import './inspector-views.scss';
 
-// One cell: booleans read yes/no; an absent value (JS next_ms/id) reads –.
+/**
+ * Render one cell of a row as display text. Booleans read yes/no; a value the
+ * row never carried (a JS-only field such as `next_ms` or `id`) reads as an en
+ * dash rather than an empty cell, so a missing field is visibly missing.
+ *
+ * @param {string|number|boolean|null|undefined} value Raw cell value, `row[ col.key ]`.
+ * @return {string} The text to render in the cell.
+ */
 export function formatCell( value ) {
 	if ( 'boolean' === typeof value ) {
 		return value ? 'yes' : 'no';

@@ -64,8 +64,18 @@ export async function answerBatch( messages, replyFor ) {
 }
 
 /**
- * @param {Function} replyFor Maps a posted command Message to its reply payload.
- * @return {Function} A `fetch` implementation answering `/command`.
+ * The slice of `fetch` a graph under test reaches for: the response is read
+ * back with `text()`, never as a whole `Response`.
+ *
+ * @typedef {( url?: any, init?: { body?: any } ) => Promise<{ ok: boolean, status: number, text: () => Promise<string> }>} FakeFetch
+ */
+
+/**
+ * @param {( message: Array ) => any} replyFor Maps a posted command Message to
+ *                                             its reply payload — a value, an
+ *                                             `Error`, `undefined`, or a
+ *                                             promise of any of those.
+ * @return {FakeFetch} A `fetch` double answering `/command`.
  */
 export function makeFakeCommandWire( replyFor ) {
 	return jest.fn( async ( url, init ) => {
@@ -92,8 +102,9 @@ export function makeFakeCommandWire( replyFor ) {
  * which in a test reads as a mysterious "not authenticated" rather than as the
  * missing /auth stub it is.
  *
- * @param {Function} replyFor Maps a posted command Message to its reply payload.
- * @return {Function} The installed `global.fetch`.
+ * @param {( message: Array ) => any} replyFor Maps a posted command Message to
+ *                                             its reply payload.
+ * @return {typeof fetch} The installed `global.fetch`.
  */
 export function installFakeCommandWire( replyFor ) {
 	__setAuthFetch( async () => ( {
@@ -106,6 +117,9 @@ export function installFakeCommandWire( replyFor ) {
 	// test, and dropping it would make the first mint of every test race
 	// /auth. Callers that WANT the pre-auth state call forgetSession().
 	void ensureSession();
-	global.fetch = makeFakeCommandWire( replyFor );
+	// The double covers only the read slice; widen it to the fetch slot.
+	global.fetch = /** @type {typeof fetch} */ (
+		/** @type {unknown} */ ( makeFakeCommandWire( replyFor ) )
+	);
 	return global.fetch;
 }

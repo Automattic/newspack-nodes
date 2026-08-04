@@ -47,11 +47,21 @@ function getPortalTarget() {
 	return document.querySelector( '.nodes-devtools-hub' ) || document.body;
 }
 
+/**
+ * The frontmatter editor itself, portaled to the hub root so it stacks above
+ * the header. Frontmatter is seeded once per mount and every edit dispatches
+ * the whole map, so callers key the element by the topology being edited.
+ *
+ * @param {Object}     props
+ * @param {number}     [props.configDefaultPartitions] Partition count the config falls back to when `num_partitions` is unset; shown as the input's placeholder. Default 1.
+ * @param {() => void} props.onClose                   Dismiss the panel; fired by the close button.
+ * @return {import('react').ReactElement} The panel, portaled when a target exists.
+ */
 export default function TopologySettingsPanel( {
 	configDefaultPartitions = 1,
 	onClose,
 } ) {
-	const { graph: draft, interpreter, run } = useDraft();
+	const { graph: draft, run, replaceFrontmatter, clearSecure } = useDraft();
 	const frontmatter = draft.frontmatter || {};
 	const secureLevel = draft.secureLevel || '';
 	// Seeded once per mount (the panel mounts on open, keyed by editing name).
@@ -75,15 +85,13 @@ export default function TopologySettingsPanel( {
 				map[ n ] = tv;
 			}
 		}
-		interpreter.replaceFrontmatter( map );
-		run( '' );
+		replaceFrontmatter( map );
 	};
 
 	// "Undeclared" has no TSL spelling: a bare `secure` means level 1.
 	const setSecure = ( level ) => {
 		if ( '' === level ) {
-			interpreter.clearSecureLevel();
-			run( '' );
+			clearSecure();
 			return;
 		}
 		run( 'insecure' === level ? 'insecure' : `secure ${ level }` );

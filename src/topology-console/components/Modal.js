@@ -9,6 +9,20 @@ import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
+/**
+ * ModalShell — the backdrop, panel, header, and dismiss wiring every dialog in
+ * the console reuses. Renders through a portal on `document.body` so no
+ * ancestor's overflow or stacking context can clip it, and horizontally
+ * centers on the debug panel when one is mounted.
+ *
+ * @param {Object}                    props
+ * @param {string}                    props.title       Dialog title, also its accessible name.
+ * @param {() => void}                props.onDismiss   Runs on ESC, backdrop click, and the close button.
+ * @param {boolean}                   [props.wide]      Add the large-panel modifier class.
+ * @param {string}                    [props.className] Extra classes on the panel.
+ * @param {import('react').ReactNode} props.children    Body and action rows.
+ * @return {import('react').ReactNode} The portal, or null without a document.
+ */
 export function ModalShell( {
 	title,
 	onDismiss,
@@ -37,11 +51,11 @@ export function ModalShell( {
 		.querySelector( '.nodes-debug__panel' )
 		?.getBoundingClientRect();
 	const modalStyle = panelRect
-		? {
+		? /** @type {import('react').CSSProperties} */ ( {
 				position: 'absolute',
 				left: panelRect.left + panelRect.width / 2,
 				transform: 'translateX(-50%)',
-		  }
+		  } )
 		: undefined;
 	return createPortal(
 		<div
@@ -88,6 +102,20 @@ export function ModalShell( {
 	);
 }
 
+/**
+ * ConfirmModal — a yes/no dialog. The confirm button takes focus on mount, so
+ * Enter accepts and ESC cancels without reaching for the mouse.
+ *
+ * @param {Object}                    props
+ * @param {string}                    props.title          Dialog title.
+ * @param {import('react').ReactNode} props.body           Question or explanation above the actions.
+ * @param {string}                    [props.confirmLabel] Label on the primary button.
+ * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
+ * @param {boolean}                   [props.danger]       Style the primary button as destructive.
+ * @param {() => void}                props.onConfirm      Runs when the primary button is pressed.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and backdrop click.
+ * @return {import('react').ReactNode} The dialog.
+ */
 export function ConfirmModal( {
 	title,
 	body,
@@ -124,6 +152,23 @@ export function ConfirmModal( {
 	);
 }
 
+/**
+ * PromptModal — a single-line text prompt. The input takes focus and selects
+ * its initial value on mount, Enter submits, and confirm stays disabled while
+ * the value is empty or fails `pattern`.
+ *
+ * @param {Object}                    props
+ * @param {string}                    props.title          Dialog title.
+ * @param {import('react').ReactNode} props.body           Prompt text above the input.
+ * @param {string}                    [props.initialValue] Value the input starts with, pre-selected.
+ * @param {string}                    [props.placeholder]  Placeholder for the empty input.
+ * @param {RegExp}                    [props.pattern]      Value must match this to submit.
+ * @param {string}                    [props.confirmLabel] Label on the primary button.
+ * @param {string}                    [props.cancelLabel]  Label on the dismiss button.
+ * @param {(value: string) => void}   props.onConfirm      Runs with the entered value.
+ * @param {() => void}                props.onCancel       Runs on cancel, ESC, and backdrop click.
+ * @return {import('react').ReactNode} The dialog.
+ */
 export function PromptModal( {
 	title,
 	body,
@@ -206,15 +251,15 @@ export function PromptModal( {
  * trailing empties dropped — matching what the editor writes), and `onConfirm`
  * fires with `{ name, args }` so the caller formats the make_node line.
  *
- * @param {Object}   props
- * @param {string}   props.shellName   Class shell name (e.g. "Partition").
- * @param {string}   props.defaultName Auto-generated id (pre-fills name).
- * @param {Array}    props.argSchema   [{ name, type?, required?, default? }, ...]
- * @param {Array}    props.nodeNames   Other node ids (for node_name arg pickers).
- * @param {Array}    props.formatters  Registered formatter names (formatter_name args).
- * @param {Array}    props.vaults      Registered Vault entries (vault_id args).
- * @param {Function} props.onConfirm   ({ name, args }) => void
- * @param {Function} props.onCancel    () => void
+ * @param {Object}                                         props
+ * @param {string}                                         props.shellName    Class shell name (e.g. "Partition").
+ * @param {string}                                         props.defaultName  Auto-generated id (pre-fills name).
+ * @param {Array}                                          [props.argSchema]  [{ name, type?, required?, default? }, ...]
+ * @param {Array}                                          [props.nodeNames]  Other node ids (for node_name arg pickers).
+ * @param {Array}                                          [props.formatters] Registered formatter names (formatter_name args).
+ * @param {Array}                                          [props.vaults]     Registered Vault entries (vault_id args).
+ * @param {(node: { name: string, args: string }) => void} props.onConfirm    Runs with the node id and its serialized args string.
+ * @param {() => void}                                     props.onCancel     Runs on cancel, ESC, and backdrop click.
  */
 export function NewNodeModal( {
 	shellName,

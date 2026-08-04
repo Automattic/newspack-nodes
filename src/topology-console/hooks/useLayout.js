@@ -11,6 +11,17 @@ import { useCallback, useMemo } from '@wordpress/element';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { formatCommandArgs } from '../../runtime/command-args';
 
+/**
+ * Mount the two layout Request nodes and expose their commands.
+ *
+ * `fetchLayout` takes the topology name whose saved canvas positions to read.
+ * `saveLayout` takes that name plus a positions map — canvas node id to an
+ * `[ x, y ]` pair — which it sends as one JSON token. Both resolve with the
+ * server's reply payload, `{ name, positions }`, and reject on a command
+ * error.
+ *
+ * @return {{ fetchLayout: Function, saveLayout: Function }} The two senders.
+ */
 export function useLayout() {
 	const get = useRequestNode( 'layouts:get', 'layouts' );
 	const save = useRequestNode( 'layouts:save', 'layouts' );

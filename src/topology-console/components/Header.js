@@ -11,11 +11,54 @@
 import { useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
+/**
+ * `window` carrying the payload PHP localizes before any bundle runs. `version`
+ * is the plugin version the subtitle stamps, absent on a page that enqueued a
+ * bundle without it.
+ *
+ * @typedef {Window & {
+ *     NewspackNodesData?: { version?: string },
+ * }} NodesDataWindow
+ */
+
+/** @type {NodesDataWindow} */
+const NODES_WINDOW = window;
+
 const VERSION =
-	( window.NewspackNodesData && window.NewspackNodesData.version ) || '';
+	( NODES_WINDOW.NewspackNodesData &&
+		NODES_WINDOW.NewspackNodesData.version ) ||
+	'';
 const HOST = window.location.hostname;
 
-// Path selector + mode/action buttons, sans wrapper, so a tab can portal them.
+/**
+ * The control cluster — path selector plus the mode and action buttons — with
+ * no wrapper element, so a tab can portal it into the shared header's slot.
+ *
+ * Every prop is optional. The debug overlay passes only `mode` and `onClose`,
+ * which swaps the whole button row for a single close X; every other handler
+ * is guarded at its call site.
+ *
+ * @param {Object}                 props
+ * @param {string[]}               [props.pathOptions]    Selectable cwds; the selector is hidden unless there are at least two.
+ * @param {string}                 [props.path]           Current cwd. A value not in `pathOptions` (set by `cd`) is appended as an extra option.
+ * @param {(path: string) => void} [props.onPathChange]   Called with the newly selected cwd.
+ * @param {string}                 [props.streamStatus]   SSE status; `'open'` in view mode lights the LIVE LED.
+ * @param {string|null}            [props.uptime]         Worker uptime for the LIVE button; an em-dash holds the slot until the first value.
+ * @param {string}                 [props.mode]           `'view'` (live) or `'edit'` (editor); gates which buttons render.
+ * @param {boolean}                [props.canEdit]        Whether the cwd resolves to a worker, so EDIT is offered.
+ * @param {(mode: string) => void} [props.onModeChange]   Switch to `'edit'` or `'view'`.
+ * @param {() => void}             [props.onSave]         SAVE: snapshot the live graph, or save the draft in edit mode.
+ * @param {() => void}             [props.onDownload]     DOWNLOAD the editor topology as a .tsl file.
+ * @param {(file: File) => void}   [props.onUpload]       Receives the .tsl the hidden file input picked up.
+ * @param {() => void}             [props.onOpen]         OPEN the topology picker, which lands in edit mode.
+ * @param {() => void}             [props.onNew]          NEW: start a blank topology.
+ * @param {() => void}             [props.onDelete]       DELETE the current user-saved topology.
+ * @param {boolean}                [props.canDelete]      Whether the current topology is user-saved, so DELETE renders.
+ * @param {() => void}             [props.onSettings]     Toggle the topology settings panel.
+ * @param {boolean}                [props.settingsActive] Whether that panel is open, which highlights SETTINGS.
+ * @param {() => void}             [props.onClose]        Overlay only: renders a lone close X in place of the mode buttons.
+ * @return {import('react').ReactElement} The controls, as a Fragment.
+ */
 export function HeaderControls( {
 	pathOptions = [],
 	path = '',
@@ -236,10 +279,17 @@ export function HeaderControls( {
 }
 
 /**
- * @param {Object}   props
- * @param {boolean}  [props.showBrand]       Render the brand + subtitle (default true).
- * @param {boolean}  [props.showControls]    Render the controls cluster inline (default true).
- * @param {Function} [props.controlsSlotRef] Callback ref for an EMPTY `.topology-header__controls` slot — when set, the active tab portals its controls in (the shared header), and the inline controls are not rendered.
+ * Callback ref receiving the empty controls slot element, or null on unmount.
+ * The hub hands it a `useState` setter so the active tab can portal into it.
+ *
+ * @typedef {import('react').RefCallback<HTMLDivElement>} ControlsSlotRef
+ */
+
+/**
+ * @param {Object}          props
+ * @param {boolean}         [props.showBrand]       Render the brand + subtitle (default true).
+ * @param {boolean}         [props.showControls]    Render the controls cluster inline (default true).
+ * @param {ControlsSlotRef} [props.controlsSlotRef] Callback ref for an EMPTY `.topology-header__controls` slot — when set, the active tab portals its controls in (the shared header), and the inline controls are not rendered.
  * @return {import('react').ReactElement} The header.
  */
 export default function Header( {

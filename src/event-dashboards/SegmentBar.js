@@ -11,19 +11,38 @@ import { __, sprintf } from '@wordpress/i18n';
 import { formatBytes } from './formatters';
 
 /**
+ * One segment of a partition or log, as the worker-status payload carries it.
+ *
+ * @typedef {Object} Segment
+ * @property {number} id      Segment number — the `{file}.{N}` suffix.
+ * @property {number} size    Bytes the segment holds.
+ * @property {number} [mtime] Last-write time in seconds; `Workers_CI` stats it,
+ *                            `Log_Sources` does not. Unused by this bar.
+ */
+
+/**
+ * Props for the segment bar.
+ *
+ * The four cursor/end props arrive together and describe the reader position:
+ * null (or undefined) on `cursorSegment` means no consumer reads this log, and
+ * the bar paints entirely gray.
+ *
+ * @typedef {Object} SegmentBarProps
+ * @property {Segment} segment       Segment this bar draws.
+ * @property {number}  maxSize       Largest segment in the row; scales the widths.
+ * @property {?number} cursorSegment Reader cursor segment ID (null = no consumer).
+ * @property {?number} cursorOffset  Reader cursor offset within cursorSegment.
+ * @property {?number} endSegment    Recorded probe-end segment ID (null = no consumer).
+ * @property {?number} endSize       Recorded probe-end offset within endSegment.
+ * @property {number}  [index]       Position in the row; staggers the fill animation.
+ * @property {boolean} isNew         Whether this segment is newly appeared.
+ * @property {boolean} isRemoving    Whether this segment is being removed.
+ */
+
+/**
  * Single segment bar visualization (horizontal bar layout).
  *
- * @param {Object}  props               Component props.
- * @param {Object}  props.segment       Segment data { id, size, mtime }.
- * @param {number}  props.maxSize       Max segment size for scaling.
- * @param {number}  props.cursorSegment Reader cursor segment ID (null = no consumer).
- * @param {number}  props.cursorOffset  Reader cursor offset within cursorSegment.
- * @param {number}  props.endSegment    Recorded probe-end segment ID (null = no consumer).
- * @param {number}  props.endSize       Recorded probe-end offset within endSegment.
- * @param {number}  props.index         Position in the row; staggers the fill animation.
- * @param {boolean} props.isNew         Whether this segment is newly appeared.
- * @param {boolean} props.isRemoving    Whether this segment is being removed.
- * @return {import('react').ReactElement} Rendered component.
+ * @type {import('react').NamedExoticComponent<SegmentBarProps>}
  */
 export const SegmentBar = memo( function SegmentBar( {
 	segment,
@@ -79,7 +98,9 @@ export const SegmentBar = memo( function SegmentBar( {
 		.join( ' ' );
 
 	// Stagger fills left-to-right: each bar waits 0.3s per index (matches CSS).
-	const segDelay = { '--seg-delay': `${ index * 0.3 }s` };
+	const segDelay = /** @type {import('react').CSSProperties} */ ( {
+		'--seg-delay': `${ index * 0.3 }s`,
+	} );
 
 	return (
 		<div
@@ -87,7 +108,7 @@ export const SegmentBar = memo( function SegmentBar( {
 			style={ segDelay }
 			title={ sprintf(
 				// translators: 1: segment id, 2: formatted segment size.
-				__( 'Segment %1$s: %2$s', 'newspack-nodes' ),
+				__( 'Segment %1$d: %2$s', 'newspack-nodes' ),
 				segment.id,
 				formatBytes( size )
 			) }

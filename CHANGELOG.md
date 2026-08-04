@@ -26,6 +26,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Fetcher`'s configured verb no longer shadows `Node#command()`.** The field
+  was named `command`, so on that one class the inherited command-minting
+  method was a string — any `node.command( verb, args )` walk over a graph
+  containing a Fetcher would throw. The field is `verb`; the TSL positional is
+  still spelled `command`, so no topology changes.
+- `SegmentBar`'s tooltip interpolated a numeric segment id through a `%1$s`
+  placeholder. It is `%1$d`, matching the wire type and the two sibling
+  viewers.
+- Dropped two props that were passed but never read: `datalistId`
+  (`TargetsField` to its two children — no `<datalist>` has ever existed) and
+  `rateVersion` (`GraphView` to `SchematicCanvas`, whose comment described a
+  re-render mechanism the unmemoized child does not use). Removing the latter
+  is what surfaced the `viewportDelta` bug below.
+- **The canvas discarded its saved pan and zoom on every reload.** The console
+  and the debug overlay both persist the viewport as a delta from autofit and
+  both pass it down, but `GraphView` never declared `viewportDelta`, so it was
+  dropped one hop short of the canvas that restores it.
 - A node removed in the editor could leave a `connect_node` to it in the saved
   `.tsl`. A Tee prunes dead heads when it fills, and a document never fills, so
   the prune happens when the document is written.
@@ -165,6 +182,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Type-checking is a commit gate.** `npm run lint:types` runs `tsc --noEmit`
+  over `src/` through the JSDoc already in the source — no `.ts` files, no
+  build step, ~2s — and lint-staged now blocks a commit on it. It found real
+  defects the test suite could not: a canvas that discarded its saved viewport,
+  a node field shadowing an inherited method, and two props passed but never
+  read. `typescript` and the two `@types` packages are declared devDependencies
+  rather than inherited transitively, so the gate cannot drift silently.
 - **`DraftInterpreterNode` — an edit buffer that is an interpreter.** It differs
   from the live one in exactly three ways, each deliberate: `make_node` builds a
   stub for a class this runtime cannot construct; `move_node` rewrites

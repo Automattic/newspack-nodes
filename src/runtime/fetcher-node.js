@@ -26,29 +26,64 @@ import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
  * stamped from `target` by the base `fill()`.
  */
 export class FetcherNode extends Node {
+	/**
+	 * Predeclare the three configured fields the `arguments` setter fills:
+	 * where the server's reply routes back to, which verb to send, and the
+	 * arguments that verb carries.
+	 */
 	constructor() {
 		super();
 		this.receiver = '';
-		this.command = '';
+		/**
+		 * The verb to send. NOT named `command`: that would shadow the inherited
+		 * `Node#command()` minting helper away on this class alone.
+		 *
+		 * @type {string}
+		 */
+		this.verb = '';
+		/**
+		 * The verb's argument tokens, or a fire-time getter `fill()` calls each
+		 * tick for the current ones. `''` is the unconfigured state; anything
+		 * that is not an array — including a getter's non-array return — sends
+		 * no arguments at all.
+		 *
+		 * @type {string|string[]|Function}
+		 */
 		this.command_args = '';
 	}
 
+	/**
+	 * @return {string[]} The `<receiver> <command> [<command_args>...]` tokens.
+	 */
 	get arguments() {
 		return super.arguments;
 	}
 
+	/**
+	 * Split the token list into the three configured fields. An empty list
+	 * assigns nothing, leaving whatever the node already holds.
+	 *
+	 * @param {string[]} value `<receiver> <command> [<command_args>...]` tokens.
+	 */
 	set arguments( value ) {
 		super.arguments = value;
 		const tokens = Array.isArray( value ) ? value : [];
 		if ( 0 === tokens.length ) {
 			return;
 		}
-		const [ receiver, command, ...rest ] = tokens;
+		const [ receiver, verb, ...rest ] = tokens;
 		this.receiver = receiver;
-		this.command = command ?? '';
+		this.verb = verb ?? '';
 		this.command_args = rest;
 	}
 
+	/**
+	 * Send the configured command. Every message is only a trigger — its type,
+	 * VALUE and addressing are ignored — so one trigger yields exactly one
+	 * TM_COMMAND, or none while the browser holds no signing session.
+	 *
+	 * @param {Array} _message The trigger message; deliberately unread.
+	 */
 	fill( _message ) {
 		// command_args: fire-time getter or static token array.
 		const args =
@@ -62,13 +97,20 @@ export class FetcherNode extends Node {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.receiver;
 		m[ VALUE ] = {
-			name: this.command,
+			name: this.verb,
 			arguments: Array.isArray( args ) ? args : [],
 		};
 		markLocal( m );
 		super.fill( m );
 	}
 
+	/**
+	 * Console-palette entry. Only the two required positionals are declared;
+	 * the trailing `command_args` are variadic and may instead be assigned
+	 * programmatically as a fire-time getter.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Control',

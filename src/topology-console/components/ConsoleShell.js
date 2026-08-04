@@ -13,17 +13,17 @@ import ReplFooter from './ReplFooter';
 
 /**
  * @param {Object}   props
- * @param {boolean}  props.ready             Gate: GraphView renders only when true; else the building placeholder.
- * @param {Object}   props.graph             { nodes, edges } for GraphView.
- * @param {Function} props.frame             Canvas wrapper component (CanvasFrame).
- * @param {Object}   props.frameProps        Props forwarded to `frame` (incl. reset-chip callbacks).
- * @param {Object}   props.canvasProps       Remaining GraphView props (layout/handlers/catalog/etc.).
- * @param {Object}   props.headerProps       Props forwarded to Header.
- * @param {Object}   props.replProps         Props forwarded to ReplFooter.
- * @param {boolean}  props.showRepl          Render the ReplFooter (default true; console passes mode!=='edit').
- * @param {string}   props.buildingClassName CSS class for the not-ready placeholder.
- * @param {Function} props.wrapHeader        Optional (headerEl) => node; wraps the Header (overlay drag chrome). Identity by default.
- * @param {boolean}  props.showHeader        Render the Header (default true; the overlay sets false because the panel owns one shared header above the tabs).
+ * @param {boolean}  props.ready               Gate: GraphView renders only when true; else the building placeholder.
+ * @param {Object}   props.graph               { nodes, edges } for GraphView.
+ * @param {Function} props.frame               Canvas wrapper component (CanvasFrame).
+ * @param {Object}   [props.frameProps]        Props forwarded to `frame` (incl. reset-chip callbacks).
+ * @param {Object}   [props.canvasProps]       Remaining GraphView props (layout/handlers/catalog/etc.).
+ * @param {Object}   [props.headerProps]       Props forwarded to Header.
+ * @param {Object}   [props.replProps]         Props forwarded to ReplFooter.
+ * @param {boolean}  [props.showRepl]          Render the ReplFooter (default true; console passes mode!=='edit').
+ * @param {string}   [props.buildingClassName] CSS class for the not-ready placeholder.
+ * @param {Function} [props.wrapHeader]        Optional (headerEl) => node; wraps the Header (overlay drag chrome). Identity by default.
+ * @param {boolean}  [props.showHeader]        Render the Header (default true; the overlay sets false because the panel owns one shared header above the tabs).
  * @return {import('react').ReactElement} The shared canvas surface as a Fragment.
  */
 export default function ConsoleShell( {
@@ -49,9 +49,6 @@ export default function ConsoleShell( {
 					frameProps={ frameProps }
 					{ ...canvasProps }
 					// Edit mode has no REPL; don't reserve transcript space.
-					bottomObstructionPx={
-						showRepl ? canvasProps.bottomObstructionPx : 0
-					}
 				/>
 			) : (
 				<div className={ buildingClassName } />

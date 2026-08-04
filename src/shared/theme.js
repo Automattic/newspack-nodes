@@ -96,6 +96,14 @@ function setRootThemeClass( slug ) {
 }
 
 /**
+ * Fired on `window` after every skin change, `detail` = the applied slug. Lets
+ * imperative side-effects (e.g. a dashboard painting the WP-admin gutters to the
+ * skin surface) re-run without React state — same-tab, unlike the `storage`
+ * event, which only reaches OTHER tabs.
+ */
+export const SKIN_EVENT = 'newspack-nodes:skin';
+
+/**
  * Make `slug` the live skin: set the single `theme-<slug>` class on `<html>`
  * (dropping any prior one) and persist it. This is the ONLY operation that
  * changes a skin — every surface re-skins from this one class via CSS, no React
@@ -104,14 +112,6 @@ function setRootThemeClass( slug ) {
  * @param {string} slug Skin slug to make live.
  * @return {string} The applied slug (after validation).
  */
-/**
- * Fired on `window` after every skin change, `detail` = the applied slug. Lets
- * imperative side-effects (e.g. a dashboard painting the WP-admin gutters to the
- * skin surface) re-run without React state — same-tab, unlike the `storage`
- * event, which only reaches OTHER tabs.
- */
-export const SKIN_EVENT = 'newspack-nodes:skin';
-
 export function applySkin( slug ) {
 	const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
 	setRootThemeClass( next );

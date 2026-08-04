@@ -7,10 +7,10 @@ import { __ } from '@wordpress/i18n';
  * active set) so an operator sees WHY instead of a silent no-op. ESC and
  * backdrop-click dismiss; the OK button focuses on mount.
  *
- * @param {Object}   props
- * @param {string}   props.title   Dialog heading (e.g. the topology that failed).
- * @param {string}   props.message The reason text.
- * @param {Function} props.onClose Dismiss handler.
+ * @param {Object}     props
+ * @param {string}     props.title   Dialog heading (e.g. the topology that failed).
+ * @param {string}     props.message The reason text.
+ * @param {() => void} props.onClose Dismiss handler; runs on OK, ESC, and backdrop click.
  * @return {import('react').ReactElement} The modal.
  */
 export default function AlertModal( { title, message, onClose } ) {

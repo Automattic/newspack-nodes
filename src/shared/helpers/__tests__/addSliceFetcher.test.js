@@ -59,7 +59,7 @@ describe( 'addSliceFetcher — wiring', () => {
 		const f = Core.node( 'fetch-counts' );
 		expect( f ).toBeTruthy();
 		expect( f.receiver ).toBe( 'countsIn' );
-		expect( f.command ).toBe( 'counts' );
+		expect( f.verb ).toBe( 'counts' );
 		expect( f.target ).toBe( TARGET );
 		expect( f.sink ).toBe( interpreter );
 	} );

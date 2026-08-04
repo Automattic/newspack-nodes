@@ -21,14 +21,6 @@
  * catch-up-to-live flip is a display-only signal (SeekTracker) that never
  * re-calls `resubscribe` — without single-use consumption, pausing any time
  * after a Replay would keep jumping back to the original replay start.
- *
- * @param {Object} o
- * @param {Object} o.linkRef A ref to the RemoteLink node (`setSubscribe`/`close`/`resumePositions`).
- * @param {Object} o.viewRef A ref to the view node (the pause control is published to it).
- * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function, step: Function }}
- *   `isPausedRef` (for a mount rebuild to re-apply a surviving pause), `resubscribe`,
- *   `setPaused` (flips the gate + publishes the pause control for the UI), and
- *   `step` (paused-only: deliver one frame from the cursor, then close).
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
@@ -47,6 +39,28 @@ function reopenSeed( link, { subscribe, positions } ) {
 		: null;
 }
 
+/**
+ * Gate an SSE subscription on tab visibility and an explicit pause, and own
+ * the reopen target so a selection made while paused can never revive the
+ * closed stream. See the module docblock for the full gating contract.
+ *
+ * @param {Object}   o
+ * @param {Object}   o.linkRef        Ref to the RemoteLink node, whose
+ *                                    `setSubscribe`/`close`/`resumePositions`
+ *                                    open, close, and resume the stream.
+ * @param {Object}   o.viewRef        Ref to the view node the pause control
+ *                                    and stepped records are published to.
+ * @param {Function} [o.fetchMessage] One-record read over the command
+ *                                    channel, behind the paused single-step:
+ *                                    `( sub, position )` resolving to
+ *                                    `{ message, cursor }`, or null when the
+ *                                    read finds nothing. Without it, `step`
+ *                                    is a no-op.
+ * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function, step: () => void }}
+ *   `isPausedRef` (for a mount rebuild to re-apply a surviving pause), `resubscribe`,
+ *   `setPaused` (flips the gate + publishes the pause control for the UI), and
+ *   `step` (paused-only: deliver one frame from the cursor, then close).
+ */
 export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 	const isPageVisible = usePageVisibility();
 

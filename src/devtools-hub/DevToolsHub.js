@@ -26,6 +26,13 @@ const CONSOLE_TAB_ID = 'topology-console';
 // Runs after event-dashboards (enqueued first) registered the order-0 Overview.
 registerLazyTabs();
 
+/**
+ * Renders the hub page: the shared brand header, the `hub`-scope tab host, and
+ * the debug overlay, inside a fixed container that starts below the admin bar
+ * and to the right of the (possibly collapsed) admin menu.
+ *
+ * @return {import('react').ReactElement} The hub page.
+ */
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
 	const [ activeTabId, setActiveTabId ] = useState( null );
@@ -40,24 +47,26 @@ export default function DevToolsHub() {
 		>
 			<div
 				className="nodes-devtools-hub"
-				style={ {
-					position: 'fixed',
-					top: '32px',
-					left: `${ menuWidth }px`,
-					right: '0',
-					bottom: '0',
-					zIndex: 99,
-					// Opaque --paper-3: parent boxless, else bleeds white.
-					background: 'var(--paper-3)',
-					'--nodes-devtools-fg': 'var(--ink)',
-					transition: 'left 0.1s ease-in-out',
-					margin: 0,
-					padding: 0,
-					boxSizing: 'border-box',
-					display: 'flex',
-					flexDirection: 'column',
-					overflow: 'hidden',
-				} }
+				style={
+					/** @type {import('react').CSSProperties} */ ( {
+						position: 'fixed',
+						top: '32px',
+						left: `${ menuWidth }px`,
+						right: '0',
+						bottom: '0',
+						zIndex: 99,
+						// Opaque --paper-3: parent boxless, else bleeds white.
+						background: 'var(--paper-3)',
+						'--nodes-devtools-fg': 'var(--ink)',
+						transition: 'left 0.1s ease-in-out',
+						margin: 0,
+						padding: 0,
+						boxSizing: 'border-box',
+						display: 'flex',
+						flexDirection: 'column',
+						overflow: 'hidden',
+					} )
+				}
 			>
 				{ /* ONE shared header — brand left, controls slot right. */ }
 				<Header controlsSlotRef={ setControlsSlot } />

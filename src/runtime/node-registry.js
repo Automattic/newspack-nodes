@@ -14,7 +14,15 @@
  * an edit buffer hold a `firehose` while the live graph holds a different one.
  */
 export class NodeRegistry {
+	/**
+	 * Creates an empty table.
+	 *
+	 * `nodes` is public and iterated directly by callers. Its insertion order
+	 * is the order `dump_config` writes, which is why `renameNode` rebuilds
+	 * the Map rather than deleting and re-inserting.
+	 */
 	constructor() {
+		/** @type {Map<string, Object>} Nodes by name, in insertion order. */
 		this.nodes = new Map();
 	}
 

@@ -47,6 +47,46 @@ module.exports = {
 				],
 			},
 		],
+		// Every exported function, method and class carries a docblock. The
+		// backlog was 445 and is 0; the rule is what keeps it there. It also
+		// catches the orphaned-docblock failure — inserting a member between
+		// a docblock and its subject leaves the real function undocumented,
+		// which has happened five times and no other gate sees it.
+		'jsdoc/require-jsdoc': [
+			'error',
+			{
+				publicOnly: true,
+				require: {
+					FunctionDeclaration: true,
+					MethodDefinition: true,
+					ClassDeclaration: true,
+				},
+			},
+		],
+		// A stale closure is a BUG, not a style note: two of these were real
+		// (a save wrote the wrong edge diff against a captured baseline), and
+		// they hid among the warnings until a review found them.
+		'react-hooks/exhaustive-deps': [
+			'error',
+			{ additionalHooks: '^(useSelect|useSuspenseSelect)$' },
+		],
+		// The runtime is the bottom layer: it may import itself and packages,
+		// nothing else under src/. A dashboard importing the runtime is the
+		// whole point; the runtime importing a dashboard is a layering break.
+		'import/no-restricted-paths': [
+			'error',
+			{
+				zones: [
+					{
+						target: './src/runtime',
+						from: './src',
+						except: [ './runtime' ],
+						message:
+							'The runtime is the bottom layer — it cannot import from an app or shared directory.',
+					},
+				],
+			},
+		],
 		// The `@newspack-nodes/shared/*` subpath alias resolves at runtime
 		// (build.mjs alias + jest moduleNameMapper) to this plugin's own
 		// src/shared; the static resolver can't see the alias.

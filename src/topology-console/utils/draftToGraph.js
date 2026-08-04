@@ -1,10 +1,17 @@
 /**
- * draftToGraph — read a draft interpreter as the graph the canvas renders.
+ * draftToGraph — the document's READ, and the only thing outside the runtime
+ * that touches a draft interpreter's internals.
  *
  * The console's view layer wants `{ nodes, edges, includes, … }`; the draft is
  * a node table. This is the whole adapter between them, and it is a READ: it
  * derives, never decides. Anything that looks like a decision here belongs in
  * the interpreter, where a TSL verb can reach it.
+ *
+ * `seededInvocationsFor`, `declaredInvocationsFor` and `seededEdges` exist on
+ * the interpreter FOR this function — they are its read API, not incidental
+ * accessors. Nothing else should call them, and `DraftContext` is the only
+ * caller of this module for a live document, so the boundary holds by having
+ * exactly one crossing.
  *
  * `_repl` is NOT added here. The worker's auto-mounted anchor is a canvas
  * fact, not something a topology file says, and a document read that invents

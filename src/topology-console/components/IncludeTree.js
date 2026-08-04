@@ -47,6 +47,20 @@ function Branch( { name, subtree, depth, onRemove } ) {
 	);
 }
 
+/**
+ * Renders the include tree as a nested list, one row per included topology.
+ *
+ * Roots are the intersection of `includes` and `tree`: a name the file
+ * declares but the tree does not resolve has nothing to show, so it is
+ * skipped. Only roots get a remove control, and only when `onRemove` is
+ * supplied — a deeper row belongs to another file's declaration.
+ *
+ * @param {Object}        props
+ * @param {Object}        [props.tree]     Nested include tree from `topologies expand`: `{ name: subtree }`, recursively. Default {}.
+ * @param {string[]}      [props.includes] The edited file's directly-declared includes, in declaration order; selects and orders the root rows. Default [].
+ * @param {Function|null} [props.onRemove] (name) — removes a declared include. Null or absent renders the tree read-only.
+ * @return {import('react').ReactElement} The Includes section.
+ */
 export default function IncludeTree( { tree = {}, includes = [], onRemove } ) {
 	const roots = includes.filter( ( n ) =>
 		Object.prototype.hasOwnProperty.call( tree, n )

@@ -28,12 +28,6 @@
  *
  *   useRouterTick( { name: 'partition-viewer:segments', onTick: refresh,
  *                    intervalMs: 10000, enabled: Boolean( selectedLog ) } );
- *
- * @param {Object}   opts
- * @param {string}   opts.name         Unique node name for the owned Timer.
- * @param {Function} opts.onTick       Called on each (throttled) router tick.
- * @param {number}   [opts.intervalMs] Throttle in ms; >1000 throttles, else every tick.
- * @param {boolean}  [opts.enabled]    False stops the hitchhike without unmounting.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -43,6 +37,15 @@ import usePageVisibility from './usePageVisibility';
 
 const INTERPRETER = '_command_interpreter';
 
+/**
+ * Rides the Router heartbeat, so the poller adds no timer of its own.
+ *
+ * @param {Object}   opts              Poller configuration.
+ * @param {string}   opts.name         Unique node name for the owned Timer.
+ * @param {Function} opts.onTick       Called on each (throttled) router tick.
+ * @param {number}   [opts.intervalMs] Throttle in ms; >1000 throttles, else every tick.
+ * @param {boolean}  [opts.enabled]    False stops the hitchhike without unmounting.
+ */
 export default function useRouterTick( {
 	name,
 	onTick,

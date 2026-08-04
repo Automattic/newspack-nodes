@@ -30,6 +30,7 @@
  * "public" follows the codebase convention: a name NOT starting with `_`.
  *
  * Usage:
+ *   node reorder-node-methods.js --check             src/runtime/*.js   # gate: fail if out of order
  *   node reorder-node-methods.js                    src/runtime/*.js   # dry-run, node classes
  *   node reorder-node-methods.js --write             src/runtime/*.js   # apply, node classes
  *   node reorder-node-methods.js --all-classes       src/admin/*.js     # dry-run, EVERY class
@@ -46,11 +47,13 @@ const { createRequire } = require( 'module' );
 
 const argv = process.argv.slice( 2 );
 const write = argv.includes( '--write' );
+// --check: dry-run that FAILS when a file is out of order, for the hook.
+const check = argv.includes( '--check' );
 const allClasses = argv.includes( '--all-classes' );
 const files = argv.filter( ( a ) => ! a.startsWith( '--' ) );
 if ( ! files.length ) {
 	console.error(
-		'usage: node reorder-node-methods.js [--write] [--all-classes] <file.js> [...]'
+		'usage: node reorder-node-methods.js [--check|--write] [--all-classes] <file.js> [...]'
 	);
 	process.exit( 1 );
 }
@@ -664,6 +667,9 @@ for ( const f of files ) {
 		console.log(
 			`~ ${ f }${ '\n    ' + ( r.notes || [] ).join( '\n    ' ) }`
 		);
+		if ( check ) {
+			process.exitCode = 1;
+		}
 	} else if ( r.notes && r.notes.length ) {
 		console.log( `! ${ f }${ '\n    ' + r.notes.join( '\n    ' ) }` );
 	}

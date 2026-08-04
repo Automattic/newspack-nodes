@@ -200,11 +200,11 @@ export default function Overview( { headerControlsSlot } ) {
 		} catch {
 			// no-op — drag proceeds without capture.
 		}
-		const els = [
+		const els = /** @type {HTMLElement[]} */ ( [
 			...document.querySelectorAll(
 				'.nodes-overview__rows [data-topology-row]'
 			),
-		];
+		] );
 		dragNameRef.current = name;
 		dragStartYRef.current = e.clientY;
 		dragElsRef.current = els;

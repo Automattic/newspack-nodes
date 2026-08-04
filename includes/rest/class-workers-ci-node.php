@@ -557,6 +557,50 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * `heartbeat` verb handler — record a worker slot heartbeat.
+	 *
+	 * @param list<string> $args Verb argument.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function cmd_heartbeat( array $args ): array {
+		if ( 2 !== \count( $args ) ) {
+			throw new \RuntimeException( 'heartbeat requires exactly <slot> <owner>' );
+		}
+		$slot = self::canonical_decimal( $args[0], true );
+		if ( null === $slot ) {
+			throw new \RuntimeException( 'invalid heartbeat slot' );
+		}
+		$owner = self::canonical_decimal( $args[1], false );
+		if ( null === $owner ) {
+			throw new \RuntimeException( 'invalid heartbeat owner' );
+		}
+		if ( null === Cache_Backend::shared_first() ) {
+			throw new \RuntimeException( 'cache not configured' );
+		}
+		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::namespace_key(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $owner, SSE_Slot_Pool::$ttl ) ) {
+			throw new \RuntimeException( 'SSE slot lease not owned' );
+		}
+		return [ 'success' => true, 'slot' => $slot ];
+	}
+
+	/** Parse a PHP-range canonical decimal argument without lossy coercion. */
+	private static function canonical_decimal( string $value, bool $allow_zero ): ?int {
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+		if ( 1 !== \preg_match( $pattern, $value ) ) {
+			return null;
+		}
+		$max = (string) \PHP_INT_MAX;
+		if (
+			\strlen( $value ) > \strlen( $max )
+			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
+		) {
+			return null;
+		}
+		return (int) $value;
+	}
+
+	/**
 	 * The injected Cli, materialized non-null. Fails loud if the bootstrap
 	 * forgot to assign `$cli` before a worker-control verb dispatches.
 	 *
@@ -633,50 +677,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
 		}
 		return [ 'restarted' => $restarted ];
-	}
-
-	/**
-	 * `heartbeat` verb handler — record a worker slot heartbeat.
-	 *
-	 * @param list<string> $args Verb argument.
-	 *
-	 * @return array<string,mixed>
-	 */
-	public static function cmd_heartbeat( array $args ): array {
-		if ( 2 !== \count( $args ) ) {
-			throw new \RuntimeException( 'heartbeat requires exactly <slot> <owner>' );
-		}
-		$slot = self::canonical_decimal( $args[0], true );
-		if ( null === $slot ) {
-			throw new \RuntimeException( 'invalid heartbeat slot' );
-		}
-		$owner = self::canonical_decimal( $args[1], false );
-		if ( null === $owner ) {
-			throw new \RuntimeException( 'invalid heartbeat owner' );
-		}
-		if ( null === Cache_Backend::shared_first() ) {
-			throw new \RuntimeException( 'cache not configured' );
-		}
-		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::namespace_key(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $owner, SSE_Slot_Pool::$ttl ) ) {
-			throw new \RuntimeException( 'SSE slot lease not owned' );
-		}
-		return [ 'success' => true, 'slot' => $slot ];
-	}
-
-	/** Parse a PHP-range canonical decimal argument without lossy coercion. */
-	private static function canonical_decimal( string $value, bool $allow_zero ): ?int {
-		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
-		if ( 1 !== \preg_match( $pattern, $value ) ) {
-			return null;
-		}
-		$max = (string) \PHP_INT_MAX;
-		if (
-			\strlen( $value ) > \strlen( $max )
-			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
-		) {
-			return null;
-		}
-		return (int) $value;
 	}
 
 	public static function node_schema(): array {

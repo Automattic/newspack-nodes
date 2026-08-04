@@ -134,10 +134,19 @@ export function useConsoleGraph( {
 		} );
 		dumper.restore( loadHubTranscript() );
 		// Substrate soft-nodes via make_node: name + sink + args in one.
-		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
-		const uptime = interpreter.makeNode( 'Uptime', names.UPTIME );
+		const metadata =
+			/** @type {import('../../runtime/metadata-node').MetadataNode} */ (
+				interpreter.makeNode( 'Metadata', names.METADATA )
+			);
+		const uptime =
+			/** @type {import('../../runtime/uptime-node').UptimeNode} */ (
+				interpreter.makeNode( 'Uptime', names.UPTIME )
+			);
 		// `_dmesg` publishes error/warn/debug counts for the stats header.
-		const dmesg = interpreter.makeNode( 'Dmesg', names.DMESG );
+		const dmesg =
+			/** @type {import('../../runtime/dmesg-node').DmesgNode} */ (
+				interpreter.makeNode( 'Dmesg', names.DMESG )
+			);
 		const completion = interpreter.makeNode(
 			'Completion',
 			names.COMPLETION
@@ -148,7 +157,9 @@ export function useConsoleGraph( {
 		const remotes = [];
 		for ( const wr of readers ) {
 			// baseUrl/nonce resolve from the localized global, not tokens.
-			const remote = interpreter.makeNode( 'RemoteIpc', wr, [ wr ] );
+			const remote = /** @type {RemoteIpcNode} */ (
+				interpreter.makeNode( 'RemoteIpc', wr, [ wr ] )
+			);
 			remote.target = names.OUTPUT;
 			// The active worker's connect handshake drives the pid display.
 			remote.onConnected = () => setSsePid( remote.pid() );

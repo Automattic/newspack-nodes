@@ -109,13 +109,14 @@ export default function DebugPanel( {
 					data-testid="overlay-header"
 					onPointerDown={ onHeaderPointerDown }
 					onDoubleClick={ ( e ) => {
-						const tag = e.target?.tagName;
+						const el = /** @type {HTMLElement} */ ( e.target );
+						const tag = el?.tagName;
 						if (
 							tag === 'SELECT' ||
 							tag === 'BUTTON' ||
 							tag === 'INPUT' ||
 							tag === 'OPTION' ||
-							e.target?.closest?.( 'select, button, input' )
+							el?.closest?.( 'select, button, input' )
 						) {
 							return;
 						}
