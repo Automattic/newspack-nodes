@@ -175,7 +175,7 @@ class Ingest_CLI_Command {
 			$topic->remove_node();
 		}
 
-		$this->report( $dry_run, $stats, $lock || $void );
+		$this->report( $dry_run, $stats, $cap );
 	}
 
 	/**
@@ -253,30 +253,42 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Emit the run summary: dry-run advises on large-write flags; a real run reports what landed and what was skipped.
+	 * Emit the run summary: a dry run advises on large-write flags; a real run
+	 * reports what landed and what was skipped.
 	 *
-	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts.
+	 * The dry run always judges against the PIPE_BUF cap, whatever cap was in
+	 * EFFECT, because the question it exists to answer is "do I need the flag?"
+	 * — and a run made WITH the flag measures oversize against 32 MiB, so it
+	 * cannot answer that from `$stats['oversize']`. It reads `max_size`, which
+	 * is cap-independent.
+	 *
+	 * @param bool                                                          $dry_run Report only.
+	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats   Accumulated per-record counts.
+	 * @param int                                                           $cap     The cap records were measured against.
 	 */
-	private function report( bool $dry_run, array $stats, bool $large_enabled ): void {
-		$cap = Partition_Node::MAX_LINE_SIZE;
+	private function report( bool $dry_run, array $stats, int $cap ): void {
 		if ( $stats['unparseable'] > 0 ) {
 			\WP_CLI::warning( "Skipped {$stats['unparseable']} unparseable line(s)." );
 		}
 
 		if ( $dry_run ) {
+			$pipe_buf = Partition_Node::MAX_LINE_SIZE;
 			\WP_CLI::log( "Dry run: {$stats['ingested']} record(s) would be ingested; largest record {$stats['max_size']} bytes." );
-			if ( $stats['oversize'] > 0 ) {
+			if ( $stats['max_size'] > $pipe_buf ) {
 				\WP_CLI::warning(
-					"{$stats['oversize']} record(s) exceed {$cap} bytes — re-run with "
+					"Record(s) exceed {$pipe_buf} bytes — ingest needs "
 					. '--allow_large_writes (locked) or --void_warranty (no lock) to include them.'
 				);
 			} else {
-				\WP_CLI::log( "All records within the {$cap}-byte PIPE_BUF cap; no large-write flag needed." );
+				\WP_CLI::log( "All records within the {$pipe_buf}-byte PIPE_BUF cap; no large-write flag needed." );
+			}
+			if ( $stats['oversize'] > 0 ) {
+				\WP_CLI::warning( "{$stats['oversize']} record(s) exceed even the {$cap}-byte cap and cannot be ingested." );
 			}
 			return;
 		}
 
-		if ( $stats['oversize'] > 0 && ! $large_enabled ) {
+		if ( $stats['oversize'] > 0 ) {
 			\WP_CLI::warning(
 				"Skipped {$stats['oversize']} oversize record(s) (> {$cap} bytes); "
 				. 're-run with --allow_large_writes or --void_warranty to include them.'

@@ -56,6 +56,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **`wp nodes ingest --dry-run` no longer advises dropping a flag the corpus
+  needs.** The dry run exists to answer "do I need `--allow_large_writes`?",
+  and in the one configuration where that question is live it answered
+  backwards: `ingest()` counts oversize against the EFFECTIVE cap (32 MiB once
+  a flag is passed) while `report()` opened with its own hardcoded 4096 and
+  phrased every message against it. A corpus of 8 KB records probed WITH the
+  flag reported "all records within the 4096-byte PIPE_BUF cap; no large-write
+  flag needed" — and an operator following that advice re-runs without it,
+  where `Partition_Node::fill()` silently drops every one. The dry run now
+  judges against PIPE_BUF from the cap-independent `max_size`, whatever cap was
+  in effect, and a real run reports the cap that actually applied.
+
+- **`wp nodes scaffold node` produces a class that autoloads AND resolves.** It
+  derived the namespace from `basename( getcwd() )` while `scaffold plugin`
+  classmaps exactly `includes/`, so no directory satisfied both doors: from the
+  plugin root the namespace was right and the file fell outside the classmap;
+  from `includes/` the file was mapped and the namespace came out `Includes`,
+  which `make_node` never resolves. It now writes into the plugin's
+  `includes/` under the plugin namespace from either directory.
+
+- **`wp nodes status` expands partitions the way the supervisor does.** It
+  applied its own unclamped `max( 1, num_partitions )`, so above
+  `MAX_PARTITIONS` the table showed rows no worker would ever fill.
+
 - **The spoke command protocol has one owner.** `Service_CI_Node` — the
   abstract verb-table base — carried ~145 lines of blocking HTTP client for a
   spoke's `/auth` + `/command`, so ten of the twelve service interpreters
