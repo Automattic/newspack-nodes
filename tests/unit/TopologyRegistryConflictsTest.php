@@ -257,4 +257,30 @@ class TopologyRegistryConflictsTest extends TestCase {
 		// NOT the reconstructed legacy path.
 		$this->assertNotContains( 'offsetlog:<config:offsets_dir>/spoke-a.firehose.p0', $set );
 	}
+
+	/**
+	 * The write set is a SAFETY gate: it feeds `find_conflicts` (two fleets
+	 * writing one log) and `Log_Cleaner`'s declared-dir set (what the GC must
+	 * not sweep). It identified writers by string-comparing the TSL token
+	 * against 'Partition' / 'Topic' / 'Consumer' / 'Remote_Source', while the
+	 * layout code in the same class resolves the token to an FQCN and asks the
+	 * type system. So a plugin that SUBCLASSES Partition wrote a real log that
+	 * no conflict check saw and that the GC did not know was declared.
+	 */
+	public function test_a_partition_subclass_is_a_writer_in_the_write_set(): void {
+		require_once __DIR__ . '/../Helpers/fixtures/class-wombat-partition-node.php';
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace(
+			'Newspack_Nodes\\Tests\\Fixtures\\'
+		);
+		$this->write_tsl(
+			'subclassed',
+			'make_node Wombat_Partition zebra:partition <config:logs_dir>/zebra.p{partition} <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>'
+		);
+
+		$this->assertContains(
+			'partition:<config:logs_dir>/zebra.p{partition}',
+			Topology_Registry::write_set( 'subclassed' ),
+			'a Partition subclass writes the same log and must be gated the same'
+		);
+	}
 }

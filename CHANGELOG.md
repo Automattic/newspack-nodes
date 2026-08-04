@@ -56,6 +56,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **The write-set safety gate identifies writers by TYPE, not by token.** It
+  string-compared the TSL class token against `'Partition'` / `'Topic'` /
+  `'Consumer'` / `'Remote_Source'`, while the layout code beside it resolves the
+  token to an FQCN and asks the type system. So a plugin that SUBCLASSES
+  Partition wrote a real log that `find_conflicts` never saw — two fleets could
+  share one log unchallenged — and that `Log_Cleaner`'s declared-dir set did not
+  know about, which is the same shape as a live partition being swept.
+
+- **`expand()` and `graph_for()` agree on a config-target again.** Two walks
+  over one statement stream had drifted on one line: `expand` built the target
+  with `implode( ' ', array_slice( $values, 3 ) )` while `graph_for` used
+  `$values[3] ?? ''`. The runtime handler reads `$args[0]`, a single token — so
+  `graph_for` matched it and `expand` did not, and the same TSL line yielded a
+  different edge depending on which reader you asked.
+
 - **The supervisor obeys the same stop policy as every worker.** AGENTS.md
   says `should_continue()` "owns every cooperative-stop trigger for EVERY
   worker type … No node implements its own restart." The supervisor was the
