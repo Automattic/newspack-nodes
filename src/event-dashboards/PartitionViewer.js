@@ -23,10 +23,7 @@ import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import useLogPositions, {
-	segmentPositions,
-	replayPositions,
-} from '@newspack-nodes/shared/hooks/useLogPositions';
+import useLogPositions from '@newspack-nodes/shared/hooks/useLogPositions';
 import './styles/partition-viewer.scss';
 
 const ROW_HEIGHT = 33;
@@ -180,20 +177,15 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	// Browse: update seek intent, reposition, and carry the end for catch-up.
 	const handleFollow = () => {
-		follow();
-		seek( selectedLog, null );
+		seek( selectedLog, follow() );
 	};
 	const handleReplay = () => {
-		replay();
-		seek( selectedLog, replayPositions( selectedLog ), { segments } );
+		seek( selectedLog, replay(), { segments } );
 	};
 	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
 		setPaused( true );
-		browseSegment( segment.id );
-		seek( selectedLog, segmentPositions( selectedLog, segment.id ), {
-			segments,
-		} );
+		seek( selectedLog, browseSegment( segment.id ), { segments } );
 	};
 
 	// Offset jump: a full ID or a bare offset pauses and steps that message.
