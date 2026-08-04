@@ -131,9 +131,9 @@ class Supervisor extends Supervisor_Base {
 
 		// Refuse write-conflicting set: two fleets would corrupt one partition.
 		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
-		$conflicts = Topology_Registry::find_conflicts( $active );
+		$conflicts = Topology_Analyzer::find_conflicts( $active );
 		if ( ! empty( $conflicts ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn — topology write-conflict: ' . Topology_Analyzer::describe_conflicts( $conflicts ) );
 			return false;
 		}
 
@@ -294,16 +294,6 @@ class Supervisor extends Supervisor_Base {
 		}
 	}
 
-	/** The singleton supervisor lock dir. */
-	protected function held_lock_path(): string {
-		return "{$this->base_dir}/locks/supervisor.lock.d";
-	}
-
-	/** How the supervisor names itself in a stop message. */
-	protected function stop_label(): string {
-		return 'supervisor';
-	}
-
 	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
 	public function generate_spawn_token( int $now ): string {
 		return Internal_Request_Token::generate(
@@ -427,9 +417,9 @@ class Supervisor extends Supervisor_Base {
 	public function spawn_fleet( string $name ): int {
 		// Defense-in-depth: refuse a second fleet on peer-owned log/offsetlog.
 		$active    = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
-		$conflicts = Topology_Registry::find_conflicts( $active );
+		$conflicts = Topology_Analyzer::find_conflicts( $active );
 		if ( ! empty( $conflicts ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn_fleet — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn_fleet — topology write-conflict: ' . Topology_Analyzer::describe_conflicts( $conflicts ) );
 			return 0;
 		}
 
@@ -511,5 +501,15 @@ class Supervisor extends Supervisor_Base {
 	 */
 	public function worker_locks_for_test(): array {
 		return $this->worker_locks;
+	}
+
+	/** The singleton supervisor lock dir. */
+	protected function held_lock_path(): string {
+		return "{$this->base_dir}/locks/supervisor.lock.d";
+	}
+
+	/** How the supervisor names itself in a stop message. */
+	protected function stop_label(): string {
+		return 'supervisor';
 	}
 }

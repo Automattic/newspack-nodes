@@ -160,32 +160,6 @@ class Bootstrap {
 	}
 
 	/**
-	 * Whether the configured runtime base can be resolved at a diagnostic
-	 * lifecycle boundary. Only that expected refusal is converted; failures
-	 * from the runtime wiring that follows still surface.
-	 */
-	private static function runtime_base_is_available(): bool {
-		try {
-			self::base_dir();
-			return true;
-		} catch ( \RuntimeException $e ) {
-			Core::print_less_often( 'runtime wiring unavailable: ', $e->getMessage() );
-			return false;
-		}
-	}
-
-	/** Build a Supervisor keyed on wp_salt('nonce') (factory seam for tests). */
-	public static function supervisor(): Supervisor {
-		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \wp_salt( 'nonce' ) );
-		return $factory();
-	}
-
-	/** Configured base directory for runtime state (locks/, ipc/). */
-	public static function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
-	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
 	 * substrate's own `memcache_servers` config. The substrate owns this — every
 	 * substrate path that needs caching (command-auth nonce single-use, SSE slot
@@ -217,6 +191,17 @@ class Bootstrap {
 			$memd->addServer( $parts[0], (int) ( $parts[1] ?? 11211 ) );
 		}
 		Core::$memd = empty( $memd->getServerList() ) ? null : $memd;
+	}
+
+	/** Build a Supervisor keyed on wp_salt('nonce') (factory seam for tests). */
+	public static function supervisor(): Supervisor {
+		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \wp_salt( 'nonce' ) );
+		return $factory();
+	}
+
+	/** Configured base directory for runtime state (locks/, ipc/). */
+	public static function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 	/** Supervisor enable gate (default true); false makes the supervisor unschedule + exit. */
@@ -320,6 +305,21 @@ class Bootstrap {
 		self::activate();
 	}
 
+	/**
+	 * Whether the configured runtime base can be resolved at a diagnostic
+	 * lifecycle boundary. Only that expected refusal is converted; failures
+	 * from the runtime wiring that follows still surface.
+	 */
+	private static function runtime_base_is_available(): bool {
+		try {
+			self::base_dir();
+			return true;
+		} catch ( \RuntimeException $e ) {
+			Core::print_less_often( 'runtime wiring unavailable: ', $e->getMessage() );
+			return false;
+		}
+	}
+
 	/** Activation hook: schedule the supervisor cron at minute cadence. */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
@@ -335,6 +335,56 @@ class Bootstrap {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Concrete dirs the Partition/Topic node `$node` writes across every ACTIVE
+	 * topology, indexed by partition. The union: two topologies declaring the
+	 * same node at different worker counts each contribute their own.
+	 *
+	 * This is how a READER finds a resource's partitions. The global
+	 * `num_partitions` is not that number — a topology carries its own count,
+	 * and a Topic re-partitions above it — so a reader that loops to the global
+	 * silently sees only the low partitions.
+	 *
+	 * @api Called from consumer plugins (cross-repo, invisible here).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function node_dirs( string $node ): array {
+		$dirs = [];
+		foreach ( \array_keys( self::get_topologies() ) as $name ) {
+			foreach ( Topology_Analyzer::resolved_node_dirs( $name, $node, self::num_partitions_for( $name ) ) as $p => $dir ) {
+				$dirs[ $p ] ??= $dir;
+			}
+		}
+		\ksort( $dirs );
+		return $dirs;
+	}
+
+	public static function num_partitions_for( string $name ): int {
+		$default_np = self::global_num_partitions();
+		$count      = $default_np;
+
+		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;
+		if (
+			\is_array( $catalog_entry ) &&
+			isset( $catalog_entry['num_partitions'] ) &&
+			\is_scalar( $catalog_entry['num_partitions'] )
+		) {
+			$count = (int) $catalog_entry['num_partitions'];
+		} else {
+			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			if (
+				null !== $synth &&
+				isset( $synth['num_partitions'] ) &&
+				\is_scalar( $synth['num_partitions'] )
+			) {
+				$count = (int) $synth['num_partitions'];
+			}
+		}
+
+		return \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
 	}
 
 	/**
@@ -369,56 +419,6 @@ class Bootstrap {
 		);
 	}
 
-	public static function num_partitions_for( string $name ): int {
-		$default_np = self::global_num_partitions();
-		$count      = $default_np;
-
-		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;
-		if (
-			\is_array( $catalog_entry ) &&
-			isset( $catalog_entry['num_partitions'] ) &&
-			\is_scalar( $catalog_entry['num_partitions'] )
-		) {
-			$count = (int) $catalog_entry['num_partitions'];
-		} else {
-			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if (
-				null !== $synth &&
-				isset( $synth['num_partitions'] ) &&
-				\is_scalar( $synth['num_partitions'] )
-			) {
-				$count = (int) $synth['num_partitions'];
-			}
-		}
-
-		return \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
-	}
-
-	/**
-	 * Concrete dirs the Partition/Topic node `$node` writes across every ACTIVE
-	 * topology, indexed by partition. The union: two topologies declaring the
-	 * same node at different worker counts each contribute their own.
-	 *
-	 * This is how a READER finds a resource's partitions. The global
-	 * `num_partitions` is not that number — a topology carries its own count,
-	 * and a Topic re-partitions above it — so a reader that loops to the global
-	 * silently sees only the low partitions.
-	 *
-	 * @api Called from consumer plugins (cross-repo, invisible here).
-	 *
-	 * @return array<int,string>
-	 */
-	public static function node_dirs( string $node ): array {
-		$dirs = [];
-		foreach ( \array_keys( self::get_topologies() ) as $name ) {
-			foreach ( Topology_Registry::resolved_node_dirs( $name, $node, self::num_partitions_for( $name ) ) as $p => $dir ) {
-				$dirs[ $p ] ??= $dir;
-			}
-		}
-		\ksort( $dirs );
-		return $dirs;
-	}
-
 	/**
 	 * Worker indices running `$node`, across every ACTIVE topology that declares
 	 * it. For per-partition state that never lands on disk — a memcache stats
@@ -431,7 +431,7 @@ class Bootstrap {
 	public static function node_partitions( string $node ): array {
 		$seen = [];
 		foreach ( \array_keys( self::get_topologies() ) as $name ) {
-			if ( ! Topology_Registry::declares_node( $name, $node ) ) {
+			if ( ! Topology_Analyzer::declares_node( $name, $node ) ) {
 				continue;
 			}
 			for ( $p = 0; $p < self::num_partitions_for( $name ); $p++ ) {

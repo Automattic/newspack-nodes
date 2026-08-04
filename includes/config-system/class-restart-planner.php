@@ -19,6 +19,7 @@ namespace Newspack_Nodes\Config_System;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
@@ -97,7 +98,7 @@ class Restart_Planner {
 	 * @param array<int,string> $want FQCNs.
 	 */
 	private static function topology_has_consumer( string $name, array $want ): bool {
-		foreach ( Topology_Registry::graph_for( $name )['nodes'] as $node ) {
+		foreach ( Topology_Analyzer::graph_for( $name )['nodes'] as $node ) {
 			$type = $node['type'] ?? '';
 			if ( ! \is_string( $type ) || '' === $type ) {
 				continue;

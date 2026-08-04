@@ -565,6 +565,68 @@ class Admin {
 	}
 
 	/**
+	 * Register the public product-token stylesheet.
+	 */
+	public function register_theme_style(): void {
+		$this->register_built_style( 'newspack-nodes-theme', 'theme', [] );
+	}
+
+	/**
+	 * Register one built stylesheet and its RTL replacement.
+	 *
+	 * @param string   $handle Style handle.
+	 * @param string   $subdir Build subdirectory.
+	 * @param string[] $deps   Style dependencies.
+	 */
+	private function register_built_style(
+		string $handle,
+		string $subdir,
+		array $deps
+	): void {
+		if (
+			! \function_exists( 'wp_register_style' )
+			|| \wp_style_is( $handle, 'registered' )
+		) {
+			return;
+		}
+
+		$dir = self::build_dir( $subdir );
+		$url = self::build_url( $subdir );
+		$css = "{$dir}/index.css";
+		if ( ! \file_exists( $css ) ) {
+			return;
+		}
+
+		$version = self::css_cache_version( $css, \NEWSPACK_NODES_VERSION );
+		\wp_register_style( $handle, "{$url}/index.css", $deps, $version );
+		if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
+			\wp_style_add_data( $handle, 'rtl', 'replace' );
+		}
+	}
+
+	/**
+	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
+	 */
+	public function register_ui_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-ui',
+			'ui',
+			[ 'newspack-nodes-theme' ]
+		);
+	}
+
+	/**
+	 * Register graph-only artwork and layout after canonical UI appearance.
+	 */
+	public function register_graph_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-graph',
+			'graph',
+			[ 'newspack-nodes-ui' ]
+		);
+	}
+
+	/**
 	 * Render ONE fleet-alert notice summarizing the Alerts evaluator's count +
 	 * worst severity, shown only on the substrate's own admin pages to
 	 * manage_options users. Nothing renders when the fleet is clean.
@@ -884,68 +946,6 @@ class Admin {
 			exit;
 		}
 		exit;
-	}
-
-	/**
-	 * Register one built stylesheet and its RTL replacement.
-	 *
-	 * @param string   $handle Style handle.
-	 * @param string   $subdir Build subdirectory.
-	 * @param string[] $deps   Style dependencies.
-	 */
-	private function register_built_style(
-		string $handle,
-		string $subdir,
-		array $deps
-	): void {
-		if (
-			! \function_exists( 'wp_register_style' )
-			|| \wp_style_is( $handle, 'registered' )
-		) {
-			return;
-		}
-
-		$dir = self::build_dir( $subdir );
-		$url = self::build_url( $subdir );
-		$css = "{$dir}/index.css";
-		if ( ! \file_exists( $css ) ) {
-			return;
-		}
-
-		$version = self::css_cache_version( $css, \NEWSPACK_NODES_VERSION );
-		\wp_register_style( $handle, "{$url}/index.css", $deps, $version );
-		if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
-			\wp_style_add_data( $handle, 'rtl', 'replace' );
-		}
-	}
-
-	/**
-	 * Register the public product-token stylesheet.
-	 */
-	public function register_theme_style(): void {
-		$this->register_built_style( 'newspack-nodes-theme', 'theme', [] );
-	}
-
-	/**
-	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
-	 */
-	public function register_ui_style(): void {
-		$this->register_built_style(
-			'newspack-nodes-ui',
-			'ui',
-			[ 'newspack-nodes-theme' ]
-		);
-	}
-
-	/**
-	 * Register graph-only artwork and layout after canonical UI appearance.
-	 */
-	public function register_graph_style(): void {
-		$this->register_built_style(
-			'newspack-nodes-graph',
-			'graph',
-			[ 'newspack-nodes-ui' ]
-		);
 	}
 
 	/**

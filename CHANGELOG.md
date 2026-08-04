@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Topology_Analyzer`** — the TSL static analysis split out of
+  `Topology_Registry`, whose docblock said "name → .tsl path resolver" while
+  about sixty of its 1459 lines did that and the rest were three other classes.
+  Flattening the include tree, building the node/edge graph, deriving the write
+  set and resolving declared resource dirs now live apart from the code that
+  forks worker processes, so a change to analysis no longer carries `Bootstrap`,
+  `Supervisor`, `Worker_Base`, `update_option()` and `rest_url()` with it. The
+  registry keeps sources and lifecycle: 1459 lines to 420 + 1117. The dependency
+  runs one way — the analyzer asks the registry where a name's source lives.
+
 - **`Field::$min` / `$max` / `$default`** — bounds belong to the setting, not to
   its consumers. The admin page and the `settings` service CI each held their
   own copy and disagreed: `num_partitions` was 1..16 on the page and 1..2^30
@@ -311,6 +321,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.8.0] - 2026-08-04
 
 ### Changed
+
+- **`reorder-node-methods` now gates EVERY class, not just Node subclasses.**
+  Both the PHP and JS tools already had an `--all-classes` mode with a generic
+  ordering policy (constructor first, then call-graph order); it simply was not
+  wired into lint-staged. So the substrate's largest non-Node classes — the
+  registry, Bootstrap, Admin, Vault, Supervisor, Worker_Base — got no ordering
+  enforcement at all, which is how `activate()` came to sit 1200 lines from the
+  `deactivate()` its docblock cross-references. Wired, and applied.
 
 - **The topology console's edit mode is a command interpreter now, not a
   reducer.** Edit mode and live mode send the SAME commands; the only

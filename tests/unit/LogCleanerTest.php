@@ -6,6 +6,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Log_Cleaner;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Tests\TestCase;
@@ -700,7 +701,7 @@ class LogCleanerTest extends TestCase {
 	}
 
 	/**
-	 * DATA LOSS: retention drives off Topology_Registry::resolved_resource_dirs(),
+	 * DATA LOSS: retention drives off Topology_Analyzer::resolved_resource_dirs(),
 	 * which reads write_set(). That scanned the RAW .tsl, so an include-only
 	 * topology (ELN's combined.tsl is now two `include` lines) declared NOTHING —
 	 * and the GC ATE its live logs and offsetlogs as orphans.

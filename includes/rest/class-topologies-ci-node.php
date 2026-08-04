@@ -57,6 +57,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Shell_Node;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
@@ -86,7 +87,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 				'source'         => self::source_of( $sources ),
 				'active'         => isset( $active[ $name ] ),
 				'num_partitions' => Bootstrap::num_partitions_for( $name ),
-				'frontmatter'    => Topology_Registry::frontmatter( $name ),
+				'frontmatter'    => Topology_Analyzer::frontmatter( $name ),
 				'includes'       => self::direct_includes( $name ),
 			];
 		}
@@ -130,7 +131,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 		$includes              = self::direct_includes_from_tsl( $tsl );
 		$resolved_config_edges = \array_values(
 			\array_filter(
-				Topology_Registry::expand( [ $name ] )['edges'],
+				Topology_Analyzer::expand( [ $name ] )['edges'],
 				static fn ( array $edge ): bool => \in_array( 'config', $edge['roles'], true )
 			)
 		);
@@ -140,7 +141,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'source'                => self::source_of( $sources ),
 			'tsl'                   => $tsl,
 			'includes'              => $includes,
-			'expanded'              => Topology_Registry::expand( $includes ),
+			'expanded'              => Topology_Analyzer::expand( $includes ),
 			'resolved_config_edges' => $resolved_config_edges,
 		];
 	}
@@ -198,7 +199,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 
 		// Resolve includes too; a bad one must not save clean and die at boot.
 		try {
-			$borrowed = Topology_Registry::expand( self::direct_includes_from_tsl( $tsl ) );
+			$borrowed = Topology_Analyzer::expand( self::direct_includes_from_tsl( $tsl ) );
 			self::assert_no_borrowed_node_conflict( $tsl, $borrowed['nodes'] );
 		} catch ( \RuntimeException $e ) {
 			// Topology_Registry::expand already esc_html's its thrown messages.
@@ -463,7 +464,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 		foreach ( $names as $name ) {
 			self::require_valid_name( $name );
 		}
-		return Topology_Registry::expand( $names );
+		return Topology_Analyzer::expand( $names );
 	}
 
 	/**

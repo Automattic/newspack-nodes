@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -49,7 +50,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Partition req:p <config:logs_dir>/req.p<partition> 1 2 0\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
 		\ksort( $result['logs'] );
 
 		// Map is `concrete dir name => enumerated partition index`.
@@ -63,7 +64,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame( [ '0-req' => 0, '1-req' => 1 ], $result['logs'] );
@@ -75,7 +76,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Partition req:p <config:logs_dir>/req/<partition> 1 2 0\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'req', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'req', 2 );
 
 		// Nested layout: every partition collapses to one first-level dir; the
 		// FIRST seen partition (0) is kept — nested layouts aren't represented
@@ -89,7 +90,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic t <config:logs_dir>/fan.p{partition} 2 group\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'fan', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'fan', 2 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame( [ 'fan.p0' => 0, 'fan.p1' => 1 ], $result['logs'] );
@@ -101,7 +102,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Consumer c <config:logs_dir>/req.p<partition> <config:offsets_dir>/cur.p<partition>\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'digest', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'digest', 2 );
 		\ksort( $result['offsets'] );
 
 		$this->assertSame( [ 'cur.p0' => 0, 'cur.p1' => 1 ], $result['offsets'] );
@@ -118,7 +119,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 4\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame(
@@ -136,7 +137,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 3 ] );
 		Config::register_token_namespace();
 
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame(
@@ -153,7 +154,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 2\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 4 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 4 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame( [ 'firehose.p0' => 0, 'firehose.p1' => 1 ], $result['logs'] );
@@ -174,7 +175,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				. "make_node Topic requests <config:logs_dir>/requests.p<partition>\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'combined', 4 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'combined', 4 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame(
@@ -204,7 +205,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				$errors[] = $line;
 			}
 		);
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 
 		$this->assertSame( [ 'firehose.p0' => 0 ], $result['logs'] );
 		$this->assertNotEmpty( $errors, 'a Topic that cannot expand must say so' );
@@ -223,7 +224,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition}\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 		\ksort( $result['logs'] );
 
 		$this->assertSame(
@@ -242,7 +243,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				$num = $arg['default'] ?? null;
 			}
 		}
-		$this->assertSame( Topology_Registry::TOPIC_PARTITIONS_DEFAULT, $num );
+		$this->assertSame( Topology_Analyzer::TOPIC_PARTITIONS_DEFAULT, $num );
 	}
 
 	public function test_a_nested_layout_does_not_report_a_failed_expansion(): void {
@@ -260,7 +261,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				$errors[] = $line;
 			}
 		);
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 
 		$this->assertSame( [ 'firehose' => 0 ], $result['logs'] );
 		$this->assertSame( [], $errors, 'a nested layout expanded fine' );
@@ -274,7 +275,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 9999\n"
 		);
 
-		$result = Topology_Registry::resolved_resource_dirs( 'agg', 1 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 
 		$this->assertCount(
 			\Newspack_Nodes\Supervisor_Base::MAX_PARTITIONS,
@@ -283,7 +284,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	}
 
 	public function test_unknown_topology_returns_empty_buckets(): void {
-		$result = Topology_Registry::resolved_resource_dirs( 'does-not-exist', 2 );
+		$result = Topology_Analyzer::resolved_resource_dirs( 'does-not-exist', 2 );
 
 		$this->assertSame( [ 'logs' => [], 'offsets' => [] ], $result );
 	}
@@ -301,7 +302,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
 		);
 
-		$dirs = Topology_Registry::resolved_node_dirs( 'req', 'requests:partition', 3 );
+		$dirs = Topology_Analyzer::resolved_node_dirs( 'req', 'requests:partition', 3 );
 
 		$root = $this->logs_root();
 		$this->assertSame(
@@ -318,7 +319,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 				. "make_node Partition alerts:partition <config:logs_dir>/alerts.p0\n"
 		);
 
-		$dirs = Topology_Registry::resolved_node_dirs( 'req', 'alerts:partition', 3 );
+		$dirs = Topology_Analyzer::resolved_node_dirs( 'req', 'alerts:partition', 3 );
 
 		$this->assertSame( [ 0 => $this->logs_root() . '/alerts.p0' ], $dirs );
 	}
@@ -329,7 +330,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 			"make_node Topic firehose:topic <config:logs_dir>/firehose.p{partition} 4\n"
 		);
 
-		$dirs = Topology_Registry::resolved_node_dirs( 'agg', 'firehose:topic', 3 );
+		$dirs = Topology_Analyzer::resolved_node_dirs( 'agg', 'firehose:topic', 3 );
 
 		$this->assertCount( 4, $dirs );
 		$this->assertSame( $this->logs_root() . '/firehose.p3', $dirs[3] );
@@ -338,13 +339,13 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 	public function test_resolved_node_dirs_of_an_undeclared_node_is_empty(): void {
 		$this->write_tsl( 'req', "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" );
 
-		$this->assertSame( [], Topology_Registry::resolved_node_dirs( 'req', 'nope:partition', 3 ) );
+		$this->assertSame( [], Topology_Analyzer::resolved_node_dirs( 'req', 'nope:partition', 3 ) );
 	}
 
 	public function test_declares_node_sees_nodes_that_write_nothing(): void {
 		$this->write_tsl( 'fb', "make_node Flame_Builder flame-builder\n" );
 
-		$this->assertTrue( Topology_Registry::declares_node( 'fb', 'flame-builder' ) );
-		$this->assertFalse( Topology_Registry::declares_node( 'fb', 'request-builder' ) );
+		$this->assertTrue( Topology_Analyzer::declares_node( 'fb', 'flame-builder' ) );
+		$this->assertFalse( Topology_Analyzer::declares_node( 'fb', 'request-builder' ) );
 	}
 }

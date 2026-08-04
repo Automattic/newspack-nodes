@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -46,7 +47,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			. "connect_node firehose:consumer request-builder\n"
 			. "connect_node request-builder requests:partition\n"
 		);
-		$g = \Newspack_Nodes\Topology_Registry::graph_for( 'combined' );
+		$g = \Newspack_Nodes\Topology_Analyzer::graph_for( 'combined' );
 
 		$byName = [];
 		foreach ( $g['nodes'] as $n ) {
@@ -77,7 +78,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertContains(
 			[ 'amber-flame-builder-731', 'indigo-flame-stats-863' ],
-			Topology_Registry::graph_for( 'wombat-config-target' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-config-target' )['edges']
 		);
 	}
 
@@ -98,7 +99,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ [ 'amber-flame-builder-731', 'green-completed-421' ] ],
-			Topology_Registry::graph_for( 'wombat-empty-config-target' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-empty-config-target' )['edges']
 		);
 	}
 
@@ -111,7 +112,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			'rb',
 			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/firehose.request-builder.p<partition>\n"
 		);
-		$g      = \Newspack_Nodes\Topology_Registry::graph_for( 'rb' );
+		$g      = \Newspack_Nodes\Topology_Analyzer::graph_for( 'rb' );
 		$byName = [];
 		foreach ( $g['nodes'] as $n ) {
 			$byName[ $n['name'] ] = $n;
@@ -123,7 +124,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_kind_ignores_name_suffix(): void {
 		// A Partition whose NAME has no :partition suffix — kind must still be 'partition' (from the class).
 		$this->write_tsl( 'x', "make_node Partition plainname <config:logs_dir>/out.log <partition> 1 2 0\n" );
-		$g = \Newspack_Nodes\Topology_Registry::graph_for( 'x' );
+		$g = \Newspack_Nodes\Topology_Analyzer::graph_for( 'x' );
 		$this->assertSame( 'partition', $g['nodes'][0]['kind'] );
 		$this->assertSame( 'out.log', $g['nodes'][0]['writes'] );
 	}
@@ -134,7 +135,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		// dump_graph can stat the flat `{file}.{seg}` segments (max_segments is the
 		// retained count, token 6).
 		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md 100 2 3\n" );
-		$g = \Newspack_Nodes\Topology_Registry::graph_for( 'l' );
+		$g = \Newspack_Nodes\Topology_Analyzer::graph_for( 'l' );
 		$node = $g['nodes'][0];
 		$this->assertSame( 'lg', $node['name'] );
 		$this->assertSame( 'log', $node['kind'] );
@@ -147,9 +148,9 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_topic_kind_and_cache_by_topology_name(): void {
 		$this->write_tsl( 'topic-flow', "make_node Topic topic-node <config:logs_dir>/topic.log 2 group\n" );
 
-		$first = \Newspack_Nodes\Topology_Registry::graph_for( 'topic-flow' );
+		$first = \Newspack_Nodes\Topology_Analyzer::graph_for( 'topic-flow' );
 		$this->write_tsl( 'topic-flow', "make_node Echo changed\n" );
-		$second = \Newspack_Nodes\Topology_Registry::graph_for( 'topic-flow' );
+		$second = \Newspack_Nodes\Topology_Analyzer::graph_for( 'topic-flow' );
 
 		$this->assertSame( $first, $second );
 		$this->assertSame( 'topic', $first['nodes'][0]['kind'] );
@@ -157,7 +158,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	}
 
 	public function test_graph_for_unknown_topology_is_empty(): void {
-		$this->assertSame( [ 'nodes' => [], 'edges' => [] ], \Newspack_Nodes\Topology_Registry::graph_for( 'nope' ) );
+		$this->assertSame( [ 'nodes' => [], 'edges' => [] ], \Newspack_Nodes\Topology_Analyzer::graph_for( 'nope' ) );
 	}
 
 	/**
@@ -171,7 +172,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ 'nodes' => [], 'edges' => [] ],
-			Topology_Registry::graph_for( 'ouroboros-a' )
+			Topology_Analyzer::graph_for( 'ouroboros-a' )
 		);
 	}
 
@@ -183,7 +184,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ 'nodes' => [], 'edges' => [] ],
-			Topology_Registry::graph_for( 'clash-top' )
+			Topology_Analyzer::graph_for( 'clash-top' )
 		);
 	}
 
@@ -195,7 +196,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			"make_node Remote_Source spoke-x austin firehose 0\n"
 			. "connect_node spoke-x next-step\n"
 		);
-		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'spoke' );
+		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'spoke' );
 		$node = $g['nodes'][0];
 
 		$this->assertSame( 'spoke-x', $node['name'] );
@@ -207,7 +208,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_builtin_node_carries_type_and_args(): void {
 		// A built-in type likewise carries its type + positional args additively.
 		$this->write_tsl( 'b', "make_node Consumer firehose:consumer src.log <partition> off.p<partition>\n" );
-		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'b' );
+		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'b' );
 		$node = $g['nodes'][0];
 
 		$this->assertSame( 'consumer', $node['kind'] );
@@ -218,7 +219,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_node_without_args_has_empty_args_list(): void {
 		// A bare make_node (type + name only) yields an empty args list.
 		$this->write_tsl( 'e', "make_node Tee completed:tee\n" );
-		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'e' );
+		$g    = \Newspack_Nodes\Topology_Analyzer::graph_for( 'e' );
 		$node = $g['nodes'][0];
 
 		$this->assertSame( 'Tee', $node['type'] );
@@ -231,7 +232,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		// promote it to 'tee' (the Tee-family fan-out treatment).
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		$this->write_tsl( 'tap-flow', "make_node Tap firehose:tap\n" );
-		$g       = \Newspack_Nodes\Topology_Registry::graph_for( 'tap-flow' );
+		$g       = \Newspack_Nodes\Topology_Analyzer::graph_for( 'tap-flow' );
 		$by_name = [];
 		foreach ( $g['nodes'] as $n ) {
 			$by_name[ $n['name'] ] = $n;
@@ -261,7 +262,7 @@ class TopologyRegistryGraphTest extends TestCase {
 				[ 'zebra:consumer', 'zebra:tee' ],
 				[ 'zebra:tee', 'llama-handler' ],
 			],
-			Topology_Registry::graph_for( 'wombat-rewire' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-rewire' )['edges']
 		);
 	}
 
@@ -277,7 +278,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ [ 'zebra-source', 'llama-current' ] ],
-			Topology_Registry::graph_for( 'wombat-regular-reconnect' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-regular-reconnect' )['edges']
 		);
 	}
 
@@ -299,7 +300,7 @@ class TopologyRegistryGraphTest extends TestCase {
 				[ 'zebra-source', 'ibex-errors' ],
 				[ 'zebra-source', 'llama-current' ],
 			],
-			Topology_Registry::graph_for( 'wombat-regular-disconnect' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-regular-disconnect' )['edges']
 		);
 	}
 
@@ -320,7 +321,7 @@ class TopologyRegistryGraphTest extends TestCase {
 				[ 'zebra-source', 'llama-completed' ],
 				[ 'zebra-source', 'ibex-current-errors' ],
 			],
-			Topology_Registry::graph_for( 'wombat-config-slots' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-config-slots' )['edges']
 		);
 	}
 
@@ -337,7 +338,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ [ 'zebra-source', 'llama-completed' ] ],
-			Topology_Registry::graph_for( 'wombat-empty-config-slot' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-empty-config-slot' )['edges']
 		);
 	}
 
@@ -359,7 +360,7 @@ class TopologyRegistryGraphTest extends TestCase {
 				[ 'zebra:tee', 'llama-handler' ],
 				[ 'zebra:tee', 'giraffe-handler' ],
 			],
-			Topology_Registry::graph_for( 'wombat-retarget' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-retarget' )['edges']
 		);
 	}
 
@@ -377,7 +378,7 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->assertSame(
 			[ [ 'zebra:tap', 'llama-handler' ] ],
-			Topology_Registry::graph_for( 'wombat-tap-fanout' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-tap-fanout' )['edges']
 		);
 	}
 
@@ -404,7 +405,7 @@ class TopologyRegistryGraphTest extends TestCase {
 				[ 'zebra:sync', 'giraffe-spoke' ],
 				[ 'zebra:sync', 'llama-spoke' ],
 			],
-			Topology_Registry::graph_for( 'wombat-trait-fanout' )['edges']
+			Topology_Analyzer::graph_for( 'wombat-trait-fanout' )['edges']
 		);
 	}
 
@@ -423,7 +424,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		);
 
 		$nodes = [];
-		foreach ( Topology_Registry::graph_for( 'wombat-minter-kind' )['nodes'] as $node ) {
+		foreach ( Topology_Analyzer::graph_for( 'wombat-minter-kind' )['nodes'] as $node ) {
 			$nodes[ $node['name'] ] = $node['kind'];
 		}
 
@@ -443,7 +444,7 @@ class TopologyRegistryGraphTest extends TestCase {
 			. "connect_node top-echo zebra:partition\n"
 		);
 
-		$graph = Topology_Registry::graph_for( 'wombat-top' );
+		$graph = Topology_Analyzer::graph_for( 'wombat-top' );
 		$names = \array_column( $graph['nodes'], 'name' );
 
 		$this->assertContains( 'zebra:partition', $names, 'the included Partition never made it into the graph' );
@@ -456,7 +457,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->write_tsl( 'wombat-mid', "include wombat-leaf\nmake_node Echo mid-echo\n" );
 		$this->write_tsl( 'wombat-top', "include wombat-mid\nmake_node Echo own-echo\n" );
 
-		$out = Topology_Registry::statements( 'wombat-top' );
+		$out = Topology_Analyzer::statements( 'wombat-top' );
 		$by_line = [];
 		foreach ( $out['statements'] as $s ) {
 			$by_line[ $s['line'] ] = $s;
@@ -476,7 +477,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->write_tsl( 'dup-b', "make_node Grep shared-grep zebra-pattern\n" );
 		$this->write_tsl( 'dup-top', "include dup-a\ninclude dup-b\n" );
 
-		$out   = Topology_Registry::statements( 'dup-top' );
+		$out   = Topology_Analyzer::statements( 'dup-top' );
 		$greps = \array_filter( $out['statements'], fn ( $s ) => \str_contains( $s['line'], 'shared-grep' ) );
 		$this->assertCount( 1, $greps, 'the identical duplicate make_node should collapse' );
 
@@ -485,6 +486,6 @@ class TopologyRegistryGraphTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'shared-grep' );
-		Topology_Registry::statements( 'conflict-top' );
+		Topology_Analyzer::statements( 'conflict-top' );
 	}
 }

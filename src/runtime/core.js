@@ -122,13 +122,13 @@ class CoreImpl {
 		}
 	}
 
+	node( name ) {
+		return this._registry.node( name );
+	}
+
 	// Callers iterate this Map directly; keep it reachable.
 	get nodes() {
 		return this._registry.nodes;
-	}
-
-	node( name ) {
-		return this._registry.node( name );
 	}
 
 	// Bump full-rebuild signal: increment + notify every subscriber.

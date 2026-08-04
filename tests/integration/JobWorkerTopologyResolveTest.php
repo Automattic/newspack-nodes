@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -27,7 +28,7 @@ class JobWorkerTopologyResolveTest extends TestCase {
 		Topology_Registry::register_stock_dir( \dirname( __DIR__, 2 ) . '/topologies' );
 		Topology_Registry::reset_basename_cache();
 
-		$graph   = Topology_Registry::graph_for( 'job-worker' );
+		$graph   = Topology_Analyzer::graph_for( 'job-worker' );
 		$by_name = [];
 		foreach ( $graph['nodes'] as $node ) {
 			$by_name[ $node['name'] ] = $node;

@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Shell_Node;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -65,8 +66,8 @@ class TopologyFrontEndParityTest extends TestCase {
 
 	/** The trailing-`;` fix leaves frontmatter reads unchanged (semicolon stripped either way). */
 	public function test_trailing_semicolon_var_frontmatter_is_stable(): void {
-		$this->assertSame( [ 'num_partitions' => '1' ], Topology_Registry::frontmatter( 'settings-sync' ) );
-		$this->assertSame( [ 'stale_timeout' => '600' ], Topology_Registry::frontmatter( 'job-worker' ) );
+		$this->assertSame( [ 'num_partitions' => '1' ], Topology_Analyzer::frontmatter( 'settings-sync' ) );
+		$this->assertSame( [ 'stale_timeout' => '600' ], Topology_Analyzer::frontmatter( 'job-worker' ) );
 	}
 
 	/** Write-set golden for a bundled topology (Partition + Consumer offsetlog/deadletter). */
@@ -78,13 +79,13 @@ class TopologyFrontEndParityTest extends TestCase {
 				'partition:<config:logs_dir>/jobs.p<partition>',
 				'partition:<config:logs_dir>/topicprobe.p0',
 			],
-			Topology_Registry::write_set( 'job-intake' )
+			Topology_Analyzer::write_set( 'job-intake' )
 		);
 	}
 
 	/** graph_for golden on the stress fixture: node names + fan-out edges survive the swap. */
 	public function test_graph_for_golden_on_stress_fixture(): void {
-		$graph = Topology_Registry::graph_for( 'request-builder' );
+		$graph = Topology_Analyzer::graph_for( 'request-builder' );
 		$names = \array_column( $graph['nodes'], 'name' );
 		$edges = \array_map(
 			static fn ( array $e ): string => $e[0] . '->' . $e[1],

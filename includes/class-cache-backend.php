@@ -86,6 +86,94 @@ final class Cache_Backend {
 		return self::apcu() ? new self( null ) : null;
 	}
 
+	/**
+	 * Atomically replace one exact, non-expiring integer value with another.
+	 *
+	 * This deliberately has no TTL parameter: callers use it for permanent,
+	 * bounded identity pointers. A failed comparison is a lost race and must
+	 * never fall back to set().
+	 */
+	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {
+		if ( null !== $this->memd ) {
+			$entry = $this->memd->get( $key, null, \Memcached::GET_EXTENDED );
+			if (
+				! \is_array( $entry )
+				|| ! \array_key_exists( 'value', $entry )
+				|| $expected !== $entry['value']
+				|| ! \array_key_exists( 'cas', $entry )
+				|| ( ! \is_string( $entry['cas'] ) && ! \is_int( $entry['cas'] ) && ! \is_float( $entry['cas'] ) )
+			) {
+				return false;
+			}
+			return self::invoke_memcached_cas( [ $this->memd, 'cas' ], $entry['cas'], $key, $replacement );
+		}
+
+		$current = \apcu_fetch( $key, $hit );
+		if ( ! $hit || ! \is_int( $current ) || $expected !== $current || ! \apcu_cas( $key, $expected, $replacement ) ) {
+			return false;
+		}
+		$current = \apcu_fetch( $key, $hit );
+		return $hit && $replacement === $current;
+	}
+
+	/**
+	 * Invoke Memcached CAS without coercing its opaque token.
+	 *
+	 * Extension releases expose float-only or string|int|float signatures.
+	 * Calling through the native callable preserves the exact token returned by
+	 * GET_EXTENDED; converting a 64-bit integer token to float can lose it.
+	 */
+	private static function invoke_memcached_cas( callable $cas, string|int|float $token, string $key, int $replacement ): bool {
+		return true === $cas( $token, $key, $replacement );
+	}
+
+	public function increment( string $key ): int|false {
+		if ( null !== $this->memd ) {
+			return $this->memd->increment( $key );
+		}
+		if ( ! $this->apcu_has( $key ) ) {
+			return false;
+		}
+		return \apcu_inc( $key );
+	}
+
+	/**
+	 * Whether APCu currently holds the key.
+	 *
+	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
+	 * parameter is for — while `Memcached::increment`/`decrement` return false
+	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
+	 * and the disagreement was load-bearing: a decrement of an evicted batch
+	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
+	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool True when the key exists.
+	 */
+	private function apcu_has( string $key ): bool {
+		\apcu_fetch( $key, $hit );
+		return (bool) $hit;
+	}
+
+	/** Memcached clamps at zero; mirror that on the APCu arm (apcu_dec goes negative). */
+	public function decrement( string $key ): int|false {
+		if ( null !== $this->memd ) {
+			return $this->memd->decrement( $key );
+		}
+		if ( ! $this->apcu_has( $key ) ) {
+			return false;
+		}
+		$value = \apcu_dec( $key, 1, $ok );
+		if ( false === $ok ) {
+			return false;
+		}
+		if ( $value < 0 ) {
+			\apcu_store( $key, 0 );
+			return 0;
+		}
+		return $value;
+	}
+
 	/** Atomic claim: false when the key already exists. */
 	public function add( string $key, mixed $value, int $ttl ): bool {
 		return null !== $this->memd ? $this->memd->add( $key, $value, $ttl ) : \apcu_add( $key, $value, $ttl );
@@ -154,47 +242,6 @@ final class Cache_Backend {
 		return null !== $this->memd ? $this->memd->set( $key, $value, $ttl ) : \apcu_store( $key, $value, $ttl );
 	}
 
-	/**
-	 * Atomically replace one exact, non-expiring integer value with another.
-	 *
-	 * This deliberately has no TTL parameter: callers use it for permanent,
-	 * bounded identity pointers. A failed comparison is a lost race and must
-	 * never fall back to set().
-	 */
-	public function compare_and_swap( string $key, int $expected, int $replacement ): bool {
-		if ( null !== $this->memd ) {
-			$entry = $this->memd->get( $key, null, \Memcached::GET_EXTENDED );
-			if (
-				! \is_array( $entry )
-				|| ! \array_key_exists( 'value', $entry )
-				|| $expected !== $entry['value']
-				|| ! \array_key_exists( 'cas', $entry )
-				|| ( ! \is_string( $entry['cas'] ) && ! \is_int( $entry['cas'] ) && ! \is_float( $entry['cas'] ) )
-			) {
-				return false;
-			}
-			return self::invoke_memcached_cas( [ $this->memd, 'cas' ], $entry['cas'], $key, $replacement );
-		}
-
-		$current = \apcu_fetch( $key, $hit );
-		if ( ! $hit || ! \is_int( $current ) || $expected !== $current || ! \apcu_cas( $key, $expected, $replacement ) ) {
-			return false;
-		}
-		$current = \apcu_fetch( $key, $hit );
-		return $hit && $replacement === $current;
-	}
-
-	/**
-	 * Invoke Memcached CAS without coercing its opaque token.
-	 *
-	 * Extension releases expose float-only or string|int|float signatures.
-	 * Calling through the native callable preserves the exact token returned by
-	 * GET_EXTENDED; converting a 64-bit integer token to float can lose it.
-	 */
-	private static function invoke_memcached_cas( callable $cas, string|int|float $token, string $key, int $replacement ): bool {
-		return true === $cas( $token, $key, $replacement );
-	}
-
 	public function delete( string $key ): bool {
 		return null !== $this->memd ? $this->memd->delete( $key ) : \apcu_delete( $key );
 	}
@@ -206,52 +253,5 @@ final class Cache_Backend {
 		}
 		$value = \apcu_fetch( $key, $hit );
 		return $hit && \apcu_store( $key, $value, $ttl );
-	}
-
-	public function increment( string $key ): int|false {
-		if ( null !== $this->memd ) {
-			return $this->memd->increment( $key );
-		}
-		if ( ! $this->apcu_has( $key ) ) {
-			return false;
-		}
-		return \apcu_inc( $key );
-	}
-
-	/** Memcached clamps at zero; mirror that on the APCu arm (apcu_dec goes negative). */
-	public function decrement( string $key ): int|false {
-		if ( null !== $this->memd ) {
-			return $this->memd->decrement( $key );
-		}
-		if ( ! $this->apcu_has( $key ) ) {
-			return false;
-		}
-		$value = \apcu_dec( $key, 1, $ok );
-		if ( false === $ok ) {
-			return false;
-		}
-		if ( $value < 0 ) {
-			\apcu_store( $key, 0 );
-			return 0;
-		}
-		return $value;
-	}
-
-	/**
-	 * Whether APCu currently holds the key.
-	 *
-	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
-	 * parameter is for — while `Memcached::increment`/`decrement` return false
-	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
-	 * and the disagreement was load-bearing: a decrement of an evicted batch
-	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
-	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
-	 *
-	 * @param string $key The cache key.
-	 * @return bool True when the key exists.
-	 */
-	private function apcu_has( string $key ): bool {
-		\apcu_fetch( $key, $hit );
-		return (bool) $hit;
 	}
 }
