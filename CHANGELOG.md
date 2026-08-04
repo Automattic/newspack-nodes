@@ -56,6 +56,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **The spoke command protocol has one owner.** `Service_CI_Node` — the
+  abstract verb-table base — carried ~145 lines of blocking HTTP client for a
+  spoke's `/auth` + `/command`, so ten of the twelve service interpreters
+  inherited a client they never call, along with a `public static $http_call`
+  reassignable on the base of every one of them. Probing a spoke has no
+  business being reachable from `Classes_CI_Node`. It was also a SECOND copy of
+  a protocol `HTTP_Out_Node` already implements — same two endpoint paths, same
+  `vault_require_ssl` refusal, same credential header, same verify posture,
+  same session dance — and the copies had drifted: the blocking one never
+  learned the Bearer token the push side accepts, so a token-only spoke was
+  reachable by the graph and unreachable by the operator's own connectivity
+  test. It is now `HTTP_Out_Node::probe_command()`, a request-scope class API
+  beside the event-loop one, the same idiom `Topic_Node` and `Partition_Node`
+  document. `Service_CI_Node` is 347 lines to 175, and carries verb-table
+  machinery only.
+
+- **One credential rule, on the Vault.** Three transports reach a spoke —
+  HTTP_Out, SSE_In, and the blocking probe — and each spelled Basic-over-Bearer
+  itself. `Vault::credential_header()` owns it, because the Vault owns
+  credentials. The TLS posture likewise has one reader:
+  `HTTP_Out_Node::require_ssl()` (the operator's policy, which SSE_In needs
+  because it drives `CURLOPT_PROTOCOLS`) and `https_required( $url )` (whether
+  one url violates it) are deliberately separate questions.
+
 - **One staleness rule for one heartbeat, not four.** Four readers judged the
   same `{lock_dir}/heartbeat` mtime by four policies: the supervisor's respawn
   decision and the Workers dashboard honoured a topology's declared

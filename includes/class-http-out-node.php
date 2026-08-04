@@ -14,6 +14,20 @@
  * Credentials resolve from the Vault by server id; Basic Auth (or legacy Bearer
  * token). Never takes a raw URL/credential.
  *
+ * CLASS API (request scope, blocking). `probe_command()` is the same protocol
+ * over one synchronous request, for an operator action that must return a
+ * verdict now — Vault_CI `test`, Aggregator_CI `probe`. Same idiom as
+ * `Topic_Node`/`Partition_Node`: the Node owns its domain and exposes a
+ * request-scope entry point beside the event-loop one.
+ *
+ * This lived in `Service_CI_Node` — the abstract verb-table base — where ten of
+ * the twelve service interpreters inherited a spoke HTTP client they never
+ * call, along with a publicly reassignable `$http_call` on the base of every
+ * one of them. It was also a SECOND copy of this protocol, already drifted: it
+ * never learned the Bearer token this side accepts, so a token-only spoke was
+ * reachable by the graph and unreachable by the operator's own connectivity
+ * check. One owner, two transports.
+ *
  * @package Newspack_Nodes
  */
 
@@ -31,8 +45,21 @@ class HTTP_Out_Node extends Timer_Node {
 	public const MAX_REPLY_BYTES = 8388608;
 
 	/** Spoke endpoints appended to the Vault url. */
-	private const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
-	private const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
+	public const COMMAND_PATH = '/wp-json/newspack-nodes/v1/command';
+	public const AUTH_PATH    = '/wp-json/newspack-nodes/v1/auth';
+
+	/**
+	 * `wp_remote_post` seam for the BLOCKING class API. Lazily defaulted at the
+	 * call site (a Closure can't be a constant-expression property default).
+	 * Tests reassign to capture outbound args + inject canned responses without
+	 * short-circuiting the URL composition and response classification around
+	 * it, so that path runs as real production code under test.
+	 *
+	 * Signature: `function ( string $url, array $args ): array|\WP_Error`.
+	 *
+	 * @var \Closure(string, array<string, mixed>): (array<string, mixed>|\WP_Error)|null
+	 */
+	public static ?\Closure $http_call = null;
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
@@ -139,7 +166,7 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		// Refuse plaintext spoke when operator requires HTTPS; drop batch.
-		if ( Config::value( 'vault_require_ssl' ) && ! \str_starts_with( $url, 'https://' ) ) {
+		if ( self::https_required( $url ) ) {
 			$this->drop_batch( $batch, 'vault_require_ssl set but url is not https' );
 			return;
 		}
@@ -202,19 +229,13 @@ class HTTP_Out_Node extends Timer_Node {
 	 * @param array<string,mixed> $server Decrypted vault entry.
 	 */
 	private function send( array $server, string $endpoint, string $body, string $kind ): void {
-		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
-		$user    = Core::as_string( $server['auth_username'] ?? '' );
-		$pass    = Core::as_string( $server['auth_password'] ?? '' );
-		$token   = Core::as_string( $server['token'] ?? '' );
-		if ( '' !== $user && '' !== $pass ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
-			$headers[] = 'Authorization: Basic ' . \base64_encode( $user . ':' . $pass );
-		} elseif ( '' !== $token ) {
-			$headers[] = 'Authorization: Bearer ' . $token;
+		$headers       = [ 'Content-Type: text/plain; charset=UTF-8' ];
+		$authorization = self::authorization( $server );
+		if ( '' !== $authorization ) {
+			$headers[] = 'Authorization: ' . $authorization;
 		}
 
-		// Mirror Vault_CI_Node::probe_remote: verify on unless disabled.
-		$verify = (bool) Config::value( 'vault_verify_ssl' );
+		$verify = self::verify_ssl();
 		$opts   = [
 			\CURLOPT_URL            => $endpoint,
 			\CURLOPT_POST           => true,
@@ -455,6 +476,212 @@ class HTTP_Out_Node extends Timer_Node {
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
 	}
+	// ── Class API: same protocol, one blocking request ──
+
+	/**
+	 * POST a packed TM_COMMAND to a spoke's `/command` and return the reply's
+	 * decoded `payload`. Blocking, for an operator action that needs a verdict
+	 * in-band. Throws on any failure (WP_Error, non-200, non-JSON body,
+	 * TM_ERROR, missing/non-array payload). Callers whitelist the payload
+	 * themselves — this never surfaces raw remote JSON.
+	 *
+	 * @param string                  $dest      Vault server id — the session identity.
+	 * @param array<array-key, mixed> $server    Decrypted vault server config.
+	 * @param string                  $to        Target node path on the spoke.
+	 * @param string                  $verb      Command verb name.
+	 * @param list<string>            $verb_args Argument tail (Command_Args grammar).
+	 * @return array<array-key, mixed> The reply's `payload` array.
+	 * @throws \RuntimeException On any transport, auth, or envelope failure.
+	 */
+	public static function probe_command( string $dest, array $server, string $to, string $verb, array $verb_args = [] ): array {
+		$base = \rtrim( Core::as_string( $server['url'] ?? '' ), '/' );
+		if ( self::https_required( $base ) ) {
+			throw new \RuntimeException( 'vault_require_ssl is set but the server url is not https' );
+		}
+
+		self::establish_session( $dest, $server, $base );
+
+		$message = self::command_message( $to, $verb, $verb_args );
+		Command_Auth::sign_for( $dest, $message );
+
+		$response = self::blocking_post(
+			$base . self::COMMAND_PATH,
+			self::request_args( $server, Message::packed( $message ) )
+		);
+		if ( $response instanceof \WP_Error ) {
+			throw new \RuntimeException( 'could not connect to server' );
+		}
+		$code = \wp_remote_retrieve_response_code( $response );
+		if ( 200 !== $code ) {
+			throw new \RuntimeException( \esc_html( "HTTP {$code} response from server" ) );
+		}
+		return self::payload_of( \wp_remote_retrieve_body( $response ) );
+	}
+
+	/**
+	 * The reply `payload` from a JSONL `/command` body: the last line carrying
+	 * a struct VALUE wins; other lines are noise.
+	 *
+	 * @param string $body The raw response body.
+	 * @return array<array-key, mixed>
+	 * @throws \RuntimeException When the body carries no usable reply.
+	 */
+	private static function payload_of( string $body ): array {
+		$envelope = null;
+		foreach ( \explode( "\n", $body ) as $line ) {
+			if ( '' === \trim( $line ) ) {
+				continue;
+			}
+			$decoded = \json_decode( $line, true, 16 );
+			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) && \is_array( $decoded[ Message::VALUE ] ) ) {
+				$envelope = $decoded;
+			}
+		}
+		if ( null === $envelope ) {
+			throw new \RuntimeException( 'server returned malformed command envelope' );
+		}
+		if ( Core::num_int( $envelope[ Message::TYPE ] ?? 0 ) & Message::TM_ERROR ) {
+			throw new \RuntimeException( 'server returned TM_ERROR for probe' );
+		}
+		$value = $envelope[ Message::VALUE ];
+		if ( ! \array_key_exists( 'payload', $value ) ) {
+			throw new \RuntimeException( 'server returned malformed command response' );
+		}
+		$payload = $value['payload'];
+		$out     = '' === $payload ? [] : $payload;
+		if ( ! \is_array( $out ) ) {
+			throw new \RuntimeException( 'server returned non-array command payload' );
+		}
+		return $out;
+	}
+
+	/**
+	 * Mint the `/command` request Message using substrate primitives only.
+	 * Returns the Message rather than a packed line so the caller can sign it —
+	 * this is the mint site, and only a mint site may sign.
+	 *
+	 * @param string       $to   Target node path.
+	 * @param string       $verb Command verb name.
+	 * @param list<string> $args Argument tail (Command_Args grammar).
+	 * @return array<int,mixed> The 7-field positional Message.
+	 */
+	private static function command_message( string $to, string $verb, array $args = [] ): array {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = Node_Names::HTTP;
+		$message[ Message::TO ]    = $to;
+		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		return $message;
+	}
+
+	/**
+	 * Establish the command session with a spoke. First contact is itself a
+	 * command, so /auth has to come first. Idempotent per process. No session,
+	 * no probe: ingress does not sign, so an unsigned probe is refused anyway,
+	 * and failing here names the cause instead of surfacing it as an
+	 * unexplained refusal from the far side.
+	 *
+	 * @param string                  $dest   Vault server id.
+	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param string                  $base   Spoke base url, already checked.
+	 * @throws \RuntimeException When the spoke will not issue a session.
+	 */
+	private static function establish_session( string $dest, array $server, string $base ): void {
+		if ( Command_Auth::has_session( $dest ) ) {
+			return;
+		}
+		$response = self::blocking_post( $base . self::AUTH_PATH, self::request_args( $server, '' ) );
+		if ( $response instanceof \WP_Error || 200 !== \wp_remote_retrieve_response_code( $response ) ) {
+			throw new \RuntimeException( 'server refused to issue a command session' );
+		}
+		$issued = \json_decode( \wp_remote_retrieve_body( $response ), true, 8 );
+		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
+		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		if ( '' === $handle || '' === $key ) {
+			throw new \RuntimeException( 'server returned a malformed command session' );
+		}
+		Command_Auth::remember_session( $dest, $handle, $key );
+	}
+
+	/**
+	 * Outbound WP-HTTP args for either endpoint on the blocking path: bounds,
+	 * TLS posture, stored credentials.
+	 *
+	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param string                  $body   Request body.
+	 * @return array<string,mixed>
+	 */
+	private static function request_args( array $server, string $body ): array {
+		$args = [
+			// 5s bound: UI blocks on the probe; 1s misses slow spokes.
+			// phpcs:ignore WordPressVIPMinimum.Performance.RemoteRequestTimeout.timeout_timeout
+			'timeout'             => 5,
+			'sslverify'           => self::verify_ssl(),
+			'redirection'         => 0,
+			'limit_response_size' => 1048576,
+			'headers'             => [ 'Content-Type' => 'text/plain; charset=UTF-8' ],
+			'body'                => $body,
+		];
+		$authorization = self::authorization( $server );
+		if ( '' !== $authorization ) {
+			$args['headers']['Authorization'] = $authorization;
+		}
+		return $args;
+	}
+
+	/**
+	 * POST through the `$http_call` seam on the blocking path.
+	 *
+	 * @param string              $url  Absolute endpoint url.
+	 * @param array<string,mixed> $args WP HTTP args.
+	 * @return array<string,mixed>|\WP_Error
+	 */
+	private static function blocking_post( string $url, array $args ) {
+		$call = self::$http_call ?? static function ( string $u, array $a ) {
+			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
+			return \wp_remote_post( $u, $a );
+		};
+		return $call( $url, $args );
+	}
+
+	// ── Protocol, shared by both transports ──
+
+	/**
+	 * Whether this url violates the `vault_require_ssl` posture. The push side
+	 * drops the batch with its own diagnostic; the blocking side throws.
+	 *
+	 * @param string $url The spoke base url.
+	 * @return bool True when the operator requires https and this url is not.
+	 */
+	public static function https_required( string $url ): bool {
+		return self::require_ssl() && ! \str_starts_with( $url, 'https://' );
+	}
+
+	/**
+	 * The operator's posture itself: are plaintext spokes refused? Distinct
+	 * from `https_required()`, which asks whether ONE url violates it —
+	 * SSE_In takes the policy, because it drives CURLOPT_PROTOCOLS.
+	 */
+	public static function require_ssl(): bool {
+		return (bool) Config::value( 'vault_require_ssl' );
+	}
+
+	/** Whether to verify the spoke's TLS certificate. Read by every transport. */
+	public static function verify_ssl(): bool {
+		return (bool) Config::value( 'vault_verify_ssl' );
+	}
+
+	/**
+	 * The credential header value for a spoke, or '' when it needs none. Basic
+	 * wins over Bearer: a config carrying both means the operator set a username
+	 * and password, which is the more specific statement.
+	 *
+	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @return string e.g. `Basic dXNlcjpwYXNz`, or ''.
+	 */
+	private static function authorization( array $server ): string {
+		return Vault::credential_header_for( $server );
+	}
 
 	/**
 	 * Run the handshake if this spoke has no session yet.
@@ -492,4 +719,5 @@ class HTTP_Out_Node extends Timer_Node {
 			'requests'    => [],
 		];
 	}
+
 }

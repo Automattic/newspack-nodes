@@ -15,6 +15,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
@@ -45,7 +46,7 @@ class ServiceCITest extends TestCase {
 			Command_Auth::forget_session( $spoke );
 		}
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		Service_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 		parent::tearDown();
 	}
@@ -210,7 +211,7 @@ class ServiceCITest extends TestCase {
 	// ── command_message ───────────────────────────────────────────────────
 
 	public function test_command_message_builds_tm_command_envelope(): void {
-		$method = new \ReflectionMethod( Service_CI_Node::class, 'command_message' );
+		$method = new \ReflectionMethod( HTTP_Out_Node::class, 'command_message' );
 		$decoded = $method->invoke( null, 'discovery', 'get', [ 'a', 'b' ] );
 
 		$this->assertSame( Message::TM_COMMAND, $decoded[ Message::TYPE ] );
@@ -223,7 +224,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_command_message_defaults_args_to_empty_list(): void {
-		$method  = new \ReflectionMethod( Service_CI_Node::class, 'command_message' );
+		$method  = new \ReflectionMethod( HTTP_Out_Node::class, 'command_message' );
 		$decoded = $method->invoke( null, 'workers', 'dump_graph' );
 
 		$this->assertSame( [], $decoded[ Message::VALUE ]['arguments'] );
@@ -239,7 +240,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_returns_reply_payload_on_success(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [ 'lag' => 3 ] ) ];
 
 		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
@@ -249,7 +250,7 @@ class ServiceCITest extends TestCase {
 
 	public function test_probe_command_composes_url_from_trailing_slash(): void {
 		$seen_url = null;
-		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_url ): array {
+		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_url ): array {
 			$seen_url = $url;
 			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
 		};
@@ -261,7 +262,7 @@ class ServiceCITest extends TestCase {
 
 	public function test_probe_command_adds_basic_auth_header_when_credentials_present(): void {
 		$seen_headers = null;
-		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
+		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
 			$seen_headers = $args['headers'];
 			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
 		};
@@ -280,7 +281,7 @@ class ServiceCITest extends TestCase {
 
 	public function test_probe_command_omits_auth_header_when_credentials_absent(): void {
 		$seen_headers = null;
-		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
+		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_headers ): array {
 			$seen_headers = $args['headers'];
 			return [ 'response' => [ 'code' => 200 ], 'body' => $this->reply_body( [] ) ];
 		};
@@ -292,7 +293,7 @@ class ServiceCITest extends TestCase {
 
 	public function test_probe_command_forwards_to_and_verb_and_args_in_body(): void {
 		$seen_body = null;
-		Service_CI_Node::$http_call = function ( string $url, array $args ) use ( &$seen_body ): array {
+		HTTP_Out_Node::$http_call = function ( string $url, array $args ) use ( &$seen_body ): array {
 			// Skip the /auth handshake: it carries no packed Message.
 			if ( ! \str_ends_with( $url, '/auth' ) ) {
 				$seen_body = Message::unpacked( $args['body'] );
@@ -309,7 +310,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_throws_when_transport_returns_wp_error(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): \WP_Error =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): \WP_Error =>
 			new \WP_Error( 'http_request_failed', 'Connection timed out' );
 
 		$this->expectException( \RuntimeException::class );
@@ -318,7 +319,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_throws_on_non_200_response(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 503 ], 'body' => '' ];
 
 		$this->expectException( \RuntimeException::class );
@@ -327,7 +328,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_throws_when_stream_has_no_struct_envelope(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => "not json\n\n" ];
 
 		$this->expectException( \RuntimeException::class );
@@ -340,7 +341,7 @@ class ServiceCITest extends TestCase {
 		$noise[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$noise[ Message::VALUE ] = 'diagnostic stderr line';
 
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => 200 ],
 			'body'     => Message::packed( $noise ) . "\n" . $this->reply_body( [ 'lag' => 7 ] ) . "\n",
 		];
@@ -351,7 +352,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_picks_the_last_matching_envelope_in_the_stream(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => 200 ],
 			'body'     => $this->reply_body( [ 'lag' => 1 ] ) . "\n" . $this->reply_body( [ 'lag' => 2 ] ) . "\n",
 		];
@@ -362,7 +363,7 @@ class ServiceCITest extends TestCase {
 	}
 
 	public function test_probe_command_throws_when_reply_carries_tm_error(): void {
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array => [
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array => [
 			'response' => [ 'code' => 200 ],
 			'body'     => $this->reply_body( [], Message::TM_ERROR ),
 		];
@@ -377,7 +378,7 @@ class ServiceCITest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::VALUE ] = [ 'name' => 'get' ];
 
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 
 		$this->expectException( \RuntimeException::class );
@@ -390,7 +391,7 @@ class ServiceCITest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'a string, not an array' ];
 
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 
 		$this->expectException( \RuntimeException::class );
@@ -403,7 +404,7 @@ class ServiceCITest extends TestCase {
 		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => '' ];
 
-		Service_CI_Node::$http_call = fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => Message::packed( $reply ) ];
 
 		$result = ServiceCITestProbe::probe_command_probe( [ 'url' => 'https://e.com' ], 'discovery', 'get' );
@@ -452,7 +453,7 @@ class ServiceCITestProbe extends Service_CI_Node {
 	}
 
 	public static function probe_command_probe( array $server, string $to, string $verb, array $verb_args = [] ): array {
-		return self::probe_command( 'test-spoke', $server, $to, $verb, $verb_args );
+		return HTTP_Out_Node::probe_command( 'test-spoke', $server, $to, $verb, $verb_args );
 	}
 
 	/**

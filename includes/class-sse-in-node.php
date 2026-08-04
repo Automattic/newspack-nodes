@@ -163,11 +163,13 @@ class SSE_In_Node extends Node {
 			'Accept: text/event-stream',
 			'Cache-Control: no-cache',
 		];
-		if ( '' !== $this->auth_username && '' !== $this->auth_password ) {
-			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
-			$headers[] = 'Authorization: Basic ' . \base64_encode( $this->auth_username . ':' . $this->auth_password );
-		} elseif ( '' !== $this->auth_token ) {
-			$headers[] = 'Authorization: Bearer ' . $this->auth_token;
+		$authorization = Vault::credential_header(
+			$this->auth_username,
+			$this->auth_password,
+			$this->auth_token
+		);
+		if ( '' !== $authorization ) {
+			$headers[] = 'Authorization: ' . $authorization;
 		}
 
 		$opts = [

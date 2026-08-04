@@ -16,6 +16,7 @@
 namespace Newspack_Nodes\Tests\Unit\Rest;
 
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Vault_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -41,7 +42,7 @@ class VaultCINodeTest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		\delete_option( Vault::OPTION_KEY );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 	}
 
 	protected function tearDown(): void {
@@ -54,7 +55,7 @@ class VaultCINodeTest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		\delete_option( Vault::OPTION_KEY );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 		// Reset here too: a throw before the in-body unset would otherwise leave this
 		// stub overriding wp_remote_post for every later test.
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
@@ -181,7 +182,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->reset_cache();
 
 		$seen                     = [];
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ) use ( &$seen ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ) use ( &$seen ): array {
 			$seen  = [ 'url' => $url, 'body' => $args['body'], 'headers' => $args['headers'] ];
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
@@ -213,7 +214,7 @@ class VaultCINodeTest extends TestCase {
 		// The spoke's /command response is a JSONL message STREAM: diagnostic
 		// stderr lines (TM_BYTESTREAM, string VALUE) can precede the command
 		// reply. probe_remote must find the reply, not choke on line one.
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
 			$noise                   = Message::new_message();
 			$noise[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 			$noise[ Message::VALUE ] = 'Newspack ELN: hooks missing for pointer rule "abc"';
@@ -236,7 +237,7 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 
-		Vault_CI_Node::$http_call = static fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 503 ], 'body' => '' ];
 
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
@@ -361,7 +362,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_test_verb_errors_when_transport_returns_wp_error(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static fn ( string $url, array $args ): \WP_Error =>
+		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): \WP_Error =>
 			new \WP_Error( 'http_request_failed', 'down' );
 
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
@@ -373,7 +374,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_test_verb_errors_on_malformed_envelope(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static fn ( string $url, array $args ): array =>
+		HTTP_Out_Node::$http_call = static fn ( string $url, array $args ): array =>
 			[ 'response' => [ 'code' => 200 ], 'body' => '"just-a-string"' ];
 
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
@@ -385,7 +386,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_test_verb_errors_when_server_returns_tm_error(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
 			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'boom' ];
@@ -401,7 +402,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_test_verb_errors_on_malformed_command_response(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 			$reply[ Message::VALUE ] = [ 'name' => 'get' ]; // no `payload` key.
@@ -417,7 +418,7 @@ class VaultCINodeTest extends TestCase {
 	public function test_test_verb_errors_on_non_array_payload(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 			$reply[ Message::VALUE ] = [ 'name' => 'get', 'payload' => 'not-an-array' ];
@@ -427,14 +428,14 @@ class VaultCINodeTest extends TestCase {
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'test', 'spoke1' );
 
 		$this->assertIsString( $out );
-		// Message generalized when the POST+parse moved to Service_CI_Node::probe_command().
+		// Message generalized when the POST+parse moved to HTTP_Out_Node::probe_command().
 		$this->assertStringContainsString( 'non-array command payload', $out );
 	}
 
 	public function test_test_verb_whitelists_hooks_events_and_lag(): void {
 		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
-		Vault_CI_Node::$http_call = static function ( string $url, array $args ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ): array {
 			$reply = Message::new_message();
 			$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 			$reply[ Message::VALUE ] = [

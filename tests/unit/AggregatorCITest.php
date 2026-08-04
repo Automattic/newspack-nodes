@@ -21,6 +21,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Rest\Aggregator_CI_Node;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
@@ -58,7 +59,7 @@ class AggregatorCITest extends TestCase {
 		Vault::get_instance()->reset_cache();
 		Topology_Registry::reset();
 		Topology_Registry::register_user_dir( $this->tmp . '/topologies' );
-		Aggregator_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 	}
 
 	protected function tearDown(): void {
@@ -70,7 +71,7 @@ class AggregatorCITest extends TestCase {
 		$GLOBALS['_wp_options']       = [];
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		Vault::get_instance()->reset_cache();
-		Aggregator_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -457,7 +458,7 @@ class AggregatorCITest extends TestCase {
 	 * @param array<string,mixed> $payload The dump_graph payload the spoke returns.
 	 */
 	private function stub_probe_reply( array $payload ): void {
-		Aggregator_CI_Node::$http_call = static function ( string $url, array $args ) use ( $payload ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ) use ( $payload ): array {
 			$reply                     = Message::new_message();
 			$reply[ Message::TYPE ]    = Message::TM_COMMAND | Message::TM_RESPONSE;
 			$reply[ Message::VALUE ]   = [ 'name' => 'dump_graph', 'payload' => $payload ];
