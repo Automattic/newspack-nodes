@@ -52,30 +52,6 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Validate the lease again at the pool seam boundary.
-	 *
-	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
-	 * @return array{slot:int,owner:int}
-	 */
-	private static function require_lease( array $lease ): array {
-		if (
-			2 !== \count( $lease )
-			|| ! \array_key_exists( 'slot', $lease )
-			|| ! \array_key_exists( 'owner', $lease )
-			|| ! \is_int( $lease['slot'] )
-			|| 0 > $lease['slot']
-			|| ! \is_int( $lease['owner'] )
-			|| 0 >= $lease['owner']
-		) {
-			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
-		}
-		return [
-			'slot'  => $lease['slot'],
-			'owner' => $lease['owner'],
-		];
-	}
-
-	/**
 	 * Claim the first free or dead slot. Fail-CLOSED: no backend returns false
 	 * so the caller refuses the connection (HTTP 429).
 	 *
@@ -172,6 +148,109 @@ class SSE_Slot_Pool {
 	}
 
 	/**
+	 * The pool namespace: this SITE on this MACHINE.
+	 *
+	 * @longform Neither half identifies the protected resource alone, and the
+	 * two deployments fail in opposite directions. On Atomic one pool host
+	 * serves many sites, so a machine-only key put 15 of them on one 10-slot
+	 * budget. In dndocker one site spans many containers over a shared database
+	 * and memcached, so a site-only key would collapse those instead. Each
+	 * environment gets its discriminator from whichever half actually varies.
+	 * Neither is caller-controllable — `SERVER_NAME` would be, and a rate-limit
+	 * namespace the caller chooses is not a rate limit.
+	 */
+	public static function namespace_key(): string {
+		return self::hostname() . ':' . self::site();
+	}
+
+	/**
+	 * Machine half of the slot key — see namespace_key() for why it is only a
+	 * half. Falls back to 'unknown' so a gethostname() failure can never pass
+	 * false to the string-typed callees.
+	 */
+	private static function hostname(): string {
+		return \gethostname() ?: 'unknown';
+	}
+
+	/** Per-site half of the namespace. Hashed for length; `home_url` is not secret. */
+	private static function site(): string {
+		return \substr( \md5( \home_url() ), 0, 12 );
+	}
+
+	public static function user_id(): int {
+		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
+	}
+
+	/**
+	 * 8-character md5 of REMOTE_ADDR — a cache-key shard only, never displayed
+	 * or stored on disk.
+	 */
+	public static function ip_hash(): string {
+		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+		return \substr( \md5( Core::as_string( $ip, 'unknown' ) ), 0, 8 );
+	}
+
+	/**
+	 * Validate the lease again at the pool seam boundary.
+	 *
+	 * @param array<array-key,mixed> $lease Candidate lease from the endpoint.
+	 * @return array{slot:int,owner:int}
+	 */
+	private static function require_lease( array $lease ): array {
+		if (
+			2 !== \count( $lease )
+			|| ! \array_key_exists( 'slot', $lease )
+			|| ! \array_key_exists( 'owner', $lease )
+			|| ! \is_int( $lease['slot'] )
+			|| 0 > $lease['slot']
+			|| ! \is_int( $lease['owner'] )
+			|| 0 >= $lease['owner']
+		) {
+			throw new \UnexpectedValueException( 'SSE slot seam did not receive a complete lease.' );
+		}
+		return [
+			'slot'  => $lease['slot'],
+			'owner' => $lease['owner'],
+		];
+	}
+
+	/** Tombstone this exact owner, then remove its liveness. Fail-OPEN without a backend. */
+	public static function release( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+		if ( $owner <= 0 ) {
+			return false;
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return true;
+		}
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
+			return false;
+		}
+		$backend->delete( self::lease_key( $pointer_key, $owner ) );
+		return true;
+	}
+
+	/** Whether the exact lease is still held (no TTL refresh). Fail-CLOSED. */
+	public static function check( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+		if ( $owner <= 0 ) {
+			return false;
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			return false;
+		}
+		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
+			return false;
+		}
+		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
+		return Cache_Backend::READ_HIT === $liveness['status']
+			&& self::pointer_matches( $backend, $pointer_key, $owner );
+	}
+
+	/**
 	 * Inspect one failed lease check with fresh, read-only cache operations.
 	 *
 	 * This is deliberately separate from the hot-path check. A fully healthy
@@ -231,85 +310,6 @@ class SSE_Slot_Pool {
 			$result = \array_merge( $result, $backend->diagnostic_metadata() );
 		}
 		return $result;
-	}
-
-	/**
-	 * Machine half of the slot key — see namespace_key() for why it is only a
-	 * half. Falls back to 'unknown' so a gethostname() failure can never pass
-	 * false to the string-typed callees.
-	 */
-	private static function hostname(): string {
-		return \gethostname() ?: 'unknown';
-	}
-
-	/** Per-site half of the namespace. Hashed for length; `home_url` is not secret. */
-	private static function site(): string {
-		return \substr( \md5( \home_url() ), 0, 12 );
-	}
-
-	/**
-	 * The pool namespace: this SITE on this MACHINE.
-	 *
-	 * @longform Neither half identifies the protected resource alone, and the
-	 * two deployments fail in opposite directions. On Atomic one pool host
-	 * serves many sites, so a machine-only key put 15 of them on one 10-slot
-	 * budget. In dndocker one site spans many containers over a shared database
-	 * and memcached, so a site-only key would collapse those instead. Each
-	 * environment gets its discriminator from whichever half actually varies.
-	 * Neither is caller-controllable — `SERVER_NAME` would be, and a rate-limit
-	 * namespace the caller chooses is not a rate limit.
-	 */
-	public static function namespace_key(): string {
-		return self::hostname() . ':' . self::site();
-	}
-
-	public static function user_id(): int {
-		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
-	}
-
-	/**
-	 * 8-character md5 of REMOTE_ADDR — a cache-key shard only, never displayed
-	 * or stored on disk.
-	 */
-	public static function ip_hash(): string {
-		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-		return \substr( \md5( Core::as_string( $ip, 'unknown' ) ), 0, 8 );
-	}
-
-	/** Tombstone this exact owner, then remove its liveness. Fail-OPEN without a backend. */
-	public static function release( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
-		if ( $owner <= 0 ) {
-			return false;
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return true;
-		}
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
-		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
-			return false;
-		}
-		$backend->delete( self::lease_key( $pointer_key, $owner ) );
-		return true;
-	}
-
-	/** Whether the exact lease is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
-		if ( $owner <= 0 ) {
-			return false;
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			return false;
-		}
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
-		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
-			return false;
-		}
-		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
-		return Cache_Backend::READ_HIT === $liveness['status']
-			&& self::pointer_matches( $backend, $pointer_key, $owner );
 	}
 
 	/** Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable. */

@@ -87,6 +87,68 @@ class CLI {
 	}
 
 	/**
+	 * Drop a restart flag at the supervisor's singleton lock dir, or recognize
+	 * a live successor that appears during the normal lock handoff.
+	 *
+	 * @return bool True when the flag was written or the handoff completed.
+	 */
+	public function restart_supervisor(): bool {
+		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
+		\clearstatcache( true, $lock_dir );
+		if ( \is_dir( $lock_dir ) ) {
+			if ( Lock_Node::request_restart_at( $lock_dir ) ) {
+				return true;
+			}
+			\clearstatcache( true, $lock_dir );
+			if ( \is_dir( $lock_dir ) ) {
+				return false;
+			}
+		}
+
+		$sleep = self::$sleep ?? static function ( int $seconds ): void {
+			\sleep( $seconds );
+		};
+		$sleep( 1 );
+
+		\clearstatcache( true, $lock_dir );
+		\clearstatcache( true, "{$lock_dir}/heartbeat" );
+		$status = $this->supervisor_status();
+		return null !== $status && ! $status['stale'];
+	}
+
+	/**
+	 * Liveness of the supervisor's own singleton lock, or null when it holds
+	 * no lock dir. The `.p<N>` worker scan can never see supervisor.lock.d —
+	 * without this the process the whole safety net rests on is invisible.
+	 *
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}|null
+	 */
+	public function supervisor_status(): ?array {
+		$dir = "{$this->base_dir}/locks/supervisor.lock.d";
+		if ( ! \is_dir( $dir ) ) {
+			return null;
+		}
+		return self::lock_liveness( $dir, \time() );
+	}
+
+	/**
+	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
+	 *
+	 * @param string $dir           The `.lock.d` directory.
+	 * @param int    $now           Clock, so one scan judges every worker alike.
+	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
+	 */
+	private static function lock_liveness( string $dir, int $now, int $stale_timeout = Lock_Node::STALE_TIMEOUT ): array {
+		$mtime = @\filemtime( "{$dir}/heartbeat" );
+		return [
+			'heartbeat_at' => $mtime ?: 0,
+			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
+			'stale'        => Lock_Node::heartbeat_is_stale( $dir, $now, $stale_timeout ),
+		];
+	}
+
+	/**
 	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
 	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
 	 * a reader belongs to) is NOT here: the dashboard joins these rows onto the
@@ -166,23 +228,6 @@ class CLI {
 	}
 
 	/**
-	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
-	 *
-	 * @param string $dir           The `.lock.d` directory.
-	 * @param int    $now           Clock, so one scan judges every worker alike.
-	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
-	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
-	 */
-	private static function lock_liveness( string $dir, int $now, int $stale_timeout = Lock_Node::STALE_TIMEOUT ): array {
-		$mtime = @\filemtime( "{$dir}/heartbeat" );
-		return [
-			'heartbeat_at' => $mtime ?: 0,
-			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
-			'stale'        => Lock_Node::heartbeat_is_stale( $dir, $now, $stale_timeout ),
-		];
-	}
-
-	/**
 	 * The stale threshold a topology declares, or the default.
 	 *
 	 * The supervisor's respawn decision and the Workers dashboard both honour
@@ -201,21 +246,6 @@ class CLI {
 			}
 		}
 		return Lock_Node::STALE_TIMEOUT;
-	}
-
-	/**
-	 * Liveness of the supervisor's own singleton lock, or null when it holds
-	 * no lock dir. The `.p<N>` worker scan can never see supervisor.lock.d —
-	 * without this the process the whole safety net rests on is invisible.
-	 *
-	 * @return array{heartbeat_at:int,started_at:int,stale:bool}|null
-	 */
-	public function supervisor_status(): ?array {
-		$dir = "{$this->base_dir}/locks/supervisor.lock.d";
-		if ( ! \is_dir( $dir ) ) {
-			return null;
-		}
-		return self::lock_liveness( $dir, \time() );
 	}
 
 	/** WP_CLI::error (exits) as root — root-owned IPC/lock dirs lock out the web-user fleet. */
@@ -274,36 +304,6 @@ class CLI {
 			}
 		}
 		return $restarted;
-	}
-
-	/**
-	 * Drop a restart flag at the supervisor's singleton lock dir, or recognize
-	 * a live successor that appears during the normal lock handoff.
-	 *
-	 * @return bool True when the flag was written or the handoff completed.
-	 */
-	public function restart_supervisor(): bool {
-		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
-		\clearstatcache( true, $lock_dir );
-		if ( \is_dir( $lock_dir ) ) {
-			if ( Lock_Node::request_restart_at( $lock_dir ) ) {
-				return true;
-			}
-			\clearstatcache( true, $lock_dir );
-			if ( \is_dir( $lock_dir ) ) {
-				return false;
-			}
-		}
-
-		$sleep = self::$sleep ?? static function ( int $seconds ): void {
-			\sleep( $seconds );
-		};
-		$sleep( 1 );
-
-		\clearstatcache( true, $lock_dir );
-		\clearstatcache( true, "{$lock_dir}/heartbeat" );
-		$status = $this->supervisor_status();
-		return null !== $status && ! $status['stale'];
 	}
 
 	/**

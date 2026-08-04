@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -148,7 +149,7 @@ class TopologyRegistryTest extends TestCase {
 			"# header\nvar num_partitions = 1\nvar stale_timeout = 600;\nmake_node Topic firehose:topic foo bar baz\n"
 		);
 		Topology_Registry::register_stock_dir( $this->stock );
-		$frontmatter = Topology_Registry::frontmatter( 'aggregator' );
+		$frontmatter = Topology_Analyzer::frontmatter( 'aggregator' );
 		$this->assertSame(
 			[ 'num_partitions' => '1', 'stale_timeout' => '600' ],
 			$frontmatter
@@ -167,13 +168,13 @@ class TopologyRegistryTest extends TestCase {
 
 		$this->assertSame(
 			[ 'num_partitions' => '7' ],
-			Topology_Registry::frontmatter( 'aggregator' )
+			Topology_Analyzer::frontmatter( 'aggregator' )
 		);
 	}
 
 	public function test_frontmatter_returns_empty_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
-		$this->assertSame( [], Topology_Registry::frontmatter( 'no-such-topology' ) );
+		$this->assertSame( [], Topology_Analyzer::frontmatter( 'no-such-topology' ) );
 	}
 
 	public function test_synthesize_entry_reads_frontmatter_vars(): void {
@@ -293,7 +294,7 @@ class TopologyRegistryTest extends TestCase {
 
 		$this->assertSame(
 			[ 'requests' => 4096 ],
-			Topology_Registry::segment_size_overrides_for( 'segments' )
+			Topology_Analyzer::segment_size_overrides_for( 'segments' )
 		);
 
 		\file_put_contents(
@@ -303,14 +304,14 @@ class TopologyRegistryTest extends TestCase {
 
 		$this->assertSame(
 			[ 'requests' => 4096 ],
-			Topology_Registry::segment_size_overrides_for( 'segments' ),
+			Topology_Analyzer::segment_size_overrides_for( 'segments' ),
 			'segment-size overrides are memoized until reset_basename_cache()'
 		);
 
 		Topology_Registry::reset_basename_cache();
 		$this->assertSame(
 			[ 'changed' => 8192 ],
-			Topology_Registry::segment_size_overrides_for( 'segments' )
+			Topology_Analyzer::segment_size_overrides_for( 'segments' )
 		);
 	}
 
@@ -330,13 +331,13 @@ class TopologyRegistryTest extends TestCase {
 				'pinned' => 1048576,
 				'quoted' => 8192,
 			],
-			Topology_Registry::segment_size_overrides_for( 'vicuna-layouts' )
+			Topology_Analyzer::segment_size_overrides_for( 'vicuna-layouts' )
 		);
 	}
 
 	public function test_segment_size_overrides_return_empty_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 
-		$this->assertSame( [], Topology_Registry::segment_size_overrides_for( 'missing' ) );
+		$this->assertSame( [], Topology_Analyzer::segment_size_overrides_for( 'missing' ) );
 	}
 }

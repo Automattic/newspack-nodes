@@ -3,12 +3,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Topology_Registry::includes() — the transitive include set of one topology.
+ * Topology_Analyzer::includes() — the transitive include set of one topology.
  *
  * Callers ask "does this deployment run X?" and a deployment routinely runs X
  * through a locally-named wrapper (`aggregator-eve` including `aggregator`).
@@ -41,7 +42,7 @@ class TopologyRegistryIncludesTest extends TestCase {
 		$this->write_tsl( 'okapi-leaf', "make_node Tee okapi-tee\n" );
 		$this->write_tsl( 'okapi-wrapper', "include okapi-leaf\nmake_node Tee okapi-extra\n" );
 
-		$this->assertSame( [ 'okapi-leaf' ], Topology_Registry::includes( 'okapi-wrapper' ) );
+		$this->assertSame( [ 'okapi-leaf' ], Topology_Analyzer::includes( 'okapi-wrapper' ) );
 	}
 
 	public function test_includes_reaches_through_a_nested_include(): void {
@@ -49,7 +50,7 @@ class TopologyRegistryIncludesTest extends TestCase {
 		$this->write_tsl( 'okapi-mid', "include okapi-deep\n" );
 		$this->write_tsl( 'okapi-top', "include okapi-mid\n" );
 
-		$out = Topology_Registry::includes( 'okapi-top' );
+		$out = Topology_Analyzer::includes( 'okapi-top' );
 		\sort( $out );
 
 		$this->assertSame( [ 'okapi-deep', 'okapi-mid' ], $out );
@@ -58,10 +59,10 @@ class TopologyRegistryIncludesTest extends TestCase {
 	public function test_includes_excludes_the_topology_itself(): void {
 		$this->write_tsl( 'okapi-lonely', "make_node Tee okapi-lonely-tee\n" );
 
-		$this->assertSame( [], Topology_Registry::includes( 'okapi-lonely' ) );
+		$this->assertSame( [], Topology_Analyzer::includes( 'okapi-lonely' ) );
 	}
 
 	public function test_includes_returns_empty_for_an_unknown_topology(): void {
-		$this->assertSame( [], Topology_Registry::includes( 'okapi-never-registered' ) );
+		$this->assertSame( [], Topology_Analyzer::includes( 'okapi-never-registered' ) );
 	}
 }

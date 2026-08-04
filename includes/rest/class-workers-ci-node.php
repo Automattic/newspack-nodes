@@ -32,6 +32,7 @@ use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
 
@@ -292,7 +293,7 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Per-topology structural graph for every active topology: name =>
-	 * `Topology_Registry::graph_for( name )` (`{nodes, edges}`). The dashboard
+	 * `Topology_Analyzer::graph_for( name )` (`{nodes, edges}`). The dashboard
 	 * renders the .tsl graph alongside the live fleet so operators see node
 	 * wiring next to worker status.
 	 *
@@ -301,7 +302,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	private static function collect_topology_graphs(): array {
 		$graphs = [];
 		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$graphs[ $name ] = Topology_Registry::graph_for( $name );
+			$graphs[ $name ] = Topology_Analyzer::graph_for( $name );
 		}
 		return $graphs;
 	}
@@ -363,7 +364,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		$out = [];
 		foreach ( self::active_topologies() as $name => $_cfg ) {
 			try {
-				$overrides = Topology_Registry::segment_size_overrides_for( $name );
+				$overrides = Topology_Analyzer::segment_size_overrides_for( $name );
 			} catch ( \RuntimeException $e ) {
 				// Dormant provider: skip, do not fatal every admin page.
 				Core::print_less_often( "segment-size overrides skipped for {$name}: ", $e->getMessage() );

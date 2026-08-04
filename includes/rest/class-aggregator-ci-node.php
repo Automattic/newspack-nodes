@@ -58,6 +58,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
 
@@ -163,7 +164,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			$topology = Core::as_string( $topology );
 			// remote_partition has a <partition> token; fan across the count.
 			$num_partitions = Bootstrap::num_partitions_for( $topology );
-			foreach ( Topology_Registry::graph_for( $topology )['nodes'] as $node ) {
+			foreach ( Topology_Analyzer::graph_for( $topology )['nodes'] as $node ) {
 				if ( 'Remote_Source' !== ( $node['type'] ?? '' ) ) {
 					continue;
 				}

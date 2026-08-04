@@ -178,24 +178,6 @@ class Worker_Base {
 		return true;
 	}
 
-	/** How a worker names itself in a stop message. */
-	protected function stop_label(): string {
-		return "{$this->worker_type}.p{$this->partition}";
-	}
-
-	/**
-	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
-	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
-	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
-	 */
-	protected function baseline_near_watermark(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
-	}
-
 	protected function held_lock_path(): string {
 		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
 	}
@@ -258,6 +240,19 @@ class Worker_Base {
 			return;
 		}
 		$node->checkpoint( true );
+	}
+
+	/**
+	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
+	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
+	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
+	 */
+	protected function baseline_near_watermark(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
+		}
+		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
 	}
 
 
@@ -414,6 +409,11 @@ class Worker_Base {
 	/** Invoke the topology closure (receives the interpreter + this worker's partition number). */
 	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
 		$topology( $interpreter, $this->partition );
+	}
+
+	/** How a worker names itself in a stop message. */
+	protected function stop_label(): string {
+		return "{$this->worker_type}.p{$this->partition}";
 	}
 
 }

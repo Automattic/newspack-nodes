@@ -3,12 +3,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Topology_Registry::expand() — the console's composed-graph baseline for an
+ * Topology_Analyzer::expand() — the console's composed-graph baseline for an
  * include SET, with provenance (`origin` lists every top-level include that
  * provides a node; `via` is the path it first entered through).
  */
@@ -46,7 +47,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. 'cmd vicuna-jobs:config add_profile "Engineers care about uptime"' . "\n"
 		);
 
-		$out    = Topology_Registry::expand( [ 'vicuna-quoted' ] );
+		$out    = Topology_Analyzer::expand( [ 'vicuna-quoted' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -73,7 +74,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			"make_node Hook vicuna-hook wp_loaded \"a b c\"\n"
 		);
 
-		$graph  = Topology_Registry::graph_for( 'vicuna-graphed' );
+		$graph  = Topology_Analyzer::graph_for( 'vicuna-graphed' );
 		$byName = [];
 		foreach ( $graph['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -89,7 +90,7 @@ class TopologyRegistryExpandTest extends TestCase {
 
 		$this->assertSame(
 			[ 'num_partitions' => '16' ],
-			Topology_Registry::frontmatter( 'vicuna-folded' )
+			Topology_Analyzer::frontmatter( 'vicuna-folded' )
 		);
 	}
 
@@ -98,7 +99,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->write_tsl( 'wombat-left', "include wombat-base\nmake_node Echo left-echo\nconnect_node left-echo shared-tee\n" );
 		$this->write_tsl( 'wombat-right', "include wombat-base\nmake_node Echo right-echo\n" );
 
-		$out    = Topology_Registry::expand( [ 'wombat-left', 'wombat-right' ] );
+		$out    = Topology_Analyzer::expand( [ 'wombat-left', 'wombat-right' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -132,7 +133,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "cmd zebra-grep:config set_errors_target zebra:partition\n"
 		);
 
-		$out    = Topology_Registry::expand( [ 'wombat-args' ] );
+		$out    = Topology_Analyzer::expand( [ 'wombat-args' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -159,7 +160,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "cmd zebra:partition:config set_errors_target giraffe-errors\n"
 		);
 
-		$out    = Topology_Registry::expand( [ 'wombat-verbs' ] );
+		$out    = Topology_Analyzer::expand( [ 'wombat-verbs' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -198,7 +199,7 @@ class TopologyRegistryExpandTest extends TestCase {
 				'roles'        => [ 'config' ],
 				'config_slots' => [ 'set_stats_target' ],
 			],
-			Topology_Registry::expand( [ 'wombat-config-target' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-config-target' ] )['edges']
 		);
 	}
 
@@ -227,14 +228,14 @@ class TopologyRegistryExpandTest extends TestCase {
 					'config_slots' => [ 'set_completed_target' ],
 				],
 			],
-			Topology_Registry::expand( [ 'wombat-empty-config-target' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-empty-config-target' ] )['edges']
 		);
 	}
 
 	public function test_expand_throws_on_an_unknown_include(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );
-		Topology_Registry::expand( [ 'no-such-topology' ] );
+		Topology_Analyzer::expand( [ 'no-such-topology' ] );
 	}
 
 	/**
@@ -254,7 +255,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "connect_node zebra:tee zebra-sink\n"
 		);
 
-		$out    = Topology_Registry::expand( [ 'wombat-wiring' ] );
+		$out    = Topology_Analyzer::expand( [ 'wombat-wiring' ] );
 		$names  = \array_column( $out['nodes'], 'name' );
 		$edges  = \array_map(
 			static fn ( array $e ): string => $e['from'] . '->' . $e['to'],
@@ -285,7 +286,7 @@ class TopologyRegistryExpandTest extends TestCase {
 
 		$edges = \array_map(
 			static fn ( array $e ): string => $e['from'] . '->' . $e['to'],
-			Topology_Registry::expand( [ 'wombat-tee' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-tee' ] )['edges']
 		);
 
 		$this->assertNotContains( 'zebra:tee->giraffe-sink', $edges );
@@ -304,7 +305,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "disconnect_node zebra-source ibex-config\n"
 		);
 
-		$out     = Topology_Registry::expand( [ 'wombat-roles' ] );
+		$out     = Topology_Analyzer::expand( [ 'wombat-roles' ] );
 		$by_name = [];
 		foreach ( $out['nodes'] as $node ) {
 			$by_name[ $node['name'] ] = $node;
@@ -342,7 +343,7 @@ class TopologyRegistryExpandTest extends TestCase {
 					'roles'  => [ 'connect' ],
 				],
 			],
-			Topology_Registry::expand( [ 'wombat-left', 'wombat-right' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-left', 'wombat-right' ] )['edges']
 		);
 	}
 
@@ -357,7 +358,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "disconnect_node zebra-tap giraffe-removed\n"
 		);
 
-		$out = Topology_Registry::expand( [ 'wombat-tap-fanout' ] );
+		$out = Topology_Analyzer::expand( [ 'wombat-tap-fanout' ] );
 
 		$this->assertTrue( $out['nodes'][0]['fans_out'] );
 		$this->assertSame(
@@ -402,7 +403,7 @@ class TopologyRegistryExpandTest extends TestCase {
 					'config_slots' => [ 'set_errors_target' ],
 				],
 			],
-			Topology_Registry::expand( [ 'wombat-config-slots' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-config-slots' ] )['edges']
 		);
 	}
 
@@ -427,7 +428,7 @@ class TopologyRegistryExpandTest extends TestCase {
 					'config_slots' => [ 'set_completed_target' ],
 				],
 			],
-			Topology_Registry::expand( [ 'wombat-empty-config-slot' ] )['edges']
+			Topology_Analyzer::expand( [ 'wombat-empty-config-slot' ] )['edges']
 		);
 	}
 
@@ -453,7 +454,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "make_node Echo okapi-right\n"
 		);
 
-		$out     = Topology_Registry::expand( [ 'wombat-left', 'wombat-right' ] );
+		$out     = Topology_Analyzer::expand( [ 'wombat-left', 'wombat-right' ] );
 		$by_name = [];
 		foreach ( $out['nodes'] as $node ) {
 			$by_name[ $node['name'] ] = $node;
@@ -484,7 +485,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "connect_node zebra-source giraffe-target\n"
 		);
 
-		$out = Topology_Registry::expand( [ 'wombat-repeated', 'wombat-repeated' ] );
+		$out = Topology_Analyzer::expand( [ 'wombat-repeated', 'wombat-repeated' ] );
 
 		$this->assertSame( [ 'wombat-repeated' ], $out['nodes'][0]['origin'] );
 		$this->assertSame( [ 'wombat-repeated' ], $out['edges'][0]['origin'] );
@@ -506,7 +507,7 @@ class TopologyRegistryExpandTest extends TestCase {
 			}
 		);
 
-		$out = Topology_Registry::expand( [ 'wombat-vartop' ] );
+		$out = Topology_Analyzer::expand( [ 'wombat-vartop' ] );
 
 		// The included `var` is skipped without a warning...
 		$this->assertSame( '', $buf, 'an included `var` is ignored silently' );
@@ -525,7 +526,7 @@ class TopologyRegistryExpandTest extends TestCase {
 		$this->write_tsl( 'wombat-mid', "include wombat-leaf\nmake_node Echo mid-echo\n" );
 		$this->write_tsl( 'wombat-top', "include wombat-mid\nmake_node Echo top-echo\n" );
 
-		$out = Topology_Registry::expand( [ 'wombat-top' ] );
+		$out = Topology_Analyzer::expand( [ 'wombat-top' ] );
 
 		// One entry per topology in the tree — including the nested ones.
 		$this->assertSame(
@@ -564,8 +565,8 @@ class TopologyRegistryExpandTest extends TestCase {
 			. "cmd zebra:partition:config set_errors_target giraffe-errors second-token\n"
 		);
 
-		$expanded = Topology_Registry::expand( [ 'wombat-drift' ] );
-		$graph    = Topology_Registry::graph_for( 'wombat-drift' );
+		$expanded = Topology_Analyzer::expand( [ 'wombat-drift' ] );
+		$graph    = Topology_Analyzer::graph_for( 'wombat-drift' );
 
 		$expand_targets = [];
 		foreach ( $expanded['edges'] as $edge ) {

@@ -215,7 +215,7 @@ class WorkersCITest extends TestCase {
 
 	public function test_dump_graph_payload_includes_per_topology_tsl_graph(): void {
 		// dump_graph attaches a `graph` map: active-topology-name ->
-		// Topology_Registry::graph_for(name) ({nodes, edges}). Seed a topology
+		// Topology_Analyzer::graph_for(name) ({nodes, edges}). Seed a topology
 		// whose .tsl has a make_node so graph[name]['nodes'] is non-empty.
 		$base  = $this->arrange_base_dir();
 		$stock = "{$base}/topologies";

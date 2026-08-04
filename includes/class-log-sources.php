@@ -196,7 +196,7 @@ class Log_Sources {
 		$entries = [];
 		foreach ( $partitions_by_type as $type => $partitions ) {
 			try {
-				$graph = Topology_Registry::graph_for( $type );
+				$graph = Topology_Analyzer::graph_for( $type );
 				foreach ( $graph['nodes'] as $node ) {
 					if ( 'log' !== ( $node['kind'] ?? '' ) ) {
 						continue;

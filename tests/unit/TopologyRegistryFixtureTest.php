@@ -3,12 +3,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Topology_Registry::expand() against the shared request-builder.tsl fixture —
+ * Topology_Analyzer::expand() against the shared request-builder.tsl fixture —
  * the console's static parser must accept everything the runtime Shell does:
  * make/connect/command aliases, backslash continuations, and cd cwd-pathing.
  * The identical fixture drives the JS parseTsl test.
@@ -36,7 +37,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 	}
 
 	public function test_continuation_joins_a_multiline_make_node(): void {
-		$out    = Topology_Registry::expand( [ 'request-builder' ] );
+		$out    = Topology_Analyzer::expand( [ 'request-builder' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -67,7 +68,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 	}
 
 	public function test_cd_block_bare_verbs_become_config_edges(): void {
-		$edges = Topology_Registry::expand( [ 'request-builder' ] )['edges'];
+		$edges = Topology_Analyzer::expand( [ 'request-builder' ] )['edges'];
 		$targets = [];
 		foreach ( $edges as $e ) {
 			if ( 'fanout' === $e['from'] && ( $e['roles'] ?? [] ) === [ 'config' ] ) {
@@ -86,7 +87,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 	}
 
 	public function test_command_aliases_capture_verbs(): void {
-		$out    = Topology_Registry::expand( [ 'request-builder' ] );
+		$out    = Topology_Analyzer::expand( [ 'request-builder' ] );
 		$byName = [];
 		foreach ( $out['nodes'] as $node ) {
 			$byName[ $node['name'] ] = $node;
@@ -118,7 +119,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 	}
 
 	public function test_graph_for_sees_continuation_args_and_cd_edges(): void {
-		$graph = Topology_Registry::graph_for( 'request-builder' );
+		$graph = Topology_Analyzer::graph_for( 'request-builder' );
 		$args  = [];
 		foreach ( $graph['nodes'] as $node ) {
 			$args[ $node['name'] ] = $node['args'];
@@ -137,7 +138,7 @@ class TopologyRegistryFixtureTest extends TestCase {
 	public function test_connect_aliases_and_continuation_wire_edges(): void {
 		$edges = \array_map(
 			static fn ( array $e ): string => $e['from'] . '->' . $e['to'],
-			Topology_Registry::expand( [ 'request-builder' ] )['edges']
+			Topology_Analyzer::expand( [ 'request-builder' ] )['edges']
 		);
 
 		$this->assertContains( 'firehose:consumer->fanout', $edges ); // connect alias
