@@ -7,18 +7,12 @@
 
 import { renderHook, act } from '@testing-library/react';
 import useLogPositions, {
-	tailPositions,
 	segmentPositions,
 	replayPositions,
-	previousSegmentId,
 	stepPosition,
 } from '../useLogPositions';
 
 describe( 'pure position helpers', () => {
-	it( 'tailPositions() is null so the server defaults to end (tail)', () => {
-		expect( tailPositions() ).toBeNull();
-	} );
-
 	it( 'segmentPositions() opens a segment at offset 0, keyed by subscription', () => {
 		expect( segmentPositions( 'firehose.p7', 3 ) ).toEqual( {
 			'firehose.p7': { segment: 3, offset: 0 },
@@ -30,67 +24,36 @@ describe( 'pure position helpers', () => {
 			'errors.p2': 'start',
 		} );
 	} );
-
-	it( 'previousSegmentId() returns the largest existing id below the current', () => {
-		const segs = [ { id: 4 }, { id: 5 }, { id: 8 } ];
-		expect( previousSegmentId( segs, 8 ) ).toBe( 5 );
-		expect( previousSegmentId( segs, 5 ) ).toBe( 4 );
-	} );
-
-	it( 'previousSegmentId() spans retention gaps and floors at null', () => {
-		const segs = [ { id: 4 }, { id: 8 } ];
-		expect( previousSegmentId( segs, 8 ) ).toBe( 4 );
-		expect( previousSegmentId( segs, 4 ) ).toBeNull();
-		expect( previousSegmentId( [], 4 ) ).toBeNull();
-		expect( previousSegmentId( segs, 'start' ) ).toBeNull();
-	} );
 } );
 
 describe( 'useLogPositions', () => {
-	it( 'starts live: mode "live", positions null', () => {
+	it( 'starts at the live tail, with no clicked segment', () => {
 		const { result } = renderHook( () => useLogPositions( 'firehose.p7' ) );
-		expect( result.current.mode ).toBe( 'live' );
-		expect( result.current.positions ).toBeNull();
+		expect( result.current.segmentId ).toBeNull();
 	} );
 
-	it( 'browseSegment() opens that segment at offset 0', () => {
+	it( 'browseSegment() records the click and seeds that segment', () => {
 		const { result } = renderHook( () => useLogPositions( 'firehose.p7' ) );
-		act( () => result.current.browseSegment( 6 ) );
-		expect( result.current.mode ).toBe( 'browse' );
-		expect( result.current.positions ).toEqual( {
-			'firehose.p7': { segment: 6, offset: 0 },
+		let seed;
+		act( () => {
+			seed = result.current.browseSegment( 6 );
 		} );
+		expect( result.current.segmentId ).toBe( 6 );
+		expect( seed ).toEqual( { 'firehose.p7': { segment: 6, offset: 0 } } );
 	} );
 
-	it( 'replay() seeks start; follow() returns to the live tail', () => {
+	it( 'replay() seeds start; follow() seeds the tail', () => {
 		const { result } = renderHook( () => useLogPositions( 'firehose.p7' ) );
-		act( () => result.current.replay() );
-		expect( result.current.positions ).toEqual( {
-			'firehose.p7': 'start',
+		let seed;
+		act( () => {
+			seed = result.current.replay();
 		} );
-		act( () => result.current.follow() );
-		expect( result.current.mode ).toBe( 'live' );
-		expect( result.current.positions ).toBeNull();
-	} );
-
-	it( 'pageBack() walks to the previous existing segment id', () => {
-		const segs = [ { id: 4 }, { id: 5 }, { id: 8 } ];
-		const { result } = renderHook( () => useLogPositions( 'firehose.p7' ) );
-		act( () => result.current.browseSegment( 8 ) );
-		act( () => result.current.pageBack( segs ) );
-		expect( result.current.positions ).toEqual( {
-			'firehose.p7': { segment: 5, offset: 0 },
+		expect( seed ).toEqual( { 'firehose.p7': 'start' } );
+		act( () => {
+			seed = result.current.follow();
 		} );
-	} );
-
-	it( 'pageBack() at the oldest segment is a no-op', () => {
-		const segs = [ { id: 4 }, { id: 5 } ];
-		const { result } = renderHook( () => useLogPositions( 'firehose.p7' ) );
-		act( () => result.current.browseSegment( 4 ) );
-		act( () => result.current.pageBack( segs ) );
-		expect( result.current.positions ).toEqual( {
-			'firehose.p7': { segment: 4, offset: 0 },
-		} );
+		expect( seed ).toBeNull();
+		expect( result.current.segmentId ).toBeNull();
 	} );
 
 	it( 'resets to the live tail when the subscription changes', () => {
@@ -99,10 +62,22 @@ describe( 'useLogPositions', () => {
 			{ initialProps: { sub: 'firehose.p7' } }
 		);
 		act( () => result.current.browseSegment( 6 ) );
-		expect( result.current.mode ).toBe( 'browse' );
+		expect( result.current.segmentId ).toBe( 6 );
 		rerender( { sub: 'errors.p2' } );
-		expect( result.current.mode ).toBe( 'live' );
-		expect( result.current.positions ).toBeNull();
+		expect( result.current.segmentId ).toBeNull();
+	} );
+
+	it( 'seeds against the NEW subscription after a switch', () => {
+		const { result, rerender } = renderHook(
+			( { sub } ) => useLogPositions( sub ),
+			{ initialProps: { sub: 'firehose.p7' } }
+		);
+		rerender( { sub: 'errors.p2' } );
+		let seed;
+		act( () => {
+			seed = result.current.replay();
+		} );
+		expect( seed ).toEqual( { 'errors.p2': 'start' } );
 	} );
 } );
 
@@ -143,5 +118,62 @@ describe( 'stepPosition', () => {
 
 	it( 'returns null when there is no cursor at all', () => {
 		expect( stepPosition( link( null ), 'firehose.p0', null ) ).toBeNull();
+	} );
+} );
+
+/**
+ * The derived `positions` was the module's headline product and NO consumer
+ * read it — structurally, not by oversight: `browseSegment( id )` calls
+ * `setSegmentId`, so the new positions only exist on the NEXT render, while
+ * every call site needs the seed in the SAME tick to hand to `seek()`. All
+ * three therefore set the state, discarded its product, and recomputed the
+ * identical object from the click argument.
+ *
+ * The actions now RETURN what they compute. `mode` went with it: it was a
+ * second state machine over `SeekTracker.mode`'s concept with a divergent
+ * vocabulary ('browse' vs 'replay'), and all three consumers display the
+ * view's, not this one.
+ */
+describe( 'the actions return the seed they compute', () => {
+	it( 'browseSegment returns that segment position', () => {
+		const { result } = renderHook( () => useLogPositions( 'firehose.p0' ) );
+		let seed;
+		act( () => {
+			seed = result.current.browseSegment( 7 );
+		} );
+		expect( seed ).toEqual( {
+			'firehose.p0': { segment: 7, offset: 0 },
+		} );
+		expect( result.current.segmentId ).toBe( 7 );
+	} );
+
+	it( 'replay returns the start token', () => {
+		const { result } = renderHook( () => useLogPositions( 'firehose.p0' ) );
+		let seed;
+		act( () => {
+			seed = result.current.replay();
+		} );
+		expect( seed ).toEqual( { 'firehose.p0': 'start' } );
+		expect( result.current.segmentId ).toBe( 'start' );
+	} );
+
+	it( 'follow returns null — the absent seek IS the tail', () => {
+		const { result } = renderHook( () => useLogPositions( 'firehose.p0' ) );
+		let seed;
+		act( () => {
+			seed = result.current.follow();
+		} );
+		expect( seed ).toBe( null );
+		expect( result.current.segmentId ).toBe( null );
+	} );
+
+	it( 'no longer publishes a second mode, nor dead surface', () => {
+		const { result } = renderHook( () => useLogPositions( 'firehose.p0' ) );
+		expect( Object.keys( result.current ).sort() ).toEqual( [
+			'browseSegment',
+			'follow',
+			'replay',
+			'segmentId',
+		] );
 	} );
 } );

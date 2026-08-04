@@ -31,27 +31,12 @@
  * each widget's `useNodeState` re-subscribes to the freshly-mounted view nodes.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine, hasSession } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
 const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
-
-// @longform
-// One second is a FLOOR here, not TimerNode's arming rule. The batch is the
-// lock/flush bracket around the ROUTER's notifyTimer below, so ONLY a
-// router-hitchhiking timer is inside it. Below 1000 TimerNode hands out an own
-// slot, which fires outside the bracket — that is not a faster batch, it is no
-// batch at all, one POST per slice per tick. Sub-second belongs to display
-// ticks (useRouterTick), never here.
-function armTimer( timer, intervalMs ) {
-	if ( intervalMs > 1000 ) {
-		timer.setTimer( intervalMs );
-	} else {
-		timer.setTimer();
-	}
-}
 
 function isFirstLoadPending( timer ) {
 	return Object.prototype.hasOwnProperty.call(
@@ -62,7 +47,7 @@ function isFirstLoadPending( timer ) {
 
 function syncTimer( timer, isPageVisible, paused, intervalMs ) {
 	if ( isPageVisible && ( ! paused || isFirstLoadPending( timer ) ) ) {
-		armTimer( timer, intervalMs );
+		timer.setTimer( intervalMs );
 	} else {
 		timer.stopTimer();
 	}
@@ -78,14 +63,22 @@ function syncTimer( timer, isPageVisible, paused, intervalMs ) {
  * @param {string}   opts.teeName         Name for the owned fan-out Tee.
  * @param {Object}   [opts.commandClient] Transport seam assigned to `_http.client`.
  * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
- * @param {number}   opts.intervalMs      Poll cadence in ms, REQUIRED and > 0. Either way the Timer hitchhikes the router TIMER, so every tick stays inside the lock/flush bracket: above 1000 it throttles to that cadence, at or below 1000 it rides the router's own. Changing it re-arms the Timer.
- * @return {{ interpreterRef: Object }} A ref to the live interpreter.
+ * @param {number}   opts.intervalMs      Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval. Changing it re-arms the Timer.
+ * @return {{ interpreterRef: Object, pollNow: Function }} A ref to the live interpreter, and `pollNow()` — fire the batched poll tick off-cadence.
  */
 export function useBatchedPoll( opts ) {
-	// The cadence is required: a silent fallback here polls every router tick.
-	if ( ! ( opts.intervalMs > 0 ) ) {
+	// @longform
+	// Required, and >= 1000, which is TimerNode's own hitchhike threshold. The
+	// batch IS the lock/flush bracket around the router's notifyTimer, so only
+	// a router-hitchhiking timer sits inside it; a sub-second value takes an
+	// own slot that fires outside the bracket — one POST per slice per tick,
+	// no batch at all. Sub-second belongs to useRouterTick. With the floor
+	// enforced here, arming is a plain setTimer( intervalMs ) with no branch:
+	// the old branch called a BARE setTimer() at exactly 1000, which took its
+	// interval from the router and silently discarded the caller's cadence.
+	if ( ! ( opts.intervalMs >= 1000 ) ) {
 		throw new TypeError(
-			`useBatchedPoll( { timerName: '${ opts.timerName }' } ) needs an intervalMs > 0`
+			`useBatchedPoll( { timerName: '${ opts.timerName }' } ) needs an intervalMs >= 1000`
 		);
 	}
 	// Read opts live inside build without re-running once-only mount effect.
@@ -202,5 +195,16 @@ export function useBatchedPoll( opts ) {
 		syncTimer( timer, isPageVisible, opts.paused, opts.intervalMs );
 	}, [ isPageVisible, opts.paused, opts.intervalMs ] );
 
-	return { interpreterRef };
+	/**
+	 * Fire the poll tick NOW, off-cadence — one batched POST of every slice,
+	 * with each slice's `argsFn()` reading the caller's current refs.
+	 *
+	 * This is how a consumer refreshes after a filter change: the tick already
+	 * fans to every slice inside the router's lock/flush bracket, so there is
+	 * nothing to hand-batch. Consumers that rebuilt that bracket around
+	 * hand-sent copies of the same verbs were re-implementing this.
+	 */
+	const pollNow = useCallback( () => fireTickRef.current?.(), [] );
+
+	return { interpreterRef, pollNow };
 }

@@ -512,6 +512,38 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 	 * sub-second cadence, so the poll ran every tick. Omission now throws; see
 	 * the 'intervalMs is required' block.
 	 */
+	/**
+	 * At exactly 1000 armTimer called a BARE setTimer(), which sets
+	 * interval_ms from `router.interval_ms` — so the dashboard's cadence was
+	 * silently whatever the router happened to run. It matches today only
+	 * because ROUTER_TICK_MS is also 1000. TimerNode hitchhikes at >= 1000, so
+	 * 1000 must be passed through like any other value.
+	 */
+	test( 'a 1000 cadence is honoured, not inherited from the router tick', async () => {
+		const { rerender } = renderHook(
+			( { intervalMs } ) =>
+				useBatchedPoll( {
+					build: buildSlices,
+					timerName: 'insights:timer',
+					teeName: 'insights:tee',
+					commandClient: makeFakeClient(),
+					intervalMs,
+				} ),
+			{ initialProps: { intervalMs: 5000 } }
+		);
+		await act( async () => {} );
+		// Move the router off its default so "inherited" and "honoured" differ.
+		Core.node( '_router' ).interval_ms = 2000;
+
+		await act( async () => {
+			rerender( { intervalMs: 1000 } );
+		} );
+
+		const timer = Core.node( 'insights:timer' );
+		expect( timer.mode ).toBe( 'router' );
+		expect( timer.interval_ms ).toBe( 1000 );
+	} );
+
 	test( 'a cadence at the router floor adopts the router cadence', async () => {
 		// Both branches hitchhike the router, so every tick stays inside the
 		// lock/flush bracket; above 1000 throttles, at-or-below rides the
@@ -570,7 +602,35 @@ describe( 'useBatchedPoll — intervalMs is required', () => {
 		expect( call( 0 ) ).toThrow( /intervalMs/ );
 	} );
 
+	// Below the hitchhike threshold TimerNode takes an own slot, which fires
+	// OUTSIDE the lock/flush bracket — one POST per slice per tick, no batch.
+	test( 'throws below the 1000 hitchhike threshold — that is no batch at all', () => {
+		expect( call( 750 ) ).toThrow( /1000/ );
+	} );
+
 	test( 'names the timer, so the throw says WHICH dashboard', () => {
 		expect( call( 0 ) ).toThrow( /insights:timer/ );
+	} );
+} );
+
+/**
+ * A filter change wants an immediate refresh. The tick already fans to every
+ * slice inside the router's lock/flush bracket, with each slice's argsFn()
+ * reading live refs — so firing it early IS the operation. Consumers that
+ * rebuilt that bracket around hand-sent copies of the same verbs (three times
+ * in one file, each re-finding `_http` by hardcoded name) were re-implementing
+ * this.
+ */
+describe( 'useBatchedPoll — pollNow()', () => {
+	test( 'fires every slice off-cadence in ONE POST', async () => {
+		const client = makeFakeClient();
+		const { result } = renderPoll( { commandClient: client } );
+		await act( async () => {} );
+		client.batches.length = 0;
+
+		await act( async () => result.current.pollNow() );
+
+		expect( client.batches ).toHaveLength( 1 );
+		expect( client.batches[ 0 ].length ).toBe( SLICES.length );
 	} );
 } );

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`pollNow()` from `useBatchedPoll`** — fire the poll tick off-cadence, one
+  batched POST of every slice with each `argsFn()` reading live refs. This is
+  what a consumer needs after a filter change; event-logger-nodes had rebuilt
+  the router's own lock/flush bracket around hand-sent copies of the same
+  verbs, three times in one file, each re-finding `_http` by hardcoded name.
+
 - **`browseControl( { segments, bytes } )`** in `shared/nodes/seekTracker` —
   the WHOLE `browse` control a log-stream view accepts, replacing the exported
   `endPosition()`, which answered only the segmented half. The file-mode half
@@ -39,6 +45,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cumulative; a PHP `const` cannot be computed, which is how the fold was lost
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
+
+- **A poll cadence of exactly 1000 is no longer discarded.** `armTimer`
+  branched on `> 1000`, but TimerNode hitchhikes at `>= 1000` — so at exactly
+  1000 it called a BARE `setTimer()`, which takes its interval from the router
+  instead of the caller. It matched only because `ROUTER_TICK_MS` is also 1000;
+  a dashboard asking for 1000 against a 2000 router silently got 2000. Nothing
+  should treat 1000 differently from 2000. With the floor enforced at the
+  entry guard, arming is a plain `setTimer( intervalMs )` — so `armTimer` is
+  gone from both the substrate and the copy event-logger-nodes carried, and
+  there is no threshold left to duplicate. (`fireCb`'s `> 1000` throttle is
+  correct and unchanged: 1000 IS the router tick, so a timer at that cadence
+  already fires exactly on time and must not be throttled.)
+
+- **`useLogPositions` actions return the seed they compute.** The derived
+  `positions` was the module's headline product and no consumer read it —
+  structurally, since `browseSegment()` sets state whose product arrives a
+  render later, while every caller needs the seed in the SAME tick for
+  `seek()`. All three set the state, discarded it, and recomputed the identical
+  object. `mode` went too: a second state machine over `SeekTracker.mode`'s
+  concept with a divergent vocabulary ('browse' vs 'replay') that no consumer
+  displayed. `pageBack` / `previousSegmentId` / the `tailPositions` export are
+  deleted — no dashboard has a page-back control.
 
 - **`useBatchedPoll` requires an explicit `intervalMs`.** Omitting it armed a
   bare `setTimer()`, which rides the router's own sub-second cadence — so the

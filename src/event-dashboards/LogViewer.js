@@ -22,10 +22,7 @@ import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import useLogPositions, {
-	segmentPositions,
-	replayPositions,
-} from '@newspack-nodes/shared/hooks/useLogPositions';
+import useLogPositions from '@newspack-nodes/shared/hooks/useLogPositions';
 import './styles/log-viewer.scss';
 
 const ROW_HEIGHT = 33;
@@ -120,22 +117,15 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const { segmentId, follow, browseSegment, replay } =
 		useLogPositions( currentSource );
 	const handleFollow = () => {
-		follow();
-		seek( currentSource, null );
+		seek( currentSource, follow() );
 	};
 	const handleReplay = () => {
-		replay();
-		seek( currentSource, replayPositions( currentSource ), sourceRow );
+		seek( currentSource, replay(), sourceRow );
 	};
 	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
 		setPaused( true );
-		browseSegment( segment.id );
-		seek(
-			currentSource,
-			segmentPositions( currentSource, segment.id ),
-			sourceRow
-		);
+		seek( currentSource, browseSegment( segment.id ), sourceRow );
 	};
 
 	// Offset jump: a full ID or a bare offset pauses and steps that message.

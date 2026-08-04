@@ -17,7 +17,7 @@
  * Viewer).
  */
 
-import { useState, useEffect, useMemo, useCallback } from '@wordpress/element';
+import { useState, useEffect, useCallback } from '@wordpress/element';
 
 /**
  * The live-tail positions: none at all. Sending no position for a
@@ -25,7 +25,7 @@ import { useState, useEffect, useMemo, useCallback } from '@wordpress/element';
  *
  * @return {null} Always null — the absent seek IS the tail.
  */
-export function tailPositions() {
+function tailPositions() {
 	return null;
 }
 
@@ -74,83 +74,45 @@ export function stepPosition( link, sub, positions ) {
 }
 
 /**
- * The segment to page back to: the largest EXISTING id below currentId, so a
- * page spans the ids retention has already reaped.
+ * The clicked-segment state, plus the actions that move it. Each action RETURNS
+ * the SSE positions seed it just selected, because every caller needs that seed
+ * in the same tick to hand to `seek()` — derived state arrives a render too
+ * late, which is why the previous derived `positions` had no reader.
  *
- * @param {Array}            segments  The catalog's `{id, size}` segments.
- * @param {?(number|string)} currentId The segment being browsed. A magic token
- *                                     ('start') has no predecessor.
- * @return {?number} The previous segment id, or null at the oldest.
- */
-export function previousSegmentId( segments, currentId ) {
-	if ( 'number' !== typeof currentId ) {
-		return null;
-	}
-	let prev = null;
-	for ( const seg of segments ) {
-		const id = seg?.id;
-		if ( 'number' === typeof id && id < currentId ) {
-			prev = null === prev ? id : Math.max( prev, id );
-		}
-	}
-	return prev;
-}
-
-/**
+ * The displayed Live/Replay mode is the VIEW's (`SeekTracker.mode`), not this
+ * hook's: a second mode here meant two state machines over one concept, with
+ * divergent vocabularies ('browse' vs 'replay').
+ *
  * @param {string} sub The subscription (partition dir or log-source name).
- * @return {{ mode: string, segmentId: (number|string|null), positions: (Object|null), follow: Function, browseSegment: Function, replay: Function, pageBack: Function }}
- *   Browse state + the derived positions + the actions that mutate it.
+ * @return {{ segmentId: (number|string|null), follow: Function, browseSegment: Function, replay: Function }}
+ *   The clicked segment + the actions, each returning its positions seed.
  */
 export default function useLogPositions( sub ) {
-	const [ mode, setMode ] = useState( 'live' );
 	// A number seeks that segment; 'start' replays; null tails.
 	const [ segmentId, setSegmentId ] = useState( null );
 
 	// Switching subscriptions drops any browse cursor back to the live tail.
 	useEffect( () => {
-		setMode( 'live' );
 		setSegmentId( null );
 	}, [ sub ] );
 
 	const follow = useCallback( () => {
-		setMode( 'live' );
 		setSegmentId( null );
+		return tailPositions();
 	}, [] );
 
-	const browseSegment = useCallback( ( id ) => {
-		setMode( 'browse' );
-		setSegmentId( id );
-	}, [] );
+	const browseSegment = useCallback(
+		( id ) => {
+			setSegmentId( id );
+			return segmentPositions( sub, id );
+		},
+		[ sub ]
+	);
 
 	const replay = useCallback( () => {
-		setMode( 'browse' );
 		setSegmentId( 'start' );
-	}, [] );
+		return replayPositions( sub );
+	}, [ sub ] );
 
-	const pageBack = useCallback( ( segments ) => {
-		setSegmentId( ( current ) => {
-			const prev = previousSegmentId( segments, current );
-			return null === prev ? current : prev;
-		} );
-	}, [] );
-
-	const positions = useMemo( () => {
-		if ( 'live' === mode ) {
-			return tailPositions();
-		}
-		if ( 'start' === segmentId ) {
-			return replayPositions( sub );
-		}
-		return segmentPositions( sub, segmentId );
-	}, [ mode, segmentId, sub ] );
-
-	return {
-		mode,
-		segmentId,
-		positions,
-		follow,
-		browseSegment,
-		replay,
-		pageBack,
-	};
+	return { segmentId, follow, browseSegment, replay };
 }
