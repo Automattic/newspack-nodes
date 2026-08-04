@@ -18,8 +18,13 @@ import './LogBrowser.scss';
  *                                         `onClick` wiring as `onFollow`.
  * @param {Array}      props.items         The `{id, size}` segments (or any render-prop-shaped items).
  * @param {*}          [props.selectedKey] Key of the browsed item (the clicked one, or null).
+ *                                         NOT guaranteed to name a listed item:
+ *                                         replay-from-start passes the literal
+ *                                         `'start'` token, which matches no id.
+ *                                         `activeKey` is what highlights then.
  * @param {*}          [props.activeKey]   Key of the item last RECEIVED from; wins over
  *                                         selectedKey for the highlight when provided.
+ *                                         This is why a non-item selectedKey is fine.
  * @param {Function}   props.onSelectItem  `(item) => void` — browse that item.
  * @param {Function}   props.itemKey       `(item) => string|number`.
  * @param {Function}   props.itemLabel     `(item) => ReactNode`.

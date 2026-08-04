@@ -134,3 +134,28 @@ it( 'falls back to selectedKey when activeKey is null', () => {
 	);
 	expect( active.textContent ).toMatch( /segment 5/ );
 } );
+
+// `selectedKey` is not always an item key. Replay-from-start sets the literal
+// 'start' token, which matches no segment id — activeKey carries the highlight.
+it( "highlights the received segment when selectedKey is the 'start' token", () => {
+	const { container } = renderSegments( {
+		mode: 'replay',
+		selectedKey: 'start',
+		activeKey: 5,
+	} );
+	const active = container.querySelector(
+		'.newspack-nodes-log-browser__item.is-active'
+	);
+	expect( active.textContent ).toMatch( /segment 5/ );
+} );
+
+it( "highlights nothing when 'start' has not yet received a record", () => {
+	const { container } = renderSegments( {
+		mode: 'replay',
+		selectedKey: 'start',
+		activeKey: null,
+	} );
+	expect(
+		container.querySelector( '.newspack-nodes-log-browser__item.is-active' )
+	).toBeNull();
+} );
