@@ -53,6 +53,46 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->rendered( $cap ) );
 	}
 
+	/**
+	 * The verbosity-2 branch dumped the envelope and returned, so TM_EOF never
+	 * reached its callback: after an operator raised verbosity with the
+	 * `debug_level` REPL verb, `wp nodes cli` sat until its 5s deadline instead
+	 * of exiting on the echo. Default level is 0, so this never bit an operator
+	 * who left verbosity alone. Inherited from Tachikoma, which still has it —
+	 * a reason, not a justification.
+	 *
+	 * The level-2 assertion below pins the envelope dump as well as the
+	 * callback: hoisting the TM_EOF check ABOVE the verbosity block would fire
+	 * the callback and silently stop dumping, which is the obvious wrong fix.
+	 */
+	public function test_TM_EOF_fires_on_eof_at_every_debug_level(): void {
+		foreach ( [ 0, 1, 2 ] as $level ) {
+			[ $dumper, $cap ] = $this->fresh();
+			$dumper->set_debug_level( $level );
+
+			$fired = 0;
+			$dumper->on_eof(
+				function () use ( &$fired ) {
+					++$fired;
+				}
+			);
+
+			$message                  = Message::new_message();
+			$message[ Message::TYPE ] = Message::TM_EOF;
+			$dumper->fill( $message );
+
+			$this->assertSame( 1, $fired, "on_eof must fire at debug_level {$level}" );
+
+			if ( 2 === $level ) {
+				$this->assertStringContainsString(
+					'TM_EOF',
+					$this->rendered( $cap ),
+					'debug_level 2 must still dump the TM_EOF envelope'
+				);
+			}
+		}
+	}
+
 	public function test_TM_EOF_filtered_out_by_to_filter_does_not_fire_callback(): void {
 		// TM_EOF addressed at a different pid (different cli session) is
 		// filtered out at the Dumper's to_filter gate — same as any other

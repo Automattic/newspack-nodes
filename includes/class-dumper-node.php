@@ -64,9 +64,7 @@ class Dumper_Node extends Node {
 
 		if ( $this->debug_level >= 2 ) {
 			$this->emit( $this->format_envelope_dump( $message ) );
-			return;
-		}
-		if ( $this->debug_level >= 1 ) {
+		} elseif ( $this->debug_level >= 1 ) {
 			$flags = self::format_type_flags( $type );
 			$from  = self::coerce_string( $message[ Message::FROM ] ?? '' );
 			$this->emit( $flags . ' from ' . $from . ":\n" );
@@ -77,6 +75,11 @@ class Dumper_Node extends Node {
 			if ( null !== $this->on_eof ) {
 				( $this->on_eof )();
 			}
+			return;
+		}
+
+		// A full envelope dump stands in for the curated render below.
+		if ( $this->debug_level >= 2 ) {
 			return;
 		}
 
