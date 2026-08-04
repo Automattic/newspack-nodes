@@ -247,9 +247,11 @@ describe( 'LogViewer', () => {
 		registerViewFixture( { selected: 'gate' } );
 		render( <LogViewer /> );
 		act( () => logBrowserProps.onSelectItem( { id: 3, size: 977 } ) );
-		expect( seek ).toHaveBeenCalledWith( 'gate', {
-			gate: { segment: 3, offset: 0 },
-		} );
+		expect( seek ).toHaveBeenCalledWith(
+			'gate',
+			{ gate: { segment: 3, offset: 0 } },
+			SOURCES[ 1 ]
+		);
 		expect( logBrowserProps.selectedKey ).toBe( 3 );
 	} );
 
@@ -263,7 +265,11 @@ describe( 'LogViewer', () => {
 		registerViewFixture( { selected: 'php' } );
 		render( <LogViewer /> );
 		act( () => logBrowserProps.onReplay() );
-		expect( seek ).toHaveBeenCalledWith( 'php', { php: 'start' } );
+		expect( seek ).toHaveBeenCalledWith(
+			'php',
+			{ php: 'start' },
+			SOURCES[ 0 ]
+		);
 	} );
 
 	it( 'Live returns the current source to the tail (null positions)', () => {
@@ -333,9 +339,11 @@ describe( 'LogViewer', () => {
 		fireEvent.change( input, { target: { value: '3:120:30' } } );
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( setPaused ).toHaveBeenCalledWith( true );
-		expect( seek ).toHaveBeenCalledWith( 'gate', {
-			gate: { segment: 3, offset: 120 },
-		} );
+		expect( seek ).toHaveBeenCalledWith(
+			'gate',
+			{ gate: { segment: 3, offset: 120 } },
+			SOURCES[ 1 ]
+		);
 		await act( async () => {} );
 		expect( step ).toHaveBeenCalled();
 	} );

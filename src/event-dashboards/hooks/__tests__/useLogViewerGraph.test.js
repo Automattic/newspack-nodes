@@ -216,7 +216,7 @@ describe( 'useLogViewerGraph', () => {
 		);
 		await act( async () => {} );
 		await act( async () =>
-			result.current.seek( 'access', { access: 'start' } )
+			result.current.seek( 'access', { access: 'start' }, { bytes: 977 } )
 		);
 		const view = Core.node( VIEW );
 		expect( view.mode ).toBe( 'replay' );
@@ -224,19 +224,27 @@ describe( 'useLogViewerGraph', () => {
 		expect( view.seek.endOffset ).toBe( 977 );
 	} );
 
-	test( 'replay re-dispatches taillog sources for a FRESH size (mount catalog is stale)', async () => {
+	/**
+	 * Was 'replay re-dispatches taillog sources for a FRESH size'. That round
+	 * trip bought a boundary seconds newer at the cost of a failure path that
+	 * stranded the user in Replay; both boundaries are approximate anyway,
+	 * since the head segment grows during the fetch. The caller now passes the
+	 * row it holds and re-catalogs on its own cadence.
+	 */
+	test( 'replay captures the boundary from the caller row, dispatching NO command', async () => {
 		const client = makeFakeClient( { taillog: sourcesReply() } );
 		const { result } = mountGraph( client );
 		await act( async () => {} );
 		client.batches.length = 0; // ignore the mount-time catalog fetch
 		await act( async () =>
-			result.current.seek( 'access', { access: 'start' } )
+			result.current.seek( 'access', { access: 'start' }, { bytes: 977 } )
 		);
-		const cmd = client.batches
-			.flat()
-			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
-		expect( cmd ).toBeTruthy();
-		expect( cmd[ VALUE ].arguments ).toEqual( [ 'sources' ] );
+		expect(
+			client.batches
+				.flat()
+				.find( ( m ) => 'taillog' === m[ VALUE ]?.name )
+		).toBeFalsy();
+		expect( Core.node( VIEW ).seek.endOffset ).toBe( 977 );
 	} );
 
 	// A segmented source: the newest segment (id 5, 233 bytes) is the boundary.
@@ -260,7 +268,11 @@ describe( 'useLogViewerGraph', () => {
 		);
 		await act( async () => {} );
 		await act( async () =>
-			result.current.seek( 'gate', { gate: 'start' } )
+			result.current.seek(
+				'gate',
+				{ gate: 'start' },
+				segmentedReply()[ 0 ]
+			)
 		);
 		const view = Core.node( VIEW );
 		expect( view.mode ).toBe( 'replay' );
@@ -284,7 +296,11 @@ describe( 'useLogViewerGraph', () => {
 		);
 		await act( async () => {} );
 		await act( async () =>
-			result.current.seek( 'gate', { gate: { segment: 3, offset: 0 } } )
+			result.current.seek(
+				'gate',
+				{ gate: { segment: 3, offset: 0 } },
+				segmentedReply()[ 0 ]
+			)
 		);
 		const url = FakeEventSource.last.url;
 		const positions = JSON.parse(
@@ -374,21 +390,23 @@ describe( 'useLogViewerGraph', () => {
 		expect( result.current.sources ).toEqual( segmentedReply() );
 	} );
 
-	test( 'a seek-time fetch failure replays with NO boundary (degraded; never auto-flips)', async () => {
-		// taillog errors → the fresh-size fetch rejects → the view enters replay
-		// with no byte boundary (file mode off), so it never auto-flips.
+	/**
+	 * Was 'a seek-time fetch failure replays with NO boundary (degraded)'. There
+	 * is no seek-time fetch left to fail. The degraded state it pinned — replay
+	 * with no boundary, which never auto-flips and strands the user until they
+	 * click Live — is the failure mode removing the fetch was meant to delete.
+	 * An unknown row now FOLLOWS: no boundary means nothing to replay to.
+	 */
+	test( 'a seek with no catalog row follows instead of stranding in replay', async () => {
 		const { result } = mountGraph(
 			makeFakeClient( { taillog: sourcesReply() }, [ 'taillog' ] )
 		);
 		await act( async () => {} );
-		// The mount catalog fetch failed too, so select the source explicitly.
 		await act( async () => result.current.selectSource( 'access' ) );
 		await act( async () =>
-			result.current.seek( 'access', { access: 'start' } )
+			result.current.seek( 'access', { access: 'start' }, {} )
 		);
-		const view = Core.node( VIEW );
-		expect( view.mode ).toBe( 'replay' );
-		expect( view.seek.fileMode ).toBe( false );
+		expect( Core.node( VIEW ).mode ).toBe( 'live' );
 	} );
 
 	test( 'replay on an EMPTY source flips straight to Live (nothing to replay)', async () => {
@@ -587,7 +605,11 @@ describe( 'useLogViewerGraph', () => {
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			await act( async () =>
-				result.current.seek( 'access', { access: 'start' } )
+				result.current.seek(
+					'access',
+					{ access: 'start' },
+					{ bytes: 977 }
+				)
 			);
 			// The seek control still drove the view into replay while paused.
 			expect( Core.node( VIEW ).mode ).toBe( 'replay' );

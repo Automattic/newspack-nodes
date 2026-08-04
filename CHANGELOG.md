@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`browseControl( { segments, bytes } )`** in `shared/nodes/seekTracker` —
+  the WHOLE `browse` control a log-stream view accepts, replacing the exported
+  `endPosition()`, which answered only the segmented half. The file-mode half
+  (`browse( null, bytes )`) had nowhere to live, so it was written inline in
+  one consumer, in async form, and the three `seek()` contracts could never
+  converge. `LIVE` / `REPLAY` are exported too; they were magic strings
+  compared in four files. `endPosition` is now module-private.
+
 - **`Job_Intake::DISPATCH_FIELDS`** — the canonical list of entry fields
   Job_Worker reads back off jobs.log beyond the core five (`retries`,
   `attempt`, `batch`, `key`). An application's Job_Router must carry them when
@@ -31,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cumulative; a PHP `const` cannot be computed, which is how the fold was lost
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
+
+- **The Log Viewer no longer strands a Replay with no boundary.** Its `seek()`
+  re-dispatched `taillog sources` to recompute a boundary the view already
+  held, and on rejection entered replay with `endSegment: null, endOffset: 0` —
+  a state that never auto-flips, so the user could only escape by clicking
+  Live. The boundary now comes from the catalog row the caller holds, and the
+  re-fetch and its silent `catch` are gone. Both boundaries were always
+  approximate (the head segment grows during the round trip), so this trades a
+  flip a few seconds early for the removal of a hard stuck state — and it was
+  the only one of three consumers making the other trade. The Partition
+  Viewer's offset-jump also gains a real boundary where it passed an explicit
+  null, for the same reason.
 
 - **A refused batch no longer answers a SUCCESSFUL retry with fabricated
   errors.** `commandTransport` recorded a refusal in a closure variable used
