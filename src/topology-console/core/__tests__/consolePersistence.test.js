@@ -148,4 +148,58 @@ describe( 'transcript redaction', () => {
 
 		expect( stored() ).toContain( 'ls firehose.p0' );
 	} );
+
+	/**
+	 * A passphrase is the realistic case, and `Node::serialize_args()` quotes
+	 * the WHOLE token once it holds whitespace — `'--auth_password=a b c'`.
+	 * The value matcher stopped at the first space, so everything past it
+	 * survived beside the redaction marker.
+	 */
+	it( 'redacts a passphrase in a serialize_args-quoted token', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: "vault:add prod '--auth_password=correct horse battery'",
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'horse' );
+		expect( stored() ).not.toContain( 'battery' );
+		expect( stored() ).toContain( 'auth_password' );
+	} );
+
+	it( 'redacts a passphrase in a double-quoted value', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: 'vault:add prod --auth_password="hunter two"',
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'hunter two' );
+		expect( stored() ).toContain( 'auth_password' );
+	} );
+
+	it( 'redacts a passphrase in a single-quoted value', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: "vault:add prod --auth_password='hunter two'",
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'hunter' );
+		expect( stored() ).not.toContain( 'two' );
+	} );
+
+	it( 'redacts a value carrying an escaped quote', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: "vault:add prod '--auth_password=oh\\'no yes'",
+			},
+		] );
+
+		expect( stored() ).not.toContain( 'yes' );
+	} );
 } );

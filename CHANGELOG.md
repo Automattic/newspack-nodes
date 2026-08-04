@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **Console transcript redaction no longer stops at the first space, leaving
+  the rest of a passphrase in localStorage.** `redactSecrets()` matched a
+  value with `[^\s"]*`, so it ended at whitespace — but a passphrase makes
+  `Node::serialize_args()` quote the WHOLE token, and the Vault UI sends
+  `--auth_password=` through the `_shell` Tap that `connect _shell` echoes
+  verbatim into the transcript. `'--auth_password=correct horse battery'`
+  persisted as `'--auth_password=<redacted> horse battery'`: the marker went
+  in, the secret stayed. Only single-word secrets were ever masked, and only
+  double quotes were understood while serialize_args emits single ones. A
+  value now ends where its quoting says it ends. The PHP side redacts
+  structurally through `Core::is_secret_property()` and never had this bug.
+
 - **`node_schema()['verb_classes']` now actually classifies a node's verbs.**
   The classifier read `static::node_schema()` — the interpreter's own schema —
   but `auto_wire_interpreter()` builds a BARE `Command_Interpreter_Node` and
