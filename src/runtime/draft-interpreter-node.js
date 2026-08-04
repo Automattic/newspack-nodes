@@ -3,7 +3,7 @@
  *
  * Edit mode and live mode send the SAME commands; the difference is which
  * interpreter they reach, which is a cwd. This is the edit-mode one. It differs
- * from the live interpreter in exactly three ways, each deliberate:
+ * from the live interpreter in exactly four ways, each deliberate:
  *
  *   1. **`make_node` stubs.** A server topology names `Partition`, `Topic`,
  *      `Consumer`, `Job_Worker` — no JS implementation. A stub carries the
@@ -11,7 +11,13 @@
  *   2. **`move_node` rewrites references.** Live it is `$node->name($new)` and
  *      nothing else, stranding every target that named the old node — faithful
  *      to Tachikoma, and indefensible in an editor.
- *   3. **Document verbs.** `var`, `include`, `remove_include` and `secure`
+ *   3. **Replace operations.** TSL APPENDS; an editor REPLACES. `command_node`
+ *      only appends, `var` cannot unset, and `secure` cannot undeclare — so
+ *      `replaceInvocations`, `replaceFrontmatter` and `clearSecureLevel` are
+ *      methods, not verbs. Giving them a spelling would put words in the
+ *      grammar no topology can contain. `load` replaces a whole document,
+ *      which is why loading is not a verb either.
+ *   4. **Document verbs.** `var`, `include`, `remove_include` and `secure`
  *      belong to a FILE, not a graph, and touch no node table. `secure` is a
  *      one-way ratchet live, because that irreversibility is the security
  *      property; here it edits a line, both directions.
@@ -49,10 +55,24 @@ function unquoteAll( args ) {
 	return args.map( ( span ) => tokenize( String( span ) )[ 0 ] ?? '' );
 }
 
+/**
+ * The console's edit buffer: a CommandInterpreterNode over a draft document.
+ *
+ * It answers the same verbs the live interpreter does, over its own node
+ * registry, and adds what a FILE has and a graph does not — frontmatter,
+ * includes, a `secure` level, and the invocations a save writes back. See the
+ * file header for the four deliberate divergences from the live interpreter.
+ */
 export class DraftInterpreterNode extends CommandInterpreterNode {
 	// How a verb says it refused without throwing. See AGENTS.md.
 	static REFUSED = /^(usage|unknown|no such|error)\b/;
 
+	/**
+	 * Start an empty document with the draft-only verbs registered.
+	 *
+	 * The document state — frontmatter, includes, secure level, invocations,
+	 * seeded expansion — is what `load()` resets; the verb table is not.
+	 */
 	constructor() {
 		super();
 		// Its CONTENTS live here; it lives where it is named.
@@ -96,167 +116,6 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Fill one already-parsed statement, as the Shell would.
-	 *
-	 * @param {Object} statement From `parseStatements`.
-	 */
-	_runStatement( statement ) {
-		const [ verb ] = statement.values;
-		// SPANS, not values: the quote type is meaning, not decoration.
-		const m = newMessage();
-		// NOREPLY: no sink, so a routed reply would go nowhere.
-		m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
-		m[ VALUE ] = { name: verb, arguments: statement.spans.slice( 1 ) };
-		this.fill( markLocal( m ) );
-	}
-
-	/**
-	 * Every verb invocation a node carries, in declaration order.
-	 *
-	 * The expansion's first, then the file's — reading order, and the order
-	 * they would run in. `dumpDocument` writes only the file's half back.
-	 *
-	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
-	 */
-	invocationsFor( name ) {
-		return [
-			...( this._seeded.get( name ) ?? [] ),
-			...( this._invocations.get( name ) ?? [] ),
-		];
-	}
-
-	/**
-	 * Baseline edges that carry no routing — config slots, kept verbatim.
-	 *
-	 * @return {Array} Edge records from the expansion.
-	 */
-	seededEdges() {
-		return this._seededEdges;
-	}
-
-	/**
-	 * Surface any reply that is not `ok`.
-	 *
-	 * A draft has no sink and no operator watching a REPL, so a routed reply
-	 * goes nowhere. Several verbs report refusal as an ordinary string —
-	 * `unknown node: x` — which is not TM_ERROR and would be dropped, taking
-	 * the statement's failure with it.
-	 *
-	 * @param {Array}  message The command message.
-	 * @param {string} name    Verb name.
-	 * @param {*}      payload The reply.
-	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
-	 */
-	_respond( message, name, payload, kind ) {
-		const line = 'string' === typeof payload ? payload.trim() : '';
-		// Success is free-form, and TM_ERROR already reaches stderr.
-		if (
-			! ( kind & TM_ERROR ) &&
-			DraftInterpreterNode.REFUSED.test( line )
-		) {
-			this.stderr( `${ name }: ${ line }` );
-		}
-		super._respond( message, name, payload, kind );
-	}
-
-	/**
-	 * Only the invocations an INCLUDE supplies — not the document's to write.
-	 *
-	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
-	 */
-	seededInvocationsFor( name ) {
-		return this._seeded.get( name ) ?? [];
-	}
-
-	/**
-	 * Only the invocations the DOCUMENT declares — what a save writes back.
-	 *
-	 * @param {string} name Node name.
-	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
-	 */
-	declaredInvocationsFor( name ) {
-		return this._invocations.get( name ) ?? [];
-	}
-
-	/**
-	 * One statement form, two readings.
-	 *
-	 * `command_node <node>:config <verb> [args]` is the normal case — the verb
-	 * goes to the node's config sidecar. A bare `<node>` target is how an
-	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
-	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
-	 *
-	 * @param {string[]} args Token array after the verb.
-	 * @return {string} The reply line.
-	 */
-	_cmdCommandNode( args ) {
-		const [ path, verb, ...rest ] = args;
-		if ( ! path || ! verb ) {
-			return 'usage: command_node <node>[:config] <verb> [<args>...]';
-		}
-		const viaConfig = String( path ).endsWith( ':config' );
-		const name = viaConfig ? String( path ).slice( 0, -7 ) : path;
-		// No node yet ≠ wrong line; dropping it would strip the file's own.
-		const list = this._invocations.get( name ) ?? [];
-		list.push( { verb, args: rest, viaConfig } );
-		this._invocations.set( name, list );
-		return 'ok';
-	}
-
-	/**
-	 * `set_arguments <node> [args…]` — rewrite a node's constructor args.
-	 *
-	 * Tachikoma's verb, aliased `set`, absent here until now: the one real gap
-	 * the interpreter parity triage found. An editor rewriting ctor args needs
-	 * exactly this, which is a good sign it is the right shape.
-	 *
-	 * @param {string[]} args Token array after the verb.
-	 * @return {string} The reply line.
-	 */
-	_cmdSetArguments( args ) {
-		const [ name, ...rest ] = args;
-		if ( ! name ) {
-			return 'usage: set_arguments <node name> [<arguments>...]';
-		}
-		const node = this.childRegistry.node( name );
-		if ( ! node ) {
-			return `unknown node: ${ name }`;
-		}
-		node.arguments = rest;
-		return 'ok';
-	}
-
-	/**
-	 * Replace a node's declared invocations wholesale.
-	 *
-	 * A METHOD, not a verb, and deliberately: `command_node` only appends, and
-	 * a topology file has no way to say "forget the previous cmd lines". So
-	 * replacement is an editor operation with no TSL spelling, and giving it
-	 * one would put a word in the grammar no topology can contain.
-	 *
-	 * @param {string} name Node name.
-	 * @param {Array}  list `{ verb, args, viaConfig }` entries.
-	 */
-	replaceInvocations( name, list ) {
-		this._invocations.set( name, list.slice() );
-	}
-
-	/**
-	 * Replace the frontmatter wholesale.
-	 *
-	 * A METHOD, for `replaceInvocations`' reason: `var` SETS a key and TSL has
-	 * no way to unset one, so a map that drops a key has no spelling in the
-	 * grammar. Giving it one would put a word in TSL no topology can contain.
-	 *
-	 * @param {Object} map Name → value.
-	 */
-	replaceFrontmatter( map ) {
-		this.frontmatter = { ...map };
-	}
-
-	/**
 	 * Replace the whole document. Loading is not a verb — see DraftContext.
 	 *
 	 * The expansion is seeded FIRST, because that is when an `include` happens:
@@ -290,73 +149,18 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Whether a class fans out, per the catalog; `Tee` when it says nothing.
+	 * Fill one already-parsed statement, as the Shell would.
 	 *
-	 * A custom Tee/Tap subclass is only distinguishable from a plain sink by
-	 * its catalog entry, so a seed built before the catalog arrives would wire
-	 * a fan-out node as a single-target one and silently drop its edges.
-	 *
-	 * @param {string} className Declared class name.
-	 * @return {boolean} True when `connect_node` should append.
+	 * @param {Object} statement From `parseStatements`.
 	 */
-	_catalogFansOut( className ) {
-		const entry = ( this.catalog || [] ).find(
-			( c ) => c.shell_name === className
-		);
-		return entry ? !! entry.fans_out : 'Tee' === className;
-	}
-
-	/**
-	 * The `make_node` line that re-declares a node.
-	 *
-	 * Not `dumpConfig()`: a draft's arguments are raw SPANS, and re-quoting
-	 * one would change what it means.
-	 *
-	 * @param {Object} node The node to declare.
-	 * @return {string} One `make_node` statement.
-	 */
-	/**
-	 * One `command_node` statement.
-	 *
-	 * @param {string} name Node the verb is aimed at.
-	 * @param {Object} inv  `{ verb, args, viaConfig }`.
-	 * @return {string} The statement.
-	 */
-	static _verbLine( name, inv ) {
-		const target = inv.viaConfig ? `${ name }:config` : name;
-		return [
-			'command_node',
-			target,
-			inv.verb,
-			...Array.from( inv.args, ( a ) => serializeDraftArg( a ?? '' ) ),
-		].join( ' ' );
-	}
-
-	static _makeNodeLine( node ) {
-		const head = `make_node ${ node.shellClassName() } ${ node.name }`;
-		const args = node.arguments.map( serializeDraftArg ).join( ' ' );
-		return args ? `${ head } ${ args }` : head;
-	}
-
-	/**
-	 * The topologies a TSL source includes, without loading it.
-	 *
-	 * The expansion has to be FETCHED before a load can seed it, and the only
-	 * way to know what to fetch is to read the file's `include` lines first.
-	 *
-	 * @param {string} tsl Topology source.
-	 * @return {string[]} Included topology names, in order, deduplicated.
-	 */
-	static includesOf( tsl ) {
-		const names = [];
-		for ( const { verb, values } of parseStatements( tsl || '' ) ) {
-			if ( 'include' === verb && values.length >= 2 ) {
-				if ( ! names.includes( values[ 1 ] ) ) {
-					names.push( values[ 1 ] );
-				}
-			}
-		}
-		return names;
+	_runStatement( statement ) {
+		const [ verb ] = statement.values;
+		// SPANS, not values: the quote type is meaning, not decoration.
+		const m = newMessage();
+		// NOREPLY: no sink, so a routed reply would go nowhere.
+		m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+		m[ VALUE ] = { name: verb, arguments: statement.spans.slice( 1 ) };
+		this.fill( markLocal( m ) );
 	}
 
 	/**
@@ -400,7 +204,18 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		}
 	}
 
-	// A class this runtime cannot build is a node to DESCRIBE, not an error.
+	/**
+	 * Declare a node, stubbing any class this runtime cannot build.
+	 *
+	 * A class with no JS implementation is a node to DESCRIBE, not an error, so
+	 * an unresolvable type becomes a StubNode carrying the declared class and
+	 * arguments. Re-declaring a name an include seeded CLAIMS it: the borrowed
+	 * node is torn down, its edges are inherited by the replacement, and a
+	 * failed build puts it back.
+	 *
+	 * @param {string[]} args `<type> <name> [<ctor args>...]`, as spans.
+	 * @return {string} The reply line.
+	 */
 	_cmdMakeNode( args ) {
 		// Declaring a seeded name CLAIMS it; omitting it later erases it.
 		if ( args.length < 2 ) {
@@ -488,33 +303,33 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		return 'ok';
 	}
 
-	// References follow a removal, as they follow a rename.
-	_cmdRemove( args ) {
-		const before = new Set( this.childRegistry.nodes.keys() );
-		const result = super._cmdRemove( args );
-		// What actually WENT: `-a <glob>` removes names args never mention.
-		const gone = [ ...before ].filter(
-			( name ) => ! this.childRegistry.nodes.has( name )
+	/**
+	 * Whether a class fans out, per the catalog; `Tee` when it says nothing.
+	 *
+	 * A custom Tee/Tap subclass is only distinguishable from a plain sink by
+	 * its catalog entry, so a seed built before the catalog arrives would wire
+	 * a fan-out node as a single-target one and silently drop its edges.
+	 *
+	 * @param {string} className Declared class name.
+	 * @return {boolean} True when `connect_node` should append.
+	 */
+	_catalogFansOut( className ) {
+		const entry = ( this.catalog || [] ).find(
+			( c ) => c.shell_name === className
 		);
-		for ( const name of gone ) {
-			this._invocations.delete( name );
-			this._seeded.delete( name );
-		}
-		const dead = new Set( gone );
-		this._seededEdges = this._seededEdges.filter(
-			( e ) => ! dead.has( e.from ) && ! dead.has( e.to )
-		);
-		for ( const [ , node ] of this.childRegistry.nodes ) {
-			if ( Array.isArray( node.target ) ) {
-				node.target = node.target.filter( ( t ) => ! dead.has( t ) );
-			} else if ( dead.has( node.target ) ) {
-				node.target = '';
-			}
-		}
-		return result;
+		return entry ? !! entry.fans_out : 'Tee' === className;
 	}
 
-	// Unlike the live verb, references follow the rename.
+	/**
+	 * Rename a node and every reference to it. See divergence 2.
+	 *
+	 * Live, `move_node` renames and nothing else, stranding every target,
+	 * `node_name` verb argument and seeded edge that named the old node. Here
+	 * they all follow the rename, so the saved file still connects.
+	 *
+	 * @param {string[]} args `<old name> <new name>`.
+	 * @return {string} The reply line; references move only on `ok`.
+	 */
 	_cmdMove( args ) {
 		const [ from, to ] = args;
 		const result = super._cmdMove( args );
@@ -575,29 +390,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		}
 	}
 
-	// Mirror of PHP frontmatter(): first-`=` split over the joined tail.
-	_cmdVar( args ) {
-		const assignment = args.join( ' ' );
-		const eq = assignment.indexOf( '=' );
-		const name = -1 === eq ? '' : assignment.slice( 0, eq ).trim();
-		if ( '' === name ) {
-			return 'usage: var <name> = <value>';
-		}
-		this.frontmatter[ name ] = assignment.slice( eq + 1 ).trim();
-		return 'ok';
-	}
-
-	_cmdInclude( args ) {
-		const name = args[ 0 ] ?? '';
-		if ( ! name ) {
-			return 'usage: include <topology>';
-		}
-		if ( ! this.includes.includes( name ) ) {
-			this.includes.push( name );
-		}
-		return 'ok';
-	}
-
+	/**
+	 * Drop an include, and with it every node no remaining include supplies.
+	 *
+	 * A borrowed node left behind would be saved back as the file's own, so a
+	 * node whose origins are now all gone is removed outright.
+	 *
+	 * @param {string[]} args `<topology>`.
+	 * @return {string} The reply line.
+	 */
 	_cmdRemoveInclude( args ) {
 		const name = args[ 0 ] ?? '';
 		this.includes = this.includes.filter( ( n ) => n !== name );
@@ -618,21 +419,40 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		return 'ok';
 	}
 
-	// Freely reversible here; the live ratchet is a security property.
-	_cmdDraftSecure( args ) {
-		// A bare `secure` IS `secure 1` — what the stock topologies write.
-		this.secureLevel = args[ 0 ] || '1';
-		return 'ok';
-	}
-
 	/**
-	 * Undeclare `secure` entirely.
+	 * Remove nodes, and every reference to what actually went.
 	 *
-	 * A METHOD: a file either carries the line or it does not, so "no level"
-	 * has no TSL spelling — `secure` with no argument means level 1.
+	 * References follow a removal as they follow a rename: declared and seeded
+	 * invocations, seeded edges, and other nodes' targets all lose the dead
+	 * names. `-a <glob>` removes names the arguments never mention, so the set
+	 * is taken by differencing the registry, not read off `args`.
+	 *
+	 * @param {string[]} args `<node name>...`, or `-a <anchored regex glob>`.
+	 * @return {string} The reply line.
 	 */
-	clearSecureLevel() {
-		this.secureLevel = '';
+	_cmdRemove( args ) {
+		const before = new Set( this.childRegistry.nodes.keys() );
+		const result = super._cmdRemove( args );
+		// What actually WENT: `-a <glob>` removes names args never mention.
+		const gone = [ ...before ].filter(
+			( name ) => ! this.childRegistry.nodes.has( name )
+		);
+		for ( const name of gone ) {
+			this._invocations.delete( name );
+			this._seeded.delete( name );
+		}
+		const dead = new Set( gone );
+		this._seededEdges = this._seededEdges.filter(
+			( e ) => ! dead.has( e.from ) && ! dead.has( e.to )
+		);
+		for ( const [ , node ] of this.childRegistry.nodes ) {
+			if ( Array.isArray( node.target ) ) {
+				node.target = node.target.filter( ( t ) => ! dead.has( t ) );
+			} else if ( dead.has( node.target ) ) {
+				node.target = '';
+			}
+		}
+		return result;
 	}
 
 	/**
@@ -670,15 +490,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			// An include declares the borrowed node; the file never does.
 			if ( true !== node.borrowed ) {
 				lines.push( DraftInterpreterNode._makeNodeLine( node ) );
-				// A sink the document STATED, not the one make_node wired.
-				const sinkName = node.sink?.name ?? '';
-				if (
-					sinkName &&
-					undefined !== node._defaultSink &&
-					node.sink !== node._defaultSink
-				) {
-					lines.push( `set_sink ${ name } ${ sinkName }` );
-				}
+			}
+			// A sink the document STATED, not the one make_node wired.
+			const sinkName = node.sink?.name ?? '';
+			if (
+				sinkName &&
+				undefined !== node._defaultSink &&
+				node.sink !== node._defaultSink
+			) {
+				lines.push( `set_sink ${ name } ${ sinkName }` );
 			}
 			for ( const inv of this.declaredInvocationsFor( name ) ) {
 				lines.push( DraftInterpreterNode._verbLine( name, inv ) );
@@ -725,5 +545,259 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			);
 		}
 		return lines.length ? lines.join( '\n' ) + '\n' : '';
+	}
+
+	/**
+	 * Only the invocations the DOCUMENT declares — what a save writes back.
+	 *
+	 * @param {string} name Node name.
+	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 */
+	declaredInvocationsFor( name ) {
+		return this._invocations.get( name ) ?? [];
+	}
+
+	/**
+	 * Every verb invocation a node carries, in declaration order.
+	 *
+	 * The expansion's first, then the file's — reading order, and the order
+	 * they would run in. `dumpDocument` writes only the file's half back.
+	 *
+	 * @param {string} name Node name.
+	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 */
+	invocationsFor( name ) {
+		return [
+			...( this._seeded.get( name ) ?? [] ),
+			...( this._invocations.get( name ) ?? [] ),
+		];
+	}
+
+	/**
+	 * Baseline edges that carry no routing — config slots, kept verbatim.
+	 *
+	 * @return {Array} Edge records from the expansion.
+	 */
+	seededEdges() {
+		return this._seededEdges;
+	}
+
+	/**
+	 * Surface any reply that is not `ok`.
+	 *
+	 * A draft has no sink and no operator watching a REPL, so a routed reply
+	 * goes nowhere. Several verbs report refusal as an ordinary string —
+	 * `unknown node: x` — which is not TM_ERROR and would be dropped, taking
+	 * the statement's failure with it.
+	 *
+	 * @param {Array}  message The command message.
+	 * @param {string} name    Verb name.
+	 * @param {*}      payload The reply.
+	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
+	 */
+	_respond( message, name, payload, kind ) {
+		const line = 'string' === typeof payload ? payload.trim() : '';
+		// Success is free-form, and TM_ERROR already reaches stderr.
+		if (
+			! ( kind & TM_ERROR ) &&
+			DraftInterpreterNode.REFUSED.test( line )
+		) {
+			this.stderr( `${ name }: ${ line }` );
+		}
+		super._respond( message, name, payload, kind );
+	}
+
+	/**
+	 * Only the invocations an INCLUDE supplies — not the document's to write.
+	 *
+	 * @param {string} name Node name.
+	 * @return {Array} `{ verb, args, viaConfig }` entries; empty when none.
+	 */
+	seededInvocationsFor( name ) {
+		return this._seeded.get( name ) ?? [];
+	}
+
+	/**
+	 * One statement form, two readings.
+	 *
+	 * `command_node <node>:config <verb> [args]` is the normal case — the verb
+	 * goes to the node's config sidecar. A bare `<node>` target is how an
+	 * INTERPRETER-class node takes verbs directly. The tokenizer canonicalises
+	 * `cmd` and `command` to `command_node`, so there is nothing else to catch.
+	 *
+	 * @param {string[]} args Token array after the verb.
+	 * @return {string} The reply line.
+	 */
+	_cmdCommandNode( args ) {
+		const [ path, verb, ...rest ] = args;
+		if ( ! path || ! verb ) {
+			return 'usage: command_node <node>[:config] <verb> [<args>...]';
+		}
+		const viaConfig = String( path ).endsWith( ':config' );
+		const name = viaConfig ? String( path ).slice( 0, -7 ) : path;
+		// No node yet ≠ wrong line; dropping it would strip the file's own.
+		const list = this._invocations.get( name ) ?? [];
+		list.push( { verb, args: rest, viaConfig } );
+		this._invocations.set( name, list );
+		return 'ok';
+	}
+
+	/**
+	 * `set_arguments <node> [args…]` — rewrite a node's constructor args.
+	 *
+	 * Tachikoma's verb, aliased `set`, absent here until now: the one real gap
+	 * the interpreter parity triage found. An editor rewriting ctor args needs
+	 * exactly this, which is a good sign it is the right shape.
+	 *
+	 * @param {string[]} args Token array after the verb.
+	 * @return {string} The reply line.
+	 */
+	_cmdSetArguments( args ) {
+		const [ name, ...rest ] = args;
+		if ( ! name ) {
+			return 'usage: set_arguments <node name> [<arguments>...]';
+		}
+		const node = this.childRegistry.node( name );
+		if ( ! node ) {
+			return `unknown node: ${ name }`;
+		}
+		node.arguments = rest;
+		return 'ok';
+	}
+
+	/**
+	 * Replace a node's declared invocations wholesale. See divergence 3.
+	 *
+	 * @param {string} name Node name.
+	 * @param {Array}  list `{ verb, args, viaConfig }` entries.
+	 */
+	replaceInvocations( name, list ) {
+		this._invocations.set( name, list.slice() );
+	}
+
+	/**
+	 * Replace the frontmatter wholesale. See divergence 3.
+	 *
+	 * @param {Object} map Name → value.
+	 */
+	replaceFrontmatter( map ) {
+		this.frontmatter = { ...map };
+	}
+
+	/**
+	 * One `command_node` statement.
+	 *
+	 * @param {string} name Node the verb is aimed at.
+	 * @param {Object} inv  `{ verb, args, viaConfig }`.
+	 * @return {string} The statement.
+	 */
+	static _verbLine( name, inv ) {
+		const target = inv.viaConfig ? `${ name }:config` : name;
+		return [
+			'command_node',
+			target,
+			inv.verb,
+			...Array.from( inv.args, ( a ) => serializeDraftArg( a ?? '' ) ),
+		].join( ' ' );
+	}
+
+	/**
+	 * The `make_node` line that re-declares a node.
+	 *
+	 * Not `dumpConfig()`: a draft's arguments are raw SPANS, and re-quoting
+	 * one would change what it means.
+	 *
+	 * @param {Object} node The node to declare.
+	 * @return {string} One `make_node` statement.
+	 */
+	static _makeNodeLine( node ) {
+		const head = `make_node ${ node.shellClassName() } ${ node.name }`;
+		const args = node.arguments.map( serializeDraftArg ).join( ' ' );
+		return args ? `${ head } ${ args }` : head;
+	}
+
+	/**
+	 * The topologies a TSL source includes, without loading it.
+	 *
+	 * The expansion has to be FETCHED before a load can seed it, and the only
+	 * way to know what to fetch is to read the file's `include` lines first.
+	 *
+	 * @param {string} tsl Topology source.
+	 * @return {string[]} Included topology names, in order, deduplicated.
+	 */
+	static includesOf( tsl ) {
+		const names = [];
+		for ( const { verb, values } of parseStatements( tsl || '' ) ) {
+			if ( 'include' === verb && values.length >= 2 ) {
+				if ( ! names.includes( values[ 1 ] ) ) {
+					names.push( values[ 1 ] );
+				}
+			}
+		}
+		return names;
+	}
+
+	/**
+	 * `var <name> = <value>` — set one frontmatter entry.
+	 *
+	 * Mirror of PHP `frontmatter()`: the tail is re-joined and split on the
+	 * FIRST `=`, so a value may contain further ones.
+	 *
+	 * @param {string[]} args Token array after the verb, unquoted.
+	 * @return {string} The reply line.
+	 */
+	_cmdVar( args ) {
+		const assignment = args.join( ' ' );
+		const eq = assignment.indexOf( '=' );
+		const name = -1 === eq ? '' : assignment.slice( 0, eq ).trim();
+		if ( '' === name ) {
+			return 'usage: var <name> = <value>';
+		}
+		this.frontmatter[ name ] = assignment.slice( eq + 1 ).trim();
+		return 'ok';
+	}
+
+	/**
+	 * `include <topology>` — declare an include, once, in reading order.
+	 *
+	 * Declaring it does not seed its nodes: the expansion has to be fetched,
+	 * which is why `load()` takes a baseline. See `includesOf`.
+	 *
+	 * @param {string[]} args Token array after the verb, unquoted.
+	 * @return {string} The reply line.
+	 */
+	_cmdInclude( args ) {
+		const name = args[ 0 ] ?? '';
+		if ( ! name ) {
+			return 'usage: include <topology>';
+		}
+		if ( ! this.includes.includes( name ) ) {
+			this.includes.push( name );
+		}
+		return 'ok';
+	}
+
+	/**
+	 * `secure [<level>]` / `insecure` — set the document's secure level.
+	 *
+	 * Freely reversible here, both directions: this edits a line. Live it is a
+	 * one-way ratchet, because that irreversibility is the security property.
+	 * `insecure` reaches this verb with the literal level `insecure`.
+	 *
+	 * @param {string[]} args Token array after the verb, unquoted.
+	 * @return {string} The reply line.
+	 */
+	_cmdDraftSecure( args ) {
+		// A bare `secure` IS `secure 1` — what the stock topologies write.
+		this.secureLevel = args[ 0 ] || '1';
+		return 'ok';
+	}
+
+	/**
+	 * Undeclare `secure` entirely. See divergence 3: a bare `secure` means 1,
+	 * so "no level" has no TSL spelling.
+	 */
+	clearSecureLevel() {
+		this.secureLevel = '';
 	}
 }

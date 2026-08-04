@@ -78,7 +78,7 @@ function clampFrame( { x, y, w, h }, opts = {}, bounds = null ) {
  * @param {string}  storageKey localStorage key (panel layout is keyed per dashboard).
  * @param {boolean} [visible]  Whether the panel is currently shown. When false while maximized, the page scrollbar is restored.
  * @param {Object}  [panelRef] Ref to the panel DOM node. When provided, drags/resizes mutate its style directly per pointermove and only commit to React state on pointerup (no per-frame re-render of the panel subtree).
- * @return {{ frame: Object, style: Object, onHeaderPointerDown: Function, getResizeHandlers: Function, toggleMaximize: Function }} Frame state, an inline style for the panel, the header drag handler, a factory returning the 8 edge/corner handlers, and a toggleMaximize() that flips between the saved frame and a fullscreen frame.
+ * @return {{ frame: { x: number, y: number, w: number, h: number }, style: Object, onHeaderPointerDown: ( event: import('react').PointerEvent ) => void, getResizeHandlers: Function, toggleMaximize: Function, maximized: boolean }} Frame state, an inline style for the panel, the header drag handler, a factory returning the 8 edge/corner handlers, a toggleMaximize() that flips between the saved frame and a fullscreen frame, and whether the panel is currently maximized.
  */
 export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 	const [ frame, setFrame ] = useState( () => {

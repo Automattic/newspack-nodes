@@ -1,37 +1,4 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
-/**
- * LogRowList — the shared, ring-aware DOM-virtualized log list.
- *
- * Consumes a ring-backed view node (`linesCount` + `lineAt(i)`, newest first, both
- * O(1)) and, each rAF frame, pulls ONLY the on-screen window via `lineAt(i)` — it
- * never materializes the whole ring, so a 100k buffer costs O(rows-on-screen) per
- * frame. The window bounds are computed inline from live scroll geometry (the
- * canvas renderer's algorithm) instead of `useVirtualization`, whose deferred
- * scroll-state re-render lags the single-frame pull. New rows smooth-scroll into
- * place via an offset that decays to zero (or hold the reader's position when
- * scrolled into history), and `{ total, visible, lps }` is reported up to the
- * consumer's toolbar. An optional `filter` scans the ring (only while active,
- * matching the canvas renderer) and windows over the matches.
- *
- * Flood-safe, per the console Dumper: per-frame work is bounded regardless of
- * INPUT RATE (the active-filter scan stays O(ring capacity), rate-independent).
- * The glide debt is capped at MAX_DEBT_ROWS (excess rows appear instantly —
- * the animation drops, never the data), stats publishes coalesce to
- * STATS_INTERVAL_MS, and row elements re-map only on a model commit.
- *
- * @param {Object}   props
- * @param {Function} props.getNode         `() => node|null`; node exposes `linesCount`, `lineAt(i)`, optional `lps`.
- * @param {number}   props.rowHeight       Fixed row height in px.
- * @param {Function} props.renderRow       `(row) => ReactElement` (must set its own key; keep the identity stable or row memoization drops).
- * @param {string}   [props.filter]        Substring filter; '' scans nothing.
- * @param {Function} [props.matchRow]      `(row, filterLower) => boolean`; defaults to `row.content` includes.
- * @param {*}        [props.emptyLabel]    Rendered when no rows are visible.
- * @param {Function} [props.onStats]       `({ total, visible, lps }) => void`, on change, coalesced to STATS_INTERVAL_MS.
- * @param {number}   [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
- * @param {boolean}  [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
- * @param {string}   [props.listClassName] Extra class on the scroll container.
- * @return {import('react').ReactElement} The virtualized list.
- */
 
 import {
 	useState,
@@ -70,6 +37,66 @@ const defaultMatch = ( row, filterLower ) =>
 		.toLowerCase()
 		.includes( filterLower );
 
+/**
+ * The committed render model: the pulled window plus the geometry placing it.
+ *
+ * Every field is written together on a model commit, so the rows and the
+ * geometry describing them can never disagree by a frame.
+ *
+ * @typedef  {Object}   LogRowModel
+ * @property {Object[]} rows        The pulled window, newest first.
+ * @property {number}   spacerTop   Height in px of the spacer standing in for the rows above the window.
+ * @property {number}   totalHeight Full scroll height in px; 0 in the debug regime, which is unvirtualized.
+ * @property {number}   visible     Rows the projection considers visible — post-filter, not window-limited.
+ * @property {number}   [offset]    Smooth-scroll offset in px, committed with its rows. Absent in the debug regime, which never glides.
+ */
+
+/**
+ * One-row renderer: the element standing in for a row of the pulled window.
+ *
+ * It is handed straight to `Array.map`, so the window index and the window
+ * array follow the row — unread by contract, and that index is the WINDOW's,
+ * not the ring's.
+ *
+ * @callback RenderRow
+ * @param {Object} row One row, as the view node yields it from the ring.
+ * @return {import('react').ReactElement} The rendered row; it must set its own
+ *   key, and keep a stable identity or row memoization drops.
+ */
+
+/**
+ * LogRowList — the shared, ring-aware DOM-virtualized log list.
+ *
+ * Consumes a ring-backed view node (`linesCount` + `lineAt(i)`, newest first, both
+ * O(1)) and, each rAF frame, pulls ONLY the on-screen window via `lineAt(i)` — it
+ * never materializes the whole ring, so a 100k buffer costs O(rows-on-screen) per
+ * frame. The window bounds are computed inline from live scroll geometry (the
+ * canvas renderer's algorithm) instead of `useVirtualization`, whose deferred
+ * scroll-state re-render lags the single-frame pull. New rows smooth-scroll into
+ * place via an offset that decays to zero (or hold the reader's position when
+ * scrolled into history), and `{ total, visible, lps }` is reported up to the
+ * consumer's toolbar. An optional `filter` scans the ring (only while active,
+ * matching the canvas renderer) and windows over the matches.
+ *
+ * Flood-safe, per the console Dumper: per-frame work is bounded regardless of
+ * INPUT RATE (the active-filter scan stays O(ring capacity), rate-independent).
+ * The glide debt is capped at MAX_DEBT_ROWS (excess rows appear instantly —
+ * the animation drops, never the data), stats publishes coalesce to
+ * STATS_INTERVAL_MS, and row elements re-map only on a model commit.
+ *
+ * @param {Object}    props
+ * @param {Function}  props.getNode         `() => node|null`; node exposes `linesCount`, `lineAt(i)`, optional `lps`.
+ * @param {number}    props.rowHeight       Fixed row height in px.
+ * @param {RenderRow} props.renderRow       Renders one row of the pulled window.
+ * @param {string}    [props.filter]        Substring filter; '' scans nothing.
+ * @param {Function}  [props.matchRow]      `(row, filterLower) => boolean`; defaults to `row.content` includes.
+ * @param {*}         [props.emptyLabel]    Rendered when no rows are visible.
+ * @param {Function}  [props.onStats]       `({ total, visible, lps }) => void`, on change, coalesced to STATS_INTERVAL_MS.
+ * @param {number}    [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
+ * @param {boolean}   [props.debug]         Unvirtualized debug regime: the newest DEBUG_MAX_ROWS rows at natural height.
+ * @param {string}    [props.listClassName] Extra class on the scroll container.
+ * @return {import('react').ReactElement} The virtualized list.
+ */
 export default function LogRowList( {
 	getNode,
 	rowHeight,
@@ -115,13 +142,15 @@ export default function LogRowList( {
 		at: -Infinity,
 	} );
 
-	const [ model, setModel ] = useState( {
-		rows: [],
-		spacerTop: 0,
-		totalHeight: 0,
-		visible: 0,
-		offset: 0,
-	} );
+	const [ model, setModel ] = useState(
+		/** @type {LogRowModel} */ ( {
+			rows: [],
+			spacerTop: 0,
+			totalHeight: 0,
+			visible: 0,
+			offset: 0,
+		} )
+	);
 
 	// Rebase on clear / filter change: forget motion + the new-row baseline.
 	useEffect( () => {
@@ -370,7 +399,11 @@ export default function LogRowList( {
 			role="rowgroup"
 			ref={ listRef }
 			onScroll={ handleScroll }
-			style={ { '--log-row-height': `${ rowHeight }px` } }
+			style={
+				/** @type {import('react').CSSProperties} */ ( {
+					'--log-row-height': `${ rowHeight }px`,
+				} )
+			}
 		>
 			<div
 				className="newspack-nodes-log-rows__content"

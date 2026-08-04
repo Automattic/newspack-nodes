@@ -273,6 +273,22 @@ describe( 'GraphView', () => {
 		expect( global.__canvasProps.hulls ).toBe( hulls );
 	} );
 
+	// The persisted pan/zoom is stored as a delta from autofit; the canvas is
+	// the only thing that can turn it back into a viewport. Dropped here, a
+	// reload silently autofits and the saved viewport is lost.
+	it( 'forwards viewportDelta through to SchematicCanvas', () => {
+		const viewportDelta = { dcx: 137, dcy: -211, zoom: 2.5 };
+		renderWithCatalog(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				viewportDelta={ viewportDelta }
+			/>
+		);
+		expect( global.__canvasProps.viewportDelta ).toBe( viewportDelta );
+	} );
+
 	it( 'forwards ONE `includes` prop to both Palette (declaredIncludes) and Inspector (includes)', () => {
 		const topologies = [ { name: 'performance', includes: [] } ];
 		const onDropTopology = jest.fn();

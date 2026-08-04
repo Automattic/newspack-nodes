@@ -13,7 +13,20 @@
 const DEFAULT_WINDOW_SEC = 10;
 const DEFAULT_SMOOTHING = 0.1;
 
+/**
+ * Smooths a stream of observed counts into a steady per-second rate.
+ *
+ * Callers `add()` counts as they arrive and `read()` between arrivals; both
+ * return the current smoothed rate, so a readout can be driven from either.
+ */
 export class RateSmoother {
+	/**
+	 * @param {number} windowSec Sliding-window length in seconds. The window
+	 *                           total is divided by it to get the average rate.
+	 * @param {number} smoothing EMA alpha: the fraction of the gap between that
+	 *                           average and the current smoothed value each
+	 *                           `add()` closes. Lower reacts more slowly.
+	 */
 	constructor(
 		windowSec = DEFAULT_WINDOW_SEC,
 		smoothing = DEFAULT_SMOOTHING
@@ -23,6 +36,9 @@ export class RateSmoother {
 		this.reset();
 	}
 
+	/**
+	 * Return to a cold start: empty window, zero total, zero smoothed rate.
+	 */
 	reset() {
 		// Per-second `{ sec, count }` buckets, a running total, the EMA rate.
 		this.buckets = [];
@@ -30,7 +46,14 @@ export class RateSmoother {
 		this.smoothed = 0;
 	}
 
-	// Fold `count` at `nowMs` into the window; a negative count clamps to 0.
+	/**
+	 * Fold a count into the window and advance the smoothed rate.
+	 *
+	 * @param {number} count Events observed since the last call. A negative
+	 *                       count — a counter reset — clamps to 0.
+	 * @param {number} nowMs Observation time, epoch milliseconds.
+	 * @return {number} The smoothed rate, in events per second.
+	 */
 	add( count, nowMs ) {
 		const n = count > 0 ? count : 0;
 		const sec = Math.floor( nowMs / 1000 );
@@ -47,7 +70,11 @@ export class RateSmoother {
 		return this.smoothed;
 	}
 
-	// Drop buckets older than the window from the running total.
+	/**
+	 * Drop buckets older than the window from the running total.
+	 *
+	 * @param {number} sec Current time, floored to whole seconds.
+	 */
 	_expire( sec ) {
 		const oldest = sec - this.windowSec;
 		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
@@ -56,11 +83,18 @@ export class RateSmoother {
 		}
 	}
 
-	// @longform Time-aware read for add-on-arrival feeders (the viewers' lps):
-	// with no adds the window never expires and the readout freezes at its
-	// last value. Expiring here lets an idle stream's rate decay to zero over
-	// the window; snapping `smoothed` down (never up) keeps rises EMA-smooth
-	// while falls track the emptying window.
+	/**
+	 * Read the current rate without folding anything into the window.
+	 *
+	 * Add-on-arrival feeders (the viewers' lps) freeze when the stream goes
+	 * quiet: with no adds the window never expires and the readout holds its
+	 * last value. Expiring here lets an idle stream's rate decay to zero over
+	 * the window. The smoothed value snaps down to the window average and never
+	 * up, so rises stay EMA-smooth while falls track the emptying window.
+	 *
+	 * @param {number} nowMs Read time, epoch milliseconds.
+	 * @return {number} The smoothed rate, in events per second.
+	 */
 	read( nowMs ) {
 		this._expire( Math.floor( nowMs / 1000 ) );
 		const rate = this.windowTotal / this.windowSec;

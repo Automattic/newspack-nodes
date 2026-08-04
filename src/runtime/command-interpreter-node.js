@@ -36,6 +36,41 @@ import {
 	newMessage,
 } from './message';
 
+/**
+ * One node's raw dispatch-profile record, as `_router` accumulates it.
+ *
+ * @typedef {Object} ProfileInfo
+ * @property {number} time      Total self time, in seconds.
+ * @property {number} count     Dispatches recorded.
+ * @property {number} avg       Mean self time per dispatch, in seconds.
+ * @property {number} oldest    Clock reading of the first dispatch recorded.
+ * @property {number} timestamp Clock reading of the most recent dispatch.
+ */
+
+/**
+ * The derived facts one `list_profiles` row prints.
+ *
+ * @typedef {Object} ProfileStats
+ * @property {number} avg    Mean self time per dispatch, in seconds.
+ * @property {number} time   Total self time, in seconds.
+ * @property {number} count  Dispatches recorded.
+ * @property {number} window Seconds spanned by the records, oldest to newest.
+ * @property {number} rate   Dispatches per second over that window; 1 when it cannot be measured.
+ * @property {number} age    Whole seconds since the most recent dispatch.
+ */
+
+/**
+ * A node class as `includeNodes` holds it: the Node constructor itself or a
+ * subclass of it — exactly what `resolveClass` verifies — carrying the static
+ * `nodeSchema()` the palette and `help` read. `typeof Node` also states the
+ * Tachikoma no-arg ctor `makeNode` relies on, naming and `arguments=`-ing the
+ * node only after constructing it. The schema is optional: a plugin may
+ * register a class that documents nothing, and `help` falls back to an empty
+ * schema for it.
+ *
+ * @typedef {typeof Node & { nodeSchema?: () => Object }} NodeClass
+ */
+
 // Alias→canonical; lockstep with verb table + builtins so `help` resolves.
 const ALIAS_TO_CANONICAL = {
 	ls: 'list_nodes',
@@ -121,25 +156,9 @@ export class CommandInterpreterNode extends Node {
 	static isCommandInterpreter = true;
 
 	/**
-	 * The name table this interpreter's verbs operate on, and that the nodes it
-	 * makes register in. Defaults to its OWN registry, so a live interpreter is
-	 * unchanged.
-	 *
-	 * These are two different things and conflating them is a bug: a draft
-	 * interpreter lives in Core under one reserved name while its contents live
-	 * somewhere Core cannot see — exactly a Tachikoma Job, whose node sits in
-	 * the parent's table while its process owns its own.
-	 *
-	 * @return {Object} The registry.
+	 * Start with the built-in verb table and no instance authorize override, so
+	 * the class default decides who may issue commands.
 	 */
-	get childRegistry() {
-		return this._childRegistry ?? this.registry;
-	}
-
-	set childRegistry( registry ) {
-		this._childRegistry = registry;
-	}
-
 	constructor() {
 		super();
 		// Per-instance authorize override; null → static default → LOCAL check.
@@ -147,6 +166,15 @@ export class CommandInterpreterNode extends Node {
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
+	/**
+	 * Interpret a command addressed to this node; forward everything else.
+	 *
+	 * A message with a non-empty TO is in transit toward another node, so it
+	 * goes to the sink even when it is a command — otherwise every interpreter
+	 * on a path would eat commands meant for its downstream peers.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		this.counter++;
 		const type = message[ TYPE ];
@@ -170,6 +198,14 @@ export class CommandInterpreterNode extends Node {
 		this._interpret( message );
 	}
 
+	/**
+	 * Authorize, resolve and run the verb carried in VALUE, then respond.
+	 *
+	 * A throw from a verb becomes a TM_ERROR reply: the central catch is the
+	 * contract, which is why verbs carry no try/catch of their own.
+	 *
+	 * @param {Array} message TM_COMMAND whose VALUE is `{ name, arguments }`.
+	 */
 	_interpret( message ) {
 		// VALUE is the structured command object directly (no parse needed).
 		const cmd = message[ VALUE ];
@@ -214,6 +250,17 @@ export class CommandInterpreterNode extends Node {
 		}
 	}
 
+	/**
+	 * Route a verb's result back to whoever asked, as TM_COMMAND|kind.
+	 *
+	 * An empty result sends nothing. A TM_NOREPLY request gets no message at
+	 * all — a failure still reaches stderr, since nobody else would see it.
+	 *
+	 * @param {Array}  message The request being answered.
+	 * @param {string} name    Verb name, echoed in the response VALUE.
+	 * @param {*}      payload Verb result: a reply string or a struct.
+	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
+	 */
 	_respond( message, name, payload, kind ) {
 		if ( payload === '' || payload === undefined ) {
 			return;
@@ -249,7 +296,16 @@ export class CommandInterpreterNode extends Node {
 		}
 	}
 
-	// `make_node <type> <name> [args]`: spread tokens to ctor, name()+sink.
+	/**
+	 * `make_node <type> <name> [args]` — spread the remaining tokens to the
+	 * constructor, then name and sink the node.
+	 *
+	 * An unknown class answers with a line; a name collision throws, which the
+	 * caller turns into TM_ERROR.
+	 *
+	 * @param {string[]} args Verb tokens: type, name, then constructor args.
+	 * @return {string} 'ok', or the usage / unknown-class line.
+	 */
 	_cmdMakeNode( args ) {
 		if ( args.length < 2 ) {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
@@ -264,7 +320,16 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// Programmatic build: create, name + sink a class; make_node delegates.
+	/**
+	 * Programmatic node construction — what the `make_node` verb delegates to.
+	 * A node whose arguments throw is torn down before the throw escapes, so a
+	 * bad make_node leaves no half-built node behind.
+	 *
+	 * @param {string}   type   Shell class name, as `make_node` spells it.
+	 * @param {string}   name   Name to register the node under.
+	 * @param {string[]} [args] Constructor argument tokens.
+	 * @return {Node} The constructed node, named and sunk to this interpreter.
+	 */
 	makeNode( type, name, args = [] ) {
 		const NodeClass = CommandInterpreterNode.resolveClass( type );
 		if ( ! NodeClass ) {
@@ -286,12 +351,44 @@ export class CommandInterpreterNode extends Node {
 		// The sink dump_config may omit: the one make_node wired.
 		node._defaultSink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
-			node.debugState = this.debugState;
+			// Trace level is stamped from outside; no class declares it.
+			/** @type {{ debugState?: number }} */ ( node ).debugState =
+				this.debugState;
 		}
 		return node;
 	}
 
-	// Verb table + auth closure are internal machinery, not state — mask them.
+	/**
+	 * The name table this interpreter's verbs operate on, and that the nodes it
+	 * makes register in. Defaults to its OWN registry, so a live interpreter is
+	 * unchanged.
+	 *
+	 * These are two different things and conflating them is a bug: a draft
+	 * interpreter lives in Core under one reserved name while its contents live
+	 * somewhere Core cannot see — exactly a Tachikoma Job, whose node sits in
+	 * the parent's table while its process owns its own.
+	 *
+	 * @return {Object} The registry.
+	 */
+	get childRegistry() {
+		return this._childRegistry ?? this.registry;
+	}
+
+	/**
+	 * Point this interpreter's verbs at a name table other than its own.
+	 *
+	 * @param {Object} registry The registry the verbs operate on.
+	 */
+	set childRegistry( registry ) {
+		this._childRegistry = registry;
+	}
+
+	/**
+	 * State snapshot for `dump_node`, with the verb table and the authorize
+	 * closure masked — both are internal machinery, not state worth printing.
+	 *
+	 * @return {Object} The snapshot.
+	 */
 	dumpNode() {
 		const snapshot = super.dumpNode();
 		snapshot._commands = '{...}';
@@ -331,6 +428,14 @@ export class CommandInterpreterNode extends Node {
 
 	// ----- built-in verb table (1:1 with PHP $C) ----------------------------
 
+	/**
+	 * A fresh copy of the built-in verb table, aliases included.
+	 *
+	 * Each handler takes `( self, args, envelope )`, so a static verb reads the
+	 * interpreter it was called on rather than a captured instance.
+	 *
+	 * @return {Object<string,Function>} Verb name to handler.
+	 */
 	static _defaultCommands() {
 		return {
 			make_node: ( self, args ) => self._cmdMakeNode( args ),
@@ -427,7 +532,14 @@ export class CommandInterpreterNode extends Node {
 		};
 	}
 
-	// `reply_to <path> <cmd>` — run <cmd> here but route its reply to <path>.
+	/**
+	 * `reply_to <path> <cmd>` — run <cmd> here but route its reply to <path>,
+	 * the inverse of command_node. The synthetic command carries FROM=<path>,
+	 * and TO=FROM replies do the rest.
+	 *
+	 * @param {string[]} args Verb tokens: reply path, verb, then the verb's args.
+	 * @return {string} '' when it ran, or the usage / refusal line.
+	 */
 	_cmdReplyTo( args ) {
 		const path = args[ 0 ] ?? '';
 		const verb = args[ 1 ] ?? '';
@@ -447,7 +559,13 @@ export class CommandInterpreterNode extends Node {
 		return '';
 	}
 
-	// `pwd` to ` <cwd> -> <envelope.from>`.
+	/**
+	 * `pwd` — the current path and the path a reply would travel back along.
+	 *
+	 * @param {string[]} args     Verb tokens; the first replaces the '/' default.
+	 * @param {Array}    envelope The inbound message, read for its FROM.
+	 * @return {string} ` <cwd> -> <from>`.
+	 */
 	static _cmdPwd( args, envelope ) {
 		const path = args[ 0 ] ?? '';
 		const cwd = '' === path ? '/' : path;
@@ -455,6 +573,13 @@ export class CommandInterpreterNode extends Node {
 		return ` ${ cwd } -> ${ from }`;
 	}
 
+	/**
+	 * `set_sink <node> <target>` — wire a node's physical next hop.
+	 *
+	 * @param {string[]} args     Verb tokens: source name, then sink name.
+	 * @param {Object}   registry Name table both nodes must live in.
+	 * @return {string} 'ok', or the usage / unknown-node line.
+	 */
 	static _cmdSetSink( args, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
@@ -471,6 +596,14 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
+	/**
+	 * `connect_node <node> [<target>]` — set the logical TO path a node stamps.
+	 *
+	 * @param {string[]}     args       Verb tokens: node name, then target path.
+	 * @param {Object}       registry   Name table the node lives in.
+	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
+	 * @return {string} 'ok', or the usage / unknown-node line.
+	 */
 	static _cmdConnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
@@ -494,6 +627,17 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
+	/**
+	 * `disconnect_node <node> [<target>]` — drop a target from a node.
+	 *
+	 * Omitting the target clears a single-target node, or removes the issuing
+	 * FROM from a fan-out node's list.
+	 *
+	 * @param {string[]}     args       Verb tokens: node name, then target path.
+	 * @param {Object}       registry   Name table the node lives in.
+	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
+	 * @return {string} 'ok', or the usage / unknown-node line.
+	 */
 	static _cmdDisconnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
@@ -524,7 +668,18 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// register: arg order src/tgt/event, but Node.register takes event first.
+	/**
+	 * `register <source> <target> <event>` — subscribe a node to another node's
+	 * event. The verb's argument order is source-first; Node.register() takes
+	 * the event first, so the two are not the same order.
+	 *
+	 * The target is validated in the registry notify() resolves against, not
+	 * this one, or the listener would drop silently at delivery time.
+	 *
+	 * @param {string[]} args     Verb tokens: source, target, then event name.
+	 * @param {Object}   registry Name table the source lives in.
+	 * @return {string} 'ok', or the usage / unknown-node line.
+	 */
 	static _cmdRegister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
@@ -547,7 +702,16 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// unregister: drop tgt's registration on src; no target-existence check.
+	/**
+	 * `unregister <source> <target> <event>` — drop a listener from a node.
+	 *
+	 * The target is not checked for existence: dropping the registration of a
+	 * node that is already gone is exactly the case worth supporting.
+	 *
+	 * @param {string[]} args     Verb tokens: source, target, then event name.
+	 * @param {Object}   registry Name table the source lives in.
+	 * @return {string} 'ok', or the usage / unknown-node line.
+	 */
 	static _cmdUnregister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
@@ -566,7 +730,13 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// `move_node <old> <new>` — Node's name setter re-keys and guards.
+	/**
+	 * `move_node <old> <new>` — rename a node in place. Node's name setter
+	 * re-keys the registry and rejects a collision, so this only resolves.
+	 *
+	 * @param {string[]} args Verb tokens: current name, then new name.
+	 * @return {string} 'ok', or the usage line.
+	 */
 	_cmdMove( args ) {
 		const [ name, newName ] = args;
 		if ( ! name || ! newName ) {
@@ -580,7 +750,14 @@ export class CommandInterpreterNode extends Node {
 		return 'ok';
 	}
 
-	// `remove_node <name>...` or `remove_node -a <regex>`.
+	/**
+	 * `remove_node <name>...` or `remove_node -a <regex>` — full teardown of
+	 * each named node. An unnamed node is skipped; one that cannot be found is
+	 * reported without stopping the rest.
+	 *
+	 * @param {string[]} args Node names, or `-a` and an anchored regex glob.
+	 * @return {string} A line per removal and per failure; 'ok' or 'no matches' when there are none.
+	 */
 	_cmdRemove( args ) {
 		if ( 0 === args.length ) {
 			return 'usage: remove_node <node name>';
@@ -640,7 +817,17 @@ export class CommandInterpreterNode extends Node {
 		return '' === out ? 'ok' : out;
 	}
 
-	// `list_nodes`/`ls`: none=siblings, `-a [glob]`=all, `<name>`=its kids.
+	/**
+	 * `list_nodes` / `ls` — bare lists this interpreter's own children,
+	 * `-a [<glob>]` lists every node, and a name lists the nodes sunk to it.
+	 *
+	 * A KEY of 'completion' forces bare names over the whole table and ignores
+	 * the column flags, which is what `cd <tab>` needs to see `_`-nodes.
+	 *
+	 * @param {string[]}     args  Verb tokens: `-aclst` flags and name globs.
+	 * @param {Array|Object} [env] Inbound message; its KEY selects completion mode.
+	 * @return {string} Bare names, or the aligned table once a flag adds a column.
+	 */
 	_cmdList( args, env = {} ) {
 		// Completion mode: bare node names only, ignoring -clst column flags.
 		const isCompletion = env && env[ KEY ] === 'completion';
@@ -779,12 +966,25 @@ export class CommandInterpreterNode extends Node {
 		return CommandInterpreterNode._tabulate( dirs, header, rows );
 	}
 
+	/**
+	 * `dmesg` — the bounded stderr tail Core keeps for this process.
+	 *
+	 * @return {string} The recent log lines, each already newline-terminated.
+	 */
 	static _cmdDmesg() {
 		const recent = Core.recentLog;
 		return Array.isArray( recent ) ? recent.join( '' ) : '';
 	}
 
-	// dump_node <name> [<keys>]: class header + pretty-JSON of state.
+	/**
+	 * `dump_node <name> [<keys>]` — the class as a header line, then the node's
+	 * state as pretty JSON. Keys are sorted so the output stays stable across
+	 * nodes with different ancestries; naming keys narrows the body to those.
+	 *
+	 * @param {string[]} args     Verb tokens: node name, then the keys to keep.
+	 * @param {Object}   registry Name table the node lives in.
+	 * @return {string} The dump, or the can't-find line.
+	 */
 	static _cmdDumpNode( args, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
@@ -826,7 +1026,17 @@ export class CommandInterpreterNode extends Node {
 		return `${ klass } ${ JSON.stringify( body, null, 4 ) }`;
 	}
 
-	// dump_config — round-trippable make_node/set_sink/connect_node lines.
+	/**
+	 * `dump_config [<glob>]` — every node as round-trippable make_node /
+	 * set_sink / connect_node lines.
+	 *
+	 * The backbone is skipped, and so is anything a patron manages: replaying
+	 * the patron's own line recreates its sidecars.
+	 *
+	 * @param {string} glob     Regex filter on node names; '' emits all, and a bad pattern emits none.
+	 * @param {Object} registry Name table to walk.
+	 * @return {string} The config lines.
+	 */
 	static _cmdDumpConfig( glob = '', registry ) {
 		const pattern = ( glob || '' ).trim();
 		let re = null;
@@ -858,12 +1068,23 @@ export class CommandInterpreterNode extends Node {
 		return out;
 	}
 
-	// dump_metadata [<node>] — per-node stats snapshot; bare = the full map.
+	/**
+	 * `dump_metadata [<node>]` — the per-node snapshot the dashboards read.
+	 *
+	 * @param {string} args     A single node name to narrow to; '' is the full map.
+	 * @param {Object} registry Name table to walk.
+	 * @return {Object} Metadata keyed by node name.
+	 */
 	static _cmdDumpMetadata( args, registry ) {
 		return dumpMetadataPayload( String( args ?? '' ).trim(), registry );
 	}
 
-	// stats [-a] [<regex>] — tabular per-node counters.
+	/**
+	 * `stats [-a] [<regex>]` — per-node counters as an aligned table.
+	 *
+	 * @param {string[]} args Verb tokens: `-a` and a regex for every match, else a sink name.
+	 * @return {string} The rendered table.
+	 */
 	_cmdStats( args ) {
 		let listMatches = false;
 		const argv = [];
@@ -911,7 +1132,15 @@ export class CommandInterpreterNode extends Node {
 		return CommandInterpreterNode._tabulate( dirs, header, rows );
 	}
 
-	// trace [<node> [<level>]] — toggle/set a node's debug_state level.
+	/**
+	 * `trace [<node> [<level>]]` — toggle or set a debug_state level.
+	 *
+	 * No argument toggles this interpreter; a bare number sets it; `*` applies
+	 * one level to every node in the table.
+	 *
+	 * @param {string[]} args Verb tokens: node name, `*`, or a level.
+	 * @return {string} The resulting state line.
+	 */
 	_cmdTrace( args ) {
 		const parts = args;
 		const first = parts[ 0 ] ?? '';
@@ -959,7 +1188,17 @@ export class CommandInterpreterNode extends Node {
 		return `${ first } debug_state: ${ next }`;
 	}
 
-	// help — no args tabulates command names; a topic returns its help.
+	/**
+	 * `help [<topic>]` — bare tabulates every command name; a topic returns its
+	 * help text, or, for a node type, its schema rendered as documentation.
+	 *
+	 * A KEY of 'completion' returns bare verb names from the dispatch table
+	 * rather than the help topics, so aliases are offered too.
+	 *
+	 * @param {string[]}     args  Verb tokens: the topic to look up.
+	 * @param {Array|Object} [env] Inbound message; its KEY selects completion mode.
+	 * @return {string} The help text, or the no-such-topic line.
+	 */
 	static _cmdHelp( args, env = {} ) {
 		// Completion: bare sorted verb names, newline-separated, no help text.
 		if ( env && env[ KEY ] === 'completion' ) {
@@ -1012,7 +1251,14 @@ export class CommandInterpreterNode extends Node {
 		return `no such topic: "${ topic }"`;
 	}
 
-	// Render nodeSchema() with the same sections and alignment as PHP help.
+	/**
+	 * Render a node type's schema as a help block, with the same sections and
+	 * alignment as PHP's help. A section with no entries is omitted entirely.
+	 *
+	 * @param {string} type   Shell class name being documented.
+	 * @param {Object} schema The type's nodeSchema() return value.
+	 * @return {string} The help block.
+	 */
 	static _renderNodeSchema( type, schema ) {
 		const category =
 			null !== schema.category && undefined !== schema.category
@@ -1126,10 +1372,24 @@ export class CommandInterpreterNode extends Node {
 		return out.join( '\n' );
 	}
 
+	/**
+	 * One list-valued schema section, copied. A section that is missing or not
+	 * an array reads as empty, so a partial schema still renders.
+	 *
+	 * @param {Object} schema The node schema.
+	 * @param {string} key    Section name, e.g. 'arguments'.
+	 * @return {Array} The section's entries.
+	 */
 	static _schemaList( schema, key ) {
 		return Array.isArray( schema[ key ] ) ? [ ...schema[ key ] ] : [];
 	}
 
+	/**
+	 * Render a schema argument's declared default for the help table.
+	 *
+	 * @param {*} value The declared default.
+	 * @return {string} Its printable form.
+	 */
 	static _renderDefault( value ) {
 		if ( 'boolean' === typeof value ) {
 			return value ? 'true' : 'false';
@@ -1140,6 +1400,14 @@ export class CommandInterpreterNode extends Node {
 		return CommandInterpreterNode._schemaText( value );
 	}
 
+	/**
+	 * Coerce a schema field to display text. Anything with no useful string
+	 * form — object, function, symbol, null — renders empty rather than as
+	 * '[object Object]'.
+	 *
+	 * @param {*} value The schema field.
+	 * @return {string} The text.
+	 */
 	static _schemaText( value ) {
 		if ( 'boolean' === typeof value ) {
 			return value ? '1' : '';
@@ -1208,7 +1476,14 @@ export class CommandInterpreterNode extends Node {
 		return out.replace( /\n+$/, '' );
 	}
 
-	// `list_timers` — active timers; MODE = own-slot vs router-hitchhike.
+	/**
+	 * `list_timers [-s]` — every Timer node in the table. MODE tells an own
+	 * event-framework slot apart from a router hitchhike.
+	 *
+	 * @param {boolean} [structured] Return the rows themselves, for a view that sorts them.
+	 * @param {Object}  [registry]   Name table to walk; Core's by default.
+	 * @return {string|Array<Object>} The table, or the rows when structured.
+	 */
 	static _cmdListTimers( structured = false, registry = Core.registry ) {
 		if ( structured ) {
 			return CommandInterpreterNode._timerRows( registry );
@@ -1240,7 +1515,14 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// `list_handles` — nodes holding an EventSource; STATE = its readyState.
+	/**
+	 * `list_handles [-s]` — the nodes holding an EventSource. STATE is that
+	 * source's readyState, which is how a stuck stream shows itself.
+	 *
+	 * @param {boolean} [structured] Return the rows themselves, for a view that sorts them.
+	 * @param {Object}  [registry]   Name table to walk; Core's by default.
+	 * @return {string|Array<Object>} The table, or the rows when structured.
+	 */
 	static _cmdListHandles( structured = false, registry = Core.registry ) {
 		if ( structured ) {
 			return CommandInterpreterNode._handleRows( registry );
@@ -1261,9 +1543,15 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// @longform
-	// The seven facts list_profiles prints, from one raw record. Text and -s
-	// render THIS one derivation, so the two can never disagree.
+	/**
+	 * The seven facts `list_profiles` prints, derived from one raw record. The
+	 * text table and `-s` both render THIS derivation, so the two can never
+	 * disagree about what a row means.
+	 *
+	 * @param {ProfileInfo} info One node's raw profile record.
+	 * @param {number}      now  Clock reading `age` is measured back from.
+	 * @return {ProfileStats} The derived stats.
+	 */
 	static _profileStats( info, now ) {
 		const window = info.timestamp - info.oldest;
 		return {
@@ -1278,7 +1566,13 @@ export class CommandInterpreterNode extends Node {
 		};
 	}
 
-	// --total--: summed time/count, widest timestamp..oldest span.
+	/**
+	 * The `--total--` record: summed time and count over the widest
+	 * timestamp..oldest span any of the records covers.
+	 *
+	 * @param {ProfileInfo[]} infos The matched raw records.
+	 * @return {ProfileInfo} A synthetic record standing for all of them.
+	 */
 	static _profileTotal( infos ) {
 		let time = 0;
 		let count = 0;
@@ -1300,7 +1594,13 @@ export class CommandInterpreterNode extends Node {
 		};
 	}
 
-	// Keyed TimerNode rows for list_timers; next_ms is null.
+	/**
+	 * Keyed rows for `list_timers`, one per Timer node; `next_ms` is always
+	 * null, since nothing here records when a timer next fires.
+	 *
+	 * @param {Object} [registry] Name table to walk; Core's by default.
+	 * @return {Array<Object>} The rows.
+	 */
 	static _timerRows( registry = Core.registry ) {
 		const rows = [];
 		for ( const [ name, node ] of registry.nodes ) {
@@ -1322,7 +1622,13 @@ export class CommandInterpreterNode extends Node {
 		return rows;
 	}
 
-	// Keyed handle rows for list_handles; id = readyState.
+	/**
+	 * Keyed rows for `list_handles`, one per node holding an EventSource; `id`
+	 * carries that source's readyState as its label.
+	 *
+	 * @param {Object} [registry] Name table to walk; Core's by default.
+	 * @return {Array<Object>} The rows.
+	 */
 	static _handleRows( registry = Core.registry ) {
 		const states = [ 'CONNECTING', 'OPEN', 'CLOSED' ];
 		const rows = [];
@@ -1379,7 +1685,16 @@ export class CommandInterpreterNode extends Node {
 		return want ? 'profiling enabled\n' : 'profiling disabled\n';
 	}
 
-	// list_profiles [glob] — per-node self-time, slowest avg first, --total--.
+	/**
+	 * `list_profiles [-s] [<glob>]` — the per-node self-time table, slowest
+	 * average first, closed by a `--total--` row. The glob `total` shows only
+	 * that row, over every profile.
+	 *
+	 * @param {string}  glob         Regex filter on node names; '' matches every profile.
+	 * @param {boolean} [structured] Return the rows themselves, `--total--` included.
+	 * @param {Object}  [registry]   Name table that must own `_router`.
+	 * @return {string|Array<Object>} The table, or the rows when structured.
+	 */
 	static _cmdListProfiles(
 		glob,
 		structured = false,
@@ -1409,7 +1724,13 @@ export class CommandInterpreterNode extends Node {
 			'total' === glob
 				? []
 				: matched
-						.map( ( [ key, info ] ) => [ key, stats( info ) ] )
+						.map(
+							( [ key, info ] ) =>
+								/** @type {[string, ProfileStats]} */ ( [
+									key,
+									stats( info ),
+								] )
+						)
 						.sort( ( a, b ) => b[ 1 ].avg - a[ 1 ].avg );
 		if ( structured ) {
 			return listed
@@ -1441,7 +1762,13 @@ export class CommandInterpreterNode extends Node {
 		);
 	}
 
-	// One list_profiles row: the shared stats struct, formatted.
+	/**
+	 * One `list_profiles` row: the shared stats struct, formatted.
+	 *
+	 * @param {ProfileStats} r    Derived stats for one profile.
+	 * @param {string}       what The node name, or '--total--'.
+	 * @return {string[]} The row's cells, in header order.
+	 */
 	static _profileRow( r, what ) {
 		return [
 			r.avg.toFixed( 6 ),
@@ -1454,7 +1781,11 @@ export class CommandInterpreterNode extends Node {
 		];
 	}
 
-	// uptime — clock-time + elapsed-since-reset.
+	/**
+	 * `uptime` — the wall clock, plus how long since Core's baseline was set.
+	 *
+	 * @return {string} `HH:MM:SS  up <elapsed>`.
+	 */
 	static _cmdUptime() {
 		const now = Core.now();
 		const init = 'number' === typeof Core.initTime ? Core.initTime : now;
@@ -1465,6 +1796,13 @@ export class CommandInterpreterNode extends Node {
 		) }\n`;
 	}
 
+	/**
+	 * Render an elapsed count the way `uptime` does, coarsening as it grows:
+	 * seconds, then minutes, then hours, then days and a clock.
+	 *
+	 * @param {number} seconds Whole seconds elapsed.
+	 * @return {string} The formatted duration.
+	 */
 	static _formatUptime( seconds ) {
 		const pad = ( n ) => String( n ).padStart( 2, '0' );
 		if ( seconds < 60 ) {
@@ -1485,6 +1823,17 @@ export class CommandInterpreterNode extends Node {
 		return `${ d }d ${ clock }`;
 	}
 
+	/**
+	 * Resolve a shell class name to its Node class — the flat-table stand-in
+	 * for Tachikoma's `@INC` require.
+	 *
+	 * The own-property check keeps an inherited name such as `constructor` from
+	 * resolving, and anything that is not Node or a Node subclass is refused
+	 * rather than constructed.
+	 *
+	 * @param {string} type Shell class name, as `make_node` spells it.
+	 * @return {?NodeClass} The class, or null when nothing valid is registered.
+	 */
 	static resolveClass( type ) {
 		if (
 			! Object.prototype.hasOwnProperty.call(
@@ -1504,6 +1853,12 @@ export class CommandInterpreterNode extends Node {
 		return NodeClass;
 	}
 
+	/**
+	 * Schema for the console palette. Hidden, because an interpreter is placed
+	 * implicitly beside the node it serves rather than dragged onto a canvas.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

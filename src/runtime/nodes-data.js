@@ -3,6 +3,25 @@ import apiFetch from '@wordpress/api-fetch';
 let nonceRefreshPromise = null;
 
 /**
+ * The subset of the PHP-localized payload this module reads and writes. Admin
+ * localizes many more per-screen keys onto the same global; both of these are
+ * absent on a page that enqueued a bundle without them.
+ *
+ * @typedef {Object} NodesLocalizedData
+ * @property {string} [restUrl] REST base the boundary nodes build URLs from.
+ * @property {string} [nonce]   Request-scoped `wp_rest` nonce, replaced in
+ *                              place by `refreshNodesNonce()`.
+ */
+
+/**
+ * `window` carrying the localize payload PHP writes before any bundle runs.
+ *
+ * @typedef {Window & {
+ *     NewspackNodesData?: NodesLocalizedData,
+ * }} NodesDataWindow
+ */
+
+/**
  * nodesData — read the PHP-localized `window.NewspackNodesData` (the REST base +
  * command nonce the SSE/HTTP boundary nodes need) with safe defaults. The nonce
  * is request-scoped, so it lives in this per-page global — NOT in a node's
@@ -11,8 +30,11 @@ let nonceRefreshPromise = null;
  * @return {{ restUrl: string, nonce: string }} The localized data, defaulted.
  */
 export function nodesData() {
+	/** @type {NodesLocalizedData} */
 	const data =
-		( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
+		( typeof window !== 'undefined' &&
+			/** @type {NodesDataWindow} */ ( window ).NewspackNodesData ) ||
+		{};
 	return {
 		restUrl: data.restUrl || '/wp-json/',
 		nonce: data.nonce || '',
@@ -35,7 +57,10 @@ export function refreshNodesNonce() {
 			new Error( 'WordPress REST nonce endpoint is unavailable' )
 		);
 	}
-	if ( 'undefined' === typeof window || ! window.NewspackNodesData ) {
+	if (
+		'undefined' === typeof window ||
+		! ( /** @type {NodesDataWindow} */ ( window ).NewspackNodesData )
+	) {
 		return Promise.reject(
 			new Error( 'NewspackNodesData is unavailable for nonce renewal' )
 		);
@@ -55,7 +80,8 @@ export function refreshNodesNonce() {
 					'WordPress REST nonce renewal returned no nonce'
 				);
 			}
-			window.NewspackNodesData.nonce = nonce;
+			/** @type {NodesDataWindow} */ ( window ).NewspackNodesData.nonce =
+				nonce;
 			if ( apiFetch.nonceMiddleware ) {
 				apiFetch.nonceMiddleware.nonce = nonce;
 			}

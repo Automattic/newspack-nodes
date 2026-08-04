@@ -19,7 +19,10 @@ const HEALTH_RANK = { stalled: 0, behind: 1, ok: 2 };
  * @param {Array} topologies Rows from useTopologyManager (active flag,
  *                           num_partitions, health, optional live status.workers).
  * @return {{ topologyCount: number, activeCount: number, workersUp: number,
- *   workersTotal: number, health: string }} Fleet vitals.
+ *   workersTotal: number, health: string, behindCount: number,
+ *   stalledCount: number }} Fleet vitals. `health` is the worst of the active
+ *   topologies; `behindCount` and `stalledCount` count the active topologies at
+ *   each of those two health levels.
  */
 export function fleetSummary( topologies ) {
 	const list = topologies || [];

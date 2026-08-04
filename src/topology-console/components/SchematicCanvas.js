@@ -215,7 +215,14 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
-// A node is "idle" when its rate is below the display floor — dim it.
+/**
+ * Whether a node reads as idle: its message rate sits below the same display
+ * floor that hides the per-card rate label, so nothing about it is moving.
+ * Live mode dims idle cards; edit mode and hovered-hull members never dim.
+ *
+ * @param {number} [rate] Messages per second for one node; absent until that node has a rate entry.
+ * @return {boolean} True when the card should be dimmed as idle.
+ */
 export function isIdleRate( rate ) {
 	return ! rate || rate < 0.05;
 }
@@ -234,6 +241,34 @@ function formatNodeRate( rate ) {
 	return `${ rate.toFixed( 2 ) } /s`;
 }
 
+/**
+ * The drafting-room canvas: one raw `<svg>` holding the grid, the include
+ * hulls, the edges, and a card per node. It owns every canvas gesture — pan,
+ * cursor-anchored wheel zoom, arrow-key pan, node drag, hull drag, and the
+ * port-to-port wire drag — plus viewport autofit, viewport culling, and the
+ * level-of-detail drop to bare rects when cards zoom below readable size.
+ * Layout (positions, viewport) comes from LayoutContext, not from props.
+ *
+ * @param {Object}       props
+ * @param {Object}       props.parsed         Graph to draw: `{ nodes, edges }`. Only nodes carrying a position override are rendered.
+ * @param {?string}      props.selectedId     Id of the selected node, or null.
+ * @param {Function}     props.onSelect       (id) — a card was clicked without dragging.
+ * @param {Function}     props.onDeselect     () — the background was clicked while something was selected.
+ * @param {?string}      props.hoveredId      Id of the hovered node; lifted so the Inspector drives the same highlight.
+ * @param {Function}     props.onHover        (id|null) — the pointer entered or left a card.
+ * @param {Object}       props.rateRef        `useGraphRates` ref; `.current` maps node id → `{ rate, history, … }`. Omitted in edit mode, which paints no rates.
+ * @param {?Object}      props.viewportDelta  Stored `{ dcx, dcy, zoom }` offset from autofit, applied once the first autofit is known.
+ * @param {Function}     props.onConnect      (fromId, toId) — a wire was dropped on an IN port. Omitted disables wire drags.
+ * @param {boolean}      [props.interactive]  Gate for every gesture (default true).
+ * @param {boolean}      [props.editMode]     Draft-only affordances: edge hit-targets and the wire-source port styling (default false).
+ * @param {?Object}      [props.selectedEdge] The selected edge as `{ from, to }`, or null.
+ * @param {Function}     [props.onSelectEdge] ({ from, to }) — an edge hit-target was clicked (edit mode only).
+ * @param {?Set<string>} [props.driftIds]     Node ids live in the worker but absent from the .tsl; painted `is-drift`. null = no drift info.
+ * @param {Array}        [props.hulls]        One soft hull per include, at any depth: `{ include, nodeIds, depth }[]`.
+ * @param {?string}      [props.selectedHull] Include name of the selected hull, or null.
+ * @param {Function}     [props.onSelectHull] (include) — a hull was pressed.
+ * @return {import('react').ReactElement} The canvas `<svg>`.
+ */
 export default function SchematicCanvas( {
 	parsed,
 	selectedId,
@@ -242,7 +277,6 @@ export default function SchematicCanvas( {
 	hoveredId,
 	onHover,
 	rateRef,
-	// (parent bumps a changing prop to force a re-render; not read here)
 	viewportDelta,
 	// interactive gates gestures; editMode gates only draft-only affordances.
 	onConnect,
@@ -445,8 +479,9 @@ export default function SchematicCanvas( {
 			}
 			// Window listeners (not SVG capture): survive Safari post-drop.
 			const onMove = ( me ) => handleWindowWireMove( me );
-			const onUp = ( me ) => {
-				handleWindowWireUp( me );
+			// The drop target rides wireDragRef; mouseup carries nothing new.
+			const onUp = () => {
+				handleWindowWireUp();
 				window.removeEventListener( 'mousemove', onMove );
 				window.removeEventListener( 'mouseup', onUp );
 			};

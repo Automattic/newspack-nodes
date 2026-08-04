@@ -1,3 +1,6 @@
+// The TopicProbe sweep interval, and so the narrowest useful bucket.
+const BUCKET_BASE_S = 15;
+
 /**
  * buildAlignedSeries — turn `topicChartSeries` output into the draw-ready model
  * for the d3 Topics charts: rank topics by peak, then snap every topic onto ONE
@@ -32,8 +35,6 @@
  * @return {{ series: Array<{label:string, values:Array<{date:Date,value:number}>}>, dates: Date[] }}
  *   Ranked, grid-aligned topics plus the shared date axis (each date is the bucket instant).
  */
-const BUCKET_BASE_S = 15;
-
 export function buildAlignedSeries(
 	series,
 	maxPoints,

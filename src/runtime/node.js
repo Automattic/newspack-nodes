@@ -21,9 +21,50 @@ import {
 } from './message';
 import names from './reserved-node-names.json';
 
+/**
+ * One positional argument a node declares in its `nodeSchema()`.
+ *
+ * @typedef {Object} ArgumentSpec
+ * @property {string}  name       Node property the token is assigned to.
+ * @property {string}  [type]     `int`, `float`, `bool`; anything else is a string.
+ * @property {*}       [default]  Value used when a later position went unfilled.
+ * @property {boolean} [required] Throw when no token reaches this position.
+ */
+
+/**
+ * What a subclass's static `nodeSchema()` returns, as far as this file reads it.
+ *
+ * @typedef {Object} NodeSchemaRecord
+ * @property {ArgumentSpec[]} [arguments]     Positional argument specs, in order.
+ * @property {string[]}       [registrations] Events `register()` will accept.
+ */
+
+/**
+ * The static hook a subclass may declare. It belongs to the subclass, never to
+ * `Node`, so the base reads it off `this.constructor` optionally.
+ *
+ * @typedef {Object} SchemaHook
+ * @property {function(): NodeSchemaRecord} [nodeSchema] The subclass's schema.
+ */
+
+/** @typedef {typeof Node & SchemaHook} NodeClass */
+
+/**
+ * The name a stub carries: a node standing in for a class this runtime cannot
+ * construct declares the class it STANDS FOR.
+ *
+ * @typedef {Object} ShellNamed
+ * @property {string} [shellName] Class name TSL uses in the ctor's place.
+ */
+
+/** Longest FROM path `stampMessage()` builds before it drops the message. */
 export const MAX_FROM_SIZE = 1024;
 
-// Human-readable type labels for the dropMessage audit (PHP type_names).
+/**
+ * Human-readable type labels for the dropMessage audit (PHP type_names).
+ *
+ * @type {Array<[number, string]>}
+ */
 const TYPE_NAMES = [
 	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
 	[ TM_EOF, 'TM_EOF' ],
@@ -40,10 +81,39 @@ const TYPE_NAMES = [
 // Types whose VALUE is included in the dropMessage audit line.
 const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
 
+/**
+ * The base contract every runtime node honors: `fill( message )`.
+ *
+ * A node connects two ways — `sink`, the node reference `fill()` forwards to,
+ * and `target`, the path stamped into `message[ TO ]` when TO is empty. The
+ * rest of this class is the machinery every subclass inherits: the
+ * registration/notify table, FROM stamping, rate-limited logging, and the
+ * `dump_config` / `dump_node` serialization.
+ */
 export class Node {
+	/**
+	 * The sink `make_node` wired, so `dump_config` can tell an implicit sink
+	 * from a stated one. Bookkeeping; `dumpNode` hides it.
+	 *
+	 * @type {?Object}
+	 */
+	_defaultSink = undefined;
+
+	/**
+	 * Builds the empty node: no sink, no target, zeroed stats, and the
+	 * registration allow-list seeded from the subclass `nodeSchema()`.
+	 */
 	constructor() {
 		this._name = '';
 		this.sink = null;
+		/**
+		 * Where this node routes: one path, or many on a fan-out node. The
+		 * base itself reads both shapes — `dumpConfig` branches on
+		 * `Array.isArray`, `fill` guards with `typeof` — so a subclass
+		 * assigning an array is honouring the contract, not breaking it.
+		 *
+		 * @type {string|string[]}
+		 */
 		this.target = '';
 		this._counter = 0;
 		this._bytesRead = 0;
@@ -69,10 +139,23 @@ export class Node {
 		return this._arguments ?? [];
 	}
 
+	/**
+	 * Store the token list verbatim. Anything but an array clears it, so a
+	 * caller that hands over a raw line gets no arguments rather than one
+	 * argument that is the whole line.
+	 *
+	 * @param {string[]} value Argument tokens as the shell tokenized them.
+	 */
 	set arguments( value ) {
 		this._arguments = Array.isArray( value ) ? value : [];
 	}
 
+	/**
+	 * Forward a message to the wired sink, addressing it to this node's
+	 * `target` when the message carries no TO of its own.
+	 *
+	 * @param {Array} message The 7-field positional message, mutated in place.
+	 */
 	fill( message ) {
 		if ( ! this.sink ) {
 			throw new Error( 'fill requires a wired sink' );
@@ -95,7 +178,8 @@ export class Node {
 	 * rejects anything not seeded here.
 	 */
 	seedRegistrations() {
-		const events = this.constructor.nodeSchema?.().registrations ?? [];
+		const ctor = /** @type {NodeClass} */ ( this.constructor );
+		const events = ctor.nodeSchema?.().registrations ?? [];
 		for ( const event of events ) {
 			this.registrations[ event ] = {};
 		}
@@ -124,11 +208,25 @@ export class Node {
 		}
 	}
 
+	/**
+	 * Notify `event` and cache the payload, so a listener registering later
+	 * receives the current state instead of waiting for the next change.
+	 *
+	 * @param {string} event   Pre-declared event name on this node.
+	 * @param {*}      payload Current state; rides as the TM_INFO VALUE.
+	 */
 	setState( event, payload = null ) {
 		this.setStateCache[ event ] = payload;
 		this.notify( event, payload );
 	}
 
+	/**
+	 * Deliver `payload` to every listener on `event`. A listener that answers
+	 * false is dropped — that is how a stale registration retires itself.
+	 *
+	 * @param {string} event   Event name; an unseeded event notifies nobody.
+	 * @param {*}      payload Closure argument, or the TM_INFO VALUE.
+	 */
 	notify( event, payload = null ) {
 		const listeners = this.registrations[ event ];
 		if ( ! listeners ) {
@@ -142,6 +240,16 @@ export class Node {
 		}
 	}
 
+	/**
+	 * Deliver one notification: to the registered closure, or — in node-name
+	 * mode — as a TM_INFO message straight to the named node.
+	 *
+	 * @param {string} event    Event name.
+	 * @param {string} listener Listener id; a node name in node-name mode.
+	 * @param {*}      payload  Closure argument, or the TM_INFO VALUE.
+	 * @return {*} False when the listener should be dropped: the named node is
+	 *             gone, or the closure said so.
+	 */
 	_notifyRegistered( event, listener, payload ) {
 		const cb = this.registrations[ event ]?.[ listener ];
 		if ( 'function' === typeof cb ) {
@@ -165,6 +273,14 @@ export class Node {
 		return true;
 	}
 
+	/**
+	 * Prepend `name` to the message's FROM path — the breadcrumb trail a
+	 * TO=FROM reply walks back.
+	 *
+	 * @param {Array}  message The 7-field positional message, mutated on success.
+	 * @param {string} name    Name to prepend; empty is a programming error.
+	 * @return {boolean} False when the message was dropped instead of stamped.
+	 */
 	stampMessage( message, name ) {
 		if ( '' === name ) {
 			// Programming error — unlikely to spam, won't recover.
@@ -186,7 +302,12 @@ export class Node {
 		return true;
 	}
 
-	// Drop a message with a rate-limited audit line (PHP Node::drop_message).
+	/**
+	 * Drop a message with a rate-limited audit line (PHP Node::drop_message).
+	 *
+	 * @param {Array}  message The 7-field positional message being discarded.
+	 * @param {string} error   Reason; `NOT_AVAILABLE` prints without a WARNING.
+	 */
 	dropMessage( message, error ) {
 		const type = message[ TYPE ];
 		const labels = [];
@@ -221,7 +342,13 @@ export class Node {
 		this.printLessOften( line );
 	}
 
-	// Emit a stderr line tagged with this node's midfix, via Core's stderr.
+	/**
+	 * Emit a stderr line tagged with this node's midfix, via Core's stderr.
+	 *
+	 * @param {?string} text Line to emit; one that already opens with a date
+	 *                       is passed through untouched, nothing at all when
+	 *                       empty or nullish.
+	 */
 	stderr( text ) {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
@@ -233,12 +360,24 @@ export class Node {
 		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
 	}
 
-	// Node-keyed rate-limited logging (per-node via log_midfix).
+	/**
+	 * Node-keyed rate-limited logging (per-node via log_midfix).
+	 *
+	 * @param {string} text Line to log; Core collapses the repeats.
+	 */
 	printLessOften( text ) {
 		Core.printLessOften( this.log_midfix( text ) );
 	}
 
-	// Per-node mid-line tag (Node::log_midfix): `{name}: ` on each line.
+	/**
+	 * Per-node mid-line tag (Node::log_midfix): `{name}: ` on each line.
+	 *
+	 * The tag is dropped when the process is already named after this node,
+	 * which would otherwise say the name twice on every line.
+	 *
+	 * @param {?string} msg Message to tag; nullish returns the bare midfix.
+	 * @return {string} Every line of `msg` tagged, or the midfix alone.
+	 */
 	log_midfix( msg = null ) {
 		let midfix = '';
 		if (
@@ -254,6 +393,58 @@ export class Node {
 		}
 		const chomped = msg.replace( /\n+$/, '' );
 		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
+	}
+
+	/**
+	 * Emit round-trippable config: make_node + set_sink? + connect_node lines.
+	 *
+	 * @return {string} TSL that rebuilds this node, each line newline-terminated.
+	 */
+	dumpConfig() {
+		let out = `make_node ${ this.shellClassName() } ${ this.name }`;
+		if ( this.arguments.length ) {
+			out += ` ${ serializeArgs( this.arguments ) }`;
+		}
+		out += '\n';
+
+		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
+		// Only the sink make_node wired is implicit; another must be stated.
+		const implicit =
+			names.COMMAND_INTERPRETER === sinkName ||
+			( undefined !== this._defaultSink &&
+				this.sink === this._defaultSink );
+		if ( '' !== sinkName && ! implicit ) {
+			out += `set_sink ${ this.name } ${ sinkName }\n`;
+		}
+
+		if ( Array.isArray( this.target ) ) {
+			for ( const owner of this.target ) {
+				if ( owner ) {
+					out += `connect_node ${ this.name } ${ owner }\n`;
+				}
+			}
+		} else if ( 'string' === typeof this.target && '' !== this.target ) {
+			out += `connect_node ${ this.name } ${ this.target }\n`;
+		}
+
+		return out;
+	}
+
+	/**
+	 * The class name TSL calls this node — what `make_node` would name.
+	 *
+	 * `Node` suffix stripped; a stub declares the class it STANDS FOR, which is
+	 * why this cannot just read the constructor.
+	 *
+	 * @return {string} The shell-facing class name.
+	 */
+	shellClassName() {
+		const node = /** @type {Node & ShellNamed} */ ( this );
+		return (
+			node.shellName ||
+			this.constructor.name.replace( /Node$/, '' ) ||
+			this.constructor.name
+		);
 	}
 
 	/**
@@ -295,32 +486,69 @@ export class Node {
 		return markLocal( m );
 	}
 
-	// Byte/size stats; leaf I/O nodes bump these, composites aggregate.
+	/**
+	 * Messages this node has passed on. Leaf I/O nodes bump the byte/size
+	 * stats; composites aggregate their children's.
+	 *
+	 * @return {number} Messages forwarded since construction.
+	 */
 	get counter() {
 		return this._counter;
 	}
+
+	/**
+	 * @param {number} v Messages forwarded.
+	 */
 	set counter( v ) {
 		this._counter = v;
 	}
+
+	/**
+	 * @return {number} Bytes this node has read off its source.
+	 */
 	get bytesRead() {
 		return this._bytesRead;
 	}
+
+	/**
+	 * @param {number} v Bytes read.
+	 */
 	set bytesRead( v ) {
 		this._bytesRead = v;
 	}
+
+	/**
+	 * @return {number} Bytes this node has written to its destination.
+	 */
 	get bytesWritten() {
 		return this._bytesWritten;
 	}
+
+	/**
+	 * @param {number} v Bytes written.
+	 */
 	set bytesWritten( v ) {
 		this._bytesWritten = v;
 	}
+
+	/**
+	 * @return {number} Size of the largest single message this node has sent.
+	 */
 	get largestMsgSent() {
 		return this._largestMsgSent;
 	}
+
+	/**
+	 * @param {number} v Size of the largest message sent.
+	 */
 	set largestMsgSent( v ) {
 		this._largestMsgSent = v;
 	}
 
+	/**
+	 * @return {string} The name this node is registered under; empty until one
+	 *                  is assigned.
+	 */
 	get name() {
 		return this._name;
 	}
@@ -338,6 +566,12 @@ export class Node {
 		return this._registry ?? Core.registry;
 	}
 
+	/**
+	 * Put this node in another name table, before it has a name.
+	 *
+	 * @param {Object} registry The registry to join; setting it after the name
+	 *                          would leave the node registered elsewhere.
+	 */
 	set registry( registry ) {
 		if ( '' !== this._name ) {
 			throw new Error( 'registry must be set before name' );
@@ -345,6 +579,11 @@ export class Node {
 		this._registry = registry;
 	}
 
+	/**
+	 * Register this node under `name`, or rename it if it already has one.
+	 *
+	 * @param {string} name The new name; it must be free in this registry.
+	 */
 	set name( name ) {
 		const registry = this.registry;
 		const previous = this._name;
@@ -362,14 +601,25 @@ export class Node {
 		registry.registerNode( name, this );
 	}
 
+	/**
+	 * Drop one listener from one event; an unknown pair is a no-op.
+	 *
+	 * @param {string} event    Event name.
+	 * @param {string} listener Listener id given to `register()`.
+	 */
 	unregister( event, listener ) {
 		if ( this.registrations[ event ] ) {
 			delete this.registrations[ event ][ listener ];
 		}
 	}
 
-	// Node-name listeners keyed by event; closures excluded, empty omitted.
+	/**
+	 * Node-name listeners keyed by event; closures excluded, empty omitted.
+	 *
+	 * @return {Object<string, string[]>} Listener node names, per event.
+	 */
 	registeredListeners() {
+		/** @type {Object<string, string[]>} */
 		const out = {};
 		for ( const [ event, listeners ] of Object.entries(
 			this.registrations
@@ -387,64 +637,29 @@ export class Node {
 		return out;
 	}
 
-	// Set the single string target (PHP Node::connect_node); override point.
+	/**
+	 * Set the single string target (PHP Node::connect_node); override point.
+	 *
+	 * @param {string} target Path stamped into TO when a message carries none.
+	 */
 	connectNode( target ) {
 		this.target = target;
 	}
 
-	// Clear target (PHP Node::disconnect_node); Tee overrides to prune one.
+	/**
+	 * Clear target (PHP Node::disconnect_node); Tee overrides to prune one.
+	 *
+	 * @param {string} _target Ignored here — the one target Tee would prune.
+	 */
 	disconnectNode( _target = '' ) {
 		this.target = '';
 	}
 
 	/**
-	 * The class name TSL calls this node — what `make_node` would name.
+	 * Serializable state snapshot for `dump_node`; node refs render as '{...}'.
 	 *
-	 * `Node` suffix stripped; a stub declares the class it STANDS FOR, which is
-	 * why this cannot just read the constructor.
-	 *
-	 * @return {string} The shell-facing class name.
+	 * @return {Object} Field names to their displayable values.
 	 */
-	shellClassName() {
-		return (
-			this.shellName ||
-			this.constructor.name.replace( /Node$/, '' ) ||
-			this.constructor.name
-		);
-	}
-
-	// Emit round-trippable config: make_node + set_sink? + connect_node lines.
-	dumpConfig() {
-		let out = `make_node ${ this.shellClassName() } ${ this.name }`;
-		if ( this.arguments.length ) {
-			out += ` ${ serializeArgs( this.arguments ) }`;
-		}
-		out += '\n';
-
-		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
-		// Only the sink make_node wired is implicit; another must be stated.
-		const implicit =
-			names.COMMAND_INTERPRETER === sinkName ||
-			( undefined !== this._defaultSink &&
-				this.sink === this._defaultSink );
-		if ( '' !== sinkName && ! implicit ) {
-			out += `set_sink ${ this.name } ${ sinkName }\n`;
-		}
-
-		if ( Array.isArray( this.target ) ) {
-			for ( const owner of this.target ) {
-				if ( owner ) {
-					out += `connect_node ${ this.name } ${ owner }\n`;
-				}
-			}
-		} else if ( 'string' === typeof this.target && '' !== this.target ) {
-			out += `connect_node ${ this.name } ${ this.target }\n`;
-		}
-
-		return out;
-	}
-
-	// Serializable state snapshot for `dump_node`; node refs render as '{...}'.
 	dumpNode() {
 		const snapshot = { class: this.constructor?.name ?? 'Node' };
 		for ( const key of Object.keys( this ) ) {
@@ -480,7 +695,9 @@ export class Node {
 		return snapshot;
 	}
 
-	// Teardown. Order matters: own name LAST (in-flight lookups see null).
+	/**
+	 * Teardown. Order matters: own name LAST (in-flight lookups see null).
+	 */
 	removeNode() {
 		this.registrations = {};
 		this.setStateCache = {};
@@ -554,7 +771,8 @@ function coerceArgument( token, type ) {
  * @param {string[]} args Positional argument tokens (pre-split, quote-resolved).
  */
 export function parseSchemaArgs( node, args ) {
-	const declared = node.constructor.nodeSchema?.().arguments || [];
+	const ctor = /** @type {NodeClass} */ ( node.constructor );
+	const declared = ctor.nodeSchema?.().arguments || [];
 	if ( declared.length === 0 ) {
 		return;
 	}

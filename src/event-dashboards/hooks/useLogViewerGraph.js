@@ -58,9 +58,10 @@ function defaultSourceName( sources ) {
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] transport seam assigned to the link's
  *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
- * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function }}
+ * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
- *   for the picker and segment sidebar; fetchSources refreshes that catalog.
+ *   for the picker and segment sidebar; fetchSources refreshes that catalog,
+ *   and step (paused only) delivers one record from the cursor.
  */
 export function useLogViewerGraph( opts = {} ) {
 	const optsRef = useRef( opts );

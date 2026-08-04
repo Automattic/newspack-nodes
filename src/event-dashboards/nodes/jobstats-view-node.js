@@ -35,11 +35,30 @@ import {
  * @param {number} [ttlMs]      Identity liveness TTL.
  */
 export class JobstatsViewNode extends ProbeStreamViewNode {
+	/**
+	 * Publishes under the `handlers` model key; the rest is the base's machinery.
+	 *
+	 * @param {number} [maxSamples] Per-identity ring cap; base default when omitted.
+	 * @param {number} [ttlMs]      Identity liveness TTL (ms); base default when omitted.
+	 */
 	constructor( maxSamples, ttlMs ) {
 		super( maxSamples, ttlMs );
 		this.modelKey = 'handlers';
 	}
 
+	/**
+	 * Fold one jobstats record into its identity's entry and push a derived sample.
+	 *
+	 * Stores the record's cumulative counters and last-run detail as the entry's
+	 * newest values, then derives — against the prior record — the per-second rates
+	 * the charts plot and the raw positive Δs the table sums. A record older than the
+	 * live window is dropped; an unseen identity gets a fresh entry.
+	 *
+	 * @param {string}               key   Job identity (`handler:id` or `handler`).
+	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
+	 * @param {number}               ts    Snapshot instant (epoch seconds) from TIMESTAMP.
+	 * @return {void}
+	 */
 	_accumulate( key, value, ts ) {
 		if ( this._isExpired( ts ) ) {
 			return;
@@ -123,7 +142,17 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		this._capSeries( c.series );
 	}
 
-	// Rate = that positive Δ over Δts; first sample / no dt yields 0.
+	/**
+	 * Per-second rate: the positive Δ from `_delta` over the elapsed Δts. The first
+	 * sample (no prior) or a zero/negative Δts yields 0, so a chart never spikes on
+	 * the first record or on two records sharing one instant.
+	 *
+	 * @param {number|null} prior   Prior cumulative value (null on first sample).
+	 * @param {number}      current This record's cumulative value.
+	 * @param {number}      dt      Seconds since the prior record; 0 when not advancing.
+	 * @param {boolean}     [reset] Force `_delta`'s reset path (hidden equal-value reset).
+	 * @return {number} Units per second.
+	 */
 	_rate( prior, current, dt, reset = false ) {
 		return null !== prior && dt > 0
 			? this._delta( prior, current, reset ) / dt
@@ -149,6 +178,14 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 			: current - prior;
 	}
 
+	/**
+	 * The published per-identity snapshot: the windowed rollup the table reads, the
+	 * newest record's cumulative counters and last-run detail, and a copy of the
+	 * series the charts plot.
+	 *
+	 * @param {Object} c The internal entry (series plus its `_last*` fold state).
+	 * @return {Object} { key, handler, windowed, latest, series }.
+	 */
 	_entryView( c ) {
 		return {
 			key: c.key,
@@ -204,10 +241,22 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 		};
 	}
 
+	/**
+	 * The per-entry identity the base folds on: a jobstats record's `KEY` slot.
+	 *
+	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
+	 * @return {string|number} Job identity (`handler:id` or `handler`).
+	 */
 	_identityOf( value ) {
 		return value[ KEY ];
 	}
 
+	/**
+	 * Hidden from the node palette: the dashboard wires this sink itself, and it
+	 * takes no arguments and no target.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

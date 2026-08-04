@@ -8,8 +8,21 @@ import * as d3 from 'd3';
 
 // --- Constants ---
 
+/**
+ * Settings the host plugin localizes onto `window` before the bundle runs.
+ * Absent when no host injects them, which is why the retention window below
+ * falls back to 24 hours.
+ *
+ * @typedef {Object} EventLoggerDashboards
+ * @property {number} [retentionSeconds] Log retention window, in seconds.
+ */
+
 export const RETENTION_SECONDS =
-	Number( window.eventLoggerDashboards?.retentionSeconds ) || 86400;
+	Number(
+		/** @type {Window & { eventLoggerDashboards?: EventLoggerDashboards }} */ (
+			window
+		).eventLoggerDashboards?.retentionSeconds
+	) || 86400;
 export const BUCKET_MINUTES = 5;
 export const BUCKET_SECONDS = BUCKET_MINUTES * 60;
 export const BUCKET_MS = BUCKET_SECONDS * 1000;

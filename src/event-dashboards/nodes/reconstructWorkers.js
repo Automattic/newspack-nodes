@@ -60,8 +60,10 @@ const readerIsHandler = ( reader, name ) =>
  * picking only the first would silently drop the other processors' tree rows.
  * A consumer feeding a log directly (no logic node) falls back to its own name.
  *
- * @param {Object} graphTopo `{ nodes:[{name,kind,reads?}], edges:[[from,to]] }`.
- * @return {Array<{name:string,sourceTemplate:string,handlers:string[]}>} One per consumer node.
+ * @param {Object} graphTopo `{ nodes:[{name,kind,reads?,reader?}], edges:[[from,to]] }`.
+ * @return {Array<{name:string,sourceTemplate:string,readerTemplate:string,handlers:string[]}>} One
+ *   per consumer node. `sourceTemplate` is the source-log template, `readerTemplate` the offsetlog
+ *   template that names the reader; both still carry their `<partition>`/`<topology>` tokens.
  */
 function consumerHandlers( graphTopo ) {
 	const nodes = Array.isArray( graphTopo?.nodes ) ? graphTopo.nodes : [];

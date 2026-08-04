@@ -90,7 +90,7 @@ function boundaryEdges( edges, members ) {
  * @param {Array}  props.nodes      The hull's member nodes.
  * @param {number} props.graphSize  Node count of the whole graph.
  * @param {Object} props.rateSeries `{ in, out, read, write }` sample rings.
- * @return {Element} Activity + Throughput for the hull.
+ * @return {import('react').ReactElement} Activity + Throughput for the hull.
  */
 function HullStats( { nodes, graphSize, rateSeries } ) {
 	const { messagesIn, messagesOut, bytesRead, bytesWritten } =
@@ -110,6 +110,22 @@ function HullStats( { nodes, graphSize, rateSeries } ) {
 	);
 }
 
+/**
+ * The panel for a selected hull: what its include provides, which of those nodes
+ * an unrelated include also provides, and the edges crossing the boundary.
+ *
+ * @param {Object}   props
+ * @param {string}   props.include          Topology the hull stands for; titles the panel.
+ * @param {Array}    [props.hulls]          Every hull, `{ include, nodeIds }[]` — scopes this one's members and finds the diamonds.
+ * @param {Object}   [props.parsed]         The WHOLE graph, `{ nodes, edges }`; the hull's members are a subset of it.
+ * @param {Object}   props.rateSeries       `{ in, out, read, write }` sample rings, already scoped to the hull.
+ * @param {boolean}  [props.editMode]       Draft graph: counters don't exist yet, so stats hide and the remove button appears.
+ * @param {Object}   [props.includeTree]    Nested include tree from `topologies expand`; tells containment apart from sharing.
+ * @param {string[]} [props.includes]       Directly-declared includes — only one of those has a line to remove.
+ * @param {Function} [props.onOpenTopology] (name) — drill into the hull's own topology.
+ * @param {Function} [props.onRemoveHull]   (name) — remove the include that brings the hull.
+ * @return {import('react').ReactElement} The hull inspector.
+ */
 export default function HullPanel( {
 	include,
 	hulls = [],

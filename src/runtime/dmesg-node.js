@@ -50,7 +50,18 @@ function countLevels( text ) {
 	return counts;
 }
 
+/**
+ * Self-timed verb poller. It rides the `_router` TIMER, emits its configured
+ * verb as a command to `target`, and publishes the reply as node state: a text
+ * reply becomes `dmesg` level counts, an object or row-list reply becomes
+ * `reply` verbatim. `verb`, `pollArgs`, and `target` are all settable by the
+ * mounting view, so the same class serves `dmesg`, `list_timers`, and
+ * `list_handles`.
+ */
 export class DmesgNode extends TimerNode {
+	/**
+	 * Seed the published states and the default poll (`dmesg`, no arguments).
+	 */
 	constructor() {
 		super();
 		this.registrations.dmesg = {};
@@ -61,6 +72,13 @@ export class DmesgNode extends TimerNode {
 		this.pollArgs = [];
 	}
 
+	/**
+	 * Publish the poll reply. An object payload (an `-s` row list included)
+	 * publishes raw as `reply`; a string payload is tallied by level and
+	 * published as `dmesg`.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
@@ -76,7 +94,10 @@ export class DmesgNode extends TimerNode {
 		this.setState( 'dmesg', countLevels( text ) );
 	}
 
-	// Router TIMER subscriber: emit the configured poll to `this.target`.
+	/**
+	 * Router TIMER subscriber: emit the configured poll to `this.target`. Does
+	 * nothing without a sink.
+	 */
 	fire() {
 		if ( ! this.sink ) {
 			return;
@@ -88,16 +109,30 @@ export class DmesgNode extends TimerNode {
 		}
 	}
 
-	// Poll TM_COMMAND to this.target; FROM=name reply path, LOCAL authorizes.
+	/**
+	 * Build the poll TM_COMMAND for `this.target`; FROM=name is the reply path
+	 * and LOCAL authorizes it.
+	 *
+	 * @param {string}   verb   Command verb to poll (e.g. `dmesg`).
+	 * @param {string[]} [args] Positional argument tokens for the verb.
+	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
+	 */
 	_pollMessage( verb, args = [] ) {
 		return this.command( verb, args );
 	}
 
-	// Hitchhike the Router TIMER and let the base fireCb() throttle to 10s.
+	/**
+	 * Hitchhike the Router TIMER, letting the base `fireCb()` throttle the
+	 * per-second tick down to this node's 10s cadence.
+	 */
 	setTimer() {
 		super.setTimer( POLL_INTERVAL_MS );
 	}
 
+	/**
+	 * Console palette entry — hidden, takes no arguments, and accepts no
+	 * user-routed fill (its only input is its own poll reply).
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

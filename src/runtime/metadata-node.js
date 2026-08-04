@@ -86,12 +86,50 @@ const SCAFFOLDING = new Set( [
 ] );
 
 /**
+ * One canvas node parsed out of a `dump_metadata` entry. Every field up to
+ * `target` is always present (the parser defaults anything the payload omits);
+ * the trailing fields appear only when the source node reported them.
+ *
+ * @typedef  {Object}          MetadataGraphNode
+ * @property {string}          id                    Node name.
+ * @property {number}          count                 Messages the node has handled.
+ * @property {string}          sink                  Name of the physical sink node, '' when unwired.
+ * @property {string}          class                 Shell class name; 'Node' when unreported.
+ * @property {number}          debugState            Trace level; 0 is off.
+ * @property {Array}           arguments             The node's `make_node` argument tokens.
+ * @property {number}          lgstMsg               Largest message sent, in bytes.
+ * @property {number}          bytesRead             Bytes read at this node's I/O boundary.
+ * @property {number}          bytesWritten          Bytes written at this node's I/O boundary.
+ * @property {boolean}         accepts_fill          Whether the canvas draws an input port.
+ * @property {boolean}         has_target            Whether the canvas draws an output port.
+ * @property {boolean}         has_config            Whether a `:config` sidecar node is registered.
+ * @property {string[]}        targets               Full target paths, before head-collapse.
+ * @property {string|string[]} target                Raw target: an array for a Tee fan-out, else a string.
+ * @property {Array}           [frames]              Consumer read surface: offsetlog frames.
+ * @property {Object}          [cursor]              Consumer read cursor.
+ * @property {number}          [deadletter_segments] Dead-letter segment count (Triage badge).
+ * @property {string}          [polling]             Consumer poll state: `INIT`, `ACTIVE`, or `PAUSED`.
+ * @property {?number}         [at_frame]            Frame the cursor sits on; null when unset.
+ * @property {boolean}         [on_frame]            Whether the cursor is parked on a frame.
+ */
+
+/**
+ * A parsed `dump_metadata` payload, ready for the canvas.
+ *
+ * @typedef  {Object}              MetadataGraph
+ * @property {MetadataGraphNode[]} nodes     Every shown node, backbone excluded.
+ * @property {Array}               edges     `{ from, to }` links, plus `registration`/`event` for listener edges.
+ * @property {string}              pwd       Canonical reply path from `_header.pwd`.
+ * @property {boolean}             profiling Whether the router is profiling.
+ */
+
+/**
  * Parse a `dump_metadata` payload (object keyed by node name) into
  * { nodes, edges }. `target` is a string or array (Tee fan-out); the backbone
  * is hidden and everything else is shown.
  *
  * @param {Object|string} payload dump_metadata reply payload.
- * @return {{ nodes: Array, edges: Array }} Canvas-ready graph.
+ * @return {MetadataGraph} Canvas-ready graph.
  */
 export function parseMetadata( payload ) {
 	let raw;
@@ -115,6 +153,7 @@ export function parseMetadata( payload ) {
 	const pwd = canonicalReverseCwd( rawPwd );
 	const profiling = raw._header?.profiling === true;
 
+	/** @type {MetadataGraphNode[]} */
 	const nodes = [];
 	const edges = [];
 	for ( const [ name, meta ] of Object.entries( raw ) ) {
@@ -241,6 +280,10 @@ export function computePollIntervalMs( nodeCount ) {
  * parsed graph for the canvas ( useNodeState( '_metadata', 'metadata' ) ).
  */
 export class MetadataNode extends TimerNode {
+	/**
+	 * Seed the `metadata` publish slot and the self-throttle state: the poll
+	 * cadence starts at 1s and `fire()` rescales it to the graph it receives.
+	 */
 	constructor() {
 		super();
 		this.registrations.metadata = {};
@@ -250,6 +293,15 @@ export class MetadataNode extends TimerNode {
 		this.lastPath = null;
 	}
 
+	/**
+	 * Take the `dump_metadata` poll reply — a bare struct VALUE, a
+	 * `{ name, payload }` command-response envelope, or a JSON string — keep the
+	 * raw name→meta map for later optimistic patches, rescale the poll cadence
+	 * to the graph size, and publish the parsed graph as `metadata`. Anything
+	 * that does not decode to an object is dropped.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
@@ -277,7 +329,12 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parsed );
 	}
 
-	// Router TIMER subscriber; self-throttle: poll on interval or a cwd change.
+	/**
+	 * Router TIMER subscriber. Runs every tick but self-throttles: it polls
+	 * only once `pollIntervalMs` has elapsed, or immediately when the cwd path
+	 * changed, so a directory change repaints without waiting out the interval.
+	 * Does nothing without a sink.
+	 */
 	fire() {
 		if ( ! this.sink ) {
 			return;
@@ -301,12 +358,26 @@ export class MetadataNode extends TimerNode {
 		}
 	}
 
-	// Poll TM_COMMAND to this.target (`_cwd`); FROM=name reply, LOCAL taints.
+	/**
+	 * Build the poll TM_COMMAND for `this.target` (the `_cwd` node); FROM=name
+	 * is the reply path and LOCAL authorizes it.
+	 *
+	 * @param {string}   verb   Command verb to poll (`dump_metadata`).
+	 * @param {string[]} [args] Positional argument tokens for the verb.
+	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
+	 */
 	_pollMessage( verb, args = [] ) {
 		return this.command( verb, args );
 	}
 
-	// Optimistic local edit: patch the raw map + re-publish, no round-trip.
+	/**
+	 * Optimistic local edit: merge `patch` into one entry of the raw map and
+	 * re-publish, so the canvas reflects a verb before its reply lands. The
+	 * next poll reconciles. Does nothing without a node name.
+	 *
+	 * @param {string}  name  Node name to patch.
+	 * @param {?Object} patch Raw `dump_metadata` fields to merge; null removes the entry.
+	 */
 	optimisticPatch( name, patch ) {
 		if ( ! name ) {
 			return;
@@ -321,7 +392,13 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parseMetadata( map ) );
 	}
 
-	// Fan one patch across every non-header entry in a SINGLE publish.
+	/**
+	 * Fan one patch across every non-header entry in a SINGLE publish — what a
+	 * whole-graph verb such as `trace *` needs, so the canvas repaints once
+	 * instead of once per node.
+	 *
+	 * @param {Object} patch Raw `dump_metadata` fields to merge into every node.
+	 */
 	optimisticPatchAll( patch ) {
 		const map = { ...( this.rawMap || {} ) };
 		for ( const name of Object.keys( map ) ) {
@@ -333,6 +410,10 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parseMetadata( map ) );
 	}
 
+	/**
+	 * Console palette entry — hidden, takes no arguments, and accepts no
+	 * user-routed fill (its only input is its own poll reply).
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

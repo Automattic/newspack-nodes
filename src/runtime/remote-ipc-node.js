@@ -31,10 +31,21 @@ import { RemoteLinkNode } from './remote-link-node';
 import { FROM, TO } from './message';
 import names from './reserved-node-names.json';
 
+/**
+ * One worker's attached command channel. The console mounts it under the
+ * worker's address and `cd /{local-name}` routes commands through it; the
+ * required `reader` argument names the remote worker they ride to. See the file
+ * header above for the send path and the single-live-connection rule.
+ */
 export class RemoteIpcNode extends RemoteLinkNode {
 	// The RemoteIpc holding the live SseIn (one/session; a send swaps it).
 	static active = null;
 
+	/**
+	 * Start unconfigured — `reader` arrives with `arguments`. An attached IPC is
+	 * not a subscription, so received messages keep the worker's TO=FROM
+	 * addressing instead of being re-homed to this node's target.
+	 */
 	constructor() {
 		super();
 		this.reader = '';
@@ -42,10 +53,22 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		this.rehomeReceived = false;
 	}
 
+	/**
+	 * The node's argument tokens — `[ reader ]`, the remote worker address.
+	 *
+	 * @return {string[]} Last-set argument tokens.
+	 */
 	get arguments() {
 		return super.arguments;
 	}
 
+	/**
+	 * Clear the resolved reader before RemoteLink re-parses the tokens, so a
+	 * re-assignment that omits the address leaves this node unconfigured — and
+	 * loudly unusable — rather than still pointed at the previous worker.
+	 *
+	 * @param {string[]} value Positional argument tokens: `[ reader ]`.
+	 */
 	set arguments( value ) {
 		this.reader = '';
 		super.arguments = value;
@@ -94,7 +117,11 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		}
 	}
 
-	// Make this link's SseIn the live stream, replacing the prior holder.
+	/**
+	 * Make this link's SseIn the live stream, closing whichever RemoteIpc held
+	 * it. One stream per session — the console performs this same swap when the
+	 * cwd moves to another worker.
+	 */
 	connect() {
 		this._assertConfigured();
 		const current = RemoteIpcNode.active;
@@ -108,13 +135,24 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		RemoteIpcNode.active = this;
 	}
 
+	/**
+	 * Refuse to touch the wire without a remote worker address. RemoteLink calls
+	 * this before building children or opening the stream, which is why an
+	 * unconfigured RemoteIpc fails at configuration time instead of sending
+	 * commands into an empty address.
+	 *
+	 * @throws {Error} When no `reader` is configured.
+	 */
 	_assertConfigured() {
 		if ( '' === this.reader ) {
 			throw new Error( 'RemoteIpc requires a remote worker reader' );
 		}
 	}
 
-	// Close the composed stream and release the live-connection claim.
+	/**
+	 * Close the composed stream and release this session's live-connection
+	 * claim, so nothing holds the slot until another link connects.
+	 */
 	close() {
 		super.close();
 		if ( RemoteIpcNode.active === this ) {
@@ -142,6 +180,13 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		Node.prototype.removeNode.call( this );
 	}
 
+	/**
+	 * Console-palette entry. Its one required argument is the remote worker
+	 * address; commands arrive by TO routing rather than through a wired
+	 * upstream edge, so the palette offers no fill input.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'I/O',

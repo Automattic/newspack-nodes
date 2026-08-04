@@ -13,11 +13,14 @@ import { draftToGraph } from '../../utils/draftToGraph';
  * @param {Object} extra       Extra panel props.
  */
 function renderInDraft( interpreter, extra = {} ) {
+	// The editor surface, as `useDraftInterpreter` builds it — the panel sees
+	// operations, never the interpreter.
 	const draft = {
-		interpreter,
 		graph: draftToGraph( interpreter ),
 		run: ( line ) => interpreter.run( line ),
 		load: () => {},
+		replaceFrontmatter: ( map ) => interpreter.replaceFrontmatter( map ),
+		clearSecure: () => interpreter.clearSecureLevel(),
 	};
 	render(
 		<DraftProvider draft={ draft }>

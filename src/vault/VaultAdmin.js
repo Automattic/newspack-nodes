@@ -87,9 +87,9 @@ function Modal( { ariaLabel, onClose, children } ) {
 /**
  * Minimal confirm dialog. The confirm button focuses on mount.
  *
- * @param {Object}   props
- * @param {Function} props.onCancel  Dismiss handler.
- * @param {Function} props.onConfirm Confirm handler.
+ * @param {Object}     props
+ * @param {() => void} props.onCancel  Dismisses without removing.
+ * @param {() => void} props.onConfirm Runs the removal.
  * @return {import('react').ReactElement} The modal.
  */
 function ConfirmRemoveModal( { onCancel, onConfirm } ) {
@@ -231,10 +231,10 @@ function ServerRow( { server, onRemove, onTest } ) {
  * The "Add New Server" form — id / url / username / password + submit. Owns the
  * field state + the validation/status line. Rendered inside the add-server modal.
  *
- * @param {Object}   props           Component props.
- * @param {Function} props.onAdd     Add callback (fields) → add promise.
- * @param {Function} props.onSuccess Called after a successful add (closes the modal).
- * @param {Function} props.onCancel  Dismiss handler for the footer Cancel button.
+ * @param {Object}     props           Component props.
+ * @param {Function}   props.onAdd     Add callback (fields) → add promise.
+ * @param {Function}   props.onSuccess Called after a successful add (closes the modal).
+ * @param {() => void} props.onCancel  Dismisses the modal from the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
 function AddServerForm( { onAdd, onSuccess, onCancel } ) {
@@ -441,9 +441,9 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
  * The add-server modal: the heading + the AddServerForm. Closes on a successful
  * add (onSuccess → onClose) or on ESC / backdrop / Cancel.
  *
- * @param {Object}   props         Component props.
- * @param {Function} props.onAdd   Add callback (fields) → add promise.
- * @param {Function} props.onClose Dismiss handler.
+ * @param {Object}     props         Component props.
+ * @param {Function}   props.onAdd   Add callback (fields) → add promise.
+ * @param {() => void} props.onClose Dismisses the modal; also the form's success handler.
  * @return {import('react').ReactElement} The modal.
  */
 function AddServerModal( { onAdd, onClose } ) {
@@ -536,7 +536,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 						) )
 					) : (
 						<tr>
-							<td colSpan="4">
+							<td colSpan={ 4 }>
 								{ __(
 									'No servers configured.',
 									'newspack-nodes'

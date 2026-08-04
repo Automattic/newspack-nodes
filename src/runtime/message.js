@@ -34,15 +34,42 @@ export const TM_NOREPLY = 512;
  */
 export const TM_UNTYPED = 1024;
 
+/**
+ * A fresh 7-field positional message. The slots are heterogeneous — VALUE
+ * carries a string, a struct, or a command object — so the array is untyped
+ * on purpose; `Message::*` constants are what say which index means what.
+ *
+ * @return {Array} The 7-field positional message.
+ */
 export function newMessage() {
 	return [ TM_UNTYPED, Date.now() / 1000, '', '', '', '', '' ];
 }
 
+/**
+ * Serialize a message for the wire as a JSON array of the canonical 7 fields.
+ *
+ * The `LOCAL` provenance taint lives past VALUE and never leaves this process,
+ * so it is sliced off rather than encoded.
+ *
+ * @param {Array} m Message to serialize; extra fields past VALUE are dropped.
+ * @return {string} JSON array of exactly 7 fields.
+ */
 export function pack( m ) {
 	// Emit the canonical 7 fields only; slicing drops any LOCAL taint.
 	return JSON.stringify( m.slice( 0, LAST_VALUE_INDEX + 1 ) );
 }
 
+/**
+ * Parse a wire line back into a 7-field message.
+ *
+ * Never throws and never returns a short array: malformed JSON, a non-array, or
+ * fewer than 7 fields all yield a fresh `newMessage()`, so a caller can index
+ * `VALUE` unconditionally. A trailing eighth field — a peer claiming `LOCAL`
+ * provenance — is truncated away.
+ *
+ * @param {string} s JSON array as produced by `pack()`.
+ * @return {Array} The 7-field positional message.
+ */
 export function unpack( s ) {
 	let d;
 	try {
@@ -57,7 +84,14 @@ export function unpack( s ) {
 	return newMessage();
 }
 
-// UTF-8 byte length (Blob, jsdom lacks TextEncoder) to match PHP strlen().
+/**
+ * UTF-8 byte length of a string, matching what PHP's `strlen()` reports.
+ *
+ * Measured via `Blob` rather than `TextEncoder`, which jsdom lacks.
+ *
+ * @param {string|null|undefined} str String to measure; nullish counts as 0.
+ * @return {number} Byte length.
+ */
 export function byteLength( str ) {
 	if ( str === null || str === undefined || str === '' ) {
 		return 0;
@@ -94,6 +128,16 @@ export function applyComposeFields( m, fields ) {
 	return m;
 }
 
+/**
+ * Size of a message's VALUE slot, for telemetry and dumper display.
+ *
+ * A string VALUE is measured in UTF-8 bytes; a struct or command object is
+ * measured as the character length of its JSON encoding, which is an estimate,
+ * not a wire-exact byte count.
+ *
+ * @param {Array} m Message whose VALUE to measure.
+ * @return {number} Size; 0 when VALUE is null or undefined.
+ */
 export function valueSize( m ) {
 	const v = m[ VALUE ];
 	if ( typeof v === 'string' ) {

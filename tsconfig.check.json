@@ -1,0 +1,40 @@
+{
+  "$comment": "Type-check ONLY (noEmit). Not a build config \u2014 esbuild and jest never read it. The JSDoc types are already written and linted; this checks them against the code. Run: npm run lint:types The `paths` block mirrors TARGETS in src/build-kit/alias-map.cjs: without it the build aliases are invisible and every aliased import reads as a missing module.",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@newspack-nodes/runtime": [
+        "./src/runtime/index.js"
+      ],
+      "@newspack-nodes/debug-overlay": [
+        "./src/debug-overlay/DebugOverlay.js"
+      ],
+      "@newspack-nodes/shared/*": [
+        "./src/shared/*"
+      ],
+      "@newspack-nodes/shared": [
+        "./src/shared"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.js",
+    "types/**/*.d.ts"
+  ],
+  "exclude": [
+    "**/__tests__/**",
+    "**/*.test.js"
+  ]
+}

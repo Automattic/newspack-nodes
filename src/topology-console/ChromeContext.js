@@ -22,7 +22,7 @@ const NOOP = () => {};
  * @param {Function} [props.onPaletteToggle]     Toggle it.
  * @param {number}   [props.bottomObstructionPx] Canvas px the REPL covers.
  * @param {*}        props.children              Consumers.
- * @return {Element} The provider.
+ * @return {import('react').ReactElement} The provider.
  */
 export function ChromeProvider( {
 	paletteCollapsed = false,

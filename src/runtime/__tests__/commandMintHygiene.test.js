@@ -60,7 +60,7 @@ test( 'FetcherNode — one command per slice, per tick', () => {
 	const fetcher = new FetcherNode();
 	fetcher.name = 'fetch-counts';
 	fetcher.receiver = 'recv-counts';
-	fetcher.command = 'counts';
+	fetcher.verb = 'counts';
 	fetcher.sink = { fill: ( m ) => sent.push( m ) };
 
 	fetcher.fill( [] );

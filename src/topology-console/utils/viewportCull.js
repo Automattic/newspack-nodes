@@ -19,10 +19,10 @@
  * @param {number}                                          [opts.detailScale=0.35] px/unit below which labels are dropped.
  * @param {number}                                          [opts.overscan=0]       Off-screen render band as a fraction of the viewBox per axis.
  * @param {number}                                          [opts.margin]           Absolute world-unit cull margin (overrides overscan, both axes).
- * @return {{visibleIds:Set<string>, strictVisibleIds:Set<string>, showDetail:boolean, scale:number, region:{x:number,y:number,w:number,h:number}}}
- *   The node ids to render (with overscan), the strict no-overscan subset (for
- *   bloom-group membership), whether to draw labels, the px/unit scale, and the
- *   on-screen clip rect (for truncating one-endpoint-visible edges).
+ * @return {{visibleIds:Set<string>, showDetail:boolean, scale:number, region:{x:number,y:number,w:number,h:number}, visibleRegion:{x:number,y:number,w:number,h:number}}}
+ *   The node ids to render (with overscan), whether to draw labels, the px/unit
+ *   scale, the overscanned clip rect (for truncating one-endpoint-visible
+ *   edges), and the strict on-screen rect the bloom filter pins to.
  */
 export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 	const nodeW = opts.nodeW ?? 196;

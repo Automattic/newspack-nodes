@@ -41,6 +41,7 @@ import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
 import {
 	useExpandedIncludes,
+	expansionMatchesIncludes,
 	fetchExpandedIncludes,
 	invalidateExpandedIncludes,
 	primeExpandedIncludes,
@@ -50,7 +51,6 @@ import {
 	generateNodeName,
 	withReplAnchor,
 } from './utils/consoleGraph';
-import { revertIncludes } from './utils/revertIncludes';
 import { DraftProvider, useDraftInterpreter } from './DraftContext';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
 import { CatalogProvider } from './CatalogContext';
@@ -61,9 +61,7 @@ import { stampOrigins } from './utils/stampOrigins';
 import { clusterLayout } from './utils/clusterLayout';
 import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { splitStatements } from '../runtime/shell-node';
-import { assertResolvedConfigEdges } from './utils/draftToGraph';
 import {
-	expansionMatchesIncludes,
 	setArgumentsLine,
 	verbInvocationArgs,
 	verbUsesConfig,
@@ -116,17 +114,52 @@ function buildPathOptions( partitions, active ) {
 	];
 }
 
+/**
+ * The keys `Admin::register_topology_console_tab_bundle()` localizes for this
+ * tab. Every one is absent on a page that enqueued the bundle without them, so
+ * each read below carries its own default.
+ *
+ * @typedef {Object} ConsoleLocalizedData
+ * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
+ * @property {string[]}               [activeTopologies]    Topologies the supervisor spawns.
+ * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
+ */
+
+/**
+ * `window` carrying the localize payload PHP writes before this bundle runs.
+ *
+ * @typedef {Window & {
+ *     NewspackNodesData?: ConsoleLocalizedData,
+ * }} ConsoleWindow
+ */
+
+/** @type {ConsoleWindow} */
+const CONSOLE_WINDOW = window;
+
 // Page-load snapshot — seeds the initial topology pick, NOT the live menu.
 const SEED_WORKERS =
-	( window.NewspackNodesData && window.NewspackNodesData.topologyWorkers ) ||
+	( CONSOLE_WINDOW.NewspackNodesData &&
+		CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
 	{};
 const TOPOLOGIES = sortTopologies(
 	SEED_WORKERS,
-	( window.NewspackNodesData && window.NewspackNodesData.activeTopologies ) ||
+	( CONSOLE_WINDOW.NewspackNodesData &&
+		CONSOLE_WINDOW.NewspackNodesData.activeTopologies ) ||
 		[]
 );
 
-// '{topology}.p{N}' → { topology, partition }; any other cwd → null.
+/**
+ * The worker a cwd mounts — the two halves of a `{topology}.p{N}` path.
+ *
+ * @typedef {{ topology: string, partition: number }} AttachedWorker
+ */
+
+/**
+ * Split a `{topology}.p{N}` cwd into its topology and partition.
+ *
+ * @param {string} cwd Path to classify.
+ * @return {?AttachedWorker} The worker, or null for any other cwd.
+ */
 function parseWorker( cwd ) {
 	const m = String( cwd ).match( /^([^/]+)\.p(\d+)$/ );
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
@@ -135,7 +168,18 @@ function parseWorker( cwd ) {
 // scopeFromCwd lives in utils/scope to avoid a hook→component cycle.
 export { scopeFromCwd };
 
-// localStorage key for the canvas layout: view keys by scope, edit by topology.
+/**
+ * localStorage key the canvas position map persists under. View mode keys by
+ * the cwd-derived scope; edit mode keys by the topology being edited, because
+ * an unactivated topology has no worker to `cd` onto and every draft would
+ * otherwise collide on one key.
+ *
+ * @param {Object} args
+ * @param {string} args.mode        'edit' or 'view'.
+ * @param {string} args.editingName Topology open in the editor; '' when none is.
+ * @param {string} args.scopeKey    Storage scope from `scopeFromCwd( cwd ).key`.
+ * @return {?string} The key, or null in edit mode with nothing open.
+ */
 export function layoutStorageKey( { mode, editingName, scopeKey } ) {
 	if ( 'edit' === mode ) {
 		return editingName
@@ -145,7 +189,16 @@ export function layoutStorageKey( { mode, editingName, scopeKey } ) {
 	return `newspack-nodes:topology:${ scopeKey }`;
 }
 
-// Browser console 'status' summary — JS analogue of the PHP cli status_lines.
+/**
+ * Browser console `status` summary — the JS analogue of the PHP cli's
+ * `status_lines`: the SSE session, the cwd, and the worker it mounts.
+ *
+ * @param {Object}           args
+ * @param {?(number|string)} args.ssePid Session pid; null before the SSE handshake completes.
+ * @param {string}           args.cwd    Mirrored shell cwd; '' is the local graph.
+ * @param {?AttachedWorker}  args.worker Worker the cwd mounts, or null for the local graph.
+ * @return {string[]} One string per line of the summary.
+ */
 export function statusLines( { ssePid, cwd, worker } ) {
 	if ( ! ssePid ) {
 		return [ 'Browser console — no SSE session (not connected).' ];
@@ -175,13 +228,28 @@ function longestWorkerPrefix( path, options ) {
 	return best ? parseWorker( best ) : null;
 }
 
-// Active worker the cwd resolves to, or null — the ONE gate poll+SSE share.
+/**
+ * The active worker a cwd resolves to, as its own `{topology}.p{N}` mount —
+ * the ONE gate the canvas poll and the SSE stream share, so neither can run
+ * against a cwd the other has left.
+ *
+ * @param {string}   cwd         Mirrored shell cwd.
+ * @param {string[]} pathOptions Every cwd the Path menu offers.
+ * @return {?string} The worker mount, or null when the cwd is not under one.
+ */
 export function workerPollPath( cwd, pathOptions ) {
 	const worker = longestWorkerPrefix( cwd, pathOptions );
 	return worker ? `${ worker.topology }.p${ worker.partition }` : null;
 }
 
-// True only for an attached-worker TO — its async reply needs the SSE pid.
+/**
+ * Does this destination's reply come back over the stream? True only for an
+ * attached-worker TO, whose reply is asynchronous and needs the SSE pid; a
+ * local send answers in-process and needs no session.
+ *
+ * @param {?string} to Message TO path, or the cwd a send would inherit.
+ * @return {boolean} True when the send must wait for a live SSE session.
+ */
 export function toNeedsSseSession( to ) {
 	return /^[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
 }
@@ -190,6 +258,15 @@ export function toNeedsSseSession( to ) {
 const CONSOLE_REPL_BAR_PX = 38;
 const CONSOLE_RESIZE_HANDLE_PX = 0;
 const REPL_MIN_HEIGHT_PX = 80;
+
+/**
+ * Ceiling for the REPL transcript, derived from the measured `.topology-app`
+ * height so it tracks the real grid instead of a hardcoded guess. Floors at
+ * `REPL_MIN_HEIGHT_PX` so a short console never collapses the transcript.
+ *
+ * @param {number} appHeight Measured app height in px; 0 before layout.
+ * @return {?number} The ceiling in px, or null before layout so the footer keeps its own fallback.
+ */
 export function replCeilingFromAppHeight( appHeight ) {
 	if ( ! appHeight || appHeight <= 0 ) {
 		return null;
@@ -207,6 +284,14 @@ function readUrlParam( key ) {
 		return null;
 	}
 }
+/**
+ * Topology the page opens on, honoring a `?topology=` deep link. An unknown
+ * name falls back rather than stranding the console on a topology this install
+ * has never registered.
+ *
+ * @param {string} fallback Topology to open when the URL names none or names an unknown one.
+ * @return {string} The topology to open.
+ */
 export function initialTopologyFromUrl( fallback ) {
 	const t = readUrlParam( 'topology' );
 	if ( ! t ) {
@@ -214,8 +299,8 @@ export function initialTopologyFromUrl( fallback ) {
 	}
 	// Honor deep link via SEED or live; SEED wins — bundles clobber live.
 	const live =
-		( window.NewspackNodesData &&
-			window.NewspackNodesData.topologyWorkers ) ||
+		( CONSOLE_WINDOW.NewspackNodesData &&
+			CONSOLE_WINDOW.NewspackNodesData.topologyWorkers ) ||
 		{};
 	const known =
 		Object.prototype.hasOwnProperty.call( SEED_WORKERS, t ) ||
@@ -237,6 +322,14 @@ function paletteKeyFor( mode ) {
 		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
 }
 
+/**
+ * Topology Console hub tab — the live graph canvas and its REPL in view mode,
+ * the draft topology editor in edit mode.
+ *
+ * @param {Object}   props                      Props.
+ * @param {?Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
+ * @return {import('react').ReactElement} Rendered component.
+ */
 export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ topology, setTopology ] = useState( () =>
 		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
@@ -246,23 +339,28 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 	// Display-only mirror of GraphView's authoritative selection.
 	const [ selectedId, setSelectedId ] = useState( null );
-	// edit freezes a draft; baseline is the edit-entry draft (dirty check).
+	// edit freezes a draft; the snapshot is the edit-entry copy.
 	const [ mode, setMode ] = useState( 'view' );
 	// The document IS an interpreter; `draft` is the graph read off it.
 	const draftDoc = useDraftInterpreter();
-	const { graph: draft, run: runDraft, load: loadDraft } = draftDoc;
+	const {
+		graph: draft,
+		run: runDraft,
+		load: loadDraft,
+		reseed: reseedDraft,
+		dump: dumpDraft,
+		setCatalog: setDraftCatalog,
+		replaceVerbs,
+		assertResolved,
+		revertIncludes,
+	} = draftDoc;
 	// `_repl` is a canvas anchor, not a line any topology contains.
 	const editGraph = useMemo( () => withReplAnchor( draft ), [ draft ] );
 
-	// Which classes fan out, and which verb arguments are node references.
-	const setDraftCatalog = useCallback(
-		( classes ) => {
-			draftDoc.interpreter.catalog = classes || [];
-		},
-		[ draftDoc ]
-	);
 	// From the document: a literal that disagrees reads as dirty at once.
-	const [ baseline, setBaseline ] = useState( () => draftDoc.graph );
+	const [ dirtySnapshot, setDirtySnapshot ] = useState(
+		() => draftDoc.graph
+	);
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
@@ -420,36 +518,29 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// The composed `topologies expand` result for that include set.
-	const { baseline: expandBaseline, error: expandError } =
+	const { expansion, error: expandError } =
 		useExpandedIncludes( activeIncludes );
 	// Last expand error we toasted; `mode` in the deps re-fires otherwise.
 	const toastedExpandErrorRef = useRef( null );
-	// Previous expandBaseline, so reconcile can diff old vs new on each change.
-	const prevExpandBaselineRef = useRef( null );
+	// Previous expansion, so reconcile can diff old vs new on each change.
+	const seededExpansionRef = useRef( null );
 	useEffect( () => {
 		// The draft is inert outside edit mode; skip the wasted reconcile.
 		if ( mode !== 'edit' ) {
 			return;
 		}
 		// A re-seed is a reload: dump against the old expansion, load the new.
-		const prev = prevExpandBaselineRef.current;
+		const prev = seededExpansionRef.current;
 		// The expansion has to be THIS document's, or a save writes it empty.
-		const isOurs = expansionMatchesIncludes(
-			expandBaseline,
-			draftDoc.interpreter.includes
-		);
+		const isOurs = expansionMatchesIncludes( expansion, draft.includes );
 		if (
 			isOurs &&
-			JSON.stringify( prev ) !== JSON.stringify( expandBaseline )
+			JSON.stringify( prev ) !== JSON.stringify( expansion )
 		) {
-			loadDraft(
-				draftDoc.interpreter.dumpDocument( prev ),
-				expandBaseline,
-				draftDoc.interpreter.resolvedConfigEdges
-			);
-			prevExpandBaselineRef.current = expandBaseline;
+			reseedDraft( prev, expansion );
+			seededExpansionRef.current = expansion;
 		}
-	}, [ expandBaseline, mode, draftDoc, loadDraft, runDraft ] );
+	}, [ expansion, mode, draft.includes, reseedDraft ] );
 
 	// Pick the catalog where make_node runs: JS at cwd '/', else PHP.
 	const catalog =
@@ -706,8 +797,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	const configDefaultPartitions =
-		( window.NewspackNodesData &&
-			window.NewspackNodesData.configNumPartitions ) ||
+		( CONSOLE_WINDOW.NewspackNodesData &&
+			CONSOLE_WINDOW.NewspackNodesData.configNumPartitions ) ||
 		1;
 
 	// Path selection (Path menu + REPL cd): set cwd, mount the deepest worker.
@@ -920,9 +1011,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setMode( 'edit' );
 				setEditingName( '' );
 				setEditingSource( '' );
-				prevExpandBaselineRef.current = null;
-				prevExpandBaselineRef.current = null;
-				setBaseline( loadDraft( '' ) );
+				seededExpansionRef.current = null;
+				setDirtySnapshot( loadDraft( '' ) );
 				if ( topology ) {
 					Promise.all( [
 						fetchTopology( topology ),
@@ -932,24 +1022,21 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 							const tsl = resp.tsl || '';
 							const includes =
 								DraftInterpreterNode.includesOf( tsl );
-							const includeBaseline =
+							const fetchedExpansion =
 								resp.expanded ??
 								( await fetchExpandedIncludes( includes ) );
-							primeExpandedIncludes( includes, includeBaseline );
+							primeExpandedIncludes( includes, fetchedExpansion );
 							setDraftCatalog( loadedCatalog.classes );
 							// Sync ref: re-fetch diffs vs THIS, not EMPTY.
-							prevExpandBaselineRef.current = includeBaseline;
-							setBaseline(
+							seededExpansionRef.current = fetchedExpansion;
+							setDirtySnapshot(
 								loadDraft(
 									tsl,
-									includeBaseline,
+									fetchedExpansion,
 									resp.resolved_config_edges
 								)
 							);
-							assertResolvedConfigEdges(
-								draftDoc.interpreter,
-								resp.resolved_config_edges
-							);
+							assertResolved( resp.resolved_config_edges );
 							setEditingName( resp.name );
 							setEditingSource( resp.source || '' );
 						} )
@@ -969,7 +1056,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 			// Dirty = draft vs the edit-entry snapshot, not live parsed.
 			const dirty =
-				JSON.stringify( draft ) !== JSON.stringify( baseline );
+				JSON.stringify( draft ) !== JSON.stringify( dirtySnapshot );
 			if ( ! dirty ) {
 				setMode( 'view' );
 				return;
@@ -982,7 +1069,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				onConfirm: () => {
 					setDiscardModal( null );
 					// Actually DROP it; flipping the mode left it alive.
-					setBaseline( loadDraft( '' ) );
+					setDirtySnapshot( loadDraft( '' ) );
 					setEditingName( '' );
 					setEditingSource( '' );
 					setMode( 'view' );
@@ -993,12 +1080,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[
 			mode,
 			draft,
-			baseline,
+			dirtySnapshot,
 			topology,
 			fetchTopology,
 			loadPhpCatalog,
 			loadDraft,
 			setDraftCatalog,
+			assertResolved,
 		]
 	);
 
@@ -1017,7 +1105,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 * works in live mode too, where metadata nodes carry no `origin` of their own.
 	 */
 	const hulls = useMemo( () => {
-		const membership = expandBaseline.hulls || {};
+		const membership = expansion.hulls || {};
 		const onScreen = new Set(
 			( ( 'edit' === mode ? draft.nodes : parsed.nodes ) || [] ).map(
 				( n ) => n.id
@@ -1033,7 +1121,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				walkDepths( subtree, depth + 1 );
 			} );
 		};
-		walkDepths( expandBaseline.tree, 1 );
+		walkDepths( expansion.tree, 1 );
 		return Object.entries( membership )
 			.map( ( [ include, memberIds ] ) => ( {
 				include,
@@ -1041,19 +1129,16 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				nodeIds: memberIds.filter( ( id ) => onScreen.has( id ) ),
 			} ) )
 			.filter( ( h ) => h.nodeIds.length > 0 );
-	}, [ expandBaseline, mode, draft.nodes, parsed.nodes ] );
+	}, [ expansion, mode, draft.nodes, parsed.nodes ] );
 
 	// Virtual edges are derived; origin is stamped (metadata carries none).
 	const canvasGraph = useMemo( () => {
-		const graph = stampOrigins(
-			baseCanvasGraph,
-			expandBaseline.hulls || {}
-		);
+		const graph = stampOrigins( baseCanvasGraph, expansion.hulls || {} );
 		if ( mode !== 'edit' ) {
 			return graph;
 		}
 		return augmentWithVirtualEdges( graph, catalog.classes );
-	}, [ baseCanvasGraph, mode, catalog.classes, expandBaseline ] );
+	}, [ baseCanvasGraph, mode, catalog.classes, expansion ] );
 
 	// Runtime drift (roadmap [49]): live nodes not in the registered .tsl.
 	const canonicalNodes = useCanonicalNodes( topology );
@@ -1085,15 +1170,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! pending ) {
 			return;
 		}
-		const landed = ( expandBaseline.nodes || [] ).some( ( n ) =>
+		const landed = ( expansion.nodes || [] ).some( ( n ) =>
 			( n.origin || [] ).includes( pending.name )
 		);
 		if ( ! landed ) {
 			return;
 		}
 		const positions = clusterLayout(
-			expandBaseline.nodes,
-			expandBaseline.edges,
+			expansion.nodes,
+			expansion.edges,
 			pending.name,
 			pending.drop,
 			positionOverrides
@@ -1102,7 +1187,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			handlePositionChange( id, pos );
 		}
 		pendingClusterRef.current = null;
-	}, [ expandBaseline, handlePositionChange, positionOverrides ] );
+	}, [ expansion, handlePositionChange, positionOverrides ] );
 
 	// Backstop for the palette's greying-out: revert to the last-good includes.
 	useEffect( () => {
@@ -1116,14 +1201,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 		// Revert only what this tree belongs to.
 		if ( 'edit' === mode ) {
-			revertIncludes(
-				draftDoc.interpreter,
-				expandBaseline.tree,
-				runDraft
-			);
+			revertIncludes( expansion.tree );
 		}
 		pendingClusterRef.current = null;
-	}, [ expandError, expandBaseline, mode, draftDoc, runDraft ] );
+	}, [ expandError, expansion, mode, revertIncludes ] );
 
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(
@@ -1272,12 +1353,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	const handleUpdateArgs = useCallback(
 		( id, args ) => {
-			const node = draftDoc.interpreter.childRegistry.node( id );
-			const spec =
-				schemasByShellName[ node?.shellClassName() ]?.arguments ?? null;
-			runDraft( setArgumentsLine( id, args, node?.arguments, spec ) );
+			const node = draft.nodes.find( ( n ) => n.id === id );
+			const spec = schemasByShellName[ node?.class ]?.arguments ?? null;
+			runDraft( setArgumentsLine( id, args, node?.ctorArgs, spec ) );
 		},
-		[ runDraft, draftDoc, schemasByShellName ]
+		[ runDraft, draft.nodes, schemasByShellName ]
 	);
 
 	// `command_node` only APPENDS, so replacement is a method, not a verb.
@@ -1291,7 +1371,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			const specOf = ( verb ) =>
 				schema?.commands?.find( ( c ) => c.name === verb )?.args ??
 				null;
-			draftDoc.interpreter.replaceInvocations(
+			replaceVerbs(
 				id,
 				verbs
 					.filter( ( v ) => true !== v.seeded )
@@ -1301,9 +1381,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						viaConfig: verbUsesConfig( v, schema ),
 					} ) )
 			);
-			runDraft( '' );
 		},
-		[ draftDoc, runDraft, draft.nodes, schemasByShellName ]
+		[ replaceVerbs, draft.nodes, schemasByShellName ]
 	);
 
 	// Opening a topology lands you in the editor, from live too — like New.
@@ -1318,25 +1397,22 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				] );
 				const tsl = resp.tsl || '';
 				const includes = DraftInterpreterNode.includesOf( tsl );
-				const includeBaseline =
+				const fetchedExpansion =
 					resp.expanded ??
 					( await fetchExpandedIncludes( includes ) );
-				primeExpandedIncludes( includes, includeBaseline );
+				primeExpandedIncludes( includes, fetchedExpansion );
 				setDraftCatalog( loadedCatalog.classes );
 				// Sync ref: re-fetch diffs vs THIS, not EMPTY.
-				prevExpandBaselineRef.current = includeBaseline;
-				// Replace draft AND baseline so the load starts clean.
-				setBaseline(
+				seededExpansionRef.current = fetchedExpansion;
+				// Replace draft AND dirtySnapshot so the load starts clean.
+				setDirtySnapshot(
 					loadDraft(
 						tsl,
-						includeBaseline,
+						fetchedExpansion,
 						resp.resolved_config_edges
 					)
 				);
-				assertResolvedConfigEdges(
-					draftDoc.interpreter,
-					resp.resolved_config_edges
-				);
+				assertResolved( resp.resolved_config_edges );
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
@@ -1360,7 +1436,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ fetchTopology, loadPhpCatalog, loadDraft, setDraftCatalog ]
+		[
+			fetchTopology,
+			loadPhpCatalog,
+			loadDraft,
+			setDraftCatalog,
+			assertResolved,
+		]
 	);
 
 	/**
@@ -1370,7 +1452,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 */
 	const handleDrillIntoHull = useCallback(
 		( name ) => {
-			if ( ! draftIsDirty( draft, baseline ) ) {
+			if ( ! draftIsDirty( draft, dirtySnapshot ) ) {
 				handleOpenPick( name );
 				return;
 			}
@@ -1390,7 +1472,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ draft, baseline, handleOpenPick ]
+		[ draft, dirtySnapshot, handleOpenPick ]
 	);
 
 	// SAVE snapshots the live graph via dump_config (edit saves the draft).
@@ -1431,7 +1513,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const handleNew = useCallback( () => {
 		// New starts a fresh topology from live mode too — lands you in edit.
 		setMode( 'edit' );
-		setBaseline( loadDraft( '' ) );
+		setDirtySnapshot( loadDraft( '' ) );
 		setEditingName( '' );
 		setEditingSource( '' );
 		setSelectedId( null );
@@ -1470,17 +1552,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [ cwd, resetLocalGraphCore ] );
 
 	// A foreign expansion drops the operator's `disconnect_node` lines.
-	const saveBaseline = useMemo(
+	const ownExpansion = useMemo(
 		() =>
-			expansionMatchesIncludes( expandBaseline, draft.includes )
-				? expandBaseline
+			expansionMatchesIncludes( expansion, draft.includes )
+				? expansion
 				: null,
-		[ expandBaseline, draft.includes ]
+		[ expansion, draft.includes ]
 	);
 
 	// DOWNLOAD: write the draft out as <name>.tsl via a Blob object URL.
 	const handleDownload = useCallback( () => {
-		const tsl = draftDoc.interpreter.dumpDocument( saveBaseline );
+		const tsl = dumpDraft( ownExpansion );
 		const blob = new window.Blob( [ tsl ], { type: 'text/plain' } );
 		const url = window.URL.createObjectURL( blob );
 		const a = document.createElement( 'a' );
@@ -1490,9 +1572,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		a.click();
 		a.remove();
 		window.URL.revokeObjectURL( url );
-	}, [ draftDoc, saveBaseline, editingName ] );
+	}, [ ownExpansion, editingName, dumpDraft ] );
 
-	// UPLOAD: load a .tsl file's text into the draft; baseline stays → dirty.
+	// UPLOAD: load a .tsl into the draft; the snapshot stays → dirty.
 	const handleUpload = useCallback(
 		async ( file ) => {
 			try {
@@ -1501,12 +1583,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					loadPhpCatalog(),
 				] );
 				const includes = DraftInterpreterNode.includesOf( text );
-				const includeBaseline = await fetchExpandedIncludes( includes );
-				primeExpandedIncludes( includes, includeBaseline );
+				const fetchedExpansion =
+					await fetchExpandedIncludes( includes );
+				primeExpandedIncludes( includes, fetchedExpansion );
 				setDraftCatalog( loadedCatalog.classes );
 				// Sync ref: the reconcile effect diffs vs THIS, not EMPTY.
-				prevExpandBaselineRef.current = includeBaseline;
-				loadDraft( text, includeBaseline );
+				seededExpansionRef.current = fetchedExpansion;
+				loadDraft( text, fetchedExpansion );
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -1536,9 +1619,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				name
 			);
 			try {
-				const tsl =
-					capturedTsl ??
-					draftDoc.interpreter.dumpDocument( saveBaseline );
+				const tsl = capturedTsl ?? dumpDraft( ownExpansion );
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
 				const fleetsPhrase = sprintf(
@@ -1595,8 +1676,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			saveModal,
 			saveTopology,
 			topologyList,
-			draftDoc,
-			saveBaseline,
+			dumpDraft,
+			ownExpansion,
 			reloadCatalog,
 			topologyWorkers,
 		]
@@ -1675,7 +1756,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			<ChromeProvider
 				paletteCollapsed={ paletteCollapsed }
 				onPaletteToggle={ togglePaletteCollapsed }
-				bottomObstructionPx={ transcriptOverlayPx }
+				bottomObstructionPx={
+					mode !== 'edit' ? transcriptOverlayPx : 0
+				}
 			>
 				<LayoutProvider
 					positionOverrides={ positionOverrides }
@@ -1762,7 +1845,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									hulls,
 									currentTopology: editingName,
 									onDropTopology: handleDropTopology,
-									includeTree: expandBaseline.tree,
+									includeTree: expansion.tree,
 									// Mode-aware; live has no draft.
 									includes: activeIncludes,
 									onRemoveInclude: handleRemoveInclude,

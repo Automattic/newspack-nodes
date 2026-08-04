@@ -732,6 +732,50 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [], $fired );
 	}
 
+	/**
+	 * A fleet that genuinely composes the saved topology must restart even
+	 * when its graph will not COMPOSE — a make_node conflict names nodes, not
+	 * topologies, so matching the error text misses exactly this case.
+	 */
+	public function test_save_restarts_a_parent_whose_graph_will_not_compose(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['parent-fleet'] = [
+					'topology'       => 'parent-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/shared-child.tsl",
+			"make_node Echo clash\n"
+		);
+		// Same node name, a DIFFERENT type: composing throws make_node conflict.
+		\file_put_contents(
+			"{$this->user}/parent-fleet.tsl",
+			"include shared-child\nmake_node Tee clash\n"
+		);
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'shared-child', "make_node Echo clash\n" ]
+		);
+
+		$this->assertSame( [ 'parent-fleet' ], $fired );
+	}
+
 	public function test_save_does_not_fire_restart_for_inactive_topology(): void {
 		$fired = [];
 		\add_action(

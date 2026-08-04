@@ -7,6 +7,26 @@
  * bundle — so the injected bundle reads the same data it would if enqueued.
  */
 
+/**
+ * One tab's load recipe, as `Admin::lazy_tab_script()` builds it.
+ *
+ * @typedef {Object} LazyTabEntry
+ * @property {string}            src     Versioned URL of the tab's built bundle.
+ * @property {string}            [style] Stylesheet URL enqueued before the script.
+ * @property {Object<string, *>} [data]  Localize payload the bundle would have
+ *                                       received had it been enqueued.
+ */
+
+/**
+ * The globals Admin localizes: the lazy-tab recipes keyed by enqueue handle,
+ * and the shared localize payload every bundle reads on render.
+ *
+ * @typedef {Window & {
+ *     NewspackNodesLazyTabs?: Object<string, LazyTabEntry>,
+ *     NewspackNodesData?: Object<string, *>,
+ * }} HubWindow
+ */
+
 // Handles already injected this page-load; a re-mounted placeholder is a no-op.
 const injected = new Set();
 
@@ -17,7 +37,8 @@ export function loadTabBundle( handle ) {
 	if ( injected.has( handle ) ) {
 		return;
 	}
-	const entry = ( window.NewspackNodesLazyTabs || {} )[ handle ];
+	const hub = /** @type {HubWindow} */ ( window );
+	const entry = ( hub.NewspackNodesLazyTabs || {} )[ handle ];
 	if ( ! entry || ! entry.src ) {
 		return;
 	}
@@ -32,8 +53,8 @@ export function loadTabBundle( handle ) {
 
 	// Merge, never replace: sibling tabs' live reads keep their own keys.
 	if ( entry.data ) {
-		window.NewspackNodesData = {
-			...( window.NewspackNodesData || {} ),
+		hub.NewspackNodesData = {
+			...( hub.NewspackNodesData || {} ),
 			...entry.data,
 		};
 	}

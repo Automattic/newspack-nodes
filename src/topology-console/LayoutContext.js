@@ -26,7 +26,7 @@ const NOOP = () => {};
  *                                             uncontrolled — NOT "no viewport".
  * @param {Function} [props.onViewportChange]  Commit a pan/zoom.
  * @param {*}        props.children            Consumers.
- * @return {Element} The provider.
+ * @return {import('react').ReactElement} The provider.
  */
 export function LayoutProvider( {
 	positionOverrides = NO_POSITIONS,

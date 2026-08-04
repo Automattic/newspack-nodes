@@ -13,6 +13,16 @@ import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
+/**
+ * @param {Object}  [options]         Hook options.
+ * @param {boolean} [options.enabled] Gate — false parks the reconcile loop, so
+ *                                    the catalog is never requested.
+ * @return {{classes: Object[], formatters: string[], loading: boolean, error: Error|null, load: () => Promise<{classes: Object[], formatters: string[]}>}}
+ *   Catalog state. `classes` are the palette entries from `classes list` (one
+ *   per concrete Node class, schema inlined), `formatters` their registered
+ *   formatter names. `load()` resolves with both; concurrent callers share one
+ *   round trip, and a failure is never cached.
+ */
 export function useClassCatalog( { enabled = false } = {} ) {
 	const [ classes, setClasses ] = useState( [] );
 	const [ formatters, setFormatters ] = useState( [] );

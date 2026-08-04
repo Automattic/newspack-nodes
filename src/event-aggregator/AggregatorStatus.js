@@ -46,9 +46,10 @@ const EMPTY_SERVERS = {
 /**
  * Format a Unix timestamp as relative time or absolute.
  *
- * @param {number} timestamp Unix timestamp in seconds.
- * @param {number} now       Reference clock (the server's snapshot time); falls
- *                           back to the browser clock when omitted.
+ * @param {number}  timestamp Unix timestamp in seconds.
+ * @param {?number} [now]     Reference clock (the server's snapshot time); falls
+ *                            back to the browser clock when omitted or null,
+ *                            which is the pre-first-poll state.
  * @return {string} Formatted time string.
  */
 const formatTime = ( timestamp, now ) => {

@@ -46,6 +46,21 @@ function includeClosure( name, byName, seen = new Set() ) {
 	return seen;
 }
 
+/**
+ * The palette dock: a filter box over the node classes the catalog registers,
+ * grouped by category, plus — in edit mode — the topologies that can be dragged
+ * in as includes. Catalog data comes from CatalogContext and the collapse state
+ * from ChromeContext; only the drop callbacks are the consumer's.
+ *
+ * @param {Object}   props
+ * @param {boolean}  [props.loading]          Catalog fetch is in flight; the dock shows a placeholder until classes arrive. Default false.
+ * @param {Function} [props.onDropNode]       ({ shellName, x, y }) — a class dropped on the canvas, x/y already projected into SVG space.
+ * @param {boolean}  [props.editMode]         Render the draggable Topologies section. Default false.
+ * @param {string}   [props.currentTopology]  The topology being edited; it and any topology whose include closure reaches it are undraggable, since either would form a cycle.
+ * @param {string[]} [props.declaredIncludes] Topologies the draft already includes; their tiles are disabled.
+ * @param {Function} [props.onDropTopology]   ({ name, x, y }) — a topology dropped on the canvas, to be included.
+ * @return {import('react').ReactElement} The palette dock.
+ */
 export default function Palette( {
 	loading = false,
 	onDropNode,
@@ -137,10 +152,11 @@ export default function Palette( {
 	// Project cursor onto the canvas SVG (ghost is pointer-events:none).
 	const dropAt = ( { kind, name }, clientX, clientY ) => {
 		const target = document.elementFromPoint( clientX, clientY );
-		const svg =
+		const svg = /** @type {SVGSVGElement} */ (
 			target &&
-			target.closest &&
-			target.closest( 'svg.topology-canvas-svg' );
+				target.closest &&
+				target.closest( 'svg.topology-canvas-svg' )
+		);
 		const onDrop = kind === 'topology' ? onDropTopology : onDropNode;
 		if ( ! svg || ! svg.createSVGPoint || ! onDrop ) {
 			return;

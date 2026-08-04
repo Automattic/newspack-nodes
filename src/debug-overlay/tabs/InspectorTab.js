@@ -41,7 +41,9 @@ import { ChromeProvider } from '../../topology-console/ChromeContext';
  */
 export function measureTabBarHeight( rootEl ) {
 	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
-	const bar = content?.previousElementSibling;
+	const bar = /** @type {HTMLElement|null|undefined} */ (
+		content?.previousElementSibling
+	);
 	if ( ! bar?.classList?.contains( 'nodes-devtools__tabbar' ) ) {
 		return 0;
 	}

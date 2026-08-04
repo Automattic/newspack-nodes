@@ -17,8 +17,10 @@ import names from '../runtime/reserved-node-names.json';
  * graph paints instantly; `ready` is true as soon as either source yields a
  * node (coreToGraph can make it sync-true on open).
  *
- * @param {boolean}  [_active]          Currently unused; kept for API parity (the
+ * @param {boolean}  _active            Currently unused; kept for API parity (the
  *                                      subscription is naturally inert when no _metadata).
+ *                                      Defaults to true, but `shell` follows it, so a
+ *                                      caller wanting a shell passes it positionally.
  * @param {Object}   shell              Shell instance owned by DebugOverlay; sink wired
  *                                      to the local interpreter.
  * @param {Array}    [catalogClasses]   Class catalog entries (shell_name + is_interpreter);
@@ -28,7 +30,10 @@ import names from '../runtime/reserved-node-names.json';
  *                                      dropped node renders at the drop site (snapped to
  *                                      the grid) when the metadata poll surfaces it,
  *                                      instead of autoLayout's choice.
- * @return {{ graph: { nodes: Array, edges: Array }, ready: boolean, handlers: Object }} The live graph, readiness flag, and gesture handlers.
+ * @return {{ graph: { nodes: Array, edges: Array }, ready: boolean, handlers: Object, pendingDrop: ?Object, commitDrop: (node: { name: string, args: string }) => void, cancelDrop: () => void }} The live graph,
+ *   readiness flag, gesture handlers, and the palette-drop staging trio: `pendingDrop` is
+ *   the staged `{ shellName, defaultName, argSchema, x, y }` payload (null when no drop is
+ *   pending), `commitDrop({ name, args })` makes the node, `cancelDrop()` discards it.
  */
 export function useDebugGraph(
 	_active = true,

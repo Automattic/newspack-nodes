@@ -105,7 +105,7 @@ function ViewBody( { view, node, onAction } ) {
  * @param {Object}      props
  * @param {string|null} props.view       'runtime' | 'stats' | 'timeline' | 'triage' | null (closed).
  * @param {Object}      [props.node]     The selected node — Triage's DLQ target.
- * @param {Function}    props.onDismiss  Close the modal.
+ * @param {() => void}  props.onDismiss  Close the modal.
  * @param {Function}    [props.onAction] Console action dispatcher (Timeline Trace / Triage verbs).
  * @return {import('react').ReactElement|null} The modal, or null when closed.
  */

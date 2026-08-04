@@ -55,6 +55,7 @@ function SummaryCards( {
 	const totals = probe24hTotals( consumers );
 	const cache = cacheSizeTotals( consumers );
 
+	/** @type {string} */
 	let healthLabel = __( 'all systems ok', 'newspack-nodes' );
 	if ( fleet.stalledCount > 0 ) {
 		healthLabel = sprintf(

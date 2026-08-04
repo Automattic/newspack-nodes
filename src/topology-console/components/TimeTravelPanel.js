@@ -133,6 +133,22 @@ function positionLabel( { onFrame, paused, selectedFrameId, nextId } ) {
 	);
 }
 
+/**
+ * Keyframe ruler plus transport bar for the inspected Consumer.
+ *
+ * Every signal prop is what the consumer last reported through `dump_metadata`;
+ * the panel seeds its client-side position from them and reconciles on each
+ * poll, so a click reads instantly and a remount lands where the consumer is.
+ *
+ * @param {Object}   props                 Component props.
+ * @param {Array}    [props.frames]        Offsetlog keyframes `{ id, size }`, oldest→newest by id; `id` is an offsetlog segment id, `size` its byte count.
+ * @param {?Object}  [props.cursor]        Read position `{ segment, offset }` in the SOURCE partition — displayed only, never used to pick a keyframe.
+ * @param {boolean}  [props.paused]        Consumer-reported pause signal. While false the consumer follows the head and only Pause is live.
+ * @param {?number}  [props.atFrameSignal] Consumer-reported keyframe id the cursor is at-or-just-past; null when no frames are retained.
+ * @param {boolean}  [props.onFrameSignal] Consumer-reported flag: the cursor sits exactly on that keyframe rather than past it.
+ * @param {Function} [props.onTransport]   Called as `( verb, positional )` to drive the consumer's `:config` verbs through the inspector's invoke path.
+ * @return {import('react').ReactElement} The Time Travel panel.
+ */
 export default function TimeTravelPanel( {
 	frames = [],
 	cursor = null,

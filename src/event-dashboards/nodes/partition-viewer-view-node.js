@@ -20,17 +20,36 @@ const PARTITION_RE = /\.p(\d+)$/;
  *   clipped at MAX_RAW_LENGTH, `struct`), and the partition column derived
  *   from the first FROM segment with a `.pN` suffix (else a stable
  *   first-seen dir index).
- *
- * @param {number} [maxLines] Buffer cap (base default; injectable for tests).
  */
 export class PartitionViewerViewNode extends LogStreamViewNode {
+	/**
+	 * Source directory → column, for streams whose FROM names no partition.
+	 * Built on first miss and never cleared, so a directory keeps its column
+	 * for the life of the node.
+	 *
+	 * @type {Map<string, number>|undefined}
+	 */
+	_partitionIndex;
+
+	/**
+	 * @param {number} [maxLines] Buffer cap (base default; injectable for tests).
+	 */
 	constructor( maxLines ) {
 		super( maxLines );
 		this.logs = [];
 		this.selected = '';
 	}
 
-	// Shape a raw SSE log envelope into a row; empty VALUEs drop.
+	/**
+	 * Shape a raw SSE log envelope into a Partition Viewer row.
+	 *
+	 * `content` keeps the `KEY: VALUE` prefix the filter matches on, `value`
+	 * is the bare column, and `raw` is the debug-mode payload (a struct VALUE
+	 * arrives JSON-encoded). All three are clipped.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 * @return {?{partition: number, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
+	 */
 	shapeRow( message ) {
 		const value = message[ VALUE ];
 		if ( value === '' || value === null || value === undefined ) {
@@ -65,7 +84,16 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		};
 	}
 
-	// First FROM segment with a .pN wins; else stable first-seen index.
+	/**
+	 * Resolve the partition column one envelope belongs in.
+	 *
+	 * The first FROM segment carrying a `.pN` suffix wins. A FROM that names
+	 * no partition falls back to a first-seen index per source directory, so
+	 * two unrelated dirs never collapse into one column.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 * @return {number} The column index.
+	 */
 	_partitionFor( message ) {
 		const parts = String( message[ FROM ] || '' ).split( '/' );
 		const column = parts.find( ( part ) => PARTITION_RE.test( part ) );
@@ -80,6 +108,15 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		return index.get( dir );
 	}
 
+	/**
+	 * Handle the Partition Viewer's own control verbs, deferring the shared
+	 * ones (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) to the base.
+	 *
+	 * `select` switches the tailed log; `logs` publishes the catalog and
+	 * adopts its first entry when nothing is selected yet.
+	 *
+	 * @param {{action: string, log?: string, logs?: Array<{key: string}>}} value The control payload.
+	 */
 	_control( value ) {
 		if ( 'select' === value.action ) {
 			this.selected = value.log;
@@ -96,6 +133,12 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		}
 	}
 
+	/**
+	 * The published low-frequency model: the shared fields plus the log
+	 * catalog and the selected log the picker renders from.
+	 *
+	 * @return {Object} The render model.
+	 */
 	viewModel() {
 		return {
 			...super.viewModel(),
@@ -104,6 +147,12 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		};
 	}
 
+	/**
+	 * Schema behind the console palette and `help` — the base's, redescribed
+	 * for this dashboard.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			...super.nodeSchema(),

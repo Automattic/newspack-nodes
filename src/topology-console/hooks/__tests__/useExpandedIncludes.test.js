@@ -7,8 +7,9 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
-	useExpandedIncludes,
+	expansionMatchesIncludes,
 	invalidateExpandedIncludes,
+	useExpandedIncludes,
 } from '../useExpandedIncludes';
 
 let send;
@@ -25,9 +26,9 @@ beforeEach( () => {
 } );
 
 describe( 'useExpandedIncludes', () => {
-	it( 'returns an empty baseline and never fetches when there are no includes', async () => {
+	it( 'returns an empty expansion and never fetches when there are no includes', async () => {
 		const { result } = renderHook( () => useExpandedIncludes( [] ) );
-		expect( result.current.baseline ).toEqual( {
+		expect( result.current.expansion ).toEqual( {
 			nodes: [],
 			edges: [],
 			tree: {},
@@ -47,12 +48,12 @@ describe( 'useExpandedIncludes', () => {
 		);
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
 		expect( args() ).toEqual( [ [ 'performance', 'job-router' ] ] );
-		expect( result.current.baseline.nodes ).toEqual( [
+		expect( result.current.expansion.nodes ).toEqual( [
 			{ name: 'shared-tee' },
 		] );
 	} );
 
-	it( 'surfaces a cycle error and keeps the last-good baseline', async () => {
+	it( 'surfaces a cycle error and keeps the last-good expansion', async () => {
 		send.mockReturnValue(
 			new Error( 'topology include cycle: a -> b -> a' )
 		);
@@ -62,7 +63,7 @@ describe( 'useExpandedIncludes', () => {
 		await waitFor( () =>
 			expect( result.current.error ).toMatch( /include cycle/ )
 		);
-		expect( result.current.baseline ).toEqual( {
+		expect( result.current.expansion ).toEqual( {
 			nodes: [],
 			edges: [],
 			tree: {},
@@ -89,8 +90,8 @@ describe( 'useExpandedIncludes', () => {
 		);
 
 		await waitFor( () =>
-			expect( second.result.current.baseline ).toBe(
-				first.result.current.baseline
+			expect( second.result.current.expansion ).toBe(
+				first.result.current.expansion
 			)
 		);
 		expect( send ).toHaveBeenCalledTimes( 1 );
@@ -131,5 +132,32 @@ describe( 'invalidateExpandedIncludes', () => {
 		renderHook( () => useExpandedIncludes( [ 'performance' ] ) );
 
 		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 2 ) );
+	} );
+} );
+
+describe( 'expansionMatchesIncludes', () => {
+	it( 'rejects the previous document’s expansion', () => {
+		// Opening a child while the parent's expansion lingers: the tree names
+		// an include the child does not have, and re-seeding from it marks the
+		// child's own nodes borrowed.
+		expect( expansionMatchesIncludes( { tree: { test: {} } }, [] ) ).toBe(
+			false
+		);
+	} );
+
+	it( 'rejects an expansion still in flight', () => {
+		expect( expansionMatchesIncludes( { tree: {} }, [ 'child' ] ) ).toBe(
+			false
+		);
+	} );
+
+	it( 'accepts the expansion for exactly these includes', () => {
+		expect(
+			expansionMatchesIncludes( { tree: { a: {}, b: {} } }, [ 'b', 'a' ] )
+		).toBe( true );
+	} );
+
+	it( 'accepts nothing for a document with no includes', () => {
+		expect( expansionMatchesIncludes( undefined, [] ) ).toBe( true );
 	} );
 } );

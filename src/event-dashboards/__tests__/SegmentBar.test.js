@@ -159,6 +159,24 @@ describe( 'SegmentBar — three regions', () => {
 		expect( f[ 2 ].width ).toBe( '0%' );
 	} );
 
+	it( 'titles the bar with the numeric segment id and the formatted size', () => {
+		const { container } = render(
+			<SegmentBar
+				segment={ { id: 47, size: 2048 } }
+				maxSize={ 4096 }
+				cursorSegment={ 47 }
+				cursorOffset={ 512 }
+				endSegment={ 47 }
+				endSize={ 1024 }
+			/>
+		);
+		expect(
+			container
+				.querySelector( '.worker-segment-h' )
+				.getAttribute( 'title' )
+		).toBe( 'Segment 47: 2 KB' );
+	} );
+
 	it( 'a fully-read older segment is all green (read past it)', () => {
 		const { container } = render(
 			<SegmentBar

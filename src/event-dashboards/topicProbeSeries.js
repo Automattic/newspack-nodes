@@ -57,6 +57,7 @@ export function topicChartSeries(
 		( byKey[ key ] ||= [] ).push( c );
 	}
 
+	/** @type {Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>} */
 	const out = {};
 	for ( const [ key, list ] of Object.entries( byKey ) ) {
 		const byTs = new Map();

@@ -20,8 +20,10 @@
  */
 
 /**
- * @param {Function} [describeSite] Maps an Error to a printable arming site.
- * @return {{onArm: Function, onClear: Function, onTimerSwap: Function, assertClean: Function}} Guard.
+ * @param {function(Error): string} [describeSite] Maps an Error captured at arming time to a printable site, or '' to omit it.
+ * @return {{onArm: function(Object, boolean, Error=): void, onDispose: function(Object): void, onClear: function(): void, onTimerSwap: function(boolean): void, assertClean: function(): void}} Guard
+ *   the jest harness drives from its arm, dispose, per-test teardown, and
+ *   timer-swap hooks.
  */
 function createTimerHazardGuard( describeSite = defaultSite ) {
 	// Nodes armed while setInterval was real, by the Error recording where.

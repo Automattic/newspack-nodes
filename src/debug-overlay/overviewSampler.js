@@ -26,7 +26,12 @@ function store() {
 	return window[ GLOBAL_KEY ];
 }
 
-// Start (or join) the shared sampler; the interval starts on the first caller.
+/**
+ * Take a reference on the shared sampler, starting the 5-second
+ * `IoTelemetry.sample()` interval if this is the first caller. Every start
+ * must be balanced by a `stopOverviewSampler()`, or the interval outlives
+ * the overlay that wanted it.
+ */
 export function startOverviewSampler() {
 	const s = store();
 	s.refs += 1;
@@ -35,7 +40,11 @@ export function startOverviewSampler() {
 	}
 }
 
-// Release one reference; clear the interval once the last holder stops.
+/**
+ * Release one reference taken by `startOverviewSampler()`, clearing the
+ * shared interval once the last holder lets go. Safe to call when no
+ * reference is held: the refcount floors at zero rather than going negative.
+ */
 export function stopOverviewSampler() {
 	const s = store();
 	if ( s.refs > 0 ) {

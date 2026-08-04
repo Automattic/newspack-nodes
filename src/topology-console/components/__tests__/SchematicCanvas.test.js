@@ -76,7 +76,6 @@ describe( 'SchematicCanvas', () => {
 		positionOverrides: { a: { x: 60, y: 80 }, b: { x: 300, y: 80 } },
 		onPositionChange: () => {},
 		rateRef: { current: new Map() },
-		rateVersion: 0,
 		viewport: null,
 		onViewportChange: () => {},
 		classCatalog: {},

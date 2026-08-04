@@ -48,7 +48,7 @@ const HOSTS = [ 'overlay', 'hub', 'both' ];
  * @param {string}   [descriptor.slug]      URL slug for deep-linking (`?tab=<slug>`); defaults to `id`.
  * @param {string}   [descriptor.param]     Query param the tab owns (e.g. `topology`, `log`); cleared from the URL when another tab is active.
  * @param {Function} [descriptor.gate]      Optional () => boolean; excluded when it returns false.
- * @param {*}        [descriptor.icon]      Optional @wordpress/icons element.
+ * @param {*}        [descriptor.icon]      Optional `@wordpress/icons` element.
  * @param {boolean}  [descriptor.fullBleed] Tab owns its own full-height canvas; opts out of the host's default scroll container.
  */
 export function registerDevtoolsTab( descriptor ) {
@@ -77,8 +77,8 @@ export function registerDevtoolsTab( descriptor ) {
  * Subscribe to registry changes (register/reset). The host re-renders on a
  * change so late-registered tabs appear.
  *
- * @param {Function} listener Called on each change.
- * @return {Function} Unsubscribe.
+ * @param {() => void} listener Called with no arguments after every register/reset; its return value is ignored.
+ * @return {() => void} Unsubscribe — drops this listener from the registry.
  */
 export function subscribeDevtoolsTabs( listener ) {
 	const s = store();

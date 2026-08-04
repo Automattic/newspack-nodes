@@ -99,6 +99,15 @@ if [[ -f "$docslint" ]]; then
 	ok "lint-docs clean"
 fi
 
+# The reorder twins move code as raw spans behind two hard invariants, and
+# pre-commit gates on them — so their own tests have to run somewhere.
+reordertest="$(git rev-parse --show-toplevel)/scripts/test-reorder-node-methods.sh"
+if [[ -f "$reordertest" ]]; then
+	step "test-reorder-node-methods (the pre-commit gate's own tests)"
+	bash "$reordertest" >/dev/null || fail "test-reorder-node-methods failed — the reorder twins are broken"
+	ok "reorder twins clean"
+fi
+
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"

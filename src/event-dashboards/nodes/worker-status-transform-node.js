@@ -45,6 +45,13 @@ const GAP_INTERVALS = 6;
 export class WorkerStatusTransformNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
+
+	/**
+	 * Seed the cross-poll state this transform carries: the previous snapshot's
+	 * segment ids and data (segment slide-in/-out animation), the per-reader and
+	 * per-source rate baselines, the last sample timestamp (hidden-tab gap
+	 * detection), and the sticky scalars a poll may omit.
+	 */
 	constructor() {
 		super();
 		this._prevSegments = {}; // logKey → Set of segment ids
@@ -63,6 +70,14 @@ export class WorkerStatusTransformNode extends Node {
 		this._logPartitions = 0;
 	}
 
+	/**
+	 * Accept a poll reply and emit the render model. A TM_ERROR re-routes
+	 * untouched to the view's error path; only a `dump_graph` reply is
+	 * transformed, and anything else is dropped (the view owns restart replies).
+	 *
+	 * @param {Array} message The 7-field positional message; VALUE is `{ name,
+	 *                        payload }` where `payload` is the metadata snapshot.
+	 */
 	fill( message ) {
 		// Overrides base fill() (mints a new message); count here for overlay.
 		this.counter += 1;
@@ -86,7 +101,16 @@ export class WorkerStatusTransformNode extends Node {
 		this._emitModel( value.payload || {} );
 	}
 
-	// Rebuild the rich render model from the lean dump_graph payload.
+	/**
+	 * Rebuild the rich render model from the lean dump_graph payload and send it
+	 * to the target as `{ action: 'model', model }`. Advances the segment and
+	 * rate-delta state for the next snapshot.
+	 *
+	 * @param {Object} data The lean dump_graph payload: `graph`, `workers`,
+	 *                      `consumers`, `logs`, `supervisor`, `timestamp`, and
+	 *                      the sticky scalars (`segment_size`,
+	 *                      `heartbeat_interval_s`, `log_partitions`).
+	 */
 	_emitModel( data ) {
 		const newPrevSegments = {};
 		const newPrevSegmentData = {};

@@ -29,6 +29,13 @@ import { TYPE, VALUE, TM_ERROR } from './message';
 const TIMEOUT_MS = 30000;
 
 /**
+ * The rejection `replyError()` mints: an Error carrying the flag that says the
+ * server answered, as opposed to no answer having arrived.
+ *
+ * @typedef {Error & { fromServer: boolean }} ReplyError
+ */
+
+/**
  * The TM_ERROR payload as a readable string.
  *
  * @param {*} payload The reply's VALUE.payload.
@@ -57,18 +64,26 @@ function errorText( payload ) {
  * — so `fromServer` reads as unused from inside this repo.
  *
  * @param {string} text The error message.
- * @return {Error} The rejection, with `fromServer` set.
+ * @return {ReplyError} The rejection, with `fromServer` set.
  */
 function replyError( text ) {
-	const err = new Error( text );
+	const err = /** @type {ReplyError} */ ( new Error( text ) );
 	err.fromServer = true;
 	return err;
 }
 
+/**
+ * Mints one command at a time and resolves the `request()` Promise when the
+ * reply routes back here. A second request made while one is outstanding waits
+ * its turn in the queue rather than overlapping.
+ */
 export class RequestNode extends Node {
 	// Hook-mounted infrastructure, not an operator's canvas drop.
 	static isSystemNode = true;
 
+	/**
+	 * Start idle: no outstanding continuation, no armed deadline, empty queue.
+	 */
 	constructor() {
 		super();
 		// The ONE outstanding continuation; null when idle.
@@ -76,6 +91,29 @@ export class RequestNode extends Node {
 		this._timer = null;
 		// Commands asked for while busy; minted one at a time, in order.
 		this._queue = [];
+	}
+
+	/**
+	 * Settle the continuation from the reply to this node's one command —
+	 * whatever arrives here is that answer. TM_ERROR rejects with a
+	 * server-flagged Error, anything else resolves with the payload, and a
+	 * reply that lands after the deadline finds nothing waiting and is dropped.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
+	fill( message ) {
+		this.counter++;
+		if ( ! this._pending ) {
+			return; // a late reply after a timeout; nothing is waiting
+		}
+		const payload = message[ VALUE ]?.payload ?? message[ VALUE ];
+		if ( message[ TYPE ] & TM_ERROR ) {
+			this._settle( ( p ) =>
+				p.reject( replyError( errorText( payload ) ) )
+			);
+			return;
+		}
+		this._settle( ( p ) => p.resolve( payload ) );
 	}
 
 	/**
@@ -90,6 +128,19 @@ export class RequestNode extends Node {
 			this._queue.push( { verb, args, resolve, reject } );
 			this._next();
 		} );
+	}
+
+	/**
+	 * Reject the outstanding continuation and every queued one before tearing
+	 * down: a removed node will never see a reply, so a caller holding one of
+	 * those Promises would otherwise wait out the full timeout, or forever.
+	 */
+	removeNode() {
+		const gone = new Error( `${ this.name } was removed` );
+		const queued = this._queue.splice( 0 );
+		this._settle( ( p ) => p.reject( gone ) );
+		queued.forEach( ( p ) => p.reject( gone ) );
+		super.removeNode();
 	}
 
 	/**
@@ -154,30 +205,6 @@ export class RequestNode extends Node {
 		this.sink.fill( m );
 	}
 
-	// The reply to our one command; whatever arrives here is that answer.
-	fill( message ) {
-		this.counter++;
-		if ( ! this._pending ) {
-			return; // a late reply after a timeout; nothing is waiting
-		}
-		const payload = message[ VALUE ]?.payload ?? message[ VALUE ];
-		if ( message[ TYPE ] & TM_ERROR ) {
-			this._settle( ( p ) =>
-				p.reject( replyError( errorText( payload ) ) )
-			);
-			return;
-		}
-		this._settle( ( p ) => p.resolve( payload ) );
-	}
-
-	removeNode() {
-		const gone = new Error( `${ this.name } was removed` );
-		const queued = this._queue.splice( 0 );
-		this._settle( ( p ) => p.reject( gone ) );
-		queued.forEach( ( p ) => p.reject( gone ) );
-		super.removeNode();
-	}
-
 	/**
 	 * Clear the continuation, then hand it to `run` — cleared first so a
 	 * handler that requests again from its own `.then` is not refused.
@@ -197,6 +224,12 @@ export class RequestNode extends Node {
 		this._next();
 	}
 
+	/**
+	 * Console-palette entry. Hidden because a hook mounts this node and drives
+	 * it programmatically, so there is no positional config to round-trip.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

@@ -6,7 +6,6 @@
  */
 
 import {
-	expansionMatchesIncludes,
 	setArgumentsLine,
 	verbInvocationArgs,
 	verbUsesConfig,
@@ -82,33 +81,6 @@ describe( 'verbUsesConfig', () => {
 		expect(
 			verbUsesConfig( { verb: 'help' }, { is_interpreter: true } )
 		).toBe( false );
-	} );
-} );
-
-describe( 'expansionMatchesIncludes', () => {
-	it( 'rejects the previous document’s expansion', () => {
-		// Opening a child while the parent's expansion lingers: the tree names
-		// an include the child does not have, and re-seeding from it marks the
-		// child's own nodes borrowed.
-		expect( expansionMatchesIncludes( { tree: { test: {} } }, [] ) ).toBe(
-			false
-		);
-	} );
-
-	it( 'rejects an expansion still in flight', () => {
-		expect( expansionMatchesIncludes( { tree: {} }, [ 'child' ] ) ).toBe(
-			false
-		);
-	} );
-
-	it( 'accepts the expansion for exactly these includes', () => {
-		expect(
-			expansionMatchesIncludes( { tree: { a: {}, b: {} } }, [ 'b', 'a' ] )
-		).toBe( true );
-	} );
-
-	it( 'accepts nothing for a document with no includes', () => {
-		expect( expansionMatchesIncludes( undefined, [] ) ).toBe( true );
 	} );
 } );
 

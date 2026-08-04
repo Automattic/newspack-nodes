@@ -46,6 +46,10 @@ function failureReply( sent, reason ) {
 	return reply;
 }
 
+/**
+ * The `_http` node — POSTs whatever it is filled with, routes what comes back.
+ * See the module docblock above for the lock/flush batching and intake rules.
+ */
 export class HttpOutNode extends Node {
 	/**
 	 * Tachikoma-parity: no-arg ctor. The `client` (a transport with
@@ -77,7 +81,10 @@ export class HttpOutNode extends Node {
 		this._post( [ message ] );
 	}
 
-	// Release the lock and POST everything buffered as ONE batch.
+	/**
+	 * Release the lock and POST everything buffered as ONE batch. A tick that
+	 * buffered nothing costs no request.
+	 */
 	flush() {
 		this.locked = false;
 		if ( 0 === this.buffer.length ) {
@@ -88,7 +95,15 @@ export class HttpOutNode extends Node {
 		this._post( batch );
 	}
 
-	// POST the entries; feed each sync reply into the sink (routes by TO).
+	/**
+	 * POST the entries as one batch and route what comes back.
+	 *
+	 * A synchronous reply is fed into the sink, which routes it by TO. A POST
+	 * that never landed answers each entry with a TM_ERROR to its minter,
+	 * since silence is indistinguishable from a 202 routed onward.
+	 *
+	 * @param {Array<Array>} entries Positional command Messages, TO routed.
+	 */
 	_post( entries ) {
 		// Palette drop with no client: default to the localized transport.
 		if ( ! this.client ) {
@@ -167,11 +182,20 @@ export class HttpOutNode extends Node {
 		return true;
 	}
 
+	/**
+	 * Buffer every subsequent `fill()` until `flush()`, so one drain tick's
+	 * emissions ride out in a single request.
+	 */
 	lock() {
 		this.locked = true;
 	}
 
-	// Programmatic-deps node: no positional config to round-trip.
+	/**
+	 * Console-palette entry. Programmatic-deps node: the client is assigned
+	 * after construction, so there is no positional config to round-trip.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'I/O',

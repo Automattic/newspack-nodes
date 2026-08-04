@@ -17,6 +17,12 @@ import { errorMessage } from '../../shared/errorMessage';
 export class TopologyManagerViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
+
+	/**
+	 * Seeds the published model in its pre-reply state: no topologies, no
+	 * `user_dir`, no error, and `loading` true until the first `topologies list`
+	 * reply (or a failure) lands.
+	 */
 	constructor() {
 		super();
 		// loading until first list reply; error null until a failure.
@@ -28,6 +34,17 @@ export class TopologyManagerViewNode extends Node {
 		};
 	}
 
+	/**
+	 * Folds one reply into the model and republishes it.
+	 *
+	 * A TM_ERROR reply becomes the model's global `error` — a mutation's failure
+	 * is addressed to the node that minted it, so what arrives here is the
+	 * poll's. Otherwise only the `list` reply is consumed: its `payload`
+	 * supplies `topologies` and `user_dir`, and it clears any prior error.
+	 * Anything else (a non-object VALUE, another verb's reply) is ignored.
+	 *
+	 * @param {Array} message Positional Message; VALUE is `{ name, payload }`.
+	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
@@ -62,10 +79,19 @@ export class TopologyManagerViewNode extends Node {
 		}
 	}
 
+	/**
+	 * Pushes the current model onto the `view` state key React subscribes to.
+	 */
 	_publish() {
 		this.setState( 'view', this.model );
 	}
 
+	/**
+	 * Hidden from the node palette: the dashboard wires this sink itself, and it
+	 * takes no arguments and no target.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

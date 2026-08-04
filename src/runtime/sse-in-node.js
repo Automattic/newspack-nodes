@@ -56,9 +56,31 @@ const GRACE_MS = 4000;
 const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
 const WATCHDOG_INTERVAL_MS = 2000;
 
+/**
+ * The one field a patron sets on this node from the outside. RemoteLink is a
+ * SUBSCRIPTION, so it sets `homeToTarget` and every received record is re-homed
+ * to this node's target; RemoteIpc leaves it unset and lets each record keep
+ * the TO it arrived with.
+ *
+ * @typedef {{ homeToTarget?: boolean }} PatronConfigured
+ */
+
+/**
+ * The receive half of a remote link: one EventSource, the watchdog that
+ * notices when it dies silently, and the session identity the `connected`
+ * handshake hands back. `start()` opens the stream; each `msg` frame is
+ * unpacked and filled into the local graph, while `connected`, `heartbeat`
+ * and `disconnect` are snooped for liveness and lifecycle rather than routed.
+ */
 export class SseInNode extends TimerNode {
+	/**
+	 * Start closed — no stream, no watchdog, no session. Every field is either
+	 * configuration a patron may overwrite before `start()`, or per-connection
+	 * state `close()` clears.
+	 */
 	constructor() {
 		super();
+		/** @type {string[]} */
 		this.subscribe = [];
 		// REST route opened; /log/stream mirrors /messages/stream on the wire.
 		this.endpoint = DEFAULT_STREAM_ENDPOINT;
@@ -92,23 +114,30 @@ export class SseInNode extends TimerNode {
 		this.registrations.DISCONNECTED = {};
 	}
 
+	/**
+	 * @return {string[]} The argument tokens last assigned.
+	 */
 	get arguments() {
 		return super.arguments;
 	}
 
+	/**
+	 * Run the Schema_Reflection walk over the positional tokens, then repair
+	 * the one field it cannot type: the walk assigns strings, so the
+	 * comma-separated `subscribe` token becomes the array the stream URL and
+	 * the CONNECTING payload both expect.
+	 *
+	 * @param {string[]} value Positional tokens; the first is the comma-separated subscription list.
+	 */
 	set arguments( value ) {
 		super.arguments = value;
 		parseSchemaArgs( this, value );
 		// The walk assigns `subscribe` as a comma-separated token; split it.
 		if ( 'string' === typeof this.subscribe ) {
-			this.subscribe = this.subscribe.split( ',' ).filter( Boolean );
+			this.subscribe = /** @type {string} */ ( this.subscribe )
+				.split( ',' )
+				.filter( Boolean );
 		}
-	}
-
-	// A node owns its teardown: drop the stream + watchdog first.
-	removeNode() {
-		this.close();
-		super.removeNode();
 	}
 
 	/**
@@ -129,6 +158,22 @@ export class SseInNode extends TimerNode {
 		}
 	}
 
+	/**
+	 * A node owns its teardown: drop the stream and the watchdog first, since
+	 * the base `removeNode()` would leave the EventSource open.
+	 */
+	removeNode() {
+		this.close();
+		super.removeNode();
+	}
+
+	/**
+	 * Open a fresh EventSource for the current subscription and arm the
+	 * watchdog. Any previous stream is closed first, and every listener
+	 * registered here ignores frames from a stream this node has replaced.
+	 *
+	 * @param {boolean} mayRenewNonce Whether a browser-side close may refresh the REST nonce and retry; false once explicit remote credentials are in play.
+	 */
 	start( mayRenewNonce = true ) {
 		this.close();
 		this._mayRenewNonce = mayRenewNonce;
@@ -254,7 +299,10 @@ export class SseInNode extends TimerNode {
 				return;
 			}
 			// A SUBSCRIPTION (homeToTarget) re-homes each record to target.
-			if ( this.homeToTarget && this.target ) {
+			if (
+				/** @type {PatronConfigured} */ ( this ).homeToTarget &&
+				this.target
+			) {
 				message[ TO ] = this.target;
 			}
 			this._trackPosition( message );
@@ -275,7 +323,13 @@ export class SseInNode extends TimerNode {
 		} );
 	}
 
-	// Parse the flat `KEY VALUE` connected envelope into plain session fields.
+	/**
+	 * Parse the flat `KEY VALUE` connected envelope into plain session fields.
+	 * PID, SLOT and OWNER must all arrive well-formed; anything else rejects
+	 * the handshake rather than leaving a half-known session behind.
+	 *
+	 * @param {*} value The envelope's VALUE — space-separated `KEY VALUE` pairs.
+	 */
 	_applyConnected( value ) {
 		const raw = String( value ?? '' );
 		const parts = raw.split( ' ' );
@@ -311,6 +365,12 @@ export class SseInNode extends TimerNode {
 		IoTelemetry.markSseConnected();
 	}
 
+	/**
+	 * Abandon a malformed handshake: forget every session field, publish ERROR
+	 * and DISCONNECTED, and log at the rate limit.
+	 *
+	 * @param {string} reason What was wrong with the envelope, e.g. 'missing PID'.
+	 */
 	_rejectConnected( reason ) {
 		this.sessionPid = null;
 		this.sessionSlot = null;
@@ -321,6 +381,13 @@ export class SseInNode extends TimerNode {
 		Core.printLessOften( `ERROR: SseInNode: ${ message }` );
 	}
 
+	/**
+	 * Publish one disconnect three ways: DISCONNECTED for dashboards, the
+	 * telemetry mark the Overview uptime card reads, and a rate-limited log.
+	 *
+	 * @param {string} stateMessage Cause published as the DISCONNECTED payload.
+	 * @param {string} logMessage   Cause for the log line; defaults to `stateMessage`.
+	 */
 	_reportDisconnected( stateMessage, logMessage = stateMessage ) {
 		this.setState( 'DISCONNECTED', stateMessage );
 		IoTelemetry.markSseDisconnected();
@@ -329,7 +396,14 @@ export class SseInNode extends TimerNode {
 		);
 	}
 
-	// Remember a record's `{segment,offset}` keyed by its partition DIRECTORY.
+	/**
+	 * Remember a record's next-record boundary, keyed by the partition
+	 * DIRECTORY its FROM names, so a reopened stream resumes exactly where
+	 * this one stopped. A frame whose ID is not a `segment:offset:length`
+	 * breadcrumb carries no position and is ignored.
+	 *
+	 * @param {Array} message The positional Message just received.
+	 */
 	_trackPosition( message ) {
 		const idMatch = ID_POSITION_RE.exec(
 			'string' === typeof message[ ID ] ? message[ ID ] : ''
@@ -352,21 +426,34 @@ export class SseInNode extends TimerNode {
 		};
 	}
 
-	// A `{ <dir>: pos }` seed resuming each seen partition; null → tail-seek.
+	/**
+	 * @return {Object<string,{segment:number,offset:number}>|null} Seek seed for every partition directory seen so far, or null when none has been (tail-seek).
+	 */
 	resumePositions() {
 		return Object.keys( this.lastPositions ).length > 0
 			? { ...this.lastPositions }
 			: null;
 	}
 
-	// Reopen immediately from the exact next record after the last seen frame.
+	/**
+	 * Reopen immediately, resuming from the exact next record after the last
+	 * frame seen — no gap, no replay.
+	 *
+	 * @param {string}  reason        Why the stream is restarting; published as the RECONNECTING payload.
+	 * @param {boolean} mayRenewNonce Whether the reopened stream may renew the REST nonce; defaults to the current setting.
+	 */
 	_restart( reason, mayRenewNonce = this._mayRenewNonce ) {
 		this.setState( 'RECONNECTING', reason );
 		this.positions = this.resumePositions();
 		this.start( mayRenewNonce );
 	}
 
-	// Global credentials can be renewed; explicit remote credentials cannot.
+	/**
+	 * Recover from a stream the browser gave up on. A stale nonce is the usual
+	 * cause, so global credentials are renewed and the stream restarted;
+	 * explicit remote credentials cannot be renewed, leaving a reconnect as
+	 * the only move.
+	 */
 	_recoverConnection() {
 		const stream = this._es;
 		if ( ! stream ) {
@@ -394,7 +481,10 @@ export class SseInNode extends TimerNode {
 			} );
 	}
 
-	// Reopen the stream, throttled to one attempt per watchdog interval.
+	/**
+	 * Reopen the stream from the last seen offset, throttled to one attempt
+	 * per watchdog interval so a dead endpoint is not hammered.
+	 */
 	_forceReconnect() {
 		const now = Date.now();
 		if ( now - this._lastForce < WATCHDOG_INTERVAL_MS ) {
@@ -411,6 +501,11 @@ export class SseInNode extends TimerNode {
 		this.start( this._mayRenewNonce );
 	}
 
+	/**
+	 * Close the stream and forget everything tied to this connection: the
+	 * visibility listener, the watchdog, the frame clock, the session lease,
+	 * and any terminal disconnect. Safe when nothing is open.
+	 */
 	close() {
 		if ( 'undefined' !== typeof document ) {
 			document.removeEventListener(
@@ -432,37 +527,62 @@ export class SseInNode extends TimerNode {
 		this.terminalDisconnect = null;
 	}
 
-	// baseUrl/nonce fall back to the localized global when not set explicitly.
+	/**
+	 * @return {string} REST root the stream is opened against; the localized global unless a base was set explicitly.
+	 */
 	get baseUrl() {
 		return this._baseUrl || nodesData().restUrl;
 	}
 
+	/**
+	 * @param {string} value Explicit REST root; empty restores the localized global.
+	 */
 	set baseUrl( value ) {
 		this._baseUrl = value ?? '';
 	}
 
+	/**
+	 * @return {string} REST nonce the stream is opened with; the localized global unless a nonce was set explicitly.
+	 */
 	get nonce() {
 		return this._nonce || nodesData().nonce;
 	}
 
+	/**
+	 * @param {string} value Explicit REST nonce; empty restores the localized global. An explicit nonce is never renewed on a failure.
+	 */
 	set nonce( value ) {
 		this._nonce = value ?? '';
 	}
 
+	/**
+	 * @return {?number} PID of the server process behind the live stream, or null before a handshake completes.
+	 */
 	pid() {
 		return this.sessionPid ?? null;
 	}
 
-	// Session slot from the `connected` envelope; RemoteLink's bridge reads it.
+	/**
+	 * @return {?number} Session slot from the `connected` envelope, which RemoteLink's bridge hands to the Heartbeat; null while disconnected.
+	 */
 	slot() {
 		return this.sessionSlot ?? null;
 	}
 
-	// Canonical decimal owner from `connected`; never a JavaScript Number.
+	/**
+	 * @return {?string} Canonical decimal lease owner from `connected` — a STRING, never a JavaScript Number; null while disconnected.
+	 */
 	leaseOwner() {
 		return this.sessionLeaseOwner ?? null;
 	}
 
+	/**
+	 * Console palette entry — pure ingress, so it accepts no user-routed fill,
+	 * and only `subscribe` is positional; the base URL and nonce come from the
+	 * localized global.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'I/O',

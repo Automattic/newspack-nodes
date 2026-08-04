@@ -3,6 +3,28 @@
  */
 
 /**
+ * The hook-categorization config an application inlines before its dashboard
+ * bundles run (event-logger-nodes writes it from `hook_categories.json`). Both
+ * halves are keyed by category name and must agree: a category with patterns
+ * but no color contributes nothing.
+ *
+ * @typedef {Object} HookCategories
+ * @property {Object<string, string[]>} [_patterns] Regex sources per category.
+ * @property {Object<string, string>}   [_colors]   Hex color per category.
+ */
+
+/**
+ * `window` carrying the color config PHP inlines before any bundle runs. Both
+ * globals are absent on a page that enqueued a bundle without them, and on
+ * every consumer of this shared module that ships no hook categories at all.
+ *
+ * @typedef {Window & {
+ *     eventLoggerHookCategories?: HookCategories,
+ *     eventLoggerCustomColors?: Object<string, string>,
+ * }} ColorConfigWindow
+ */
+
+/**
  * System-level colors for events.
  */
 const SYSTEM_COLORS = {
@@ -31,7 +53,8 @@ const getCompiledPatterns = () => {
 	}
 
 	compiledPatternsCache = [];
-	const categories = window.eventLoggerHookCategories;
+	const categories = /** @type {ColorConfigWindow} */ ( window )
+		.eventLoggerHookCategories;
 	if ( ! categories || ! categories._patterns || ! categories._colors ) {
 		return compiledPatternsCache;
 	}
@@ -198,7 +221,9 @@ export const getStateColor = ( name ) => {
 	}
 
 	// Check custom event colors from config.
-	const customColors = window.eventLoggerCustomColors || {};
+	const customColors =
+		/** @type {ColorConfigWindow} */ ( window ).eventLoggerCustomColors ||
+		{};
 	if ( customColors[ baseName ] ) {
 		return customColors[ baseName ];
 	}

@@ -26,13 +26,10 @@ const emptyModel = () => ( {
  * `workerstatus:view` — owns the Worker Status view model, the single surface
  * React reads via useNodeState('workerstatus:view','view').
  *
- * The view follows the canonical
- * serversView pattern:
- *  - awaited verbs (restart) stash a `{ resolve, reject }` in `pending` keyed
- *    by message[ID]; the matching reply (TO=view) settles the Promise.
- *  - pending-matched TM_ERROR rejects the Promise but does NOT pollute the
- *    view-model's global `error` field — that surface is for un-correlated
- *    errors (broadcasts, the initial poll).
+ * Everything that arrives here is un-correlated: mutations such as `restart` are
+ * minted by their own request nodes, so their replies land there, not here.
+ *  - TM_ERROR lands in the view-model's `error` field; in practice it is the
+ *    poll's own failure.
  *  - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
  *    the model (the dump_graph reply path: HttpOut → transform → view).
  *  - TM_STRUCT `{ action:'clear-removing' }` blanks removingSegments.
@@ -43,12 +40,30 @@ const emptyModel = () => ( {
 export class WorkerStatusViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
+
+	/**
+	 * Seeds the empty model so React renders before the first poll returns, and
+	 * zeroes the slide-out clear timer.
+	 */
 	constructor() {
 		super();
 		this.model = emptyModel();
 		this._clearTimer = null;
 	}
 
+	/**
+	 * Absorb one inbound frame into the view model, then publish it.
+	 *
+	 * A frame whose VALUE is not an object carries nothing this node can use and is
+	 * ignored — the counter still advances, so the overlay's throughput reflects
+	 * everything that arrived. A TM_ERROR fills the model's `error` field and clears
+	 * `loading`; otherwise `VALUE.action` selects the update: `model` replaces the
+	 * whole model, `clear-removing` ends the slide-out animation.
+	 *
+	 * @param {Array} message The 7-field positional message; VALUE is the transform's
+	 *                        `{ action, ... }` struct, or an error payload on TM_ERROR.
+	 * @return {void}
+	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
@@ -83,6 +98,18 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
+	/**
+	 * Store and publish the transform's enriched snapshot, then arm the slide-out
+	 * clear when it marks segments as removing.
+	 *
+	 * The timer lives here rather than in React so the animation window survives a
+	 * re-render; a fresh model restarts it, so the last removal always gets its full
+	 * REMOVING_CLEAR_MS.
+	 *
+	 * @param {Object} model The enriched dump_graph snapshot, replacing the current
+	 *                       model wholesale; `removingSegments` drives the timer.
+	 * @return {void}
+	 */
 	_setModel( model ) {
 		this.model = model;
 		this._publish();
@@ -99,11 +126,22 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
+	/**
+	 * Push the current model out under the `view` event — the one surface React
+	 * reads through useNodeState.
+	 *
+	 * @return {void}
+	 */
 	_publish() {
 		this.setState( 'view', this.model );
 	}
 
-	// Tear down: cancel the slide-out timer so it can't setState later.
+	/**
+	 * Tear down on unmount: cancel the slide-out timer so a pending clear can't
+	 * setState into a view nobody is reading.
+	 *
+	 * @return {void}
+	 */
 	close() {
 		if ( this._clearTimer ) {
 			clearTimeout( this._clearTimer );
@@ -111,6 +149,12 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
+	/**
+	 * Hidden from the node palette: the dashboard wires this sink itself, and it
+	 * takes no arguments and no target.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

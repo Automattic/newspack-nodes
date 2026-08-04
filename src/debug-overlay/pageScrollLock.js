@@ -20,6 +20,15 @@ function needsCssScrollLock() {
 	return /AppleWebKit/.test( ua ) && ! /Chrome|Chromium|Edg|OPR/.test( ua );
 }
 
+/**
+ * Lock the page scroll and remember the styles being overwritten, so the panel
+ * can restore them verbatim. Only WebKit-that-isn't-Chromium needs the lock;
+ * everywhere else this is a no-op that spares the reflow. It is also a no-op
+ * while a lock is already held, so a repeated pointer-enter can't save the
+ * hidden values over the originals.
+ *
+ * @return {void}
+ */
 export function lockPageScroll() {
 	if ( saved || ! needsCssScrollLock() ) {
 		return;
@@ -43,6 +52,13 @@ export function lockPageScroll() {
 	}
 }
 
+/**
+ * Restore the overflow and padding saved by `lockPageScroll()` and release the
+ * singleton. Safe to call when no lock is held, which is what lets the panel
+ * unlock unconditionally on unmount.
+ *
+ * @return {void}
+ */
 export function unlockPageScroll() {
 	if ( ! saved ) {
 		return;

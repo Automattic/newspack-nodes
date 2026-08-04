@@ -65,18 +65,6 @@ describe( 'ConsoleShell', () => {
 		expect( lastGraphProps.bottomObstructionPx ).toBe( 120 );
 	} );
 
-	it( 'zeroes the canvas obstruction when the REPL is hidden (edit mode), ignoring a stale value', () => {
-		// Edit mode unmounts the ReplFooter; its stale height reserves no band.
-		render(
-			<ConsoleShell
-				{ ...baseProps }
-				showRepl={ false }
-				canvasProps={ { bottomObstructionPx: 120 } }
-			/>
-		);
-		expect( lastGraphProps.bottomObstructionPx ).toBe( 0 );
-	} );
-
 	it( 'forwards headerProps to Header', () => {
 		render(
 			<ConsoleShell

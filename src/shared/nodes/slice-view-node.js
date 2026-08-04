@@ -21,6 +21,10 @@ import { errorMessage } from '../errorMessage';
  * needs telling apart from anything else that lands here.
  */
 export class SliceViewNode extends Node {
+	/**
+	 * Publishes `emptySlice()` immediately, so a widget rendering before the
+	 * first reply arrives reads a shaped model rather than nothing.
+	 */
 	constructor() {
 		super();
 		this.registrations.view = {};
@@ -28,6 +32,15 @@ export class SliceViewNode extends Node {
 		this.setState( 'view', this.model );
 	}
 
+	/**
+	 * Handle this slice's own command reply: parse it, publish it on `view`.
+	 *
+	 * A TM_ERROR reply publishes `{ ...emptySlice(), error }`. A non-error
+	 * reply whose payload will not parse leaves the prior slice in place, so a
+	 * transient garbage reply cannot blank the widget.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		const value = message[ VALUE ];
 		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
@@ -52,11 +65,25 @@ export class SliceViewNode extends Node {
 		}
 	}
 
-	// The shaped-but-empty slice; subclass override.
+	/**
+	 * The shaped-but-empty slice — what a widget renders before the first reply
+	 * lands, and the shape the error path falls back to. Subclasses override it
+	 * with their own fields; the base returns nothing to render.
+	 *
+	 * @return {Object} Empty render model.
+	 */
 	emptySlice() {
 		return {};
 	}
 
+	/**
+	 * Parse a slice verb's reply payload into the slice this view publishes.
+	 * Subclasses override it to reshape the parsed JSON, calling `super`.
+	 *
+	 * @param {*} payload The reply VALUE's `payload` field — a JSON string when
+	 *                    the verb succeeded, anything at all otherwise.
+	 * @return {Object|null} The parsed slice, or null to keep the prior one.
+	 */
 	_parse( payload ) {
 		if ( 'string' !== typeof payload ) {
 			return null;
@@ -69,6 +96,12 @@ export class SliceViewNode extends Node {
 		}
 	}
 
+	/**
+	 * Console-palette entry. Hidden because a dashboard wires its slice views
+	 * itself, and terminal — a view settles its reply, so it has no target.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

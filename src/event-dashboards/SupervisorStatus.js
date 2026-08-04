@@ -10,19 +10,28 @@ import { __ } from '@wordpress/i18n';
 import { formatAge } from './formatters';
 
 /**
+ * Props for the supervisor status card.
+ *
+ * @typedef  {Object}   SupervisorStatusProps
+ * @property {?Object}  supervisor  Supervisor descriptor from the workers
+ *                                  snapshot: `status`, `started_at`,
+ *                                  `heartbeat_age`, `restart_pending`. Null
+ *                                  renders nothing.
+ * @property {number}   currentTime Current time in unix seconds; uptime is its
+ *                                  distance from `started_at`.
+ * @property {Function} onRestart   Called with `'supervisor'` to request a
+ *                                  graceful restart. Falsy hides the button.
+ */
+
+/**
  * Supervisor status row.
  *
- * @param {Object}   props             Component props.
- * @param {Object}   props.supervisor  Supervisor status descriptor.
- * @param {number}   props.currentTime Current timestamp for age calculation.
- * @param {Function} props.onRestart   Callback to restart the supervisor.
- * @return {import('react').ReactElement} Rendered component.
+ * @param {SupervisorStatusProps} props Component props.
+ * @return {?import('react').ReactElement} The card, or null with no supervisor.
  */
-export const SupervisorStatus = memo( function SupervisorStatus( {
-	supervisor,
-	currentTime,
-	onRestart,
-} ) {
+export const SupervisorStatus = memo( function SupervisorStatus(
+	/** @type {SupervisorStatusProps} */ { supervisor, currentTime, onRestart }
+) {
 	if ( ! supervisor ) {
 		return null;
 	}

@@ -19,13 +19,35 @@ import { VALUE } from '../../runtime/message';
 export const CATALOG_NODE = 'topologies:catalog';
 
 /**
+ * The keys `Admin::register_topology_console_tab_bundle()` localizes that this
+ * node reads. Every one is absent on a page that enqueued the bundle without
+ * them, so each read below carries its own default.
+ *
+ * @typedef {Object} CatalogLocalizedData
+ * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
+ * @property {string[]}               [activeTopologies]    Topologies the supervisor spawns.
+ * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
+ */
+
+/**
+ * `window` carrying the localize payload PHP writes before this bundle runs.
+ *
+ * @typedef {Window & {
+ *     NewspackNodesData?: CatalogLocalizedData,
+ * }} CatalogWindow
+ */
+
+/**
  * The page-load snapshot the PHP localizer wrote — the seed before any reply.
  *
  * @return {Object} `{ partitions, active, entries }`.
  */
 export function seedFromGlobal() {
+	/** @type {CatalogLocalizedData} */
 	const data =
-		( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
+		( typeof window !== 'undefined' &&
+			/** @type {CatalogWindow} */ ( window ).NewspackNodesData ) ||
+		{};
 	return {
 		partitions: data.topologyWorkers || {},
 		active: data.activeTopologies || [],
@@ -56,15 +78,26 @@ function catalogFromList( list, defaultPartitions ) {
 function defaultPartitionCount() {
 	return (
 		( typeof window !== 'undefined' &&
-			window.NewspackNodesData?.configNumPartitions ) ||
+			/** @type {CatalogWindow} */ ( window ).NewspackNodesData
+				?.configNumPartitions ) ||
 		1
 	);
 }
 
+/**
+ * The Path menu's catalog as a graph node: it polls `topologies list` on the
+ * Router TIMER and publishes the parsed result on its `catalog` registration,
+ * seeded from the page-load localize payload so the menu is populated before
+ * the first reply lands.
+ */
 export class TopologyCatalogNode extends TimerNode {
 	// Hardwired console infrastructure; Reset-Graph must not see it as added.
 	static isSystemNode = true;
 
+	/**
+	 * Publish the localized seed immediately, so a subscriber mounting before
+	 * the first reply still renders a catalog.
+	 */
 	constructor() {
 		super();
 		// Last published signature; an identical reply is a no-op.
@@ -72,9 +105,15 @@ export class TopologyCatalogNode extends TimerNode {
 		this.setState( 'catalog', seedFromGlobal() );
 	}
 
-	// @longform
-	// Reply leg. Malformed keeps last-good: a transient error must not blank
-	// the Path menu, which is the whole reason this polls rather than loads.
+	/**
+	 * Reply leg: parse a `topologies list` response and publish it on the
+	 * `catalog` registration, skipping a reply identical to the last one.
+	 * A malformed body keeps the last-good catalog — a transient error must not
+	 * blank the Path menu, which is the whole reason this polls rather than
+	 * loads.
+	 *
+	 * @param {Array} message The 7-field positional message; VALUE holds the reply body.
+	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
@@ -94,7 +133,11 @@ export class TopologyCatalogNode extends TimerNode {
 		this.setState( 'catalog', next );
 	}
 
-	// Router TIMER subscriber; emits via sink into `_http`, inside the lock.
+	/**
+	 * Poll leg, called on each Router TIMER tick: mint `topologies list` and
+	 * emit it through the sink into `_http`, inside the lock — so it batches
+	 * into the same POST as the console's other per-tick commands.
+	 */
 	fire() {
 		if ( ! this.sink ) {
 			return;
@@ -106,6 +149,13 @@ export class TopologyCatalogNode extends TimerNode {
 		}
 	}
 
+	/**
+	 * Console-palette entry. Hidden console infrastructure: it accepts no
+	 * `fill()` from the graph — only its own command reply — and takes no
+	 * positional configuration.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

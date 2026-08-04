@@ -20,7 +20,16 @@ export const Y_PAD = 80;
 const NODE_W = 196;
 const NODE_H = 84;
 
-// Snap a drop point to the nearest grid intersection; returns top-left pos.
+/**
+ * Snap a pointer drop to the nearest grid intersection.
+ *
+ * The drop point is where the pointer released, i.e. the card's centre; the
+ * returned position is the card's top-left, which is what the canvas stores.
+ *
+ * @param {number} x Drop point's centre x, in canvas coordinates.
+ * @param {number} y Drop point's centre y, in canvas coordinates.
+ * @return {{x: number, y: number}} The snapped top-left position.
+ */
 export function snapToGrid( x, y ) {
 	const sx = X_STEP / 2;
 	const sy = Y_STEP / 2;
@@ -34,8 +43,17 @@ export function snapToGrid( x, y ) {
 	};
 }
 
-// @longform Snap a top-left POSITION to the lattice snapToGrid drops onto (that
-// one takes a pointer centre; a drag already carries a top-left). Half-node.
+/**
+ * Snap a top-left POSITION onto the lattice `snapToGrid` drops onto.
+ *
+ * `snapToGrid` takes a pointer centre and has to subtract the card size; a drag
+ * already carries a top-left, so this one quantises it directly. Both land on
+ * half-step intersections.
+ *
+ * @param {number} x Current top-left x, in canvas coordinates.
+ * @param {number} y Current top-left y, in canvas coordinates.
+ * @return {{x: number, y: number}} The snapped top-left position.
+ */
 export function snapPosition( x, y ) {
 	const sx = X_STEP / 2;
 	const sy = Y_STEP / 2;
@@ -119,6 +137,17 @@ const stableSort = ( arr, key ) =>
 		.sort( ( a, b ) => key( a[ 0 ] ) - key( b[ 0 ] ) || a[ 1 ] - b[ 1 ] )
 		.map( ( x ) => x[ 0 ] );
 
+/**
+ * Lay a parsed graph out on the grid, per the layering described at the top.
+ *
+ * `parsed` is `{ nodes: [ { id } ], edges: [ { from, to } ] }`; null, or either
+ * key missing, reads as empty. An edge whose endpoints are not both in `nodes`
+ * is skipped, so a graph carrying a dangling edge lays out rather than throwing.
+ *
+ * @param {?Object} parsed The graph to lay out.
+ * @return {{nodes: Array<Object>, edges: Array<Object>}} Copies of the nodes,
+ * each carrying `position: {x, y}`, and `edges` passed through unchanged.
+ */
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];

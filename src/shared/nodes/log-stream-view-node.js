@@ -25,13 +25,14 @@ const MAX_LINES = 100000;
  * fields (call `super`). Row fields should include the shared debug-mode
  * trio (`msgId`, `key`, `raw`) plus `content` so debug rendering and the
  * default filter work everywhere.
- *
- * @param {number} [maxLines] Ring cap (defaults to MAX_LINES).
  */
 export class LogStreamViewNode extends Node {
 	// View-model/infra node: never a user-added node (see useGraphReset).
 	static isSystemNode = true;
 
+	/**
+	 * @param {number} [maxLines] Ring cap; defaults to MAX_LINES (100000).
+	 */
 	constructor( maxLines ) {
 		super();
 		this.maxLines = maxLines || MAX_LINES;
@@ -50,6 +51,14 @@ export class LogStreamViewNode extends Node {
 		this.seek = new SeekTracker();
 	}
 
+	/**
+	 * Route one arriving message: a verb reply belongs to the node that asked
+	 * for it and is dropped here, a control payload runs through `_control()`
+	 * and republishes, and anything else is a raw stream envelope the subclass
+	 * shapes into a row.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for overlay throughput (not lps).
 		this.counter += 1;
@@ -71,7 +80,13 @@ export class LogStreamViewNode extends Node {
 		this._appendEnvelope( message );
 	}
 
-	// Shared control verbs; subclasses extend with their own (call super).
+	/**
+	 * Apply one shared control verb: `pause`, `step`, `connection`, `browse`,
+	 * `follow`, or `clear`. Subclasses handle their own verbs first and defer
+	 * the rest here with `super._control( value )`.
+	 *
+	 * @param {{action: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments.
+	 */
 	_control( value ) {
 		if ( 'pause' === value.action ) {
 			this.paused = value.paused;
@@ -92,7 +107,13 @@ export class LogStreamViewNode extends Node {
 		}
 	}
 
-	// Shape + track + append one raw envelope (the hot path).
+	/**
+	 * Shape, track, and append one raw envelope — the hot path. An envelope
+	 * the subclass declines to shape is dropped without touching the seek
+	 * breadcrumb, so a filtered-out record never moves the rail highlight.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	_appendEnvelope( message ) {
 		const row = this.shapeRow( message );
 		if ( ! row ) {
@@ -102,29 +123,59 @@ export class LogStreamViewNode extends Node {
 		this._appendRow( row );
 	}
 
-	// Subclass hook: shape one raw envelope into row fields, or null to drop.
+	/**
+	 * Subclass hook: shape one raw envelope into the row fields `LogRowList`
+	 * renders. Include the shared debug trio (`msgId`, `key`, `raw`) and
+	 * `content` so debug rendering and the default filter work everywhere.
+	 * The base declines every envelope.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 * @return {?Object} Row fields, or null to drop the envelope.
+	 */
 	// eslint-disable-next-line no-unused-vars
 	shapeRow( message ) {
 		return null;
 	}
 
-	// Track the position breadcrumb; publishes on segment/catch-up change only.
+	/**
+	 * Feed the record's `segment:offset:length` breadcrumb to the seek
+	 * tracker, republishing only when the segment changed or the replay
+	 * caught up — never once per record.
+	 *
+	 * @param {Array} message The 7-field positional message.
+	 */
 	_trackPosition( message ) {
 		if ( this.seekTracking() && this.seek.track( message[ ID ] ) ) {
 			this._publish();
 		}
 	}
 
-	// Subclass hook: false suspends breadcrumb tracking (e.g. mixed dirs).
+	/**
+	 * Subclass hook: whether position breadcrumbs mean anything for the
+	 * current source. False suspends tracking — a stream mixing several
+	 * directories carries segment ids from unrelated sequences.
+	 *
+	 * @return {boolean} True while breadcrumbs should be tracked.
+	 */
 	seekTracking() {
 		return true;
 	}
 
+	/**
+	 * Publish the low-frequency model on the `view` state event, which is what
+	 * re-renders the React tree.
+	 */
 	_publish() {
 		this.setState( 'view', this.viewModel() );
 	}
 
-	// The published low-freq model; subclasses spread super's and add fields.
+	/**
+	 * The published low-frequency model: the paused belt, the connection
+	 * indicator, and the seek feedback. Subclasses spread `super.viewModel()`
+	 * and add their own fields.
+	 *
+	 * @return {Object} The render model.
+	 */
 	viewModel() {
 		return {
 			paused: this.paused,
@@ -134,7 +185,14 @@ export class LogStreamViewNode extends Node {
 		};
 	}
 
-	// Write a shaped row into the ring (O(1)); no setState on this hot path.
+	/**
+	 * Admit one shaped row into the ring, O(1) and without publishing — this
+	 * is the per-record path. A paused view drops the row unless the step
+	 * budget still admits frames.
+	 *
+	 * @param {Object} fields Row fields from `shapeRow()`; the monotonic `id`
+	 *                        and the `isEven` stripe are stamped on top.
+	 */
 	_appendRow( fields ) {
 		// Paused belt: drop frames, unless a step budget admits them.
 		if ( this.paused ) {
@@ -152,14 +210,22 @@ export class LogStreamViewNode extends Node {
 		this.lpsSmoother.add( 1, Date.now() );
 	}
 
-	// Clear buffer + counter + rate window (select / browse / clear).
+	/**
+	 * Drop every buffered row and reset the line counter and the rate window
+	 * — what `select`, `browse`, and `clear` all fall back to.
+	 */
 	_clear() {
 		this.lines = [];
 		this.lineCounter = 0;
 		this.lpsSmoother.reset();
 	}
 
-	// Whole buffer newest-first, O(n): filter path + tests only, not frames.
+	/**
+	 * The whole buffer newest-first, O(n) — the filter path and the tests
+	 * read this; a render frame reads `lineAt()` instead.
+	 *
+	 * @return {Object[]} Every live row, newest first.
+	 */
 	get lines() {
 		const out = new Array( this._count );
 		for ( let i = 0; i < this._count; i++ ) {
@@ -168,6 +234,13 @@ export class LogStreamViewNode extends Node {
 		return out;
 	}
 
+	/**
+	 * Replace the buffer wholesale. Anything but an array empties the ring,
+	 * which is how `_clear()` resets it.
+	 *
+	 * @param {Object[]} value Rows newest-first; they are seeded oldest-first
+	 *                         so the newest one lands at the head.
+	 */
 	set lines( value ) {
 		this._ring = [];
 		this._head = 0;
@@ -180,14 +253,25 @@ export class LogStreamViewNode extends Node {
 		}
 	}
 
-	// Write one row into the ring at the head and advance, capping at maxLines.
+	/**
+	 * Write one row at the ring head and advance, capping the live count at
+	 * `maxLines` — past the cap each write overwrites the oldest row.
+	 *
+	 * @param {Object} row The row to store, already stamped.
+	 */
 	_writeRow( row ) {
 		this._ring[ this._head ] = row;
 		this._head = ( this._head + 1 ) % this.maxLines;
 		this._count = Math.min( this._count + 1, this.maxLines );
 	}
 
-	// The i-th row newest-first (i=0 newest), O(1); undefined out of range.
+	/**
+	 * One row by newest-first index, O(1) — what the virtualized list reads
+	 * per visible row per frame.
+	 *
+	 * @param {number} i Row index; 0 is the newest row.
+	 * @return {Object|undefined} The row, or undefined when `i` is out of range.
+	 */
 	lineAt( i ) {
 		if ( i < 0 || i >= this._count ) {
 			return undefined;
@@ -196,24 +280,46 @@ export class LogStreamViewNode extends Node {
 		return this._ring[ idx ];
 	}
 
-	// Time-aware readout: an idle stream's rate decays instead of freezing.
+	/**
+	 * Lines per second, read time-aware: an idle stream's rate decays toward
+	 * zero instead of freezing at whatever it last measured.
+	 *
+	 * @return {number} The smoothed arrival rate.
+	 */
 	get lps() {
 		return this.lpsSmoother.read( Date.now() );
 	}
 
-	// Number of live rows in the ring (O(1)).
+	/**
+	 * @return {number} Live rows in the ring, O(1) — the list's row count.
+	 */
 	get linesCount() {
 		return this._count;
 	}
 
-	// Seek feedback surfaced for the published model (and view-node tests).
+	/**
+	 * Seek feedback surfaced for the published model (and the view-node tests).
+	 *
+	 * @return {string} `live` while tailing the head, `replay` while browsing.
+	 */
 	get mode() {
 		return this.seek.mode;
 	}
+
+	/**
+	 * @return {?number} Segment the last record arrived from — the rail
+	 *                   highlight — or null before any record.
+	 */
 	get lastReceivedSegment() {
 		return this.seek.lastReceivedSegment;
 	}
 
+	/**
+	 * Schema behind the console palette and `help`. Hidden and target-less: a
+	 * terminal receiver that settles replies has nothing to forward on.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

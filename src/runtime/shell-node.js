@@ -331,15 +331,6 @@ function splitStatementsIndexed( script ) {
 }
 
 /**
- * Fold trailing-backslash continuations across the statement stream — the same
- * splice parse() performs, applied statelessly. The joined statement keeps the
- * FIRST physical line of its run. Mirrors PHP
- * Shell_Node::join_statement_continuations.
- *
- * @param {Array<{text: string, line: number}>} indexed Indexed statements.
- * @return {Array<{text: string, line: number}>} Continuation-joined statements.
- */
-/**
  * A line continues only on an ODD run of trailing backslashes — an even run is
  * escaped literals (`a\\` is one backslash, a complete line). Mirrors PHP
  * Shell_Node::is_continuation.
@@ -351,6 +342,15 @@ function isContinuation( line ) {
 	return 0 !== ( line.length - line.replace( /\\+$/, '' ).length ) % 2;
 }
 
+/**
+ * Fold trailing-backslash continuations across the statement stream — the same
+ * splice parse() performs, applied statelessly. The joined statement keeps the
+ * FIRST physical line of its run. Mirrors PHP
+ * Shell_Node::join_statement_continuations.
+ *
+ * @param {Array<{text: string, line: number}>} indexed Indexed statements.
+ * @return {Array<{text: string, line: number}>} Continuation-joined statements.
+ */
 function joinStatementContinuations( indexed ) {
 	const out = [];
 	let acc = '';
@@ -487,10 +487,11 @@ export function serializeDraftArg( value ) {
 	const scanned = scanTokens( s );
 	const spans = scanned.tokens.map( ( t ) => t.raw );
 	// @longform An UNBALANCED quote scans self-identical, so emitting it
-	// verbatim corrupts the .tsl. A BARE `#` or `;` does the same damage by a
-	// different route: the tokenizer keeps them inside the token, but the LINE
-	// they land on becomes a comment, or two statements. Inside quotes they are
-	// ordinary characters — `value !== raw` is what tells the two apart.
+	// verbatim corrupts the .tsl. A `;` survives inside a token but SPLITS the
+	// statement it lands on, so a bare one must be quoted too. `#` cannot
+	// reach the bare test at all — scanTokens breaks the token there — and is
+	// listed with it because `serializeArg` must quote both for the same
+	// reason: they change the LINE, not the token.
 	const bare = 1 === spans.length && scanned.tokens[ 0 ]?.value === s;
 	const stable =
 		1 === spans.length &&
@@ -500,7 +501,20 @@ export function serializeDraftArg( value ) {
 	return stable ? s : serializeArg( s );
 }
 
+/**
+ * The REPL front-end Node: `fill( line )` turns one typed line into a single
+ * positional Message filled into the sink, or into a `{ kind: 'local'|'error' }`
+ * signal the host acts on instead. It also carries the shell state a line is
+ * parsed against — the cwd, the `var` namespace, and any held continuation —
+ * and doubles as the throwaway shell `parseStatements()` drives the static TSL
+ * front-end with. Anonymous by contract: naming it throws.
+ */
 export class ShellNode extends Node {
+	/**
+	 * Build an unwired shell — empty cwd, no vars, replies wanted, nothing
+	 * pending. The host supplies the rest after construction: `path`, `config`,
+	 * `statusLines`, the `onDispatch` tap, and the `sink` the graph wires.
+	 */
 	constructor() {
 		super();
 		// cwd: node-path bare verbs route to by default. Set by the host.
@@ -529,9 +543,18 @@ export class ShellNode extends Node {
 	 * Parse + dispatch one line. Returns the local/error signal for the host to
 	 * act on, or null when a Message was filled into the sink (or input empty).
 	 *
+	 * This is the ONE `fill()` in the runtime that takes a line rather than a
+	 * Message, and it is safe for a structural reason rather than a convention:
+	 * the browser Shell is a SOURCE. It is anonymous by contract — the `name`
+	 * setter below throws — so it is never registered, never routable, and no
+	 * Message can arrive here. Only its host calls it, always with typed text.
+	 * (PHP's `Shell_Node::fill()` is the routable one and takes a Message; it
+	 * reads its line out of a TM_BYTESTREAM VALUE.)
+	 *
 	 * @param {string} line Raw REPL line.
 	 * @return {Object|null} A `{ kind: … }` signal, or null.
 	 */
+	// @ts-expect-error Source-only Shell: unnamed, unroutable, host-fed lines.
 	fill( line ) {
 		this.counter++;
 		const parsed = this.parse( line );
@@ -1015,12 +1038,24 @@ export class ShellNode extends Node {
 		this.dispatch( m );
 	}
 
-	// FROM = the bare reply node; `_sse:{pid}` wraps it into a private address.
+	/**
+	 * The FROM this session stamps: the bare reply node, unwrapped. A private
+	 * per-session address is `_sse:{pid}`'s job downstream, not the Shell's.
+	 *
+	 * @param {string} replyNode Name of the node the reply should land on.
+	 * @return {string} The FROM path to stamp.
+	 */
 	replyFrom( replyNode ) {
 		return replyNode;
 	}
 
-	// Slash-join cwd with an extra path arg, dropping empty pieces.
+	/**
+	 * Slash-join the cwd with a path argument, dropping empty pieces — how a
+	 * cwd-relative token becomes the TO a message carries.
+	 *
+	 * @param {string} path Path relative to the cwd; '' yields the bare cwd.
+	 * @return {string} The joined path.
+	 */
 	prefix( path ) {
 		const parts = [];
 		if ( '' !== this.path ) {
@@ -1102,16 +1137,34 @@ export class ShellNode extends Node {
 		return '' !== this.lineContinuation ? '> ' : '';
 	}
 
+	/**
+	 * The node name, always the empty string the base constructor set — the
+	 * setter below refuses every assignment.
+	 *
+	 * @return {string} The empty name.
+	 */
 	get name() {
 		return this._name;
 	}
 
-	// The Shell is the unnamed REPL front-end; naming it is fatal.
+	/**
+	 * Refuses every name: the Shell is the unnamed REPL front-end, and naming a
+	 * node registers it as a routable destination, which this one is not.
+	 *
+	 * @param {string} value The rejected name.
+	 * @throws {Error} Always.
+	 */
 	set name( value ) {
 		throw new Error( 'Shell must not be named' );
 	}
 
-	// Instance accessor for the quote-aware tokenizer (Shell_Node::tokenize).
+	/**
+	 * Instance accessor for the module-level quote-aware tokenizer, so a host
+	 * holding only the shell can tokenize (mirrors PHP Shell_Node::tokenize).
+	 *
+	 * @param {string} line Interpolated, trimmed line.
+	 * @return {string[]} Tokens with quote chars removed and runs collapsed.
+	 */
 	tokenize( line ) {
 		return tokenize( line );
 	}
@@ -1130,6 +1183,12 @@ export class ShellNode extends Node {
 		return this._wantReply;
 	}
 
+	/**
+	 * Console-palette entry. `Hidden` keeps the anonymous Shell out of the
+	 * palette; it takes no positional configuration.
+	 *
+	 * @return {Object} The node schema.
+	 */
 	static nodeSchema() {
 		return {
 			category: 'Hidden',

@@ -61,7 +61,14 @@ const HEALTH_TONES = {
 	stalled: 'is-error',
 };
 
-// Build the `TopologySection` model for one active topology's live status.
+/**
+ * Build the `TopologySection` model for one active topology's live status.
+ *
+ * @param {string}  name   Topology name; keys the single-entry graph handed to `buildTopologySections`.
+ * @param {?Object} status The topology's merged live status from `useTopologyManager` — `graph`, `workers`, `logs`.
+ * @return {?Object} The section `{ topology, workers, tree }`, or null when the
+ *   topology is inactive and carries no graph.
+ */
 export function sectionFor( name, status ) {
 	if ( ! status || ! status.graph ) {
 		return null;
@@ -75,27 +82,42 @@ export function sectionFor( name, status ) {
 }
 
 /**
+ * The grip's pointer handlers. `GripDown` also carries the row name, since one
+ * handler serves every row; the rest read the event alone.
+ *
+ * @typedef {import('react').PointerEvent<HTMLSpanElement>} GripEvent
+ * @typedef {import('react').PointerEventHandler<HTMLSpanElement>} GripHandler
+ * @typedef {( name: string, event: GripEvent ) => void} GripDownHandler
+ */
+
+/**
+ * @typedef {Object} TopologyRowProps
+ * @property {Object}          topology             Topology row from useTopologyManager.
+ * @property {boolean}         [folded]             Render the heading only (▸ expand) vs heading + body (▾ collapse).
+ * @property {Function}        onActivate           (name) => Promise.
+ * @property {Function}        onDeactivate         (name) => Promise.
+ * @property {Function}        onRestart            (name) => Promise.
+ * @property {Function}        onError              ({name,message}) => void; a rejected mutation.
+ * @property {Function}        [onExpand]           (name) => void; unfold this row (folded chevron).
+ * @property {Function}        [onCollapseTopology] (name) => void; fold this row (unfolded chevron).
+ * @property {boolean}         [isDragging]         True while this row is the one being pointer-dragged.
+ * @property {GripDownHandler} [onGripPointerDown]  Begin a pointer-drag from the grip.
+ * @property {GripHandler}     [onGripPointerMove]  Pointer moved mid-drag (live reorder).
+ * @property {GripHandler}     [onGripPointerUp]    End the pointer-drag (commit); also the cancel handler.
+ * @property {Set}             [collapsed]          Within-tree node-fold set (unfolded only).
+ * @property {Function}        [onToggleFold]       (key) => void within-tree node-fold toggler.
+ */
+
+/**
  * One topology's row — the SAME heading whether folded (compact summary) or
  * unfolded (heading + live detail tree); only the chevron (▸/▾) and the presence
  * of the body differ. So the folded summary and the expanded view share one set
  * of per-partition pills + badges, and each partition shows its OWN uptime.
  *
- * @param {Object}   props                      Component props.
- * @param {Object}   props.topology             Topology row from useTopologyManager.
- * @param {boolean}  [props.folded]             Render the heading only (▸ expand) vs heading + body (▾ collapse).
- * @param {Function} props.onActivate           (name) => Promise.
- * @param {Function} props.onDeactivate         (name) => Promise.
- * @param {Function} props.onRestart            (name) => Promise.
- * @param {Function} props.onError              ({name,message}) => void; a rejected mutation.
- * @param {Function} [props.onExpand]           (name) => void; unfold this row (folded chevron).
- * @param {Function} [props.onCollapseTopology] (name) => void; fold this row (unfolded chevron).
- * @param {boolean}  [props.isDragging]         True while this row is the one being pointer-dragged.
- * @param {Function} [props.onGripPointerDown]  (name, event) => void; begin a pointer-drag from the grip.
- * @param {Function} [props.onGripPointerMove]  (event) => void; pointer moved mid-drag (live reorder).
- * @param {Function} [props.onGripPointerUp]    (event) => void; end the pointer-drag (commit).
- * @param {Set}      [props.collapsed]          Within-tree node-fold set (unfolded only).
- * @param {Function} [props.onToggleFold]       (key) => void within-tree node-fold toggler.
- * @return {import('react').ReactElement} Rendered row.
+ * The props live in the `TopologyRowProps` typedef above: `memo()` hides the
+ * inner function from a docblock on this declaration, so the type rides here.
+ *
+ * @type {import('react').NamedExoticComponent<TopologyRowProps>}
  */
 const TopologyRow = memo( function TopologyRow( {
 	topology,

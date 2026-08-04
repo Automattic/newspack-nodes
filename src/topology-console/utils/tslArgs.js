@@ -9,6 +9,14 @@
 
 import { serializeDraftArg as emitDraftArg } from '../../runtime/shell-node';
 
+/**
+ * Drop trailing empty and unset slots, so a TSL line ends at the last argument
+ * the author actually set. Interior holes survive: positional slots are
+ * indexed, and dropping one would shift every argument after it.
+ *
+ * @param {Array} args Positional arg values from the draft graph.
+ * @return {Array} New array truncated at its last non-empty slot.
+ */
 export function trimTrailingEmpties( args ) {
 	const out = args.slice();
 	while (
