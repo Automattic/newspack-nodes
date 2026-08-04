@@ -14,6 +14,7 @@ import { Core } from '../core';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import { TimerNode } from '../timer-node';
 import { StubNode } from '../stub-node';
+import { DraftInterpreterNode } from '../draft-interpreter-node';
 import { NodeRegistry } from '../node-registry';
 import { parseStatements } from '../shell-node';
 import { newMessage, TYPE, TO, VALUE, TM_COMMAND } from '../message';
@@ -69,7 +70,7 @@ class DraftInterpreter extends CommandInterpreterNode {
 		node.sink = this;
 		// Same rule makeNode follows: record the sink you wired, or
 		// dump_config emits a set_sink line for your own default.
-		node.defaultSink = this;
+		node._defaultSink = this;
 		return 'ok';
 	}
 }
@@ -188,7 +189,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 		// the router answers NOT_AVAILABLE. Our port is faithful, and this
 		// pins that rather than the behaviour an editor wants.
 		//
-		// A DRAFT must diverge here: `draftGraph.moveNode` already rewrites
+		// A DRAFT must diverge here: the console already rewrote
 		// edges, because silently breaking the topology you are editing is not
 		// a defensible editor. Same verb, different interpreter, different
 		// meaning — the `secure` split again.
@@ -291,5 +292,176 @@ describe( 'a draft interpreter holding a server topology', () => {
 		draft.fill( command( 'remove_node', [ 'flames' ] ) );
 
 		expect( draft.childRegistry.node( 'flames' ) ).toBeNull();
+	} );
+} );
+
+/**
+ * An `include` expands BEFORE the file's own lines run — that ordering is the
+ * whole reason the console needed a bespoke fold beside the parser. Seeding the
+ * interpreter from the expand baseline puts the ordering back where the runtime
+ * keeps it: the included nodes exist by the time a `connect_node` names one.
+ *
+ * The borrowed nodes carry provenance (`origin`), which is what makes them
+ * describable but not re-declarable — a save must not re-emit a node the
+ * include already supplies.
+ */
+describe( 'a draft interpreter seeded from an include expansion', () => {
+	const BASELINE = {
+		nodes: [
+			{
+				name: 'zebra',
+				class: 'Tee',
+				args: [],
+				fans_out: true,
+				origin: [ 'quokka-topology' ],
+			},
+			{
+				name: 'ocelot',
+				class: 'Partition',
+				args: [ 'ocelot.log', '4096' ],
+				origin: [ 'quokka-topology' ],
+			},
+		],
+		edges: [ { from: 'zebra', to: 'ocelot', roles: [ 'connect' ] } ],
+	};
+
+	const draft = () => {
+		const interpreter = new DraftInterpreterNode();
+		interpreter.name = '_draft';
+		return interpreter;
+	};
+
+	it( 'resolves a connect_node that names a borrowed node', () => {
+		const interpreter = draft();
+		interpreter.load(
+			[
+				'include quokka-topology',
+				'make_node Grep narwhal ^wombat',
+				'connect_node narwhal zebra',
+			].join( '\n' ),
+			BASELINE
+		);
+
+		expect( interpreter.childRegistry.node( 'zebra' ) ).not.toBeNull();
+		expect( interpreter.childRegistry.node( 'narwhal' ).target ).toBe(
+			'zebra'
+		);
+		// The baseline's own edge survives the file's lines running on top.
+		expect( interpreter.childRegistry.node( 'zebra' ).target ).toEqual( [
+			'ocelot',
+		] );
+	} );
+
+	it( 'does not re-declare a node the include supplies', () => {
+		const interpreter = draft();
+		interpreter.load(
+			[
+				'include quokka-topology',
+				'make_node Grep narwhal ^wombat',
+				'connect_node narwhal zebra',
+			].join( '\n' ),
+			BASELINE
+		);
+		const dumped = interpreter.dumpDocument( BASELINE );
+
+		expect( dumped ).toContain( 'include quokka-topology' );
+		expect( dumped ).toContain( 'make_node Grep narwhal ^wombat' );
+		expect( dumped ).not.toContain( 'make_node Tee zebra' );
+		expect( dumped ).not.toContain( 'make_node Partition ocelot' );
+		// Already in the baseline: re-emitting it would be a redundant line.
+		expect( dumped ).not.toContain( 'connect_node zebra ocelot' );
+		expect( dumped ).toContain( 'connect_node narwhal zebra' );
+	} );
+
+	it( 'says the word when an edge the include supplied is dropped', () => {
+		const interpreter = draft();
+		interpreter.load( 'include quokka-topology', BASELINE );
+		interpreter.run( 'disconnect_node zebra ocelot' );
+
+		expect( interpreter.dumpDocument( BASELINE ) ).toContain(
+			'disconnect_node zebra ocelot'
+		);
+	} );
+} );
+
+/**
+ * A `command_node` aimed at a borrowed node is the file's own line, and the
+ * only way a topology retargets something an include supplied. It must survive
+ * a save even though the node it names must not be re-declared.
+ */
+describe( 'a document that configures a borrowed node', () => {
+	const BASELINE = {
+		nodes: [
+			{
+				name: 'meerkat',
+				class: 'Flame_Builder',
+				verbs: [ { verb: 'set_window', args: [ '900' ] } ],
+				origin: [ 'shared-flames' ],
+			},
+		],
+		edges: [],
+	};
+
+	it( 'keeps the declared line and drops the expansion’s', () => {
+		const interpreter = new DraftInterpreterNode();
+		interpreter.name = '_draft';
+		interpreter.load(
+			[
+				'include shared-flames',
+				'command_node meerkat:config set_stats_target badger',
+			].join( '\n' ),
+			BASELINE
+		);
+
+		// Both readable — the inspector shows what the node actually has.
+		expect( interpreter.invocationsFor( 'meerkat' ) ).toHaveLength( 2 );
+
+		const dumped = interpreter.dumpDocument( BASELINE );
+		expect( dumped ).toContain(
+			'command_node meerkat:config set_stats_target badger'
+		);
+		expect( dumped ).not.toContain( 'set_window' );
+	} );
+} );
+
+/**
+ * A rename has to follow every reference, and a verb argument typed
+ * `node_name` is a reference. Which arguments those are is the class catalog's
+ * answer, so the draft carries one — the same catalog `make_node` resolves
+ * against, not a second source of truth.
+ */
+describe( 'move_node against a verb argument that names a node', () => {
+	const CATALOG = [
+		{
+			shell_name: 'Grep',
+			commands: [
+				{
+					name: 'set_stats_target',
+					args: [ { name: 'to', type: 'node_name' } ],
+				},
+				{ name: 'set_window', args: [ { name: 'n', type: 'int' } ] },
+			],
+		},
+	];
+
+	it( 'rewrites the reference and leaves same-valued non-references alone', () => {
+		const interpreter = new DraftInterpreterNode();
+		interpreter.name = '_draft';
+		interpreter.catalog = CATALOG;
+		interpreter.load(
+			[
+				'make_node Grep aardvark ^x',
+				'make_node Grep pangolin ^y',
+				'command_node aardvark:config set_stats_target pangolin',
+				'command_node aardvark:config set_window pangolin',
+			].join( '\n' )
+		);
+
+		interpreter.run( 'move_node pangolin armadillo' );
+
+		const invocations = interpreter.declaredInvocationsFor( 'aardvark' );
+		expect( invocations[ 0 ].args ).toEqual( [ 'armadillo' ] );
+		// Same text, not a node reference: an int argument stays put.
+		expect( invocations[ 1 ].args ).toEqual( [ 'pangolin' ] );
 	} );
 } );

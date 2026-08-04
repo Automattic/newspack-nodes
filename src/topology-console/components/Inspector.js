@@ -90,7 +90,7 @@ function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 }
 
 /**
- * Shared absorb-last core (positionalArgs is the string-input front door). parseTsl
+ * Shared absorb-last core (positionalArgs is the string-input front door). The draft
  * whitespace-splits a `make_node`/`cmd` line's tail into a token array with no schema
  * knowledge, so a free-text arg with spaces (e.g. add_profile's `text`) arrives as many
  * tokens. Collapse the tail into the LAST declared slot so a one-arg verb binds the whole
@@ -98,7 +98,7 @@ function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
  * round-trippable token. Idempotent: an already-collapsed list (length <= count) is
  * returned unchanged, so applying it on edit-writeback never re-splits.
  *
- * @param {string[]} args  Token array from parseTsl (invocation.args / ctorArgs).
+ * @param {string[]} args  Token array from the draft (invocation.args / ctorArgs).
  * @param {number}   count Number of positional args the schema declares.
  * @return {string[]} Args of length <= count, last slot absorbing the tail.
  */

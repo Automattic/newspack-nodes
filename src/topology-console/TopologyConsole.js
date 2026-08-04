@@ -47,14 +47,12 @@ import {
 } from './hooks/useExpandedIncludes';
 import {
 	draftIsDirty,
-	applyLoadedBaseline,
 	generateNodeName,
-	reconcileIncludes,
 	withReplAnchor,
-	withResolvedConfigEdges,
 } from './utils/consoleGraph';
-import { draftReducer, revertIncludes } from './utils/draftReducer';
-import { DraftProvider, useDraftDispatch } from './DraftContext';
+import { revertIncludes } from './utils/revertIncludes';
+import { DraftProvider, useDraftInterpreter } from './DraftContext';
+import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
 import { CatalogProvider } from './CatalogContext';
 import { LayoutProvider } from './LayoutContext';
 import { ChromeProvider } from './ChromeContext';
@@ -62,9 +60,14 @@ import { snapToGrid } from './utils/autoLayout';
 import { stampOrigins } from './utils/stampOrigins';
 import { clusterLayout } from './utils/clusterLayout';
 import { augmentWithVirtualEdges } from './utils/virtualEdges';
-import { parseTsl } from './utils/parseTsl';
-import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from '../runtime/shell-node';
+import { assertResolvedConfigEdges } from './utils/draftToGraph';
+import {
+	expansionMatchesIncludes,
+	setArgumentsLine,
+	verbInvocationArgs,
+	verbUsesConfig,
+} from './utils/editorLines';
 import { dispatchLocalCommand } from './core/dispatchLocalCommand';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { scopeFromCwd } from './utils/scope';
@@ -245,18 +248,21 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const [ selectedId, setSelectedId ] = useState( null );
 	// edit freezes a draft; baseline is the edit-entry draft (dirty check).
 	const [ mode, setMode ] = useState( 'view' );
-	const [ draft, setDraft ] = useState( {
-		nodes: [],
-		edges: [],
-		frontmatter: {},
-	} );
-	const [ baseline, setBaseline ] = useState( {
-		nodes: [],
-		edges: [],
-		frontmatter: {},
-	} );
-	// The mutation door. Loads still go through setDraft — see DraftContext.
-	const dispatch = useDraftDispatch( setDraft );
+	// The document IS an interpreter; `draft` is the graph read off it.
+	const draftDoc = useDraftInterpreter();
+	const { graph: draft, run: runDraft, load: loadDraft } = draftDoc;
+	// `_repl` is a canvas anchor, not a line any topology contains.
+	const editGraph = useMemo( () => withReplAnchor( draft ), [ draft ] );
+
+	// Which classes fan out, and which verb arguments are node references.
+	const setDraftCatalog = useCallback(
+		( classes ) => {
+			draftDoc.interpreter.catalog = classes || [];
+		},
+		[ draftDoc ]
+	);
+	// From the document: a literal that disagrees reads as dirty at once.
+	const [ baseline, setBaseline ] = useState( () => draftDoc.graph );
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
@@ -425,15 +431,43 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( mode !== 'edit' ) {
 			return;
 		}
-		// Read the ref NOW: the updater runs at render, after the line below.
+		// A re-seed is a reload: dump against the old expansion, load the new.
 		const prev = prevExpandBaselineRef.current;
-		setDraft( ( g ) => reconcileIncludes( g, prev, expandBaseline ) );
-		prevExpandBaselineRef.current = expandBaseline;
-	}, [ expandBaseline, mode ] );
+		// The expansion has to be THIS document's, or a save writes it empty.
+		const isOurs = expansionMatchesIncludes(
+			expandBaseline,
+			draftDoc.interpreter.includes
+		);
+		if (
+			isOurs &&
+			JSON.stringify( prev ) !== JSON.stringify( expandBaseline )
+		) {
+			loadDraft(
+				draftDoc.interpreter.dumpDocument( prev ),
+				expandBaseline,
+				draftDoc.interpreter.resolvedConfigEdges
+			);
+			prevExpandBaselineRef.current = expandBaseline;
+		}
+	}, [ expandBaseline, mode, draftDoc, loadDraft, runDraft ] );
 
 	// Pick the catalog where make_node runs: JS at cwd '/', else PHP.
 	const catalog =
 		mode !== 'edit' && scope.key === 'local' ? jsCatalog : phpCatalog;
+	// Class-name → schema map the catalog context and the save path both read.
+	const schemasByShellName = useMemo(
+		() =>
+			Object.fromEntries(
+				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
+			),
+		[ catalog.classes ]
+	);
+
+	// A blank canvas loads nothing, so the load sites alone miss it.
+	useEffect(
+		() => setDraftCatalog( catalog.classes ),
+		[ catalog.classes, setDraftCatalog ]
+	);
 
 	// Server-saved layout (fetchLayout): seed source, autoLayout is fallback.
 	const [ savedLayout, setSavedLayout ] = useState( null );
@@ -513,10 +547,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const layoutGraph = useMemo(
 		() =>
 			augmentWithVirtualEdges(
-				mode === 'edit' ? draft : parsed,
+				mode === 'edit' ? editGraph : parsed,
 				catalog.classes
 			),
-		[ mode, draft, parsed, catalog.classes ]
+		[ mode, editGraph, parsed, catalog.classes ]
 	);
 
 	// VIEW waits for a REAL node; scaffolding-only layout tucks everything.
@@ -886,43 +920,36 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setMode( 'edit' );
 				setEditingName( '' );
 				setEditingSource( '' );
-				const blank = withReplAnchor( {
-					nodes: [],
-					edges: [],
-					frontmatter: {},
-				} );
-				setDraft( blank );
-				setBaseline( blank );
+				prevExpandBaselineRef.current = null;
+				prevExpandBaselineRef.current = null;
+				setBaseline( loadDraft( '' ) );
 				if ( topology ) {
 					Promise.all( [
 						fetchTopology( topology ),
 						loadPhpCatalog(),
 					] )
 						.then( async ( [ resp, loadedCatalog ] ) => {
-							const parsedGraph = withResolvedConfigEdges(
-								parseTsl( resp.tsl || '' ),
-								resp.resolved_config_edges
-							);
+							const tsl = resp.tsl || '';
+							const includes =
+								DraftInterpreterNode.includesOf( tsl );
 							const includeBaseline =
 								resp.expanded ??
-								( await fetchExpandedIncludes(
-									parsedGraph.includes
-								) );
-							primeExpandedIncludes(
-								parsedGraph.includes,
-								includeBaseline
-							);
-							const loaded = withReplAnchor(
-								applyLoadedBaseline(
-									parsedGraph,
-									includeBaseline,
-									loadedCatalog.classes
-								)
-							);
+								( await fetchExpandedIncludes( includes ) );
+							primeExpandedIncludes( includes, includeBaseline );
+							setDraftCatalog( loadedCatalog.classes );
 							// Sync ref: re-fetch diffs vs THIS, not EMPTY.
 							prevExpandBaselineRef.current = includeBaseline;
-							setDraft( loaded );
-							setBaseline( loaded );
+							setBaseline(
+								loadDraft(
+									tsl,
+									includeBaseline,
+									resp.resolved_config_edges
+								)
+							);
+							assertResolvedConfigEdges(
+								draftDoc.interpreter,
+								resp.resolved_config_edges
+							);
 							setEditingName( resp.name );
 							setEditingSource( resp.source || '' );
 						} )
@@ -948,18 +975,35 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				return;
 			}
 			setDiscardModal( {
+				body: __(
+					'Leaving edit mode drops the draft topology. This cannot be undone.',
+					'newspack-nodes'
+				),
 				onConfirm: () => {
 					setDiscardModal( null );
+					// Actually DROP it; flipping the mode left it alive.
+					setBaseline( loadDraft( '' ) );
+					setEditingName( '' );
+					setEditingSource( '' );
 					setMode( 'view' );
 				},
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ mode, draft, baseline, topology, fetchTopology, loadPhpCatalog ]
+		[
+			mode,
+			draft,
+			baseline,
+			topology,
+			fetchTopology,
+			loadPhpCatalog,
+			loadDraft,
+			setDraftCatalog,
+		]
 	);
 
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
-	const baseCanvasGraph = mode === 'edit' ? draft : parsed;
+	const baseCanvasGraph = mode === 'edit' ? editGraph : parsed;
 
 	// Compose "To" list: the VIEWED graph (parsed.nodes), not Core.nodes.
 	const composeTargets = useMemo(
@@ -1023,32 +1067,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// snapToGrid from utils/autoLayout — same constants the renderer uses.
 
-	const handleDropNode = useCallback(
-		( { shellName, x, y } ) => {
-			// Live canvas: stage the NewNodeModal; position is cosmetic.
-			if ( mode !== 'edit' ) {
-				liveHandlers.onDropNode( { shellName, x, y } );
-				return;
-			}
-			// Snap to the grid so dropped nodes line up and don't drift.
-			const snapped = snapToGrid( x, y );
-			// The name is derived from the graph, so route inside the updater.
-			setDraft( ( g ) => {
-				const name = generateNodeName( g, shellName );
-				handlePositionChange( name, snapped );
-				return draftReducer( g, {
-					type: 'make_node',
-					shellName,
-					name,
-					x: snapped.x,
-					y: snapped.y,
-				} );
-			} );
-		},
-		// sendLine is consumed by commitPendingDrop (below), not this callback.
-		[ mode, liveHandlers, handlePositionChange ]
-	);
-
 	// Palette topology drop; edit-only, like handleDropNode.
 	const handleDropTopology = useCallback(
 		( { name, x, y } ) => {
@@ -1056,9 +1074,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				return;
 			}
 			pendingClusterRef.current = { name, drop: snapToGrid( x, y ) };
-			dispatch( { type: 'include', name } );
+			runDraft( `include ${ name }` );
 		},
-		[ mode, dispatch ]
+		[ mode, runDraft ]
 	);
 
 	// Unpositioned borrowed node is invisible; lay out below.
@@ -1098,15 +1116,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		}
 		// Revert only what this tree belongs to.
 		if ( 'edit' === mode ) {
-			setDraft( ( g ) => revertIncludes( g, expandBaseline.tree ) );
+			revertIncludes(
+				draftDoc.interpreter,
+				expandBaseline.tree,
+				runDraft
+			);
 		}
 		pendingClusterRef.current = null;
-	}, [ expandError, expandBaseline, mode ] );
+	}, [ expandError, expandBaseline, mode, draftDoc, runDraft ] );
 
 	// Inspector's IncludeTree remove button.
 	const handleRemoveInclude = useCallback(
-		( name ) => dispatch( { type: 'remove_include', name } ),
-		[ dispatch ]
+		( name ) => runDraft( `remove_include ${ name }` ),
+		[ runDraft ]
 	);
 
 	// NewNodeModal commit/cancel (live mode).
@@ -1133,46 +1155,31 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 	const cancelPendingDrop = useCallback( () => setPendingDrop( null ), [] );
 
-	const handleConnect = useCallback(
-		( from, to ) => {
-			// Live canvas: the gesture is a live command at the current cwd.
-			if ( mode !== 'edit' ) {
-				liveHandlers.onConnect( from, to );
-				return;
-			}
-			dispatch( {
-				type: 'connect_node',
-				from,
-				to,
-				catalog: catalog.classes,
-			} );
-		},
-		[ mode, liveHandlers, catalog.classes, dispatch ]
+	// Same command either way; only the interpreter differs, i.e. the cwd.
+	const canvasHandlers = useMemo(
+		() =>
+			mode === 'edit'
+				? {
+						onConnect: ( from, to ) =>
+							runDraft( `connect_node ${ from } ${ to }` ),
+						onRemoveNode: ( id ) =>
+							runDraft( `remove_node ${ id }` ),
+						onRemoveEdge: ( from, to ) =>
+							runDraft( `disconnect_node ${ from } ${ to }` ),
+						onDropNode: ( { shellName, x, y } ) => {
+							// Snap so dropped nodes line up and don't drift.
+							const name = generateNodeName( draft, shellName );
+							handlePositionChange( name, snapToGrid( x, y ) );
+							runDraft( `make_node ${ shellName } ${ name }` );
+						},
+				  }
+				: liveHandlers,
+		[ mode, liveHandlers, runDraft, draft, handlePositionChange ]
 	);
-
-	const handleRemoveNode = useCallback(
-		( id ) => {
-			// Live canvas: the gesture is a live command at the current cwd.
-			if ( mode !== 'edit' ) {
-				liveHandlers.onRemoveNode( id );
-				return;
-			}
-			dispatch( { type: 'remove_node', id } );
-		},
-		[ mode, liveHandlers, dispatch ]
-	);
-
-	const handleRemoveEdge = useCallback(
-		( from, to ) => {
-			// Live canvas: the gesture is a live command at the current cwd.
-			if ( mode !== 'edit' ) {
-				liveHandlers.onRemoveEdge( from, to );
-				return;
-			}
-			dispatch( { type: 'disconnect_node', from, to } );
-		},
-		[ mode, liveHandlers, dispatch ]
-	);
+	const handleDropNode = canvasHandlers.onDropNode;
+	const handleConnect = canvasHandlers.onConnect;
+	const handleRemoveNode = canvasHandlers.onRemoveNode;
+	const handleRemoveEdge = canvasHandlers.onRemoveEdge;
 
 	// DELETE shows only for a topology with a user-saved copy (stock kept).
 	const canDeleteCurrent = useMemo(
@@ -1239,58 +1246,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			if ( ! newName || newName === oldId ) {
 				return false;
 			}
-			// Reject collisions before mutating anything.
-			if ( draft.nodes.some( ( n ) => n.id === newName ) ) {
+			// Against the CANVAS graph: only it carries the `_repl` anchor.
+			if ( editGraph.nodes.some( ( n ) => n.id === newName ) ) {
 				return false;
 			}
-			const classByName = new Map();
-			for ( const c of catalog.classes || [] ) {
-				classByName.set( c.shell_name, c );
-			}
-			// Verb-arg refs are rewritten off the result, so route inline.
-			setDraft( ( g ) => {
-				const renamed = draftReducer( g, {
-					type: 'move_node',
-					id: oldId,
-					newName,
-				} );
-				if ( renamed === g ) {
-					return g;
-				}
-				// Rewrite verb args on oldId so virtual edges track the rename.
-				const nodes = renamed.nodes.map( ( n ) => {
-					if ( ! n.verbInvocations || ! n.verbInvocations.length ) {
-						return n;
-					}
-					const schema = classByName.get( n.class );
-					if ( ! schema || ! schema.commands ) {
-						return n;
-					}
-					const nextInvs = n.verbInvocations.map( ( inv ) => {
-						const cspec = schema.commands.find(
-							( v ) => v.name === inv.verb
-						);
-						if ( ! cspec || ! cspec.args ) {
-							return inv;
-						}
-						let touched = false;
-						const args = inv.args.slice();
-						cspec.args.forEach( ( a, i ) => {
-							if (
-								a.type === 'node_name' &&
-								args[ i ] === oldId
-							) {
-								args[ i ] = newName;
-								touched = true;
-							}
-						} );
-						return touched ? { ...inv, args } : inv;
-					} );
-					return { ...n, verbInvocations: nextInvs };
-				} );
-				// Spread renamed so frontmatter + name survive the rewrite.
-				return { ...renamed, nodes };
-			} );
+			// The interpreter rewrites every reference as part of the rename.
+			setDraftCatalog( catalog.classes );
+			runDraft( `move_node ${ oldId } ${ newName }` );
 			// Carry the position override onto the new key. Dirty-neutral.
 			renamePosition( oldId, newName );
 			if ( selectedId === oldId ) {
@@ -1298,19 +1260,50 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			}
 			return true;
 		},
-		[ draft.nodes, catalog.classes, selectedId, renamePosition ]
+		[
+			editGraph.nodes,
+			catalog.classes,
+			selectedId,
+			renamePosition,
+			runDraft,
+			setDraftCatalog,
+		]
 	);
 
 	const handleUpdateArgs = useCallback(
-		( id, args ) =>
-			dispatch( { type: 'set_arguments', id, ctorArgs: args } ),
-		[ dispatch ]
+		( id, args ) => {
+			const node = draftDoc.interpreter.childRegistry.node( id );
+			const spec =
+				schemasByShellName[ node?.shellClassName() ]?.arguments ?? null;
+			runDraft( setArgumentsLine( id, args, node?.arguments, spec ) );
+		},
+		[ runDraft, draftDoc, schemasByShellName ]
 	);
 
+	// `command_node` only APPENDS, so replacement is a method, not a verb.
 	const handleUpdateVerbs = useCallback(
-		( id, verbs ) =>
-			dispatch( { type: 'cmd', id, verbInvocations: verbs } ),
-		[ dispatch ]
+		( id, verbs ) => {
+			const schema =
+				schemasByShellName[
+					draft.nodes.find( ( n ) => n.id === id )?.class
+				];
+			// The ROW says which half is ours; an index shifts on a removal.
+			const specOf = ( verb ) =>
+				schema?.commands?.find( ( c ) => c.name === verb )?.args ??
+				null;
+			draftDoc.interpreter.replaceInvocations(
+				id,
+				verbs
+					.filter( ( v ) => true !== v.seeded )
+					.map( ( { seeded, ...v } ) => ( {
+						...v,
+						args: verbInvocationArgs( v.args, specOf( v.verb ) ),
+						viaConfig: verbUsesConfig( v, schema ),
+					} ) )
+			);
+			runDraft( '' );
+		},
+		[ draftDoc, runDraft, draft.nodes, schemasByShellName ]
 	);
 
 	// Opening a topology lands you in the editor, from live too — like New.
@@ -1323,26 +1316,27 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					fetchTopology( name ),
 					loadPhpCatalog(),
 				] );
-				const parsedGraph = withResolvedConfigEdges(
-					parseTsl( resp.tsl || '' ),
-					resp.resolved_config_edges
-				);
+				const tsl = resp.tsl || '';
+				const includes = DraftInterpreterNode.includesOf( tsl );
 				const includeBaseline =
 					resp.expanded ??
-					( await fetchExpandedIncludes( parsedGraph.includes ) );
-				primeExpandedIncludes( parsedGraph.includes, includeBaseline );
-				const next = withReplAnchor(
-					applyLoadedBaseline(
-						parsedGraph,
-						includeBaseline,
-						loadedCatalog.classes
-					)
-				);
+					( await fetchExpandedIncludes( includes ) );
+				primeExpandedIncludes( includes, includeBaseline );
+				setDraftCatalog( loadedCatalog.classes );
 				// Sync ref: re-fetch diffs vs THIS, not EMPTY.
 				prevExpandBaselineRef.current = includeBaseline;
 				// Replace draft AND baseline so the load starts clean.
-				setDraft( next );
-				setBaseline( next );
+				setBaseline(
+					loadDraft(
+						tsl,
+						includeBaseline,
+						resp.resolved_config_edges
+					)
+				);
+				assertResolvedConfigEdges(
+					draftDoc.interpreter,
+					resp.resolved_config_edges
+				);
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
@@ -1366,7 +1360,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ fetchTopology, loadPhpCatalog ]
+		[ fetchTopology, loadPhpCatalog, loadDraft, setDraftCatalog ]
 	);
 
 	/**
@@ -1381,6 +1375,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				return;
 			}
 			setDiscardModal( {
+				body: sprintf(
+					// translators: %s: topology name being opened.
+					__(
+						'Opening %s replaces the draft topology. This cannot be undone.',
+						'newspack-nodes'
+					),
+					name
+				),
 				onConfirm: () => {
 					setDiscardModal( null );
 					handleOpenPick( name );
@@ -1427,22 +1429,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}, [] );
 
 	const handleNew = useCallback( () => {
-		// Carry the _repl anchor like handleModeChange's blank draft.
-		const blank = withReplAnchor( {
-			nodes: [],
-			edges: [],
-			frontmatter: {},
-		} );
 		// New starts a fresh topology from live mode too — lands you in edit.
 		setMode( 'edit' );
-		setDraft( blank );
-		setBaseline( blank );
+		setBaseline( loadDraft( '' ) );
 		setEditingName( '' );
 		setEditingSource( '' );
 		setSelectedId( null );
 		setSettingsOpen( false );
 		resetLayout();
-	}, [ resetLayout ] );
+	}, [ resetLayout, loadDraft ] );
 
 	// Honor the Topologies tab's ?new / ?edit deep-links, then consume it.
 	useEffect( () => {
@@ -1474,18 +1469,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		resetLocalGraphCore();
 	}, [ cwd, resetLocalGraphCore ] );
 
-	// Class-name → schema map so serializeTsl fills empty positional slots.
-	const schemasByShellName = useMemo(
+	// A foreign expansion drops the operator's `disconnect_node` lines.
+	const saveBaseline = useMemo(
 		() =>
-			Object.fromEntries(
-				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
-			),
-		[ catalog.classes ]
+			expansionMatchesIncludes( expandBaseline, draft.includes )
+				? expandBaseline
+				: null,
+		[ expandBaseline, draft.includes ]
 	);
 
 	// DOWNLOAD: write the draft out as <name>.tsl via a Blob object URL.
 	const handleDownload = useCallback( () => {
-		const tsl = serializeTsl( draft, schemasByShellName, expandBaseline );
+		const tsl = draftDoc.interpreter.dumpDocument( saveBaseline );
 		const blob = new window.Blob( [ tsl ], { type: 'text/plain' } );
 		const url = window.URL.createObjectURL( blob );
 		const a = document.createElement( 'a' );
@@ -1495,7 +1490,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		a.click();
 		a.remove();
 		window.URL.revokeObjectURL( url );
-	}, [ draft, schemasByShellName, expandBaseline, editingName ] );
+	}, [ draftDoc, saveBaseline, editingName ] );
 
 	// UPLOAD: load a .tsl file's text into the draft; baseline stays → dirty.
 	const handleUpload = useCallback(
@@ -1505,21 +1500,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					file.text(),
 					loadPhpCatalog(),
 				] );
-				const parsedGraph = parseTsl( text );
-				const includeBaseline = await fetchExpandedIncludes(
-					parsedGraph.includes
-				);
-				primeExpandedIncludes( parsedGraph.includes, includeBaseline );
-				const loaded = withReplAnchor(
-					applyLoadedBaseline(
-						parsedGraph,
-						includeBaseline,
-						loadedCatalog.classes
-					)
-				);
+				const includes = DraftInterpreterNode.includesOf( text );
+				const includeBaseline = await fetchExpandedIncludes( includes );
+				primeExpandedIncludes( includes, includeBaseline );
+				setDraftCatalog( loadedCatalog.classes );
 				// Sync ref: the reconcile effect diffs vs THIS, not EMPTY.
 				prevExpandBaselineRef.current = includeBaseline;
-				setDraft( loaded );
+				loadDraft( text, includeBaseline );
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -1535,7 +1522,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ loadPhpCatalog ]
+		[ loadPhpCatalog, loadDraft, setDraftCatalog ]
 	);
 
 	const handleSaveConfirm = useCallback(
@@ -1551,7 +1538,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			try {
 				const tsl =
 					capturedTsl ??
-					serializeTsl( draft, schemasByShellName, expandBaseline );
+					draftDoc.interpreter.dumpDocument( saveBaseline );
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
 				const fleetsPhrase = sprintf(
@@ -1606,11 +1593,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		},
 		[
 			saveModal,
-			draft,
 			saveTopology,
 			topologyList,
-			schemasByShellName,
-			expandBaseline,
+			draftDoc,
+			saveBaseline,
 			reloadCatalog,
 			topologyWorkers,
 		]
@@ -1685,7 +1671,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	}
 
 	return (
-		<DraftProvider draft={ draft } dispatch={ dispatch }>
+		<DraftProvider draft={ draftDoc }>
 			<ChromeProvider
 				paletteCollapsed={ paletteCollapsed }
 				onPaletteToggle={ togglePaletteCollapsed }
@@ -1810,10 +1796,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 										'Discard unsaved changes?',
 										'newspack-nodes'
 									) }
-									body={ __(
-										'Leaving edit mode drops the draft topology. This cannot be undone.',
-										'newspack-nodes'
-									) }
+									body={ discardModal.body }
 									confirmLabel={ __(
 										'Discard',
 										'newspack-nodes'

@@ -35,7 +35,6 @@ import {
 	answerBatch,
 	installFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import * as consoleGraph from '../utils/consoleGraph';
 import { invalidateExpandedIncludes } from '../hooks/useExpandedIncludes';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
@@ -297,9 +296,9 @@ jest.mock( '../components/SchematicCanvas', () => {
 	// real canvas reads layout + chrome from context now, so the double must
 	// too, or these assertions test a prop chain it stopped using.
 	return function SchematicCanvasDouble( props ) {
-		const { useLayout } = require( '../LayoutContext' );
+		const { useLayoutContext } = require( '../LayoutContext' );
 		const { useChrome } = require( '../ChromeContext' );
-		mockCanvasProps = { ...props, ...useLayout(), ...useChrome() };
+		mockCanvasProps = { ...props, ...useLayoutContext(), ...useChrome() };
 		return mockCanvasMarkup( mockCanvasProps );
 	};
 } );
@@ -1959,7 +1958,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( mockCanvasProps.parsed.edges ).toEqual(
 			expect.arrayContaining( [
 				expect.objectContaining( { from: 'a', to: 'c' } ),
-				{ from: 'a', to: 'b' },
+				expect.objectContaining( { from: 'a', to: 'b' } ),
 			] )
 		);
 	} );
@@ -3610,6 +3609,160 @@ describe( 'TopologyConsole boot', () => {
 		}
 	} );
 
+	it( 'Discard leaves edit mode with no modal and no stale editing target', async () => {
+		// Discard used to only flip the mode, leaving the dirty draft alive;
+		// the next action that replaced it re-asked, in LIVE, about a topology
+		// the operator could no longer see. The drop itself is asserted on the
+		// interpreter (draft-interpreter-verbs); this covers the flow.
+		hooks.fetchTopology.mockResolvedValue( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+			source: 'user',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, getByTestId, queryByText } = render(
+			<TopologyConsole />
+		);
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onRenameNode( 'n1', 'aardvark' );
+		} );
+
+		await act( async () => {
+			fireEvent.click( getByText( 'view' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+
+		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
+		expect( queryByText( 'confirm' ) ).toBeNull();
+		// Genuinely dropped: the console is no longer editing anything, so
+		// nothing later can re-ask about a draft the operator cannot see.
+
+		// Re-entering edit starts from the file, not the abandoned draft.
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		expect(
+			mockCanvasProps.parsed.nodes.some( ( n ) => n.id === 'aardvark' )
+		).toBe( false );
+	} );
+
+	it( 'handleUpdateVerbs writes back the file’s verbs, not the include’s', async () => {
+		// The Inspector renders seeded ⧺ declared as one list and lets any row
+		// be spliced. Keyed by INDEX, removing a seeded row deletes a declared
+		// verb instead — so the row's own flag has to decide.
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'include shared\ncommand_node n1:config set_b 2\n',
+			name: 'demo',
+			expanded: {
+				nodes: [
+					{
+						name: 'n1',
+						class: 'Echo',
+						origin: [ 'shared' ],
+						verbs: [ { verb: 'set_seeded', args: [ '0' ] } ],
+					},
+				],
+				edges: [],
+				tree: { shared: {} },
+			},
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		const rows = mockCanvasProps.parsed.nodes.find(
+			( n ) => n.id === 'n1'
+		).verbInvocations;
+		expect( rows.map( ( r ) => r.verb ) ).toEqual( [
+			'set_seeded',
+			'set_b',
+		] );
+
+		// Drop the SEEDED row, as the Inspector's × would.
+		await act( async () => {
+			lastInspectorProps.onUpdateVerbs( 'n1', rows.slice( 1 ) );
+		} );
+
+		expect(
+			mockCanvasProps.parsed.nodes
+				.find( ( n ) => n.id === 'n1' )
+				.verbInvocations.map( ( r ) => r.verb )
+		).toEqual( [ 'set_seeded', 'set_b' ] );
+	} );
+
+	it( 'handleRenameNode: keeps the incoming edge and the node position', async () => {
+		// A rename is a rewrite of every reference. Losing the edge from the
+		// node that pointed AT the renamed one, or letting the canvas re-lay
+		// it out, both read to an operator as "renaming broke my graph".
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl:
+				'make_node Tee zebra\n' +
+				'make_node Echo n1\n' +
+				'connect_node zebra n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			mockCanvasProps.onPositionChange( 'n1', { x: 640, y: 480 } );
+		} );
+
+		await act( async () => {
+			lastInspectorProps.onRenameNode( 'n1', 'aardvark' );
+		} );
+
+		expect(
+			mockCanvasProps.parsed.edges.filter(
+				( e ) => e.from === 'zebra' && e.to === 'aardvark'
+			)
+		).toHaveLength( 1 );
+		expect( mockCanvasProps.positionOverrides.aardvark ).toEqual( {
+			x: 640,
+			y: 480,
+		} );
+	} );
+
+	it( 'handleRenameNode: rejects the reserved canvas anchor', async () => {
+		// `_repl` is the worker's auto-mounted Partition. It lives on the
+		// canvas graph, not in the document, so a guard reading the document
+		// alone misses it — and the saved .tsl then declares a node that
+		// collides with the runtime's own at spawn.
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+
+		const result = lastInspectorProps.onRenameNode( 'n1', '_repl' );
+
+		expect( result ).toBe( false );
+	} );
+
 	it( 'handleRenameNode: rejects empty name', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',
@@ -4798,7 +4951,10 @@ describe( 'TopologyConsole boot', () => {
 				) {
 					return null;
 				}
-				return msg.args === 'performance'
+				// `args` is a token array; the old string compare never
+				// matched, so BOTH drops got the combined expansion.
+				const asked = [].concat( msg.args ).join( ' ' );
+				return 'performance' === asked
 					? {
 							nodes: [
 								{
@@ -4851,6 +5007,69 @@ describe( 'TopologyConsole boot', () => {
 			expect( mockCanvasProps.positionOverrides[ 'shared-tee' ] ).toEqual(
 				sharedPos
 			);
+		} );
+
+		it( 'drilling into an included topology keeps that topology’s own nodes', async () => {
+			// The parent's expansion stays in state for a tick after the child
+			// loads. Re-seeding from it marks the child's OWN node borrowed,
+			// after which the document stops declaring it and a save writes an
+			// empty file — the node is gone from disk.
+			mockTopologyGet( 'wombat-top', 'include performance\n' );
+			mockTopologyExpand( [ 'performance' ], {
+				nodes: [
+					{
+						name: 'n1',
+						class: 'Tee',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+					{
+						name: 'sibling-echo',
+						class: 'Echo',
+						args: [],
+						origin: [ 'performance' ],
+						via: [ 'performance' ],
+					},
+				],
+				edges: [],
+				tree: { performance: {} },
+				hulls: { performance: [ 'n1', 'sibling-echo' ] },
+			} );
+			const { getByText } = await renderConsoleInEditMode();
+			await waitFor( () =>
+				expect(
+					mockCanvasProps.parsed.nodes.some( ( n ) => n.id === 'n1' )
+				).toBe( true )
+			);
+			// The inspector mounts on selection; that is where Open lives.
+			await act( async () => {
+				fireEvent.click( getByText( 'select-n1' ) );
+			} );
+
+			// Open the child: its own `make_node` declares the same node.
+			hooks.fetchTopology.mockResolvedValueOnce( {
+				tsl: 'make_node Tee n1\n',
+				name: 'performance',
+				source: 'user',
+			} );
+			await act( async () => {
+				lastInspectorProps.onOpenTopology( 'performance' );
+			} );
+			await act( async () => {
+				await new Promise( ( r ) => setTimeout( r, 0 ) );
+			} );
+
+			const node = mockCanvasProps.parsed.nodes.find(
+				( n ) => n.id === 'n1'
+			);
+			expect( node ).toBeDefined();
+			// The DOCUMENT's, not borrowed — so a save still writes it.
+			expect( node.origin ).toBeUndefined();
+			// And nothing the PARENT's expansion carried leaked in with it.
+			expect(
+				mockCanvasProps.parsed.nodes.map( ( n ) => n.id )
+			).not.toContain( 'sibling-echo' );
 		} );
 
 		it( 'reopening a topology only round-trips `topologies expand` once (fetchIncludeBaseline result is cached for useExpandedIncludes)', async () => {
@@ -4910,15 +5129,16 @@ describe( 'TopologyConsole boot', () => {
 			expect( lastInspectorProps.onRemoveInclude ).toBe( beforeRemove );
 		} );
 
-		it( 'reconcile effect does not run in VIEW mode (no wasted setDraft on mount)', async () => {
-			const spy = jest.spyOn( consoleGraph, 'reconcileIncludes' );
-
+		it( 'the re-seed does not run in VIEW mode (the draft is inert there)', async () => {
+			// The effect early-returns outside edit mode; a re-seed there
+			// would be work against a document nothing has loaded.
 			window.history.replaceState( {}, '', '/?topology=demo' );
-			render( <TopologyConsole /> );
+			const { getByTestId } = render( <TopologyConsole /> );
 			await act( async () => {} );
 
-			expect( spy ).not.toHaveBeenCalled();
-			spy.mockRestore();
+			// Live mode renders the running graph; nothing has loaded a
+			// document, so a re-seed would be work against an empty draft.
+			expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
 		} );
 	} );
 

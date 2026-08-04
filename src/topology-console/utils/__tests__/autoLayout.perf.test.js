@@ -5,12 +5,12 @@
 import fs from 'fs';
 import path from 'path';
 import { autoLayout } from '../autoLayout';
-import { parseTsl } from '../parseTsl';
+import { graphFromTsl } from '../draftToGraph';
 
 const BUDGET_MS = 4000;
 
 const fixture = () =>
-	parseTsl(
+	graphFromTsl(
 		fs.readFileSync(
 			path.join( __dirname, 'fixtures', 'test.tsl' ),
 			'utf8'

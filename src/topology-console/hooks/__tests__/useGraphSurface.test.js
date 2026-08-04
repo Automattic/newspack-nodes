@@ -4,7 +4,7 @@
  * wiring lives in ONE place (previously each consumer assembled its own copy and
  * the overlay kept missing features). Wraps usePanelChrome and adds the
  * transcript-overlay + repl-expand state, exposing ready-to-spread
- * canvasChromeProps / replChromeProps fragments.
+ * the replChromeProps fragment.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -22,15 +22,6 @@ const render = ( props = {} ) =>
 	} );
 
 describe( 'useGraphSurface', () => {
-	it( 'canvasChromeProps carries the inspector + palette + obstruction wiring', () => {
-		const { result } = render();
-		const cp = result.current.canvasChromeProps;
-		expect( cp.inspectorCollapsed ).toBe( true );
-		expect( typeof cp.onInspectorToggle ).toBe( 'function' );
-		expect( typeof cp.onPaletteToggle ).toBe( 'function' );
-		expect( cp.bottomObstructionPx ).toBe( 0 );
-	} );
-
 	it( 'replChromeProps carries the expand + overlay-height wiring', () => {
 		const { result } = render();
 		const rp = result.current.replChromeProps;
@@ -54,8 +45,6 @@ describe( 'useGraphSurface', () => {
 		act( () =>
 			result.current.replChromeProps.onOverlayHeightChange( 120 )
 		);
-		expect( result.current.canvasChromeProps.bottomObstructionPx ).toBe(
-			120
-		);
+		expect( result.current.transcriptOverlayPx ).toBe( 120 );
 	} );
 } );

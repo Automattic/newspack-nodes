@@ -7,7 +7,7 @@ import { usePanelChrome } from './usePanelChrome';
  * copy of the inspector / transcript-overlay / palette wiring, so a new
  * canvas-or-inspector behavior had to be threaded twice and the overlay kept
  * getting missed. This hook owns that wiring once and returns ready-to-spread
- * `canvasChromeProps` / `replChromeProps` fragments; consumers spread them into
+ * the `replChromeProps` fragment; consumers spread it into
  * their ConsoleShell `canvasProps` / `replProps` and add only their own,
  * genuinely-different props (edit mode, drag/maximize, headers, the command
  * pipe, etc.).
@@ -21,7 +21,7 @@ import { usePanelChrome } from './usePanelChrome';
  * @param {Object}  opts                    Options (forwarded to usePanelChrome).
  * @param {string}  opts.paletteKey         localStorage key for palette-collapsed.
  * @param {boolean} [opts.defaultCollapsed] Palette default when storage is empty.
- * @return {Object} Chrome values + `canvasChromeProps` / `replChromeProps` fragments + `openInspectorOnSelect`.
+ * @return {Object} Chrome values + the `replChromeProps` fragment + `openInspectorOnSelect`.
  */
 export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 	const {
@@ -48,24 +48,6 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		[ setInspectorCollapsed ]
 	);
 
-	// canvasProps fragment both consumers spread; memoized for stable identity.
-	const canvasChromeProps = useMemo(
-		() => ( {
-			paletteCollapsed,
-			onPaletteToggle: togglePaletteCollapsed,
-			inspectorCollapsed,
-			onInspectorToggle: toggleInspectorCollapsed,
-			bottomObstructionPx: transcriptOverlayPx,
-		} ),
-		[
-			paletteCollapsed,
-			togglePaletteCollapsed,
-			inspectorCollapsed,
-			toggleInspectorCollapsed,
-			transcriptOverlayPx,
-		]
-	);
-
 	// replProps fragment both consumers spread (expand + overlay-height).
 	const replChromeProps = useMemo(
 		() => ( {
@@ -89,7 +71,6 @@ export function useGraphSurface( { paletteKey, defaultCollapsed } ) {
 		setReplExpanded,
 		replInputRef,
 		openInspectorOnSelect,
-		canvasChromeProps,
 		replChromeProps,
 	};
 }

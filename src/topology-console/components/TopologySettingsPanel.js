@@ -51,7 +51,7 @@ export default function TopologySettingsPanel( {
 	configDefaultPartitions = 1,
 	onClose,
 } ) {
-	const { draft, dispatch } = useDraft();
+	const { graph: draft, interpreter, run } = useDraft();
 	const frontmatter = draft.frontmatter || {};
 	const secureLevel = draft.secureLevel || '';
 	// Seeded once per mount (the panel mounts on open, keyed by editing name).
@@ -75,7 +75,18 @@ export default function TopologySettingsPanel( {
 				map[ n ] = tv;
 			}
 		}
-		dispatch( { type: 'var', frontmatter: map } );
+		interpreter.replaceFrontmatter( map );
+		run( '' );
+	};
+
+	// "Undeclared" has no TSL spelling: a bare `secure` means level 1.
+	const setSecure = ( level ) => {
+		if ( '' === level ) {
+			interpreter.clearSecureLevel();
+			run( '' );
+			return;
+		}
+		run( 'insecure' === level ? 'insecure' : `secure ${ level }` );
 	};
 
 	// Set a key (recognized or generic). Preserves position if present.
@@ -218,12 +229,7 @@ export default function TopologySettingsPanel( {
 				<select
 					id="ts-secure-level"
 					value={ secureLevel }
-					onChange={ ( e ) =>
-						dispatch( {
-							type: 'secure',
-							level: e.target.value,
-						} )
-					}
+					onChange={ ( e ) => setSecure( e.target.value ) }
 				>
 					<option value="">
 						{ __( 'Not declared', 'newspack-nodes' ) }

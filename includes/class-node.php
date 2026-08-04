@@ -418,8 +418,8 @@ class Node {
 			' ',
 			\array_map(
 				static function ( string $t ): string {
-					// Quote an empty or any-metachar token; escape \ and the '.
-					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\]/', $t ) ) {
+					// Quote empty or any metachar; `#`/`;` end the LINE.
+					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\#;]/', $t ) ) {
 						return $t;
 					}
 					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";

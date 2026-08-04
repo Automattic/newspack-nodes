@@ -5,7 +5,7 @@
  * as `--key=value`, boolean flags as bare `--key`, lists comma-separated inside
  * one value. Callers build the token list with formatCommandArgs(); the server
  * verb parses it. format() round-trips parse(). No quoting — token boundaries
- * are the array's; the serialization anchor (serializeTsl) quotes when it must
+ * are the array's; the serialization anchor quotes a token when it must
  * materialize tokens back to a single line.
  */
 

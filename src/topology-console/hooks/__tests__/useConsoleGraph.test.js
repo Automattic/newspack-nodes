@@ -592,7 +592,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 				args: [ 'demo' ],
 			} )
 		);
-		// parseTsl(tsl).nodes seeded the canvas graph before dump_metadata.
+		// The .tsl's own nodes seed the canvas before dump_metadata lands.
 		const seeded = Core.node( names.METADATA ).setStateCache.metadata;
 		expect( seeded.nodes.map( ( n ) => n.id ) ).toContain( 'greeter' );
 	} );

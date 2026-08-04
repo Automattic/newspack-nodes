@@ -1,18 +1,17 @@
 /**
  * DraftContext — the draft document's React seam.
  *
- * Two doors, one per concern, and the split is the same one `Draft_Node` will
- * have in Stage 2:
+ * Two doors, one per concern, and they are the two an interpreter has:
  *
- *   - `dispatch( action )` MUTATES. Action types are TSL verbs; every one
- *     routes through `draftReducer`. This is the only way the document changes.
- *   - `setDraft( document )` LOADS. Opening a topology, discarding, uploading a
- *     .tsl — the whole document is replaced. That is not a verb, and dressing it
- *     as one would put a word in the grammar no topology can contain.
+ *   - `run( line )` MUTATES, and takes a TSL LINE. The same line live mode
+ *     sends; the only difference is which interpreter receives it, which is a
+ *     cwd. This is the only way the document changes.
+ *   - `load( tsl, expansion )` REPLACES. Opening a topology, discarding,
+ *     uploading a .tsl. Loading is not a verb, and dressing it as one would put
+ *     a word in the grammar no topology can contain.
  *
- * The provider carries the document; it does not own it. TopologyConsole still
- * holds the state because it owns the load door too. Ownership moves when a
- * `Draft_Node` takes it.
+ * `graph` is a READ of the interpreter, re-derived after every run. The
+ * interpreter is the document; the graph is what the canvas draws.
  */
 
 import {
@@ -20,46 +19,66 @@ import {
 	useContext,
 	useCallback,
 	useMemo,
+	useRef,
+	useState,
 } from '@wordpress/element';
-import { draftReducer } from './utils/draftReducer';
+import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
+import { draftToGraph } from './utils/draftToGraph';
 
 const DraftContext = createContext( null );
 
 /**
- * Bind a `setDraft` state setter to the reducer.
+ * Own a draft interpreter and the graph read off it.
  *
- * @param {Function} setDraft React state setter for the draft document.
- * @return {Function} `dispatch( action )` — stable while `setDraft` is.
+ * @return {{interpreter: Object, graph: Object, run: Function, load: Function}}
+ *         The document and its two doors.
  */
-export function useDraftDispatch( setDraft ) {
-	return useCallback(
-		( action ) => setDraft( ( graph ) => draftReducer( graph, action ) ),
-		[ setDraft ]
+export function useDraftInterpreter() {
+	const ref = useRef( null );
+	if ( null === ref.current ) {
+		// UNNAMED: nothing routes to a draft, and a name would collide.
+		ref.current = new DraftInterpreterNode();
+	}
+	const [ graph, setGraph ] = useState( () => draftToGraph( ref.current ) );
+
+	// Both return the graph, for the caller that also records a baseline.
+	const run = useCallback( ( line ) => {
+		ref.current.run( line );
+		const next = draftToGraph( ref.current );
+		setGraph( next );
+		return next;
+	}, [] );
+
+	const load = useCallback( ( tsl, expansion = null, configEdges = null ) => {
+		ref.current.load( tsl, expansion, configEdges );
+		const next = draftToGraph( ref.current );
+		setGraph( next );
+		return next;
+	}, [] );
+
+	return useMemo(
+		() => ( { interpreter: ref.current, graph, run, load } ),
+		[ graph, run, load ]
 	);
 }
 
 /**
- * `baseline` deliberately does NOT ride along. `draftIsDirty` compares the two,
- * but that comparison lives with the load door in TopologyConsole, and carrying
- * it here would re-render every consumer on a save for data none of them read.
- *
- * @param {Object}   props          Component props.
- * @param {Object}   props.draft    The working document.
- * @param {Function} props.dispatch From `useDraftDispatch`.
- * @param {*}        props.children Consumers.
+ * @param {Object} props          Component props.
+ * @param {Object} props.draft    From `useDraftInterpreter`.
+ * @param {*}      props.children Consumers.
  * @return {Element} The provider.
  */
-export function DraftProvider( { draft, dispatch, children } ) {
-	const value = useMemo( () => ( { draft, dispatch } ), [ draft, dispatch ] );
+export function DraftProvider( { draft, children } ) {
 	return (
-		<DraftContext.Provider value={ value }>
+		<DraftContext.Provider value={ draft }>
 			{ children }
 		</DraftContext.Provider>
 	);
 }
 
 /**
- * @return {{draft: Object, dispatch: Function}} The document.
+ * @return {{interpreter: Object, graph: Object, run: Function, load: Function}}
+ *         The document.
  */
 export function useDraft() {
 	const value = useContext( DraftContext );

@@ -1,6 +1,6 @@
 import { augmentWithVirtualEdges } from '../virtualEdges';
 
-// Re-derives edges from 'node_name' verb args that parseTsl doesn't emit.
+// Re-derives edges from 'node_name' verb args a document doesn't emit.
 const CLASSES = [
 	{
 		shell_name: 'Request_Builder',
