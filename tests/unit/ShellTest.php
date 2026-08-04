@@ -61,6 +61,21 @@ class ShellTest extends TestCase {
 		];
 	}
 
+	/**
+	 * A stored argument can carry an UNEXPANDED `<…>`: that is exactly what the
+	 * single-quoted idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node,
+	 * and dump_config re-emits what the node holds. Re-emitting it bare loses it
+	 * — interpolate() runs BEFORE tokenize(), and an unknown marker expands to
+	 * nothing — so the whole round trip, not just tokenize, has to recover it.
+	 */
+	public function test_serialize_args_defers_an_unexpanded_interpolation_marker(): void {
+		$shell  = new Shell_Node();
+		$tokens = [ '/logs/firehose.p<partition>', '/offsets/x.<topology>' ];
+		$line   = 'X Y ' . Node::serialize_args( $tokens );
+		$back   = \array_slice( $shell->tokenize( $shell->interpolate( $line ) ), 2 );
+		$this->assertSame( $tokens, $back );
+	}
+
 	/** Double quotes are Shell3's string1: escape SEQUENCES expand. */
 	public function test_double_quotes_expand_escape_sequences(): void {
 		$shell = new Shell_Node();

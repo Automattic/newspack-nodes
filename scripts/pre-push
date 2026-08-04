@@ -104,7 +104,7 @@ fi
 reordertest="$(git rev-parse --show-toplevel)/scripts/test-reorder-node-methods.sh"
 if [[ -f "$reordertest" ]]; then
 	step "test-reorder-node-methods (the pre-commit gate's own tests)"
-	bash "$reordertest" >/dev/null || fail "test-reorder-node-methods failed — the reorder twins are broken"
+	bash "$reordertest" || fail "test-reorder-node-methods failed — the reorder twins are broken (see above)"
 	ok "reorder twins clean"
 fi
 

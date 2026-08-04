@@ -26,6 +26,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A stored argument carrying an unexpanded `<…>` survives the round trip.**
+  `Node::serialize_args` and its JS mirror `serializeArg` quoted whitespace and
+  the line metacharacters but not `<`, so a value handed over by the deferred
+  idiom (`<config:logs_dir>/jobs.p'<partition>'`) was re-emitted BARE — and
+  `interpolate()` runs before `tokenize()`, so reloading expanded it to
+  nothing. No stock topology defers a token today, which is why nothing broke;
+  the two serializers stay parity-pinned. `serializeDraftArg` deliberately does
+  NOT change: it round-trips raw source spans, where a bare `<…>` is a request
+  to interpolate on load.
+- **One unparseable active fleet no longer fails every later save and delete.**
+  `restart_affected_fleets` parses each catalog fleet to find the parents that
+  include the written topology, and the tokenizer throws on an unterminated
+  quote — so a single fleet with an unbalanced quote reported a completed write
+  as a failure, with the fleets earlier in the loop already restarted. A file
+  that will not tokenize can name no includes, so it is read as naming none.
+- **`move_node` refuses a name that orphan declarations already hold.**
+  `_invocations` outlives its node — `dumpDocument` writes those lines back —
+  so a name free in the node table can still be taken in the DOCUMENT, and
+  re-keying onto it silently discarded the declarations already there.
+- Tooling: `pre-push` no longer sends the reorder twins' test output to
+  `/dev/null`, which is where its per-assertion failures were written — a
+  blocked push showed one opaque line. And `sync-shared-scripts.sh` skips
+  `test-reorder-node-methods.sh` for a plugin with no `src/`, as it already
+  skipped the `reorder-node-methods.js` half that most of those cases shell
+  out to; `newspack-cache-cozy` had been vendored a suite that could only
+  fail, and nothing ran it.
 - **`Fetcher`'s configured verb no longer shadows `Node#command()`.** The field
   was named `command`, so on that one class the inherited command-minting
   method was a string — any `node.command( verb, args )` walk over a graph

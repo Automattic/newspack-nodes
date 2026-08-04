@@ -386,7 +386,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * the write has already happened, so a graph that will not resolve — the
 	 * dangling one a delete just created, or a `make_node` conflict — must
 	 * neither fail the write nor hide a parent that does compose `$name`.
-	 * `direct_includes` reads a file; it never merges, so it never throws.
+	 * `direct_includes` never merges, but it does TOKENIZE, and an unbalanced
+	 * quote throws there — so it swallows that and reports no includes.
 	 *
 	 * @param string $fleet Active fleet to inspect.
 	 * @param string $name  Topology just written.
@@ -422,8 +423,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 		if ( null === $path ) {
 			return [];
 		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
+		try {
+			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+			return self::direct_includes_from_tsl( (string) \file_get_contents( $path ) );
+		} catch ( \RuntimeException ) {
+			// A file that will not tokenize can name no includes.
+			return [];
+		}
 	}
 
 	/**
