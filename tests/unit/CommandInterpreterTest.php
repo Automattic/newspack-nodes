@@ -3149,6 +3149,114 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 1, Core::$secure_level );
 	}
 
+	/**
+	 * Secure levels ACCUMULATE: level 3 disables everything 1 and 2 disable.
+	 * Tachikoma's `CommandInterpreter::disabled()` folds level 1's commands into
+	 * 2 and 2's into 3 when the map is assigned, so its per-level lookup is
+	 * already cumulative. The port kept the per-level map and dropped the fold,
+	 * so `make_node` — refused at 1 — became permitted again at 2 and 3.
+	 *
+	 * The one-way ratchet is what made that unrecoverable: `secure` refuses to
+	 * descend, so a process that climbed past 1 could never re-acquire the
+	 * protection it silently lost.
+	 */
+	public function test_secure_levels_accumulate_disabled_classes(): void {
+		// Verbs, not class names: `reply_to` is the command_node-class verb,
+		// which is what the console menu means by "2 — also no reply_to".
+		$expected = [
+			1 => [ 'make_node' ],
+			2 => [ 'make_node', 'reply_to' ],
+			3 => [ 'make_node', 'reply_to', 'connect_node' ],
+		];
+
+		$i = $this->armed_interpreter();
+
+		foreach ( $expected as $level => $verbs ) {
+			foreach ( $verbs as $verb ) {
+				Core::$secure_level = $level;
+
+				$out = $i->dispatch( $verb, [ 'x' ], $this->command_message( $verb ) );
+
+				$this->assertStringContainsString(
+					'disabled at secure level',
+					$out,
+					"{$verb} must stay disabled at secure level {$level}"
+				);
+			}
+		}
+	}
+
+	/**
+	 * The fold runs one way. Level 3's classes must not leak down into 1, or
+	 * the ladder collapses into "everything off at every level" and the lower
+	 * rungs stop being usable at all.
+	 */
+	public function test_a_higher_levels_class_is_not_disabled_at_a_lower_one(): void {
+		$i                  = $this->armed_interpreter();
+		Core::$secure_level = 1;
+
+		$out = $i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
+
+		$this->assertStringNotContainsString( 'disabled at secure level', $out );
+	}
+
+	/**
+	 * Teardown verbs join `make_node`, as in Tachikoma, where `cmd_remove_node`
+	 * and `cmd_move_node` both `verify_key( ..., 'make_node' )`. A ladder that
+	 * freezes construction but leaves demolition open freezes nothing: the
+	 * graph is just as rebuildable through `remove_node` plus a survivor.
+	 *
+	 * @dataProvider provide_construction_class_verbs
+	 */
+	public function test_construction_class_verbs_are_disabled_at_level_1( string $verb ): void {
+		$i                  = $this->armed_interpreter();
+		Core::$secure_level = 1;
+
+		$out = $i->dispatch( $verb, [ 'a', 'b' ], $this->command_message( $verb ) );
+
+		$this->assertStringContainsString( 'disabled at secure level', $out );
+	}
+
+	/**
+	 * @return array<string, list<string>>
+	 */
+	public static function provide_construction_class_verbs(): array {
+		return [
+			'remove_node' => [ 'remove_node' ],
+			'remove'      => [ 'remove' ],
+			'rm'          => [ 'rm' ],
+			'move_node'   => [ 'move_node' ],
+			'move'        => [ 'move' ],
+			'mv'          => [ 'mv' ],
+		];
+	}
+
+	/**
+	 * `register` and `unregister` rewire event delivery, so they are wiring
+	 * verbs and share `connect_node`'s rung — Tachikoma classifies both that
+	 * way. Level 3 freezes wiring; leaving these open leaves it unfrozen.
+	 *
+	 * @dataProvider provide_wiring_class_verbs
+	 */
+	public function test_wiring_class_verbs_are_disabled_at_level_3( string $verb ): void {
+		$i                  = $this->armed_interpreter();
+		Core::$secure_level = 3;
+
+		$out = $i->dispatch( $verb, [ 'a', 'b', 'c' ], $this->command_message( $verb ) );
+
+		$this->assertStringContainsString( 'disabled at secure level', $out );
+	}
+
+	/**
+	 * @return array<string, list<string>>
+	 */
+	public static function provide_wiring_class_verbs(): array {
+		return [
+			'register'   => [ 'register' ],
+			'unregister' => [ 'unregister' ],
+		];
+	}
+
 	private function armed_interpreter(): Command_Interpreter_Node {
 		$i = new Command_Interpreter_Node();
 		$i->name( '_command_interpreter' );
