@@ -9,6 +9,7 @@ use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Schema_Reflection;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -3255,6 +3256,55 @@ class CommandInterpreterTest extends TestCase {
 			'register'   => [ 'register' ],
 			'unregister' => [ 'unregister' ],
 		];
+	}
+
+	/**
+	 * `node_schema()['verb_classes']` is the documented way a consumer joins a
+	 * secure class without editing the substrate. The classifier read the
+	 * INTERPRETER's schema, but `auto_wire_interpreter()` builds a bare
+	 * interpreter and hands it the declaring node as its patron — so every
+	 * schema-driven node's declaration was read off the wrong object and the
+	 * extension point silently did nothing.
+	 */
+	public function test_a_patrons_schema_classifies_its_own_verbs(): void {
+		$node = new class() extends Node {
+			use Schema_Reflection;
+
+			public function wire(): void {
+				$this->auto_wire_interpreter();
+			}
+
+			public function interpreter(): ?Command_Interpreter_Node {
+				return $this->interpreter;
+			}
+
+			public static function node_schema(): array {
+				return [
+					'verb_classes' => [ 'rebuild_everything' => 'make_node' ],
+					'commands'     => [
+						[
+							'name'    => 'rebuild_everything',
+							'handler' => static fn (): string => 'rebuilt',
+						],
+					],
+				];
+			}
+		};
+		$node->name( 'patron-probe' );
+		$node->wire();
+
+		$interpreter = $node->interpreter();
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $interpreter );
+		$interpreter->sink( new Capture_Sink_Node() );
+		Core::$secure_level = 1;
+
+		$out = $interpreter->dispatch(
+			'rebuild_everything',
+			[],
+			$this->command_message( 'rebuild_everything' )
+		);
+
+		$this->assertStringContainsString( 'disabled at secure level', $out );
 	}
 
 	private function armed_interpreter(): Command_Interpreter_Node {

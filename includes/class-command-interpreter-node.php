@@ -488,7 +488,8 @@ class Command_Interpreter_Node extends Node {
 
 	/** This node's own class for a verb, from node_schema; '' when unclassified. */
 	private function schema_verb_class( string $verb ): string {
-		$schema = static::node_schema();
+		$patron = $this->patron();
+		$schema = null !== $patron ? $patron::node_schema() : static::node_schema();
 		$map    = \is_array( $schema['verb_classes'] ?? null ) ? $schema['verb_classes'] : [];
 		return Core::as_string( $map[ $verb ] ?? '' );
 	}
