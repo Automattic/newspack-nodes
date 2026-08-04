@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **`node_schema()['verb_classes']` now actually classifies a node's verbs.**
+  The classifier read `static::node_schema()` — the interpreter's own schema —
+  but `auto_wire_interpreter()` builds a BARE `Command_Interpreter_Node` and
+  hands it the declaring node as its patron, so a Partition, Consumer or any
+  schema-driven node had its declaration read off the wrong object and
+  silently ignored. Four docblocks and the architecture guide promised this
+  extension point; nothing outside the substrate uses it yet, which is why the
+  gap went unnoticed. It now reads the patron's schema when it has one.
+
 - **The secure ladder now covers teardown and event wiring.** `move_node`,
   `remove_node` and their aliases (`move`, `mv`, `remove`, `rm`) join
   `make_node`; `register` and `unregister` join `connect_node`. Tachikoma
