@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Dumper` swallowed the TM_EOF drain marker at verbosity 2.** The
+  `debug_level >= 2` branch dumped the full envelope and returned before the
+  TM_EOF check, so `on_eof` never fired and `wp nodes cli` sat until its 5s
+  deadline instead of exiting on the echo. That deadline exists so a DEAD
+  worker cannot hang the cli; here it was masking a live bug. Only reachable
+  after raising verbosity with the `debug_level` verb, since the default is 0.
+  Level 2 still dumps the envelope and still renders nothing else — the test
+  pins both, so hoisting the check above the verbosity block (which would fire
+  the callback and silently stop dumping) fails. Inherited from Tachikoma,
+  which has the same shape; the JS mirror does not, because its `_output`
+  drops TM_EOF outright and has no `on_eof`.
+
 ## [2.8.0] - 2026-08-04
 
 ### Changed
