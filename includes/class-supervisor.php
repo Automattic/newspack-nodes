@@ -14,17 +14,19 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Supervisor extends Supervisor_Base {
+	use Cooperative_Stop;
+
 
 	/** Also the plugin (de)activation latency. */
 	public const CONFIG_CHECK_INTERVAL = 15;
 
 	/** 10 min minus 5s margin, sized for Atomic's ~15-min cap. */
-	public const MAX_SUPERVISOR_RUNTIME_S = 595;
+	public const MAX_SUPERVISOR_RUNTIME_S = Worker_Base::DEFAULT_MAX_RUNTIME;
 
 	/** Defer first spawn of a newly-appeared type so a still-exiting predecessor can flush. */
 	public const NEW_TYPE_SPAWN_DELAY_S = 5;
 
-	public const SUPERVISOR_STALE_TIMEOUT = 60;
+	public const SUPERVISOR_STALE_TIMEOUT = Lock_Node::STALE_TIMEOUT;
 
 	/** Endpoint accepts current + previous for race tolerance. */
 	public const TOKEN_WINDOW_S = Internal_Request_Token::WINDOW_S;
@@ -34,17 +36,13 @@ class Supervisor extends Supervisor_Base {
 
 	private float $last_config_check = 0.0;
 
-	private float $last_heartbeat = 0.0;
 
 	private string $nonce_salt;
 
-	/** @var Lock_Node|null Supervisor's own lock; singleton-globally per host. */
-	private ?Lock_Node $own_lock = null;
 
 	/** @var array<string,float> type => earliest unix timestamp at which spawn is allowed. */
 	private array $spawn_after = [];
 
-	private float $start_time = 0.0;
 
 	/** @var array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
@@ -84,11 +82,13 @@ class Supervisor extends Supervisor_Base {
 		}
 		// Lifecycle primitive: bare new, no interpreter yet (see Worker_Base).
 		$lock           = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
-		$this->own_lock = $lock;
+		$this->lock = $lock;
 		if ( ! $lock->acquire() ) {
 			return;
 		}
 		$this->last_heartbeat = $this->start_time;
+		$this->last_db_check  = $this->start_time;
+		$this->max_runtime    = self::MAX_SUPERVISOR_RUNTIME_S;
 
 		// Disable execution timeout so PHP-FPM timeout can't kill us mid-tick.
 		@\set_time_limit( 0 );
@@ -97,7 +97,7 @@ class Supervisor extends Supervisor_Base {
 			$this->tick_loop();
 		} finally {
 			$lock->release();
-			$this->own_lock = null;
+			$this->lock = null;
 			$this->spawn_next_supervisor();
 		}
 	}
@@ -254,10 +254,9 @@ class Supervisor extends Supervisor_Base {
 
 	/** The actual 595s tick loop. Extracted for testability + cleaner try/finally. */
 	private function tick_loop(): void {
-		// own_lock set by run()/init_lock_for_test() first; else bail loudly.
-		$lock = $this->own_lock;
-		if ( null === $lock ) {
-			throw new \RuntimeException( 'tick_loop requires an acquired own_lock' );
+		// lock set by run()/init_lock_for_test() first; else bail loudly.
+		if ( null === $this->lock ) {
+			throw new \RuntimeException( 'tick_loop requires an acquired lock' );
 		}
 		$last_token_window = -1;
 		$token             = '';
@@ -266,17 +265,8 @@ class Supervisor extends Supervisor_Base {
 		while ( true ) {
 			$now = Core::right_now(); // supervisor loop is Core::$now's only refresher here
 
-			if ( ( $now - $this->start_time ) >= self::MAX_SUPERVISOR_RUNTIME_S ) {
-				break;
-			}
-
-			if ( ( $now - $this->last_heartbeat ) >= self::SUPERVISOR_STALE_TIMEOUT / 6 ) {
-				$lock->heartbeat();
-				$this->last_heartbeat = $now;
-			}
-
-			// Bail if our lock was stolen or restart requested.
-			if ( $lock->should_restart() ) {
+			// THE stop policy, shared with every worker; heartbeat rides along.
+			if ( ! $this->should_continue() ) {
 				break;
 			}
 
@@ -302,6 +292,16 @@ class Supervisor extends Supervisor_Base {
 
 			\sleep( 1 );
 		}
+	}
+
+	/** The singleton supervisor lock dir. */
+	protected function held_lock_path(): string {
+		return "{$this->base_dir}/locks/supervisor.lock.d";
+	}
+
+	/** How the supervisor names itself in a stop message. */
+	protected function stop_label(): string {
+		return 'supervisor';
 	}
 
 	/** HMAC spawn-token, rotating every 10s. Per-site, never logged. */
@@ -408,7 +408,7 @@ class Supervisor extends Supervisor_Base {
 		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
 		$this->spawn_due_workers( $spawn_url, $token, $now );
 
-		if ( null !== $this->own_lock && $this->own_lock->should_restart() ) {
+		if ( null !== $this->lock && $this->lock->should_restart() ) {
 			return false;
 		}
 		return true;
@@ -492,15 +492,15 @@ class Supervisor extends Supervisor_Base {
 			}
 		}
 		// Lifecycle primitive (see run()): bare new (no-interpreter exception).
-		$this->own_lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
-		return $this->own_lock->acquire();
+		$this->lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
+		return $this->lock->acquire();
 	}
 
 	/** @api Test hook: release the lock from init_lock_for_test. */
 	public function release_lock_for_test(): void {
-		if ( null !== $this->own_lock ) {
-			$this->own_lock->release();
-			$this->own_lock = null;
+		if ( null !== $this->lock ) {
+			$this->lock->release();
+			$this->lock = null;
 		}
 	}
 
