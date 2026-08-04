@@ -50,7 +50,7 @@ export const BACKOFF_MAX_MS = 30_000;
  * @param {Function} o.load      Async; resolves when the state is established, throws otherwise.
  * @param {boolean}  [o.enabled] Gate — false parks the loop without clearing what settled.
  * @param {Array}    [o.deps]    Re-reconcile when any of these change.
- * @return {{settled: boolean, error: Error|null, reconcileNow: Function}} Loop state.
+ * @return {{settled: boolean, error: Error|null, reconcileNow: () => void}} Loop state.
  */
 export default function useReconcile( { load, enabled = true, deps = [] } ) {
 	const [ settled, setSettled ] = useState( false );

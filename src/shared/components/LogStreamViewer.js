@@ -114,9 +114,9 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}     [props.title]              Inline page heading (adopters without a hub header).
  * @param {Element}    [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
  * @param {?Array}     props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
- * @param {string}     props.selectedKey          The picked option's key.
- * @param {Function}   props.onPick               `(key) => void` — switch the source.
- * @param {string}     props.pickerEmptyLabel     Status text when the catalog is empty.
+ * @param {string}     [props.selectedKey]        The picked option's key; required only with a picker.
+ * @param {Function}   [props.onPick]             `(key) => void` — switch the source; required only with a picker.
+ * @param {string}     [props.pickerEmptyLabel]   Status text when the catalog is empty; required only with a picker.
  * @param {boolean}    props.isPaused             The view's paused flag.
  * @param {boolean}    props.connectionError      The view's reconnect flag.
  * @param {() => void} props.onTogglePause        Pause/resume the stream.

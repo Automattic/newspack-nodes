@@ -44,4 +44,6 @@ phpunit.xml
 README.md
 sync-shared.sh
 Thumbs.db
+tsconfig.check.json
+types
 webpack.config.js
