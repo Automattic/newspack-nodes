@@ -70,9 +70,21 @@ function refusalReply( sent, status, code ) {
  */
 export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 	let currentNonce = nonce;
-	// Why a batch came back empty; postBatch answers the minters with it.
-	let lastRefusal = null;
 
+	/**
+	 * POST one body, returning the replies AND why it was refused, if it was.
+	 *
+	 * The refusal travels with the result of the attempt that earned it. Held
+	 * in a closure instead, it outlived a nonce-renewal retry: a recovered 403
+	 * then answered a successful 202 — whose body is empty, exactly like a
+	 * refusal — with a fabricated TM_ERROR per command.
+	 *
+	 * @param {string}  body            JSONL, one packed Message per line.
+	 * @param {number}  outCount        Message count, for boundary accounting.
+	 * @param {boolean} [mayRenewNonce] False on the retry, so it renews once.
+	 * @return {Promise<{messages: Array<Array>, refusal: ?Object}>} Replies,
+	 *   and the refusal when the substrate turned the batch away.
+	 */
 	const post = async ( body, outCount, mayRenewNonce = true ) => {
 		// Outbound boundary accounting: request bytes + message count.
 		IoTelemetry.recordOut( byteLength( body ), outCount );
@@ -94,7 +106,6 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 				renewSession();
 			}
 			const code = restErrorCode( text );
-			lastRefusal = { status: r.status, code };
 			if (
 				mayRenewNonce &&
 				renewNonce &&
@@ -108,7 +119,7 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 			Core.printLessOften(
 				`ERROR: /command failed - HTTP ${ r.status } ${ code }`
 			);
-			return [];
+			return { messages: [], refusal: { status: r.status, code } };
 		}
 		const unpacked = text
 			? text
@@ -133,7 +144,7 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 				IoTelemetry.recordError();
 			}
 		}
-		return messages;
+		return { messages, refusal: null };
 	};
 
 	return {
@@ -149,9 +160,11 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 		 */
 		async postBatch( messages, packed ) {
 			const lines = packed ?? messages.map( ( m ) => pack( m ) );
-			lastRefusal = null;
-			const replies = await post( lines.join( '\n' ), messages.length );
-			if ( replies.length || ! lastRefusal ) {
+			const { messages: replies, refusal } = await post(
+				lines.join( '\n' ),
+				messages.length
+			);
+			if ( replies.length || ! refusal ) {
 				return replies;
 			}
 			// @longform
@@ -159,9 +172,8 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 			// 202, so a node waiting on its reply would wait out its whole
 			// deadline for a failure the transport already knows about. Answer
 			// each command the way the server would have.
-			const { status, code } = lastRefusal;
 			return messages.map( ( sent ) =>
-				refusalReply( sent, status, code )
+				refusalReply( sent, refusal.status, refusal.code )
 			);
 		},
 	};

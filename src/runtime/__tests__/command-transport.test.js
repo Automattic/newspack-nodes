@@ -239,6 +239,61 @@ describe( 'the command transport — HTTP failures', () => {
 		}
 	} );
 
+	/**
+	 * The renewal case above posts an EMPTY batch, so the fabricated replies
+	 * are `[].map(...)` and this is invisible to it. With real commands: the
+	 * pre-retry 403 is recorded, the retry then SUCCEEDS with a 202 — the
+	 * normal "routed onward, reply rides the stream" answer, whose body is
+	 * empty. An empty success reads exactly like an empty refusal, so every
+	 * command in the batch was answered with a TM_ERROR for a failure that
+	 * had already been recovered, while its real reply was still in flight.
+	 */
+	it( 'does not fabricate refusals when the nonce retry succeeds with a 202', async () => {
+		const previousEndpoint = apiFetch.nonceEndpoint;
+		const previousMiddleware = apiFetch.nonceMiddleware;
+		window.NewspackNodesData = {
+			restUrl: 'https://example.test/wp-json/',
+			nonce: 'STALE-COMMAND-NONCE-271',
+		};
+		apiFetch.nonceEndpoint =
+			'https://example.test/wp-admin/admin-ajax.php?action=rest-nonce';
+		apiFetch.nonceMiddleware = { nonce: 'STALE-COMMAND-NONCE-271' };
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce( {
+				ok: false,
+				status: 403,
+				text: () =>
+					Promise.resolve(
+						JSON.stringify( { code: 'rest_cookie_invalid_nonce' } )
+					),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				text: () => Promise.resolve( 'FRESH-COMMAND-NONCE-649' ),
+			} )
+			.mockResolvedValueOnce( {
+				ok: true,
+				status: 202,
+				text: () => Promise.resolve( '' ),
+			} );
+		const client = defaultTransport();
+		const one = newMessage();
+		one[ TYPE ] = TM_COMMAND;
+		one[ FROM ] = 'overview';
+		one[ TO ] = 'demo.p0';
+		one[ VALUE ] = { name: 'dump_metadata', arguments: [] };
+
+		try {
+			expect( await client.postBatch( [ one ] ) ).toEqual( [] );
+		} finally {
+			delete global.fetch;
+			delete window.NewspackNodesData;
+			apiFetch.nonceEndpoint = previousEndpoint;
+			apiFetch.nonceMiddleware = previousMiddleware;
+		}
+	} );
+
 	it( 'does not replace an explicit remote credential with the local nonce', async () => {
 		const previousEndpoint = apiFetch.nonceEndpoint;
 		const previousMiddleware = apiFetch.nonceMiddleware;
