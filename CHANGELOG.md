@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **`useBatchedPoll` requires an explicit `intervalMs`.** Omitting it armed a
+  bare `setTimer()`, which rides the router's own sub-second cadence — so the
+  most consequential knob in the toolkit silently defaulted to the most
+  expensive value. v2.5.0 already records that shipping once, with
+  `useTopologyManager` polling at 1Hz while `deriveConnected` judged staleness
+  in seconds. Of five consumers only one was unconditionally safe: two passed
+  `parseInt( … ) || 0`, which LOOKS configured and lands on 1Hz, and the
+  bundled example omitted it entirely. Omission and 0 now throw, naming the
+  timer so the message says which dashboard. The aggregator falls back to its
+  declared `DEFAULT_REFRESH_MS` and the example declares 30s.
+
 - **The Log Viewer no longer strands a Replay with no boundary.** Its `seek()`
   re-dispatched `taillog sources` to recompute a boundary the view already
   held, and on rejection entered replay with `endSegment: null, endOffset: 0` —

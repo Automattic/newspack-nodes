@@ -126,7 +126,9 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		teeName: 'aggregator:tee',
 		commandClient: opts.commandClient,
 		// Refresh value (ms) = poll cadence; >1s hitchhikes TIMER, re-arms.
-		intervalMs: parseInt( refreshInterval, 10 ) || 0,
+		intervalMs:
+			parseInt( refreshInterval, 10 ) ||
+			parseInt( DEFAULT_REFRESH_MS, 10 ),
 	} );
 
 	// Per-spoke roll-ups, filed as each probe settles.

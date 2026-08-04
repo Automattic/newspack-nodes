@@ -115,6 +115,7 @@ function renderPoll( opts = {} ) {
 			build: buildSlices,
 			timerName: 'insights:timer',
 			teeName: 'insights:tee',
+			intervalMs: 5000,
 			...opts,
 		} )
 	);
@@ -243,6 +244,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 				teeName: 'insights:tee',
 				commandClient: client,
 				paused: true,
+				intervalMs: 5000,
 			} )
 		);
 		await act( async () => {} );
@@ -317,6 +319,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 				teeName: 'insights:tee',
 				commandClient: client,
 				paused: true,
+				intervalMs: 5000,
 			} )
 		);
 		await act( async () => {} );
@@ -431,6 +434,7 @@ describe( 'useBatchedPoll — paused gate', () => {
 					teeName: 'insights:tee',
 					commandClient: client,
 					paused,
+					intervalMs: 5000,
 				} ),
 			{ initialProps: { paused: false } }
 		);
@@ -502,15 +506,23 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		expect( Core.node( 'insights:timer' ).mode ).toBe( 'router' );
 	} );
 
-	test( 'no intervalMs keeps the every-tick hitchhike (router cadence)', async () => {
-		renderPoll( { commandClient: makeFakeClient() } );
+	/**
+	 * Was 'no intervalMs keeps the every-tick hitchhike'. It pinned the silent
+	 * fallback, which is the defect: omitting the knob adopted the router's
+	 * sub-second cadence, so the poll ran every tick. Omission now throws; see
+	 * the 'intervalMs is required' block.
+	 */
+	test( 'a cadence at the router floor adopts the router cadence', async () => {
+		// Both branches hitchhike the router, so every tick stays inside the
+		// lock/flush bracket; above 1000 throttles, at-or-below rides the
+		// router's own cadence. Both dashboards ship a '1s' option and 1000 IS
+		// that cadence, so the floor case is the batch at its fastest — never
+		// an own slot, which is exactly what armTimer avoids.
+		renderPoll( { commandClient: makeFakeClient(), intervalMs: 1000 } );
 		await act( async () => {} );
 		const timer = Core.node( 'insights:timer' );
 		expect( timer.mode ).toBe( 'router' );
-		// Adopts the router's own cadence, which is never > 1000, so fireCb's
-		// throttle stays out of the way and the poll runs on every tick.
 		expect( timer.interval_ms ).toBe( Core.node( '_router' ).interval_ms );
-		expect( timer.interval_ms ).toBeLessThanOrEqual( 1000 );
 	} );
 } );
 
@@ -527,5 +539,38 @@ describe( 'useBatchedPoll — teardown', () => {
 		expect( Core.node( INTERPRETER ) ).toBeNull();
 		expect( Core.node( 'insights:tee' ) ).toBeNull();
 		expect( Core.node( HTTP ) ).toBeNull();
+	} );
+} );
+
+/**
+ * The cadence knob had a silent fallback to the MOST expensive value: an
+ * omitted `intervalMs` armed a bare `setTimer()`, firing every router tick at
+ * 1Hz. CHANGELOG v2.5.0 records that shipping once, with `useTopologyManager`
+ * hammering its CI at 1Hz while `deriveConnected` judged staleness in seconds.
+ * Of five consumers only one was unconditionally safe: two passed
+ * `parseInt(…) || 0`, which LOOKS configured and lands on 1Hz, and one omitted
+ * it entirely. Required config fails loud.
+ */
+describe( 'useBatchedPoll — intervalMs is required', () => {
+	// The guard runs before the first hook call, so it is a plain precondition
+	// — asserted directly, which keeps React's error logging out of it.
+	const call = ( intervalMs ) => () =>
+		useBatchedPoll( {
+			build: buildSlices,
+			timerName: 'insights:timer',
+			teeName: 'insights:tee',
+			...( undefined === intervalMs ? {} : { intervalMs } ),
+		} );
+
+	test( 'throws when omitted rather than polling every router tick', () => {
+		expect( call( undefined ) ).toThrow( /intervalMs/ );
+	} );
+
+	test( 'throws on 0 — the value `parseInt( x, 10 ) || 0` yields', () => {
+		expect( call( 0 ) ).toThrow( /intervalMs/ );
+	} );
+
+	test( 'names the timer, so the throw says WHICH dashboard', () => {
+		expect( call( 0 ) ).toThrow( /insights:timer/ );
 	} );
 } );

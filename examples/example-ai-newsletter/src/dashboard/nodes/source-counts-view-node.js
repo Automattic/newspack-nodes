@@ -5,6 +5,9 @@ import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
  * React reads it via useNodeState('source-counts:view','view') in <SourceCounts/>.
  */
 export class SourceCountsViewNode extends SliceViewNode {
+	/**
+	 *
+	 */
 	emptySlice() {
 		return { sources: {} };
 	}
