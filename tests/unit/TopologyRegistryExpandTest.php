@@ -546,4 +546,49 @@ class TopologyRegistryExpandTest extends TestCase {
 		\sort( $names );
 		return $names;
 	}
+
+	/**
+	 * `expand()` and `graph_for()` are two walks over one statement stream, and
+	 * they had drifted on this exact line: expand built the config-target with
+	 * `implode( ' ', array_slice( $values, 3 ) )` while graph_for used
+	 * `$values[3] ?? ''`. The RUNTIME reads `$args[0]` — a single token — so
+	 * graph_for matched it and expand did not. The same TSL line yielded a
+	 * different edge target depending on which reader you asked.
+	 */
+	public function test_both_walks_agree_on_a_config_target_with_trailing_tokens(): void {
+		$this->write_tsl(
+			'wombat-drift',
+			"make_node Partition zebra:partition /var/wombat/zebra.log <partition> 1 2 0\n"
+			. "make_node Echo giraffe-errors\n"
+			. "make_node Echo second-token\n"
+			. "cmd zebra:partition:config set_errors_target giraffe-errors second-token\n"
+		);
+
+		$expanded = Topology_Registry::expand( [ 'wombat-drift' ] );
+		$graph    = Topology_Registry::graph_for( 'wombat-drift' );
+
+		$expand_targets = [];
+		foreach ( $expanded['edges'] as $edge ) {
+			if ( 'zebra:partition' === $edge['from'] ) {
+				$expand_targets[] = $edge['to'];
+			}
+		}
+		$graph_targets = [];
+		foreach ( $graph['edges'] as $edge ) {
+			if ( 'zebra:partition' === $edge[0] ) {
+				$graph_targets[] = $edge[1];
+			}
+		}
+
+		$this->assertSame(
+			$graph_targets,
+			$expand_targets,
+			'one statement stream must yield one edge target'
+		);
+		$this->assertSame(
+			[ 'giraffe-errors' ],
+			$expand_targets,
+			'the runtime reads $args[0]; extra tokens are not part of the target'
+		);
+	}
 }

@@ -227,7 +227,7 @@ class Topology_Registry {
 			// @longform Partition+Topic share `partition:` (same-log
 			// collision). The full normalized line is the sharing signature:
 			// identical across topologies = one deliberately shared decl.
-			if ( 'make_node' === $verb && ( 'Partition' === $class || 'Topic' === $class ) ) {
+			if ( 'make_node' === $verb && ( self::type_is( $class, Partition_Node::class ) || self::type_is( $class, Topic_Node::class ) ) ) {
 				$node_name      = $values[2] ?? '';
 				$entry          = 'partition:' . ( $values[3] ?? '' );
 				$seen[ $entry ] = true;
@@ -261,14 +261,14 @@ class Topology_Registry {
 				continue;
 			}
 			// offsetlog (4th value) + deadletter (5th): sole-writer logs.
-			if ( 'make_node' === $verb && 'Consumer' === $class && isset( $values[4] ) ) {
+			if ( 'make_node' === $verb && self::type_is( $class, Consumer_Node::class ) && isset( $values[4] ) ) {
 				$seen[ 'offsetlog:' . $values[4] ] = true;
 				if ( isset( $values[5] ) ) {
 					$seen[ 'deadletter:' . $values[5] ] = true;
 				}
 			}
 			// Remote_Source: <node> <vault> <source> [offsetlog] [dlq]
-			if ( 'make_node' === $verb && 'Remote_Source' === $class ) {
+			if ( 'make_node' === $verb && self::type_is( $class, Remote_Source_Node::class ) ) {
 				// The offsetlog is an ARG now; the derived path is a fallback.
 				$offsetlog = $values[5] ?? ( '<config:offsets_dir>/' . ( $values[2] ?? '' ) . '.' . ( $values[4] ?? '' ) );
 				$seen[ 'offsetlog:' . $offsetlog ] = true;
@@ -586,7 +586,8 @@ class Topology_Registry {
 			$inner_verb = $values[2] ?? '';
 			// `:config set_*target` is a routing EDGE, not a config verb.
 			if ( $has_config && \preg_match( '/^set_\w*target$/', $inner_verb ) ) {
-				$edge_target = Core::resolve_config_tokens( \implode( ' ', \array_slice( $values, 3 ) ) );
+				// One token: the runtime handler reads $args[0].
+				$edge_target = Core::resolve_config_tokens( $values[3] ?? '' );
 				self::set_config_edge( $edges, $node_name, $edge_target, $inner_verb, $origins );
 				return;
 			}
@@ -1183,6 +1184,24 @@ class Topology_Registry {
 	 * Narrower than fan-out on purpose: this drives the `tee` layout kind, which
 	 * the dashboard contracts out of the graph. A minter is a destination.
 	 */
+	/**
+	 * Whether a TSL class token resolves to $fqcn (or a subclass).
+	 *
+	 * The write set is a SAFETY gate — it feeds `find_conflicts` and
+	 * `Log_Cleaner`'s declared-dir set — and it used to string-compare the raw
+	 * token, while the layout code beside it resolved the token and asked the
+	 * type system. A plugin subclassing Partition therefore wrote a real log
+	 * that no conflict check saw and the GC did not know was declared.
+	 *
+	 * @param string $type TSL class token.
+	 * @param string $fqcn Fully-qualified base class.
+	 * @return bool True when the token is that class or a subclass.
+	 */
+	private static function type_is( string $type, string $fqcn ): bool {
+		$resolved = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $resolved && \is_a( $resolved, $fqcn, true );
+	}
+
 	private static function type_is_tee( string $type ): bool {
 		if ( 'Tee' === $type ) {
 			return true;
