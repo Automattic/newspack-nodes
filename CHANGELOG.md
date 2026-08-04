@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Job_Intake::DISPATCH_FIELDS`** — the canonical list of entry fields
+  Job_Worker reads back off jobs.log beyond the core five (`retries`,
+  `attempt`, `batch`, `key`). An application's Job_Router must carry them when
+  it normalizes an entry; event-logger-nodes was rebuilding a fixed record and
+  dropping them, which disabled retry and batch fan-in wherever it ran.
+
 ### Fixed
 
 - **Secure levels accumulate again — raising the level no longer re-enables
@@ -23,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cumulative; a PHP `const` cannot be computed, which is how the fold was lost
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
+
+- **A refused batch no longer answers a SUCCESSFUL retry with fabricated
+  errors.** `commandTransport` recorded a refusal in a closure variable used
+  as an out-parameter, and cleared it only when `postBatch` began. A stale
+  nonce (403 `rest_cookie_invalid_nonce`) set it, the renewal retry then
+  succeeded with a 202 — whose body is empty, exactly like a refusal — so
+  every command in the batch was answered with a `TM_ERROR` for a failure
+  already recovered, while its real reply was still riding the stream. `post()`
+  now returns `{ messages, refusal }`, so a refusal travels with the attempt
+  that earned it and cannot outlive it. The existing renewal test posted an
+  EMPTY batch, so the fabricated replies were `[].map()` and it saw nothing.
 
 - **Console transcript redaction no longer stops at the first space, leaving
   the rest of a passphrase in localStorage.** `redactSecrets()` matched a

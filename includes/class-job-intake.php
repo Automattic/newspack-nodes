@@ -48,6 +48,21 @@ class Job_Intake {
 	private const OPTION_KEYS = [ 'not_before', 'delay', 'retries', 'attempt', 'batch', 'unique', 'unique_ttl' ];
 
 	/**
+	 * Entry fields beyond the core `k`/`handler`/`parameters`/`ts`/`id` that
+	 * Job_Worker dispatch reads back off jobs.log: `retries`/`attempt` gate
+	 * `schedule_retry()`, `batch` gates `settle_batch()`, `key` re-hashes the
+	 * partition on requeue. write_job() writes them; an application's
+	 * Job_Router must CARRY them when it normalizes an entry onto jobs.log.
+	 *
+	 * The canonical list, because a normalizer that rebuilds a fixed record
+	 * instead of overlaying silently drops whatever it has not heard of —
+	 * which disabled retry and batch fan-in wherever such a router ran.
+	 *
+	 * @var list<string>
+	 */
+	public const DISPATCH_FIELDS = [ 'retries', 'attempt', 'batch', 'key' ];
+
+	/**
 	 * Maximum job size in bytes (32 MB). The canonical cap: Job_Worker_Node and
 	 * an application's Job_Router derive their limit from this constant.
 	 */
