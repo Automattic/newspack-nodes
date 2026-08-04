@@ -10,7 +10,7 @@
  * lastReceivedSegment null, endSegment null): segments 98/105, offsets 500/1200.
  */
 
-import { SeekTracker, endPosition } from '../seekTracker';
+import { SeekTracker, browseControl, LIVE, REPLAY } from '../seekTracker';
 
 describe( 'SeekTracker', () => {
 	it( 'starts live with no received segment and no boundary', () => {
@@ -151,34 +151,158 @@ describe( 'SeekTracker — file mode (opaque inode + byte boundary)', () => {
 	} );
 } );
 
-describe( 'endPosition', () => {
+/**
+ * The segmented boundary, exercised through the public surface — `endPosition`
+ * is module-private now, because exporting half the deliverable is what let
+ * three consumers build the other half three different ways.
+ */
+describe( 'the segmented boundary', () => {
 	it( 'captures the newest segment id and its byte size as the live boundary', () => {
 		expect(
-			endPosition( [
-				{ id: 97, size: 1000 },
-				{ id: 105, size: 1200 },
-			] )
-		).toEqual( { segment: 105, offset: 1200 } );
+			browseControl( {
+				segments: [
+					{ id: 97, size: 1000 },
+					{ id: 105, size: 1200 },
+				],
+			} )
+		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
 	} );
 
 	it( 'spans gaps and unordered input — newest id wins, not last listed', () => {
 		expect(
-			endPosition( [
-				{ id: 105, size: 1200 },
-				{ id: 98, size: 4000 },
-			] )
-		).toEqual( { segment: 105, offset: 1200 } );
+			browseControl( {
+				segments: [
+					{ id: 105, size: 1200 },
+					{ id: 98, size: 4000 },
+				],
+			} )
+		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
 	} );
 
-	it( 'returns null when no segment carries a numeric id', () => {
-		expect( endPosition( [] ) ).toBe( null );
-		expect( endPosition( [ { size: 10 } ] ) ).toBe( null );
-	} );
-
-	it( 'defaults a missing size to 0', () => {
-		expect( endPosition( [ { id: 105 } ] ) ).toEqual( {
-			segment: 105,
-			offset: 0,
+	it( 'follows when no segment carries a numeric id and there are no bytes', () => {
+		expect( browseControl( { segments: [] } ) ).toEqual( {
+			action: 'follow',
 		} );
+		expect( browseControl( { segments: [ { size: 10 } ] } ) ).toEqual( {
+			action: 'follow',
+		} );
+	} );
+
+	/**
+	 * Was "defaults a missing size to 0". Inverted deliberately: that default
+	 * was silent and load-bearing. `endOffset` IS the catch-up test, so a
+	 * boundary offset of 0 satisfies `offsetEnd >= 0` on the FIRST record of
+	 * the end segment and flips Replay→Live immediately, with no signal. The
+	 * server cannot produce the case — `class-log-sources.php:321` coerces
+	 * `false === $size ? 0 : $size` before it goes on the wire — so the default
+	 * only ever hid a contract violation.
+	 */
+	it( 'throws on a segment with an id but no numeric size', () => {
+		expect( () => browseControl( { segments: [ { id: 105 } ] } ) ).toThrow(
+			TypeError
+		);
+	} );
+} );
+
+/**
+ * The states are compared in four files and re-declared as literal defaults in
+ * two more. The module that owns the state machine owns its vocabulary.
+ */
+describe( 'exported states', () => {
+	it( 'exports the two mode values it compares internally', () => {
+		expect( LIVE ).toBe( 'live' );
+		expect( REPLAY ).toBe( 'replay' );
+	} );
+} );
+
+/**
+ * One cleared shape, not three. `follow()` left `endOffset` behind while the
+ * constructor zeroed it, so a tracker had two different "cleared" states — inert
+ * only because `_caughtUp` is gated on `fileMode` and a non-null `endSegment`.
+ */
+describe( 'reset paths agree', () => {
+	const dirty = () => {
+		const t = new SeekTracker();
+		t.browse( 105, 1200 );
+		t.track( '105:1000:50' );
+		return t;
+	};
+
+	it( 'follow() clears the boundary offset too', () => {
+		const t = dirty();
+		t.follow();
+		expect( t.endOffset ).toBe( 0 );
+	} );
+
+	it( 'select() clears everything the constructor does', () => {
+		const t = dirty();
+		t.select();
+		expect( { ...t } ).toEqual( { ...new SeekTracker() } );
+	} );
+
+	it( 'the replay→live flip leaves the same shape as follow()', () => {
+		const flipped = new SeekTracker();
+		flipped.browse( 105, 1200 );
+		flipped.track( '105:1150:50' ); // reaches the boundary → flips live
+		const followed = new SeekTracker();
+		followed.browse( 105, 1200 );
+		followed.track( '105:100:10' );
+		followed.follow();
+		expect( flipped.mode ).toBe( LIVE );
+		expect( { ...flipped, lastReceivedSegment: null } ).toEqual( {
+			...followed,
+			lastReceivedSegment: null,
+		} );
+	} );
+} );
+
+/**
+ * The deliverable every consumer actually hands onward is the `browse` control
+ * `LogStreamViewNode._control()` accepts — not a `{segment, offset}`. Producing
+ * only half of it is why three call sites wrote the other half three ways, one
+ * as an async re-fetch of data already in hand.
+ */
+describe( 'browseControl', () => {
+	it( 'maps a segmented source to a browse on its newest segment', () => {
+		expect(
+			browseControl( {
+				segments: [
+					{ id: 98, size: 4000 },
+					{ id: 105, size: 1200 },
+				],
+			} )
+		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
+	} );
+
+	it( 'maps a file-mode source to a byte boundary with a null segment', () => {
+		expect( browseControl( { segments: [], bytes: 8675309 } ) ).toEqual( {
+			action: 'browse',
+			endSegment: null,
+			endOffset: 8675309,
+		} );
+	} );
+
+	it( 'prefers a numeric segment id over a byte size when both are present', () => {
+		expect(
+			browseControl( {
+				segments: [ { id: 105, size: 1200 } ],
+				bytes: 8675309,
+			} )
+		).toEqual( { action: 'browse', endSegment: 105, endOffset: 1200 } );
+	} );
+
+	it( 'maps an empty source to follow — there is no boundary to catch up to', () => {
+		expect( browseControl( { segments: [] } ) ).toEqual( {
+			action: 'follow',
+		} );
+		expect( browseControl( { segments: [], bytes: 0 } ) ).toEqual( {
+			action: 'follow',
+		} );
+	} );
+
+	it( 'throws when the boundary segment carries no numeric size', () => {
+		expect( () => browseControl( { segments: [ { id: 105 } ] } ) ).toThrow(
+			/size/
+		);
 	} );
 } );

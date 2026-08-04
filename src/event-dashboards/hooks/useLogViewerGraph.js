@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
-import { endPosition } from '../../shared/nodes/seekTracker';
+import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
 import {
 	newMessage,
@@ -193,63 +193,39 @@ export function useLogViewerGraph( opts = {} ) {
 
 	/**
 	 * Reposition the source + set the view mode. Live tail (null positions)
-	 * follows; Replay (positions) captures the source's CURRENT live boundary
-	 * for the Replay→Live flip: the newest segment for a segmented source, the
-	 * byte size (null segment) for a file. An empty source flips straight to
-	 * Live; a fetch failure replays with no boundary (never flips — the user
-	 * clicks Live).
+	 * follows; Replay (positions) captures the source's live boundary for the
+	 * Replay→Live flip via `browseControl()` — newest segment for a segmented
+	 * source, byte size (null segment) for a file, `follow` for an empty one.
+	 *
+	 * The boundary comes from the row the CALLER holds, synchronously. This
+	 * used to re-dispatch `taillog sources` for a fresher size, which cost a
+	 * round trip on every Replay click and, on rejection, entered replay with
+	 * NO boundary — a state the user could only escape by clicking Live. Both
+	 * boundaries are approximate anyway: the head segment grows during the
+	 * round trip too, and the caller re-catalogs every SEGMENTS_REFRESH_MS and
+	 * on rotation. Trading a flip a few seconds early for a hard stuck state
+	 * was the wrong side of that trade, and it was the only one of three
+	 * consumers making it.
 	 *
 	 * @param {string}  name      The source name to (re)open.
 	 * @param {?Object} positions The SSE positions seed; null tails live.
+	 * @param {Object}  [source]  The source row (`{segments, bytes}`) to
+	 *                            capture the boundary from.
 	 */
 	const seek = useCallback(
-		( name, positions ) => {
-			const apply = ( control ) => {
-				// Stale seek: the selection moved on while the fetch ran.
-				if ( viewRef.current?.selected !== name ) {
-					return;
-				}
-				viewRef.current?.fill( controlMsg( control ) );
-				resubscribe( [ name ], positions );
-			};
-			if ( ! positions ) {
-				apply( { action: 'follow' } );
+		( name, positions, source = {} ) => {
+			// Stale seek: the selection moved on before this ran.
+			if ( viewRef.current?.selected !== name ) {
 				return;
 			}
-			return fetchSources()
-				.then( ( catalog ) => {
-					const source = Array.isArray( catalog )
-						? catalog.find( ( s ) => s.name === name )
-						: null;
-					const end = endPosition( source?.segments ?? [] );
-					if ( end ) {
-						apply( {
-							action: 'browse',
-							endSegment: end.segment,
-							endOffset: end.offset,
-						} );
-						return;
-					}
-					const bytes = source?.bytes ?? 0;
-					apply(
-						bytes > 0
-							? {
-									action: 'browse',
-									endSegment: null,
-									endOffset: bytes,
-							  }
-							: { action: 'follow' }
-					);
-				} )
-				.catch( () =>
-					apply( {
-						action: 'browse',
-						endSegment: null,
-						endOffset: 0,
-					} )
-				);
+			viewRef.current?.fill(
+				controlMsg(
+					positions ? browseControl( source ) : { action: 'follow' }
+				)
+			);
+			resubscribe( [ name ], positions );
 		},
-		[ fetchSources, resubscribe ]
+		[ resubscribe ]
 	);
 
 	return { selectSource, setPaused, seek, sources, fetchSources, step };

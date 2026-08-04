@@ -23,7 +23,6 @@ import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import { endPosition } from '../shared/nodes/seekTracker';
 import useLogPositions, {
 	segmentPositions,
 	replayPositions,
@@ -186,21 +185,15 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	};
 	const handleReplay = () => {
 		replay();
-		seek(
-			selectedLog,
-			replayPositions( selectedLog ),
-			endPosition( segments )
-		);
+		seek( selectedLog, replayPositions( selectedLog ), { segments } );
 	};
 	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
 		setPaused( true );
 		browseSegment( segment.id );
-		seek(
-			selectedLog,
-			segmentPositions( selectedLog, segment.id ),
-			endPosition( segments )
-		);
+		seek( selectedLog, segmentPositions( selectedLog, segment.id ), {
+			segments,
+		} );
 	};
 
 	// Offset jump: a full ID or a bare offset pauses and steps that message.
@@ -216,7 +209,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		setPaused( true );
 		browseSegment( position.segment );
 		Promise.resolve(
-			seek( selectedLog, { [ selectedLog ]: position }, null )
+			seek( selectedLog, { [ selectedLog ]: position }, { segments } )
 		).then( () => step() );
 	};
 

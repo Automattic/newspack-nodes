@@ -28,17 +28,61 @@
 // A record's Message ID position breadcrumb: `segment:offset:length`.
 const ID_POSITION_RE = /^(\d+):(\d+):(\d+)$/;
 
+/** Tailing the head. */
+export const LIVE = 'live';
+
+/** Browsing history until a replayed record reaches the captured boundary. */
+export const REPLAY = 'replay';
+
+/**
+ * The `browse` control for a source, as `LogStreamViewNode._control()` accepts
+ * it — the whole deliverable, not half of one.
+ *
+ * Both boundary shapes live here because they are one decision. A segmented
+ * source catches up on `(newest id, its size)`. A file-mode source has no
+ * orderable segment (a Tail over a raw file puts the opaque inode in the
+ * segment slot), so it catches up on byte size alone and flips on inode
+ * rotation. Splitting the two put half the rule in this module and half inline
+ * in one consumer, which is why three call sites could never agree.
+ *
+ * @param {Object}                           source            The source row.
+ * @param {Array<{id?:number,size?:number}>} [source.segments] Segment list.
+ * @param {number}                           [source.bytes]    File-mode size.
+ * @return {{action:string,endSegment:?number,endOffset:number}|{action:string}}
+ *   A `browse` control, or `follow` when the source carries no boundary.
+ * @throws {TypeError} When the boundary segment carries no numeric size.
+ */
+export function browseControl( { segments = [], bytes = 0 } ) {
+	const boundary = endPosition( segments );
+	if ( null !== boundary ) {
+		return {
+			action: 'browse',
+			endSegment: boundary.segment,
+			endOffset: boundary.offset,
+		};
+	}
+	if ( bytes > 0 ) {
+		return { action: 'browse', endSegment: null, endOffset: bytes };
+	}
+	// No boundary to catch up to — replay would never flip back to live.
+	return { action: 'follow' };
+}
+
 /**
  * The live boundary a replay must reach to be "caught up": the newest segment's
  * id and its byte size, from a segment list (`log_status.segments` or `taillog
- * sources[].segments` — same shape). Null when no segment carries a numeric id
- * (e.g. file-mode sources) — pass to `SeekTracker.browse` as a null end so it
- * enters replay with no auto-flip.
+ * sources[].segments` — same shape). Null when no segment carries a numeric id,
+ * which is the file-mode case `browseControl` answers with a byte boundary.
+ *
+ * Module-private: `browseControl()` is the whole deliverable and the only
+ * surface consumers need. Exporting the half is what let three of them build
+ * the other half three different ways.
  *
  * @param {Array<{id?:number,size?:number}>} segments The `{id, size}` segments.
  * @return {{segment:number,offset:number}|null} The boundary, or null.
+ * @throws {TypeError} When the newest segment carries no numeric size.
  */
-export function endPosition( segments ) {
+function endPosition( segments ) {
 	let segment = null;
 	let offset = 0;
 	for ( const s of segments ) {
@@ -47,7 +91,13 @@ export function endPosition( segments ) {
 			( null === segment || s.id > segment )
 		) {
 			segment = s.id;
-			offset = s.size ?? 0;
+			// endOffset IS the catch-up test; a 0 flips on record one.
+			if ( 'number' !== typeof s.size ) {
+				throw new TypeError(
+					`segment ${ s.id } carries no numeric size`
+				);
+			}
+			offset = s.size;
 		}
 	}
 	return null === segment ? null : { segment, offset };
@@ -65,15 +115,7 @@ export class SeekTracker {
 	 * Start live at the head, with no received segment and no catch-up boundary.
 	 */
 	constructor() {
-		// 'live' tails the head; 'replay' browses until caught up.
-		this.mode = 'live';
-		this.lastReceivedSegment = null;
-		// Live boundary captured at seek; replay catches up on reaching it.
-		this.endSegment = null;
-		this.endOffset = 0;
-		// File-mode reference generation (inode), pinned on the first record.
-		this.fileMode = false;
-		this.referenceSegment = null;
+		this.select();
 	}
 
 	/**
@@ -95,18 +137,15 @@ export class SeekTracker {
 		// File-mode replay pins the first inode as the reference generation.
 		if (
 			this.fileMode &&
-			'replay' === this.mode &&
+			REPLAY === this.mode &&
 			null === this.referenceSegment
 		) {
 			this.referenceSegment = segment;
 		}
 		// Caught up to the seek boundary: past it is live tail → flip live.
 		let modeChanged = false;
-		if ( 'replay' === this.mode && this._caughtUp( segment, offsetEnd ) ) {
-			this.mode = 'live';
-			this.endSegment = null;
-			this.fileMode = false;
-			this.referenceSegment = null;
+		if ( REPLAY === this.mode && this._caughtUp( segment, offsetEnd ) ) {
+			this.follow();
 			modeChanged = true;
 		}
 		return segmentChanged || modeChanged;
@@ -143,7 +182,7 @@ export class SeekTracker {
 	 * @param {number}  endOffset  The catch-up byte boundary.
 	 */
 	browse( endSegment = null, endOffset = 0 ) {
-		this.mode = 'replay';
+		this.mode = REPLAY;
 		// Pre-seek breadcrumb is stale: highlight falls to the clicked item.
 		this.lastReceivedSegment = null;
 		this.endSegment = endSegment;
@@ -155,10 +194,15 @@ export class SeekTracker {
 	/**
 	 * Return to the live tail, dropping the catch-up boundary. The last received
 	 * segment survives, so the rail highlight stays where the records are.
+	 *
+	 * The ONE cleared shape: `select()` is this plus forgetting the breadcrumb,
+	 * the constructor is `select()`, and the replay→live flip is this. Four
+	 * hand-maintained copies meant a new field would reach three of them.
 	 */
 	follow() {
-		this.mode = 'live';
+		this.mode = LIVE;
 		this.endSegment = null;
+		this.endOffset = 0;
 		this.fileMode = false;
 		this.referenceSegment = null;
 	}
@@ -168,10 +212,7 @@ export class SeekTracker {
 	 * this also forgets the last received segment, so the rail highlight clears.
 	 */
 	select() {
-		this.mode = 'live';
-		this.endSegment = null;
+		this.follow();
 		this.lastReceivedSegment = null;
-		this.fileMode = false;
-		this.referenceSegment = null;
 	}
 }

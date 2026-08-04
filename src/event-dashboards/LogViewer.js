@@ -83,11 +83,12 @@ export default function LogViewer( { headerControlsSlot } ) {
 		select: selectSource,
 	} );
 
-	// Memoized: the `?? []` mints a new identity per render, and this is a dep.
-	const segments = useMemo(
-		() => sources.find( ( s ) => s.name === currentSource )?.segments ?? [],
+	// The open source's row: the rail's segments AND seek's replay boundary.
+	const sourceRow = useMemo(
+		() => sources.find( ( s ) => s.name === currentSource ) ?? {},
 		[ sources, currentSource ]
 	);
+	const segments = useMemo( () => sourceRow.segments ?? [], [ sourceRow ] );
 
 	// Maintain the rail: re-catalog on a cadence while a source streams.
 	const recatalog = useCallback( () => {
@@ -124,13 +125,17 @@ export default function LogViewer( { headerControlsSlot } ) {
 	};
 	const handleReplay = () => {
 		replay();
-		seek( currentSource, replayPositions( currentSource ) );
+		seek( currentSource, replayPositions( currentSource ), sourceRow );
 	};
 	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
 		setPaused( true );
 		browseSegment( segment.id );
-		seek( currentSource, segmentPositions( currentSource, segment.id ) );
+		seek(
+			currentSource,
+			segmentPositions( currentSource, segment.id ),
+			sourceRow
+		);
 	};
 
 	// Offset jump: a full ID or a bare offset pauses and steps that message.
@@ -146,7 +151,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 		setPaused( true );
 		browseSegment( position.segment );
 		Promise.resolve(
-			seek( currentSource, { [ currentSource ]: position } )
+			seek( currentSource, { [ currentSource ]: position }, sourceRow )
 		).then( () => step() );
 	};
 

@@ -29,6 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
+import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
 import {
 	newMessage,
@@ -197,18 +198,19 @@ export function usePartitionViewerGraph( opts = {} ) {
 		[ logStatus ]
 	);
 
-	// Set the view mode; resubscribe re-opens if active (mode rides control).
+	/**
+	 * Set the view mode; resubscribe re-opens if active (mode rides control).
+	 *
+	 * @param {string}  log       The partition to (re)open.
+	 * @param {?Object} positions The SSE positions seed; null tails live.
+	 * @param {Object}  [source]  The source row (`{segments, bytes}`) to
+	 *                            capture the replay boundary from.
+	 */
 	const seek = useCallback(
-		( log, positions, end = null ) => {
+		( log, positions, source = {} ) => {
 			viewRef.current?.fill(
 				controlMsg(
-					positions
-						? {
-								action: 'browse',
-								endSegment: end?.segment ?? null,
-								endOffset: end?.offset ?? 0,
-						  }
-						: { action: 'follow' }
+					positions ? browseControl( source ) : { action: 'follow' }
 				)
 			);
 			resubscribe( [ log ], positions );

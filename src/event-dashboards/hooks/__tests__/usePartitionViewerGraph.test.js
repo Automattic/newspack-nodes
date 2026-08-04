@@ -783,7 +783,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			result.current.seek(
 				'firehose.p0',
 				{ 'firehose.p0': { segment: 5, offset: 0 } },
-				{ segment: 5, offset: 200 }
+				{ segments: [ { id: 5, size: 200 } ] }
 			)
 		);
 		expect( FakeEventSource.instances.length ).toBe( count );
@@ -799,7 +799,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			result.current.seek(
 				'firehose.p0',
 				{ 'firehose.p0': { segment: 5, offset: 0 } },
-				{ segment: 5, offset: 200 }
+				{ segments: [ { id: 5, size: 200 } ] }
 			)
 		);
 		// The seek control still drove the view into replay while paused.

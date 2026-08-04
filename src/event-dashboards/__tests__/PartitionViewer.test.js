@@ -446,7 +446,7 @@ describe( 'PartitionViewer', () => {
 		expect( seek ).toHaveBeenCalledWith(
 			'firehose',
 			{ firehose: { segment: 7, offset: 120 } },
-			null
+			{ segments: [] }
 		);
 		await act( async () => {} );
 		expect( step ).toHaveBeenCalled();
@@ -465,7 +465,7 @@ describe( 'PartitionViewer', () => {
 		expect( seek ).toHaveBeenCalledWith(
 			'firehose',
 			{ firehose: { segment: 9, offset: 4400 } },
-			null
+			{ segments: [] }
 		);
 	} );
 
@@ -476,11 +476,11 @@ describe( 'PartitionViewer', () => {
 		} );
 		await renderViewer();
 		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
-		// Third arg is the captured end (null here — no segments in this fixture).
+		// Third arg is the source ROW; the hook derives the boundary from it.
 		expect( seek ).toHaveBeenCalledWith(
 			'firehose',
 			{ firehose: { segment: 7, offset: 0 } },
-			null
+			{ segments: [] }
 		);
 		expect( logBrowserProps.selectedKey ).toBe( 7 );
 	} );
@@ -495,7 +495,7 @@ describe( 'PartitionViewer', () => {
 		expect( seek ).toHaveBeenCalledWith(
 			'firehose',
 			{ firehose: 'start' },
-			null
+			{ segments: [] }
 		);
 	} );
 
@@ -524,11 +524,16 @@ describe( 'PartitionViewer', () => {
 		} );
 		await renderViewer();
 		act( () => logBrowserProps.onReplay() );
-		// Newest segment 6 @ 2048 bytes is the live boundary carried to the view.
+		// The ROW rides; browseControl() derives segment 6 @ 2048 from it.
 		expect( seek ).toHaveBeenCalledWith(
 			'firehose',
 			{ firehose: 'start' },
-			{ segment: 6, offset: 2048 }
+			{
+				segments: [
+					{ id: 4, size: 100 },
+					{ id: 6, size: 2048 },
+				],
+			}
 		);
 	} );
 
