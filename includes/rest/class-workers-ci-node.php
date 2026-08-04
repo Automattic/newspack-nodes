@@ -115,7 +115,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			if ( '' === $type ) {
 				continue;
 			}
-			$stale_to  = self::to_int( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
+			$stale_to  = Lock_Node::stale_timeout_of( $w );
 			$workers[] = self::build_worker_status(
 				$type,
 				$partition,
@@ -192,15 +192,12 @@ class Workers_CI_Node extends Service_CI_Node {
 		$status        = 'dead';
 		$heartbeat_age = null;
 		$heartbeat_at  = 0;
-		$hb_file       = $lock_dir . '/heartbeat';
-		if ( \file_exists( $hb_file ) ) {
-			$mtime = @\filemtime( $hb_file );
-			if ( false !== $mtime ) {
-				$heartbeat_at  = $mtime;
-				$heartbeat_age = $now - $mtime;
-				if ( $heartbeat_age < $stale_timeout ) {
-					$status = 'running';
-				}
+		$mtime = @\filemtime( $lock_dir . '/heartbeat' );
+		if ( false !== $mtime ) {
+			$heartbeat_at  = $mtime;
+			$heartbeat_age = $now - $mtime;
+			if ( ! Lock_Node::heartbeat_is_stale( $lock_dir, $now, $stale_timeout ) ) {
+				$status = 'running';
 			}
 		}
 		$live  = ( 'running' === $status );

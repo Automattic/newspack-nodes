@@ -56,6 +56,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **One staleness rule for one heartbeat, not four.** Four readers judged the
+  same `{lock_dir}/heartbeat` mtime by four policies: the supervisor's respawn
+  decision and the Workers dashboard honoured a topology's declared
+  `stale_timeout`, `wp nodes status` used a flat 60, and two dashboard
+  components hardcoded 30. `job-worker.tsl` lifts the threshold to 600 exactly
+  because job handlers run slow user code — so a job-worker mid-job at 120s read
+  DOWN in the CLI and the UI while the supervisor correctly left it running and
+  never respawned it. The operator saw a dead worker that was working.
+  `Lock_Node::heartbeat_is_stale()` and `stale_timeout_of()` are now the rule
+  and the threshold; the two React components read the `stale` the server
+  already publishes instead of re-deriving it. Even the two readers that agreed
+  were separate implementations that happened to match.
+
+  Boundary note: `Workers_CI_Node` treated `age === stale_timeout` as DOWN while
+  the supervisor treated it as alive. They agree now, on the supervisor's
+  reading — the respawn decision is the authority on whether a worker is up.
+
 - **One bool parse, not four.** `Schema_Reflection` declares itself "THE bool
   parse", and three other implementations existed — two inside classes that
   `use` the trait. `Age_Sieve_Node` declared `should_warn` as `'type' => 'bool'`
