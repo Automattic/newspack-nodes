@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Config;
@@ -539,6 +540,49 @@ class LogCleanerTest extends TestCase {
 		$p0 = $this->seed_log_partition( 'jobintake', 0 );
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 		$this->assertDirectoryExists( $p0 );
+	}
+
+	/**
+	 * The GC clamped `num_partitions` to MAX_PARTITIONS while every PRODUCER
+	 * clamped it differently — `Job_Intake` and ELN's `Log_Manager` applied no
+	 * upper bound at all. Above the cap, producers wrote `jobintake.p16`+ that
+	 * the declared set never enumerated, so the sweep deleted them one
+	 * DELETE_GRACE_S after their last write: live-data deletion past both of
+	 * the GC's fail-closed gates, since the root resolves and the set is
+	 * non-empty.
+	 *
+	 * The invariant is agreement — whatever a producer can write, the GC
+	 * declares. 21 is deliberately above MAX_PARTITIONS (16), so a producer
+	 * that ignores the cap and one that honours it give different answers.
+	 */
+	public function test_every_partition_a_producer_writes_is_declared(): void {
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			[ Bootstrap::class, 'register_log_producers' ]
+		);
+		// A real declared set, so the empty-set gate isn't what passes this.
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 21;
+		Config::reset();
+
+		$declared = Log_Cleaner::declared_log_dirs();
+		$intake   = new Job_Intake( $this->tmp );
+		// Enough distinct keys to exercise every partition the writer will use.
+		for ( $i = 0; $i < 200; $i++ ) {
+			$intake->write_job( 'probe_handler', [ 'i' => $i ], "key-{$i}" );
+		}
+		$intake->close();
+
+		$written = \array_map(
+			'basename',
+			(array) \glob( $this->tmp . '/logs/jobintake.p*' )
+		);
+		$this->assertNotEmpty( $written, 'the probe must have written something' );
+		$this->assertSame(
+			[],
+			\array_diff( $written, $declared ),
+			'a partition the writer can reach must be in the declared set'
+		);
 	}
 
 	// ── declared_log_dirs ───────────────────────────

@@ -348,9 +348,29 @@ class Bootstrap {
 	 * @param string $name Topology name.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
 	 */
+	/**
+	 * The global `num_partitions` option, clamped to the range a worker will
+	 * actually consume: `[1, Supervisor_Base::MAX_PARTITIONS]`.
+	 *
+	 * THE accessor for that option. Four call sites spelled this clamp four
+	 * ways and two producers applied no upper bound at all, so an option above
+	 * the cap made `Job_Intake` / `Log_Manager` write `firehose.p16`+ that no
+	 * worker consumed and `Log_Cleaner` then swept as orphans — live-data
+	 * deletion past both of the GC's fail-closed gates. Writing beyond the cap
+	 * is never right: `num_partitions_for()` bounds the workers by the same
+	 * constant, so a partition past it has no reader.
+	 *
+	 * @return int The clamped partition count.
+	 */
+	public static function global_num_partitions(): int {
+		return \min(
+			Supervisor_Base::MAX_PARTITIONS,
+			\max( 1, Core::num_int( Config::value( 'num_partitions' ), 1 ) )
+		);
+	}
+
 	public static function num_partitions_for( string $name ): int {
-		$np_raw     = Config::value( 'num_partitions' );
-		$default_np = Core::num_int( $np_raw, 1 );
+		$default_np = self::global_num_partitions();
 		$count      = $default_np;
 
 		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;

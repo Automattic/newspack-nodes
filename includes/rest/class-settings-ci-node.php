@@ -32,42 +32,15 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
+use Newspack_Nodes\Config_System\Restart_Planner;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Settings_Schema;
 
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_CI_Node extends Service_CI_Node {
 
-	/**
-	 * Whitelist of {short-name => min} for the verbs. The WP option key is
-	 * the short-name prefixed with `newspack_nodes_`. The count/size settings
-	 * have min=1; the lifetime settings accept 0. The upper bound is
-	 * shared (MAX_INT_VALUE).
-	 *
-	 * @var array<string,int>
-	 */
-	private const ALLOWED_KEYS = [
-		'num_partitions'       => 1,
-		'segment_size'         => 1,
-		'min_segments'         => 1,
-		'num_segments'         => 1,
-		'min_lifetime'         => 0,
-		'lifetime'             => 0,
-		'max_segments'         => 0,
-		// The remote_* axes a hub pushes; same floors as their locals.
-		'remote_segment_size'  => 1,
-		'remote_min_segments'  => 1,
-		'remote_num_segments'  => 1,
-		'remote_min_lifetime'  => 0,
-		'remote_lifetime'      => 0,
-		'remote_max_segments'  => 0,
-	];
-
-	/**
-	 * Upper bound for all integer settings (2^30 = 1 GiB), enforced by
-	 * the validator.
-	 */
-	private const MAX_INT_VALUE = 1073741824;
 	/**
 	 * `get` verb handler — the current substrate-settings snapshot.
 	 *
@@ -92,16 +65,29 @@ class Settings_CI_Node extends Service_CI_Node {
 		$short = \is_string( $option ) && \str_starts_with( $option, 'newspack_nodes_' )
 			? \substr( $option, \strlen( 'newspack_nodes_' ) )
 			: $option;
-		if ( ! \is_string( $short ) || ! isset( self::ALLOWED_KEYS[ $short ] ) ) {
+		$field = \is_string( $short )
+			? Settings_Schema::get()->field_for_short( $short )
+			: null;
+		// One declaration: same key set and same bounds as the settings page.
+		if ( null === $field || 'int' !== $field->type || null === $field->min ) {
 			throw new \RuntimeException( \esc_html( 'unknown setting: ' . (string) $option ) );
 		}
-		$sanitized = self::sanitize_int( $value, self::ALLOWED_KEYS[ $short ], self::MAX_INT_VALUE );
+		$sanitized = self::sanitize_int( $value, $field->min, $field->max ?? \PHP_INT_MAX );
 		if ( null === $sanitized ) {
 			throw new \RuntimeException( \esc_html( "invalid value for setting: {$short}" ) );
 		}
 
 		\update_option( "newspack_nodes_{$short}", $sanitized, true );
 		RuntimeConfig::reset();
+		// Best-effort, as on the admin path; the supervisor reloads regardless.
+		try {
+			Restart_Planner::request_restarts(
+				Settings_Schema::get()->restart_for( $short ),
+				RuntimeConfig::get_locks_directory()
+			);
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'settings: restart planning failed: ', $e->getMessage() );
+		}
 
 		return self::snapshot();
 	}

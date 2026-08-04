@@ -70,6 +70,21 @@ class Field {
 		public readonly string $section = '',
 		public readonly string $id = '',
 		public readonly array|string $restart = [],
+		/**
+		 * Inclusive bounds for an `int` field, and the value a blank falls back
+		 * to. Declared HERE because they belong to the setting, not to one of
+		 * its consumers: the admin page and the `settings` service CI each held
+		 * their own copy and disagreed — `num_partitions` was 1..16 on the page
+		 * and 1..2^30 through the verb, so the same option had two definitions
+		 * of valid depending on which door it came through.
+		 *
+		 * @api
+		 */
+		public readonly ?int $min = null,
+		/** @api Inclusive upper bound for an `int` field. See $min. */
+		public readonly ?int $max = null,
+		/** @api The value a blank falls back to; also the page's placeholder. */
+		public readonly ?int $default = null,
 		mixed $sanitize = null,
 		mixed $render = null,
 		public readonly bool $ui = true,

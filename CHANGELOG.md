@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Field::$min` / `$max` / `$default`** — bounds belong to the setting, not to
+  its consumers. The admin page and the `settings` service CI each held their
+  own copy and disagreed: `num_partitions` was 1..16 on the page and 1..2^30
+  through the verb, `segment_size` 1MiB..512MiB versus 1..2^30. Both now derive
+  from the one declaration, and a rendered number with no declared bounds
+  throws rather than defaulting.
+
+- **`Bootstrap::global_num_partitions()`** — THE accessor for the global
+  `num_partitions` option, clamped to the range a worker actually consumes.
+
 - **`pollNow()` from `useBatchedPoll`** — fire the poll tick off-cadence, one
   batched POST of every slice with each `argsFn()` reading live refs. This is
   what a consumer needs after a filter change; event-logger-nodes had rebuilt
@@ -45,6 +55,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cumulative; a PHP `const` cannot be computed, which is how the fold was lost
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
+
+- **The log GC no longer deletes live partitions.** `Log_Cleaner` clamped
+  `num_partitions` to `MAX_PARTITIONS` while `Job_Intake` and ELN's
+  `Log_Manager` applied no upper bound at all — four spellings of one bound.
+  Set the option above 16 and producers wrote `firehose.p16`+ that the declared
+  set never enumerated, so the sweep deleted them one `DELETE_GRACE_S` after
+  their last write: live-data deletion past both of the GC's fail-closed gates,
+  since the root resolves and the set is non-empty. Every site now reads
+  `Bootstrap::global_num_partitions()`. Writing past the cap was never right —
+  `num_partitions_for()` bounds the workers by the same constant, so those
+  partitions had no reader either.
+
+- **An evicted batch counter no longer reports the batch as complete.**
+  `Cache_Backend`'s header promised the APCu arm matched memcached's "false on
+  miss", but `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their
+  `$ttl` parameter is for. A decrement of an evicted counter clamped to a
+  stored `0`, which `Job_Worker_Node::settle_batch()` reads as a completed
+  fan-in: `batch_complete` fired and a RESOLVED alert was raised for work that
+  never finished. Batch counters carry a `BATCH_TTL_S`, so expiry is expected.
+  Both counters now gate on existence. The only case where the two arms ever
+  disagreed was the one the existing test never reached — it decremented a key
+  it had just set.
+
+- **The `settings` verb validates like the settings page, and plans restarts.**
+  `ALLOWED_KEYS` was a hand-maintained parallel declaration shadowing
+  `Settings_Schema` — the shape that schema was introduced to delete,
+  reintroduced one directory over. It had already drifted: three `alert_*`
+  fields it silently could not set, and bounds disagreeing with the page's on
+  every key. It now derives from the schema. `cmd_set` also runs
+  `Restart_Planner`, which the admin save runs and the wire path skipped —
+  leaving long-lived workers serving the value the verb had just replaced.
+
+- **A timer at the router's own cadence is no longer throttled or re-clocked.**
+  `Timer_Node` compared `interval_ms` against a hardcoded 1000 in two places
+  while `set_timer` hitchhikes at `>= 1000`. Both now read the router's ACTUAL
+  cadence, so nothing assumes the tick is 1000, and the read is null-safe: an
+  unnamed timer arms in registries with no router mounted.
 
 - **A poll cadence of exactly 1000 is no longer discarded.** `armTimer`
   branched on `> 1000`, but TimerNode hitchhikes at `>= 1000` — so at exactly
