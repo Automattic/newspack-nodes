@@ -476,8 +476,6 @@ class HTTP_Out_Node extends Timer_Node {
 	protected function detach( \CurlHandle $easy ): void {
 		Event_Framework::instance()->unregister_curl_easy( $easy );
 	}
-	// ── Class API: same protocol, one blocking request ──
-
 	/**
 	 * POST a packed TM_COMMAND to a spoke's `/command` and return the reply's
 	 * decoded `payload`. Blocking, for an operator action that needs a verdict
@@ -643,8 +641,6 @@ class HTTP_Out_Node extends Timer_Node {
 		};
 		return $call( $url, $args );
 	}
-
-	// ── Protocol, shared by both transports ──
 
 	/**
 	 * Whether this url violates the `vault_require_ssl` posture. The push side
