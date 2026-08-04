@@ -75,4 +75,77 @@ class AgeSieveTest extends TestCase {
 		$sieve->fill( $this->stamped( Core::$now - 3600.0 ) );
 		$this->assertSame( [], $sink->captured );
 	}
+
+	/**
+	 * `should_warn` is declared `'type' => 'bool'`, but `arguments()` parsed it
+	 * with a raw `(bool)` cast — and every non-empty string is truthy in PHP,
+	 * so `make_node AgeSieve x 900 false` turned the warning ON. The trait
+	 * these nodes already `use` owns THE bool parse; four implementations of it
+	 * existed, two inside classes that use the trait.
+	 *
+	 * Observed the way production does: the drop warning reaching stderr.
+	 *
+	 * @dataProvider provide_falsey_tokens
+	 */
+	public function test_a_falsey_token_leaves_should_warn_off( string $token ): void {
+		$this->assertSame( [], $this->warnings_for_drop( [ '60', $token ] ) );
+	}
+
+	/**
+	 * @return array<string, list<string>>
+	 */
+	public static function provide_falsey_tokens(): array {
+		return [
+			'false' => [ 'false' ],
+			'no'    => [ 'no' ],
+			'off'   => [ 'off' ],
+			'0'     => [ '0' ],
+		];
+	}
+
+	/**
+	 * And the canonical truthy vocabulary still turns it on.
+	 *
+	 * @dataProvider provide_truthy_tokens
+	 */
+	public function test_the_truthy_vocabulary_enables_should_warn( string $token ): void {
+		$this->assertNotSame( [], $this->warnings_for_drop( [ '60', $token ] ) );
+	}
+
+	/**
+	 * @return array<string, list<string>>
+	 */
+	public static function provide_truthy_tokens(): array {
+		return [
+			'1'    => [ '1' ],
+			'true' => [ 'true' ],
+			'yes'  => [ 'yes' ],
+			'on'   => [ 'on' ],
+			'ON'   => [ 'ON' ],
+		];
+	}
+
+	/**
+	 * Drop one over-age message through a sieve built with $args, returning
+	 * whatever it wrote to stderr.
+	 *
+	 * @param list<string> $args Constructor args.
+	 * @return list<string> Emitted stderr lines.
+	 */
+	private function warnings_for_drop( array $args ): array {
+		$seen = [];
+		Core::set_stderr_handler(
+			static function ( string $line ) use ( &$seen ): void {
+				$seen[] = $line;
+			}
+		);
+		try {
+			[ $sieve ] = $this->sieve( $args );
+			$sieve->fill( $this->stamped( Core::$now - 3600.0 ) );
+		} finally {
+			// Core::reset() in tearDown restores the default handler.
+			Core::reset();
+		}
+		return $seen;
+	}
 }

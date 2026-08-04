@@ -1,6 +1,6 @@
 export * from './message';
 export { Core } from './core';
-export { Node } from './node';
+export { Node, truthy } from './node';
 export { RouterNode } from './router-node';
 export { TeeNode } from './tee-node';
 export { HookNode } from './hook-node';

@@ -81,7 +81,7 @@ trait Schema_Reflection {
 		};
 	}
 
-	/** THE bool parse for schema args and toggle verbs (JS mirror: node.js truthy). */
+	/** THE bool parse for schema args and toggle verbs (JS mirror: `truthy` in runtime/node.js). */
 	protected static function truthy( string $token ): bool {
 		return \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true );
 	}
