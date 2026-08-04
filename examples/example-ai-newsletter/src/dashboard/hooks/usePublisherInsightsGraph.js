@@ -29,6 +29,9 @@ import '../nodes/register';
  * `insights`). The Fetchers target it through the substrate's `_shell/_http`.
  */
 const SERVER = 'insights-demo';
+// Digest slices change slowly; the cadence is explicit, never inferred.
+const DEFAULT_INTERVAL_MS = 30000;
+
 const TARGET = `_shell/_http/${ SERVER }`;
 
 /**
@@ -76,5 +79,7 @@ export function usePublisherInsightsGraph( opts = {} ) {
 		timerName: 'insights:timer',
 		teeName: 'insights:tee',
 		commandClient: opts.commandClient,
+		// A digest changes on the order of minutes; poll accordingly.
+		intervalMs: opts.intervalMs ?? DEFAULT_INTERVAL_MS,
 	} );
 }

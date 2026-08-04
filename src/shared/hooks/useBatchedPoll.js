@@ -78,10 +78,16 @@ function syncTimer( timer, isPageVisible, paused, intervalMs ) {
  * @param {string}   opts.teeName         Name for the owned fan-out Tee.
  * @param {Object}   [opts.commandClient] Transport seam assigned to `_http.client`.
  * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
- * @param {number}   [opts.intervalMs]    Poll cadence in ms: > 1000 hitchhikes + throttles to it; omitted/0 fires every router tick. Changing it re-arms the Timer.
+ * @param {number}   opts.intervalMs      Poll cadence in ms, REQUIRED and > 0. Either way the Timer hitchhikes the router TIMER, so every tick stays inside the lock/flush bracket: above 1000 it throttles to that cadence, at or below 1000 it rides the router's own. Changing it re-arms the Timer.
  * @return {{ interpreterRef: Object }} A ref to the live interpreter.
  */
 export function useBatchedPoll( opts ) {
+	// The cadence is required: a silent fallback here polls every router tick.
+	if ( ! ( opts.intervalMs > 0 ) ) {
+		throw new TypeError(
+			`useBatchedPoll( { timerName: '${ opts.timerName }' } ) needs an intervalMs > 0`
+		);
+	}
 	// Read opts live inside build without re-running once-only mount effect.
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
