@@ -6,13 +6,13 @@ argument-hint: "[symptom]"
 
 # Newspack Nodes Debugging
 
-The full live-investigation reference now lives in **`docs/troubleshooting.md`** (promoted from this skill so humans get it too). Read that file — it covers the REPL's bare vs pivoted modes, the verb table, piping into the REPL, worker health verbs, the on-disk log layout, the common failure modes, and the wire format.
+The full live-investigation reference lives in **`docs/troubleshooting.md`** (promoted from this skill so humans get it too). Read that file — it covers the REPL's bare vs pivoted modes, the verb table, piping into the REPL, worker health verbs, the on-disk log layout, the common failure modes, and the wire format.
 
 Claude-specific notes on top of it:
 
-- `wp nodes doctor` first when the environment itself is suspect (memcache / WP-Cron / filesystem / ownership) — each failure line names the concrete degradation.
-- In the dndocker environment: run the cli as the web user (`docker exec -it -u bend eve-pyrobase1-1 wp nodes cli <reader>.p<N> --path=/var/www/html`), and the per-env `base_directory` is `/volumes/pyrobase/tmp/newspack-nodes`.
-- For the event-logger application's reqgrep pretty-printer, see the event-logger-nodes plugin's debugging skill — it knows how to unwrap the envelope and render the inner entry.
+- `wp nodes doctor` first when the environment is suspect (memcache / WP-Cron / filesystem / ownership) — each failure line names the concrete degradation.
+- In the dndocker environment, run the cli as the web user (`docker exec -it -u bend eve-pyrobase1-1 wp nodes cli <reader>.p<N> --path=/var/www/html`); the per-env `base_directory` is `/volumes/pyrobase/tmp/newspack-nodes`.
+- For the event-logger application's reqgrep pretty-printer, see the event-logger-nodes debugging skill — it unwraps the envelope and renders the inner entry.
 
 ## Related Skills
 
