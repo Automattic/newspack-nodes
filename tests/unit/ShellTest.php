@@ -43,6 +43,11 @@ class ShellTest extends TestCase {
 	public static function adversarial_tokens(): array {
 		return [
 			'spaced'          => [ [ 'a b', 'c' ] ],
+			// Unquoted, `#` starts a comment and `;` ends the statement, so
+			// both truncate the LINE rather than just mangling the token.
+			'comment_char'    => [ [ 'a#b', 'c' ] ],
+			'statement_sep'   => [ [ 'a;b', 'c' ] ],
+			'leading_hash'    => [ [ '#foo' ] ],
 			'single-quote'    => [ [ "it's" ] ],
 			'double-quote'    => [ [ 'pa"th' ] ],
 			'backtick'        => [ [ 'back`tick' ] ],

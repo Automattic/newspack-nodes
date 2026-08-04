@@ -17,7 +17,12 @@ import { Core } from '../core';
 import { StubNode } from '../stub-node';
 import { DraftInterpreterNode } from '../draft-interpreter-node';
 
-beforeEach( () => Core.reset() );
+// A draft reports every non-`ok` reply; some cases refuse deliberately.
+beforeEach( () => {
+	Core.reset();
+	jest.spyOn( Core, 'stderr' ).mockImplementation( () => {} );
+} );
+afterEach( () => jest.restoreAllMocks() );
 
 const draft = () => {
 	const d = new DraftInterpreterNode();
@@ -110,12 +115,14 @@ describe( 'command_node — one statement, two readings', () => {
 		] );
 	} );
 
-	it( 'refuses a target that is not a node', () => {
+	it( 'keeps a line for a target no node carries', () => {
+		// An expansion that has not arrived leaves the borrowed node absent.
+		// Refusing the line would strip the file's own config on save.
 		const d = draft();
 
-		expect( d.dispatch( 'command_node', [ 'nope:config', 'x' ] ) ).toBe(
-			'unknown node: nope'
-		);
+		d.run( 'command_node nope:config set_x 1' );
+
+		expect( d.dumpDocument() ).toBe( 'command_node nope:config set_x 1\n' );
 	} );
 
 	it( 'emits each back after its make_node, sidecar suffix preserved', () => {
@@ -247,39 +254,49 @@ describe( 'dumpDocument', () => {
 		expect( reloaded.dumpDocument() ).toBe( first );
 	} );
 
+	// An `include` is the only thing a fresh load starts from, so it is the
+	// only thing an edge can be dropped FROM. With no includes, an edge the
+	// document no longer declares is simply a line not written.
+	const EXPANSION = {
+		nodes: [
+			{ name: 'fan', class: 'Tee', fans_out: true, origin: [ 'shared' ] },
+			{ name: 'a', class: 'Partition', origin: [ 'shared' ] },
+			{ name: 'b', class: 'Partition', origin: [ 'shared' ] },
+		],
+		edges: [
+			{ from: 'fan', to: 'a' },
+			{ from: 'fan', to: 'b' },
+		],
+	};
+
 	it( 'emits disconnect_node for an edge the baseline had and we do not', () => {
 		// `connect_node` APPENDS on a Tee, so dropping an edge is not the
-		// absence of a line — it needs an explicit disconnect against what was
-		// loaded. Absolute state cannot express a removal.
+		// absence of a line — it needs an explicit disconnect against the
+		// expansion. Absolute state cannot express a removal.
 		const d = draft();
-		d.load(
-			[
-				'make_node Tee fan',
-				'make_node Partition a a.log',
-				'make_node Partition b b.log',
-				'connect_node fan a',
-				'connect_node fan b',
-			].join( '\n' )
-		);
-		const baseline = d.dumpDocument();
+		d.load( 'include shared', EXPANSION );
 
 		d.run( 'disconnect_node fan b' );
 
-		expect( d.dumpDocument( baseline ) ).toContain(
+		expect( d.dumpDocument( EXPANSION ) ).toContain(
 			'disconnect_node fan b'
 		);
 	} );
 
 	it( 'emits no disconnect when nothing was dropped', () => {
 		const d = draft();
-		d.load(
-			[ 'make_node Tee fan', 'make_node Partition a a.log' ].join( '\n' )
+		d.load( 'include shared', EXPANSION );
+
+		expect( d.dumpDocument( EXPANSION ) ).not.toContain(
+			'disconnect_node'
 		);
-		const baseline = d.dumpDocument();
+	} );
 
-		d.run( 'connect_node fan a' );
+	it( 'does not restate an edge the expansion already supplies', () => {
+		const d = draft();
+		d.load( 'include shared', EXPANSION );
 
-		expect( d.dumpDocument( baseline ) ).not.toContain( 'disconnect_node' );
+		expect( d.dumpDocument( EXPANSION ) ).toBe( 'include shared\n' );
 	} );
 
 	it( 'is empty for an empty document, not a stray newline', () => {

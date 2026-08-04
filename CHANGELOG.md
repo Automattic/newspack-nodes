@@ -9,6 +9,150 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The topology console's edit mode is a command interpreter now, not a
+  reducer.** Edit mode and live mode send the SAME commands; the only
+  difference is which interpreter receives them, which is a cwd. `draftGraph.js`,
+  `draftReducer.js`, `parseTsl.js` and `serializeTsl.js` are deleted — a
+  canvas gesture builds a TSL line and runs it against `DraftInterpreterNode`,
+  and the graph the canvas draws is a READ of that interpreter's node table
+  (`draftToGraph`). Saving is `dumpDocument()`; loading is `load()`.
+- **An `include` expands before the file's own lines run**, as it does in the
+  runtime, so a `connect_node` naming a borrowed node resolves against a real
+  node instead of a bespoke fold beside the parser. The console's
+  `applyLoadedBaseline` / `reconcileIncludes` pair is gone with it.
+- **A rename keeps the node's position in the table.** Table order is the order
+  a document is written, so renaming one node used to move its `make_node` line
+  to the end of the file.
+
+### Fixed
+
+- A node removed in the editor could leave a `connect_node` to it in the saved
+  `.tsl`. A Tee prunes dead heads when it fills, and a document never fills, so
+  the prune happens when the document is written.
+- A config-role edge supplied by an `include` was counted as routing when
+  diffing edges on save, producing a spurious `disconnect_node`.
+- A fan-out class the browser cannot construct is now recognised from the class
+  catalog, so its second `connect_node` appends instead of replacing the first.
+- Re-seeding the draft compares the expansion's CONTENT, not its object
+  identity: an expansion still in flight arrives empty, and rebuilding from it
+  dropped every edge that named a borrowed node.
+- A bare `secure` — the line every stock topology ends with — was read as "no
+  level" and dropped on save, taking the process's security ratchet with it. A
+  bare `secure` is `secure 1`, and "undeclared" is an editor operation with no
+  TSL spelling.
+- The console passed the resolved `<ns:key>` config targets to a `load()` that
+  took two parameters, so every tokenized `set_*target` edge vanished from the
+  edit canvas.
+- Verb arguments were written to the saved `.tsl` unquoted, so a value with
+  whitespace reloaded as several arguments.
+- Editing one positional argument with earlier slots unset collapsed the holes
+  and moved the value into the wrong slot; editing any argument re-quoted the
+  ones the operator had not touched, nesting a quote layer on every edit.
+- Editing a verb on an interpreter-class node rewrote its `command_node <name>
+  <verb>` line to the `:config` form.
+- `serializeArg` did not quote `#` or `;`. Unquoted, the first starts a comment
+  and the second ends the statement, so both truncated the saved line.
+- `remove_node` left its verb declarations behind — and, via `-a <glob>`, left
+  them under the wrong names — so a later node reusing a name inherited the
+  dead node's verbs. Removals now drop their references, as renames do.
+- Entering edit mode on a blank canvas left the draft with no class catalog, so
+  a fan-out class the browser cannot construct lost every edge but its last.
+- **Opening an included topology from the parent's inspector emptied it.** The
+  parent's include expansion stays in state for a tick after the child loads,
+  and re-seeding from it marked the child's OWN nodes as borrowed — after
+  which the document stopped declaring them and a save wrote an empty file.
+  Two fixes: a re-seed now requires the expansion to be for this document's
+  includes, and a node the file declares is the file's, never an include's.
+- **Saving or deleting a topology now restarts every active fleet that
+  INCLUDES it, not just a fleet of the same name.** A topology's content is its
+  own statements plus its includes', so editing a child changed every parent
+  that composes it — and a child is usually not an active fleet itself, so
+  nothing restarted and the parents kept running the old graph with nothing to
+  say so.
+- A verb argument with an unset earlier slot shifted every later argument down
+  one position on save.
+- Schema defaults were no longer expanded when the Inspector wrote constructor
+  arguments, so an unset earlier slot saved as `''`. PHP's `parse_schema_args`
+  tests `isset()`, and `''` is set — the declared default was skipped and an
+  int argument coerced to 0.
+- Editing a verb on a node an `include` supplies wrote the include's verbs into
+  the child file and showed each of them twice in the inspector.
+- Redeclaring an include-supplied node — legal TSL, and identical — dropped the
+  edges the include had wired, so opening and saving with no edits severed them.
+- Saving or downloading diffed edges against whatever expansion was in state,
+  so an operator's removal of an include-supplied edge could be dropped from
+  the written file.
+- The document verbs (`var`, `include`, `remove_include`, `secure`) received
+  raw spans, so `include "shared"` stored the quotes with the name.
+- Restarting the affected fleets could throw AFTER the write succeeded — a
+  deleted child leaves its parents' include graphs unresolvable — reporting a
+  completed delete as a failure.
+- Editing a verb on a node an `include` supplies keyed the write-back by
+  INDEX, so removing an include-supplied row deleted one of the file's own
+  verbs instead. Rows carry their provenance now.
+- `var name=value` — legal, and what PHP reads — stored the whole assignment as
+  the key. The draft follows the canonical first-`=` split now.
+- PHP's `Node::serialize_args()` did not quote `#` or `;` either. Live-mode
+  Save writes `dump_config` output straight to a `.tsl`, so the argument was
+  lost on the same round trip as the JS half.
+- A statement the document refused — `connect_node` naming a node nothing
+  supplies — was dropped in silence: a draft has no sink, so the reply went
+  nowhere while the edge vanished from the canvas and the next save.
+- A redeclaration that failed to build left the document with neither the new
+  node nor the include's, so the next save wrote it out missing.
+- `dump_node` grew a `defaultSink` row from the sink `make_node` records —
+  bookkeeping, not state, and absent from PHP's.
+- One active fleet with a dangling include restarted on every unrelated save
+  and delete, permanently.
+- Verb arguments got no schema defaults, so ticking a verb on in the inspector
+  wrote `command_node e:config set_x '' ''` — set as far as PHP is concerned,
+  so the declared default was skipped and an int coerced to 0.
+- A frontmatter value carrying `#` or `;` was written unquoted, and PHP reads
+  `var` through the tokenizer, so `/tmp/a#b` reloaded as `/tmp/a`.
+- Config edges an include supplied were not pruned on a removal or rewritten on
+  a rename, so the canvas kept drawing edges to names that no longer existed.
+- A `command_node` for a node no expansion supplied was refused and dropped, so
+  a load with a partial expansion stripped the file's own config lines on save.
+- A redeclaration replaying more targets than the new class can hold now says
+  which it dropped instead of keeping the last one silently.
+- Editing one constructor argument re-emitted the others bare, dropping a
+  quote whose job is to DEFER `<…>` interpolation — the loader then expanded it
+  at parse time. The Inspector renders each slot tokenized, so an untouched
+  slot never matched the stored span.
+- Loading a topology in edit mode stopped failing loudly when the server sent
+  no resolved `<ns:key>` config targets: the edges just vanished from the
+  canvas, and a save then wrote routing the operator was never shown.
+- `move_node` rewrote verb arguments in place, and the graph hands those arrays
+  out as the dirty-check baseline — so a rename retroactively edited the
+  snapshot it was supposed to be compared against.
+- Deleting a topology did not reset the memoized registry readers, so a later
+  read in the same request still saw the deleted file.
+- The context hook `useLayout` collided by name with the server-layout hook of
+  the same name; it is `useLayoutContext` now.
+- Renaming a node to `_repl` was accepted, and the saved file then declared a
+  node colliding with the worker's own auto-mounted Partition. The anchor lives
+  on the canvas graph, not in the document, so the guard read the wrong one.
+- A source that would not parse wiped the document before failing, leaving the
+  editor holding nothing behind a toast that read as recovered. A load parses
+  first now, and touches nothing until it knows the file is readable.
+- Uploading a `.tsl` that carries `<ns:key>` config targets — every stock
+  topology that has one — failed outright, because the resolved-edge guard ran
+  on a path that never had a server response to check.
+- An include edge that was BOTH a connection and a config target lost its
+  config slots, so removing the connection deleted the routing with it.
+- `set_sink` was executed on load and never written back, so a file carrying
+  one lost the line on save.
+- `dump_node` stopped showing every private field, not just the bookkeeping one
+  it meant to hide — a Dumper's ring and a Request's queue went with it.
+- `remove_include` left the nodes the include supplied in the document, so a
+  save in that window wrote `connect_node` lines for nodes it no longer
+  declares.
+- **`Discard` did not discard.** Leaving edit mode only flipped the mode, so
+  the dirty draft stayed alive and every later action that replaced it asked
+  again — in live mode, about a draft the operator could no longer see. The
+  confirmation copy is also per-action now, instead of one message that always
+  said "leaving edit mode".
+
 - **`draftGraph.js` was two things under one misleading name; it is now two
   files.** Measured: 147 of its 735 lines were draft mutation, and 581 were
   graph shaping that `Inspector`, `SchematicCanvas`, `useConsoleGraph`,

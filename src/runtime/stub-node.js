@@ -26,6 +26,10 @@ export class StubNode extends Node {
 		super();
 		// The class this stands for; dump_config emits it in our place.
 		this._shellName = 'Stub';
+		// Topologies this node came in through; empty means the file's own.
+		this.origin = [];
+		this.via = [];
+		this._fansOut = false;
 	}
 
 	get shellName() {
@@ -34,6 +38,55 @@ export class StubNode extends Node {
 
 	set shellName( value ) {
 		this._shellName = String( value || 'Stub' );
+	}
+
+	/**
+	 * Whether the class this stands for fans out, i.e. takes Tee semantics.
+	 *
+	 * A stub cannot inherit them — the class it describes is the one that has
+	 * them — so the catalog's `fans_out` is what decides, and setting it swaps
+	 * `target` between the two shapes the runtime actually uses.
+	 *
+	 * @return {boolean} True when `connect_node` appends rather than replaces.
+	 */
+	get fansOut() {
+		return this._fansOut;
+	}
+
+	set fansOut( value ) {
+		this._fansOut = !! value;
+		if ( this._fansOut && ! Array.isArray( this.target ) ) {
+			this.target = '' === this.target ? [] : [ this.target ];
+		}
+	}
+
+	// Borrowed: supplied by an `include`, so a save must not re-declare it.
+	get borrowed() {
+		return this.origin.length > 0;
+	}
+
+	connectNode( target ) {
+		if ( ! this._fansOut ) {
+			super.connectNode( target );
+			return;
+		}
+		// `removeNode` resets `target` to '', so normalise it again.
+		if ( ! Array.isArray( this.target ) ) {
+			this.target = '' === this.target ? [] : [ this.target ];
+		}
+		if ( ! this.target.includes( target ) ) {
+			this.target.push( target );
+		}
+	}
+
+	disconnectNode( target = '' ) {
+		if ( ! this._fansOut ) {
+			super.disconnectNode( target );
+			return;
+		}
+		this.target = Array.isArray( this.target )
+			? this.target.filter( ( t ) => t !== target )
+			: [];
 	}
 
 	/**

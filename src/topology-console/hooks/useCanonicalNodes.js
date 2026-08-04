@@ -12,7 +12,7 @@
 
 import { useState, useEffect } from '@wordpress/element';
 import { useTopology } from './useTopologyList';
-import { parseTsl } from '../utils/parseTsl';
+import { graphFromTsl } from '../utils/draftToGraph';
 
 /**
  * Live node ids that aren't in the canonical `.tsl` set and aren't reserved
@@ -56,7 +56,7 @@ export function useCanonicalNodes( topology ) {
 				if ( ! live ) {
 					return;
 				}
-				const parsed = parseTsl( resp?.tsl || '' );
+				const parsed = graphFromTsl( resp?.tsl || '' );
 				// A borrowed node is canonical: declared, just in another file.
 				const borrowed = ( resp?.expanded?.nodes || [] ).map(
 					( n ) => n.name

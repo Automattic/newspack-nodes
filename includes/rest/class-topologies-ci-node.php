@@ -257,15 +257,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 		// The file changed under the memoized readers.
 		Topology_Registry::reset_basename_cache();
 
-		// Restart the active fleet, keyed off the catalog filter (not overlay).
-		$resolved  = \function_exists( 'apply_filters' )
-			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-			: [];
-		$restarted = [];
-		if ( isset( $resolved[ $name ] ) ) {
-			\do_action( 'newspack_nodes/restart_fleet', $name );
-			$restarted[] = $name;
-		}
+		$restarted = self::restart_affected_fleets( $name );
 
 		return [
 			'name'             => $name,
@@ -276,10 +268,69 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * Restart every registered topology whose graph this one is part of.
+	 *
+	 * A topology's content is its own statements PLUS its includes', so saving
+	 * a child changes every parent that composes it. The child itself is
+	 * usually not an active fleet, so restarting only the saved name leaves
+	 * those parents running the old graph with nothing to say so.
+	 *
+	 * @param string $name Topology just written.
+	 *
+	 * @return list<string> Fleet names restarted, in catalog order.
+	 */
+	private static function restart_affected_fleets( string $name ): array {
+		// Keyed off the catalog filter, not the overlay.
+		$resolved = \function_exists( 'apply_filters' )
+			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
+			: [];
+		$restarted = [];
+		foreach ( \array_keys( $resolved ) as $fleet ) {
+			$fleet = (string) $fleet;
+			if ( $fleet !== $name && ! self::fleet_includes( $fleet, $name ) ) {
+				continue;
+			}
+			\do_action( 'newspack_nodes/restart_fleet', $fleet );
+			$restarted[] = $fleet;
+		}
+		return $restarted;
+	}
+
+	/**
+	 * Whether a fleet composes `$name`, transitively.
+	 *
+	 * The write has already happened by the time this runs, so an include
+	 * graph that will not resolve — including the dangling one a delete just
+	 * created — must not turn a completed write into a reported failure.
+	 *
+	 * @param string $fleet Active fleet to inspect.
+	 * @param string $name  Topology just written.
+	 *
+	 * @return bool True when the fleet's graph contains `$name`.
+	 */
+	private static function fleet_includes( string $fleet, string $name ): bool {
+		try {
+			return \in_array(
+				$name,
+				Topology_Registry::includes( $fleet ),
+				true
+			);
+		} catch ( \RuntimeException $e ) {
+			// Token boundary: `catalog` must not match a save of `log`.
+			return 1 === \preg_match(
+				'/(?<![\w.-])' . \preg_quote( $name, '/' ) . '(?![\w.-])/',
+				$e->getMessage()
+			);
+		}
+	}
+
+	/**
 	 * `include` lines parsed straight out of a TSL body string — used by save's
 	 * dry-run validation, where the body isn't on disk yet.
 	 *
-	 * @return list<string>
+	 * @param string $tsl Topology source.
+	 *
+	 * @return list<string> Direct include names.
 	 */
 	private static function direct_includes_from_tsl( string $tsl ): array {
 		$out = [];
@@ -389,15 +440,11 @@ class Topologies_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		// Restart the active fleet (symmetry with save), keyed off the catalog.
-		$resolved  = \function_exists( 'apply_filters' )
-			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-			: [];
-		$restarted = [];
-		if ( isset( $resolved[ $name ] ) ) {
-			\do_action( 'newspack_nodes/restart_fleet', $name );
-			$restarted[] = $name;
-		}
+		// The file changed under the memoized readers (symmetry with save).
+		Topology_Registry::reset_basename_cache();
+
+		// Symmetry with save: deleting a child changes its parents too.
+		$restarted = self::restart_affected_fleets( $name );
 
 		return [
 			'name'             => $name,

@@ -40,6 +40,24 @@ export class NodeRegistry {
 	}
 
 	/**
+	 * Rename in place, keeping the node's POSITION in the table.
+	 *
+	 * A delete-then-insert would move it to the end, and the table's order is
+	 * the order `dump_config` writes — so a rename would rewrite the whole
+	 * file instead of one line.
+	 *
+	 * @param {string} from Current name.
+	 * @param {string} to   New name.
+	 */
+	renameNode( from, to ) {
+		const entries = [ ...this.nodes ];
+		this.nodes.clear();
+		for ( const [ name, node ] of entries ) {
+			this.nodes.set( name === from ? to : name, node );
+		}
+	}
+
+	/**
 	 * @param {string} name Node name.
 	 */
 	unregisterNode( name ) {

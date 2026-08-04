@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { parseTsl } from '../parseTsl';
+import { graphFromTsl } from '../draftToGraph';
 
 // The SAME request-builder.tsl the PHP TopologyRegistryFixtureTest drives, so
 // both static parsers are verified against identical input: make/connect/
@@ -10,9 +10,9 @@ const FIXTURE = fs.readFileSync(
 	'utf8'
 );
 
-describe( 'parseTsl — request-builder.tsl fixture', () => {
+describe( 'graphFromTsl — request-builder.tsl fixture', () => {
 	const byName = () => {
-		const g = parseTsl( FIXTURE );
+		const g = graphFromTsl( FIXTURE );
 		const map = {};
 		for ( const n of g.nodes ) {
 			map[ n.name ] = n;
@@ -41,24 +41,38 @@ describe( 'parseTsl — request-builder.tsl fixture', () => {
 	it( 'captures cd-block bare verbs + cmd as verbInvocations on the cwd node', () => {
 		const { map } = byName();
 		expect( map.fanout.verbInvocations ).toEqual( [
-			{ verb: 'set_multi_writer', args: [ 'true' ] },
-			{ verb: 'set_completed_target', args: [ 'completed:tee' ] },
-			{ verb: 'set_errors_target', args: [ 'errors:partition' ] },
-			{ verb: 'set_inflight_target', args: [ 'gyroscope:partition' ] },
+			{ verb: 'set_multi_writer', args: [ 'true' ], viaConfig: true },
+			{
+				verb: 'set_completed_target',
+				args: [ 'completed:tee' ],
+				viaConfig: true,
+			},
+			{
+				verb: 'set_errors_target',
+				args: [ 'errors:partition' ],
+				viaConfig: true,
+			},
+			{
+				verb: 'set_inflight_target',
+				args: [ 'gyroscope:partition' ],
+				viaConfig: true,
+			},
 		] );
 	} );
 
 	it( 'captures command / command_node alias verbs', () => {
 		const { map } = byName();
 		expect( map[ 'requests:partition' ].verbInvocations ).toEqual( [
-			{ verb: 'with_index', args: [ 'request-index' ] },
-			{ verb: 'void_warranty', args: [] },
+			{ verb: 'with_index', args: [ 'request-index' ], viaConfig: true },
+			{ verb: 'void_warranty', args: [], viaConfig: true },
 		] );
+		// `command errors:partition void_warranty` — the BARE form, which is
+		// how an interpreter-class node takes a verb directly.
 		expect( map[ 'errors:partition' ].verbInvocations ).toEqual( [
-			{ verb: 'void_warranty', args: [] },
+			{ verb: 'void_warranty', args: [], viaConfig: false },
 		] );
 		expect( map[ 'completed:partition' ].verbInvocations ).toEqual( [
-			{ verb: 'void_warranty', args: [] },
+			{ verb: 'void_warranty', args: [], viaConfig: true },
 		] );
 	} );
 

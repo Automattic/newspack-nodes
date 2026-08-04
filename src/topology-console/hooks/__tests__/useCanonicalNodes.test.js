@@ -1,12 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react';
 
-// Spy on parseTsl so post-unmount test asserts !live short-circuits parsing.
-jest.mock( '../../utils/parseTsl', () => {
-	const actual = jest.requireActual( '../../utils/parseTsl' );
-	return { parseTsl: jest.fn( actual.parseTsl ) };
+// Spy on graphFromTsl so post-unmount test asserts !live short-circuits parsing.
+jest.mock( '../../utils/draftToGraph', () => {
+	const actual = jest.requireActual( '../../utils/draftToGraph' );
+	return { graphFromTsl: jest.fn( actual.graphFromTsl ) };
 } );
 
-const { parseTsl } = require( '../../utils/parseTsl' );
+const { graphFromTsl } = require( '../../utils/draftToGraph' );
 
 import { Core } from '@newspack-nodes/runtime';
 import {
@@ -86,7 +86,7 @@ describe( 'useCanonicalNodes', () => {
 	} );
 
 	it( 'ignores a fetch that resolves after the hook unmounts', async () => {
-		parseTsl.mockClear();
+		graphFromTsl.mockClear();
 		send.mockReturnValue( { tsl: 'make_node Echo alpha\n' } );
 		// Hold the wire open so the reply lands only after the unmount.
 		const wire = makeFakeCommandWire( ( m ) => send( m ) );
@@ -106,8 +106,8 @@ describe( 'useCanonicalNodes', () => {
 		for ( let i = 0; i < 8; i++ ) {
 			await Promise.resolve();
 		}
-		// !live guard returns before parse/setState; parseTsl running is a bug.
-		expect( parseTsl ).not.toHaveBeenCalled();
+		// !live guard returns before parse/setState; graphFromTsl running is a bug.
+		expect( graphFromTsl ).not.toHaveBeenCalled();
 	} );
 
 	it( 'resets to an empty set when the topology fetch rejects', async () => {

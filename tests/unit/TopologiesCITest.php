@@ -574,6 +574,164 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [ 'active-one' ], $fired );
 	}
 
+	/**
+	 * A topology's content changes when any of its INCLUDES changes, so saving
+	 * a child leaves every parent that composes it running the old graph —
+	 * silently, because the child itself is usually not an active fleet.
+	 */
+	public function test_save_restarts_the_active_parents_that_include_it(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['parent-fleet'] = [
+					'topology'       => 'parent-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/shared-child.tsl",
+			"make_node Echo child\n"
+		);
+		\file_put_contents(
+			"{$this->user}/parent-fleet.tsl",
+			"include shared-child\nmake_node Echo own\n"
+		);
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'shared-child', "make_node Echo renamed\n" ]
+		);
+
+		$this->assertSame( [ 'parent-fleet' ], $result['restarted_fleets'] );
+		$this->assertSame( [ 'parent-fleet' ], $fired );
+	}
+
+	/**
+	 * The write already happened. An active fleet whose include graph cannot
+	 * be resolved — including the one the just-deleted child left dangling —
+	 * must not turn a completed delete into a reported failure.
+	 */
+	public function test_delete_survives_an_active_fleet_with_a_broken_include(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['parent-fleet'] = [
+					'topology'       => 'parent-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/doomed-child.tsl",
+			"make_node Echo child\n"
+		);
+		\file_put_contents(
+			"{$this->user}/parent-fleet.tsl",
+			"include doomed-child\nmake_node Echo own\n"
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'delete',
+			[ 'doomed-child' ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertFileDoesNotExist( "{$this->user}/doomed-child.tsl" );
+	}
+
+	/**
+	 * One fleet with a dangling include must not be restarted by every
+	 * unrelated save from then on — that is a permanent restart loop.
+	 */
+	public function test_save_ignores_a_broken_fleet_that_does_not_name_it(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['broken-fleet'] = [
+					'topology'       => 'broken-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/broken-fleet.tsl",
+			"include nonesuch\nmake_node Echo own\n"
+		);
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'unrelated', "make_node Echo e\n" ]
+		);
+
+		$this->assertSame( [], $result['restarted_fleets'] );
+		$this->assertSame( [], $fired );
+	}
+
+	/**
+	 * A substring test would restart `broken-fleet` when saving `log`, whose
+	 * name appears inside `catalog` in the failure message.
+	 */
+	public function test_broken_fleet_matches_on_a_token_not_a_substring(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['broken-fleet'] = [
+					'topology'       => 'broken-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/broken-fleet.tsl",
+			"include catalog\nmake_node Echo own\n"
+		);
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'log', "make_node Echo e\n" ]
+		);
+
+		$this->assertSame( [], $fired );
+	}
+
 	public function test_save_does_not_fire_restart_for_inactive_topology(): void {
 		$fired = [];
 		\add_action(

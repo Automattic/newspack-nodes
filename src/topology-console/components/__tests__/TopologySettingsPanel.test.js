@@ -1,12 +1,26 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import TopologySettingsPanel from '../TopologySettingsPanel';
 import { DraftProvider } from '../../DraftContext';
+import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
+import { draftToGraph } from '../../utils/draftToGraph';
 
-// The panel edits the document, so it reads and dispatches through the draft
-// seam. `dispatch` stands in for the reducer; `var` carries the whole map.
-function renderInDraft( draft, dispatch, extra = {} ) {
+/**
+ * The panel edits a REAL document. Asserting on the interpreter's frontmatter
+ * instead of on a dispatch spy is the difference between proving the panel
+ * changed the topology and proving it called a function.
+ *
+ * @param {Object} interpreter Draft interpreter.
+ * @param {Object} extra       Extra panel props.
+ */
+function renderInDraft( interpreter, extra = {} ) {
+	const draft = {
+		interpreter,
+		graph: draftToGraph( interpreter ),
+		run: ( line ) => interpreter.run( line ),
+		load: () => {},
+	};
 	render(
-		<DraftProvider draft={ draft } dispatch={ dispatch }>
+		<DraftProvider draft={ draft }>
 			<TopologySettingsPanel
 				configDefaultPartitions={ 2 }
 				onClose={ () => {} }
@@ -18,9 +32,10 @@ function renderInDraft( draft, dispatch, extra = {} ) {
 
 // No jest-dom in this repo — assert over bare DOM (value/getAttribute/null).
 function setup( frontmatter = {}, extra = {} ) {
-	const dispatch = jest.fn();
-	renderInDraft( { frontmatter }, dispatch, extra );
-	return { dispatch };
+	const interpreter = new DraftInterpreterNode();
+	interpreter.replaceFrontmatter( frontmatter );
+	renderInDraft( interpreter, extra );
+	return { interpreter };
 }
 
 describe( 'TopologySettingsPanel', () => {
@@ -74,40 +89,31 @@ describe( 'TopologySettingsPanel', () => {
 	} );
 
 	it( 'clamps partitions to 1..16 and commits', () => {
-		const { dispatch } = setup( {} );
+		const { interpreter } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
 			target: { value: '99' },
 		} );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: { num_partitions: '16' },
-		} );
+		expect( interpreter.frontmatter ).toEqual( { num_partitions: '16' } );
 	} );
 
 	it( 'clearing partitions removes the key (config default)', () => {
-		const { dispatch } = setup( { num_partitions: '4' } );
+		const { interpreter } = setup( { num_partitions: '4' } );
 		fireEvent.change( screen.getByLabelText( /partitions/i ), {
 			target: { value: '' },
 		} );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: {},
-		} );
+		expect( interpreter.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'edits a generic var value and commits', () => {
-		const { dispatch } = setup( { custom_thing: 'old' } );
+		const { interpreter } = setup( { custom_thing: 'old' } );
 		fireEvent.change( screen.getByLabelText( /value for custom_thing/i ), {
 			target: { value: 'new' },
 		} );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: { custom_thing: 'new' },
-		} );
+		expect( interpreter.frontmatter ).toEqual( { custom_thing: 'new' } );
 	} );
 
 	it( 'adds a valid generic var', () => {
-		const { dispatch } = setup( {} );
+		const { interpreter } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'foo' },
 		} );
@@ -115,14 +121,11 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: 'bar' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: { foo: 'bar' },
-		} );
+		expect( interpreter.frontmatter ).toEqual( { foo: 'bar' } );
 	} );
 
 	it( 'rejects an invalid var name (contains colon)', () => {
-		const { dispatch } = setup( {} );
+		const { interpreter } = setup( {} );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'config:x' },
 		} );
@@ -130,12 +133,12 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: 'y' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( dispatch ).not.toHaveBeenCalled();
+		expect( interpreter.frontmatter ).toEqual( {} );
 		expect( screen.queryByRole( 'alert' ) ).not.toBeNull();
 	} );
 
 	it( 'rejects a name already in use, including reserved keys', () => {
-		const { dispatch } = setup( { custom_thing: 'x' } );
+		const { interpreter } = setup( { custom_thing: 'x' } );
 		fireEvent.change( screen.getByLabelText( /new variable name/i ), {
 			target: { value: 'num_partitions' },
 		} );
@@ -143,43 +146,31 @@ describe( 'TopologySettingsPanel', () => {
 			target: { value: '3' },
 		} );
 		fireEvent.click( screen.getByRole( 'button', { name: /^add$/i } ) );
-		expect( dispatch ).not.toHaveBeenCalled();
+		expect( interpreter.frontmatter ).toEqual( { custom_thing: 'x' } );
 		expect( screen.queryByRole( 'alert' ) ).not.toBeNull();
 	} );
 
 	it( 'removes a generic var via its × button', () => {
-		const { dispatch } = setup( { custom_thing: 'x' } );
+		const { interpreter } = setup( { custom_thing: 'x' } );
 		fireEvent.click( screen.getByLabelText( /remove custom_thing/i ) );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: {},
-		} );
+		expect( interpreter.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'stale_timeout floors to 1 and clears non-numeric to empty', () => {
-		const { dispatch } = setup( { stale_timeout: '120' } );
+		const { interpreter } = setup( { stale_timeout: '120' } );
 		const input = screen.getByLabelText( /stale timeout/i );
 		fireEvent.change( input, { target: { value: '0' } } );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: { stale_timeout: '1' },
-		} );
+		expect( interpreter.frontmatter ).toEqual( { stale_timeout: '1' } );
 		fireEvent.change( input, { target: { value: 'abc' } } );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: {},
-		} );
+		expect( interpreter.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'strips newlines and semicolons from a generic value', () => {
-		const { dispatch } = setup( { custom_thing: 'x' } );
+		const { interpreter } = setup( { custom_thing: 'x' } );
 		fireEvent.change( screen.getByLabelText( /value for custom_thing/i ), {
 			target: { value: 'a;b\nc' },
 		} );
-		expect( dispatch ).toHaveBeenLastCalledWith( {
-			type: 'var',
-			frontmatter: { custom_thing: 'abc' },
-		} );
+		expect( interpreter.frontmatter ).toEqual( { custom_thing: 'abc' } );
 	} );
 
 	it( 'does not render recognized keys as generic rows', () => {
@@ -198,9 +189,10 @@ describe( 'TopologySettingsPanel', () => {
  */
 describe( 'TopologySettingsPanel secure level', () => {
 	function setupSecure( secureLevel = '' ) {
-		const dispatch = jest.fn();
-		renderInDraft( { frontmatter: {}, secureLevel }, dispatch );
-		return { dispatch };
+		const interpreter = new DraftInterpreterNode();
+		interpreter.secureLevel = secureLevel;
+		renderInDraft( interpreter );
+		return { interpreter };
 	}
 
 	it( 'defaults to declaring nothing', () => {
@@ -214,24 +206,31 @@ describe( 'TopologySettingsPanel secure level', () => {
 	} );
 
 	it( 'commits a chosen level', () => {
-		const { dispatch } = setupSecure();
+		const { interpreter } = setupSecure();
 		fireEvent.change( screen.getByLabelText( /secure level/i ), {
 			target: { value: '2' },
 		} );
-		expect( dispatch ).toHaveBeenCalledWith( {
-			type: 'secure',
-			level: '2',
+		expect( interpreter.secureLevel ).toBe( '2' );
+	} );
+
+	it( 'clears the level back to undeclared', () => {
+		// "Undeclared" has no TSL spelling — a bare `secure` means level 1 —
+		// so choosing it must not write `secure `, which would save as 1.
+		const { interpreter } = setupSecure( '3' );
+
+		fireEvent.change( screen.getByLabelText( /secure level/i ), {
+			target: { value: '' },
 		} );
+
+		expect( interpreter.secureLevel ).toBe( '' );
+		expect( interpreter.dumpDocument() ).not.toContain( 'secure' );
 	} );
 
 	it( 'commits insecure', () => {
-		const { dispatch } = setupSecure();
+		const { interpreter } = setupSecure();
 		fireEvent.change( screen.getByLabelText( /secure level/i ), {
 			target: { value: 'insecure' },
 		} );
-		expect( dispatch ).toHaveBeenCalledWith( {
-			type: 'secure',
-			level: 'insecure',
-		} );
+		expect( interpreter.secureLevel ).toBe( 'insecure' );
 	} );
 } );

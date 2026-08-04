@@ -92,7 +92,7 @@ const ESCAPES = {
  * @return {{tokens: Array<{value: string, raw: string}>, openQuote: ?string}}
  *         Token pairs, plus the quote char of a run left open at EOL (or null).
  */
-export function scanTokens( line ) {
+function scanTokens( line ) {
 	const tokens = [];
 	let buf = '';
 	let raw = '';
@@ -469,6 +469,35 @@ export function parseStatements( text ) {
 		}
 	}
 	return statements;
+}
+
+/**
+ * Serialize an argument that may already BE authored TSL.
+ *
+ * A draft keeps raw spans, quote characters intact, because the quote type
+ * carries interpolation semantics — double quotes interpolate `<…>`, single
+ * quotes and backticks defer. Re-quoting a span would change what it MEANS, so
+ * a value that already tokenizes to itself as one span is emitted verbatim.
+ *
+ * @param {string} value Raw span or plain value.
+ * @return {string} The argument as it should appear in a TSL line.
+ */
+export function serializeDraftArg( value ) {
+	const s = String( value );
+	const scanned = scanTokens( s );
+	const spans = scanned.tokens.map( ( t ) => t.raw );
+	// @longform An UNBALANCED quote scans self-identical, so emitting it
+	// verbatim corrupts the .tsl. A BARE `#` or `;` does the same damage by a
+	// different route: the tokenizer keeps them inside the token, but the LINE
+	// they land on becomes a comment, or two statements. Inside quotes they are
+	// ordinary characters — `value !== raw` is what tells the two apart.
+	const bare = 1 === spans.length && scanned.tokens[ 0 ]?.value === s;
+	const stable =
+		1 === spans.length &&
+		spans[ 0 ] === s &&
+		! scanned.openQuote &&
+		! ( bare && /[#;]/.test( s ) );
+	return stable ? s : serializeArg( s );
 }
 
 export class ShellNode extends Node {

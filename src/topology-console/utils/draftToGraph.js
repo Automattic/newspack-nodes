@@ -1,0 +1,168 @@
+/**
+ * draftToGraph — read a draft interpreter as the graph the canvas renders.
+ *
+ * The console's view layer wants `{ nodes, edges, includes, … }`; the draft is
+ * a node table. This is the whole adapter between them, and it is a READ: it
+ * derives, never decides. Anything that looks like a decision here belongs in
+ * the interpreter, where a TSL verb can reach it.
+ *
+ * `_repl` is NOT added here. The worker's auto-mounted anchor is a canvas
+ * fact, not something a topology file says, and a document read that invents
+ * a node is a document read that lies.
+ *
+ * `x`/`y` are always zero. Positions are layout, saved and loaded separately
+ * from the document — a node's coordinates are not something a topology file
+ * says, so they are not something the draft knows.
+ */
+
+import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
+import { withConfigEdges } from './consoleGraph';
+
+const CONFIG_TARGET_VERB = /^set_\w*target$/;
+const CONFIG_TOKEN = /<[^>]+:[^>]+>/;
+
+/**
+ * @param {Object} inv A verb invocation.
+ * @return {Object} Its display shape; `viaConfig` keeps the form the file used.
+ */
+function invocation( inv ) {
+	// COPY: the graph becomes the dirty-check baseline.
+	return {
+		verb: inv.verb,
+		args: ( inv.args ?? [] ).slice(),
+		viaConfig: inv.viaConfig,
+	};
+}
+
+/**
+ * @param {Object} node A node from the draft's registry.
+ * @return {string[]} Its outgoing targets, whatever shape `target` is in.
+ */
+function targetsOf( node ) {
+	if ( Array.isArray( node.target ) ) {
+		return node.target;
+	}
+	return node.target ? [ node.target ] : [];
+}
+
+/**
+ * @param {Object} interpreter The draft interpreter.
+ * @return {Object} `{ nodes, edges, includes, frontmatter, secureLevel,
+ *                     configOverrides }` — the console's draft graph.
+ */
+export function draftToGraph( interpreter ) {
+	const nodes = [];
+	const edges = [];
+	const configOverrides = [];
+
+	for ( const [ name, node ] of interpreter.childRegistry.nodes ) {
+		const declared = interpreter.declaredInvocationsFor( name );
+		const borrowed = true === node.borrowed;
+		const targets = targetsOf( node );
+		nodes.push( {
+			id: name,
+			name,
+			class: node.shellClassName(),
+			x: 0,
+			y: 0,
+			target: targets[ 0 ] ?? '',
+			also: targets.slice( 1 ),
+			ctorArgs: ( node.arguments || [] ).slice(),
+			verbInvocations: [
+				...interpreter.seededInvocationsFor( name ).map( ( inv ) => ( {
+					...invocation( inv ),
+					seeded: true,
+				} ) ),
+				...declared.map( invocation ),
+			],
+			...( borrowed
+				? {
+						origin: node.origin || [],
+						via: node.via || [],
+						fansOut: node.fansOut,
+				  }
+				: {} ),
+		} );
+		for ( const to of targets ) {
+			edges.push( { from: name, to, roles: [ 'connect' ] } );
+		}
+		// A file line retargeting a borrowed node has no verbInvocation home.
+		if ( borrowed ) {
+			for ( const inv of declared ) {
+				if ( inv.viaConfig && CONFIG_TARGET_VERB.test( inv.verb ) ) {
+					configOverrides.push( {
+						from: name,
+						slot: inv.verb,
+						to: inv.args[ 0 ] || '',
+					} );
+				}
+			}
+		}
+	}
+
+	return withConfigEdges( {
+		nodes,
+		edges: [ ...edges, ...interpreter.seededEdges() ],
+		includes: interpreter.includes.slice(),
+		frontmatter: { ...interpreter.frontmatter },
+		secureLevel: interpreter.secureLevel,
+		configOverrides,
+		resolvedConfigEdges: interpreter.resolvedConfigEdges,
+	} );
+}
+
+/**
+ * Read a TSL source into a graph, composed with its include expansion.
+ *
+ * A throwaway interpreter, deliberately unnamed: it is a READER, and naming it
+ * would register a second `_draft` beside the console's own.
+ *
+ * @param {string} tsl                   Topology source.
+ * @param {Object} [expansion]           `topologies expand` result for its includes.
+ * @param {Array}  [catalog]             Class catalog; decides which classes fan out.
+ * @param {Array}  [resolvedConfigEdges] Server-resolved `<ns:key>` targets.
+ * @return {Object} The console's graph shape.
+ */
+export function graphFromTsl(
+	tsl,
+	expansion = null,
+	catalog = [],
+	resolvedConfigEdges = null
+) {
+	const interpreter = new DraftInterpreterNode();
+	interpreter.catalog = catalog;
+	interpreter.load( tsl || '', expansion, resolvedConfigEdges );
+	return draftToGraph( interpreter );
+}
+
+/**
+ * Throw when a `<ns:key>` config target has no resolved edge to name.
+ *
+ * The console's own copy of the guard `withResolvedConfigEdges` applies to the
+ * live seed. Unresolved, the edge is simply absent from the canvas — and a
+ * save then writes routing the operator was never shown.
+ *
+ * Only a load that HAD a server response can check this — an uploaded file
+ * carries token targets nothing client-side can resolve, and always did.
+ *
+ * @param {Object} interpreter The draft interpreter.
+ * @param {?Array} resolved    The server's resolved config edges.
+ * @throws {Error} When a token target is unresolved.
+ */
+export function assertResolvedConfigEdges( interpreter, resolved ) {
+	if ( Array.isArray( resolved ) ) {
+		return;
+	}
+	for ( const [ name ] of interpreter.childRegistry.nodes ) {
+		for ( const inv of interpreter.declaredInvocationsFor( name ) ) {
+			if ( ! CONFIG_TARGET_VERB.test( inv.verb ) ) {
+				continue;
+			}
+			if ( ( inv.args ?? [] ).some( ( a ) => CONFIG_TOKEN.test( a ) ) ) {
+				throw new Error(
+					'Missing resolved_config_edges in topologies get response.'
+				);
+			}
+		}
+	}
+}

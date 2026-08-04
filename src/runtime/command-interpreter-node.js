@@ -284,7 +284,7 @@ export class CommandInterpreterNode extends Node {
 		}
 		node.sink = this;
 		// The sink dump_config may omit: the one make_node wired.
-		node.defaultSink = this;
+		node._defaultSink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			node.debugState = this.debugState;
 		}

@@ -12,9 +12,9 @@
  */
 
 import { renderHook } from '@testing-library/react';
-import { LayoutProvider, useLayout } from '../LayoutContext';
+import { LayoutProvider, useLayoutContext } from '../LayoutContext';
 
-describe( 'useLayout', () => {
+describe( 'useLayoutContext', () => {
 	it( 'carries positions and viewport to a consumer', () => {
 		const value = {
 			positionOverrides: { 'quokka-tee': { x: 42, y: 99 } },
@@ -26,7 +26,7 @@ describe( 'useLayout', () => {
 			<LayoutProvider { ...value }>{ children }</LayoutProvider>
 		);
 
-		const { result } = renderHook( () => useLayout(), { wrapper } );
+		const { result } = renderHook( () => useLayoutContext(), { wrapper } );
 
 		expect( result.current ).toEqual( value );
 	} );
@@ -38,7 +38,7 @@ describe( 'useLayout', () => {
 			<LayoutProvider>{ children }</LayoutProvider>
 		);
 
-		const { result } = renderHook( () => useLayout(), { wrapper } );
+		const { result } = renderHook( () => useLayoutContext(), { wrapper } );
 
 		expect( result.current.viewport ).toBeNull();
 		expect( result.current.positionOverrides ).toEqual( {} );
@@ -48,7 +48,7 @@ describe( 'useLayout', () => {
 		const wrapper = ( { children } ) => (
 			<LayoutProvider>{ children }</LayoutProvider>
 		);
-		const { result, rerender } = renderHook( () => useLayout(), {
+		const { result, rerender } = renderHook( () => useLayoutContext(), {
 			wrapper,
 		} );
 		const first = result.current;
@@ -63,7 +63,7 @@ describe( 'useLayout', () => {
 			.spyOn( console, 'error' )
 			.mockImplementation( () => {} );
 		try {
-			expect( () => renderHook( () => useLayout() ) ).toThrow(
+			expect( () => renderHook( () => useLayoutContext() ) ).toThrow(
 				/LayoutProvider/
 			);
 		} finally {

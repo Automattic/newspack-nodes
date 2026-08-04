@@ -1,8 +1,8 @@
 /**
  * Synthesize "virtual" edges from a node's verb args so the layout (and canvas)
- * reflect routing the runtime's `target()` exposes but `parseTsl` doesn't emit.
+ * reflect routing the runtime's `target()` exposes but a document doesn't.
  *
- * `connect_node` is the only edge-producing line `parseTsl` reads, so a target
+ * `connect_node` is the only edge-producing line a document has, so a target
  * wired via a config verb (e.g. RequestBuilder's `set_errors_target
  * errors:partition`) never lands in the draft graph's edges — autoLayout would
  * then stack the verb-targeted node at column 0 instead of placing it downstream.

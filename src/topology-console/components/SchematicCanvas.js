@@ -24,7 +24,7 @@ import {
 	clipSegmentExit,
 } from '../utils/viewportCull';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
-import { useLayout } from '../LayoutContext';
+import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullGeometry } from '../utils/hullPath';
@@ -258,7 +258,7 @@ export default function SchematicCanvas( {
 	onSelectHull,
 } ) {
 	const { positionOverrides, onPositionChange, viewport, onViewportChange } =
-		useLayout();
+		useLayoutContext();
 	const { bottomObstructionPx } = useChrome();
 	const { classCatalog } = useCatalog();
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );

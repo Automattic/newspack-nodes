@@ -347,15 +347,18 @@ export class Node {
 
 	set name( name ) {
 		const registry = this.registry;
-		if ( '' !== this._name ) {
-			registry.unregisterNode( this._name );
-		}
-		if ( null !== registry.node( name ) ) {
+		const previous = this._name;
+		if ( name !== previous && null !== registry.node( name ) ) {
 			throw new Error(
 				`node name collision: ${ name } already registered`
 			);
 		}
 		this._name = name;
+		// In place: table order is file order, so a rename moves one line.
+		if ( registry.node( previous ) === this ) {
+			registry.renameNode( previous, name );
+			return;
+		}
 		registry.registerNode( name, this );
 	}
 
@@ -394,14 +397,25 @@ export class Node {
 		this.target = '';
 	}
 
-	// Emit round-trippable config: make_node + set_sink? + connect_node lines.
-	dumpConfig() {
-		// `Node` suffix stripped; a stub declares the class it stands for.
-		const shellName =
+	/**
+	 * The class name TSL calls this node — what `make_node` would name.
+	 *
+	 * `Node` suffix stripped; a stub declares the class it STANDS FOR, which is
+	 * why this cannot just read the constructor.
+	 *
+	 * @return {string} The shell-facing class name.
+	 */
+	shellClassName() {
+		return (
 			this.shellName ||
 			this.constructor.name.replace( /Node$/, '' ) ||
-			this.constructor.name;
-		let out = `make_node ${ shellName } ${ this.name }`;
+			this.constructor.name
+		);
+	}
+
+	// Emit round-trippable config: make_node + set_sink? + connect_node lines.
+	dumpConfig() {
+		let out = `make_node ${ this.shellClassName() } ${ this.name }`;
 		if ( this.arguments.length ) {
 			out += ` ${ serializeArgs( this.arguments ) }`;
 		}
@@ -411,8 +425,8 @@ export class Node {
 		// Only the sink make_node wired is implicit; another must be stated.
 		const implicit =
 			names.COMMAND_INTERPRETER === sinkName ||
-			( undefined !== this.defaultSink &&
-				this.sink === this.defaultSink );
+			( undefined !== this._defaultSink &&
+				this.sink === this._defaultSink );
 		if ( '' !== sinkName && ! implicit ) {
 			out += `set_sink ${ this.name } ${ sinkName }\n`;
 		}
@@ -437,6 +451,10 @@ export class Node {
 			const val = this[ key ];
 			if ( 'sink' === key ) {
 				snapshot.sink = val && val.name ? val.name : '';
+				continue;
+			}
+			// dump_config bookkeeping; PHP's dump_node has no such row.
+			if ( '_defaultSink' === key ) {
 				continue;
 			}
 			// `_foo` field with a public `foo` accessor: snapshot the public.
@@ -492,8 +510,8 @@ export class Node {
  */
 export function serializeArg( token ) {
 	const s = String( token );
-	// An empty token would vanish on tokenize, so quote it too.
-	if ( '' !== s && ! /[\s'"`\\]/.test( s ) ) {
+	// Empty vanishes on tokenize; bare `#`/`;` change the whole LINE.
+	if ( '' !== s && ! /[\s'"`\\#;]/.test( s ) ) {
 		return s;
 	}
 	return "'" + s.replace( /\\/g, '\\\\' ).replace( /'/g, "\\'" ) + "'";

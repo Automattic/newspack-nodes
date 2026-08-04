@@ -25,16 +25,13 @@ import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { useTopology } from './useTopologyList';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
-import { parseTsl } from '../utils/parseTsl';
+import { graphFromTsl } from '../utils/draftToGraph';
+import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import {
 	fetchExpandedIncludes,
 	primeExpandedIncludes,
 } from './useExpandedIncludes';
-import {
-	applyLoadedBaseline,
-	withReplAnchor,
-	withResolvedConfigEdges,
-} from '../utils/consoleGraph';
+import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
 import {
@@ -210,15 +207,17 @@ export function useConsoleGraph( {
 					 * dump_metadata — the staged paint autofit can't survive.
 					 * `get` ships the expansion; expand() is the fallback.
 					 */
-					const parsedGraph = withResolvedConfigEdges(
-						parseTsl( resp?.tsl || '' ),
-						resp?.resolved_config_edges
-					);
+					const tsl = resp?.tsl || '';
+					const includes = DraftInterpreterNode.includesOf( tsl );
 					const baseline =
 						resp?.expanded ??
-						( await fetchExpandedIncludes( parsedGraph.includes ) );
-					primeExpandedIncludes( parsedGraph.includes, baseline );
-					return { parsedGraph, baseline };
+						( await fetchExpandedIncludes( includes ) );
+					primeExpandedIncludes( includes, baseline );
+					return {
+						tsl,
+						baseline,
+						resolvedConfigEdges: resp?.resolved_config_edges,
+					};
 				}
 			);
 			const catalog = Promise.resolve()
@@ -237,33 +236,49 @@ export function useConsoleGraph( {
 					return loadedCatalog;
 				} );
 			Promise.all( [ topologySeed, catalog ] )
-				.then( ( [ { parsedGraph, baseline }, loadedCatalog ] ) => {
-					if ( seedCancelled ) {
-						return;
-					}
-					// Anchor `_repl` in the seed so autofit includes it.
-					const seeded = augmentWithVirtualEdges(
-						withReplAnchor(
-							applyLoadedBaseline(
-								parsedGraph,
-								baseline,
-								loadedCatalog.classes
+				.then(
+					( [
+						{ tsl, baseline, resolvedConfigEdges },
+						loadedCatalog,
+					] ) => {
+						if ( seedCancelled ) {
+							return;
+						}
+						// graphFromTsl composed it; only virtual edges remain.
+						const parsedGraph = withReplAnchor(
+							withResolvedConfigEdges(
+								graphFromTsl(
+									tsl,
+									baseline,
+									loadedCatalog.classes,
+									resolvedConfigEdges
+								),
+								resolvedConfigEdges
 							)
-						),
-						loadedCatalog.classes
-					);
-					// Resolve LIVE metadata; skip if a reply already filled it.
-					const node = Core.node( names.METADATA );
-					const live =
-						node?.rawMap && Object.keys( node.rawMap ).length > 0;
-					// Seed only at a worker scope (else wrong graph).
-					const onWorker = scopeFromCwd(
-						Core.node( names.CWD )?.target ?? ''
-					).isWorker;
-					if ( node && seeded.nodes.length && ! live && onWorker ) {
-						node.setState( 'metadata', seeded );
+						);
+						const seeded = augmentWithVirtualEdges(
+							parsedGraph,
+							loadedCatalog.classes
+						);
+						// LIVE metadata; skip if a reply already filled it.
+						const node = Core.node( names.METADATA );
+						const live =
+							node?.rawMap &&
+							Object.keys( node.rawMap ).length > 0;
+						// Seed only at a worker scope (else wrong graph).
+						const onWorker = scopeFromCwd(
+							Core.node( names.CWD )?.target ?? ''
+						).isWorker;
+						if (
+							node &&
+							seeded.nodes.length &&
+							! live &&
+							onWorker
+						) {
+							node.setState( 'metadata', seeded );
+						}
 					}
-				} )
+				)
 				.catch( ( error ) => {
 					if ( ! seedCancelled ) {
 						setSeedError( error );

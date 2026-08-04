@@ -6,7 +6,7 @@
 import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
-import { serializeCtorArgs } from '../utils/serializeTsl';
+import { serializeCtorArgs } from '../utils/tslArgs';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
 export function ModalShell( {
@@ -203,7 +203,7 @@ export function PromptModal( {
  * the SAME `CtorField` widgets edit mode renders (typed text, formatter/node
  * pickers, per-field defaults), instead of one freeform args string. On confirm
  * the per-field values serialize to the positional args string (defaults filled,
- * trailing empties dropped — matching edit-mode `serializeTsl`), and `onConfirm`
+ * trailing empties dropped — matching what the editor writes), and `onConfirm`
  * fires with `{ name, args }` so the caller formats the make_node line.
  *
  * @param {Object}   props

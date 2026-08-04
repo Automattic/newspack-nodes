@@ -54,11 +54,11 @@ export function LayoutProvider( {
 /**
  * @return {Object} `{ positionOverrides, onPositionChange, viewport, onViewportChange }`.
  */
-export function useLayout() {
+export function useLayoutContext() {
 	const value = useContext( LayoutContext );
 	if ( ! value ) {
 		// Loud: an empty layout reads as a graph with every node at the origin.
-		throw new Error( 'useLayout called outside a LayoutProvider' );
+		throw new Error( 'useLayoutContext called outside a LayoutProvider' );
 	}
 	return value;
 }
