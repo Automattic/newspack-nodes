@@ -33,9 +33,15 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * Verb classes disabled at each secure level, modeled on Tachikoma's
-	 * %DISABLED. Indexed by the CURRENT level, not a union: each level says
-	 * what is off AT that level, which is how Ruleset and Scheduler declare
-	 * only their own level-3 verbs.
+	 * %DISABLED. DECLARED per level — each entry says only what that level
+	 * ADDS, which is how Ruleset and Scheduler declare only their own level-3
+	 * verbs. ENFORCED cumulatively: `refuse_at_secure_level()` refuses a class
+	 * declared at ANY level at or below the current one, which is the union
+	 * Tachikoma's `CommandInterpreter::disabled()` setter materializes by
+	 * folding 1 into 2 and 2 into 3 when the map is assigned. Declaring per
+	 * level and enforcing per level are different things; enforcing per level
+	 * meant climbing the ratchet re-enabled what a lower level had disabled,
+	 * and `secure` refuses to descend, so it could never be recovered.
 	 *
 	 * The ladder freezes definitions and never disables the machine: reads
 	 * still read, wired flow still flows, defined verbs still run.
@@ -58,11 +64,19 @@ class Command_Interpreter_Node extends Node {
 	private const VERB_CLASSES = [
 		'make_node'       => 'make_node',
 		'make'            => 'make_node',
+		'move_node'       => 'make_node',
+		'move'            => 'make_node',
+		'mv'              => 'make_node',
+		'remove_node'     => 'make_node',
+		'remove'          => 'make_node',
+		'rm'              => 'make_node',
 		'connect_node'    => 'connect_node',
 		'connect'         => 'connect_node',
 		'disconnect_node' => 'connect_node',
 		'disconnect'      => 'connect_node',
 		'set_sink'        => 'connect_node',
+		'register'        => 'connect_node',
+		'unregister'      => 'connect_node',
 		'reply_to'        => 'command_node',
 	];
 
@@ -460,14 +474,16 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private function refuse_at_secure_level( string $verb ): ?string {
 		$level = Core::$secure_level ?? 0;
-		if ( ! isset( self::DISABLED_CLASSES[ $level ] ) ) {
-			return null;
-		}
 		$class = self::VERB_CLASSES[ $verb ] ?? $this->schema_verb_class( $verb );
-		if ( '' === $class || ! \in_array( $class, self::DISABLED_CLASSES[ $level ], true ) ) {
+		if ( '' === $class ) {
 			return null;
 		}
-		return "{$verb} is disabled at secure level {$level}";
+		foreach ( self::DISABLED_CLASSES as $at => $classes ) {
+			if ( $at <= $level && \in_array( $class, $classes, true ) ) {
+				return "{$verb} is disabled at secure level {$level}";
+			}
+		}
+		return null;
 	}
 
 	/** This node's own class for a verb, from node_schema; '' when unclassified. */

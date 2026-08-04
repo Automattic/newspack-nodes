@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Secure levels accumulate again — raising the level no longer re-enables
+  what a lower one disabled.** `DISABLED_CLASSES` declares what each level
+  ADDS, and `refuse_at_secure_level()` tested membership in that level's array
+  alone. So `make_node`, refused at level 1, was permitted again at 2 and 3;
+  `reply_to`, refused at 2, was permitted at 3. Only the topmost level's class
+  was ever enforced. The one-way ratchet made it unrecoverable: `secure`
+  refuses to descend, so a process that climbed past a level could never
+  re-acquire the protection it silently lost. The console's "2 — also no
+  reply_to" / "3 — also no re-wiring" wording was correct all along.
+  Tachikoma's `CommandInterpreter::disabled()` folds level 1's commands into 2
+  and 2's into 3 when the map is assigned, so its per-level lookup is already
+  cumulative; a PHP `const` cannot be computed, which is how the fold was lost
+  in the port. `refuse_at_secure_level()` now refuses a class declared at any
+  level at or below the current one — the same union, never materialized.
+
+- **The secure ladder now covers teardown and event wiring.** `move_node`,
+  `remove_node` and their aliases (`move`, `mv`, `remove`, `rm`) join
+  `make_node`; `register` and `unregister` join `connect_node`. Tachikoma
+  classifies all six that way, and `cmd_move_node`'s own docblock already
+  claimed the `make_node` classification the map omitted. Every stock topology
+  ends with a bare `secure`, so every shipped worker ran at level 1 — the level
+  that means "graph construction is frozen" — while `rm` could still delete any
+  node and `mv` could still rename one out from under every `target` string
+  pointing at it. Freezing construction while leaving demolition open freezes
+  nothing.
+
 - **`Dumper` swallowed the TM_EOF drain marker at verbosity 2.** The
   `debug_level >= 2` branch dumped the full envelope and returned before the
   TM_EOF check, so `on_eof` never fired and `wp nodes cli` sat until its 5s

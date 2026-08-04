@@ -697,16 +697,16 @@ The response envelope: `TYPE = TM_COMMAND|TM_RESPONSE` (or `|TM_ERROR` on throw)
 
 ### Secure levels
 
-`Core::$secure_level` is this process's command-surface policy. It is a **ratchet**: it climbs and never descends, and each level removes a class of management verbs from every interpreter in the process.
+`Core::$secure_level` is this process's command-surface policy. It is a **ratchet**: it climbs and never descends, and each level removes a class of management verbs from every interpreter in the process **and keeps every class the levels below it removed**. The table below lists what each level adds; enforcement is the running union, so level 3 refuses all three classes.
 
-| Level | Meaning | Verbs removed at this level |
-|-------|---------|-----------------------------|
+| Level | Meaning | Verbs removed at and above this level |
+|-------|---------|---------------------------------------|
 | `null` | No command surface at all — a graph-only script (`wp nodes ingest`) that never names an interpreter. Nothing to declare, nothing warned about. | — |
 | `0` | Armed but undeclared: naming an interpreter created a surface and nobody has said what policy it is under. The Router tick warns once. | — |
 | `-1` | `insecure` — deliberately unratcheted. Refused once secured, so the declaration can't be walked back. | — |
-| `1` | `secure` | `make_node` |
+| `1` | `secure` | `make_node` (with `move_node` / `remove_node` and their aliases — construction covers teardown and renaming) |
 | `2` | `secure 2` | `command_node` |
-| `3` | `secure 3` | `connect_node` (with `set_sink` / `disconnect_node`) |
+| `3` | `secure 3` | `connect_node` (with `set_sink` / `disconnect_node` / `register` / `unregister`) |
 
 A refused verb answers `<verb> is disabled at secure level <n>` instead of dispatching. The ladder freezes *definitions*; it never disables the machine — reads still read, wired flow still flows, and verbs already defined still run. That is why the stock topologies end with a bare `secure` line: once the graph is built, nothing should be able to rebuild it. A node classifies its own verbs into these classes through `node_schema()['verb_classes']`, so a consumer plugin joins a class without editing the substrate. Signing is not one of the things a level buys: HMAC costs microseconds, so every tier signs at every level.
 
