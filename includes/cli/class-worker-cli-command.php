@@ -155,8 +155,8 @@ class Worker_CLI_Command {
 			$rows[] = self::fleet_row( 'supervisor', -1, $sup, $now );
 		}
 		foreach ( $active as $name => $config ) {
-			// min 1 row: a num_partitions=0 misconfig must stay visible (down).
-			$partitions = \max( 1, self::entry_int( $config, 'num_partitions', 1 ) );
+			// The count the supervisor spawns against; floors at 1.
+			$partitions = Bootstrap::num_partitions_for( $name );
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now );
 				unset( $locks[ "{$name}.p{$p}" ] );

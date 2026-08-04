@@ -254,6 +254,41 @@ class IngestCliCommandTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['_test_wp_cli_success'], 'dry run emits no Ingested success line' );
 	}
 
+	/**
+	 * The dry run exists to answer "do I need the large-write flag?", and in
+	 * the one configuration where that question is live it answered backwards.
+	 * `ingest()` counts oversize against the EFFECTIVE cap — 32 MiB once a
+	 * flag is passed — while `report()` opened with its own hardcoded 4096 and
+	 * phrased every message against it. So a corpus of 5000-byte records probed
+	 * WITH the flag reported "all records within the 4096-byte PIPE_BUF cap; no
+	 * large-write flag needed". An operator following that advice re-runs
+	 * without it and Partition_Node::fill() silently drops every one.
+	 */
+	public function test_dry_run_with_the_flag_still_reports_the_pipe_buf_cap(): void {
+		$src = "{$this->tmp}/src.log";
+		$this->write_packed_records( $src, [ [ 'k1', \str_repeat( 'x', 5000 ) ] ] );
+
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[
+				'num_partitions'     => 1,
+				'dry-run'            => true,
+				'allow_large_writes' => true,
+			]
+		);
+
+		$haystack = \implode(
+			"\n",
+			\array_merge( $GLOBALS['_test_wp_cli_logs'], $GLOBALS['_test_wp_cli_warns'] )
+		);
+		$this->assertStringNotContainsString(
+			'no large-write flag needed',
+			$haystack,
+			'5000-byte records DO need the flag; saying otherwise loses them'
+		);
+		$this->assertStringContainsString( 'exceed', $haystack );
+	}
+
 	public function test_ingest_dry_run_clean_reports_no_large_write_flag_needed(): void {
 		$src = "{$this->tmp}/src.log";
 		$this->write_packed_records( $src, [ [ 'k1', 'small' ], [ 'k2', 'also-small' ] ] );

@@ -327,7 +327,15 @@ MD;
 	}
 
 	/**
-	 * Write one node class into the cwd.
+	 * Write one node class into the plugin's `includes/`, namespaced to the
+	 * plugin — the only combination that both autoloads and resolves.
+	 *
+	 * `scaffold plugin` classmaps exactly `includes/` and registers the plugin
+	 * prefix, so a class must be under that dir AND under that namespace.
+	 * Deriving the namespace from the cwd basename satisfied neither door: from
+	 * the plugin root the file fell outside the classmap; from `includes/` the
+	 * namespace came out `Includes`, which `make_node` never resolves. Run from
+	 * either, the answer is the same file.
 	 *
 	 * @param string $class Class name (with or without the `_Node` suffix).
 	 * @return array<int, string> Paths written, relative to cwd.
@@ -338,10 +346,15 @@ MD;
 		}
 		$class = (string) \preg_replace( '/_Node$/', '', $class );
 		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
-		$path  = "class-{$kebab}-node.php";
+
+		$cwd       = (string) \getcwd();
+		$in_incs   = 'includes' === \basename( $cwd );
+		$plugin    = $in_incs ? \dirname( $cwd ) : $cwd;
+		$path      = $in_incs ? "class-{$kebab}-node.php" : "includes/class-{$kebab}-node.php";
+		$namespace = self::prefix_from_slug( \basename( $plugin ) );
 
 		self::refuse_existing( [ $path ] );
-		self::write_file( $path, $this->node_template( self::prefix_from_slug( \basename( (string) \getcwd() ) ), $class, $kebab ) );
+		self::write_file( $path, $this->node_template( $namespace, $class, $kebab ) );
 		return [ $path ];
 	}
 
