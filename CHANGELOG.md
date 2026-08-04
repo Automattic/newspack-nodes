@@ -56,6 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **One bool parse, not four.** `Schema_Reflection` declares itself "THE bool
+  parse", and three other implementations existed — two inside classes that
+  `use` the trait. `Age_Sieve_Node` declared `should_warn` as `'type' => 'bool'`
+  and then parsed it with a raw `(bool)` cast, so `make_node AgeSieve x 900
+  false` turned the warning ON: every non-empty string is truthy in PHP. It now
+  calls `parse_schema_args()` outright. The PHP docblock also named a
+  `node.js truthy` mirror that did not exist, so the token list was inlined
+  there and re-spelled elsewhere; `truthy` is now exported from
+  `runtime/node.js` with a parity test against the PHP vocabulary.
+
 - **The log GC no longer deletes live partitions.** `Log_Cleaner` clamped
   `num_partitions` to `MAX_PARTITIONS` while `Job_Intake` and ELN's
   `Log_Manager` applied no upper bound at all — four spellings of one bound.

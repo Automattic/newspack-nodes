@@ -745,6 +745,21 @@ function serializeArgs( tokens ) {
 	return tokens.map( serializeArg ).join( ' ' );
 }
 
+/**
+ * THE bool parse for schema args and toggle verbs — the mirror of PHP
+ * `Schema_Reflection::truthy()`. Exported because the PHP side names it as the
+ * JS counterpart, and because a local re-spelling of this list is what let
+ * `set_is_hub` accept `true`/`1` while rejecting `yes`/`on`.
+ *
+ * @param {string} token A raw argument token.
+ * @return {boolean} Whether the token reads as true.
+ */
+export function truthy( token ) {
+	return [ '1', 'true', 'yes', 'on' ].includes(
+		String( token ).toLowerCase()
+	);
+}
+
 // Coerce a raw token to its declared schema type; unknown types pass through.
 function coerceArgument( token, type ) {
 	switch ( type ) {
@@ -753,7 +768,7 @@ function coerceArgument( token, type ) {
 		case 'float':
 			return parseFloat( token );
 		case 'bool':
-			return [ '1', 'true', 'yes', 'on' ].includes( token.toLowerCase() );
+			return truthy( token );
 		default:
 			return token;
 	}

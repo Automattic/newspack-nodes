@@ -36,10 +36,11 @@ class Age_Sieve_Node extends Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$this->arguments   = $args;
-		$max_age           = Core::num_float( $args[0] ?? 0, 0.0 );
-		$this->max_age     = $max_age > 0 ? $max_age : self::DEFAULT_MAX_AGE;
-		$this->should_warn = (bool) ( $args[1] ?? false );
+		// The trait owns coercion; a raw (bool) cast made `900 false` warn.
+		$this->parse_schema_args( $args );
+		if ( $this->max_age <= 0 ) {
+			$this->max_age = self::DEFAULT_MAX_AGE;
+		}
 		return $args;
 	}
 
