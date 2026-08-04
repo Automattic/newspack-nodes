@@ -18,7 +18,7 @@
  * substrate knowing those application concerns.
  *
  * The `test` verb's spoke POST + JSONL parse is the shared
- * `Service_CI_Node::probe_command()` (with its `$http_call` test seam); this
+ * `HTTP_Out_Node::probe_command()` (with its `$http_call` test seam); this
  * class only whitelists the returned discovery payload.
  *
  * @package Newspack_Nodes
@@ -28,6 +28,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Vault;
 
 \defined( 'ABSPATH' ) || exit;
@@ -228,7 +229,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * HTTP probe of a remote spoke's discovery endpoint with stored Basic Auth.
 	 * Returns the response shape:
 	 *   { id, status: 'connected', response: {registered_hooks, custom_events, lag} }
-	 * The POST + JSONL parse is the shared `probe_command()`; this method only
+	 * The POST + JSONL parse is `HTTP_Out_Node::probe_command()`; this method only
 	 * whitelists the discovery payload so we never proxy arbitrary remote JSON.
 	 *
 	 * @param string               $id     Server id.
@@ -236,7 +237,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string, mixed> Sanitised probe response.
 	 */
 	private static function probe_remote( string $id, array $server ): array {
-		$body = self::probe_command( $id, $server, 'discovery', 'get' );
+		$body = HTTP_Out_Node::probe_command( $id, $server, 'discovery', 'get' );
 
 		// Whitelist what we surface so we never proxy arbitrary remote JSON.
 		$safe = [];

@@ -57,6 +57,7 @@ use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
 
@@ -66,7 +67,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
 	 * `probe` verb — on-demand deep probe of ONE spoke: POST its
-	 * `workers/dump_graph` (via the shared `probe_command()` + `$http_call`
+	 * `workers/dump_graph` (via `HTTP_Out_Node::probe_command()` + its `$http_call`
 	 * seam) and roll the reply into a compact whitelisted shape. The polled
 	 * `summary`/`servers_status` slices carry connection health only; this
 	 * verb is the button-triggered depth (worker liveness, worst consumer lag,
@@ -84,7 +85,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		if ( null === $server ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
-		return self::fleet_rollup( $id, self::probe_command( $id, $server, 'workers', 'dump_graph' ) );
+		return self::fleet_rollup( $id, HTTP_Out_Node::probe_command( $id, $server, 'workers', 'dump_graph' ) );
 	}
 
 	/**

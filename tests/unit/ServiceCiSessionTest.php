@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,7 +34,7 @@ class ServiceCiSessionTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Service_CI_Node::$http_call = null;
+		HTTP_Out_Node::$http_call = null;
 		Command_Auth::forget_session( 'test-spoke' );
 		Core::$memd                 = $this->prev_memd;
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
@@ -44,7 +45,7 @@ class ServiceCiSessionTest extends TestCase {
 	/** Record every outbound call so ordering is assertable. */
 	private function capture( array &$calls ): void {
 		$self                       = $this;
-		Service_CI_Node::$http_call = static function ( string $url, array $args ) use ( &$calls, $self ): array {
+		HTTP_Out_Node::$http_call = static function ( string $url, array $args ) use ( &$calls, $self ): array {
 			$calls[] = [ 'url' => $url, 'args' => $args ];
 			return \str_ends_with( $url, '/auth' )
 				? [ 'response' => [ 'code' => 200 ], 'body' => (string) \wp_json_encode( Command_Auth::mint_session() ) ]

@@ -229,6 +229,46 @@ class Vault {
 	 * @param string $id Server ID to validate.
 	 * @return bool True if valid.
 	 */
+	/**
+	 * THE `Authorization` header value for a spoke's stored credentials, or ''
+	 * when it needs none. Basic wins over Bearer: a config carrying both means
+	 * the operator set a username and password, which is the more specific
+	 * statement.
+	 *
+	 * Lives on the Vault because the Vault owns credentials. Three transports
+	 * reach a spoke — HTTP_Out (push), SSE_In (pull) and HTTP_Out's blocking
+	 * probe — and each spelled this rule itself, so they could disagree about
+	 * what a stored credential means. One of them already did: the blocking
+	 * probe never learned the Bearer token, leaving a token-only spoke
+	 * reachable by the graph and unreachable by the operator's own test.
+	 *
+	 * @param string $user  Stored username.
+	 * @param string $pass  Stored password.
+	 * @param string $token Stored bearer token.
+	 * @return string e.g. `Basic dXNlcjpwYXNz`, or ''.
+	 */
+	public static function credential_header( string $user, string $pass, string $token = '' ): string {
+		if ( '' !== $user && '' !== $pass ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- HTTP Basic Auth.
+			return 'Basic ' . \base64_encode( $user . ':' . $pass );
+		}
+		return '' === $token ? '' : 'Bearer ' . $token;
+	}
+
+	/**
+	 * `credential_header()` for a decrypted server config entry.
+	 *
+	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @return string The header value, or ''.
+	 */
+	public static function credential_header_for( array $server ): string {
+		return self::credential_header(
+			Core::as_string( $server['auth_username'] ?? '' ),
+			Core::as_string( $server['auth_password'] ?? '' ),
+			Core::as_string( $server['token'] ?? '' )
+		);
+	}
+
 	public static function is_valid_id( string $id ): bool {
 		return 1 === \preg_match( '/^[a-zA-Z0-9_-]{1,64}$/', $id );
 	}

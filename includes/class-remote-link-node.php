@@ -263,34 +263,6 @@ class Remote_Link_Node extends Timer_Node {
 		self::$connect_queue[] = [ $connect, $owner ];
 	}
 
-	/** Drop every pending connect. Teardown only; a live graph purges per link. */
-	public static function reset_connect_queue(): void {
-		self::$connect_queue = [];
-	}
-
-	public static function shift_connect_queue(): ?callable {
-		$queued = \array_shift( self::$connect_queue );
-		return null === $queued ? null : $queued[0];
-	}
-
-	/**
-	 * Ask for a command session, on a clock of its own offset half a cadence
-	 * from the heartbeat grid.
-	 *
-	 * @longform Every Remote_Source in an aggregator boots in the same tick, so
-	 * anything sent "immediately" is sent N times at once — which is what the
-	 * spoke answers with 429. Auth lands between heartbeats, never with one, and
-	 * asking never moves the heartbeat clock: that coupling is what pushed the
-	 * first heartbeat a full extra cadence out.
-	 *
-	 * @param HTTP_Out_Node $http_out The patron egress that owns the session.
-	 * @param int           $now      Current wall-second.
-	 */
-	/** This link's second within the cadence. Stable, so it survives re-auth. */
-	private function session_phase(): int {
-		return \crc32( $this->name ) % self::HEARTBEAT_INTERVAL;
-	}
-
 	private function maybe_request_session( HTTP_Out_Node $http_out, int $now ): void {
 		// intdiv, so a 1s housekeeping tick can actually land on the boundary.
 		$offset = \intdiv( self::HEARTBEAT_INTERVAL, 2 );
@@ -312,6 +284,24 @@ class Remote_Link_Node extends Timer_Node {
 		}
 		$this->last_session_request = $now;
 		$http_out->ensure_session();
+	}
+
+	/**
+	 * Ask for a command session, on a clock of its own offset half a cadence
+	 * from the heartbeat grid.
+	 *
+	 * @longform Every Remote_Source in an aggregator boots in the same tick, so
+	 * anything sent "immediately" is sent N times at once — which is what the
+	 * spoke answers with 429. Auth lands between heartbeats, never with one, and
+	 * asking never moves the heartbeat clock: that coupling is what pushed the
+	 * first heartbeat a full extra cadence out.
+	 *
+	 * @param HTTP_Out_Node $http_out The patron egress that owns the session.
+	 * @param int           $now      Current wall-second.
+	 */
+	/** This link's second within the cadence. Stable, so it survives re-auth. */
+	private function session_phase(): int {
+		return \crc32( $this->name ) % self::HEARTBEAT_INTERVAL;
 	}
 
 	// --- Dashboard status snapshot: Remote_Source-only (IPC writes dead) ---
@@ -413,8 +403,9 @@ class Remote_Link_Node extends Timer_Node {
 			return null;
 		}
 
-		$verify_ssl  = (bool) Config::value( 'vault_verify_ssl' );
-		$require_ssl = (bool) Config::value( 'vault_require_ssl' );
+		// One owner for the spoke TLS posture; three transports read it.
+		$verify_ssl  = HTTP_Out_Node::verify_ssl();
+		$require_ssl = HTTP_Out_Node::require_ssl();
 
 		// Restore the cursor before connect so it seeds SSE_In.
 		$restored = $this->restore_position();
@@ -497,6 +488,16 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	protected function restore_position(): array {
 		return [];
+	}
+
+	/** Drop every pending connect. Teardown only; a live graph purges per link. */
+	public static function reset_connect_queue(): void {
+		self::$connect_queue = [];
+	}
+
+	public static function shift_connect_queue(): ?callable {
+		$queued = \array_shift( self::$connect_queue );
+		return null === $queued ? null : $queued[0];
 	}
 
 	// Composite stat delegation: report the children's tallies, not zeros.
