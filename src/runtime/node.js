@@ -727,8 +727,8 @@ export class Node {
  */
 export function serializeArg( token ) {
 	const s = String( token );
-	// Empty vanishes on tokenize; bare `#`/`;` change the whole LINE.
-	if ( '' !== s && ! /[\s'"`\\#;]/.test( s ) ) {
+	// Empty vanishes on tokenize; `#`/`;` change the LINE, `<` interpolates.
+	if ( '' !== s && ! /[\s'"`\\#;<]/.test( s ) ) {
 		return s;
 	}
 	return "'" + s.replace( /\\/g, '\\\\' ).replace( /'/g, "\\'" ) + "'";

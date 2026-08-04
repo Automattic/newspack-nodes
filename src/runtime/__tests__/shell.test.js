@@ -11,7 +11,7 @@ import {
 	tokenize,
 	quoteToken,
 } from '../shell-node';
-import { Node } from '../node';
+import { Node, serializeArg } from '../node';
 import names from '../reserved-node-names.json';
 import { Core } from '../core';
 import {
@@ -152,6 +152,16 @@ describe( 'tokenizer escape round-trip', () => {
 			expect( tokenize( line ).slice( 3 ) ).toEqual( tokens );
 		}
 	);
+
+	// A stored argument can hold an UNEXPANDED `<…>` — what the single-quoted
+	// idiom (`.p'<partition>'`) hands a node. Emitted bare, the loader
+	// interpolates it away on reload. Parity-pinned to the PHP
+	// Node::serialize_args test of the same name.
+	it( 'quotes a stored argument carrying an unexpanded interpolation marker', () => {
+		expect( serializeArg( '/logs/firehose.p<partition>' ) ).toBe(
+			"'/logs/firehose.p<partition>'"
+		);
+	} );
 } );
 
 describe( 'Shell node — cd navigation', () => {

@@ -168,6 +168,25 @@ describe( 'move_node', () => {
 
 		expect( names( d ) ).toEqual( [ 'pangolin' ] );
 	} );
+
+	it( 'refuses a name that orphan declarations already hold', () => {
+		// `_invocations` outlives its node — dumpDocument writes an orphan
+		// declaration back — so a name free in the NODE table can still be
+		// taken in the DOCUMENT, and re-keying onto it drops those lines.
+		const d = draft(
+			[
+				'command_node wombat:config set_stats_target capybara',
+				'make_node Echo pangolin',
+				'command_node pangolin:config set_stats_target numbat',
+			].join( '\n' )
+		);
+
+		d.run( 'move_node pangolin wombat' );
+
+		expect( names( d ) ).toEqual( [ 'pangolin' ] );
+		expect( reported.join( '\n' ) ).toContain( 'collision' );
+		expect( d.dumpDocument() ).toContain( 'capybara' );
+	} );
 } );
 
 describe( 'set_arguments', () => {

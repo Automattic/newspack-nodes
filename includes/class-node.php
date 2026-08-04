@@ -411,6 +411,12 @@ class Node {
 	 * serializeArg + the Shell's quote-aware tokenizer). The one place tokens
 	 * are re-joined — every other layer carries them as a list.
 	 *
+	 * `<` is a metachar here for a reason that is not about tokenizing: a
+	 * stored argument may hold an UNEXPANDED `<…>`, which is what the deferred
+	 * idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node. Emitted
+	 * bare it would be expanded on the next load, because `interpolate()` runs
+	 * before `tokenize()` — so quoting is what preserves the deferral.
+	 *
 	 * @param list<string> $tokens
 	 */
 	public static function serialize_args( array $tokens ): string {
@@ -419,7 +425,7 @@ class Node {
 			\array_map(
 				static function ( string $t ): string {
 					// Quote empty or any metachar; `#`/`;` end the LINE.
-					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\#;]/', $t ) ) {
+					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\#;<]/', $t ) ) {
 						return $t;
 					}
 					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";

@@ -59,8 +59,11 @@ for f in $SHARED; do
 	[ -f "$src" ] || continue
 	# A plugin with no src/ tree has nothing for the JS reorder tool, and no
 	# @babel/parser to run it with; skip rather than vendor a dead script.
+	# Its test goes with it — half the cases shell out to that twin, so
+	# vendoring the test alone leaves a suite that cannot pass.
 	case "$f" in
-		reorder-node-methods.js) [ -d "$PLUGIN_DIR/src" ] || continue ;;
+		reorder-node-methods.js|test-reorder-node-methods.sh)
+			[ -d "$PLUGIN_DIR/src" ] || continue ;;
 	esac
 	refresh "$src" "$SCRIPT_DIR/$f" "scripts/$f"
 done

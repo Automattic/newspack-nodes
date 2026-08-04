@@ -656,6 +656,46 @@ class TopologiesCITest extends TestCase {
 	}
 
 	/**
+	 * A dangling include is not the only way a fleet's file resists reading:
+	 * `direct_includes` PARSES, and the tokenizer throws on an unterminated
+	 * quote. One active fleet carrying an unbalanced quote turned every later
+	 * save and delete into a reported failure — after the write had already
+	 * happened, and with earlier fleets already restarted.
+	 */
+	public function test_delete_survives_an_active_fleet_whose_tsl_will_not_parse(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['unparseable-fleet'] = [
+					'topology'       => 'unparseable-fleet',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		\file_put_contents(
+			"{$this->user}/spare-child.tsl",
+			"make_node Echo child\n"
+		);
+		// Unterminated quote: parse_statements raises "got EOF while waiting".
+		\file_put_contents(
+			"{$this->user}/unparseable-fleet.tsl",
+			"make_node Grep own 'never-closed\n"
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'delete',
+			[ 'spare-child' ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertFileDoesNotExist( "{$this->user}/spare-child.tsl" );
+	}
+
+	/**
 	 * One fleet with a dangling include must not be restarted by every
 	 * unrelated save from then on — that is a permanent restart loop.
 	 */

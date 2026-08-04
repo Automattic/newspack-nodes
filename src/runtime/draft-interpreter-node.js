@@ -332,6 +332,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 */
 	_cmdMove( args ) {
 		const [ from, to ] = args;
+		// _invocations outlives its node, so a document name can be taken.
+		if ( from && to && from !== to && this._invocations.has( to ) ) {
+			throw new Error(
+				`node name collision: ${ to } already has declarations`
+			);
+		}
 		const result = super._cmdMove( args );
 		if ( 'ok' !== result || ! from || ! to ) {
 			return result;
