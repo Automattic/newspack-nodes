@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
@@ -84,6 +85,39 @@ class CliTest extends TestCase {
 
 		$this->assertCount( 1, $workers );
 		$this->assertTrue( $workers[0]['stale'] );
+	}
+
+	/**
+	 * Four readers of one heartbeat mtime had four policies. `wp nodes status`
+	 * used a flat `Lock_Node::STALE_TIMEOUT`, so a job-worker mid-job — whose
+	 * `job-worker.tsl` declares `stale_timeout = 600` precisely because job
+	 * handlers run user code that can be slow — showed DOWN at 120s while the
+	 * supervisor (which honours the declaration) correctly left it alone and
+	 * never respawned it. The operator saw a dead worker that was working.
+	 *
+	 * 300 is above the 60s default and below the declared 600.
+	 */
+	public function test_ls_honours_a_topologys_declared_stale_timeout(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn (): array => [
+				'job-worker' => [ 'stale_timeout' => 600, 'num_partitions' => 1 ],
+			]
+		);
+		// Descriptors come from the ACTIVE set, not the whole catalog.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'job-worker' ];
+		Config::reset();
+		mkdir( "{$this->tmp}/locks", 0755, true );
+		mkdir( "{$this->tmp}/locks/job-worker.p0.lock.d", 0755, true );
+		touch( "{$this->tmp}/locks/job-worker.p0.lock.d/heartbeat", time() - 300 );
+
+		$workers = ( new CLI( $this->tmp ) )->ls_workers();
+
+		$this->assertCount( 1, $workers );
+		$this->assertFalse(
+			$workers[0]['stale'],
+			'300s is stale at the 60s default but live at the declared 600s'
+		);
 	}
 
 	public function test_ls_returns_empty_when_locks_dir_missing(): void {

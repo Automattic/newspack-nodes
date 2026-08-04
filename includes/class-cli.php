@@ -153,7 +153,11 @@ class CLI {
 			$workers[] = [
 				'type'      => $m[1],
 				'partition' => (int) $m[2],
-			] + self::lock_liveness( "{$locks_dir}/{$entry}", $now );
+			] + self::lock_liveness(
+				"{$locks_dir}/{$entry}",
+				$now,
+				self::stale_timeout_for( $m[1] )
+			);
 		}
 		\usort( $workers, fn ( $a, $b ) =>
 			[ $a['type'], $a['partition'] ] <=> [ $b['type'], $b['partition'] ]
@@ -164,15 +168,39 @@ class CLI {
 	/**
 	 * Heartbeat/started/staleness triple for one lock dir (workers + supervisor).
 	 *
+	 * @param string $dir           The `.lock.d` directory.
+	 * @param int    $now           Clock, so one scan judges every worker alike.
+	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
 	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
 	 */
-	private static function lock_liveness( string $dir, int $now ): array {
+	private static function lock_liveness( string $dir, int $now, int $stale_timeout = Lock_Node::STALE_TIMEOUT ): array {
 		$mtime = @\filemtime( "{$dir}/heartbeat" );
 		return [
 			'heartbeat_at' => $mtime ?: 0,
 			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
-			'stale'        => ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT ),
+			'stale'        => Lock_Node::heartbeat_is_stale( $dir, $now, $stale_timeout ),
 		];
+	}
+
+	/**
+	 * The stale threshold a topology declares, or the default.
+	 *
+	 * The supervisor's respawn decision and the Workers dashboard both honour
+	 * this; `wp nodes status` did not, so a job-worker mid-job read DOWN here
+	 * (`job-worker.tsl` lifts it to 600 exactly because job handlers run user
+	 * code that can be slow) while the supervisor correctly left it running.
+	 * One heartbeat, one threshold.
+	 *
+	 * @param string $type The topology name.
+	 * @return int Seconds.
+	 */
+	private static function stale_timeout_for( string $type ): int {
+		foreach ( Bootstrap::expand_workers() as $descriptor ) {
+			if ( $descriptor['type'] === $type ) {
+				return Lock_Node::stale_timeout_of( $descriptor );
+			}
+		}
+		return Lock_Node::STALE_TIMEOUT;
 	}
 
 	/**

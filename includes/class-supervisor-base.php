@@ -150,21 +150,13 @@ class Supervisor_Base {
 		$raw_partition = $worker['partition'];
 		$type          = Core::as_string( $raw_type );
 		$partition     = Core::as_int( $raw_partition );
-		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
+		$stale         = Lock_Node::stale_timeout_of( $worker );
 
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
 			return true;
 		}
-		$hb    = "{$dir}/heartbeat";
-		$mtime = @\filemtime( $hb );
-		if ( false === $mtime ) {
-			return true;
-		}
-		if ( ( $now - $mtime ) > $stale ) {
-			return true;
-		}
-		return false;
+		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
 	}
 
 	public function lock_path( string $type, int $partition ): string {

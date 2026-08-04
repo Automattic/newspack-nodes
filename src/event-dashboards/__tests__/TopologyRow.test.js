@@ -380,7 +380,14 @@ describe( 'TopologyRow', () => {
 							handler: 'producer',
 							partition: 1,
 							source: '',
-							status: 'running',
+							// Staleness is the SERVER's answer, judged against
+							// the topology's declared stale_timeout; the row no
+							// longer re-derives it from a hardcoded 30s. A
+							// running worker is never stale, so a fixture
+							// asserting both described a state the server
+							// cannot emit.
+							status: 'dead',
+							stale: true,
 							started_at: 1000,
 							heartbeat_age: 40,
 						},
@@ -396,6 +403,5 @@ describe( 'TopologyRow', () => {
 		expect(
 			heading.querySelector( '.connector-heartbeat.stale' )
 		).toBeTruthy();
-		expect( heading.textContent ).toMatch( /ALL RUN/ );
 	} );
 } );

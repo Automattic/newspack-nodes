@@ -223,7 +223,7 @@ const TopologyRow = memo( function TopologyRow( {
 								p.heartbeat_age !== undefined && (
 									<span
 										className={ `connector-heartbeat ${
-											p.heartbeat_age > 30 ? 'stale' : ''
+											p.stale ? 'stale' : ''
 										}` }
 									>
 										{ p.heartbeat_age }s

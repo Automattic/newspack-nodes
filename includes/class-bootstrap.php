@@ -253,7 +253,7 @@ class Bootstrap {
 					'type'          => $type,
 					'partition'     => $p,
 					'topology'      => $config['topology'] ?? '',
-					'stale_timeout' => $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT,
+					'stale_timeout' => Lock_Node::stale_timeout_of( $config ),
 				];
 			}
 		}

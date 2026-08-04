@@ -335,6 +335,41 @@ class Lock_Node extends Node {
 	 * @param string $lock_dir The lock directory path.
 	 * @return int|null Unix timestamp when acquire() succeeded, or null if missing.
 	 */
+	/**
+	 * THE staleness rule for a worker heartbeat: no heartbeat file, or one
+	 * older than the threshold this worker declares.
+	 *
+	 * Four readers of this one mtime once had four policies — the supervisor's
+	 * respawn decision and the Workers dashboard honoured a topology's declared
+	 * `stale_timeout`, `wp nodes status` used a flat 60, and two dashboards
+	 * hardcoded 30. So a job-worker mid-job (`job-worker.tsl` lifts the
+	 * threshold to 600 precisely because job handlers run slow user code) read
+	 * DOWN in the CLI and the UI while the supervisor correctly left it alone.
+	 *
+	 * @param string $lock_dir      The `.lock.d` directory.
+	 * @param int    $now           Clock, so one scan judges every worker alike.
+	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
+	 * @return bool True when the worker reads as down.
+	 */
+	public static function heartbeat_is_stale( string $lock_dir, int $now, int $stale_timeout ): bool {
+		$mtime = @\filemtime( "{$lock_dir}/heartbeat" );
+		return false === $mtime || ( $now - $mtime ) > $stale_timeout;
+	}
+
+	/**
+	 * The stale threshold a worker descriptor declares, defaulting to
+	 * STALE_TIMEOUT. The one place that `?? STALE_TIMEOUT` fallback lives.
+	 *
+	 * @param array<array-key, mixed> $descriptor A worker descriptor or topology entry.
+	 * @return int Seconds.
+	 */
+	public static function stale_timeout_of( array $descriptor ): int {
+		return Core::as_int(
+			$descriptor['stale_timeout'] ?? self::STALE_TIMEOUT,
+			self::STALE_TIMEOUT
+		);
+	}
+
 	public static function get_started_time( string $lock_dir ): ?int {
 		$lock_dir = \rtrim( $lock_dir, '/' );
 		$started_file = $lock_dir . '/' . self::STARTED_FILE;

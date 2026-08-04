@@ -69,9 +69,9 @@ export const SupervisorStatus = memo( function SupervisorStatus(
 							supervisor.heartbeat_age !== undefined && (
 								<span
 									className={ `connector-heartbeat ${
-										supervisor.heartbeat_age > 30
-											? 'stale'
-											: ''
+										'running' === supervisor.status
+											? ''
+											: 'stale'
 									}` }
 									title={ __(
 										'Heartbeat age',
