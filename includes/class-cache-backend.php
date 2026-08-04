@@ -209,13 +209,22 @@ final class Cache_Backend {
 	}
 
 	public function increment( string $key ): int|false {
-		return null !== $this->memd ? $this->memd->increment( $key ) : \apcu_inc( $key );
+		if ( null !== $this->memd ) {
+			return $this->memd->increment( $key );
+		}
+		if ( ! $this->apcu_has( $key ) ) {
+			return false;
+		}
+		return \apcu_inc( $key );
 	}
 
 	/** Memcached clamps at zero; mirror that on the APCu arm (apcu_dec goes negative). */
 	public function decrement( string $key ): int|false {
 		if ( null !== $this->memd ) {
 			return $this->memd->decrement( $key );
+		}
+		if ( ! $this->apcu_has( $key ) ) {
+			return false;
 		}
 		$value = \apcu_dec( $key, 1, $ok );
 		if ( false === $ok ) {
@@ -226,5 +235,23 @@ final class Cache_Backend {
 			return 0;
 		}
 		return $value;
+	}
+
+	/**
+	 * Whether APCu currently holds the key.
+	 *
+	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
+	 * parameter is for — while `Memcached::increment`/`decrement` return false
+	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
+	 * and the disagreement was load-bearing: a decrement of an evicted batch
+	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
+	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool True when the key exists.
+	 */
+	private function apcu_has( string $key ): bool {
+		\apcu_fetch( $key, $hit );
+		return (bool) $hit;
 	}
 }

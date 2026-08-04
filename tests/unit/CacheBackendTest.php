@@ -265,6 +265,39 @@ class CacheBackendTest extends TestCase {
 		$this->assertSame( 0, $b->decrement( 'n' ), 'memcached clamps decrement at zero; the APCu arm must match' );
 	}
 
+	/**
+	 * The ONE case where the two arms disagree, and the one the existing clamp
+	 * test never reaches because it decrements a key it just set.
+	 *
+	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
+	 * parameter is for — while `Memcached::increment`/`decrement` return false
+	 * and set RES_NOTFOUND. The clamp then turned `apcu_dec`'s phantom -1 into
+	 * a stored 0, and `Job_Worker_Node::settle_batch()` reads 0 as "fan-in
+	 * complete": an evicted batch counter fired `batch_complete` and a RESOLVED
+	 * alert for work that never finished. Batch counters are seeded with a
+	 * BATCH_TTL_S, so expiry is an expected state, not a corrupt one.
+	 */
+	public function test_apcu_counters_report_a_missing_key_as_false(): void {
+		$b = $this->apcu_backend( 'shared' );
+
+		$this->assertFalse(
+			$b->decrement( 'nodes-job-batch:never-seeded-8842' ),
+			'a missing counter must not decrement into a phantom zero'
+		);
+		$this->assertFalse(
+			$b->get( 'nodes-job-batch:never-seeded-8842' ),
+			'and must not be created as a side effect'
+		);
+		$this->assertFalse(
+			$b->increment( 'nodes-job-batch-err:never-seeded-8842' ),
+			'a missing counter must not increment into existence'
+		);
+		$this->assertFalse(
+			$b->get( 'nodes-job-batch-err:never-seeded-8842' ),
+			'and must not be created as a side effect'
+		);
+	}
+
 	private function compare_and_swap_without_ttl( Cache_Backend $backend, string $key, int $expected, int $replacement ): bool {
 		$method = new \ReflectionMethod( Cache_Backend::class, 'compare_and_swap' );
 		$this->assertSame( 3, $method->getNumberOfParameters(), 'pointer CAS must not carry or refresh a TTL' );

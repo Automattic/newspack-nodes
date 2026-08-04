@@ -51,6 +51,9 @@ class Settings_Schema {
 				new Field(
 					key: 'num_partitions',
 					type: 'int',
+					min: 1,
+					max: 16,
+					default: 1,
 					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,
 					// Supervisor reloads config each loop; no restart needed.
@@ -61,6 +64,9 @@ class Settings_Schema {
 				new Field(
 					key: 'segment_size',
 					type: 'int',
+					min: 1048576,
+					max: 536870912,
+					default: 67108864,
 					label: static fn(): string => \__( 'Segment Size', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -70,6 +76,9 @@ class Settings_Schema {
 				new Field(
 					key: 'min_segments',
 					type: 'int',
+					min: 2,
+					max: 32,
+					default: 2,
 					label: static fn(): string => \__( 'Min Segments', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -79,6 +88,9 @@ class Settings_Schema {
 				new Field(
 					key: 'num_segments',
 					type: 'int',
+					min: 2,
+					max: 32,
+					default: 8,
 					label: static fn(): string => \__( 'Num Segments', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -89,6 +101,9 @@ class Settings_Schema {
 				new Field(
 					key: 'max_segments',
 					type: 'int',
+					min: 0,
+					max: 64,
+					default: 0,
 					label: static fn(): string => \__( 'Max Segments (hard cap)', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -98,6 +113,9 @@ class Settings_Schema {
 				new Field(
 					key: 'min_lifetime',
 					type: 'int',
+					min: 0,
+					max: 604800,
+					default: 0,
 					label: static fn(): string => \__( 'Min Lifetime', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -107,6 +125,9 @@ class Settings_Schema {
 				new Field(
 					key: 'lifetime',
 					type: 'int',
+					min: 0,
+					max: 604800,
+					default: 0,
 					label: static fn(): string => \__( 'Lifetime', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'Partition', 'Topic', 'Log' ],
@@ -156,6 +177,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_segment_size',
 					type: 'int',
+					min: 1048576,
+					max: 268435456,
+					default: 33554432,
 					label: static fn(): string => \__( 'Remote Segment Size', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -166,6 +190,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_min_segments',
 					type: 'int',
+					min: 2,
+					max: 16,
+					default: 2,
 					label: static fn(): string => \__( 'Remote Min Segments', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -176,6 +203,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_num_segments',
 					type: 'int',
+					min: 2,
+					max: 16,
+					default: 2,
 					label: static fn(): string => \__( 'Remote Num Segments', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -187,6 +217,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_max_segments',
 					type: 'int',
+					min: 0,
+					max: 64,
+					default: 0,
 					label: static fn(): string => \__( 'Remote Max Segments (hard cap)', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -197,6 +230,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_min_lifetime',
 					type: 'int',
+					min: 0,
+					max: 604800,
+					default: 3600,
 					label: static fn(): string => \__( 'Remote Min Lifetime', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -207,6 +243,9 @@ class Settings_Schema {
 				new Field(
 					key: 'remote_lifetime',
 					type: 'int',
+					min: 0,
+					max: 604800,
+					default: 0,
 					label: static fn(): string => \__( 'Remote Lifetime', 'newspack-nodes' ),
 					section: $remote,
 					restart: [],
@@ -218,6 +257,9 @@ class Settings_Schema {
 				new Field(
 					key: 'alert_lag_threshold',
 					type: 'int',
+					min: 0,
+					max: 10737418240,
+					default: 67108864,
 					label: static fn(): string => \__( 'Consumer Lag Threshold', 'newspack-nodes' ),
 					section: $alerting,
 					restart: [],
@@ -228,6 +270,9 @@ class Settings_Schema {
 				new Field(
 					key: 'alert_deadletter_threshold',
 					type: 'int',
+					min: 0,
+					max: 4096,
+					default: 0,
 					label: static fn(): string => \__( 'Dead-letter Threshold', 'newspack-nodes' ),
 					section: $alerting,
 					restart: [],
@@ -238,6 +283,9 @@ class Settings_Schema {
 				new Field(
 					key: 'alert_emit_interval',
 					type: 'int',
+					min: 1,
+					max: 86400,
+					default: 300,
 					label: static fn(): string => \__( 'Alert Emit Interval', 'newspack-nodes' ),
 					section: $alerting,
 					restart: [],

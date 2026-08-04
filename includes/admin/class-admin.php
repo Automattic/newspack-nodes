@@ -344,12 +344,25 @@ class Admin {
 	// -- Field callbacks ----------------------------------------------------
 
 	public static function num_partitions_callback(): void {
-		self::render_number( 'num_partitions', 1, 1, 16, \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
+		self::render_number( 'num_partitions', \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
 
 	/** Echo a number field: default from the config file, value from the stored option. */
-	private static function render_number( string $field, int $fallback, int $min, int $max, string $description ): void {
-		$default = self::default_int( Config::load_config_defaults(), $field, $fallback );
+	private static function render_number( string $field, string $description ): void {
+		$bounds = Settings_Schema::get()->field_for_short( $field );
+		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
+			// Unbounded rendered number = schema bug; don't paper over it.
+			throw new \RuntimeException(
+				\esc_html( "settings field declares no bounds: {$field}" )
+			);
+		}
+		$min     = $bounds->min;
+		$max     = $bounds->max;
+		$default = self::default_int(
+			Config::load_config_defaults(),
+			$field,
+			$bounds->default ?? 0
+		);
 		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
 		$html    = Settings_Renderer::number(
 			$field,
@@ -382,63 +395,63 @@ class Admin {
 	}
 
 	public static function min_segments_callback(): void {
-		self::render_number( 'min_segments', 2, 2, 32, \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
+		self::render_number( 'min_segments', \__( 'Floor for the age rule: keep at least this many segments even when pruning old ones by max lifetime.', 'newspack-nodes' ) );
 	}
 
 	public static function num_segments_callback(): void {
-		self::render_number( 'num_segments', 8, 2, 32, \__( 'Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime.', 'newspack-nodes' ) );
+		self::render_number( 'num_segments', \__( 'Count-rule target: prune the oldest back to this many segments — but only ones older than min lifetime.', 'newspack-nodes' ) );
 	}
 
 	public static function max_segments_callback(): void {
-		self::render_number( 'max_segments', 0, 0, 64, \__( 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments).', 'newspack-nodes' ) );
+		self::render_number( 'max_segments', \__( 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min lifetime does not protect them). 0 = automatic (twice num segments).', 'newspack-nodes' ) );
 	}
 
 	public static function segment_size_callback(): void {
-		self::render_number( 'segment_size', 64 * 1024 * 1024, 1048576, 536870912, \__( 'Maximum segment size in bytes.', 'newspack-nodes' ) );
+		self::render_number( 'segment_size', \__( 'Maximum segment size in bytes.', 'newspack-nodes' ) );
 	}
 
 	public static function min_lifetime_callback(): void {
-		self::render_number( 'min_lifetime', 0, 0, 604800, \__( 'Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based.', 'newspack-nodes' ) );
+		self::render_number( 'min_lifetime', \__( 'Floor for the count rule: keep segments younger than this many seconds even when over num segments. 0 = pure count-based.', 'newspack-nodes' ) );
 	}
 
 	public static function lifetime_callback(): void {
-		self::render_number( 'lifetime', 0, 0, 604800, \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
+		self::render_number( 'lifetime', \__( 'Age rule: prune segments older than this many seconds down to min segments. 0 = disabled (no age-based pruning).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_num_segments_callback(): void {
-		self::render_number( 'remote_num_segments', 2, 2, 16, \__( 'Count-rule target: number of log segments to keep on remote servers (2-16).', 'newspack-nodes' ) );
+		self::render_number( 'remote_num_segments', \__( 'Count-rule target: number of log segments to keep on remote servers (2-16).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_min_segments_callback(): void {
-		self::render_number( 'remote_min_segments', 2, 2, 16, \__( 'Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime.', 'newspack-nodes' ) );
+		self::render_number( 'remote_min_segments', \__( 'Floor for the age rule: keep at least this many segments on remote servers even when pruning by lifetime.', 'newspack-nodes' ) );
 	}
 
 	public static function remote_lifetime_callback(): void {
-		self::render_number( 'remote_lifetime', 0, 0, 604800, \__( 'Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled.', 'newspack-nodes' ) );
+		self::render_number( 'remote_lifetime', \__( 'Age rule: prune remote segments older than this many seconds down to remote min segments. 0 = disabled.', 'newspack-nodes' ) );
 	}
 
 	public static function remote_max_segments_callback(): void {
-		self::render_number( 'remote_max_segments', 0, 0, 64, \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
+		self::render_number( 'remote_max_segments', \__( 'True hard cap on remote servers: prune the oldest UNCONDITIONALLY above this many segments. 0 = automatic (twice remote num segments).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_segment_size_callback(): void {
-		self::render_number( 'remote_segment_size', 33554432, 1024 * 1024, 256 * 1024 * 1024, \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
+		self::render_number( 'remote_segment_size', \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
 	}
 
 	public static function remote_min_lifetime_callback(): void {
-		self::render_number( 'remote_min_lifetime', 3600, 0, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+		self::render_number( 'remote_min_lifetime', \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
 	}
 
 	public static function alert_lag_threshold_callback(): void {
-		self::render_number( 'alert_lag_threshold', 64 * 1024 * 1024, 0, 10737418240, \__( 'Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag.', 'newspack-nodes' ) );
+		self::render_number( 'alert_lag_threshold', \__( 'Warn when a consumer falls more than this many bytes behind its partition end. 0 = warn on any lag.', 'newspack-nodes' ) );
 	}
 
 	public static function alert_deadletter_threshold_callback(): void {
-		self::render_number( 'alert_deadletter_threshold', 0, 0, 4096, \__( 'Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
+		self::render_number( 'alert_deadletter_threshold', \__( 'Warn when more than this many dead-letter segments are quarantined. 0 = warn on the first.', 'newspack-nodes' ) );
 	}
 
 	public static function alert_emit_interval_callback(): void {
-		self::render_number( 'alert_emit_interval', 300, 1, 86400, \__( 'Minimum seconds between alert-action emission bursts (rate limit).', 'newspack-nodes' ) );
+		self::render_number( 'alert_emit_interval', \__( 'Minimum seconds between alert-action emission bursts (rate limit).', 'newspack-nodes' ) );
 	}
 
 	/**

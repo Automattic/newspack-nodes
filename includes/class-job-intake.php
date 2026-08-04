@@ -124,13 +124,15 @@ class Job_Intake {
 	 */
 	public function __construct( ?string $base_dir = null, ?int $num_partitions = null ) {
 		if ( null === $base_dir || null === $num_partitions ) {
-			$base_dir = $base_dir ?? Config::get_base_directory();
-			/** @var int|float|string|bool|null $raw_num_partitions */
-			$raw_num_partitions = Config::value( 'num_partitions' );
-			$num_partitions     = $num_partitions ?? (int) $raw_num_partitions;
+			$base_dir       = $base_dir ?? Config::get_base_directory();
+			$num_partitions = $num_partitions ?? Bootstrap::global_num_partitions();
 		}
-		$this->base_dir       = \rtrim( $base_dir, '/' );
-		$this->num_partitions = \max( 1, $num_partitions );
+		$this->base_dir = \rtrim( $base_dir, '/' );
+		// Clamped to what a worker consumes; past it, the GC sweeps the dir.
+		$this->num_partitions = \min(
+			Supervisor_Base::MAX_PARTITIONS,
+			\max( 1, $num_partitions )
+		);
 	}
 
 	/**

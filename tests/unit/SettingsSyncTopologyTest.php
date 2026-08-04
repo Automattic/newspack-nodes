@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Rest\Settings_CI_Node;
+use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\Tests\TestCase;
 
 /** The shipped settings-sync topology wires the remote_* geometry pushes. */
@@ -94,11 +95,22 @@ class SettingsSyncTopologyTest extends TestCase {
 		);
 
 		foreach ( $pushed as $option ) {
-			// A value distinct from every default and floor, so a silently
-			// ignored write cannot look like a successful one.
-			Settings_CI_Node::cmd_set( [ $option, '4177' ] );
+			// Bounds are per-field now (Settings_Schema owns them), so one
+			// magic value cannot fit every option — 4177 partitions is
+			// correctly refused. Take each field's own ceiling, which is
+			// distinct from its default for every pushed key, so a silently
+			// ignored write still cannot look like a successful one.
+			$short    = \substr( $option, \strlen( 'newspack_nodes_' ) );
+			$field    = Settings_Schema::get()->field_for_short( $short );
+			$expected = $field?->max ?? 4177;
+			$this->assertNotSame(
+				$field?->default,
+				$expected,
+				"seed for {$option} must differ from its default"
+			);
+			Settings_CI_Node::cmd_set( [ $option, (string) $expected ] );
 			$this->assertSame(
-				4177,
+				$expected,
 				$GLOBALS['_wp_options'][ $option ] ?? null,
 				"the spoke's set verb refused {$option}"
 			);

@@ -60,8 +60,7 @@ class Timer_Node extends Node {
 		if ( null === $this->sink ) {
 			return;
 		}
-		// Paces the 1s router tick; an own slot already fires at interval_ms.
-		if ( 'router' === $this->mode && $this->interval_ms > 1000 ) {
+		if ( 'router' === $this->mode && $this->interval_ms > self::router_interval_ms() ) {
 			if ( Core::$now - $this->last_fire_time < $this->interval_ms / 1000.0 ) {
 				return;
 			}
@@ -92,11 +91,10 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
-	// Named + (no ms | >=1000) => hitchhike; anything else => own slot.
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$router = Core::node( Node_Names::ROUTER );
 		// Unnamed takes an own slot: the hitchhike is name-keyed.
-		if ( ( null === $ms || $ms >= 1000 ) && '' !== $this->name && $router !== $this ) {
+		if ( ( null === $ms || $ms >= self::router_interval_ms() ) && '' !== $this->name && $router !== $this ) {
 			if ( ! $router instanceof self ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
@@ -123,6 +121,24 @@ class Timer_Node extends Node {
 		$this->interval_ms = $ms;
 		$this->oneshot     = $oneshot;
 		Event_Framework::instance()->set_timer( $this );
+	}
+
+	/**
+	 * The router's own tick cadence, or the documented default when no router
+	 * is mounted (an unnamed timer arms in registries that have none).
+	 *
+	 * The hitchhike threshold and the fire throttle both compare against THIS,
+	 * not a hardcoded 1000: a timer at exactly the router's cadence must arm at
+	 * its own interval rather than inherit the router's, and must not be
+	 * throttled, because every tick already is its interval.
+	 *
+	 * @return int Cadence in milliseconds.
+	 */
+	private static function router_interval_ms(): int {
+		$router = Core::node( Node_Names::ROUTER );
+		return $router instanceof self && $router->interval_ms > 0
+			? $router->interval_ms
+			: Router_Node::DEFAULT_TICK_MS;
 	}
 
 	public function remove_node(): void {
