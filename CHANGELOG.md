@@ -56,6 +56,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the port. `refuse_at_secure_level()` now refuses a class declared at any
   level at or below the current one — the same union, never materialized.
 
+- **The supervisor obeys the same stop policy as every worker.** AGENTS.md
+  says `should_continue()` "owns every cooperative-stop trigger for EVERY
+  worker type … No node implements its own restart." The supervisor was the
+  counter-example: it extends `Supervisor_Base`, not `Worker_Base`, and
+  hand-rolled the lifecycle inline — its own lock acquire, its own heartbeat
+  cadence spelled `STALE_TIMEOUT / 6`, its own max-runtime bail, its own
+  `finally`, and constants re-declared at the same values.
+
+  The re-implementation was not a superset. It had two of the four triggers and
+  NO memory watermark, no DB-liveness check and no lock-dir-gone check — in the
+  process that runs longest and that calls `newspack_nodes/supervisor_periodic`
+  every 15s for ~595s, running arbitrary third-party hook code under
+  `set_time_limit(0)`. A leak there was bounded only by the FPM child's OOM,
+  which skips the `finally` and therefore skips the respawn, leaving the fleet
+  waiting on the cron tier.
+
+  The policy is now the `Cooperative_Stop` trait, which both use; a consumer
+  supplies only what genuinely differs (`held_lock_path()`, `stop_label()`).
+  The supervisor's private `last_heartbeat` / `start_time` / `own_lock` are
+  gone — they were the same fields under different names.
+
+  One deliberate ordering change: the heartbeat rides INSIDE
+  `should_continue()`, after the restart check, so a process being told to stop
+  no longer refreshes its heartbeat first.
+
 - **`wp nodes ingest --dry-run` no longer advises dropping a flag the corpus
   needs.** The dry run exists to answer "do I need `--allow_large_writes`?",
   and in the one configuration where that question is live it answered

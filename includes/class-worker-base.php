@@ -14,17 +14,15 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Worker_Base {
+	use Cooperative_Stop;
+
 	/**
 	 * A fresh post-reset baseline already at/above this fraction of the memory limit is
 	 * "near the watermark" — a leak / undersized limit, not a single poison message. A
 	 * memory stop on such a baseline alerts instead of striking the message ([42]).
 	 */
 	public const BASELINE_WATERMARK_PCT = 0.50;
-	public const DB_CHECK_INTERVAL_S    = 30;
-	public const DB_CHECK_MAX_FAILURES  = 3;
 
-	public const DEFAULT_MAX_RUNTIME    = 595;
-	public const HEARTBEAT_INTERVAL_S   = 10;
 	public const IPC_LIFETIME           = 0;
 	public const IPC_MAX_SEGMENTS       = 4;
 	public const IPC_MIN_LIFETIME       = 0;
@@ -32,17 +30,7 @@ class Worker_Base {
 	public const IPC_NUM_SEGMENTS       = 2;
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
-	public const MEMORY_WATERMARK_PCT   = 0.80;
 
-	/**
-	 * DB-liveness seam. Lazily-defaulted to `$wpdb->check_connection( false )`
-	 * (duck-typed; passes when no $wpdb is loaded). Tests reassign to drive
-	 * consecutive failures without a real dead connection.
-	 * Signature: `function (): bool`.
-	 *
-	 * @var \Closure|null
-	 */
-	public static ?\Closure $db_probe = null;
 
 	/**
 	 * last-PHP-error seam. Lazily-defaulted to the real `error_get_last()`;
@@ -68,24 +56,17 @@ class Worker_Base {
 
 	/** Fresh post-reset memory baseline, captured before the drain — the memory-guard reference point. */
 	protected int $baseline_memory = 0;
-	protected int $db_failures = 0;
 	/** This worker's IPC-input Consumer — checkpointed at shutdown so a clean recycle doesn't replay consumed commands. */
 	protected ?Consumer_Node $ipc_input_consumer = null;
-	protected float $last_db_check = 0.0;
-	protected float $last_heartbeat = 0.0;
-	protected ?Lock_Node $lock = null;
-	protected int $max_runtime;
 	protected int $partition;
 	protected bool $shutdown_handled = false;
 	protected int $stale_timeout;
-	protected float $start_time = 0.0;
 
 	/**
 	 * Why the worker stopped, categorized for the shutdown handoff ([42]): 'timeout'
 	 * or 'memory' is a cooperative stop that triggers the fair-shot rule on durable
 	 * consumers; '' is operational (lock loss / restart / db) — a clean graceful handoff.
 	 */
-	protected string $stop_reason = '';
 	protected string $worker_type;
 
 	public function __construct(
@@ -187,7 +168,7 @@ class Worker_Base {
 			}
 		}
 		// Lifecycle lock, acquired pre-graph: bare new, no interpreter yet.
-		$this->lock = new Lock_Node( $this->lock_path(), $this->stale_timeout );
+		$this->lock = new Lock_Node( $this->held_lock_path(), $this->stale_timeout );
 		if ( ! $this->lock->acquire() ) {
 			return false;
 		}
@@ -197,7 +178,25 @@ class Worker_Base {
 		return true;
 	}
 
-	protected function lock_path(): string {
+	/** How a worker names itself in a stop message. */
+	protected function stop_label(): string {
+		return "{$this->worker_type}.p{$this->partition}";
+	}
+
+	/**
+	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
+	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
+	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
+	 */
+	protected function baseline_near_watermark(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
+		}
+		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
+	}
+
+	protected function held_lock_path(): string {
 		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
 	}
 
@@ -261,32 +260,6 @@ class Worker_Base {
 		$node->checkpoint( true );
 	}
 
-	/**
-	 * Memory baseline guard ([42]): was the fresh post-reset baseline already near the
-	 * watermark? If so a memory stop is a leak / undersized memory_limit, not a single
-	 * poison message — the fair-shot rule alerts instead of striking the in-flight message.
-	 */
-	protected function baseline_near_watermark(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
-	}
-
-	protected function memory_limit_bytes(): int {
-		$ini = \ini_get( 'memory_limit' );
-		if ( '-1' === $ini ) {
-			return -1;
-		}
-		$num = (int) $ini;
-		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
-			case 'g': $num *= 1024 * 1024 * 1024; break;
-			case 'm': $num *= 1024 * 1024;        break;
-			case 'k': $num *= 1024;               break;
-		}
-		return $num;
-	}
 
 	/**
 	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop
@@ -443,96 +416,4 @@ class Worker_Base {
 		$topology( $interpreter, $this->partition );
 	}
 
-	public function should_continue(): bool {
-		// Under pump(), Core::$now is frozen mid-job: one fresh read, reused.
-		$now = Core::right_now();
-
-		if ( null === $this->lock || ! $this->lock->is_held() ) {
-			return $this->stop( 'lock lost' );
-		}
-		if ( ! \is_dir( $this->lock_path() ) ) {
-			return $this->stop( 'lock dir gone' );
-		}
-
-		// request_restart() flags our lock dir; exit so supervisor respawns.
-		if ( $this->lock->should_restart() ) {
-			return $this->stop( 'restart requested' );
-		}
-
-		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
-			return $this->stop( '', 'timeout' );
-		}
-
-		if ( $this->memory_over_watermark() ) {
-			$used  = \memory_get_usage( true );
-			$limit = $this->memory_limit_bytes();
-			return $this->stop(
-				\sprintf(
-					'memory watermark (%dMB / %dMB, %d%%)',
-					(int) ( $used / 1048576 ),
-					(int) ( $limit / 1048576 ),
-					$limit > 0 ? (int) ( $used / $limit * 100 ) : 0
-				),
-				'memory'
-			);
-		}
-
-		if ( ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
-			$this->lock->heartbeat();
-			$this->last_heartbeat = $now;
-		}
-
-		if ( ( $now - $this->last_db_check ) >= self::DB_CHECK_INTERVAL_S ) {
-			$this->last_db_check = $now;
-			if ( ! $this->db_check_passes() ) {
-				++$this->db_failures;
-				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
-					return $this->stop( \sprintf( 'db check failed %d times', $this->db_failures ) );
-				}
-			} else {
-				$this->db_failures = 0;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Log WHY the worker is stopping (the should_continue() branch that tripped),
-	 * prefixed with the worker id, then return false. One line per cooperative
-	 * stop (should_continue returns true until the first false ends the loop).
-	 *
-	 * @param string $reason   Human-readable stop reason + metrics.
-	 * @param string $category Cooperative-stop category for the shutdown handoff:
-	 *                         'timeout' | 'memory' trigger the fair-shot rule; '' is operational.
-	 * @return false Always — callers `return $this->stop( ... )`.
-	 */
-	private function stop( string $reason, string $category = '' ): bool {
-		$this->stop_reason = $category;
-		if ( '' !== $reason ) {
-			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopping — {$reason}" );
-		}
-		return false;
-	}
-
-	protected function memory_over_watermark(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
-	}
-
-	/** DB liveness probe (via the $db_probe seam); N consecutive failures trigger shutdown. */
-	protected function db_check_passes(): bool {
-		$probe = self::$db_probe ?? static function (): bool {
-			global $wpdb;
-			if ( ! \is_object( $wpdb ) || ! \method_exists( $wpdb, 'check_connection' ) ) {
-				return true;
-			}
-			// allow_bail=false: report, don't wp_die inside the drain.
-			return (bool) $wpdb->check_connection( false );
-		};
-		return (bool) $probe();
-	}
 }

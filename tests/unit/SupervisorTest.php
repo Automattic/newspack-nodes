@@ -1460,27 +1460,49 @@ class SupervisorTest extends TestCase {
 
 	// tick_loop heartbeat refresh: the heartbeat slot is touched when
 	// (now - last_heartbeat) >= STALE_TIMEOUT/6 (=10s).
-	public function test_tick_loop_refreshes_heartbeat_when_window_elapsed(): void {
+	/**
+	 * The heartbeat is the shared stop policy's job now, and it rides along
+	 * INSIDE `should_continue()` — after the restart check, so a process being
+	 * told to stop does not bother proving it is alive. That ordering is why
+	 * this is asserted against the policy rather than by driving `tick_loop`
+	 * with a restart flag, which short-circuits before the heartbeat.
+	 */
+	public function test_should_continue_refreshes_heartbeat_when_window_elapsed(): void {
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$this->assertTrue( $s->init_lock_for_test() );
 
 		$now = microtime( true );
 		$this->seed_loop_state( $s, $now );
-		// Backdate last_heartbeat far into the past so the (>=10s) branch fires.
 		$hb_prop = new \ReflectionProperty( Supervisor::class, 'last_heartbeat' );
+		// Backdate past the 10s window so the heartbeat branch fires.
 		$hb_prop->setValue( $s, $now - 100.0 );
 
-		// Drop restart flag so tick_loop exits after the first iteration's
-		// heartbeat refresh — before sleep().
-		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
-
-		$this->invoke_tick_loop( $s );
-
-		$new_hb = (float) $hb_prop->getValue( $s );
+		$this->assertTrue( $s->should_continue(), 'a held, fresh lock keeps running' );
 		$this->assertGreaterThan(
 			$now - 1.0,
-			$new_hb,
-			'tick_loop must refresh last_heartbeat when the window has elapsed'
+			(float) $hb_prop->getValue( $s ),
+			'should_continue must refresh last_heartbeat when the window elapsed'
+		);
+
+		$s->release_lock_for_test();
+	}
+
+	/** And a restart request stops it before the heartbeat, without one. */
+	public function test_should_continue_stops_on_restart_without_heartbeating(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		$now = microtime( true );
+		$this->seed_loop_state( $s, $now );
+		$hb_prop = new \ReflectionProperty( Supervisor::class, 'last_heartbeat' );
+		$hb_prop->setValue( $s, $now - 100.0 );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$this->assertFalse( $s->should_continue() );
+		$this->assertSame(
+			$now - 100.0,
+			(float) $hb_prop->getValue( $s ),
+			'a stopping process does not refresh its heartbeat'
 		);
 
 		$s->release_lock_for_test();
