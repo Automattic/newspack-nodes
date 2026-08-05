@@ -135,7 +135,14 @@ const TopologyRow = memo( function TopologyRow( {
 	collapsed,
 	onToggleFold,
 } ) {
-	const { name, source, active, health = 'ok', etaSeconds = 0 } = topology;
+	const {
+		name,
+		source,
+		active,
+		health = 'ok',
+		etaSeconds = 0,
+		num_partitions: numPartitions,
+	} = topology;
 	const section =
 		! folded && active ? sectionFor( name, topology.status ) : null;
 	// Per-partition process summary + the rolled-up ALL RUN / ALL DEAD badge.
@@ -144,7 +151,13 @@ const TopologyRow = memo( function TopologyRow( {
 		: [];
 	const currentTime = topology.status?.currentTime;
 	const up = parts.filter( ( p ) => p.status === 'running' ).length;
-	const allRunning = parts.length > 0 && up === parts.length;
+	// @longform Count against the CONFIGURED partitions. A worker process that
+	// is gone entirely reports no row at all — it is absent, not `dead` — so
+	// using the reporting count as the denominator made a 4-partition topology
+	// running 2 workers read "ALL RUN". Falls back to the reporting count only
+	// when the row carries no configured count.
+	const expected = numPartitions > 0 ? numPartitions : parts.length;
+	const allRunning = expected > 0 && up === expected;
 	const allDead =
 		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
 	// ETA to catch up — shown only when behind/stalled (sub-minute reads ok).
@@ -255,13 +268,13 @@ const TopologyRow = memo( function TopologyRow( {
 							{ __( 'ALL DEAD', 'newspack-nodes' ) }
 						</span>
 					) }
-					{ parts.length > 0 && ! allRunning && ! allDead && (
+					{ expected > 0 && ! allRunning && ! allDead && (
 						<span className="newspack-nodes-status-badge worker-status-badge small">
 							{ sprintf(
 								// translators: %1$d: running partitions; %2$d: total.
 								__( '%1$d/%2$d up', 'newspack-nodes' ),
 								up,
-								parts.length
+								expected
 							) }
 						</span>
 					) }
