@@ -22,6 +22,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 trait Durable_Reader {
+	use Dead_Letter_Queue;
+
 	use Sidecar;
 
 	// -- Offsetlog cursor ---------------------------------------------------

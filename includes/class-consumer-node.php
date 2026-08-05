@@ -13,8 +13,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
+	// Dead_Letter_Queue rides in with Durable_Reader, which drives it.
 	use Durable_Reader;
-	use Dead_Letter_Queue;
 
 	/**
 	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's

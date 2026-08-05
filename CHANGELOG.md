@@ -322,6 +322,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Durable_Reader` composes `Dead_Letter_Queue` instead of assuming it.** The
+  coupling was bidirectional, mandatory and declared from neither side: the
+  quarantine trait carried a nine-line docblock for a seal protocol implemented
+  entirely in the reader, while the reader called `dead_letter()`,
+  `poison_from_line()`, `record_poison_strike()` and `CHECKPOINT_INTERVAL_S`
+  with no `use` and no abstract seam. A class taking the quarantine alone
+  compiled, initialised `$sealed_quarantine`, and silently sealed nothing. The
+  reader now composes it, so a reader cannot be half-wired; the quarantine stays
+  usable alone, which is what `Partition_Node` needs for its write-stall path.
+
 - **`reorder-node-methods` now gates EVERY class, not just Node subclasses.**
   Both the PHP and JS tools already had an `--all-classes` mode with a generic
   ordering policy (constructor first, then call-graph order); it simply was not
