@@ -376,6 +376,29 @@ describe( 'TopologyRow', () => {
 		expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
 	} );
 
+	// The reported bug: Overview shares ONE fold set across every row, and
+	// `topic-probe.tsl` is included by seven topologies, so a key naming only
+	// the tree path folded the same-named entity in all of them at once.
+	it( 'folding an entity in one topology leaves its namesake in another open', () => {
+		const row = ( name ) =>
+			rowProps( {
+				topology: {
+					name,
+					source: 'stock',
+					active: true,
+					status: statusWithSegments(),
+				},
+				collapsed: new Set( [ 'alpha>a-log' ] ),
+			} );
+		const segments = ( name ) =>
+			render(
+				<TopologyRow { ...row( name ) } />
+			).container.querySelectorAll( '.worker-segment-h' ).length;
+
+		expect( segments( 'alpha' ) ).toBe( 0 );
+		expect( segments( 'beta' ) ).toBe( 1 );
+	} );
+
 	it( 'renders a topology-level collapse chevron that calls onCollapseTopology with the name', () => {
 		const props = rowProps();
 		const { container } = render( <TopologyRow { ...props } /> );

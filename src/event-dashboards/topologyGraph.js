@@ -448,7 +448,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		};
 
 		// Emit a sibling list, joining convergent logic-only groups.
-		const makeSiblings = ( siblings, path, prefix = '' ) => {
+		const makeSiblings = ( siblings, path, prefix ) => {
 			const groups = new Map();
 			siblings.forEach( ( vertex ) => {
 				const groupKey = `${ isLog.get( vertex ) }|${ signatureOf(
@@ -471,9 +471,8 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			} );
 			return entities.sort( byName );
 		};
-		// Position key = tree path: root = vertex id, child = parent>id.
-		const childKey = ( prefix, id ) =>
-			prefix ? `${ prefix }>${ id }` : id;
+		// Position key = topology + tree path; the topology scopes every key.
+		const childKey = ( prefix, id ) => `${ prefix }>${ id }`;
 		const byName = ( a, b ) => byLower( a.name, b.name );
 		const makeNode = ( vertex, path, prefix ) => {
 			const key = childKey( prefix, vertex );
@@ -533,7 +532,11 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const rootVertices = [ ...inDegree.keys() ].filter(
 			( v ) => 0 === inDegree.get( v )
 		);
-		const roots = makeSiblings( rootVertices, new Set(), '' );
+		// @longform Rooted at the TOPOLOGY, not at ''. Overview renders every
+		// row against one shared fold set, and `topic-probe.tsl` is included by
+		// seven topologies — a key naming only the tree path made `topicprobe`
+		// the same entity in all of them, so folding one folded them all.
+		const roots = makeSiblings( rootVertices, new Set(), topology );
 		sections.push( { topology, workers: tWorkers, tree: roots } );
 	}
 	sections.sort( ( a, b ) => byLower( a.topology, b.topology ) );

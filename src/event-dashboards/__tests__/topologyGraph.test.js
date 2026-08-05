@@ -539,7 +539,7 @@ it( 'overlays partitions from the logs catalog onto a log entity', () => {
 	);
 	const inLog = section.tree[ 0 ];
 	expect( inLog.kind ).toBe( 'log' );
-	expect( inLog.key ).toBe( 'in.log' );
+	expect( inLog.key ).toBe( 't>in.log' );
 	expect( inLog.segment_size ).toBe( 4096 );
 	expect( inLog.partitions ).toHaveLength( 1 );
 } );
@@ -752,7 +752,7 @@ it( 'overlays this topology worker rows onto a logic node entity by handler', ()
 	const inLog = section.tree[ 0 ];
 	const rb = inLog.children.find( ( e ) => e.name === 'request-builder' );
 	expect( rb.kind ).toBe( 'node' );
-	expect( rb.key ).toBe( 'in.log>request-builder' );
+	expect( rb.key ).toBe( 't>in.log>request-builder' );
 	expect( rb.workers ).toHaveLength( 1 );
 	expect( rb.workers[ 0 ].behind ).toBe( 5 );
 } );
@@ -867,7 +867,7 @@ it( 'joins convergent sibling logic roots onto one node, subtree built once', ()
 	const root = section.tree[ 0 ];
 	expect( root.kind ).toBe( 'node' );
 	expect( root.names ).toEqual( [ 'community', 'releases' ] );
-	expect( root.key ).toBe( 'community+releases' );
+	expect( root.key ).toBe( 'digest>community+releases' );
 	expect( names( root.children ) ).toEqual( [ 'summarizer' ] );
 	const summarizer = root.children[ 0 ];
 	expect( names( summarizer.children ) ).toEqual( [ 'scorer' ] );
@@ -1107,4 +1107,28 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		expect( slotIn( 'jr' ).cursor_offset ).toBe( 10 );
 		expect( slotIn( 'jr' ).end_size ).toBe( 50 );
 	} );
+} );
+
+// `topic-probe.tsl` is included by seven topologies, so a `topicprobe` node
+// exists in each. Overview renders every topology against ONE shared fold set,
+// so a key that names only the tree path made folding it in one row fold it in
+// all of them.
+it( 'scopes an entity key by topology, so a shared node name cannot collide', () => {
+	// `logic` is what a TopicProbe resolves to; the key IS the persisted
+	// contract, so pin both strings rather than only their difference.
+	const graphTopo = { nodes: [ gn( 'topicprobe', 'logic' ) ], edges: [] };
+	const sections = buildTopologySections(
+		{ aggregator: graphTopo, 'job-router': graphTopo },
+		[],
+		[]
+	);
+	const probeIn = ( topology ) =>
+		findEntity(
+			sections.find( ( s ) => s.topology === topology ).tree,
+			( e ) => 'topicprobe' === e.name
+		);
+
+	expect( probeIn( 'aggregator' ).kind ).toBe( 'node' );
+	expect( probeIn( 'aggregator' ).key ).toBe( 'aggregator>topicprobe' );
+	expect( probeIn( 'job-router' ).key ).toBe( 'job-router>topicprobe' );
 } );
