@@ -56,7 +56,8 @@ export function useCanonicalNodes( topology ) {
 				if ( ! live ) {
 					return;
 				}
-				const parsed = graphFromTsl( resp?.tsl || '' );
+				// Seeded: a file's own edges may name a borrowed node.
+				const parsed = graphFromTsl( resp?.tsl || '', resp?.expanded );
 				// A borrowed node is canonical: declared, just in another file.
 				const borrowed = ( resp?.expanded?.nodes || [] ).map(
 					( n ) => n.name

@@ -79,6 +79,37 @@ describe( 'useCanonicalNodes', () => {
 		expect( result.current.has( 'zebra:partition' ) ).toBe( true );
 	} );
 
+	// hub-control-eve.tsl: `connect_node settings-sync settings:tw0`, where
+	// settings-sync is borrowed. Parsing the file WITHOUT its expansion leaves
+	// that source undeclared, and the draft interpreter refuses the statement to
+	// stderr — which reaches the event log as
+	// `browser: connect_node: unknown node: settings-sync` on every console open.
+	it( 'seeds the include expansion, so a borrowed edge source is not refused', async () => {
+		const warn = jest
+			.spyOn( console, 'warn' )
+			.mockImplementation( () => {} );
+		send.mockReturnValue( {
+			tsl:
+				'include zebra-base\n' +
+				'make_node HTTP_Out wombat:out tw0\n' +
+				'connect_node zebra:consumer wombat:out\n',
+			includes: [ 'zebra-base' ],
+			expanded: {
+				nodes: [
+					{ name: 'zebra:consumer', class: 'Consumer', args: [] },
+				],
+				edges: [],
+				tree: { 'zebra-base': {} },
+			},
+		} );
+
+		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
+
+		await waitFor( () => expect( result.current.size ).toBe( 2 ) );
+		expect( Core.recentLog.join( '\n' ) ).not.toMatch( /unknown node/ );
+		warn.mockRestore();
+	} );
+
 	it( 'returns an empty set (and does not fetch) when there is no topology', () => {
 		const { result } = renderHook( () => useCanonicalNodes( '' ) );
 		expect( result.current.size ).toBe( 0 );

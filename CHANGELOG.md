@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Opening a topology logged `unknown node` for every borrowed edge source.**
+  `useCanonicalNodes` reads the `.tsl` to collect the names a file declares, so
+  the canvas can paint runtime drift — but it called `graphFromTsl( tsl )`
+  without the include expansion sitting in the same response. The draft
+  interpreter seeds that expansion first precisely so a file's own
+  `connect_node` can name a borrowed node; unseeded, every such statement was
+  refused to stderr and shipped to the event log (`browser: connect_node:
+  unknown node: settings-sync`). Nothing was missing on the canvas — that path
+  passes the baseline correctly — so the only symptom was the noise. The
+  returned name set is unchanged: the borrowed names were unioned in either way.
+
+
 ## [2.9.0] - 2026-08-04
 
 ### Changed
