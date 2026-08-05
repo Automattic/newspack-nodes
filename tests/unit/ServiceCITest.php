@@ -208,6 +208,51 @@ class ServiceCITest extends TestCase {
 		$this->assertSame( "{\"sliced\":true}\n", $result );
 	}
 
+	/**
+	 * The gate was installed at CONSTRUCTION and `commands()` is public and
+	 * mutating, with `dispatch()` reading the table at call time. So any table
+	 * installed after `parent::__construct()` — by a subclass, or by anything
+	 * holding the node — replaced the wrapped handlers wholesale and silently
+	 * disabled authorization. Nothing threw, nothing warned; the verbs just
+	 * worked for everyone. This is the substrate's single enforcement point for
+	 * command authorization, so it has to be an invariant of the class rather
+	 * than a property of one code path.
+	 */
+	public function test_a_table_installed_after_construction_is_still_gated(): void {
+		$ci = new ServiceCILateTableProbe();
+		$ci->name( 'probe' );
+		$ci->install_ungated_table();
+
+		$result = VerbHarness::fire( $ci, 'probe', 'late' );
+
+		$this->assertSame(
+			"permission denied: manage capability required\n",
+			$result,
+			'a late-installed handler must not escape the capability wrap'
+		);
+	}
+
+	public function test_a_late_installed_table_still_runs_with_the_capability(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$ci = new ServiceCILateTableProbe();
+		$ci->name( 'probe' );
+		$ci->install_ungated_table();
+
+		$this->assertSame( "late-ran\n", VerbHarness::fire( $ci, 'probe', 'late' ) );
+	}
+
+	/** And the base's ungated `help` injection must not win either. */
+	public function test_help_is_gated_even_on_a_late_installed_table(): void {
+		$ci = new ServiceCILateTableProbe();
+		$ci->name( 'probe' );
+		$ci->install_ungated_table();
+
+		$this->assertSame(
+			"permission denied: manage capability required\n",
+			VerbHarness::fire( $ci, 'probe', 'help' )
+		);
+	}
+
 	// ── command_message ───────────────────────────────────────────────────
 
 	public function test_command_message_builds_tm_command_envelope(): void {
@@ -511,6 +556,33 @@ class ServiceCINonArrayVerbProbe extends Service_CI_Node {
 				[
 					'name'    => 'ok',
 					'handler' => static fn (): string => 'ok',
+				],
+			],
+		];
+	}
+}
+
+/**
+ * Installs a verb table AFTER construction, the way a subclass or an external
+ * holder can — the path that used to bypass the capability wrap entirely.
+ */
+class ServiceCILateTableProbe extends Service_CI_Node {
+
+	public function install_ungated_table(): void {
+		$this->commands(
+			[
+				'late' => static fn (): string => 'late-ran',
+			]
+		);
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category' => 'Hidden',
+			'commands' => [
+				[
+					'name'    => 'late',
+					'handler' => static fn (): string => 'late-ran',
 				],
 			],
 		];
