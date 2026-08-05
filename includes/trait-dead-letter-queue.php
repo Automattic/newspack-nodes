@@ -88,34 +88,6 @@ trait Dead_Letter_Queue {
 	protected float $crawl_started = 0.0;
 
 	/**
-	 * One-shot crawl-entry flag: on the first crawled drain, dead-letter the boot-cursor head —
-	 * the message the reader was on when the uncatchable death struck (the crash suspect) — with
-	 * reason 'crash' and advance past it. Lineage accounting, not read-loop machinery, so it lives
-	 * here and both readers arm it on crawl entry: Consumer sacrifices its buffered head line
-	 * (per-line drain), Remote_Source the relayed message whose crumb START matches the boot pin.
-	 */
-	protected bool $crawl_skip_head = false;
-
-	/**
-	 * Disposition of an armed boot head-skip (see $crawl_skip_head): 'crash' → the head was
-	 * never captured, DLQ it with reason 'crash' (the crash-lineage sacrifice); 'drop' → a
-	 * quarantine marker (`quarantined => true` on the resumed frame) says the head is ALREADY in
-	 * the DLQ, so drop it silently (no second entry). Only meaningful while $crawl_skip_head is true.
-	 */
-	protected string $skip_head_disposition = 'crash';
-
-	/**
-	 * Source `{segment,offset}` of a message already in the `:deadletter` sibling that the cursor
-	 * still sits on (an advance-on-next reader lingers there until the next arrival; a boot 'drop'
-	 * life sits on the marker's position). Every frame committed AT this position keeps `quarantined`
-	 * set so no plain boot/persist/shutdown frame clobbers the marker and re-forwards an
-	 * already-quarantined message; a frame committed strictly PAST it releases the seal. null = none.
-	 *
-	 * @var array{segment:int,offset:int}|null
-	 */
-	protected ?array $sealed_quarantine = null;
-
-	/**
 	 * Quarantine dir for poison messages (dead-letter [42]); '' = no DLQ (log + drop).
 	 * The using node is the sole writer of its DLQ sibling, so it lifts the PIPE_BUF cap.
 	 */
@@ -489,29 +461,6 @@ trait Dead_Letter_Queue {
 			$this->first_crash_ts = Core::num_float( $prior_ts, Core::$now );
 		}
 		return $entered_crawl;
-	}
-
-	/**
-	 * Arm the boot-time head skip from a restored frame, choosing its disposition. A quarantine
-	 * marker (`quarantined => true`) arms a silent DROP — the head is already in the DLQ. Otherwise
-	 * a hard-crash lineage (via resume_attempts_from_frame) arms the DLQ 'crash' sacrifice. A frame
-	 * can be both (a post-crash-sacrifice marker keeps the crawl lineage AND carries the marker);
-	 * the marker's DROP wins so the already-quarantined head isn't re-dead-lettered, while crawl
-	 * still continues. resume_attempts_from_frame is ALWAYS called (it seeds attempts/first_crash_ts
-	 * even off the crawl path). Shared by Consumer (load_offsetlog) and Remote_Source (restore_position).
-	 *
-	 * @param array<array-key, mixed> $entry The restored frame VALUE.
-	 * @return bool True when the head skip is armed.
-	 */
-	protected function arm_skip_head_from_frame( array $entry ): bool {
-		if ( $this->resume_attempts_from_frame( $entry ) ) {
-			$this->crawl_skip_head = true; // Keep default: DLQ sacrifice.
-		}
-		if ( true === ( $entry['quarantined'] ?? false ) ) {
-			$this->crawl_skip_head       = true;
-			$this->skip_head_disposition = 'drop';
-		}
-		return $this->crawl_skip_head;
 	}
 
 	/** True once a crawling node has run crash-free for one full checkpoint interval. */

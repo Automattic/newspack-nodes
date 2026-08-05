@@ -15,6 +15,9 @@ use PHPUnit\Framework\Attributes\CoversTrait;
 class Dead_Letter_Queue_Double extends Node {
 	use Dead_Letter_Queue;
 
+	/** Requeue seam: the log dl_requeue re-injects into. Null (default) exercises the "no local source" path. */
+	public ?Partition_Node $requeue_target = null;
+
 	public function fill( array $message ): void {}
 
 	public function build_dlq( string $dir ): ?Partition_Node {
@@ -45,19 +48,6 @@ class Dead_Letter_Queue_Double extends Node {
 		return $this->resume_attempts_from_frame( $entry );
 	}
 
-	/** @param array<array-key,mixed> $entry */
-	public function arm( array $entry ): bool {
-		return $this->arm_skip_head_from_frame( $entry );
-	}
-
-	public function armed(): bool {
-		return $this->crawl_skip_head;
-	}
-
-	public function disposition(): string {
-		return $this->skip_head_disposition;
-	}
-
 	public function crawl_elapsed(): bool {
 		return $this->crawl_interval_elapsed();
 	}
@@ -65,9 +55,6 @@ class Dead_Letter_Queue_Double extends Node {
 	public function leave_crawl(): void {
 		$this->exit_crawl();
 	}
-
-	/** Requeue seam: the log dl_requeue re-injects into. Null (default) exercises the "no local source" path. */
-	public ?Partition_Node $requeue_target = null;
 
 	protected function deadletter_requeue_target(): ?Partition_Node {
 		return $this->requeue_target;
@@ -258,47 +245,6 @@ class DeadLetterQueueTest extends TestCase {
 		// attempts pins at the threshold; crawl_started stamps now.
 		$this->assertSame( Dead_Letter_Queue_Double::CRASH_MAX_ATTEMPTS, $this->read_private( $d, 'attempts' ) );
 		$this->assertSame( 7000.0, $this->read_private( $d, 'crawl_started' ) );
-	}
-
-	// ── arm_skip_head_from_frame: boot head-skip disposition (quarantine marker) ──
-
-	public function test_arm_skip_head_from_frame_arms_crash_on_hard_crash_lineage(): void {
-		\Newspack_Nodes\Core::$now = 7000.0;
-		$d = new Dead_Letter_Queue_Double();
-		// A hard-crash lineage with no marker → arm the DLQ 'crash' sacrifice (existing behavior).
-		$this->assertTrue( $d->arm( [ 'attempts' => Dead_Letter_Queue_Double::CRASH_MAX_ATTEMPTS, 'reason' => '' ] ) );
-		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'crash', $d->disposition() );
-	}
-
-	public function test_arm_skip_head_from_frame_arms_drop_on_quarantine_marker(): void {
-		$d = new Dead_Letter_Queue_Double();
-		// A strike-out marker frame: graceful (attempts=0) + quarantined → arm the silent DROP
-		// (the head is already in the DLQ), no crawl.
-		$this->assertTrue( $d->arm( [ 'attempts' => 0, 'reason' => '', 'quarantined' => true ] ) );
-		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'drop', $d->disposition() );
-		$this->assertFalse( $this->read_private( $d, 'crawl' ), 'a strike-out marker hands off at the virgin baseline, not crawl' );
-	}
-
-	public function test_arm_skip_head_from_frame_marker_drop_wins_over_crash_lineage(): void {
-		\Newspack_Nodes\Core::$now = 7000.0;
-		$d = new Dead_Letter_Queue_Double();
-		// A post-crash-sacrifice marker keeps the crawl lineage (attempts pinned, no reason) AND
-		// carries the marker. The marker's DROP must win so the already-quarantined head isn't
-		// re-dead-lettered, while crawl still continues.
-		$this->assertTrue( $d->arm( [ 'attempts' => Dead_Letter_Queue_Double::CRASH_MAX_ATTEMPTS, 'reason' => '', 'quarantined' => true ] ) );
-		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'drop', $d->disposition(), 'the marker DROP wins over the crash-lineage sacrifice' );
-		$this->assertTrue( $this->read_private( $d, 'crawl' ), 'the crawl lineage still continues' );
-	}
-
-	public function test_arm_skip_head_from_frame_unarmed_on_a_clean_frame(): void {
-		$d = new Dead_Letter_Queue_Double();
-		// A plain graceful frame with no marker and no crash lineage arms nothing.
-		$this->assertFalse( $d->arm( [ 'attempts' => 0, 'reason' => '' ] ) );
-		$this->assertFalse( $d->armed() );
-		$this->assertSame( 'crash', $d->disposition(), 'the disposition stays at its default when unarmed' );
 	}
 
 	// ── crawl_interval_elapsed / exit_crawl ──

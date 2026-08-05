@@ -70,6 +70,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The crash-recovery seal lived on the wrong trait.** `Dead_Letter_Queue` is the
+  quarantine primitive — `Partition_Node` uses it alone to quarantine a write it
+  cannot make — but it also declared `$sealed_quarantine`, `$crawl_skip_head`,
+  `$skip_head_disposition` and `arm_skip_head_from_frame()`, none of which it
+  implements or reads. Every one of them belongs to `Durable_Reader` and its two
+  host classes, so `Partition_Node` carried a nine-line protocol spec and four
+  fields it can never use. They moved to the reader that owns them;
+  `DeadLetterQueueScopeTest` pins which trait carries what.
+
 - **`SSE_In_Node`'s contract said it forwards to its sink; it never has.** The
   class contains no reference to `$this->sink`, `$this->target` or `Message::TO`
   — delivery is the `on_message` seam alone, and the patron owns unpack, FROM
