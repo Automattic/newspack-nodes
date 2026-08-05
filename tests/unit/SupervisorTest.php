@@ -1,15 +1,15 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 
-#[Medium]
 #[CoversClass( Supervisor::class )]
+#[Medium]
 class SupervisorTest extends TestCase {
 	private string $tmp;
 
