@@ -23,12 +23,6 @@ class SseSlotPoolTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		SSE_Out_Node::$acquire_slot = null;
-		SSE_Out_Node::$release_slot = null;
-		SSE_Out_Node::$check_slot   = null;
-		if ( \property_exists( SSE_Out_Node::class, 'inspect_slot' ) ) {
-			SSE_Out_Node::$inspect_slot = null;
-		}
 		SSE_Slot_Pool::$max_slots   = 10;
 		SSE_Slot_Pool::$ttl         = 60;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
@@ -36,12 +30,6 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		SSE_Out_Node::$acquire_slot = null;
-		SSE_Out_Node::$release_slot = null;
-		SSE_Out_Node::$check_slot   = null;
-		if ( \property_exists( SSE_Out_Node::class, 'inspect_slot' ) ) {
-			SSE_Out_Node::$inspect_slot = null;
-		}
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		Core::$memd                 = null;
 		parent::tearDown();

@@ -203,3 +203,40 @@ describe( 'addSliceFetcher — optional transform', () => {
 		] );
 	} );
 } );
+
+// controlFrom is opt-in: a view that takes local controls declares the origin
+// it trusts. Stamping every view's own name planted an inert field on the nine
+// that own no control path, and the WRONG name on WorkerStatusView, whose
+// controls come from its transform.
+describe( 'addSliceFetcher — controlFrom', () => {
+	test( 'leaves controlFrom alone on a view that declares no control origin', () => {
+		addSliceFetcher( interpreter, {
+			fetcher: 'fetch-counts',
+			receiver: 'countsIn',
+			command: 'counts',
+			view: 'counts:view',
+			viewClass: 'FakeView',
+			tee,
+			target: TARGET,
+		} );
+
+		expect( Core.node( 'counts:view' ).controlFrom ).toBeUndefined();
+	} );
+
+	test( 'sets the declared control origin, which need not be the view', () => {
+		addSliceFetcher( interpreter, {
+			fetcher: 'fetch-counts',
+			receiver: 'countsIn',
+			command: 'counts',
+			view: 'counts:view',
+			viewClass: 'FakeView',
+			controlFrom: 'counts:transform',
+			tee,
+			target: TARGET,
+		} );
+
+		expect( Core.node( 'counts:view' ).controlFrom ).toBe(
+			'counts:transform'
+		);
+	} );
+} );

@@ -78,7 +78,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `{"segment":…,"name":"firehose:consumer"}`, so `flames.p0` and every Consumer
   offsetlog rendered nothing in the Partition Viewer, in live AND replay. Only
   `Remote_Source` offsetlogs survived, because their frame extra has no `name`.
-  A reply is now identified by its TYPE (`TM_COMMAND`), as `DumperNode` already did.
+
+- **A control is recognised by WHO SENT IT, never by what its payload looks
+  like.** The same sniff sat one line below the `name` check — a VALUE object
+  carrying an `action` field WAS a control — so any record shaped that way ran
+  the view's verbs instead of rendering: `{action:'pause'}` froze the belt,
+  `{action:'clear'}` emptied the ring. Every view node that takes local controls
+  now declares `controlFrom`, the FROM its dashboard mints them under, and
+  applies a control only on that origin; the payload's `action` picks the verb
+  once inside, where the message is already known to be a control. Fixed across
+  `LogStreamViewNode` and, in event-logger-nodes, `GyroscopeViewNode`,
+  `DecodedSliceViewNode` (Overview, Urls, Url Detail, Request Detail) and
+  `UrlDetailMergeNode` — each of which received both a record or reply stream
+  and controls, and told them apart by shape. `addSliceFetcher` sets the field
+  for every slice view it wires.
+
+  With replies no longer reaching the view at all (see the `SseInNode` entry
+  below), `LogStreamViewNode`'s `TM_COMMAND` early-return went with it: the
+  invariant belongs to the routing layer, and duplicating it in the receiver was
+  what made payload sniffing look reasonable in the first place. `SseInNode`'s
+  suite now pins that invariant as a RULE — no reply is re-homed whatever its
+  VALUE holds — rather than as the one payload shape that happened to break.
+
+- **A control minted without an origin was a silent no-op.** `controlFrom` is
+  the one thing a control needs, so reading it through `?? ''` was the `??
+  default` the house rules forbid: an unset field minted `FROM = ''`, the
+  receiver's guard rejected it, and Pause died with no error anywhere. Both
+  minters throw instead, and `usePerformanceGraph` has a test that every
+  control-taking node in the graph declares its origin — the wiring was the
+  one part of this no suite covered.
+
+- **`addSliceFetcher` stamped `controlFrom` on views that own no control
+  path.** Ten call sites; only four read the field. On the other six it planted
+  an inert property that reads as protection — the next control added to one of
+  them would dispatch on `value.action` again, on the assumption the origin
+  check was already there. Worse, the stamped name was the VIEW's, while
+  `WorkerStatusView`'s controls come from its transform, so completing that
+  migration would have blanked the dashboard. It is now an opt-in `controlFrom`
+  argument, declared by the two slices that take controls.
+
+- **An empty control payload crashed the view.** `_control()` reads the verb
+  off the payload, and the shape sniff it replaced had been the null guard.
+  `fill()` threw a TypeError through React. The verb read is guarded.
+
+- **An SSE-suite failure that only appeared in a full run.** `TestCase` clears a
+  dozen process-static seams in `tearDown`; the four SSE slot seams were not
+  among them, so five classes each hand-rolled the reset and the one that did
+  not — `WorkersCITest`, which calls `SSE_Slot_Pool::wire()` — leaked the
+  PRODUCTION closures into `SSEOutTest`. There they met the unmetered lease a
+  null acquire seam hands back, whose slot is -1, and `require_lease()` threw.
+  Green whenever a class that does reset happened to run in between. The reset
+  moved to `TestCase` and the five copies are gone.
 
 - **A subscription re-homed command replies, destroying their addressing.**
   `SseInNode` overwrote `TO` on every inbound frame when `homeToTarget` was set,

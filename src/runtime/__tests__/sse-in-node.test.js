@@ -742,8 +742,7 @@ test( 'the watchdog tick emits nothing into the data sink', () => {
 test( 'a command reply keeps its own TO; only records are re-homed', () => {
 	// A subscription re-homes RECORDS to its target. A reply is already
 	// addressed — the server sent it TO the node that minted the command
-	// (ADR-7) — so clobbering its TO delivers it to the view instead, which is
-	// why the view needed a guard to recognise and discard replies at all.
+	// (ADR-7) — so clobbering its TO delivers it to the view instead.
 	const { sse, routed } = makeSseIn();
 	sse.target = 'stream-tee';
 	sse.homeToTarget = true;
@@ -766,6 +765,35 @@ test( 'a command reply keeps its own TO; only records are re-homed', () => {
 
 	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
 		'stream-tee',
+		'status-receiver',
+	] );
+} );
+
+// The view used to carry a TM_COMMAND guard because replies reached it. This
+// is the invariant that made that guard redundant, stated as a rule rather
+// than as one case: NO reply is ever re-homed, whatever its payload holds.
+test( 'no command reply is re-homed, whatever its VALUE looks like', () => {
+	const { sse, routed } = makeSseIn();
+	sse.target = 'stream-tee';
+	sse.homeToTarget = true;
+	sse.start();
+	routed.length = 0;
+
+	for ( const value of [
+		{ name: 'list_logs', payload: [] },
+		{ action: 'pause', paused: true },
+		'a bare string',
+	] ) {
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		reply[ TO ] = 'status-receiver';
+		reply[ VALUE ] = value;
+		FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
+	}
+
+	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
+		'status-receiver',
+		'status-receiver',
 		'status-receiver',
 	] );
 } );

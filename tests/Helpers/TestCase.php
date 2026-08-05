@@ -140,6 +140,19 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Partition_Node', false ) ) {
 			\Newspack_Nodes\Partition_Node::$fwrite = null;
 		}
+		// @longform The four SSE slot seams, cleared HERE because five classes
+		// each hand-rolled their own reset and the one that didn't — WorkersCITest,
+		// which calls SSE_Slot_Pool::wire() — leaked the PRODUCTION closures into
+		// SSEOutTest. There they met the UNMETERED_LEASE the null acquire seam
+		// hands back, whose slot is -1, and require_lease threw. Order-dependent:
+		// green whenever a class that does reset happened to run in between.
+		if ( \class_exists( '\Newspack_Nodes\Rest\SSE_Out_Node', false ) ) {
+			\Newspack_Nodes\Rest\SSE_Out_Node::$acquire_slot  = null;
+			\Newspack_Nodes\Rest\SSE_Out_Node::$release_slot  = null;
+			\Newspack_Nodes\Rest\SSE_Out_Node::$check_slot    = null;
+			\Newspack_Nodes\Rest\SSE_Out_Node::$inspect_slot  = null;
+			\Newspack_Nodes\Rest\SSE_Out_Node::$diagnostic_log = null;
+		}
 		// Restore the per-test config env that use_base_dir() may have repointed at a
 		// (now-deleted) temp config, and drop Config's memoized base/dirs. Otherwise a
 		// test that called use_base_dir() leaks its base_directory into a later test

@@ -51,7 +51,7 @@ const LIST_NODE = 'partition:list';
 const STATUS_NODE = 'partition:status';
 const RAW_LOGS_CI = 'raw-logs';
 
-// TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
+// A control the view applies on FROM, never on payload shape; FROM=VIEW.
 const controlMsg = ( value ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -131,6 +131,8 @@ export function usePartitionViewerGraph( opts = {} ) {
 
 			// View-model node; envelope-to-row shaping inlined in fill().
 			const view = interpreter.makeNode( 'PartitionViewerView', VIEW );
+			// The view applies controls from this FROM; records never match.
+			view.controlFrom = VIEW;
 
 			linkRef.current = link;
 			viewRef.current = view;

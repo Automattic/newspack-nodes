@@ -1,5 +1,5 @@
 import { Node } from '../../runtime/node';
-import { VALUE, ID, TYPE, TM_COMMAND } from '../../runtime/message';
+import { VALUE, ID, FROM } from '../../runtime/message';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
 
@@ -43,6 +43,11 @@ export class LogStreamViewNode extends Node {
 		this.lineCounter = 0;
 		// Windowed-average + EMA lines/s (read decays an idle stream to 0).
 		this.lpsSmoother = new RateSmoother();
+		// @longform FROM of whoever drives this view's controls — the graph
+		// sets it, and a graph that forgets loses pause/step/clear in silence,
+		// because a control whose FROM matches nothing is just a record. The
+		// minters throw rather than stamp an empty origin.
+		this.controlFrom = '';
 		this.paused = false;
 		// Paused-step allowance: a `step` control admits this many rows.
 		this.stepBudget = 0;
@@ -52,25 +57,23 @@ export class LogStreamViewNode extends Node {
 	}
 
 	/**
-	 * Route one arriving message: a verb reply belongs to the node that asked
-	 * for it and is dropped here, a control payload runs through `_control()`
-	 * and republishes, and anything else is a raw stream envelope the subclass
-	 * shapes into a row.
+	 * Route one arriving message: a control from `controlFrom` runs through
+	 * `_control()` and republishes; anything else is a raw stream envelope the
+	 * subclass shapes into a row.
+	 *
+	 * A control is recognised by WHO SENT IT, never by what its payload looks
+	 * like — a record whose VALUE happens to carry an `action` field is still a
+	 * record, and sniffing for one swallowed whole streams.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for overlay throughput (not lps).
 		this.counter += 1;
-		const value = message[ VALUE ];
 
-		if ( 0 !== ( Number( message[ TYPE ] ) & TM_COMMAND ) ) {
-			return;
-		}
-
-		if ( value && 'object' === typeof value && value.action ) {
+		if ( '' !== this.controlFrom && message[ FROM ] === this.controlFrom ) {
 			// Low-frequency control path; publish to re-render.
-			this._control( value );
+			this._control( message[ VALUE ] );
 			this._publish();
 			return;
 		}
@@ -84,24 +87,25 @@ export class LogStreamViewNode extends Node {
 	 * `follow`, or `clear`. Subclasses handle their own verbs first and defer
 	 * the rest here with `super._control( value )`.
 	 *
-	 * @param {{action: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments.
+	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
 	 */
 	_control( value ) {
-		if ( 'pause' === value.action ) {
+		const action = value?.action;
+		if ( 'pause' === action ) {
 			this.paused = value.paused;
 			this.stepBudget = 0;
-		} else if ( 'step' === value.action ) {
+		} else if ( 'step' === action ) {
 			this.stepBudget = Number( value.frames ?? 1 );
-		} else if ( 'connection' === value.action ) {
+		} else if ( 'connection' === action ) {
 			this.connectionError = !! value.connectionError;
-		} else if ( 'browse' === value.action ) {
+		} else if ( 'browse' === action ) {
 			// Replaying: capture the live boundary to detect catch-up against.
 			this.seek.browse( value.endSegment ?? null, value.endOffset ?? 0 );
 			// A rewind starts clean: replays must not mix into the live tail.
 			this._clear();
-		} else if ( 'follow' === value.action ) {
+		} else if ( 'follow' === action ) {
 			this.seek.follow();
-		} else if ( 'clear' === value.action ) {
+		} else if ( 'clear' === action ) {
 			this._clear();
 		}
 	}

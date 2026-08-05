@@ -18,6 +18,8 @@ beforeEach( () => Core.reset() );
 function makeView( name ) {
 	const node = new PartitionViewerViewNode();
 	node.name = name;
+	// What the graph does: the dashboard drives controls under the view's name.
+	node.controlFrom = name;
 	return node;
 }
 
@@ -31,10 +33,11 @@ function envelopeMsg( { from = 'firehose.p0', key = '', value = '' } = {} ) {
 	return m;
 }
 
-// A control message: TM_STRUCT { action, ... }; no FROM/KEY.
+// A control message: TM_STRUCT { action, ... } from the dashboard driving it.
 function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
+	m[ FROM ] = 'partition:view';
 	m[ VALUE ] = payload;
 	return m;
 }

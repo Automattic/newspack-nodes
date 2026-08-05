@@ -11,13 +11,15 @@ import {
 	newMessage,
 	TYPE,
 	KEY,
+	FROM,
 	VALUE,
 	ID,
 	TM_STRUCT,
 	TM_BYTESTREAM,
-	TM_COMMAND,
-	TM_RESPONSE,
 } from '../../../runtime/message';
+
+// Whoever drives this view's controls; the view is told so at build time.
+const CONTROLLER = 'test:controller';
 
 // Minimal concrete subclass: VALUE string becomes the row content.
 class TestViewNode extends LogStreamViewNode {
@@ -45,12 +47,14 @@ const rowMsg = ( value, id = '' ) => {
 const controlMsg = ( value ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
+	m[ FROM ] = CONTROLLER;
 	m[ VALUE ] = value;
 	return m;
 };
 
 function makeView( maxLines ) {
 	const v = new TestViewNode( maxLines );
+	v.controlFrom = CONTROLLER;
 	v.setStateCache = {};
 	v.setState = function ( event, payload ) {
 		this.setStateCache[ event ] = payload;
@@ -143,16 +147,23 @@ test( 'the partition subclass shapes a bare VALUE column beside the key', () => 
 	expect( row.content ).toBe( 'jobstats: {"n":4}' );
 } );
 
-// A verb reply is addressed to the node that asked for it. One reaching this
-// node is not its business — and must not become a row in the stream. It is
-// identified by its TYPE (TM_COMMAND), never by sniffing its payload.
-test( 'a command reply is ignored, never rendered as a row', () => {
+// A control is recognised by its FROM; an `action` field means nothing.
+test( 'a record from another origin is never applied as a control', () => {
 	const v = makeView();
 
-	const reply = newMessage();
-	reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	reply[ VALUE ] = { name: 'list_logs', payload: [ 'x' ] };
-	v.fill( reply );
+	const record = newMessage();
+	record[ TYPE ] = TM_STRUCT;
+	record[ FROM ] = 'firehose.p0';
+	record[ VALUE ] = { action: 'pause', paused: true };
+	v.fill( record );
 
-	expect( v.linesCount ).toBe( 0 );
+	expect( v.paused ).toBe( false );
+} );
+
+// An empty control payload must not throw through fill().
+test( 'a control with no payload is a no-op, not a crash', () => {
+	const v = makeView();
+	v.fill( rowMsg( 'kept' ) );
+	v.fill( controlMsg( undefined ) );
+	expect( v.linesCount ).toBe( 1 );
 } );

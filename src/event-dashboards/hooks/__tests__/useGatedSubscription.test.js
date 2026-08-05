@@ -32,6 +32,13 @@ beforeEach( () => {
 	mockPageVisible = true;
 } );
 
+// A view as the graph builds it: it declares the origin it trusts.
+const fakeView = () => ( {
+	name: 'x:view',
+	controlFrom: 'x:view',
+	fill: jest.fn(),
+} );
+
 function mount( link, view, fetchMessage ) {
 	return renderHook( () => {
 		const linkRef = useRef( link );
@@ -43,7 +50,7 @@ function mount( link, view, fetchMessage ) {
 describe( 'useGatedSubscription', () => {
 	test( 'Play resumes the SAME dir from its recorded offset', () => {
 		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
 		act( () => result.current.setPaused( true ) );
 		link.setSubscribe.mockClear();
@@ -55,7 +62,7 @@ describe( 'useGatedSubscription', () => {
 
 	test( 'Play tails a CHANGED dir — the old dir’s offset never applies', () => {
 		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
 		act( () => result.current.setPaused( true ) );
 		// Selecting another dir while paused only records the new target.
@@ -67,14 +74,14 @@ describe( 'useGatedSubscription', () => {
 
 	test( 'resubscribe while active setSubscribes immediately', () => {
 		const link = fakeLink();
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => result.current.resubscribe( [ 'a' ], null ) );
 		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'a' ], null );
 	} );
 
 	test( 'resubscribe while paused only records; Play applies the recorded target', () => {
 		const link = fakeLink();
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => result.current.setPaused( true ) );
 		link.setSubscribe.mockClear();
 		// Changing selection while paused must NOT reopen the closed stream.
@@ -92,7 +99,7 @@ describe( 'useGatedSubscription', () => {
 		// resumePositions() has since moved on to a live offset distinct from
 		// the original replay target.
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 
 		act( () =>
 			result.current.resubscribe( [ 'x.p0' ], {
@@ -119,7 +126,7 @@ describe( 'useGatedSubscription', () => {
 	// (the "click a segment twice to rewind" bug).
 	test( 'a seek in the same tick as pause records instead of delivering', () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], {
@@ -143,7 +150,7 @@ describe( 'useGatedSubscription', () => {
 				cursor: { segment: 2, offset: 9 },
 			} )
 		);
-		const { result } = mount( link, { fill: jest.fn() }, fetchMessage );
+		const { result } = mount( link, fakeView(), fetchMessage );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], {
@@ -168,7 +175,7 @@ describe( 'useGatedSubscription', () => {
 				cursor: { segment: 0, offset: 9 },
 			} )
 		);
-		const { result } = mount( link, { fill: jest.fn() }, fetchMessage );
+		const { result } = mount( link, fakeView(), fetchMessage );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], { 'x.p0': 'start' } );
@@ -183,7 +190,7 @@ describe( 'useGatedSubscription', () => {
 	// live resume position, silently overwriting the seek it just applied.
 	test( 'play + a same-tick seek delivers once, at the seek', () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const { result } = mount( link, { fill: jest.fn() } );
+		const { result } = mount( link, fakeView() );
 		act( () => result.current.setPaused( true ) );
 		link.setSubscribe.mockClear();
 		act( () => {
@@ -200,10 +207,23 @@ describe( 'useGatedSubscription', () => {
 
 	test( 'setPaused(true) closes the link and publishes the pause control', () => {
 		const link = fakeLink();
-		const view = { fill: jest.fn() };
+		const view = fakeView();
 		const { result } = mount( link, view );
 		act( () => result.current.setPaused( true ) );
 		expect( link.close ).toHaveBeenCalled();
 		expect( view.fill ).toHaveBeenCalled();
+	} );
+
+	// A view with no controlFrom is a wiring bug. Minting the control anyway
+	// sends a FROM that matches nothing: the belt never engages and nothing
+	// says why, so the mistake has to surface here.
+	test( 'a view declaring no controlFrom fails loud, not silently', () => {
+		const { result } = mount( fakeLink( {} ), {
+			name: 'x:view',
+			fill: jest.fn(),
+		} );
+		expect( () => act( () => result.current.setPaused( true ) ) ).toThrow(
+			/declares no controlFrom/
+		);
 	} );
 } );
