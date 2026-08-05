@@ -39,7 +39,7 @@ const READ_NODE = 'logviewer:read';
 const SOURCES_NODE = 'logviewer:sources';
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 
-// TM_STRUCT control message routed by the view's fill() on action; FROM=VIEW.
+// A control the view applies on FROM, never on payload shape; FROM=VIEW.
 const controlMsg = ( value ) => {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -114,6 +114,8 @@ export function useLogViewerGraph( opts = {} ) {
 			tee.connectNode( VIEW );
 
 			const view = interpreter.makeNode( 'LogViewerView', VIEW );
+			// The view applies controls from this FROM; records never match.
+			view.controlFrom = VIEW;
 
 			linkRef.current = link;
 			viewRef.current = view;

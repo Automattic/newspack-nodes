@@ -315,8 +315,7 @@ export class SseInNode extends TimerNode {
 			// target. Never a command reply: the server addressed that to the
 			// node that minted the command (TO=FROM, ADR-7), so overwriting it
 			// delivers the reply to the subscription's view instead of its
-			// receiver — which is why the view needed a guard to recognise and
-			// discard replies at all.
+			// receiver.
 			if (
 				/** @type {PatronConfigured} */ ( this ).homeToTarget &&
 				this.target &&

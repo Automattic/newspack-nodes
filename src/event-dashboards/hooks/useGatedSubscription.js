@@ -26,7 +26,13 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { stepPosition } from '@newspack-nodes/shared/hooks/useLogPositions';
-import { newMessage, TYPE, VALUE, TM_STRUCT } from '../../runtime/message';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	VALUE,
+	TM_STRUCT,
+} from '../../runtime/message';
 
 // Reopen: explicit seek wins; else resume the same dir (tail a changed dir).
 function reopenSeed( link, { subscribe, positions } ) {
@@ -37,6 +43,31 @@ function reopenSeed( link, { subscribe, positions } ) {
 	return resume && 1 === subscribe.length && resume[ subscribe[ 0 ] ]
 		? { [ subscribe[ 0 ] ]: resume[ subscribe[ 0 ] ] }
 		: null;
+}
+
+/**
+ * Mint a control the given view will apply, stamped with the origin that view
+ * was told to trust.
+ *
+ * A view with no `controlFrom` is a wiring bug, and one that fails LOUD: the
+ * alternative is a control whose FROM matches nothing, silently rendered as a
+ * record or dropped — a dead Pause button with no error anywhere.
+ *
+ * @param {Object} view  The view node the control is filled into.
+ * @param {Object} value The control payload; `action` picks the verb.
+ * @return {Array} The 7-field TM_STRUCT message.
+ */
+function controlMsg( view, value ) {
+	if ( ! view.controlFrom ) {
+		throw new Error(
+			`useGatedSubscription: view ${ view.name } declares no controlFrom`
+		);
+	}
+	const m = newMessage();
+	m[ TYPE ] = TM_STRUCT;
+	m[ FROM ] = view.controlFrom;
+	m[ VALUE ] = value;
+	return m;
 }
 
 /**
@@ -128,10 +159,10 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 			isPausedRef.current = paused;
 			isActiveRef.current = isPageVisibleRef.current && ! paused;
 			setIsPaused( paused );
-			const m = newMessage();
-			m[ TYPE ] = TM_STRUCT;
-			m[ VALUE ] = { action: 'pause', paused };
-			viewRef.current?.fill( m );
+			const view = viewRef.current;
+			if ( view ) {
+				view.fill( controlMsg( view, { action: 'pause', paused } ) );
+			}
 		},
 		[ viewRef ]
 	);
@@ -159,10 +190,7 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 				if ( ! result?.message || ! view || ! isPausedRef.current ) {
 					return;
 				}
-				const admit = newMessage();
-				admit[ TYPE ] = TM_STRUCT;
-				admit[ VALUE ] = { action: 'step', frames: 1 };
-				view.fill( admit );
+				view.fill( controlMsg( view, { action: 'step', frames: 1 } ) );
 				view.fill( result.message );
 				pendingTargetRef.current = {
 					subscribe: target.subscribe,

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Filter_Node;
@@ -10,8 +12,6 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 
 /**
  * make_node-discipline (Rule 2): every sibling node the SSE drain graph
@@ -36,11 +36,6 @@ class SseOutSiblingPatronTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		SSE_Out_Node::$acquire_slot  = null;
-		SSE_Out_Node::$release_slot  = null;
-		SSE_Out_Node::$check_slot    = null;
-		SSE_Out_Node::$inspect_slot  = null;
-		SSE_Out_Node::$diagnostic_log = null;
 		\Newspack_Nodes\Event_Framework::reset();
 		parent::tearDown();
 	}

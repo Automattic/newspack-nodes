@@ -15,6 +15,8 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Integration;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
@@ -23,23 +25,10 @@ use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\Medium;
 
 #[CoversClass( SSE_Out_Node::class )]
 #[Medium]
 class SSEOutTest extends TestCase {
-
-	/** check_slot is process-static; clear it so a bounded closure doesn't leak into another test's drain. */
-	protected function tearDown(): void {
-		SSE_Out_Node::$check_slot   = null;
-		SSE_Out_Node::$release_slot = null;
-		SSE_Out_Node::$inspect_slot = null;
-		if ( \property_exists( SSE_Out_Node::class, 'diagnostic_log' ) ) {
-			SSE_Out_Node::$diagnostic_log = null;
-		}
-		parent::tearDown();
-	}
 
 	public function test_fill_emits_msg_event_and_increments_counter(): void {
 		// SSE_Out is double-duty: as a Node, fill() emits the Message as a

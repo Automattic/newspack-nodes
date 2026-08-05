@@ -3,7 +3,7 @@ import { PartitionViewerViewNode } from './partition-viewer-view-node';
 /**
  * `logviewer:view` — the Log Viewer's raw-line ring.
  *
- * The same O(1) newest-first ring + control/reply model as the Partition Viewer's
+ * The same O(1) newest-first ring + control model as the Partition Viewer's
  * view, over plain log FILE lines instead of packed partition envelopes (a raw
  * line arrives as the message VALUE with no KEY prefix and a single source, so it
  * shapes to partition 0 — the Log Viewer renders no partition column). Kept a

@@ -10,7 +10,7 @@ const PARTITION_RE = /\.p(\d+)$/;
  * `partition:view` — owns the Partition Viewer view model.
  *
  * A `LogStreamViewNode` subclass: the ring, paused belt + step budget,
- * decaying lps, seek tracking, reply settling, and the shared control verbs
+ * decaying lps, seek tracking, and the shared control verbs
  * (`pause`/`step`/`connection`/`browse`/`follow`/`clear`) all live in the
  * shared base. This class adds the Partition Viewer's specifics:
  * - the `select` (set + clear) and `logs` (catalog) controls, and the
@@ -118,12 +118,13 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	 * @param {{action: string, log?: string, logs?: Array<{key: string}>}} value The control payload.
 	 */
 	_control( value ) {
-		if ( 'select' === value.action ) {
+		const action = value?.action;
+		if ( 'select' === action ) {
 			this.selected = value.log;
 			// A fresh log tails live from a clean slate — drop browse cursor.
 			this.seek.select();
 			this._clear();
-		} else if ( 'logs' === value.action ) {
+		} else if ( 'logs' === action ) {
 			this.logs = value.logs;
 			if ( ! this.selected && value.logs.length > 0 ) {
 				this.selected = value.logs[ 0 ].key;
