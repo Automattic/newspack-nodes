@@ -398,6 +398,33 @@ describe( 'Dumper node — append / clear', () => {
 } );
 
 describe( 'Dumper — captureNextReply (one-shot command-reply capture)', () => {
+	it( 'lets an unanswered arm expire instead of firing on a later reply', () => {
+		// With no expiry, a verb that never replied left the slot armed, and the
+		// NEXT matching reply — possibly minutes later, belonging to a different
+		// user action — fired the stale callback.
+		jest.useFakeTimers();
+		try {
+			const dumper = new DumperNode();
+			let fired = 0;
+			dumper.captureNextReply( 'dump_config', () => fired++ );
+
+			jest.advanceTimersByTime( DumperNode.CAPTURE_TTL_MS + 1 );
+
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			m[ VALUE ] = { name: 'dump_config', payload: 'late' };
+			dumper.fill( m );
+
+			expect( fired ).toBe( 0 );
+			// And the expired slot does not block a fresh arm.
+			expect( () =>
+				dumper.captureNextReply( 'dump_config', () => {} )
+			).not.toThrow();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
 	it( 'refuses a second arm while one is pending, instead of dropping it', () => {
 		// The slot is a single field. Silently superseding meant a caller that
 		// dispatched two verbs lost the first reply with no signal at all.

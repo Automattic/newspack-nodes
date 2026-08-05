@@ -180,6 +180,15 @@ function renderMessage( message ) {
  */
 export class DumperNode extends Node {
 	/**
+	 * How long a `captureNextReply` arm stays live. A dispatched verb that
+	 * never replies — dropped, wrong worker, error swallowed upstream — used to
+	 * leave the slot armed forever, so the next matching reply fired the stale
+	 * callback. Generous enough for a slow worker, short enough that it cannot
+	 * outlive the user action that armed it.
+	 */
+	static CAPTURE_TTL_MS = 30000;
+
+	/**
 	 * Tachikoma-parity: no-arg ctor. The `debugLevelRef` is a programmatic
 	 * dependency (a React useRef object) — callers assign it as a public
 	 * property after construction: `const d = new DumperNode(); d.debugLevelRef = ref;`
@@ -275,6 +284,11 @@ export class DumperNode extends Node {
 	_maybeCapture( message ) {
 		const cap = this._captureReply;
 		if ( ! cap ) {
+			return;
+		}
+		// A stale arm must not fire on another action's reply.
+		if ( Date.now() > cap.expiresAt ) {
+			this._captureReply = null;
 			return;
 		}
 		const type = message[ TYPE ];
@@ -487,12 +501,19 @@ export class DumperNode extends Node {
 	 * @return {void}
 	 */
 	captureNextReply( verb, callback ) {
-		if ( this._captureReply ) {
+		if (
+			this._captureReply &&
+			Date.now() <= this._captureReply.expiresAt
+		) {
 			throw new Error(
 				`captureNextReply: ${ this._captureReply.verb } is still pending; use a per-verb reply node`
 			);
 		}
-		this._captureReply = { verb, callback };
+		this._captureReply = {
+			verb,
+			callback,
+			expiresAt: Date.now() + DumperNode.CAPTURE_TTL_MS,
+		};
 	}
 
 	/**
