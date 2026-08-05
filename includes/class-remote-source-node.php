@@ -20,8 +20,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Remote_Source_Node extends Remote_Link_Node {
+	// Dead_Letter_Queue rides in with Durable_Reader, which drives it.
 	use Durable_Reader;
-	use Dead_Letter_Queue;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
