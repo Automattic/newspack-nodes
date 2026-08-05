@@ -35,7 +35,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 		$p->name( 'aging' );
-		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
 
 		$scans = 0;
 		Partition_Node::$scandir = static function ( string $d ) use ( &$scans ) {
@@ -60,7 +60,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'stall' );
-		$p->arguments( [ "{$this->tmp}/logs/stall.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ "{$this->tmp}/logs/stall.p0", '1048576', '2', '4', '0', '0', '0' ] );
 
 		$msgs = [];
 		foreach ( [ 'alpha-payload', 'beta-payload', 'gamma-payload' ] as $v ) {
@@ -125,7 +125,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'openfail' );
-		$p->arguments( [ "{$this->tmp}/logs/openfail.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ "{$this->tmp}/logs/openfail.p0", '1048576', '2', '4', '0', '0', '0' ] );
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -150,7 +150,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'bigstall' );
-		$p->arguments( [ "{$this->tmp}/logs/bigstall.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ "{$this->tmp}/logs/bigstall.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$p->void_warranty();
 
 		$m                   = Message::new_message();
@@ -190,7 +190,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$multi = new Partition_Node();
 		$multi->name( 'shared' );
-		$multi->arguments( [ "{$this->tmp}/logs/shared.p0", '1048576', '2', '4', '0', '0' ] );
+		$multi->arguments( [ "{$this->tmp}/logs/shared.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$dl = ( new \ReflectionMethod( $multi, 'ensure_deadletter' ) )->invoke( $multi );
 		$this->assertNotNull( $dl );
 		$this->assertFalse( $this->read_node_prop( $dl, 'allow_large_writes' ) );
@@ -198,7 +198,7 @@ class PartitionTest extends TestCase {
 		// A single-writer source (void_warranty) keeps a sole-writer quarantine.
 		$solo = new Partition_Node();
 		$solo->name( 'solo' );
-		$solo->arguments( [ "{$this->tmp}/logs/solo.p0", '1048576', '2', '4', '0', '0' ] );
+		$solo->arguments( [ "{$this->tmp}/logs/solo.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$solo->void_warranty();
 		$dl_solo = ( new \ReflectionMethod( $solo, 'ensure_deadletter' ) )->invoke( $solo );
 		$this->assertNotNull( $dl_solo );
@@ -210,7 +210,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'data' );
-		$p->arguments( [ "{$this->tmp}/logs/data.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ "{$this->tmp}/logs/data.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$this->assertSame(
 			"{$this->tmp}/deadletter/logs.data.p0",
 			$this->read_node_prop( $p, 'deadletter_dir' ),
@@ -233,7 +233,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->name( 'capstat' );
 		// num_segments=3, hard cap=5, min_lifetime=900 protects young segments.
-		$p->arguments( [ $dir, '1048576', '2', '3', '900', '0', '5' ] );
+		$p->arguments( [ $dir, '1048576', '2', '3', '5', '900', '0' ] );
 		// Unreadable oldest mtime: stat fails for 0.log via a vanished file.
 		Partition_Node::$scandir = static fn ( string $d ) => \scandir( $d );
 		\unlink( "{$dir}/0.log" );
@@ -257,7 +257,7 @@ class PartitionTest extends TestCase {
 		$this->use_base_dir( $this->tmp );
 		$p = new Partition_Node();
 		$p->name( 'hbclock' );
-		$p->arguments( [ "{$this->tmp}/logs/hbclock.p0", '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ "{$this->tmp}/logs/hbclock.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$p->allow_large_writes();
 		Core::$now = 500.0; // frozen cached clock, far from the real one.
 		$ref = new \ReflectionClass( Partition_Node::class );
@@ -280,13 +280,13 @@ class PartitionTest extends TestCase {
 
 	public function test_constructor_does_not_create_partition_dir(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->assertFalse( is_dir( "{$this->tmp}.p0" ), 'Constructor must not eager-create partition dir' );
 	}
 
 	public function test_constructor_does_not_open_files(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->assertFalse( file_exists( "{$this->tmp}.p0/0.log" ) );
 	}
 
@@ -299,7 +299,7 @@ class PartitionTest extends TestCase {
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$p = new Partition_Node();
 		// Distinct values per slot so a min/num swap or an ignored token fails.
-		$p->arguments( [ "{$this->tmp}.p0", "1048576", "3", "5", "100", "200" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1048576", "3", "5", "0", "100", "200" ] );
 		$this->assertSame( "{$this->tmp}.p0", $p->partition_dir() );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( "{$this->tmp}.p0", $ref->getProperty( 'partition_dir' )->getValue( $p ) );
@@ -335,7 +335,7 @@ class PartitionTest extends TestCase {
 	 */
 	public function test_arguments_setter_normalizes_and_rederives_partition_dir(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p1/", "0", "2", "1", "-5", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p1/", "0", "2", "1", "0", "-5", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( 1,                 $ref->getProperty( 'segment_size' )->getValue( $p ) );
 		$this->assertSame( 2,                 $ref->getProperty( 'num_segments' )->getValue( $p ) );
@@ -352,7 +352,7 @@ class PartitionTest extends TestCase {
 
 	public function test_get_segment_path_throws_on_negative(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->expectException( \InvalidArgumentException::class );
 		$p->get_segment_path( -1 );
 	}
@@ -367,7 +367,7 @@ class PartitionTest extends TestCase {
 
 	public function test_first_fill_creates_partition_dir_and_segment(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = $this->produce( 'hello' );
 		$p->fill( $message );
 		$p->flush();
@@ -377,7 +377,7 @@ class PartitionTest extends TestCase {
 
 	public function test_fill_appends_to_segment(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'first' );
 		$this->produce_into( $p, 'second' );
 		$this->assertSame( [ 'first', 'second' ], $this->read_partition_values( $p ) );
@@ -386,7 +386,7 @@ class PartitionTest extends TestCase {
 	public function test_fill_writes_no_index_without_with_index(): void {
 		// Default mode (no with_index formatter) writes no .idx companion at all.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'hello' );
 		$this->assertFalse( file_exists( "{$this->tmp}.p0/0.idx" ), 'no .idx should be written without with_index()' );
 	}
@@ -397,7 +397,7 @@ class PartitionTest extends TestCase {
 		// 0 for every Partition. Measured against Message::packed_size
 		// (on-wire bytes), same as the base Node tracking.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$small = $this->produce( 'hi' );
 		$big   = $this->produce( \str_repeat( 'x', 100 ) );
 		$p->fill( $small );
@@ -480,7 +480,7 @@ class PartitionTest extends TestCase {
 
 	public function test_fill_accumulates_bytes_written(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message_a = $this->produce( 'hello' );
 		$message_b = $this->produce( 'world!' );
 		$p->fill( $message_a );
@@ -493,7 +493,7 @@ class PartitionTest extends TestCase {
 
 	public function test_read_at_accumulates_bytes_read(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = $this->produce( 'hello' );
 		$p->fill( $message );
 		$p->flush();
@@ -506,7 +506,7 @@ class PartitionTest extends TestCase {
 		// Cap is on the FINAL packed bytes — Message::packed adds JSON envelope
 		// so a 5000-byte VALUE comfortably exceeds the 4096 cap.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = $this->produce( str_repeat( 'x', 5000 ) );
 		$p->fill( $message );
 		$this->assertFalse( file_exists( "{$this->tmp}.p0/0.log" ), 'oversize fill must not touch the segment' );
@@ -514,7 +514,7 @@ class PartitionTest extends TestCase {
 
 	public function test_allow_large_writes_lifts_limit_to_10MB(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->allow_large_writes();
 		$this->produce_into( $p, str_repeat( 'x', 5000 ) );
 		$this->assertSame( [ str_repeat( 'x', 5000 ) ], $this->read_partition_values( $p ) );
@@ -525,7 +525,7 @@ class PartitionTest extends TestCase {
 		// generically-recorded verb invocation. Setting the flag (however) shows
 		// up; no invoked_verbs bookkeeping required.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'p' );
 		$p->allow_large_writes();
 		$this->assertStringContainsString(
@@ -542,13 +542,13 @@ class PartitionTest extends TestCase {
 		// Use a small max_wait_ms so the test fails fast — the production
 		// default (65s) waits for a possibly-stale heartbeat to age out.
 		$p1 = new Partition_Node();
-		$p1->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p1->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p1->name( 'p1' );
 		$p1->allow_large_writes();
 
 		$p2 = new Partition_Node();
 
-		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p2->name( 'p2' );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'failed to acquire write lock' );
@@ -562,7 +562,7 @@ class PartitionTest extends TestCase {
 				$this->fire();
 			}
 		};
-		$p->arguments( [ "{$dir}", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$dir}", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'dbp' );
 		$p->allow_large_writes( 1000, $debounce_ms );
 		return $p;
@@ -624,7 +624,7 @@ class PartitionTest extends TestCase {
 
 		// A continuous-mode writer now acquires the freed lock without throwing.
 		$p2 = new Partition_Node();
-		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p2->name( 'p2' );
 		$p2->allow_large_writes( 200 );
 		$this->assertDirectoryExists( "{$this->tmp}.p0/write.lock.d" );
@@ -643,7 +643,7 @@ class PartitionTest extends TestCase {
 
 		// An independent writer appends while we hold nothing.
 		$other = new Partition_Node();
-		$other->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$other->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $other, 'second' );
 
 		// Our next write re-acquires + re-syncs, appending after 'second'.
@@ -702,7 +702,7 @@ class PartitionTest extends TestCase {
 
 	public function test_read_at_returns_bytes_at_offset(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'hello' );
 		$this->produce_into( $p, 'world' );
 
@@ -717,7 +717,7 @@ class PartitionTest extends TestCase {
 
 	public function test_rotation_when_segment_size_exceeded(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "1024", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1024", "2", "4", "0", "86400", "0" ] );
 		for ( $i = 0; $i < 30; ++$i ) {
 			$this->produce_into( $p, str_repeat( 'x', 100 ) );
 		}
@@ -730,7 +730,7 @@ class PartitionTest extends TestCase {
 		$base = "{$this->tmp}/logs/firehose.log";
 		\mkdir( $base, 0755, true );
 		$p = new Partition_Node();
-		$p->arguments( [ "{$base}.p0", "1024", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$base}.p0", "1024", "2", "4", "0", "86400", "0" ] );
 		for ( $i = 0; $i < 30; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -745,7 +745,7 @@ class PartitionTest extends TestCase {
 		// kept despite count far exceeding num_segments (count rule gated on age),
 		// up to the derived hard cap (2 × num_segments = 10).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "5", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "5", "0", "86400", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, str_repeat( 'x', 100 ) );
 		}
@@ -758,7 +758,7 @@ class PartitionTest extends TestCase {
 		// num_segments=2, min_lifetime=0: the count rule always fires (age>=0), so
 		// the oldest are pruned down to num_segments.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, str_repeat( 'x', 100 ) );
 		}
@@ -770,7 +770,7 @@ class PartitionTest extends TestCase {
 	public function test_retention_prunes_to_num_segments_by_count(): void {
 		// min_seg=2 num_seg=4 min_life=0 lifetime=0 → pure count prune to num_segments.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "4", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "4", "0", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -782,7 +782,7 @@ class PartitionTest extends TestCase {
 	public function test_retention_min_lifetime_protects_young_from_count_prune(): void {
 		// num_seg=2 but min_life=86400 → young segments kept despite exceeding num_segments.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "86400", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -796,7 +796,7 @@ class PartitionTest extends TestCase {
 		// them under the count rule. (The old age gate, keyed on the min_lifetime
 		// position, would keep all of them — this is the genuinely-new behavior.)
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "100000", "5" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "0", "100000", "5" ] );
 		for ( $i = 0; $i < 10; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -812,7 +812,7 @@ class PartitionTest extends TestCase {
 		// floor of 2 — guards the `count > min_segments` clause against a
 		// regression to a literal 2.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "3", "4", "0", "5" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "3", "4", "0", "0", "5" ] );
 		for ( $i = 0; $i < 10; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -829,7 +829,7 @@ class PartitionTest extends TestCase {
 		// arg) prunes the oldest UNCONDITIONALLY once the count exceeds it — young
 		// or not, min_lifetime does not protect them. >5 young segments → exactly 5.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "900", "0", "5" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "5", "900", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -840,7 +840,7 @@ class PartitionTest extends TestCase {
 	public function test_retention_hard_floor_of_two_segments(): void {
 		// Aggressive age prune (lifetime=1, min_seg clamps to 2) never drops below 2.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "0", "1" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "3", "0", "0", "1" ] );
 		for ( $i = 0; $i < 8; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -860,7 +860,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "4", "0", "86400", "0" ] );
 		$p->name( 'p-rot' );
 		$p->debug_state( 1 );
 		\Newspack_Nodes\Core::$recent_log = [];
@@ -887,7 +887,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0", "0" ] );
 		$p->name( 'p-clean' );
 		$p->debug_state( 1 );
 		\Newspack_Nodes\Core::$recent_log = [];
@@ -909,7 +909,7 @@ class PartitionTest extends TestCase {
 		// Real Tachikoma Partition.fill packs ANY message via Message::packed
 		// and appends a newline. Consumer auto-unpacks on the read side.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = \Newspack_Nodes\Message::new_message();
 		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$message[ \Newspack_Nodes\Message::VALUE ] = 'from-fill';
@@ -934,7 +934,7 @@ class PartitionTest extends TestCase {
 		// TM_BYTESTREAM / TM_STRUCT — so allowing them through is a no-op
 		// for production paths and makes IPC work.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$types = [
 			\Newspack_Nodes\Message::TM_REQUEST,
@@ -964,7 +964,7 @@ class PartitionTest extends TestCase {
 
 	public function test_remove_node_closes_file_handles(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		// with_index() so the .idx companion handle actually opens (default mode
 		// never opens idx_fh, leaving the is_resource(idx_fh) assert false).
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
@@ -987,7 +987,7 @@ class PartitionTest extends TestCase {
 
 	public function test_remove_node_releases_write_lock(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->allow_large_writes();
 		$this->produce_into( $p, 'hello' );
 
@@ -1012,7 +1012,7 @@ class PartitionTest extends TestCase {
 	public function test_rotation_takes_inter_process_lock(): void {
 		// Tiny segments to force several rotations.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		// First write fills seg 0 to 31 bytes. Second 31-byte write triggers rotate;
 		// adopt-if-room keeps seg 0 (61 bytes total, slight overflow). Third 31-byte
 		// write rotates and BUMPS to seg 1 (newest is now ≥ 32).
@@ -1033,7 +1033,7 @@ class PartitionTest extends TestCase {
 		// triggers its own rotation. Our rotation should detect "newest still has room"
 		// and adopt it instead of creating segment 2.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		$this->produce_into( $p, str_repeat( 'a', 30 ) ); // fills segment 0 above 32B threshold.
 
 		// Before our 2nd write, simulate peer rotation by creating segment 1 with content.
@@ -1054,7 +1054,7 @@ class PartitionTest extends TestCase {
 		// reader (or get_handle's missing-file guard) doesn't tip back to segment 0.
 		// Force a true segment bump by overflowing past segment_size first.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		// Each write of 30+1 bytes ends up at 31 in segment 0; second write of 31 bytes
 		// triggers rotation but the adopt-if-room branch keeps writing to segment 0
 		// (allowed slight overflow). A third 31-byte write must rotate to segment 1.
@@ -1077,7 +1077,7 @@ class PartitionTest extends TestCase {
 	public function test_rotation_invokes_cleanup_segments(): void {
 		// num_segments=2, min_lifetime=0 (always-eligible) so cleanup runs aggressively.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "2", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "2", "0", "0", "0" ] );
 		// Each fill rotates to a new segment because packed-message line + previous offset > 32.
 		for ( $i = 0; $i < 6; $i++ ) {
 			$this->produce_into( $p, str_repeat( chr( 97 + $i ), 30 ) );
@@ -1153,7 +1153,7 @@ class PartitionTest extends TestCase {
 		// Simulate a peer rotating between fills. Our writer should detect the drift
 		// at the next fill (after DRIFT_RESCAN_INTERVAL_SECONDS) and follow.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'ours-1' );
 		// Peer creates segment 1 underneath us. (produce_into already made p0/.)
 		file_put_contents( "{$this->tmp}.p0/1.log", "peer-wrote\n" );
@@ -1319,7 +1319,7 @@ class PartitionTest extends TestCase {
 
 	public function test_partition_constructs_sibling_interpreter(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
@@ -1330,7 +1330,7 @@ class PartitionTest extends TestCase {
 
 	public function test_partition_allow_large_writes_verb_emits_cmd_line(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
@@ -1352,7 +1352,7 @@ class PartitionTest extends TestCase {
 			}
 		);
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
@@ -1374,7 +1374,7 @@ class PartitionTest extends TestCase {
 	public function test_partition_with_index_verb_unknown_formatter_errors(): void {
 		\Newspack_Nodes\Formatters::reset();
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
@@ -1384,7 +1384,7 @@ class PartitionTest extends TestCase {
 
 	public function test_partition_with_index_verb_requires_formatter_name(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'my_part' );
 		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
@@ -1410,7 +1410,7 @@ class PartitionTest extends TestCase {
 		// set_timer(0, true); calling it directly through reflection mirrors
 		// what the EventFramework drain loop does at iteration tail.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = $this->produce( 'pending' );
 		$p->fill( $message ); // appends to in-memory batch, doesn't write yet.
 
@@ -1425,7 +1425,7 @@ class PartitionTest extends TestCase {
 		// Flushing nothing must not create files or throw — fire() may run
 		// once after a manual flush with no further fills.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->invoke( $p );
@@ -1439,7 +1439,7 @@ class PartitionTest extends TestCase {
 
 	public function test_flush_with_empty_batch_is_noop(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->flush(); // empty batch — must early-return without touching disk.
 		$this->assertFalse( \is_dir( "{$this->tmp}.p0" ) );
 	}
@@ -1448,7 +1448,7 @@ class PartitionTest extends TestCase {
 		// Second flush on an empty batch must return immediately without
 		// re-rotating, re-writing, or otherwise corrupting state.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'one' );
 		$before = \file_get_contents( "{$this->tmp}.p0/0.log" );
 		$p->flush();
@@ -1463,7 +1463,7 @@ class PartitionTest extends TestCase {
 	public function test_get_segments_returns_empty_when_partition_dir_missing(): void {
 		// Pre-fill state: no fill yet → no p0 dir. get_segments must return [].
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->assertSame( [], $p->get_segments( true ) );
 		$this->assertFalse( \is_dir( "{$this->tmp}.p0" ), 'get_segments must not create the dir' );
 	}
@@ -1473,7 +1473,7 @@ class PartitionTest extends TestCase {
 		// cache and verify a non-force-refresh call still returns the cached
 		// list (no segment 1 in the result).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'hi' );
 		$initial = $p->get_segments(); // populates cache.
 		$this->assertCount( 1, $initial );
@@ -1493,7 +1493,7 @@ class PartitionTest extends TestCase {
 	public function test_get_segments_filters_non_matching_files(): void {
 		// Files that don't match SEGMENT_PATTERN must be ignored.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'hi' );
 		\file_put_contents( "{$this->tmp}.p0/garbage.txt", 'noise' );
 		\file_put_contents( "{$this->tmp}.p0/0.idx", 'idx' ); // .idx isn't a .log either.
@@ -1511,7 +1511,7 @@ class PartitionTest extends TestCase {
 		// When the partition_dir gets wiped between drift-check ticks, the
 		// rescan walks an empty result and early-returns without crashing.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'seed' );
 
 		$ref        = new \ReflectionClass( $p );
@@ -1534,7 +1534,7 @@ class PartitionTest extends TestCase {
 		// If get_segments hasn't been called yet, segments_cache is null.
 		// touch_segments_cache must early-return without throwing.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$ref = new \ReflectionClass( $p );
 
 		$cache_prop = $ref->getProperty( 'segments_cache' );
@@ -1550,7 +1550,7 @@ class PartitionTest extends TestCase {
 		// First fill populates the segments_cache, second fill writes more
 		// bytes and touch_segments_cache must mirror the new current_size.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'first' );
 		$p->get_segments(); // populate the cache.
 
@@ -1569,7 +1569,7 @@ class PartitionTest extends TestCase {
 		// partition just bumped to segment 1. touch_segments_cache should
 		// append the new segment to the cache rather than miss it.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'seed' );
 		$p->get_segments(); // populate cache with seg 0.
 
@@ -1603,7 +1603,7 @@ class PartitionTest extends TestCase {
 		//   3. unset($p) — refcount now actually drops to 0, __destruct fires
 		//      synchronously, flush() writes the batch, close_handle() closes.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$message = $this->produce( 'gc-flushed' );
 		$p->fill( $message );
 
@@ -1630,7 +1630,7 @@ class PartitionTest extends TestCase {
 		// rm -rf the partition dir after a successful write; the next fill must
 		// re-create the dir, re-init from disk (segment 0), and write fresh.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'before-wipe' );
 
 		// Drop file handles AND on-disk state.
@@ -1656,7 +1656,7 @@ class PartitionTest extends TestCase {
 		// fill's get_handle() must spot the missing path and call
 		// init_current_segment to re-anchor.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'first' );
 
 		// Close handles so a subsequent fill goes through get_handle's open path.
@@ -1678,7 +1678,7 @@ class PartitionTest extends TestCase {
 		// branch in get_handle without chmod tricks (which silently no-op as
 		// root).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		// Force current_log_path to point at the partition_dir itself (a real
 		// directory). init_current_segment hasn't run yet, so set state by
@@ -1731,7 +1731,7 @@ class PartitionTest extends TestCase {
 
 		try {
 			$p = new Partition_Node();
-			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 			$p->name( 'evp' );
 			$p->allow_large_writes();
 
@@ -1764,7 +1764,7 @@ class PartitionTest extends TestCase {
 		// fill must throw rather than silently write into another holder's
 		// segment.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'no-ef' );
 		$p->allow_large_writes();
 
@@ -1788,7 +1788,7 @@ class PartitionTest extends TestCase {
 		// Happy path of the same branch: fill() runs the heartbeat path,
 		// succeeds, and updates last_lock_heartbeat to the current time.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'no-ef-ok' );
 		$p->allow_large_writes();
 
@@ -1815,7 +1815,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'p-drop' );
 		\Newspack_Nodes\Core::$recent_log = [];
 
@@ -1840,7 +1840,7 @@ class PartitionTest extends TestCase {
 		// formatter must NOT propagate out of fill(); the .log is still
 		// written and the next fill continues normally.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->with_index( static function () {
 			throw new \RuntimeException( 'formatter exploded' );
 		} );
@@ -1861,7 +1861,7 @@ class PartitionTest extends TestCase {
 		// Force two segments where the second segment has a .log but no .idx.
 		// with_index is on (JSONL path), so each segment normally gets an .idx.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "64", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "64", "2", "4", "0", "86400", "0" ] );
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, \str_repeat( 'a', 40 ) ); // seg 0.
 		$this->produce_into( $p, \str_repeat( 'b', 40 ) ); // forces rotate.
@@ -1896,7 +1896,7 @@ class PartitionTest extends TestCase {
 		// "young" so the count rule can't fire and the loop breaks on the
 		// first iteration, even with count >> num_segments.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "3600", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "3600", "0" ] );
 		for ( $i = 0; $i < 5; ++$i ) {
 			$this->produce_into( $p, \str_repeat( \chr( 97 + $i ), 100 ) );
 		}
@@ -1941,7 +1941,7 @@ class PartitionTest extends TestCase {
 		// lands (~5050 packed bytes >= 4500), so the second write rotates to
 		// a fresh segment 1.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "4500", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "4500", "2", "4", "0", "86400", "0" ] );
 		$p->allow_large_writes();
 		// Pump a 5000-byte VALUE into seg 0.
 		$message_a = $this->produce( \str_repeat( 'A', 5000 ) );
@@ -1967,7 +1967,7 @@ class PartitionTest extends TestCase {
 		// public path to this branch is: rotate_segment in allow_large_writes
 		// mode (skips the rotation lock), starting with no segments yet.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->allow_large_writes();
 
 		// Confirm pre-state: dir exists (allow_large_writes created it for the lock).
@@ -1991,7 +1991,7 @@ class PartitionTest extends TestCase {
 		// Stub a 0-byte .idx — file_exists is true, but rtrim+explode of an
 		// empty string yields no entries, so the segment contributes nothing.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->with_index( fn ( array $message, array $pos ) => 'entry' );
 		$this->produce_into( $p, 'seed' ); // creates p0/ + 0.idx with one entry.
 
@@ -2057,7 +2057,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$init = $ref->getMethod( 'init_current_segment' );
 		$init->invoke( $p );
@@ -2084,7 +2084,7 @@ class PartitionTest extends TestCase {
 		// straight into the protected $batch + $batch_index_args, then
 		// flushing.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$ref = new \ReflectionClass( $p );
 
 		// Sanity: current_segment_id is still null pre-flush.
@@ -2125,7 +2125,7 @@ class PartitionTest extends TestCase {
 		$this->assertNotFalse( $ro_fh );
 
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$wa  = $ref->getMethod( 'write_all' );
 
@@ -2153,7 +2153,7 @@ class PartitionTest extends TestCase {
 			$this->assertNotFalse( $fh );
 
 			$p = new Partition_Node();
-			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 			$ref = new \ReflectionClass( $p );
 			$wa  = $ref->getMethod( 'write_all' );
 
@@ -2183,7 +2183,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$base}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$base}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		// Three 30-byte VALUES force at least one true rotation past segment 0.
 		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
 		$this->produce_into( $p, \str_repeat( 'b', 30 ) );
@@ -2204,7 +2204,7 @@ class PartitionTest extends TestCase {
 		// the lock dir + a peer-written segment 1 so init_current_segment
 		// adopts segment 1.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		// Land one write so the partition_dir + segment 0 exist.
 		$this->produce_into( $p, \str_repeat( 'a', 10 ) );
 
@@ -2266,7 +2266,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'before' ); // seed seg 0.
 
 		try {
@@ -2286,7 +2286,7 @@ class PartitionTest extends TestCase {
 		// rmdir it, mkdir again, then proceed to do_rotate. Verify the
 		// segment actually rotated.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "4", "0", "86400", "0" ] );
 		$this->produce_into( $p, \str_repeat( 'a', 20 ) ); // seed seg 0.
 
 		$locks_dir = "{$this->tmp}.p0";
@@ -2333,7 +2333,7 @@ class PartitionTest extends TestCase {
 		// skips the adopt-if-room branch and goes through the
 		// touch($current_log_path) path on a fresh seg 1 id.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "16", "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "16", "2", "4", "0", "86400", "0" ] );
 		\mkdir( "{$this->tmp}.p0", 0755, true );
 		\file_put_contents( "{$this->tmp}.p0/0.log", \str_repeat( 'x', 32 ) ); // >= segment_size.
 
@@ -2372,7 +2372,7 @@ class PartitionTest extends TestCase {
 		// read_at on a segment_id whose .log doesn't exist must early-return ''
 		// (file_exists false branch) without falling through to fopen.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'seed' ); // segment 0 exists.
 
 		$this->assertSame(
@@ -2391,7 +2391,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'seed' );
 		$p->remove_node(); // close handles so chmod takes effect for next open.
 
@@ -2565,7 +2565,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		// Pre-create the partition_dir so is_dir passes — get_segments then
 		// proceeds to scandir, which fails on 0000 perms.
 		\mkdir( "{$this->tmp}.p0", 0755, true );
@@ -2589,7 +2589,7 @@ class PartitionTest extends TestCase {
 	public function test_allow_large_writes_names_write_lock_sibling(): void {
 		// Rule 2: the Lock sibling is named even in request scope (no drain loop).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'big_part' );
 		$p->sink( new \Newspack_Nodes\Echo_Node() );
 		$p->allow_large_writes();
@@ -2604,7 +2604,7 @@ class PartitionTest extends TestCase {
 	public function test_allow_large_writes_sets_lock_patron_to_partition(): void {
 		// Rule 2: patron marks the Lock as plumbing so dump_metadata hides it.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'big_part' );
 		$p->sink( new \Newspack_Nodes\Echo_Node() );
 		$p->allow_large_writes();
@@ -2618,7 +2618,7 @@ class PartitionTest extends TestCase {
 	public function test_allow_large_writes_sinks_lock_to_partition_specific_sink(): void {
 		// Rule 2 specific-sink exception: the Lock keeps the partition's own sink.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p->name( 'big_part' );
 		$echo = new \Newspack_Nodes\Echo_Node();
 		$p->sink( $echo );
@@ -2802,7 +2802,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 		$p->name( 'firehose-part' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
 		$timer = new class extends Timer_Node {
@@ -2841,7 +2841,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 		$p->name( 'firehose-part' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
 		$timer = new class extends Timer_Node {
@@ -2888,7 +2888,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 		$p->name( 'shutdown-flush' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -2914,7 +2914,7 @@ class PartitionTest extends TestCase {
 
 		$p = new Partition_Node();
 		$p->name( 'offsetlog-like' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -2941,7 +2941,7 @@ class PartitionTest extends TestCase {
 			public function __destruct() {}
 		};
 		$p->name( 'firehose-part' );
-		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
 
 		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
 		$timer = new class extends Timer_Node {
@@ -2991,7 +2991,7 @@ class PartitionTest extends TestCase {
 		// spawns segment 1 (no room to adopt). The spawn branch of do_rotate must
 		// leave segments_cache non-null and equal to the on-disk truth.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "8", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "8", "0", "86400", "0" ] );
 		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
 		$this->produce_into( $p, \str_repeat( 'b', 30 ) );
 		$this->produce_into( $p, \str_repeat( 'c', 30 ) );
@@ -3007,7 +3007,7 @@ class PartitionTest extends TestCase {
 		// The line-351 force-scan already populated the cache with the truth
 		// including the adopted segment — it must NOT be nulled.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "64", "2", "8", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "64", "2", "8", "0", "86400", "0" ] );
 		$this->produce_into( $p, 'seed' );
 
 		// Peer creates an empty segment 1 (room to adopt) directly on disk.
@@ -3037,7 +3037,7 @@ class PartitionTest extends TestCase {
 				return parent::get_segments( $force_refresh, $now );
 			}
 		};
-		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "8", "86400", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "32", "2", "8", "0", "86400", "0" ] );
 		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
 
 		// Reset the counter, then trigger exactly one spawn rotation.
@@ -3053,7 +3053,7 @@ class PartitionTest extends TestCase {
 		// After pruning, segments_cache must be non-null and match the surviving
 		// on-disk segments (not nulled-after-prune).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -3071,7 +3071,7 @@ class PartitionTest extends TestCase {
 		// Standalone callers (tests) invoke cleanup_segments() with a cold cache.
 		// It must fall back to a force-scan and still prune correctly.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "256", "2", "2", "0", "0", "0" ] );
 		for ( $i = 0; $i < 20; ++$i ) {
 			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
 		}
@@ -3090,7 +3090,7 @@ class PartitionTest extends TestCase {
 		// N writes the cache must stay non-null and match the alive segments —
 		// the regression the user observed (segments_cache: null forever).
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "4", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "4", "0", "0", "0" ] );
 		for ( $i = 0; $i < 8; ++$i ) {
 			$this->produce_into( $p, "chk-{$i}" );
 		}
@@ -3113,7 +3113,7 @@ class PartitionTest extends TestCase {
 	 */
 	private function make_keyframe_partition( int $count ): Partition_Node {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0", "0" ] );
 		for ( $i = 0; $i < $count; ++$i ) {
 			$this->produce_into( $p, "f-{$i}" );
 		}
@@ -3202,7 +3202,7 @@ class PartitionTest extends TestCase {
 		// The old write_lock guard had it backwards: holding the exclusivity
 		// lock means there is no peer append to race. Guard removed.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0", "0" ] );
 		$p->name( 'src' );
 		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		for ( $i = 0; $i < 4; ++$i ) {
@@ -3221,7 +3221,7 @@ class PartitionTest extends TestCase {
 		// caller, so truncate_after must go through — the guard keys on the lock,
 		// not on the lifted cap.
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p0", "1", "2", "100", "0", "0", "0" ] );
 		$p->void_warranty();
 		for ( $i = 0; $i < 5; ++$i ) {
 			$this->produce_into( $p, "f-{$i}" );
@@ -3245,7 +3245,7 @@ class PartitionTest extends TestCase {
 		};
 		try {
 			$p = new Partition_Node();
-			$p->arguments( [ "{$this->tmp}/voided", "65536", "2", "10", "0", "0" ] );
+			$p->arguments( [ "{$this->tmp}/voided", "65536", "2", "10", "0", "0", "0" ] );
 			$p->void_warranty();
 			$this->produce_into( $p, 'first' );
 
@@ -3280,7 +3280,7 @@ class PartitionTest extends TestCase {
 		};
 		try {
 			$p = new Partition_Node();
-			$p->arguments( [ "{$this->tmp}/multi", "65536", "2", "10", "0", "0" ] );
+			$p->arguments( [ "{$this->tmp}/multi", "65536", "2", "10", "0", "0", "0" ] );
 			$this->produce_into( $p, 'first' );
 
 			$p->get_segments();
@@ -3313,7 +3313,7 @@ class PartitionTest extends TestCase {
 		$dir = "{$this->tmp}/logs/private.p0";
 		$p   = new Partition_Node();
 		$p->name( 'private' );
-		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0' ] );
+		$p->arguments( [ $dir, '1048576', '2', '4', '0', '0', '0' ] );
 
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;

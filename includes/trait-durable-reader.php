@@ -86,9 +86,9 @@ trait Durable_Reader {
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_MIN_SEGMENTS,
 			self::OFFSETLOG_NUM_SEGMENTS,
+			self::OFFSETLOG_MAX_SEGMENTS,
 			self::OFFSETLOG_MIN_LIFETIME,
 			self::OFFSETLOG_LIFETIME,
-			self::OFFSETLOG_MAX_SEGMENTS,
 		] );
 		return $this->offsetlog;
 	}

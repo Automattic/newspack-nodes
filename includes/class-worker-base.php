@@ -372,9 +372,9 @@ class Worker_Base {
 			self::IPC_SEGMENT_SIZE,
 			self::IPC_MIN_SEGMENTS,
 			self::IPC_NUM_SEGMENTS,
+			self::IPC_MAX_SEGMENTS,
 			self::IPC_MIN_LIFETIME,
 			self::IPC_LIFETIME,
-			self::IPC_MAX_SEGMENTS,
 		] );
 	}
 

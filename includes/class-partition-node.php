@@ -1403,9 +1403,9 @@ class Partition_Node extends Timer_Node {
 				[ 'name' => 'segment_size',  'type' => 'int',    'default'  => '<config:segment_size>', 'description' => 'Segment rotation threshold in bytes; a new segment starts once a write would exceed it (default 64 MiB).' ],
 				[ 'name' => 'min_segments',  'type' => 'int',    'default'  => '<config:min_segments>', 'description' => 'Floor for the age rule: keep at least this many segments even when pruning by lifetime (clamped to a hard minimum of 2).' ],
 				[ 'name' => 'num_segments',  'type' => 'int',    'default'  => '<config:num_segments>', 'description' => 'Count-rule target: prune the oldest back to this many segments, but only ones older than min_lifetime.' ],
+				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => '<config:max_segments>', 'description' => 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min_lifetime does not protect them; only the floor of 2 does). 0 = derive as 2 × num_segments.' ],
 				[ 'name' => 'min_lifetime',  'type' => 'int',    'default'  => '<config:min_lifetime>', 'description' => 'Floor for the count rule: keep segments younger than this many seconds even when over num_segments; 0 keeps nothing extra.' ],
 				[ 'name' => 'lifetime',      'type' => 'int',    'default'  => '<config:lifetime>', 'description' => 'Age rule: prune segments older than this many seconds down to min_segments; 0 disables age-based pruning.' ],
-				[ 'name' => 'max_segments',  'type' => 'int',    'default'  => '<config:max_segments>', 'description' => 'True hard cap: prune the oldest UNCONDITIONALLY above this many segments (min_lifetime does not protect them; only the floor of 2 does). 0 = derive as 2 × num_segments.' ],
 			],
 			'commands'    => [
 				[

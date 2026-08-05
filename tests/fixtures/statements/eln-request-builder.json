@@ -78,6 +78,7 @@
             "<config:min_segments>",
             "<config:num_segments>",
             "0",
+            "0",
             "0"
         ],
         "spans": [
@@ -89,9 +90,10 @@
             "<config:min_segments>",
             "<config:num_segments>",
             "0",
+            "0",
             "0"
         ],
-        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0",
+        "raw": "make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0",
         "line": 15
     },
     {
@@ -105,6 +107,7 @@
             "<config:min_segments>",
             "<config:num_segments>",
             "0",
+            "0",
             "0"
         ],
         "spans": [
@@ -116,9 +119,10 @@
             "<config:min_segments>",
             "<config:num_segments>",
             "0",
+            "0",
             "0"
         ],
-        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0",
+        "raw": "make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0",
         "line": 16
     },
     {

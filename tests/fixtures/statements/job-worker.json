@@ -106,9 +106,10 @@
             "<config:logs_dir>/jobstats.p0",
             "1048576",
             "2",
-            "2",
+            "8",
+            "0",
             "86400",
-            "0"
+            "86400"
         ],
         "spans": [
             "make_node",
@@ -117,11 +118,12 @@
             "<config:logs_dir>/jobstats.p0",
             "1048576",
             "2",
-            "2",
+            "8",
+            "0",
             "86400",
-            "0"
+            "86400"
         ],
-        "raw": "make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 2 86400 0",
+        "raw": "make_node Partition jobstats:log <config:logs_dir>/jobstats.p0 1048576 2 8 0 86400 86400",
         "line": 22
     },
     {

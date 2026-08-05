@@ -38,9 +38,9 @@ class JobWorkerTopologyResolveTest extends TestCase {
 		$this->assertSame( 'partition', $by_name['jobstats:log']['kind'] );
 		$this->assertSame( 'jobstats.p0', $by_name['jobstats:log']['writes'] );
 		$this->assertSame(
-			[ '<config:logs_dir>/jobstats.p0', '1048576', '2', '2', '86400', '0' ],
+			[ '<config:logs_dir>/jobstats.p0', '1048576', '2', '8', '0', '86400', '86400' ],
 			$by_name['jobstats:log']['args'],
-			'jobstats log must keep the mount geometry: 1 MiB segments, min/max 2, min-lifetime 86400, max-lifetime 0'
+			'jobstats geometry: 1 MiB x 8 segments, derived hard cap, and a full day of both lifetimes'
 		);
 
 		$this->assertArrayHasKey( 'jobstats', $by_name, 'the Job_Probe must be declared' );

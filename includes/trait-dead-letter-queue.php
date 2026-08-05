@@ -171,9 +171,9 @@ trait Dead_Letter_Queue {
 			self::DEADLETTER_SEGMENT_SIZE,
 			self::DEADLETTER_MIN_SEGMENTS,
 			self::DEADLETTER_NUM_SEGMENTS,
+			self::DEADLETTER_MAX_SEGMENTS,
 			self::DEADLETTER_MIN_LIFETIME,
 			self::DEADLETTER_LIFETIME,
-			self::DEADLETTER_MAX_SEGMENTS,
 		] );
 		// Sole writer: the cap lifts so poison over PIPE_BUF still quarantines.
 		if ( $this->deadletter_sole_writer() ) {

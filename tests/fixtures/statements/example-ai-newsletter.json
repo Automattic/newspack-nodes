@@ -102,6 +102,7 @@
             "2",
             "7",
             "0",
+            "0",
             "0"
         ],
         "spans": [
@@ -113,9 +114,10 @@
             "2",
             "7",
             "0",
+            "0",
             "0"
         ],
-        "raw": "make_node Log digest:log /tmp/example-ai-newsletter/digest.md 1 2 7 0 0",
+        "raw": "make_node Log digest:log /tmp/example-ai-newsletter/digest.md 1 2 7 0 0 0",
         "line": 22
     },
     {
@@ -143,6 +145,7 @@
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:num_segments>",
+            "<config:max_segments>",
             "<config:min_lifetime>",
             "<config:lifetime>"
         ],
@@ -154,10 +157,11 @@
             "<config:segment_size>",
             "<config:min_segments>",
             "<config:num_segments>",
+            "<config:max_segments>",
             "<config:min_lifetime>",
             "<config:lifetime>"
         ],
-        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:min_lifetime> <config:lifetime>",
+        "raw": "make_node Partition scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:min_segments> <config:num_segments> <config:max_segments> <config:min_lifetime> <config:lifetime>",
         "line": 26
     },
     {

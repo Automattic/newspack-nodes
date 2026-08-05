@@ -29,6 +29,8 @@ class Settings_Event_Writer {
 
 	public const SETTINGS_LIFETIME     = 86400;
 	public const SETTINGS_LOG_DIR      = 'settings.p0';
+	/** 0 derives the hard cap as 2 x num_segments; explicit because it is no longer the trailing slot. */
+	public const SETTINGS_MAX_SEGMENTS = 0;
 	public const SETTINGS_MIN_LIFETIME = 0;
 	public const SETTINGS_MIN_SEGMENTS = 2;
 	public const SETTINGS_NUM_SEGMENTS = 2;
@@ -219,8 +221,8 @@ class Settings_Event_Writer {
 	/**
 	 * Retention geometry for the settings log. This used to pass `2 86400` — a
 	 * LIFETIME in the num_segments slot, licensing 86400 segments. The day is an
-	 * AGE rule (lifetime); the count target is 2. The hard cap is omitted (derives
-	 * to 2 × num_segments), which never binds here since min_lifetime is 0.
+	 * AGE rule (lifetime); the count target is 2. The hard cap passes 0 to derive
+	 * as 2 × num_segments, which never binds here since min_lifetime is 0.
 	 *
 	 * @param string $dir Segment directory.
 	 * @return list<string>
@@ -231,6 +233,7 @@ class Settings_Event_Writer {
 			self::SETTINGS_SEGMENT_SIZE,
 			self::SETTINGS_MIN_SEGMENTS,
 			self::SETTINGS_NUM_SEGMENTS,
+			self::SETTINGS_MAX_SEGMENTS,
 			self::SETTINGS_MIN_LIFETIME,
 			self::SETTINGS_LIFETIME,
 		] );

@@ -63,7 +63,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 		// (typically via `include topic-probe`). Same path + byte-identical
 		// args = one shared multi-writer log — atomic ≤PIPE_BUF appends and
 		// the rotate lock make that safe, so it must not refuse the fleet.
-		$probe = "make_node Partition  _topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 2 86400 0";
+		$probe = "make_node Partition  topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400";
 		$this->write_tsl( 'workers-a', "{$probe}\nmake_node Partition a:partition <config:logs_dir>/a.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 		$this->write_tsl( 'workers-b', "{$probe}\nmake_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 
