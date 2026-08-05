@@ -221,7 +221,7 @@ export function useGraphHandlers( {
 					if ( ! shell ) {
 						return;
 					}
-					const { verb, kind, positional } = payload;
+					const { verb, kind, positional, replyTo } = payload;
 					// Route by catalog is_interpreter, not `:config` (remote).
 					const node = ( graph?.nodes || [] ).find(
 						( n ) => n.id === nodeId
@@ -276,7 +276,8 @@ export function useGraphHandlers( {
 						}`;
 					}
 					m[ TO ] = to;
-					m[ FROM ] = replyFrom( names.OUTPUT );
+					// A caller owning a reply node names it (ADR-7).
+					m[ FROM ] = replyFrom( replyTo || names.OUTPUT );
 					append( {
 						kind: 'sent',
 						text: echo,

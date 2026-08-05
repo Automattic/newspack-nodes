@@ -1,10 +1,16 @@
 /**
  * TriageView — the selected consumer/tail/remote-source node's dead-letter queue,
- * shown inside the Inspector's wide Triage modal. It arms a one-shot reply capture
- * on the `_output` Dumper (the same round-trip the live-save flow uses), then
- * dispatches the `dl_list` / `dl_requeue` / `dl_purge` verbs at the node's
- * `:config` interpreter via onAction. `dl_list` replies a JSON string, parsed
- * defensively into the table so a bad reply shows an error row, not a crash.
+ * shown inside the Inspector's wide Triage modal. It dispatches the `dl_list` /
+ * `dl_show` / `dl_requeue` / `dl_purge` verbs at the node's `:config`
+ * interpreter via onAction. `dl_list` replies a JSON string, parsed defensively
+ * into the table so a bad reply shows an error row, not a crash.
+ *
+ * Each verb mints its command FROM its OWN receiver node, so the reply lands
+ * there and the addressing IS the correlation (ADR-7). This used to arm a
+ * one-shot capture slot on the shared `_output` Dumper and match the reply by
+ * command NAME — a single field, so a second verb overwrote the first's
+ * callback, which is why a `viewPending` flag had to forbid a concurrent
+ * `dl_show`.
  */
 
 import {
@@ -15,8 +21,8 @@ import {
 	useState,
 } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { Core } from '../../runtime/core';
-import names from '../../runtime/reserved-node-names.json';
+import { CallbackNode } from '../../runtime/callback-node';
+import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
 
@@ -54,7 +60,7 @@ export default function TriageView( { node, onAction } ) {
 	const [ confirmPurge, setConfirmPurge ] = useState( false );
 	// The open record panel, { locator, record } from dl_show, or null.
 	const [ shown, setShown ] = useState( null );
-	// dl_show in flight — the one-per-verb capture slot forbids a second.
+	// dl_show in flight, so the row's View button can show progress.
 	const [ viewPending, setViewPending ] = useState( false );
 
 	// Ref to the latest onAction keeps runVerb stable across polls.
@@ -69,25 +75,54 @@ export default function TriageView( { node, onAction } ) {
 		};
 	}, [] );
 
-	// Arm the one-shot `_output` reply capture, then dispatch the verb.
+	// One receiver node per verb; see the file header.
+	const receiversRef = useRef( null );
+	if ( null === receiversRef.current ) {
+		receiversRef.current = {};
+	}
+	const replyNodeFor = useCallback( ( verb ) => {
+		const name = `_triage:${ verb }`;
+		if ( ! receiversRef.current[ verb ] ) {
+			const receiver = new CallbackNode( ( message ) => {
+				const handler = receiversRef.current[ verb ]?.onReply;
+				if ( ! handler || ! mountedRef.current ) {
+					return;
+				}
+				const value = message[ VALUE ];
+				const payload =
+					value && 'object' === typeof value ? value.payload : value;
+				handler( payload, !! ( message[ TYPE ] & TM_ERROR ) );
+			} );
+			receiver.name = name;
+			receiversRef.current[ verb ] = { node: receiver, onReply: null };
+		}
+		return name;
+	}, [] );
+
+	// Tear down with the modal, or a later one inherits the names.
+	useEffect(
+		() => () => {
+			Object.values( receiversRef.current || {} ).forEach( ( entry ) => {
+				entry.node?.removeNode?.();
+			} );
+			receiversRef.current = {};
+		},
+		[]
+	);
+
 	const runVerb = useCallback(
 		( verb, positional, byName, onReply ) => {
-			Core.node( names.OUTPUT )?.captureNextReply(
-				verb,
-				( payload, isError ) => {
-					if ( mountedRef.current ) {
-						onReply( payload, isError );
-					}
-				}
-			);
+			const replyTo = replyNodeFor( verb );
+			receiversRef.current[ verb ].onReply = onReply;
 			onActionRef.current?.( 'invoke', node.id, {
 				verb,
 				kind: 'command',
 				positional,
 				byName,
+				replyTo,
 			} );
 		},
-		[ node.id ]
+		[ node.id, replyNodeFor ]
 	);
 
 	const refresh = useCallback( () => {

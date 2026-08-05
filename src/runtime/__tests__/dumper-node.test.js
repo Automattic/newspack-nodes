@@ -398,6 +398,16 @@ describe( 'Dumper node — append / clear', () => {
 } );
 
 describe( 'Dumper — captureNextReply (one-shot command-reply capture)', () => {
+	it( 'refuses a second arm while one is pending, instead of dropping it', () => {
+		// The slot is a single field. Silently superseding meant a caller that
+		// dispatched two verbs lost the first reply with no signal at all.
+		const dumper = new DumperNode();
+		dumper.captureNextReply( 'dump_config', () => {} );
+		expect( () =>
+			dumper.captureNextReply( 'other_verb', () => {} )
+		).toThrow( /still pending/ );
+	} );
+
 	const reply = ( name, payload, kind = TM_RESPONSE ) =>
 		msg( TM_COMMAND | kind, { name, payload } );
 
