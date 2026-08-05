@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Service_CI_Node` gated its verbs at construction, not on install.** The
+  capability wrap was applied once, in the constructor, while `commands()` is
+  public and mutating and `dispatch()` reads the table at call time — so any
+  table installed afterwards replaced the gated handlers wholesale and silently
+  disabled authorization for every verb on that CI. The parent also injected an
+  ungated `help` whenever the table lacked one. `commands()` now gates on
+  INSTALL, whenever it happens, and seeds its own manage-gated `help`.
+
 - **Secure levels accumulate again — raising the level no longer re-enables
   what a lower one disabled.** `DISABLED_CLASSES` declares what each level
   ADDS, and `refuse_at_secure_level()` tested membership in that level's array
