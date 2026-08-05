@@ -6,8 +6,10 @@
  * It owns one easy handle (the SSE GET) registered on the Event_Framework's shared
  * cURL multi, one in-memory `{segment, offset}` cursor, and one SSE connection's
  * worth of parser state. It is a *source*: `fill()` is a no-op (it doesn't receive
- * messages); it parses Messages off the SSE feed and forwards them to its sink with
- * TO=target.
+ * messages). Delivery is the `on_message` seam ONLY — each `data:` payload is handed
+ * to the patron RAW, byte-identical to the remote's on-disk encoding, and the patron
+ * owns unpacking, FROM stamping, target and the sink fill. This node reads neither
+ * `sink` nor `target`; `node_schema()` declares no `has_target` for the same reason.
  *
  * It is passive: it owns NO timer. Inbound bytes flow via the Event_Framework's
  * cURL polling (`register_curl_easy` + `on_curl_message`, like HTTP_Out).
@@ -108,8 +110,8 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Node contract. SSE_In is a *source* — like Tail, it generates messages from
-	 * an external stream and pushes them down its sink. It doesn't accept upstream
-	 * messages.
+	 * an external stream, but it hands them to the `on_message` seam rather than a
+	 * sink. It doesn't accept upstream messages.
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param array<int, mixed> $message The 7-field positional message array.
