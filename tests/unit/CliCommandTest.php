@@ -18,6 +18,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\CLI_Command;
 use Newspack_Nodes\Command_Interpreter_Node;
@@ -28,7 +29,6 @@ use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\TTY_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/class-cli-command.php';
 require_once \dirname( __DIR__, 2 ) . '/includes/class-tap-node.php';

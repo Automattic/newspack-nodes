@@ -15,12 +15,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Tiny concrete Service_CI_Node fixture: one verb with a handler, one request

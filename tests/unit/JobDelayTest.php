@@ -1,12 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Job_Delay;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * The jobdelay.p0 sweep: due entries deliver into jobintake with their delay

@@ -21,10 +21,10 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Rest\Layouts_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Layouts_CI_Node::class )]
 class LayoutsCITest extends TestCase {

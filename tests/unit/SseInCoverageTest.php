@@ -1,13 +1,13 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\SSE_In_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Drives the cURL lifecycle, stale check, teardown, and parser edge cases that

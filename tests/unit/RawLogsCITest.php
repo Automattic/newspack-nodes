@@ -12,6 +12,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Node_Names;
@@ -20,7 +21,6 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Raw_Logs_CI_Node::class )]
 class RawLogsCITest extends TestCase {

@@ -1,13 +1,13 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topic_Node;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Topic_Node::class )]
 class TopicTest extends TestCase {

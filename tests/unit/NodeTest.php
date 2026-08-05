@@ -1,12 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /** Fixture: a node that auto-wires a :config sibling (handler-bearing verb + Schema_Reflection). */
 final class Config_Sibling_Node extends Node {
@@ -639,6 +639,9 @@ class NodeTest extends TestCase {
 			use \Newspack_Nodes\Schema_Reflection;
 			public string $base   = '';
 			public int $partition = -1;
+			public function parse( array $args ): void {
+				$this->parse_schema_args( $args );
+			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'arguments' => [
@@ -646,9 +649,6 @@ class NodeTest extends TestCase {
 						[ 'name' => 'partition', 'type' => 'int', 'default' => 0 ],
 					],
 				] );
-			}
-			public function parse( array $args ): void {
-				$this->parse_schema_args( $args );
 			}
 		};
 		$node->parse( [ '/tmp/x', '3' ] );

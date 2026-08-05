@@ -1,12 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Age_Sieve_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Port of Tachikoma's AgeSieve.pm: drop any message whose TIMESTAMP age

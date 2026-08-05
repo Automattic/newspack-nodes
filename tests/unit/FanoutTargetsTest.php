@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Fanout_Targets;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Echo_Node;
 
 /**

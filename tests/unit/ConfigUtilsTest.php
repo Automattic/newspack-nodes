@@ -11,10 +11,10 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config_Utils;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Config_Utils::class )]
 class ConfigUtilsTest extends TestCase {

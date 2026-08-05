@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * The `/log/stream` SSE controller: mirrors `/messages/stream` exactly on the

@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config_System\Options_Overlay;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Options_Overlay::class )]
 class OptionsOverlayTest extends TestCase {

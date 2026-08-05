@@ -12,11 +12,11 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_CLI_Command;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-worker-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';

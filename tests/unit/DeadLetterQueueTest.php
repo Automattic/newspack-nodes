@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Dead_Letter_Queue;
 use Newspack_Nodes\Event_Framework;
@@ -9,7 +10,6 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversTrait;
 
 /** Minimal node that exercises the Dead_Letter_Queue trait in isolation. */
 class Dead_Letter_Queue_Double extends Node {

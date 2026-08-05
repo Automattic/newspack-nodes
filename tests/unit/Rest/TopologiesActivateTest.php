@@ -22,6 +22,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit\Rest;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
@@ -32,7 +33,6 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Topologies_CI_Node::class )]
 class TopologiesActivateTest extends TestCase {

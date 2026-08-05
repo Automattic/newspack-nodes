@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 // Concrete subclass with a positional-args schema. Declared in the test
 // file (alongside the test class) so it stays a fixture and doesn't

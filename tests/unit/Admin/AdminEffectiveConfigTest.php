@@ -17,11 +17,11 @@ namespace {
 
 namespace Newspack_Nodes\Tests\Unit\Admin {
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Admin\Admin;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Admin::class )]
 class AdminEffectiveConfigTest extends TestCase {

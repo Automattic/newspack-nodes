@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Graphite_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Graphite_Node: the socket egress standing in for Tachikoma's

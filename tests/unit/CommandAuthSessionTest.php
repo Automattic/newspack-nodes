@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
-use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;

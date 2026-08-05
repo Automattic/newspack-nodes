@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Internal_Request_Token;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Internal_Request_Token::class )]
 class InternalRequestTokenTest extends TestCase {

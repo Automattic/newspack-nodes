@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Connect_Queue_Timer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Remote_Link_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * The shared connect-queue drain timer — a port of Tachikoma's JobSpawnTimer:

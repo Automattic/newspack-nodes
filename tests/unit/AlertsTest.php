@@ -12,12 +12,12 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Alerts::class )]
 class AlertsTest extends TestCase {

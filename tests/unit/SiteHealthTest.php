@@ -12,13 +12,13 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Health_Checks;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Bootstrap::class )]
 class SiteHealthTest extends TestCase {

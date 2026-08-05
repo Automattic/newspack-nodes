@@ -1,11 +1,11 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Settings_Sync_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
-use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Out_Node;

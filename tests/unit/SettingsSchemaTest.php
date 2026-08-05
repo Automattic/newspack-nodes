@@ -11,10 +11,10 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config_System\Field;
 use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Settings_Schema::class )]
 class SettingsSchemaTest extends TestCase {

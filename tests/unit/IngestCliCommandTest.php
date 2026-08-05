@@ -8,11 +8,11 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Ingest_CLI_Command;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-ingest-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';

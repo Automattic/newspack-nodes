@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Field_Reset_Assets::class )]
 class FieldResetAssetsTest extends TestCase {

@@ -1,8 +1,8 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Message;
 
 #[CoversClass( Message::class )]

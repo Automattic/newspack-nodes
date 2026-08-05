@@ -1,12 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * The multisite stance: the fleet is network-global. Locks, IPC, and logs

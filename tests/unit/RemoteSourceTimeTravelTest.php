@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
@@ -13,7 +14,6 @@ use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Time-travel transport on Remote_Source_Node: the same Time_Travel surface the

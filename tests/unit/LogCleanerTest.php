@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
@@ -10,7 +11,6 @@ use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Flat-layout, declared-set, liveness-free Log GC. The cleaner sweeps

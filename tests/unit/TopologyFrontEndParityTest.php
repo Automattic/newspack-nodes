@@ -12,12 +12,12 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Shell_Node::class )]
 #[CoversClass( Topology_Registry::class )]

@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Connect_Queue_Timer_Node;
 use Newspack_Nodes\Core;
@@ -15,7 +16,6 @@ use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Remote_Link_Node::class )]
 class RemoteLinkNodeTest extends TestCase {

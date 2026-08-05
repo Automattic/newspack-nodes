@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Jobstats_Record;
 use Newspack_Nodes\Job_Probe_Node;
@@ -8,7 +9,6 @@ use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Job_Probe sweeps this process's Job_Workers (the jobs analog of TopicProbe's

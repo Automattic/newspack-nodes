@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Shell_Node::class )]
 class ShellIncludeTest extends TestCase {

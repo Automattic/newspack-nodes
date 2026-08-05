@@ -20,6 +20,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Rest\Aggregator_CI_Node;
@@ -31,7 +32,6 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Aggregator_CI_Node::class )]
 class AggregatorCITest extends TestCase {

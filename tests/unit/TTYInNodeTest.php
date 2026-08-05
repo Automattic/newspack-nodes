@@ -10,13 +10,13 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\TTY_In_Node;
 use Newspack_Nodes\TTY_Out_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( TTY_In_Node::class )]
 class TTYInNodeTest extends TestCase {

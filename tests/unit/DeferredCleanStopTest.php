@@ -1,11 +1,11 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Deferred_Clean_Stop;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Worker_Should_Stop_Clean;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Contract test for the write-side clean-stop trait. It's consumed by application

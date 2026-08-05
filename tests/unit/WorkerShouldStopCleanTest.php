@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Worker_Should_Stop_Clean;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Worker_Should_Stop_Clean::class )]
 class WorkerShouldStopCleanTest extends TestCase {

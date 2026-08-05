@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Disk-discovery primitive — readdir the first-level dirs under `{base}/logs`
