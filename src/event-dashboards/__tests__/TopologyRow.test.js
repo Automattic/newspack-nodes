@@ -204,6 +204,50 @@ describe( 'TopologyRow — folded mode', () => {
 		);
 	} );
 
+	it( 'counts up against CONFIGURED partitions, not the ones that reported', () => {
+		// A worker process that is gone entirely does not report a row at all —
+		// it is absent, not `dead`. Using the reporting count as the
+		// denominator made a 4-partition topology running 2 workers read
+		// "ALL RUN", the exact opposite of the truth.
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			topology: {
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				health: 'ok',
+				num_partitions: 4,
+				status: {
+					graph: { nodes: [], edges: [] },
+					workers: [
+						{
+							type: 'alpha',
+							handler: 'alpha',
+							partition: 0,
+							status: 'running',
+							started_at: 1000,
+						},
+						{
+							type: 'alpha',
+							handler: 'alpha',
+							partition: 1,
+							status: 'running',
+							started_at: 1000,
+						},
+					],
+					currentTime: 2000,
+				},
+			},
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const badges = [
+			...container.querySelectorAll( '.worker-status-badge' ),
+		].map( ( b ) => b.textContent );
+		expect( badges ).toContain( '2/4 up' );
+		expect( badges ).not.toContain( 'ALL RUN' );
+	} );
+
 	it( 'shows a k/n up badge for a partially-up topology (not ALL RUN / ALL DEAD)', () => {
 		const props = rowProps( {
 			folded: true,

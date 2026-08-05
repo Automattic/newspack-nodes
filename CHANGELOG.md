@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The topology row's ALL RUN badge counted against reporting partitions, not
+  configured ones.** A worker process that is gone entirely reports no row at all
+  — it is absent, not `dead` — so a 4-partition topology running two workers read
+  "ALL RUN", the exact opposite of the truth. The row was already handed
+  `num_partitions` and never read it.
+
 - **The Inspector's browser-scope sparklines drew only the last 5 minutes of an
   hour-long ring.** `inspectorSparklinePath` sized its geometry from
   `INSP_SPARK_HISTORY_MAX = 60` rather than from the data, an undocumented cap on
