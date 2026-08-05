@@ -70,6 +70,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unanswered `captureNextReply` arm stayed live forever.** A dispatched verb
+  that never replied — dropped, wrong worker, error swallowed upstream — left the
+  Dumper's single capture slot armed, so the NEXT matching reply, possibly
+  minutes later and belonging to a different user action, fired the stale
+  callback. The arm now expires after `CAPTURE_TTL_MS`, and an expired slot no
+  longer blocks a fresh one.
+
 - **An uploaded topology kept the previously-opened one's identity.** The
   nine-step load sequence existed in three hand-maintained copies — open, upload
   and entering edit mode — and they had drifted: `handleUpload` never set
