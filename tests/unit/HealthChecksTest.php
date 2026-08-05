@@ -11,6 +11,7 @@ use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Alerts;
 use Newspack_Nodes\Health_Checks;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
@@ -570,19 +571,59 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
-	public function test_fleet_alert_rejects_unknown_key(): void {
-		$this->expectException( \UnexpectedValueException::class );
-		$this->expectExceptionMessage( 'Unknown health alert key' );
-
-		$this->fleet_results_from_alerts(
+	public function test_an_unrecognized_alert_family_surfaces_instead_of_fataling(): void {
+		// Site Health and `wp nodes doctor` both call this. A throw here loses
+		// the WHOLE environment report — cache, filesystem, ownership — because
+		// one alert row was new. Adding an alert kind must never do that.
+		$results = $this->fleet_results_from_alerts(
 			[
 				[
 					'key'      => 'invented-health-family:7319',
+					'family'   => 'invented-health-family',
 					'message'  => 'Invented health alert 7319.',
 					'severity' => 'warning',
 				],
 			]
 		);
+
+		$other = null;
+		foreach ( $results as $result ) {
+			if ( 'other-alerts' === $result['id'] ) {
+				$other = $result;
+			}
+		}
+		$this->assertNotNull( $other, 'an unrecognized family gets its own result' );
+		$this->assertContains( 'Invented health alert 7319.', $other['messages'] );
+
+		// The four known families still report, so nothing else is lost.
+		$ids = \array_column( $results, 'id' );
+		foreach ( [ 'worker-liveness', 'supervisor-liveness', 'consumer-lag', 'dead-letters' ] as $id ) {
+			$this->assertContains( $id, $ids );
+		}
+	}
+
+	public function test_alerts_declare_their_family_rather_than_encoding_it_in_the_key(): void {
+		// Health_Checks used to re-derive the taxonomy by str_starts_with on
+		// the key, so renaming a key prefix for readability fataled Site Health.
+		$rows = [
+			'supervisor_down'         => Alerts::FAMILY_SUPERVISOR_LIVENESS,
+			'consumer_lag:reader'     => Alerts::FAMILY_CONSUMER_LAG,
+			'deadletter:reader'       => Alerts::FAMILY_DEAD_LETTERS,
+			'worker_down:job.p0'      => Alerts::FAMILY_WORKER_LIVENESS,
+			'worker_missing:job.p0'   => Alerts::FAMILY_WORKER_LIVENESS,
+		];
+		foreach ( $rows as $key => $family ) {
+			$results = $this->fleet_results_from_alerts(
+				[ [ 'key' => $key, 'family' => $family, 'message' => "row {$key}", 'severity' => 'warning' ] ]
+			);
+			$landed = [];
+			foreach ( $results as $result ) {
+				if ( \in_array( "row {$key}", $result['messages'], true ) ) {
+					$landed[] = $result['id'];
+				}
+			}
+			$this->assertSame( [ $family ], $landed, "{$key} buckets on its declared family" );
+		}
 	}
 
 	public function test_worst_status_orders_good_recommended_and_critical(): void {

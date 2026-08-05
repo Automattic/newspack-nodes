@@ -51,6 +51,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One new alert kind could take down Site Health and `wp nodes doctor`.**
+  `Health_Checks::fleet_results()` reconstructed Alerts' four-family taxonomy by
+  `str_starts_with()` on each row's `key` and threw `UnexpectedValueException` on
+  anything else. Both callers run it uncaught — `Bootstrap::run_workers_health_test()`
+  is a WP `direct` Site Health test and `doctor()` is WP-CLI — so adding a fifth
+  alert condition, or renaming a key prefix for readability, would fatal the whole
+  environment report, losing the cache, filesystem and ownership results that have
+  nothing to do with alerts. `Alerts` now declares the family it already knows at
+  mint time (`FAMILY_*` on every row) and `fleet_results()` buckets on that field,
+  surfacing an unrecognized family as an extra "Other alerts" result instead of
+  throwing. The result only appears when such a row actually arrives.
+
 - **`Service_CI_Node` gated its verbs at construction, not on install.** The
   capability wrap was applied once, in the constructor, while `commands()` is
   public and mutating and `dispatch()` reads the table at call time — so any

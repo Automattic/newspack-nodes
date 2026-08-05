@@ -26,6 +26,24 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
 class Alerts {
 
 	/** A degraded condition an operator should look at. */
+	/**
+	 * Alert families, declared on every row this class mints.
+	 *
+	 * `Health_Checks::fleet_results()` used to reconstruct these by
+	 * `str_starts_with()` on the row's `key`, so the taxonomy lived in two
+	 * files joined only by string prefixes — and the joint failed closed:
+	 * an unrecognized prefix threw, which fatals Site Health and
+	 * `wp nodes doctor`, losing the entire environment report. This class
+	 * knows the family at mint time, so it says so.
+	 */
+	public const FAMILY_WORKER_LIVENESS = 'worker-liveness';
+
+	public const FAMILY_SUPERVISOR_LIVENESS = 'supervisor-liveness';
+
+	public const FAMILY_CONSUMER_LAG = 'consumer-lag';
+
+	public const FAMILY_DEAD_LETTERS = 'dead-letters';
+
 	public const SEVERITY_WARNING = 'warning';
 
 	/** A worker/supervisor that was running has stopped — needs attention now. */
@@ -137,6 +155,7 @@ class Alerts {
 			$age      = Core::as_int( $supervisor['heartbeat_age'] );
 			$alerts[] = [
 				'key'      => 'supervisor_down',
+				'family'   => self::FAMILY_SUPERVISOR_LIVENESS,
 				'severity' => self::SEVERITY_CRITICAL,
 				'message'  => "Supervisor stopped heartbeating {$age}s ago.",
 			];
@@ -153,6 +172,7 @@ class Alerts {
 			$source   = Core::as_string( $consumer['source'] ?? '' );
 			$alerts[] = [
 				'key'      => "consumer_lag:{$reader}",
+				'family'   => self::FAMILY_CONSUMER_LAG,
 				'severity' => self::SEVERITY_WARNING,
 				'message'  => "Consumer {$reader} is {$distance} bytes behind on {$source}.",
 				'reader'   => $reader,
@@ -169,6 +189,7 @@ class Alerts {
 			}
 			$alerts[] = [
 				'key'      => "deadletter:{$reader}",
+				'family'   => self::FAMILY_DEAD_LETTERS,
 				'severity' => self::SEVERITY_WARNING,
 				'message'  => "{$count} dead-letter segment(s) quarantined for {$reader}; replay or clear them.",
 				'reader'   => $reader,
@@ -198,6 +219,7 @@ class Alerts {
 			$age = Core::as_int( $worker['heartbeat_age'] ?? 0 );
 			return [
 				'key'       => "worker_down:{$label}",
+				'family'    => self::FAMILY_WORKER_LIVENESS,
 				'severity'  => self::SEVERITY_CRITICAL,
 				'message'   => "Worker {$label} stopped heartbeating {$age}s ago.",
 				'type'      => $type,
@@ -206,6 +228,7 @@ class Alerts {
 		}
 		return [
 			'key'       => "worker_missing:{$label}",
+			'family'    => self::FAMILY_WORKER_LIVENESS,
 			'severity'  => self::SEVERITY_WARNING,
 			'message'   => "Worker {$label} is not running.",
 			'type'      => $type,
