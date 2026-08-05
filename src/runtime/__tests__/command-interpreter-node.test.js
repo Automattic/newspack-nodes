@@ -171,6 +171,44 @@ test( 'move_node without both names returns usage', () => {
 	expect( got[ 0 ][ VALUE ].payload ).toContain( 'usage: move_node' );
 } );
 
+describe( 'a refusal replies TM_ERROR', () => {
+	// A machine consumer must tell refusal from success without parsing English.
+	it.each( [
+		[
+			'connect_node',
+			[ 'zeppelin-ghost', 'quokka' ],
+			'unknown node: zeppelin-ghost',
+		],
+		[ 'set_sink', [ 'zeppelin-ghost', 'quokka' ], 'unknown node' ],
+		[
+			'register',
+			[],
+			'usage: register <source name> <target name> <event>',
+		],
+		[ 'help', [ 'zeppelin-verb' ], 'no such topic: "zeppelin-verb"' ],
+		[
+			'make_node',
+			[ 'Zeppelin_Ghost', 'quokka' ],
+			'unknown class: Zeppelin_Ghost',
+		],
+	] )( '%s', ( verb, args, expected ) => {
+		const got = [];
+		const interpreter = new CommandInterpreterNode();
+		interpreter.name = 'refusal_probe';
+		interpreter.sink = { fill: ( m ) => got.push( [ ...m ] ) };
+
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = 'caller';
+		m[ VALUE ] = { name: verb, arguments: args };
+		m[ LOCAL ] = true;
+		interpreter.fill( m );
+
+		expect( got[ 0 ][ TYPE ] ).toBe( TM_COMMAND | TM_ERROR );
+		expect( got[ 0 ][ VALUE ].payload ).toBe( `${ expected }\n` );
+	} );
+} );
+
 test( 'a string reply is newline-terminated, and not doubly so', () => {
 	// A handler that forgets its terminator leaves the REPL printing the next
 	// prompt on the same line. Normalized once, in _respond.
@@ -581,18 +619,18 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( dispatch( interpreter, 'set_sink', 'a b' ) ).toBe( 'ok' );
 			expect( a.sink ).toBe( b );
 		} );
-		it( 'usage when an operand is missing', () => {
+		it( 'usage when an operand is missing throws', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'set_sink', 'a' ) ).toBe(
+			expect( () => dispatch( interpreter, 'set_sink', 'a' ) ).toThrow(
 				'usage: set_sink <node> <target>'
 			);
 		} );
-		it( 'reports unknown node', () => {
+		it( 'an unknown node throws', () => {
 			const interpreter = makeInterpreter();
 			new Node().name = 'a';
-			expect( dispatch( interpreter, 'set_sink', 'a nope' ) ).toBe(
-				'unknown node'
-			);
+			expect( () =>
+				dispatch( interpreter, 'set_sink', 'a nope' )
+			).toThrow( 'unknown node' );
 		} );
 	} );
 
@@ -621,9 +659,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const interpreter = makeInterpreter();
 			const tee = new TeeNode();
 			tee.name = 't';
-			expect( dispatch( interpreter, 'connect_node', 't' ) ).toBe(
-				'usage: connect_node <node> [<target>]'
-			);
+			expect( () =>
+				dispatch( interpreter, 'connect_node', 't' )
+			).toThrow( 'usage: connect_node <node> [<target>]' );
 		} );
 		it( 'connects a non-Tee node by setting its string target (no crash)', () => {
 			// Base connectNode sets a string target; Tee overrides to array.
@@ -637,15 +675,15 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'connect usage with no node', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'connect_node', '' ) ).toBe(
+			expect( () => dispatch( interpreter, 'connect_node', '' ) ).toThrow(
 				'usage: connect_node <node> [<target>]'
 			);
 		} );
-		it( 'connect reports unknown node', () => {
+		it( 'connect throws on an unknown node', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'connect_node', 'ghost x' ) ).toBe(
-				'unknown node: ghost'
-			);
+			expect( () =>
+				dispatch( interpreter, 'connect_node', 'ghost x' )
+			).toThrow( 'unknown node: ghost' );
 		} );
 		it( 'disconnect removes a Tee target', () => {
 			const interpreter = makeInterpreter();
@@ -674,9 +712,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const tee = new TeeNode();
 			tee.name = 't';
 			tee.connectNode( 'session' );
-			expect( dispatch( interpreter, 'disconnect_node', 't' ) ).toBe(
-				'usage: disconnect_node <node> [<target>]'
-			);
+			expect( () =>
+				dispatch( interpreter, 'disconnect_node', 't' )
+			).toThrow( 'usage: disconnect_node <node> [<target>]' );
 		} );
 		it( 'disconnect calls the node disconnectNode lifecycle method', () => {
 			const interpreter = makeInterpreter();
@@ -704,31 +742,31 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 			expect( src.registeredListeners() ).toEqual( { EVT: [ 'tgt' ] } );
 		} );
-		it( 'register reports unknown source', () => {
+		it( 'register throws on an unknown source', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'register', 'ghost tgt EVT' ) ).toBe(
-				'unknown node: ghost'
-			);
+			expect( () =>
+				dispatch( interpreter, 'register', 'ghost tgt EVT' )
+			).toThrow( 'unknown node: ghost' );
 		} );
-		it( 'register reports unknown target', () => {
+		it( 'register throws on an unknown target', () => {
 			const interpreter = makeInterpreter();
 			const src = new Node();
 			src.name = 'src';
 			src.registrations = { EVT: {} };
-			expect( dispatch( interpreter, 'register', 'src ghost EVT' ) ).toBe(
-				'unknown node: ghost'
-			);
+			expect( () =>
+				dispatch( interpreter, 'register', 'src ghost EVT' )
+			).toThrow( 'unknown node: ghost' );
 		} );
 		it( 'register usage with no source', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'register', '' ) ).toBe(
+			expect( () => dispatch( interpreter, 'register', '' ) ).toThrow(
 				'usage: register <source name> <target name> <event>'
 			);
 		} );
 		it( 'register usage with no target', () => {
 			const interpreter = makeInterpreter();
 			new Node().name = 'src';
-			expect( dispatch( interpreter, 'register', 'src' ) ).toBe(
+			expect( () => dispatch( interpreter, 'register', 'src' ) ).toThrow(
 				'usage: register <source name> <target name> <event>'
 			);
 		} );
@@ -752,16 +790,18 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 			expect( src.registeredListeners() ).toEqual( {} );
 		} );
-		it( 'unregister reports unknown source', () => {
+		it( 'unregister throws on an unknown source', () => {
 			const interpreter = makeInterpreter();
-			expect(
+			expect( () =>
 				dispatch( interpreter, 'unregister', 'ghost tgt EVT' )
-			).toBe( 'unknown node: ghost' );
+			).toThrow( 'unknown node: ghost' );
 		} );
 		it( 'unregister usage with no target', () => {
 			const interpreter = makeInterpreter();
 			new Node().name = 'src';
-			expect( dispatch( interpreter, 'unregister', 'src' ) ).toBe(
+			expect( () =>
+				dispatch( interpreter, 'unregister', 'src' )
+			).toThrow(
 				'usage: unregister <source name> <target name> <event>'
 			);
 		} );
@@ -824,11 +864,11 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( out ).toContain( 'removed worker_b' );
 			expect( Core.node( 'worker_a' ) ).toBeNull();
 		} );
-		it( '-a with no regex returns usage', () => {
+		it( '-a with no regex throws usage', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'remove_node', '-a' ) ).toBe(
-				'usage: remove_node -a <anchored regex glob>'
-			);
+			expect( () =>
+				dispatch( interpreter, 'remove_node', '-a' )
+			).toThrow( 'usage: remove_node -a <anchored regex glob>' );
 		} );
 		it( '-a reports no matches for valid regexes that match nothing', () => {
 			const interpreter = makeInterpreter();
@@ -836,9 +876,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				dispatch( interpreter, 'remove_node', '-a worker_.*' )
 			).toBe( 'no matches' );
 		} );
-		it( 'usage on empty args', () => {
+		it( 'usage on empty args throws', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'remove_node', '' ) ).toBe(
+			expect( () => dispatch( interpreter, 'remove_node', '' ) ).toThrow(
 				'usage: remove_node <node name>'
 			);
 		} );
@@ -901,7 +941,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'reports an unknown explicit node', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'ls', 'nope' ) ).toBe(
+			expect( () => dispatch( interpreter, 'ls', 'nope' ) ).toThrow(
 				'can\'t find node "nope"'
 			);
 		} );
@@ -919,17 +959,17 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( got[ 0 ][ TO ] ).toBe( 'some/target' );
 			expect( got[ 0 ][ VALUE ].name ).toBe( 'uptime' );
 		} );
-		it( 'returns usage when no command is given', () => {
+		it( 'throws usage when no command is given', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'reply_to', 'some/target' ) ).toBe(
-				'usage: reply_to <node path> <command>'
-			);
+			expect( () =>
+				dispatch( interpreter, 'reply_to', 'some/target' )
+			).toThrow( 'usage: reply_to <node path> <command>' );
 		} );
 		it( 'refuses to nest reply_to (no unbounded recursion)', () => {
 			const interpreter = makeInterpreter();
-			expect(
+			expect( () =>
 				dispatch( interpreter, 'reply_to', 'a reply_to a uptime' )
-			).toBe( 'reply_to cannot invoke reply_to' );
+			).toThrow( 'reply_to cannot invoke reply_to' );
 		} );
 	} );
 
@@ -1025,9 +1065,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'unknown node', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'dump_node', 'nope' ) ).toBe(
-				'can\'t find node "nope"'
-			);
+			expect( () =>
+				dispatch( interpreter, 'dump_node', 'nope' )
+			).toThrow( 'can\'t find node "nope"' );
 		} );
 		it( 'masks the interpreter verb table and auth closure (non-node internals)', () => {
 			// Interpreter masks its non-node internals (_commands, authorize).
@@ -1046,9 +1086,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const out = dispatch( interpreter, 'dump_node', 'd name' );
 			const body = JSON.parse( out.slice( 'Node '.length ) );
 			expect( Object.keys( body ) ).toEqual( [ 'name' ] );
-			expect( dispatch( interpreter, 'dump_node', 'd bogus' ) ).toBe(
-				'can\'t find key "bogus"'
-			);
+			expect( () =>
+				dispatch( interpreter, 'dump_node', 'd bogus' )
+			).toThrow( 'can\'t find key "bogus"' );
 		} );
 	} );
 
@@ -1198,7 +1238,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'unknown node errors', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'trace', 'nope' ) ).toBe(
+			expect( () => dispatch( interpreter, 'trace', 'nope' ) ).toThrow(
 				'unknown node: nope'
 			);
 		} );
@@ -1294,14 +1334,14 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'does not expose inherited object properties as node classes', () => {
 			const interpreter = makeInterpreter();
 			for ( const topic of [ 'constructor', 'toString', '__proto__' ] ) {
-				expect( dispatch( interpreter, 'help', topic ) ).toBe(
+				expect( () => dispatch( interpreter, 'help', topic ) ).toThrow(
 					`no such topic: "${ topic }"`
 				);
 			}
 		} );
 		it( 'an unknown topic errors', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'help', 'zzz' ) ).toBe(
+			expect( () => dispatch( interpreter, 'help', 'zzz' ) ).toThrow(
 				'no such topic: "zzz"'
 			);
 		} );
@@ -1402,7 +1442,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 		it( 'requires both a type and a name (PHP needs ≥2 parts)', () => {
 			const interpreter = makeInterpreter();
-			expect( dispatch( interpreter, 'make_node', 'Tee' ) ).toMatch(
+			expect( () => dispatch( interpreter, 'make_node', 'Tee' ) ).toThrow(
 				/usage/i
 			);
 			expect( Core.node( 'Tee' ) ).toBeNull();
@@ -1464,10 +1504,11 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			delete CommandInterpreterNode.includeNodes.ArgWalk;
 		} );
 
-		it( 'returns "unknown class" for an unregistered type and builds nothing', () => {
+		it( 'throws "unknown class" for an unregistered type and builds nothing', () => {
 			const interpreter = makeInterpreter();
-			const out = dispatch( interpreter, 'make_node', 'Nope x' );
-			expect( out ).toMatch( /unknown class/i );
+			expect( () =>
+				dispatch( interpreter, 'make_node', 'Nope x' )
+			).toThrow( /unknown class/i );
 			expect( Core.node( 'x' ) ).toBeNull();
 		} );
 

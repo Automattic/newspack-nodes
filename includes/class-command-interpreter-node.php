@@ -234,7 +234,7 @@ class Command_Interpreter_Node extends Node {
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
 		$refusal = $this->refuse_at_secure_level( $name );
 		if ( null !== $refusal ) {
-			return $refusal;
+			throw new \RuntimeException( \esc_html( $refusal ) );
 		}
 		$commands = $this->commands();
 		if ( ! isset( $commands[ $name ] ) ) {
@@ -471,6 +471,9 @@ class Command_Interpreter_Node extends Node {
 	 * Refuse a verb whose class is disabled at the current secure level, or
 	 * null to proceed. A node's own verbs classify themselves through
 	 * `node_schema()['verb_classes']`.
+	 *
+	 * The caller RAISES this: a denial is not a result, and Tachikoma treats a
+	 * disabled command as an authorization failure rather than a reply.
 	 */
 	private function refuse_at_secure_level( string $verb ): ?string {
 		$level = Core::$secure_level ?? 0;
@@ -506,11 +509,11 @@ class Command_Interpreter_Node extends Node {
 		$raw     = $args[0] ?? '';
 		if ( '' !== $raw ) {
 			if ( ! \ctype_digit( $raw ) || (int) $raw < 1 ) {
-				return "invalid secure level\n";
+				throw new \RuntimeException( 'invalid secure level' );
 			}
 			$want = \min( 3, (int) $raw );
 			if ( $want < $current ) {
-				return "cannot lower secure level from {$current}\n";
+				throw new \RuntimeException( \esc_html( "cannot lower secure level from {$current}" ) );
 			}
 			if ( $want === $current ) {
 				return "already at secure level {$current}\n";
@@ -529,7 +532,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_insecure(): string {
 		if ( ( Core::$secure_level ?? 0 ) > 0 ) {
-			return "process already secured\n";
+			throw new \RuntimeException( 'process already secured' );
 		}
 		Core::$secure_level = -1;
 		return '';
@@ -544,12 +547,15 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_make_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( \count( $args ) < 2 ) {
-			return "usage: make_node <type> <name> [<args>...]\n";
+			throw new \RuntimeException( 'usage: make_node <type> <name> [<args>...]' );
 		}
 		$type = $args[0];
 		$name = $args[1];
 		$node = $self->make_node( $type, $name, ...\array_slice( $args, 2 ) );
-		return null === $node ? "unknown class: $type\n" : "ok\n";
+		if ( null === $node ) {
+			throw new \RuntimeException( \esc_html( "unknown class: $type" ) );
+		}
+		return "ok\n";
 	}
 
 	/**
@@ -569,14 +575,14 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_set_sink( array $args ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name || '' === $target ) {
-			return "usage: set_sink <node> <target>\n";
+			throw new \RuntimeException( 'usage: set_sink <node> <target>' );
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		/** @var \Newspack_Nodes\Node|null $dst Target node from the registry. */
 		$dst = Core::node( $target );
 		if ( null === $src || null === $dst ) {
-			return "unknown node\n";
+			throw new \RuntimeException( 'unknown node' );
 		}
 		$src->sink( $dst );
 		return "ok\n";
@@ -589,18 +595,18 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_connect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
-			return "usage: connect_node <node> [<target>]\n";
+			throw new \RuntimeException( 'usage: connect_node <node> [<target>]' );
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
-			return "unknown node: $name\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $name" ) );
 		}
 		// No target defaults to the issuing FROM; tees the node's flow back.
 		if ( '' === $target ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
-				return "usage: connect_node <node> [<target>]\n";
+				throw new \RuntimeException( 'usage: connect_node <node> [<target>]' );
 			}
 		}
 		$src->connect_node( $target );
@@ -614,18 +620,18 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_disconnect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
 		if ( '' === $name ) {
-			return "usage: disconnect_node <node> [<target>]\n";
+			throw new \RuntimeException( 'usage: disconnect_node <node> [<target>]' );
 		}
 		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
-			return "unknown node: $name\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $name" ) );
 		}
 		// For a Tee, no target removes the issuing FROM from the fan-out.
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$target = Core::as_string( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
-				return "usage: disconnect_node <node> [<target>]\n";
+				throw new \RuntimeException( 'usage: disconnect_node <node> [<target>]' );
 			}
 		}
 		$src->disconnect_node( $target );
@@ -640,17 +646,17 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_register( array $args ): string {
 		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
-			return "usage: register <source name> <target name> <event>\n";
+			throw new \RuntimeException( 'usage: register <source name> <target name> <event>' );
 		}
 		$node = Core::node( $source );
 		if ( null === $node ) {
-			return "unknown node: $source\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $source" ) );
 		}
 		if ( '' === $target ) {
-			return "usage: register <source name> <target name> <event>\n";
+			throw new \RuntimeException( 'usage: register <source name> <target name> <event>' );
 		}
 		if ( null === Core::node( $target ) ) {
-			return "unknown node: $target\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $target" ) );
 		}
 		$node->register( $event, $target );
 		return "ok\n";
@@ -664,14 +670,14 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_unregister( array $args ): string {
 		[ $source, $target, $event ] = \array_pad( $args, 3, '' );
 		if ( '' === $source ) {
-			return "usage: unregister <source name> <target name> <event>\n";
+			throw new \RuntimeException( 'usage: unregister <source name> <target name> <event>' );
 		}
 		$node = Core::node( $source );
 		if ( null === $node ) {
-			return "unknown node: $source\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $source" ) );
 		}
 		if ( '' === $target ) {
-			return "usage: unregister <source name> <target name> <event>\n";
+			throw new \RuntimeException( 'usage: unregister <source name> <target name> <event>' );
 		}
 		$node->unregister( $event, $target );
 		return "ok\n";
@@ -690,7 +696,7 @@ class Command_Interpreter_Node extends Node {
 		$name     = $args[0] ?? '';
 		$new_name = $args[1] ?? '';
 		if ( '' === $name || '' === $new_name ) {
-			return "usage: move_node <node name> <new name>\n";
+			throw new \RuntimeException( 'usage: move_node <node name> <new name>' );
 		}
 		$node = Core::node( $name );
 		if ( null === $node ) {
@@ -707,7 +713,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_remove_node( Command_Interpreter_Node $self, array $args ): string {
 		if ( empty( $args ) ) {
-			return "usage: remove_node <node name>\n";
+			throw new \RuntimeException( 'usage: remove_node <node name>' );
 		}
 
 		$list_matches = false;
@@ -716,7 +722,7 @@ class Command_Interpreter_Node extends Node {
 			$list_matches = true;
 			$glob         = $args[1] ?? '';
 			if ( '' === $glob ) {
-				return "usage: remove_node -a <anchored regex glob>\n";
+				throw new \RuntimeException( 'usage: remove_node -a <anchored regex glob>' );
 			}
 		}
 
@@ -823,7 +829,7 @@ class Command_Interpreter_Node extends Node {
 		if ( ! $list_matches && ! empty( $argv ) ) {
 			foreach ( $argv as $name ) {
 				if ( Core::node( $name ) === null ) {
-					return "can't find node \"$name\"\n";
+					throw new \RuntimeException( \esc_html( "can't find node \"$name\"" ) );
 				}
 			}
 		}
@@ -928,7 +934,7 @@ class Command_Interpreter_Node extends Node {
 		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $name );
 		if ( null === $node ) {
-			return "can't find node \"$name\"\n";
+			throw new \RuntimeException( \esc_html( "can't find node \"$name\"" ) );
 		}
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
@@ -946,7 +952,7 @@ class Command_Interpreter_Node extends Node {
 		if ( ! empty( $wanted ) ) {
 			foreach ( $wanted as $k ) {
 				if ( ! \array_key_exists( $k, $snapshot ) ) {
-					return "can't find key \"$k\"\n";
+					throw new \RuntimeException( \esc_html( "can't find key \"$k\"" ) );
 				}
 			}
 			$snapshot = \array_intersect_key( $snapshot, \array_flip( $wanted ) );
@@ -1246,7 +1252,7 @@ class Command_Interpreter_Node extends Node {
 		} elseif ( 'off' === $arg ) {
 			$want = false;
 		} else {
-			return "usage: profile [ on | off ]\n";
+			throw new \RuntimeException( 'usage: profile [ on | off ]' );
 		}
 		if ( $want === $on ) {
 			return $want ? "profiling already enabled\n" : "profiling already disabled\n";
@@ -1436,7 +1442,7 @@ class Command_Interpreter_Node extends Node {
 		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $first );
 		if ( null === $node ) {
-			return "unknown node: $first\n";
+			throw new \RuntimeException( \esc_html( "unknown node: $first" ) );
 		}
 		$new = '' === $second
 			? ( $node->debug_state() > 0 ? 0 : 1 )
@@ -1496,7 +1502,7 @@ class Command_Interpreter_Node extends Node {
 		if ( null !== $fqcn ) {
 			return Node_Schema_Help::render( $topic, $fqcn::node_schema() );
 		}
-		return "no such topic: \"$topic\"\n";
+		throw new \RuntimeException( \esc_html( "no such topic: \"$topic\"" ) );
 	}
 
 	/**
@@ -1607,11 +1613,11 @@ class Command_Interpreter_Node extends Node {
 		$verb      = $args[1] ?? '';
 		$verb_args = \array_slice( $args, 2 );
 		if ( '' === $path || '' === $verb ) {
-			return "usage: reply_to <node path> <command>\n";
+			throw new \RuntimeException( 'usage: reply_to <node path> <command>' );
 		}
 		// Refuse nested reply_to: FROM is set raw, so recursion is unbounded.
 		if ( 'reply_to' === $verb ) {
-			return "reply_to cannot invoke reply_to\n";
+			throw new \RuntimeException( 'reply_to cannot invoke reply_to' );
 		}
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_COMMAND;

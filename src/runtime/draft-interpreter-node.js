@@ -64,9 +64,6 @@ function unquoteAll( args ) {
  * file header for the four deliberate divergences from the live interpreter.
  */
 export class DraftInterpreterNode extends CommandInterpreterNode {
-	// How a verb says it refused without throwing. See AGENTS.md.
-	static REFUSED = /^(usage|unknown|no such|error)\b/;
-
 	/**
 	 * Start an empty document with the draft-only verbs registered.
 	 *
@@ -589,12 +586,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * Surface any reply that is not `ok`.
+	 * Name the statement in the stderr line a refusal leaves behind.
 	 *
-	 * A draft has no sink and no operator watching a REPL, so a routed reply
-	 * goes nowhere. Several verbs report refusal as an ordinary string —
-	 * `unknown node: x` — which is not TM_ERROR and would be dropped, taking
-	 * the statement's failure with it.
+	 * A draft has no sink and no operator watching a REPL, so the base's
+	 * TM_NOREPLY stderr line is all a refused statement produces — and it does
+	 * not say WHICH statement, which a document of many needs. Handled here in
+	 * full, so the base does not log the same failure a second time.
 	 *
 	 * @param {Array}  message The command message.
 	 * @param {string} name    Verb name.
@@ -602,13 +599,10 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * @param {number} kind    TM_RESPONSE or TM_ERROR.
 	 */
 	_respond( message, name, payload, kind ) {
-		const line = 'string' === typeof payload ? payload.trim() : '';
-		// Success is free-form, and TM_ERROR already reaches stderr.
-		if (
-			! ( kind & TM_ERROR ) &&
-			DraftInterpreterNode.REFUSED.test( line )
-		) {
+		if ( kind & TM_ERROR ) {
+			const line = 'string' === typeof payload ? payload.trim() : '';
 			this.stderr( `${ name }: ${ line }` );
+			return;
 		}
 		super._respond( message, name, payload, kind );
 	}
@@ -637,7 +631,9 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	_cmdCommandNode( args ) {
 		const [ path, verb, ...rest ] = args;
 		if ( ! path || ! verb ) {
-			return 'usage: command_node <node>[:config] <verb> [<args>...]';
+			throw new Error(
+				'usage: command_node <node>[:config] <verb> [<args>...]'
+			);
 		}
 		const viaConfig = String( path ).endsWith( ':config' );
 		const name = viaConfig ? String( path ).slice( 0, -7 ) : path;
@@ -661,11 +657,13 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	_cmdSetArguments( args ) {
 		const [ name, ...rest ] = args;
 		if ( ! name ) {
-			return 'usage: set_arguments <node name> [<arguments>...]';
+			throw new Error(
+				'usage: set_arguments <node name> [<arguments>...]'
+			);
 		}
 		const node = this.childRegistry.node( name );
 		if ( ! node ) {
-			return `unknown node: ${ name }`;
+			throw new Error( `unknown node: ${ name }` );
 		}
 		node.arguments = rest;
 		return 'ok';
@@ -757,7 +755,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const eq = assignment.indexOf( '=' );
 		const name = -1 === eq ? '' : assignment.slice( 0, eq ).trim();
 		if ( '' === name ) {
-			return 'usage: var <name> = <value>';
+			throw new Error( 'usage: var <name> = <value>' );
 		}
 		this.frontmatter[ name ] = assignment.slice( eq + 1 ).trim();
 		return 'ok';
@@ -775,7 +773,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	_cmdInclude( args ) {
 		const name = args[ 0 ] ?? '';
 		if ( ! name ) {
-			return 'usage: include <topology>';
+			throw new Error( 'usage: include <topology>' );
 		}
 		if ( ! this.includes.includes( name ) ) {
 			this.includes.push( name );

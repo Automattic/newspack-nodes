@@ -522,7 +522,11 @@ describe( 'a statement the document rejects is not silent', () => {
 
 		d.run( 'connect_node nonesuch aardvark' );
 
-		expect( reported.join( '\n' ) ).toContain( 'unknown node: nonesuch' );
+		// One line, naming the statement: a document has many.
+		expect( reported ).toHaveLength( 1 );
+		expect( reported[ 0 ] ).toContain(
+			'connect_node: unknown node: nonesuch'
+		);
 	} );
 
 	it( 'says nothing when every statement is accepted', () => {

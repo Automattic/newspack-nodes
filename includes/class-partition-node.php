@@ -1373,11 +1373,11 @@ class Partition_Node extends Timer_Node {
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
 		$args = Core::as_string( $args[0] ?? '' );
 		if ( '' === $args ) {
-			return "usage: with_index <formatter_name>\n";
+			throw new \RuntimeException( 'usage: with_index <formatter_name>' );
 		}
 		$callable = Formatters::resolve( $args );
 		if ( null === $callable ) {
-			return "unknown formatter: $args\n";
+			throw new \RuntimeException( \esc_html( "unknown formatter: $args" ) );
 		}
 		/** @var self $patron */
 		$patron = $interpreter->patron();
