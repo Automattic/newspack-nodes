@@ -18,12 +18,11 @@ import { formatByteRate, formatBytes, formatEta } from './formatters';
  * Props for the worker row of a `node` entity.
  *
  * @typedef {Object} NodeRowProps
- * @property {Object}                entity    A `node` entity from
- *                                             `buildTopologySections`; its
- *                                             `workers` array carries one live
- *                                             row per partition.
- * @property {Object<string,number>} byteRates Read rate in bytes per second,
- *                                             keyed `handler-partition-source`.
+ * @property {Object} entity A `node` entity from
+ *                           `buildTopologySections`; its
+ *                           `workers` array carries one live
+ *                           row per partition, each carrying
+ *                           its own `read_rate`.
  */
 
 /**
@@ -32,17 +31,15 @@ import { formatByteRate, formatBytes, formatEta } from './formatters';
  *
  * @type {import('react').NamedExoticComponent<NodeRowProps>}
  */
-const NodeRow = memo( function NodeRow( { entity, byteRates } ) {
+const NodeRow = memo( function NodeRow( { entity } ) {
 	const sorted = [ ...entity.workers ].sort(
 		( a, b ) => a.partition - b.partition
 	);
 	return (
 		<span className="tree-node-row">
 			{ sorted.map( ( wkr ) => {
-				const key = `${ wkr.handler || wkr.type }-${ wkr.partition }-${
-					wkr.source || ''
-				}`;
-				const rate = byteRates[ key ];
+				// The row carries its own rate; no side-map key to rebuild.
+				const rate = wkr.read_rate;
 				return (
 					<span key={ wkr.partition } className="connector-partition">
 						<span
@@ -213,7 +210,6 @@ const LogRows = memo( function LogRows( {
  *                                                    caller.
  * @property {Function}              onToggle         Called with an entity key
  *                                                    to fold or unfold it.
- * @property {Object<string,number>} byteRates        Read rates, for `NodeRow`.
  * @property {Object<string,number>} writeRates       Write rates, for `LogRows`.
  * @property {number}                segmentSize      Fleet-wide segment size in
  *                                                    bytes.
@@ -236,7 +232,6 @@ const TreeEntity = memo( function TreeEntity( props ) {
 		depth,
 		collapsed,
 		onToggle,
-		byteRates,
 		writeRates,
 		segmentSize,
 		prevSegments,
@@ -270,9 +265,7 @@ const TreeEntity = memo( function TreeEntity( props ) {
 								: entity.name }
 						</span>
 					) }
-					{ entity.kind === 'node' && (
-						<NodeRow entity={ entity } byteRates={ byteRates } />
-					) }
+					{ entity.kind === 'node' && <NodeRow entity={ entity } /> }
 				</div>
 				{ ! isCollapsed && entity.kind === 'log' && (
 					<LogRows
@@ -293,7 +286,6 @@ const TreeEntity = memo( function TreeEntity( props ) {
 							depth={ depth + 1 }
 							collapsed={ collapsed }
 							onToggle={ onToggle }
-							byteRates={ byteRates }
 							writeRates={ writeRates }
 							segmentSize={ segmentSize }
 							prevSegments={ prevSegments }

@@ -518,7 +518,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			t.fill( metadataMsg( snapshot( 1000, 0, 0, [ 100 ], 0, 100 ) ) )
 		);
 		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
 		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
 	} );
 
@@ -535,7 +535,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 75 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 75 );
 	} );
 
 	test( 'write_rate = Δ(partition total live bytes)/Δts across two polls', () => {
@@ -569,7 +569,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
 	} );
 
 	test( 'a zero time delta yields rate 0 (no divide-by-zero)', () => {
@@ -583,7 +583,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
 		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
 	} );
 
@@ -600,7 +600,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 0 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 0 );
 		expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
 	} );
 
@@ -620,7 +620,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 2 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 25 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 25 );
 	} );
 
 	test( 'a normal-cadence gap (within bound) still computes a real rate', () => {
@@ -635,7 +635,7 @@ describe( 'workerstatus:transform — byte rates from cross-poll deltas', () => 
 			);
 		} );
 		const { model } = sink.got[ 1 ][ VALUE ];
-		expect( model.byteRates[ 'firehose-in-0-firehose.p0' ] ).toBe( 75 );
+		expect( model.byteRates[ 'firehose.p0' ] ).toBe( 75 );
 	} );
 } );
 
