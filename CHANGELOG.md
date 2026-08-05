@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`wp nodes ingest` told an operator already using `--allow_large_writes` to
+  re-run with it.** With the flag on, `$cap` is the 32 MiB large-write cap, so an
+  oversize record exceeds the largest a partition can store — re-running changes
+  nothing. The warning now says that instead.
+
 - **One new alert kind could take down Site Health and `wp nodes doctor`.**
   `Health_Checks::fleet_results()` reconstructed Alerts' four-family taxonomy by
   `str_starts_with()` on each row's `key` and threw `UnexpectedValueException` on
