@@ -7,7 +7,9 @@
 
 const ORDER_KEY = 'newspack-nodes:overview:order';
 const EXPANDED_KEY = 'newspack-nodes:overview:expanded';
-const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed';
+// v2: fold keys gained a topology prefix, so v1 entries name no live entity.
+const COLLAPSED_KEY = 'newspack-nodes:overview:collapsed:v2';
+const COLLAPSED_KEY_V1 = 'newspack-nodes:overview:collapsed';
 
 // Read a JSON string-array from localStorage; anything not a clean array → [].
 function readStringArray( key ) {
@@ -72,9 +74,17 @@ export function writeExpanded( set ) {
  * Read the persisted set of COLLAPSED within-tree fold keys (the inner
  * node/partition folds, distinct from the topology-level unfold above).
  *
+ * Drops any v1 entry on the way past: fold keys gained a topology prefix, so
+ * what is stored there names no entity that exists.
+ *
  * @return {Set<string>} The stored set, or an empty Set when absent/corrupt/disabled.
  */
 export function readCollapsed() {
+	try {
+		window.localStorage.removeItem( COLLAPSED_KEY_V1 );
+	} catch ( _err ) {
+		// localStorage disabled; nothing to drop.
+	}
 	return new Set( readStringArray( COLLAPSED_KEY ) );
 }
 

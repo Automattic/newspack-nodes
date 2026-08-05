@@ -118,6 +118,21 @@ describe( 'overviewPrefs collapsed (inner node/partition folds)', () => {
 		serveRaw( '<broken>' );
 		expect( readCollapsed().size ).toBe( 0 );
 	} );
+
+	// Fold keys gained a topology prefix, so anything stored under the old key
+	// names no entity that exists. Reading drops it rather than round-tripping
+	// dead strings back to storage on every mount.
+	it( 'discards folds stored under the pre-topology key, and deletes them', () => {
+		window.localStorage.setItem(
+			'newspack-nodes:overview:collapsed',
+			JSON.stringify( [ 'topicprobe', 'firehose>completed' ] )
+		);
+
+		expect( readCollapsed().size ).toBe( 0 );
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:overview:collapsed' )
+		).toBeNull();
+	} );
 } );
 
 describe( 'overviewPrefs key separation', () => {

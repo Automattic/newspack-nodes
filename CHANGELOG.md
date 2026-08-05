@@ -70,6 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Folding `topicprobe` in one topology folded it in every one.** An Overview
+  fold key named only the entity's path within its tree, while every row shares
+  ONE fold set — and `topic-probe.tsl` is included by seven topologies, so all
+  seven `topicprobe` nodes were the same key. The tree is now rooted at the
+  topology, which is what an entity's identity was missing. Folds stored under
+  the old key name no live entity, so `readCollapsed` drops them once instead
+  of round-tripping dead strings to storage on every mount.
+
 - **Every record whose VALUE carried a `name` was silently discarded by the log
   views.** `LogStreamViewNode::fill()` identified a command reply by sniffing the
   payload — `'name' in value` — a leftover from the pending-Map Promise gate that
