@@ -21,6 +21,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Shell_Node::class )]
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyFrontEndParityTest extends TestCase {
 
 	protected function setUp(): void {

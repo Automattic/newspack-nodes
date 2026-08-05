@@ -14,6 +14,7 @@ use Newspack_Nodes\Tests\TestCase;
  * provides a node; `via` is the path it first entered through).
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryExpandTest extends TestCase {
 
 	private string $tmp;

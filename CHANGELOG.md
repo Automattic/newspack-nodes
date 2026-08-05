@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Topology_Analyzer` read as 35.5% covered while its tests were passing.**
+  Splitting it out of `Topology_Registry` moved the code but not the coverage
+  metadata: eight test files still declared only `#[CoversClass( Topology_Registry )]`,
+  and PHPUnit attributes coverage solely to the classes a test names. One of
+  those files alone accounts for 60.7% of the analyzer. The six whose subject
+  IS analysis now declare it; the two that touch it as setup deliberately do
+  not. `HTTP_Out_Node`'s gap was real by contrast — its blocking `probe_command`
+  path had no tests at all, and now does (66.7% → 92%).
+
 - **Folding `topicprobe` in one topology folded it in every one.** An Overview
   fold key named only the entity's path within its tree, while every row shares
   ONE fold set — and `topic-probe.tsl` is included by seven topologies, so all

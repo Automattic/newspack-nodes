@@ -17,6 +17,7 @@ use Newspack_Nodes\Tests\TestCase;
  * `.p{N}` regex.
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryResolvedDirsTest extends TestCase {
 
 	private string $tmp;

@@ -14,6 +14,7 @@ use Newspack_Nodes\Tests\TestCase;
  * path ARG, and edges from `connect_node` plus `cmd <node>:config set_*_target`.
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryGraphTest extends TestCase {
 
 	private string $tmp;

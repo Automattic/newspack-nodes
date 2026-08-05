@@ -17,6 +17,7 @@ use Newspack_Nodes\Tests\TestCase;
  * which is how per-server stats stopped being written on a wrapped hub.
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryIncludesTest extends TestCase {
 
 	private string $tmp;

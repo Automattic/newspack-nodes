@@ -15,6 +15,7 @@ use Newspack_Nodes\Tests\TestCase;
  * caught upfront at enable-time + supervisor-spawn-time instead.
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryConflictsTest extends TestCase {
 
 	private string $tmp;

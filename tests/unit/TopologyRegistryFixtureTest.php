@@ -15,6 +15,7 @@ use Newspack_Nodes\Tests\TestCase;
  * The identical fixture drives the JS parseTsl test.
  */
 #[CoversClass( Topology_Registry::class )]
+#[CoversClass( Topology_Analyzer::class )]
 class TopologyRegistryFixtureTest extends TestCase {
 
 	private string $tmp;
