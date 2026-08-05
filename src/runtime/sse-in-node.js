@@ -57,6 +57,17 @@ const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
 const WATCHDOG_INTERVAL_MS = 2000;
 
 /**
+ * Reconnect backoff, mirroring the PHP half's INITIAL_BACKOFF / MAX_BACKOFF
+ * (`includes/class-sse-in-node.php`). Every reconnect path used to retry on the
+ * flat watchdog interval and never widen, so a hard-down or 429ing endpoint got
+ * 30 requests a minute per open tab, indefinitely — and each attempt takes a
+ * slot from a pool capped at 10 per user/IP, whose refusal is itself a 429 that
+ * feeds the same loop.
+ */
+const INITIAL_BACKOFF_MS = 2000;
+const MAX_BACKOFF_MS = 30000;
+
+/**
  * The one field a patron sets on this node from the outside. RemoteLink is a
  * SUBSCRIPTION, so it sets `homeToTarget` and every received record is re-homed
  * to this node's target; RemoteIpc leaves it unset and lets each record keep
@@ -97,6 +108,7 @@ export class SseInNode extends TimerNode {
 		// Watchdog state: open-baseline and last-force instant.
 		this._watchdogBase = 0;
 		this._lastForce = 0;
+		this._backoffMs = INITIAL_BACKOFF_MS;
 		this._mayRenewNonce = true;
 		// Session identity from `connected`; lease owner remains a string.
 		this.sessionPid = null;
@@ -331,6 +343,8 @@ export class SseInNode extends TimerNode {
 	 * @param {*} value The envelope's VALUE — space-separated `KEY VALUE` pairs.
 	 */
 	_applyConnected( value ) {
+		// A live handshake clears the backoff, like PHP's dispatch_event.
+		this._backoffMs = INITIAL_BACKOFF_MS;
 		const raw = String( value ?? '' );
 		const parts = raw.split( ' ' );
 		const info = {};
@@ -482,14 +496,15 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * Reopen the stream from the last seen offset, throttled to one attempt
-	 * per watchdog interval so a dead endpoint is not hammered.
+	 * Reopen the stream from the last seen offset, throttled to the current
+	 * backoff so a dead endpoint is not hammered.
 	 */
 	_forceReconnect() {
 		const now = Date.now();
-		if ( now - this._lastForce < WATCHDOG_INTERVAL_MS ) {
+		if ( now - this._lastForce < this._backoffMs ) {
 			return;
 		}
+		this._backoffMs = Math.min( MAX_BACKOFF_MS, this._backoffMs * 2 );
 		this.setState( 'RECONNECTING', 'watchdog' );
 		IoTelemetry.markSseDisconnected();
 		Core.printLessOften(
@@ -525,6 +540,16 @@ export class SseInNode extends TimerNode {
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		this.terminalDisconnect = null;
+	}
+
+	/**
+	 * The current reconnect throttle: doubles per failed attempt to a 30s
+	 * ceiling, and `_applyConnected` puts it back to the floor.
+	 *
+	 * @return {number} Milliseconds to wait before the next attempt.
+	 */
+	reconnectDelayMs() {
+		return this._backoffMs;
 	}
 
 	/**

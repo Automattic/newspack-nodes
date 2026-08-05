@@ -70,6 +70,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The browser SSE client reconnected on a flat interval with no backoff.**
+  Every reconnect path retried once per 2s watchdog tick and never widened, so a
+  hard-down or 500ing endpoint drew 30 requests a minute per open tab,
+  indefinitely — and each attempt takes a slot from a pool capped at 10 per
+  user/IP, whose refusal is a 429 that the browser reports as CLOSED, feeding the
+  same loop. The `_forceReconnect` docblock claimed the throttle existed "so a
+  dead endpoint is not hammered". The PHP half already had this right
+  (`INITIAL_BACKOFF` / `MAX_BACKOFF` / `increase_backoff()`); the JS mirror now
+  doubles to a 30s ceiling and resets on a successful handshake.
+
 - **The topology row's ALL RUN badge counted against reporting partitions, not
   configured ones.** A worker process that is gone entirely reports no row at all
   — it is absent, not `dead` — so a 4-partition topology running two workers read
