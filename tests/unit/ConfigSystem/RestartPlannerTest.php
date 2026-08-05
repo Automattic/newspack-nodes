@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Restart_Planner::class )]
 class RestartPlannerTest extends TestCase {

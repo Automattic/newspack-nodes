@@ -11,9 +11,9 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Node_Schema_Help;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Node_Schema_Help::class )]
 class NodeSchemaHelpTest extends TestCase {

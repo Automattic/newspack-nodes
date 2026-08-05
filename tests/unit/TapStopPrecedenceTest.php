@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
@@ -9,7 +10,6 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Worker_Should_Stop_Clean;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Tap shares Tee's failure handling and keeps one difference: it hard-addresses

@@ -13,12 +13,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Composer\Autoload\ClassLoader;
 use Newspack_Nodes\Rest\Classes_CI_Node;
 use Newspack_Nodes\Tests\Fixtures\Malformed_Schema_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Classes_CI_Node::class )]
 class ClassesCITest extends TestCase {

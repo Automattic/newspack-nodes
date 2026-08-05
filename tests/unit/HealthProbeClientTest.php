@@ -1,13 +1,13 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Health_Checks;
 use Newspack_Nodes\Health_Probe_Client;
 use Newspack_Nodes\Internal_Request_Token;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( Health_Probe_Client::class )]
 class HealthProbeClientTest extends TestCase {

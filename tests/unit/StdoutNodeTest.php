@@ -9,10 +9,10 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Stdout_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Stdout_Node::class )]
 class StdoutNodeTest extends TestCase {

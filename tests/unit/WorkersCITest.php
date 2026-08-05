@@ -12,14 +12,14 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Rest\Workers_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( Workers_CI_Node::class )]
 class WorkersCITest extends TestCase {

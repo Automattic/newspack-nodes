@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Per-verb capability roles: a verb may declare `'capability' => 'read'` in

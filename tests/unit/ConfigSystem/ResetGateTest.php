@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config_System\Reset_Gate;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Reset_Gate::class )]
 class ResetGateTest extends TestCase {

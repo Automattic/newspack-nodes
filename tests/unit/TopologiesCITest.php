@@ -26,12 +26,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Rest\Topologies_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Topologies_CI_Node::class )]
 class TopologiesCITest extends TestCase {

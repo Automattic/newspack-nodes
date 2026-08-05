@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit\Supervisor;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Supervisor::class )]
 class SpawnFleetTest extends TestCase {

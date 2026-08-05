@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Worker_Base::class )]
 class WorkerBaseTest extends TestCase {

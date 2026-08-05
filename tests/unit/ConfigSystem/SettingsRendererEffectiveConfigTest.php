@@ -17,12 +17,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit\ConfigSystem;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Settings_Renderer;
 use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Settings_Renderer::class )]
 class SettingsRendererEffectiveConfigTest extends TestCase {

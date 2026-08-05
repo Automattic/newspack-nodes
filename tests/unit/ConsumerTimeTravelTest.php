@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
@@ -9,7 +10,6 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Time-travel transport verbs on Consumer_Node: SEEK_FRAME, PAUSE, STEP, PLAY.

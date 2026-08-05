@@ -21,13 +21,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversNothing;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Rest\Layouts_CI_Node;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Rest\Workers_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversNothing;
 
 #[CoversNothing]
 class MigratedServiceCiHandlerGuardTest extends TestCase {

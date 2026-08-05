@@ -7,6 +7,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
@@ -18,7 +19,6 @@ use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Health_Checks::class )]
 class HealthChecksTest extends TestCase {

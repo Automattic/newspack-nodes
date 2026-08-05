@@ -10,11 +10,11 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Struct_To_JSON_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Struct_To_JSON_Node::class )]
 class StructToJsonNodeTest extends TestCase {

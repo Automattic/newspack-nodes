@@ -9,11 +9,11 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\TTY_Out_Node;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( TTY_Out_Node::class )]
 class TTYOutNodeTest extends TestCase {

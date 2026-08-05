@@ -1,6 +1,8 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config;
@@ -9,8 +11,6 @@ use Newspack_Nodes\Health_Checks;
 use Newspack_Nodes\Internal_Request_Token;
 use Newspack_Nodes\Rest\Health_Cache_Controller;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 #[CoversClass( Health_Cache_Controller::class )]
 class HealthCacheControllerTest extends TestCase {

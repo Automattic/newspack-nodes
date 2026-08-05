@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversTrait;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
@@ -8,7 +9,6 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Durable_Reader;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversTrait;
 
 /** Minimal node exercising Durable_Reader's cursor slice; pump seams stubbed. */
 class Offsetlog_Cursor_Double extends Node {

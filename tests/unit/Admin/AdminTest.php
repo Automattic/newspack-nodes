@@ -24,12 +24,12 @@ namespace {
 
 namespace Newspack_Nodes\Tests\Unit\Admin {
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Admin\Admin;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Helpers\RedirectException;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Admin::class )]
 class AdminTest extends TestCase {

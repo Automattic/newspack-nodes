@@ -22,6 +22,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
@@ -42,7 +43,6 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Topic_Node;
-use PHPUnit\Framework\Attributes\DataProvider;
 
 class NodeLifecycleTest extends TestCase {
 

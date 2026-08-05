@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
@@ -22,7 +23,6 @@ use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
-use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Service_CI_Node::class )]
 class ServiceCITest extends TestCase {

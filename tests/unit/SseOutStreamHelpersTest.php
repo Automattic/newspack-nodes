@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\SSE_Out_Node;
 use PHPUnit\Framework\TestCase;
+use Newspack_Nodes\Rest\SSE_Out_Node;
 
 /**
  * Unit tests for SSE_Out_Node's inlined Server-Sent Events wire helpers —
