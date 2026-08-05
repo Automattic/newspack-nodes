@@ -51,6 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard's fleet-wide read rate double-counted any fan-out reader.**
+  `reconstructWorkers` wrote each reader's rate into `byteRates` under
+  `handler-partition-source`, inside the loop over downstream handlers — so one
+  reader feeding two processors through a Tee (ELN's shipped `combined.tsl`)
+  wrote its rate twice, and `globalRates()` sums every value. The key also
+  dropped the topology, so two topologies declaring the same reader over one
+  source collided last-write-wins. `byteRates` is keyed by READER now, which is
+  what its own docblock always claimed. `NodeRow` reads the `read_rate` the
+  worker row already carries instead of rebuilding a composed key to look the
+  same number up in a side map.
+
 - **`useTimeChart` read a consumer plugin's `window` global at import time.**
   `RETENTION_SECONDS` came from `window.eventLoggerDashboards.retentionSeconds`,
   a global only `newspack-event-logger-nodes` localizes — so every OTHER consumer

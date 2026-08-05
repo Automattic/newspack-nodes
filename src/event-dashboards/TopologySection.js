@@ -17,7 +17,6 @@ const TopologySection = memo(
 	 * @param {Object}   props                  Component props.
 	 * @param {Object}   props.section          One `buildTopologySections` section; `tree` holds its root entities.
 	 * @param {Array}    props.workers          The section's worker descriptors.
-	 * @param {Object}   props.byteRates        Read bytes/sec, keyed `handler-partition-source`.
 	 * @param {Object}   props.writeRates       Write bytes/sec, keyed by concrete log name.
 	 * @param {number}   props.segmentSize      Segment size in bytes for logs that declare none.
 	 * @param {number}   props.currentTime      Snapshot timestamp, unix seconds.

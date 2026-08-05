@@ -316,7 +316,6 @@ const TopologyRow = memo( function TopologyRow( {
 						<TopologySection
 							section={ section }
 							workers={ section.workers }
-							byteRates={ topology.status.byteRates }
 							writeRates={ topology.status.writeRates }
 							segmentSize={ topology.status.segmentSize }
 							currentTime={ topology.status.currentTime }

@@ -1,3 +1,4 @@
+import { globalRates } from '../../globalRates';
 import { reconstructWorkers } from '../reconstructWorkers';
 import { buildTopologySections } from '../../topologyGraph';
 
@@ -411,9 +412,31 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 		expect( part.end_size ).toBe( 30 );
 	} );
 
+	it( 'counts a fan-out reader ONCE in the fleet-wide read rate', () => {
+		// FANOUT_DATA is one firehose reader feeding request-builder AND
+		// job-router. Keying the rate map by handler wrote the same reader's
+		// rate under two keys, and globalRates sums every value — so the
+		// dashboard's global R showed 20 B/s for a reader moving 10 B/s.
+		const first = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
+		const next = {
+			...FANOUT_DATA,
+			consumers: [
+				{ ...FANOUT_DATA.consumers[ 0 ], cursor_offset: 150 },
+			],
+			timestamp: 1010,
+		};
+		const second = reconstructWorkers( next, {
+			read: first.nextRead,
+			write: first.nextWrite,
+		} );
+
+		expect( Object.keys( second.byteRates ) ).toHaveLength( 1 );
+		expect( globalRates( second.byteRates, {} ).readRate ).toBe( 10 );
+	} );
+
 	it( 'derives read_rate from the absolute cursor-byte delta across polls; first poll is 0', () => {
 		const first = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
-		const rb = `request-builder-0-firehose.p0`;
+		const rb = FANOUT_DATA.consumers[ 0 ].reader;
 		expect( first.byteRates[ rb ] ).toBe( 0 ); // no prior
 
 		// Cursor advances 50 → 150 over 10s → 10 B/s.
@@ -456,11 +479,13 @@ describe( 'reconstructWorkers — full live segments + recorded end', () => {
 			},
 			{ read: first.nextRead, write: first.nextWrite }
 		);
-		expect( reset.byteRates[ `request-builder-0-firehose.p0` ] ).toBe( 0 );
+		expect( reset.byteRates[ FANOUT_DATA.consumers[ 0 ].reader ] ).toBe(
+			0
+		);
 	} );
 
 	it( 'HOLDS the read rate across polls where the cursor is unchanged (no flicker to 0)', () => {
-		const rb = `request-builder-0-firehose.p0`;
+		const rb = FANOUT_DATA.consumers[ 0 ].reader;
 		// Poll 1: baseline (rate 0). Poll 2 (cursor advanced): rate 10.
 		const p1 = reconstructWorkers( FANOUT_DATA, EMPTY_PRIOR );
 		const p2 = reconstructWorkers(

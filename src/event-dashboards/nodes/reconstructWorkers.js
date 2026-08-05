@@ -255,6 +255,12 @@ export function reconstructWorkers( data, prior ) {
 		);
 		readStepByReader.set( row.reader, step );
 		nextRead[ row.reader ] = step;
+		// @longform Keyed by READER, which is what a fleet-wide sum needs.
+		// Keying by handler wrote one entry per downstream handler, so a
+		// reader fanning through a Tee was counted once per handler in the
+		// global read rate; the key also dropped the topology, so two
+		// topologies over the same source collided last-write-wins.
+		byteRates[ row.reader ] = step.rate;
 	} );
 
 	Object.entries( graph ).forEach( ( [ topology, graphTopo ] ) => {
@@ -313,8 +319,6 @@ export function reconstructWorkers( data, prior ) {
 			const readStep = readStepByReader.get( row.reader );
 
 			chosen.handlers.forEach( ( handler ) => {
-				byteRates[ `${ handler }-${ row.partition }-${ concrete }` ] =
-					readStep.rate;
 				workers.push( {
 					type: topology,
 					handler,

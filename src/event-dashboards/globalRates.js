@@ -4,7 +4,7 @@
  * `{ rateKey: bytesPerSec }`; read rates sum across all readers (concurrent
  * consumers each draw the full stream), write rates across all logs.
  *
- * @param {Object<string,number>} byteRates  Per-reader read rates (model.byteRates).
+ * @param {Object<string,number>} byteRates  Read rate per READER id (model.byteRates).
  * @param {Object<string,number>} writeRates Per-log write rates (model.writeRates).
  * @return {{ readRate: number, writeRate: number }} Summed bytes/sec.
  */

@@ -164,12 +164,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 		],
 	};
 	const { container } = render(
-		<TreeEntity
-			entity={ e }
-			depth={ 0 }
-			{ ...props }
-			byteRates={ { 'flame-builder-0-requests': 0 } }
-		/>
+		<TreeEntity entity={ e } depth={ 0 } { ...props } byteRates={ {} } />
 	);
 	expect( container.querySelector( '.connector-behind' ) ).not.toBeNull();
 } );
@@ -313,6 +308,7 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 				partition: 0,
 				status: 'running',
 				behind: 0,
+				read_rate: 357,
 			},
 			{
 				type: 'combined',
@@ -321,6 +317,7 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 				partition: 0,
 				status: 'running',
 				behind: 0,
+				read_rate: 941,
 			},
 		],
 		[
@@ -342,10 +339,6 @@ it( 'renders each repeated handler branch with only its own source rate', () => 
 					entity={ entity }
 					depth={ 0 }
 					{ ...props }
-					byteRates={ {
-						'job-router-0-firehose.p0': 357,
-						'job-router-0-jobintake.p0': 941,
-					} }
 				/>
 			) ) }
 		</div>
