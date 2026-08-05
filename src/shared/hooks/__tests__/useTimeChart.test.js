@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 /**
  * useTimeChart tests — pure helpers, constants, and the render/resize
  * lifecycle. d3 is mocked (the substrate doesn't ship it).
@@ -18,7 +20,7 @@ import {
 	BUCKET_SECONDS,
 	BUCKET_MS,
 	NUM_BUCKETS,
-	RETENTION_SECONDS,
+	DEFAULT_RETENTION_SECONDS,
 	MARGIN,
 	PALETTE,
 	buildTimeSlots,
@@ -62,10 +64,24 @@ describe( 'useTimeChart constants', () => {
 		expect( BUCKET_MS ).toBe( 300000 );
 	} );
 
-	it( 'derives NUM_BUCKETS from RETENTION_SECONDS / BUCKET_SECONDS', () => {
+	it( 'derives NUM_BUCKETS from DEFAULT_RETENTION_SECONDS', () => {
 		expect( NUM_BUCKETS ).toBe(
-			Math.ceil( RETENTION_SECONDS / BUCKET_SECONDS )
+			Math.ceil( DEFAULT_RETENTION_SECONDS / BUCKET_SECONDS )
 		);
+	} );
+
+	it( 'defaults the retention window without reading any host global', () => {
+		// This is the substrate's canonical shared surface. It used to read
+		// `window.eventLoggerDashboards`, a global only newspack-event-logger-nodes
+		// sets — so every other consumer silently got the 24h fallback, and the
+		// value froze at import time whatever the host later localized.
+		expect( DEFAULT_RETENTION_SECONDS ).toBe( 86400 );
+		expect(
+			readFileSync(
+				resolvePath( __dirname, '../useTimeChart.js' ),
+				'utf8'
+			)
+		).not.toContain( 'eventLoggerDashboards' );
 	} );
 
 	it( 'MARGIN has the four expected sides', () => {
@@ -84,6 +100,11 @@ describe( 'useTimeChart constants', () => {
 } );
 
 describe( 'buildTimeSlots', () => {
+	it( 'sizes the window from its argument, so a host owns its own retention', () => {
+		expect( buildTimeSlots( 3600 ) ).toHaveLength( 12 );
+		expect( buildTimeSlots( 7200 ) ).toHaveLength( 24 );
+	} );
+
 	it( 'returns NUM_BUCKETS entries shaped as { date, bucketKey }', () => {
 		const slots = buildTimeSlots();
 		expect( slots ).toHaveLength( NUM_BUCKETS );
