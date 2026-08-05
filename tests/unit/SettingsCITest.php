@@ -112,6 +112,24 @@ class SettingsCITest extends TestCase {
 		$this->assertArrayNotHasKey( 'newspack_nodes_not_in_allowlist', $GLOBALS['_wp_options'] );
 	}
 
+	public function test_set_verb_accepts_the_short_name_without_the_option_prefix(): void {
+		$interpreter = new Settings_CI_Node();
+		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments 9' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 9, $result['max_segments'] );
+		$this->assertSame( 9, $GLOBALS['_wp_options']['newspack_nodes_max_segments'] );
+	}
+
+	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
+		$interpreter = new Settings_CI_Node();
+		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments -3' );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'invalid value for setting', $result );
+		$this->assertArrayNotHasKey( 'newspack_nodes_max_segments', $GLOBALS['_wp_options'] );
+	}
+
 	// ── schema-driven dispatch ──────────────────────────────────────────────
 
 	public function test_node_schema_lists_both_verbs_with_handlers(): void {

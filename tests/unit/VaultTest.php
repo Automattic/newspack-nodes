@@ -284,4 +284,31 @@ final class VaultTest extends TestCase {
 		$this->seed_config_servers( [ 'cfg' => [ 'url' => 'https://pinned.example' ] ] );
 		$this->assertFalse( Vault::get_instance()->remove( 'cfg' ) );
 	}
+
+	/**
+	 * `credential_header_for()` is the array-shaped door onto `credential_header()`
+	 * — the rule three transports each used to spell themselves, until the
+	 * blocking probe's copy forgot Bearer entirely and left a token-only spoke
+	 * reachable by the graph but not by the operator's own test.
+	 */
+	public function test_credential_header_for_prefers_basic_over_a_bearer_token(): void {
+		$this->assertSame(
+			'Basic ' . \base64_encode( 'u:p' ),
+			Vault::credential_header_for(
+				[ 'auth_username' => 'u', 'auth_password' => 'p', 'token' => 't' ]
+			)
+		);
+	}
+
+	public function test_credential_header_for_falls_back_to_the_bearer_token(): void {
+		$this->assertSame( 'Bearer t', Vault::credential_header_for( [ 'token' => 't' ] ) );
+	}
+
+	public function test_credential_header_for_needs_both_halves_of_basic(): void {
+		$this->assertSame( '', Vault::credential_header_for( [ 'auth_username' => 'u' ] ) );
+	}
+
+	public function test_credential_header_for_is_empty_when_a_spoke_needs_no_credential(): void {
+		$this->assertSame( '', Vault::credential_header_for( [] ) );
+	}
 }
