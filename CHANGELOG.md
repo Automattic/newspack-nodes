@@ -51,6 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`TriageView` correlated four verbs' replies by command name through one
+  shared capture slot.** Every `dl_*` command was minted from the shared
+  `_output` Dumper, so all four replies landed on a node the view does not own;
+  it told them apart with `captureNextReply( verb, cb )`, and `_captureReply` is
+  a SINGLE field that a second arm overwrote — which is why the view carried a
+  `viewPending` flag forbidding a concurrent `dl_show`. Each verb now mints its
+  command FROM its own receiver node, so the addressing is the correlation
+  ([ADR-7](docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies)),
+  and `invoke` takes a `replyTo`. The remaining single-verb caller is safe, and
+  `captureNextReply` now throws on a second arm instead of dropping the first.
+
 - **The dashboard's fleet-wide read rate double-counted any fan-out reader.**
   `reconstructWorkers` wrote each reader's rate into `byteRates` under
   `handler-partition-source`, inside the loop over downstream handlers — so one

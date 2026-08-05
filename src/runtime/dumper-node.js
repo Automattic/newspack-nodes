@@ -474,13 +474,24 @@ export class DumperNode extends Node {
 	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
 	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
 	 * reply still renders into the transcript; this only forks a copy to `callback`.
-	 * One-shot: cleared as soon as it fires (a new call supersedes any pending one).
+	 *
+	 * A SINGLE slot, matched by command name. That makes it usable only where
+	 * the caller drives the round trip alone: a second arm while one is pending
+	 * throws rather than silently discarding the first callback, which is what
+	 * it used to do. Anything dispatching more than one verb should mint its
+	 * commands FROM its own receiver node and let the addressing correlate the
+	 * replies (ADR-7), as `TriageView` does.
 	 *
 	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
 	 * @param {Function} callback (payload, isError) invoked once on the match.
 	 * @return {void}
 	 */
 	captureNextReply( verb, callback ) {
+		if ( this._captureReply ) {
+			throw new Error(
+				`captureNextReply: ${ this._captureReply.verb } is still pending; use a per-verb reply node`
+			);
+		}
 		this._captureReply = { verb, callback };
 	}
 

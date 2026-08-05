@@ -29,13 +29,14 @@ beforeEach( () => {
 	dumper.name = names.OUTPUT;
 } );
 
-// Simulate a worker command reply arriving at `_output` for the armed capture.
+// A worker command reply routed to the verb's OWN receiver node, which is
+// where the command was minted FROM.
 function reply( name, payload, kind = TM_RESPONSE ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | kind;
 	m[ FROM ] = 'worker';
 	m[ VALUE ] = { name, payload };
-	act( () => dumper.fill( m ) );
+	act( () => Core.node( `_triage:${ name }` )?.fill( m ) );
 }
 
 const listJson = ( over = {} ) =>
@@ -65,6 +66,7 @@ test( 'dispatches dl_list at the node on mount and renders the returned records'
 		kind: 'command',
 		positional: '',
 		byName: {},
+		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_list', listJson() );
 	const grid = getByTestId( 'triage-grid' );
@@ -134,6 +136,7 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 		kind: 'command',
 		positional: '2:40:96',
 		byName: { locator: '2:40:96' },
+		replyTo: expect.any( String ),
 	} );
 	// The ok/error line surfaces, and the view refetches (a fresh dl_list).
 	reply( 'dl_requeue', 'ok: requeued 2:40:96 (97 bytes) into the source' );
@@ -173,6 +176,7 @@ test( 'View dispatches dl_show with the row locator and renders the record', () 
 		kind: 'command',
 		positional: '2:40:96',
 		byName: { locator: '2:40:96' },
+		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_show', showJson() );
 	const detail = getByTestId( 'triage-record' );
@@ -273,6 +277,7 @@ test( 'Purge is a two-click confirm before it dispatches dl_purge', () => {
 		kind: 'command',
 		positional: '',
 		byName: {},
+		replyTo: expect.any( String ),
 	} );
 	reply( 'dl_purge', 'ok: purged 3 of 3 dead-letter segment(s)' );
 	expect(
@@ -391,5 +396,53 @@ test( 'Refresh re-dispatches dl_list', () => {
 		kind: 'command',
 		positional: '',
 		byName: {},
+		replyTo: expect.any( String ),
 	} );
 } );
+
+describe( 'TriageView reply addressing', () => {
+	it( 'gives each verb its own reply node instead of one shared slot', () => {
+		// `_output`'s capture slot is a SINGLE field matched by command name,
+		// so a second verb overwrote the first's callback — which is why the
+		// view carried a `viewPending` guard forbidding a concurrent dl_show.
+		// A reply must land on the node that minted it (ADR-7).
+		const onAction = jest.fn();
+		const { container } = render(
+			<TriageView node={ node } onAction={ onAction } />
+		);
+
+		const listCall = onAction.mock.calls.find(
+			( c ) => c[ 2 ]?.verb === 'dl_list'
+		);
+		expect( listCall ).toBeTruthy();
+		const listReplyTo = listCall[ 2 ].replyTo;
+		expect( typeof listReplyTo ).toBe( 'string' );
+		expect( Core.node( listReplyTo ) ).toBeTruthy();
+
+		// Deliver the list so the table renders a row with a View button.
+		act( () =>
+			Core.node( listReplyTo ).fill( commandReply( listJson() ) )
+		);
+
+		const view = Array.from( container.querySelectorAll( 'button' ) ).find(
+			( b ) => /view/i.test( b.textContent )
+		);
+		fireEvent.click( view );
+
+		const showCall = onAction.mock.calls.find(
+			( c ) => c[ 2 ]?.verb === 'dl_show'
+		);
+		expect( showCall ).toBeTruthy();
+		expect( showCall[ 2 ].replyTo ).not.toBe( listReplyTo );
+		expect( Core.node( showCall[ 2 ].replyTo ) ).toBeTruthy();
+	} );
+} );
+
+// A TM_COMMAND|TM_RESPONSE addressed at a per-verb receiver node.
+function commandReply( payload, kind = TM_RESPONSE ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | kind;
+	m[ FROM ] = 'worker';
+	m[ VALUE ] = { payload };
+	return m;
+}
