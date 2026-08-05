@@ -289,10 +289,11 @@ class Ingest_CLI_Command {
 		}
 
 		if ( $stats['oversize'] > 0 ) {
-			\WP_CLI::warning(
-				"Skipped {$stats['oversize']} oversize record(s) (> {$cap} bytes); "
-				. 're-run with --allow_large_writes or --void_warranty to include them.'
-			);
+			// At the large cap the flags are already on.
+			$advice = Partition_Node::MAX_LARGE_LINE_SIZE === $cap
+				? 'they exceed the largest record a partition can store.'
+				: 're-run with --allow_large_writes or --void_warranty to include them.';
+			\WP_CLI::warning( "Skipped {$stats['oversize']} oversize record(s) (> {$cap} bytes); {$advice}" );
 		}
 		\WP_CLI::success( "Ingested {$stats['ingested']} record(s)." );
 	}

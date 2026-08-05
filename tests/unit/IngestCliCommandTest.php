@@ -180,6 +180,26 @@ class IngestCliCommandTest extends TestCase {
 	// oversize records + large-write flags
 	// -------------------------------------------------------------------------
 
+	public function test_a_real_run_already_at_the_large_cap_does_not_advise_the_flag_again(): void {
+		// Driven directly: the alternative is allocating a >32 MiB record just
+		// to reach this branch.
+		$report = new \ReflectionMethod( Ingest_CLI_Command::class, 'report' );
+		$report->invoke(
+			new Ingest_CLI_Command(),
+			false,
+			[ 'ingested' => 3, 'unparseable' => 0, 'oversize' => 2, 'max_size' => 40_000_000 ],
+			\Newspack_Nodes\Partition_Node::MAX_LARGE_LINE_SIZE
+		);
+
+		$warnings = \implode( "\n", $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertStringContainsString( '2 oversize', $warnings );
+		$this->assertStringNotContainsString(
+			'--allow_large_writes',
+			$warnings,
+			'the flag is already on; re-running with it changes nothing'
+		);
+	}
+
 	public function test_ingest_default_skips_oversize_records_and_counts_them(): void {
 		$src = "{$this->tmp}/src.log";
 		$this->write_packed_records( $src, [ [ 'k1', \str_repeat( 'x', 5000 ) ] ] );
