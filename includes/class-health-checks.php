@@ -63,10 +63,10 @@ final class Health_Checks {
 	private static function unavailable_fleet_results(): array {
 		$message = 'Fleet state could not be evaluated because the runtime base directory is unavailable.';
 		return [
-			self::result( 'worker-liveness', 'Worker liveness', self::STATUS_RECOMMENDED, $message ),
-			self::result( 'supervisor-liveness', 'Supervisor liveness', self::STATUS_RECOMMENDED, $message ),
-			self::result( 'consumer-lag', 'Consumer lag', self::STATUS_RECOMMENDED, $message ),
-			self::result( 'dead-letters', 'Dead letters', self::STATUS_RECOMMENDED, $message ),
+			self::result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', self::STATUS_RECOMMENDED, $message ),
+			self::result( Alerts::FAMILY_SUPERVISOR_LIVENESS, 'Supervisor liveness', self::STATUS_RECOMMENDED, $message ),
+			self::result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', self::STATUS_RECOMMENDED, $message ),
+			self::result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', self::STATUS_RECOMMENDED, $message ),
 		];
 	}
 
@@ -89,10 +89,11 @@ final class Health_Checks {
 	 */
 	private static function fleet_results( array $alerts ): array {
 		$groups = [
-			'worker-liveness'     => [],
-			'supervisor-liveness' => [],
-			'consumer-lag'        => [],
-			'dead-letters'        => [],
+			Alerts::FAMILY_WORKER_LIVENESS     => [],
+			Alerts::FAMILY_SUPERVISOR_LIVENESS => [],
+			Alerts::FAMILY_CONSUMER_LAG        => [],
+			Alerts::FAMILY_DEAD_LETTERS        => [],
+			'other-alerts'                     => [],
 		];
 		foreach ( $alerts as $alert ) {
 			if ( ! \is_array( $alert ) ) {
@@ -110,26 +111,28 @@ final class Health_Checks {
 				'message'  => $message,
 				'severity' => $severity,
 			];
-			if ( \str_starts_with( $key, 'worker_down:' ) || \str_starts_with( $key, 'worker_missing:' ) ) {
-				$group_id = 'worker-liveness';
-			} elseif ( 'supervisor_down' === $key ) {
-				$group_id = 'supervisor-liveness';
-			} elseif ( \str_starts_with( $key, 'consumer_lag:' ) ) {
-				$group_id = 'consumer-lag';
-			} elseif ( \str_starts_with( $key, 'deadletter:' ) ) {
-				$group_id = 'dead-letters';
-			} else {
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Plain-text internal contract diagnostic; presentation layers escape report content.
-				throw new \UnexpectedValueException( "Unknown health alert key: {$key}" );
+			// @longform Bucket on the family Alerts declares. An unrecognized
+			// one surfaces under 'other' and is never thrown: this runs as a WP
+			// `direct` Site Health test and under `wp nodes doctor`, so a throw
+			// would lose the cache, filesystem and ownership results too:
+			// the whole report, because one alert kind was new.
+			$group_id = self::required_alert_string( $alert, 'family' );
+			if ( ! isset( $groups[ $group_id ] ) ) {
+				$group_id = 'other-alerts';
 			}
 			$groups[ $group_id ][] = $normalized;
 		}
-		return [
-			self::alert_result( 'worker-liveness', 'Worker liveness', $groups['worker-liveness'], 'All configured workers are running.' ),
-			self::alert_result( 'supervisor-liveness', 'Supervisor liveness', $groups['supervisor-liveness'], 'The supervisor has no stale-heartbeat alert.' ),
-			self::alert_result( 'consumer-lag', 'Consumer lag', $groups['consumer-lag'], 'All consumers are within the configured lag threshold.' ),
-			self::alert_result( 'dead-letters', 'Dead letters', $groups['dead-letters'], 'No reader exceeds the configured dead-letter threshold.' ),
+		$results = [
+			self::alert_result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', $groups[ Alerts::FAMILY_WORKER_LIVENESS ], 'All configured workers are running.' ),
+			self::alert_result( Alerts::FAMILY_SUPERVISOR_LIVENESS, 'Supervisor liveness', $groups[ Alerts::FAMILY_SUPERVISOR_LIVENESS ], 'The supervisor has no stale-heartbeat alert.' ),
+			self::alert_result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', $groups[ Alerts::FAMILY_CONSUMER_LAG ], 'All consumers are within the configured lag threshold.' ),
+			self::alert_result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', $groups[ Alerts::FAMILY_DEAD_LETTERS ], 'No reader exceeds the configured dead-letter threshold.' ),
 		];
+		// Only when a row arrived that no family claimed.
+		if ( [] !== $groups['other-alerts'] ) {
+			$results[] = self::alert_result( 'other-alerts', 'Other alerts', $groups['other-alerts'], '' );
+		}
+		return $results;
 	}
 
 	/**
