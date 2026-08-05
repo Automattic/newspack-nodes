@@ -29,6 +29,10 @@ import {
 	TM_INFO,
 	TM_BYTESTREAM,
 	TM_ERROR,
+	TO,
+	TM_STRUCT,
+	TM_COMMAND,
+	TM_RESPONSE,
 } from '../message';
 
 class FakeEventSource {
@@ -733,6 +737,37 @@ test( 'the watchdog tick emits nothing into the data sink', () => {
 	} finally {
 		jest.useRealTimers();
 	}
+} );
+
+test( 'a command reply keeps its own TO; only records are re-homed', () => {
+	// A subscription re-homes RECORDS to its target. A reply is already
+	// addressed — the server sent it TO the node that minted the command
+	// (ADR-7) — so clobbering its TO delivers it to the view instead, which is
+	// why the view needed a guard to recognise and discard replies at all.
+	const { sse, routed } = makeSseIn();
+	sse.target = 'stream-tee';
+	sse.homeToTarget = true;
+	sse.start();
+	routed.length = 0;
+
+	const record = newMessage();
+	record[ TYPE ] = TM_STRUCT;
+	record[ TO ] = '';
+	record[ ID ] = '1:0:10';
+	record[ VALUE ] = { x: 1 };
+
+	const reply = newMessage();
+	reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	reply[ TO ] = 'status-receiver';
+	reply[ VALUE ] = { name: 'log_status', payload: {} };
+
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( record ) );
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( reply ) );
+
+	expect( routed.map( ( m ) => m[ TO ] ) ).toEqual( [
+		'stream-tee',
+		'status-receiver',
+	] );
 } );
 
 test( 'reconnect backoff widens against a dead endpoint and resets on connect', () => {
