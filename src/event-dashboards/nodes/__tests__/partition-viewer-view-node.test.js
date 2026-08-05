@@ -39,6 +39,30 @@ function controlMsg( payload ) {
 	return m;
 }
 
+// Real records carry a `name` of their own: a flame node is named
+// (`{"name":"request",…}`), and a Consumer's checkpoint frame names the reader
+// (`{"segment":…,"name":"firehose:consumer"}`). Treating "the VALUE object has
+// a name key" as "this is a verb reply" silently discarded EVERY record from
+// flames.p0 and from every Consumer offsetlog, in live and replay alike.
+test( 'a struct record whose VALUE has its own `name` still renders', () => {
+	const v = makeView( 'partition:view' );
+
+	v.fill(
+		envelopeMsg( {
+			from: 'flames.p0/flame-builder',
+			value: { name: 'request', value: 20.8, children: [] },
+		} )
+	);
+	v.fill(
+		envelopeMsg( {
+			from: 'offsets/combined.firehose.p0/firehose:consumer',
+			value: { segment: 1338, offset: 658179, name: 'firehose:consumer' },
+		} )
+	);
+
+	expect( v.linesCount ).toBe( 2 );
+} );
+
 test( 'a step control admits exactly one envelope through a pause', () => {
 	const v = makeView( 'partition:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );

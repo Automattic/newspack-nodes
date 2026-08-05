@@ -70,6 +70,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every record whose VALUE carried a `name` was silently discarded by the log
+  views.** `LogStreamViewNode::fill()` identified a command reply by sniffing the
+  payload — `'name' in value` — a leftover from the pending-Map Promise gate that
+  ADR-7 addressing replaced. Real records have names of their own: a flame node is
+  `{"name":"request",…}` and a Consumer checkpoint frame is
+  `{"segment":…,"name":"firehose:consumer"}`, so `flames.p0` and every Consumer
+  offsetlog rendered nothing in the Partition Viewer, in live AND replay. Only
+  `Remote_Source` offsetlogs survived, because their frame extra has no `name`.
+  A reply is now identified by its TYPE (`TM_COMMAND`), as `DumperNode` already did.
+
+- **A subscription re-homed command replies, destroying their addressing.**
+  `SseInNode` overwrote `TO` on every inbound frame when `homeToTarget` was set,
+  including worker-routed command replies — which arrive over the SSE stream
+  precisely because `HttpOut` answers them with a bare 202. The server had
+  addressed those TO the node that minted the command (TO=FROM); clobbering it
+  delivered them to the subscription's view instead, which is the only reason the
+  view ever had to recognise a reply. Only records are re-homed now.
+
 - **An unanswered `captureNextReply` arm stayed live forever.** A dispatched verb
   that never replied — dropped, wrong worker, error swallowed upstream — left the
   Dumper's single capture slot armed, so the NEXT matching reply, possibly

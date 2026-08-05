@@ -15,6 +15,8 @@ import {
 	ID,
 	TM_STRUCT,
 	TM_BYTESTREAM,
+	TM_COMMAND,
+	TM_RESPONSE,
 } from '../../../runtime/message';
 
 // Minimal concrete subclass: VALUE string becomes the row content.
@@ -142,11 +144,15 @@ test( 'the partition subclass shapes a bare VALUE column beside the key', () => 
 } );
 
 // A verb reply is addressed to the node that asked for it. One reaching this
-// node is not its business — and must not become a row in the stream.
+// node is not its business — and must not become a row in the stream. It is
+// identified by its TYPE (TM_COMMAND), never by sniffing its payload.
 test( 'a command reply is ignored, never rendered as a row', () => {
 	const v = makeView();
 
-	v.fill( controlMsg( { name: 'list_logs', payload: [ 'x' ] } ) );
+	const reply = newMessage();
+	reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	reply[ VALUE ] = { name: 'list_logs', payload: [ 'x' ] };
+	v.fill( reply );
 
 	expect( v.linesCount ).toBe( 0 );
 } );

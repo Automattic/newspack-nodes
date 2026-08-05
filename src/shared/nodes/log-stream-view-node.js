@@ -1,5 +1,5 @@
 import { Node } from '../../runtime/node';
-import { VALUE, ID } from '../../runtime/message';
+import { VALUE, ID, TYPE, TM_COMMAND } from '../../runtime/message';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
 
@@ -64,8 +64,7 @@ export class LogStreamViewNode extends Node {
 		this.counter += 1;
 		const value = message[ VALUE ];
 
-		// A verb reply belongs to the node that asked; this one gets stream.
-		if ( value && 'object' === typeof value && 'name' in value ) {
+		if ( 0 !== ( Number( message[ TYPE ] ) & TM_COMMAND ) ) {
 			return;
 		}
 
