@@ -9,7 +9,7 @@ import { __, sprintf } from '@wordpress/i18n';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { FieldRow, Section } from './InspectorFields';
 
-// Inspector sparkline (wider/taller variant of the node-card one).
+/** Graph-scope poller ring size; only `formatActivityWindow` reads it. */
 const INSP_SPARK_HISTORY_MAX = 60;
 
 /**
@@ -110,17 +110,34 @@ export function formatActivityWindow( nodeCount ) {
 	);
 }
 
+/**
+ * The curve for one sample series, spread across the full width.
+ *
+ * The geometry is sized by the DATA, not by a module constant. It used to step
+ * by `width / ( INSP_SPARK_HISTORY_MAX - 1 )` and start at
+ * `INSP_SPARK_HISTORY_MAX - history.length`, an undocumented 60-sample cap on
+ * the `history` prop that the browser scope violates by 12x — `IoTelemetry`'s
+ * ring holds 720. That put the first 660 points at negative x where the viewBox
+ * clips them, so an hour-long ring drew only its last five minutes while `max`
+ * and the peak label still spanned the whole hour: a curve permanently
+ * flattened by a busy minute that scrolled off-screen, and a window label that
+ * disagreed with what was drawn.
+ *
+ * @param {number[]} history Samples, oldest first.
+ * @param {number}   width   Viewbox width.
+ * @param {number}   height  Viewbox height.
+ * @return {?string} An SVG path, or null when there is nothing to draw.
+ */
 function inspectorSparklinePath( history, width, height ) {
 	if ( ! history || history.length < 2 ) {
 		return null;
 	}
 	const max = Math.max( ...history, 1e-9 );
-	const step = width / ( INSP_SPARK_HISTORY_MAX - 1 );
-	const startIdx = INSP_SPARK_HISTORY_MAX - history.length;
+	const step = width / ( history.length - 1 );
 	return history
 		.map( ( v, i ) => {
 			const safeV = v > 0 ? v : 0;
-			const x = ( startIdx + i ) * step;
+			const x = i * step;
 			const y = height - ( safeV / max ) * height;
 			return `${ i === 0 ? 'M' : 'L' } ${ x.toFixed( 2 ) },${ y.toFixed(
 				2
@@ -136,7 +153,7 @@ function inspectorSparklinePath( history, width, height ) {
  *
  * @param {Object}                 props
  * @param {string}                 props.label        Row label, e.g. "messages in /s".
- * @param {number[]}               [props.history]    Trailing samples, oldest first; fewer than two draws no curve.
+ * @param {number[]}               [props.history]    Trailing samples, oldest first, any length; fewer than two draws no curve.
  * @param {number}                 props.currentValue Latest sample; above zero it takes the accent style.
  * @param {(value:number)=>string} props.format       Formats both the current value and the peak.
  * @return {import('react').ReactElement} The sparkline row.
