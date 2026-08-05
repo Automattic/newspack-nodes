@@ -300,22 +300,19 @@ export class CommandInterpreterNode extends Node {
 	 * `make_node <type> <name> [args]` — spread the remaining tokens to the
 	 * constructor, then name and sink the node.
 	 *
-	 * An unknown class answers with a line; a name collision throws, which the
-	 * caller turns into TM_ERROR.
+	 * Every refusal — bad arity, unknown class, name collision — throws, which
+	 * the caller turns into TM_ERROR.
 	 *
 	 * @param {string[]} args Verb tokens: type, name, then constructor args.
-	 * @return {string} 'ok', or the usage / unknown-class line.
+	 * @return {string} 'ok'.
 	 */
 	_cmdMakeNode( args ) {
 		if ( args.length < 2 ) {
-			return 'usage: make_node <type> <name> [<ctor_args>...]';
+			throw new Error(
+				'usage: make_node <type> <name> [<ctor_args>...]'
+			);
 		}
-		const type = args[ 0 ];
-		// Unknown class returns a string; a collision throws → TM_ERROR.
-		if ( ! CommandInterpreterNode.resolveClass( type ) ) {
-			return `unknown class: ${ type }`;
-		}
-		const name = args[ 1 ];
+		const [ type, name ] = args;
 		this.makeNode( type, name, args.slice( 2 ) );
 		return 'ok';
 	}
@@ -538,17 +535,17 @@ export class CommandInterpreterNode extends Node {
 	 * and TO=FROM replies do the rest.
 	 *
 	 * @param {string[]} args Verb tokens: reply path, verb, then the verb's args.
-	 * @return {string} '' when it ran, or the usage / refusal line.
+	 * @return {string} '' when it ran, or the nesting-refusal line.
 	 */
 	_cmdReplyTo( args ) {
 		const path = args[ 0 ] ?? '';
 		const verb = args[ 1 ] ?? '';
 		if ( '' === path || '' === verb ) {
-			return 'usage: reply_to <node path> <command>';
+			throw new Error( 'usage: reply_to <node path> <command>' );
 		}
 		// reply_to re-enters interpret(); refuse to nest (stack blowup).
 		if ( 'reply_to' === verb ) {
-			return 'reply_to cannot invoke reply_to';
+			throw new Error( 'reply_to cannot invoke reply_to' );
 		}
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
@@ -578,19 +575,19 @@ export class CommandInterpreterNode extends Node {
 	 *
 	 * @param {string[]} args     Verb tokens: source name, then sink name.
 	 * @param {Object}   registry Name table both nodes must live in.
-	 * @return {string} 'ok', or the usage / unknown-node line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	static _cmdSetSink( args, registry ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		const target = parts.slice( 1 ).join( ' ' );
 		if ( '' === name || '' === target ) {
-			return 'usage: set_sink <node> <target>';
+			throw new Error( 'usage: set_sink <node> <target>' );
 		}
 		const src = registry.node( name );
 		const dst = registry.node( target );
 		if ( null === src || null === dst ) {
-			return 'unknown node';
+			throw new Error( 'unknown node' );
 		}
 		src.sink = dst;
 		return 'ok';
@@ -602,24 +599,24 @@ export class CommandInterpreterNode extends Node {
 	 * @param {string[]}     args       Verb tokens: node name, then target path.
 	 * @param {Object}       registry   Name table the node lives in.
 	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
-	 * @return {string} 'ok', or the usage / unknown-node line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	static _cmdConnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
-			return 'usage: connect_node <node> [<target>]';
+			throw new Error( 'usage: connect_node <node> [<target>]' );
 		}
 		const src = registry.node( name );
 		if ( null === src ) {
-			return `unknown node: ${ name }`;
+			throw new Error( `unknown node: ${ name }` );
 		}
 		let target = parts.slice( 1 ).join( ' ' );
 		// No target defaults to the issuing message's FROM.
 		if ( '' === target ) {
 			target = ( envelope && envelope[ FROM ] ) || '';
 			if ( '' === target ) {
-				return 'usage: connect_node <node> [<target>]';
+				throw new Error( 'usage: connect_node <node> [<target>]' );
 			}
 		}
 		// Every node implements connectNode; dispatch uniformly, no branch.
@@ -636,24 +633,24 @@ export class CommandInterpreterNode extends Node {
 	 * @param {string[]}     args       Verb tokens: node name, then target path.
 	 * @param {Object}       registry   Name table the node lives in.
 	 * @param {Array|Object} [envelope] Inbound message; its FROM is the default target.
-	 * @return {string} 'ok', or the usage / unknown-node line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	static _cmdDisconnect( args, registry, envelope = {} ) {
 		const parts = args;
 		const name = parts[ 0 ] ?? '';
 		if ( '' === name ) {
-			return 'usage: disconnect_node <node> [<target>]';
+			throw new Error( 'usage: disconnect_node <node> [<target>]' );
 		}
 		const src = registry.node( name );
 		if ( null === src ) {
-			return `unknown node: ${ name }`;
+			throw new Error( `unknown node: ${ name }` );
 		}
 		let target = parts.slice( 1 ).join( ' ' );
 		// For a Tee, no target removes the issuing FROM from the fan-out.
 		if ( '' === target && Array.isArray( src.target ) ) {
 			target = ( envelope && envelope[ FROM ] ) || '';
 			if ( '' === target ) {
-				return 'usage: disconnect_node <node> [<target>]';
+				throw new Error( 'usage: disconnect_node <node> [<target>]' );
 			}
 		}
 		if ( 'function' === typeof src.disconnectNode ) {
@@ -678,25 +675,29 @@ export class CommandInterpreterNode extends Node {
 	 *
 	 * @param {string[]} args     Verb tokens: source, target, then event name.
 	 * @param {Object}   registry Name table the source lives in.
-	 * @return {string} 'ok', or the usage / unknown-node line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	static _cmdRegister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
-			return 'usage: register <source name> <target name> <event>';
+			throw new Error(
+				'usage: register <source name> <target name> <event>'
+			);
 		}
 		const src = registry.node( source );
 		if ( null === src ) {
-			return `unknown node: ${ source }`;
+			throw new Error( `unknown node: ${ source }` );
 		}
 		const target = parts[ 1 ] ?? '';
 		if ( '' === target ) {
-			return 'usage: register <source name> <target name> <event>';
+			throw new Error(
+				'usage: register <source name> <target name> <event>'
+			);
 		}
 		// Validate where notify() RESOLVES, or a listener drops silently.
 		if ( null === src.registry.node( target ) ) {
-			return `unknown node: ${ target }`;
+			throw new Error( `unknown node: ${ target }` );
 		}
 		src.register( parts.slice( 2 ).join( ' ' ), target );
 		return 'ok';
@@ -710,21 +711,25 @@ export class CommandInterpreterNode extends Node {
 	 *
 	 * @param {string[]} args     Verb tokens: source, target, then event name.
 	 * @param {Object}   registry Name table the source lives in.
-	 * @return {string} 'ok', or the usage / unknown-node line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	static _cmdUnregister( args, registry ) {
 		const parts = args;
 		const source = parts[ 0 ] ?? '';
 		if ( '' === source ) {
-			return 'usage: unregister <source name> <target name> <event>';
+			throw new Error(
+				'usage: unregister <source name> <target name> <event>'
+			);
 		}
 		const src = registry.node( source );
 		if ( null === src ) {
-			return `unknown node: ${ source }`;
+			throw new Error( `unknown node: ${ source }` );
 		}
 		const target = parts[ 1 ] ?? '';
 		if ( '' === target ) {
-			return 'usage: unregister <source name> <target name> <event>';
+			throw new Error(
+				'usage: unregister <source name> <target name> <event>'
+			);
 		}
 		src.unregister( parts.slice( 2 ).join( ' ' ), target );
 		return 'ok';
@@ -735,12 +740,12 @@ export class CommandInterpreterNode extends Node {
 	 * re-keys the registry and rejects a collision, so this only resolves.
 	 *
 	 * @param {string[]} args Verb tokens: current name, then new name.
-	 * @return {string} 'ok', or the usage line.
+	 * @return {string} 'ok'; every refusal throws.
 	 */
 	_cmdMove( args ) {
 		const [ name, newName ] = args;
 		if ( ! name || ! newName ) {
-			return 'usage: move_node <node name> <new name>';
+			throw new Error( 'usage: move_node <node name> <new name>' );
 		}
 		const node = this.childRegistry.node( name );
 		if ( null === node ) {
@@ -760,7 +765,7 @@ export class CommandInterpreterNode extends Node {
 	 */
 	_cmdRemove( args ) {
 		if ( 0 === args.length ) {
-			return 'usage: remove_node <node name>';
+			throw new Error( 'usage: remove_node <node name>' );
 		}
 
 		let listMatches = false;
@@ -769,7 +774,9 @@ export class CommandInterpreterNode extends Node {
 			listMatches = true;
 			glob = args[ 1 ] ?? '';
 			if ( '' === glob ) {
-				return 'usage: remove_node -a <anchored regex glob>';
+				throw new Error(
+					'usage: remove_node -a <anchored regex glob>'
+				);
 			}
 		}
 
@@ -892,7 +899,7 @@ export class CommandInterpreterNode extends Node {
 		if ( ! listMatches && argv.length > 0 ) {
 			for ( const name of argv ) {
 				if ( null === this.childRegistry.node( name ) ) {
-					return `can't find node "${ name }"`;
+					throw new Error( `can't find node "${ name }"` );
 				}
 			}
 		}
@@ -993,7 +1000,7 @@ export class CommandInterpreterNode extends Node {
 		}
 		const node = registry.node( name );
 		if ( null === node ) {
-			return `can't find node "${ name }"`;
+			throw new Error( `can't find node "${ name }"` );
 		}
 		let wanted = parts.slice( 1 );
 		const snapshot = node.dumpNode();
@@ -1014,7 +1021,7 @@ export class CommandInterpreterNode extends Node {
 		if ( wanted.length > 0 ) {
 			for ( const k of wanted ) {
 				if ( ! ( k in ordered ) ) {
-					return `can't find key "${ k }"`;
+					throw new Error( `can't find key "${ k }"` );
 				}
 			}
 			body = {};
@@ -1175,7 +1182,7 @@ export class CommandInterpreterNode extends Node {
 
 		const node = this.childRegistry.node( first );
 		if ( null === node ) {
-			return `unknown node: ${ first }`;
+			throw new Error( `unknown node: ${ first }` );
 		}
 		let next;
 		if ( '' === second ) {
@@ -1248,7 +1255,7 @@ export class CommandInterpreterNode extends Node {
 			};
 			return CommandInterpreterNode._renderNodeSchema( topic, schema );
 		}
-		return `no such topic: "${ topic }"`;
+		throw new Error( `no such topic: "${ topic }"` );
 	}
 
 	/**
@@ -1674,7 +1681,7 @@ export class CommandInterpreterNode extends Node {
 		} else if ( 'off' === arg ) {
 			want = false;
 		} else {
-			return 'usage: profile [ on | off ]\n';
+			throw new Error( 'usage: profile [ on | off ]' );
 		}
 		if ( want === on ) {
 			return want

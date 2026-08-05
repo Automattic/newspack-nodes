@@ -566,10 +566,12 @@ class TopicTest extends TestCase {
 		$t->name( 'zebra:topic' );
 		$t->arguments( [ "{$this->tmp}/zebra.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
 
-		$this->assertStringContainsString(
-			'unknown formatter',
-			$this->verb( $t, 'with_index', 'no-such-formatter' )
-		);
+		try {
+			$this->verb( $t, 'with_index', 'no-such-formatter' );
+			$this->fail( 'an unknown formatter must raise, not answer with a line' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'unknown formatter: no-such-formatter', $e->getMessage() );
+		}
 		$this->assertSame(
 			"ok\n",
 			$this->verb( $t, 'with_index', 'zebra-index' )

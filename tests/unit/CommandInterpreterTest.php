@@ -95,6 +95,102 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	// ── a refusal raises TM_ERROR (Tachikoma `die qq(can't find node …)`) ──
+
+	/** @return array<string,array{0:string,1:string,2:string}> */
+	public static function refusal_provider(): array {
+		return [
+			'unknown node'      => [ 'connect_node', 'zeppelin-ghost quokka', 'unknown node: zeppelin-ghost' ],
+			'unknown node pair' => [ 'set_sink', 'zeppelin-ghost quokka', 'unknown node' ],
+			'usage'             => [ 'register', '', 'usage: register <source name> <target name> <event>' ],
+			'no such topic'     => [ 'help', 'zeppelin-verb', 'no such topic: "zeppelin-verb"' ],
+			'unknown class'     => [ 'make_node', 'Zeppelin_Ghost quokka', 'unknown class: Zeppelin_Ghost' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'refusal_provider' )]
+	public function test_a_refusal_replies_TM_ERROR( string $verb, string $args, string $expected ): void {
+		// A machine consumer must tell refusal from success without parsing English.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		$interpreter->fill( $this->command_message( $verb, $args, true ) );
+
+		$resp = $sink->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_ERROR,
+			$resp[ Message::TYPE ],
+			"{$verb} refusal must reply TM_ERROR, not TM_RESPONSE"
+		);
+		$this->assertSame( $expected . "\n", (string) $resp[ Message::VALUE ]['payload'] );
+	}
+
+	public function test_a_secure_level_refusal_replies_TM_ERROR(): void {
+		// A security DENIAL is the one refusal a caller most needs to detect.
+		// Tachikoma treats a disabled command as an authorization failure, and
+		// dispatch() already throws for an unknown command two lines below.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$prev               = Core::$secure_level;
+		Core::$secure_level = 1;
+
+		try {
+			$interpreter->fill( $this->command_message( 'make_node', 'Capture_Sink zeppelin-denied', true ) );
+		} finally {
+			Core::$secure_level = $prev;
+		}
+
+		$resp = $sink->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_ERROR,
+			$resp[ Message::TYPE ],
+			'a secure-level refusal must reply TM_ERROR, not TM_RESPONSE'
+		);
+		$this->assertStringContainsString( 'disabled at secure level 1', (string) $resp[ Message::VALUE ]['payload'] );
+		$this->assertNull( Core::node( 'zeppelin-denied' ), 'the refused verb must not have run' );
+	}
+
+	/**
+	 * @return array<string, list<string>>
+	 */
+	public static function reader_refusal_provider(): array {
+		return [
+			'list_nodes unknown'  => [ 'ls', 'zeppelin-ghost', 'can\'t find node "zeppelin-ghost"' ],
+			'dump_node unknown'   => [ 'dump_node', 'zeppelin-ghost', 'can\'t find node "zeppelin-ghost"' ],
+			'insecure when armed' => [ 'insecure', '', 'process already secured' ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'reader_refusal_provider' )]
+	public function test_a_reader_or_ratchet_refusal_replies_TM_ERROR( string $verb, string $args, string $expected ): void {
+		// Tachikoma reaches TM_ERROR two ways — `die` and `$self->error()`.
+		// These are its `error()` sites, so they are refusals too: a dashboard
+		// branching on TM_ERROR must not render "can't find node" as node data.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$prev = Core::$secure_level;
+		if ( 'insecure' === $verb ) {
+			Core::$secure_level = 1;
+		}
+
+		try {
+			$interpreter->fill( $this->command_message( $verb, $args, true ) );
+		} finally {
+			Core::$secure_level = $prev;
+		}
+
+		$resp = $sink->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_ERROR,
+			$resp[ Message::TYPE ],
+			"{$verb} refusal must reply TM_ERROR, not TM_RESPONSE"
+		);
+		$this->assertStringContainsString( $expected, (string) $resp[ Message::VALUE ]['payload'] );
+	}
+
 	// ── every string reply ends with a newline (Tachikoma convention) ──────
 
 	public function test_a_string_reply_is_newline_terminated(): void {
@@ -918,11 +1014,13 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 3, Core::node( 'alice' )->debug_state() );
 	}
 
-	public function test_debug_state_unknown_node_returns_error(): void {
+	public function test_debug_state_unknown_node_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( "unknown node: nonexistent\n", $interpreter->dispatch( 'trace', [ 'nonexistent' ] ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: nonexistent' );
+		$interpreter->dispatch( 'trace', [ 'nonexistent' ] );
 	}
 
 	public function test_make_node_propagates_ci_debug_state_to_children(): void {
@@ -1044,35 +1142,43 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [ 'EVT' => [ 'target' ] ], $source->registered_listeners() );
 	}
 
-	public function test_register_unknown_source_returns_error(): void {
+	public function test_register_unknown_source_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		( new Echo_Node() )->name( 'target' );
 
-		$this->assertSame( "unknown node: source\n", $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: source' );
+		$interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] );
 	}
 
-	public function test_register_unknown_target_returns_error(): void {
+	public function test_register_unknown_target_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( "unknown node: target\n", $interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: target' );
+		$interpreter->dispatch( 'register', [ 'source', 'target', 'EVT' ] );
 	}
 
-	public function test_register_missing_args_returns_usage(): void {
+	public function test_register_missing_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( "usage: register <source name> <target name> <event>\n", $interpreter->dispatch( 'register' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: register <source name> <target name> <event>' );
+		$interpreter->dispatch( 'register' );
 	}
 
-	public function test_register_missing_target_returns_usage(): void {
+	public function test_register_missing_target_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 		$this->emitter_with_event( 'source', 'EVT' );
 
-		$this->assertSame( "usage: register <source name> <target name> <event>\n", $interpreter->dispatch( 'register', [ 'source' ] ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: register <source name> <target name> <event>' );
+		$interpreter->dispatch( 'register', [ 'source' ] );
 	}
 
 	public function test_register_undeclared_event_surfaces_as_command_error(): void {
@@ -1097,11 +1203,13 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [], $source->registered_listeners() );
 	}
 
-	public function test_unregister_missing_args_returns_usage(): void {
+	public function test_unregister_missing_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$this->assertSame( "usage: unregister <source name> <target name> <event>\n", $interpreter->dispatch( 'unregister' ) );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: unregister <source name> <target name> <event>' );
+		$interpreter->dispatch( 'unregister' );
 	}
 
 	public function test_remove_node_removes_single_node(): void {
@@ -1249,20 +1357,22 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( '_shell', $dump );
 	}
 
-	public function test_remove_node_empty_args_returns_usage(): void {
+	public function test_remove_node_empty_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node' );
-		$this->assertStringContainsString( 'usage:', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: remove_node <node name>' );
+		$interpreter->dispatch( 'remove_node' );
 	}
 
-	public function test_remove_node_a_flag_with_no_pattern_returns_usage(): void {
+	public function test_remove_node_a_flag_with_no_pattern_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'remove_node', [ '-a' ] );
-		$this->assertStringContainsString( 'usage:', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: remove_node -a <anchored regex glob>' );
+		$interpreter->dispatch( 'remove_node', [ '-a' ] );
 	}
 
 	public function test_help_covers_every_dispatchable_verb(): void {
@@ -1429,12 +1539,19 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( 'hub' . "\n", "$out\n", 'hub itself is NOT listed (its sink is the interpreter, not hub)' );
 	}
 
-	public function test_ls_with_unknown_name_returns_error(): void {
+	public function test_ls_with_unknown_name_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'ls', [ 'nonexistent' ] );
-		$this->assertStringContainsString( "can't find node", $out );
+		try {
+			$interpreter->dispatch( 'ls', [ 'nonexistent' ] );
+			$this->fail( 'an unknown node must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame(
+				'can\'t find node "nonexistent"',
+				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+			);
+		}
 	}
 
 	public function test_ls_dash_c_shows_count_column(): void {
@@ -1482,12 +1599,13 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( '-c show', $out );
 	}
 
-	public function test_help_unknown_topic_returns_error(): void {
+	public function test_help_unknown_topic_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'help', [ 'nonsense' ] );
-		$this->assertStringContainsString( 'no such topic', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no such topic' );
+		$interpreter->dispatch( 'help', [ 'nonsense' ] );
 	}
 
 	/** Build an envelope carrying KEY=completion (the tab-completion flag). */
@@ -1689,22 +1807,37 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'Capture_Sink_Node', $out );
 	}
 
-	public function test_dump_node_unknown_node_returns_error(): void {
+	public function test_dump_node_unknown_node_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'dump_node', [ 'nonexistent' ] );
-		$this->assertStringContainsString( "can't find node", $out );
+		// esc_html escapes the throw; only the wire path decodes it.
+		try {
+			$interpreter->dispatch( 'dump_node', [ 'nonexistent' ] );
+			$this->fail( 'an unknown node must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame(
+				'can\'t find node "nonexistent"',
+				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+			);
+		}
 	}
 
-	public function test_dump_node_unknown_key_returns_error(): void {
+	public function test_dump_node_unknown_key_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
-		$out = $interpreter->dispatch( 'dump_node', [ 'alice', 'no_such_key' ] );
-		$this->assertStringContainsString( "can't find key", $out );
+		try {
+			$interpreter->dispatch( 'dump_node', [ 'alice', 'no_such_key' ] );
+			$this->fail( 'an unknown key must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame(
+				'can\'t find key "no_such_key"',
+				\html_entity_decode( $e->getMessage(), \ENT_QUOTES )
+			);
+		}
 	}
 
 	public function test_TM_PING_with_empty_TO_bounces_to_FROM(): void {
@@ -2277,7 +2410,7 @@ class CommandInterpreterTest extends TestCase {
 
 	// ── Argument validation paths on verb handlers ────────────────
 
-	public function test_make_node_with_too_few_args_returns_usage(): void {
+	public function test_make_node_with_too_few_args_raises_usage(): void {
 		// `make_node` alone — no type, no name — must return a usage hint
 		// rather than throw. Tachikoma interpreter contract: validation errors fall
 		// out as plain strings, only handler exceptions go through the
@@ -2285,85 +2418,99 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'make_node' );
-		$this->assertStringContainsString( 'usage: make_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: make_node' );
+		$interpreter->dispatch( 'make_node' );
 	}
 
-	public function test_make_node_with_only_type_returns_usage(): void {
+	public function test_make_node_with_only_type_raises_usage(): void {
 		// `make_node Capture_Sink` (no name) — still under the 2-token bar.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'make_node', [ 'Capture_Sink' ] );
-		$this->assertStringContainsString( 'usage: make_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: make_node' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink' ] );
 	}
 
-	public function test_make_node_unknown_class_returns_error(): void {
+	public function test_make_node_unknown_class_raises(): void {
 		// Class shell-name resolves to no registered namespace — the cmd should
 		// surface `unknown class: <type>` and NOT auto-create anything.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] );
-		$this->assertSame( "unknown class: NotARegisteredClass\n", $out );
+		try {
+			$interpreter->dispatch( 'make_node', [ 'NotARegisteredClass', 'alice' ] );
+			$this->fail( 'an unresolvable class must raise, not answer with a line' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'unknown class: NotARegisteredClass', $e->getMessage() );
+		}
 		$this->assertNull( Core::node( 'alice' ) );
 	}
 
 	// ── cmd_set_sink error paths ──────────────────────────────────
 
-	public function test_set_sink_missing_target_returns_usage(): void {
+	public function test_set_sink_missing_target_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
-		$out = $interpreter->dispatch( 'set_sink', [ 'alice' ] );
-		$this->assertStringContainsString( 'usage: set_sink', $out );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: set_sink' );
+		$interpreter->dispatch( 'set_sink', [ 'alice' ] );
 	}
 
-	public function test_set_sink_empty_args_returns_usage(): void {
+	public function test_set_sink_empty_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'set_sink' );
-		$this->assertStringContainsString( 'usage: set_sink', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: set_sink' );
+		$interpreter->dispatch( 'set_sink' );
 	}
 
-	public function test_set_sink_unknown_node_returns_error(): void {
+	public function test_set_sink_unknown_node_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// alice exists, ghost does not — both src and dst lookup go
-		// through Core::node, so either being null yields 'unknown node'.
-		$out = $interpreter->dispatch( 'set_sink', [ 'alice', 'ghost' ] );
-		$this->assertSame( "unknown node\n", $out );
-
-		$out = $interpreter->dispatch( 'set_sink', [ 'ghost', 'alice' ] );
-		$this->assertSame( "unknown node\n", $out );
+		// through Core::node, so either being null raises 'unknown node'.
+		foreach ( [ [ 'alice', 'ghost' ], [ 'ghost', 'alice' ] ] as $pair ) {
+			try {
+				$interpreter->dispatch( 'set_sink', $pair );
+				$this->fail( 'an unknown node must raise, not answer with a line' );
+			} catch ( \RuntimeException $e ) {
+				$this->assertSame( 'unknown node', $e->getMessage() );
+			}
+		}
 	}
 
 	// ── cmd_connect_node error paths + envelope FROM defaulting ──
 
-	public function test_connect_node_empty_args_returns_usage(): void {
+	public function test_connect_node_empty_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'connect_node' );
-		$this->assertStringContainsString( 'usage: connect_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: connect_node' );
+		$interpreter->dispatch( 'connect_node' );
 	}
 
-	public function test_connect_node_unknown_node_returns_error(): void {
+	public function test_connect_node_unknown_node_raises(): void {
 		// `connect_node` with a name not in the registry: must surface
 		// the not-found message rather than touch any node state.
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'connect_node', [ 'ghost', 'bob' ] );
-		$this->assertStringContainsString( 'unknown node: ghost', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: ghost' );
+		$interpreter->dispatch( 'connect_node', [ 'ghost', 'bob' ] );
 	}
 
-	public function test_connect_node_without_target_and_without_envelope_returns_usage(): void {
+	public function test_connect_node_without_target_and_without_envelope_raises_usage(): void {
 		// `connect_node alice` with no envelope FROM — should fall through
 		// to the second usage branch (line 325): no target supplied, no
 		// FROM to default to, so the verb has nothing to bind alice to.
@@ -2373,8 +2520,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'alice' ] );
 
 		// $interpreter->execute( verb, envelope=[] ) — empty envelope == empty FROM.
-		$out = $interpreter->dispatch( 'connect_node', [ 'alice' ] );
-		$this->assertStringContainsString( 'usage: connect_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: connect_node' );
+		$interpreter->dispatch( 'connect_node', [ 'alice' ] );
 	}
 
 	public function test_connect_node_defaults_to_envelope_FROM_when_target_omitted(): void {
@@ -2398,23 +2546,25 @@ class CommandInterpreterTest extends TestCase {
 
 	// ── cmd_disconnect_node error paths + Tee envelope behavior ──
 
-	public function test_disconnect_node_empty_args_returns_usage(): void {
+	public function test_disconnect_node_empty_args_raises_usage(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'disconnect_node' );
-		$this->assertStringContainsString( 'usage: disconnect_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: disconnect_node' );
+		$interpreter->dispatch( 'disconnect_node' );
 	}
 
-	public function test_disconnect_node_unknown_node_returns_error(): void {
+	public function test_disconnect_node_unknown_node_raises(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'disconnect_node', [ 'ghost' ] );
-		$this->assertStringContainsString( 'unknown node: ghost', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: ghost' );
+		$interpreter->dispatch( 'disconnect_node', [ 'ghost' ] );
 	}
 
-	public function test_disconnect_node_tee_with_empty_target_and_empty_envelope_returns_usage(): void {
+	public function test_disconnect_node_tee_with_empty_target_and_empty_envelope_raises_usage(): void {
 		// `disconnect_node <tee>` with no explicit target AND no envelope
 		// FROM to default to: hits the second usage branch (line 350).
 		// Tees have array target(); we need the array branch to be
@@ -2426,8 +2576,9 @@ class CommandInterpreterTest extends TestCase {
 		$tee = Core::node( 'fanout' );
 		$this->assertIsArray( $tee->target() );
 
-		$out = $interpreter->dispatch( 'disconnect_node', [ 'fanout' ] );
-		$this->assertStringContainsString( 'usage: disconnect_node', $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'usage: disconnect_node' );
+		$interpreter->dispatch( 'disconnect_node', [ 'fanout' ] );
 	}
 
 	public function test_disconnect_node_tee_defaults_to_envelope_FROM_when_target_omitted(): void {
@@ -2675,8 +2826,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out = $interpreter->dispatch( 'trace', [ '1', '2' ] );
-		$this->assertSame( "unknown node: 1\n", $out );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: 1' );
+		$interpreter->dispatch( 'trace', [ '1', '2' ] );
 	}
 
 	// ── interpret() error wrap & invalid-struct drop ─────────────
@@ -3031,9 +3183,12 @@ class CommandInterpreterTest extends TestCase {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		$out = $i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) );
-
-		$this->assertStringContainsString( 'disabled at secure level 1', $out );
+		try {
+			$i->dispatch( 'make_node', [ 'Capture_Sink', 'nope' ], $this->command_message( 'make_node' ) );
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level 1', $e->getMessage() );
+		}
 		$this->assertNull( Core::node( 'nope' ) );
 	}
 
@@ -3041,18 +3196,24 @@ class CommandInterpreterTest extends TestCase {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 2;
 
-		$out = $i->dispatch( 'reply_to', [ 'somewhere', 'ls' ], $this->command_message( 'reply_to' ) );
-
-		$this->assertStringContainsString( 'disabled at secure level 2', $out );
+		try {
+			$i->dispatch( 'reply_to', [ 'somewhere', 'ls' ], $this->command_message( 'reply_to' ) );
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level 2', $e->getMessage() );
+		}
 	}
 
 	public function test_level_three_blocks_connect_node(): void {
 		$i = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
-		$out = $i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
-
-		$this->assertStringContainsString( 'disabled at secure level 3', $out );
+		try {
+			$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level 3', $e->getMessage() );
+		}
 	}
 
 	/** Undeclared and unratcheted processes run every verb. */
@@ -3117,9 +3278,12 @@ class CommandInterpreterTest extends TestCase {
 		Core::$secure_level = 3;
 		$i = $this->armed_interpreter();
 
-		$out = $i->dispatch( 'secure', [ '1' ], $this->command_message( 'secure' ) );
-
-		$this->assertStringContainsString( 'cannot lower', $out );
+		try {
+			$i->dispatch( 'secure', [ '1' ], $this->command_message( 'secure' ) );
+			$this->fail( 'descending the ratchet must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'cannot lower', $e->getMessage() );
+		}
 		$this->assertSame( 3, Core::$secure_level );
 	}
 
@@ -3144,9 +3308,12 @@ class CommandInterpreterTest extends TestCase {
 		Core::$secure_level = 1;
 		$i = $this->armed_interpreter();
 
-		$out = $i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) );
-
-		$this->assertStringContainsString( 'already secured', $out );
+		try {
+			$i->dispatch( 'insecure', [], $this->command_message( 'insecure' ) );
+			$this->fail( 'insecure must be refused once secured' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'already secured', $e->getMessage() );
+		}
 		$this->assertSame( 1, Core::$secure_level );
 	}
 
@@ -3176,13 +3343,16 @@ class CommandInterpreterTest extends TestCase {
 			foreach ( $verbs as $verb ) {
 				Core::$secure_level = $level;
 
-				$out = $i->dispatch( $verb, [ 'x' ], $this->command_message( $verb ) );
-
-				$this->assertStringContainsString(
-					'disabled at secure level',
-					$out,
-					"{$verb} must stay disabled at secure level {$level}"
-				);
+				try {
+					$i->dispatch( $verb, [ 'x' ], $this->command_message( $verb ) );
+					$this->fail( "{$verb} must stay disabled at secure level {$level}" );
+				} catch ( \RuntimeException $e ) {
+					$this->assertStringContainsString(
+						'disabled at secure level',
+						$e->getMessage(),
+						"{$verb} must stay disabled at secure level {$level}"
+					);
+				}
 			}
 		}
 	}
@@ -3196,9 +3366,10 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		$out = $i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
-
-		$this->assertStringNotContainsString( 'disabled at secure level', $out );
+		// It reaches the verb, which refuses on its own grounds — not the ladder's.
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'unknown node: a' );
+		$i->dispatch( 'connect_node', [ 'a', 'b' ], $this->command_message( 'connect_node' ) );
 	}
 
 	/**
@@ -3213,9 +3384,12 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 1;
 
-		$out = $i->dispatch( $verb, [ 'a', 'b' ], $this->command_message( $verb ) );
-
-		$this->assertStringContainsString( 'disabled at secure level', $out );
+		try {
+			$i->dispatch( $verb, [ 'a', 'b' ], $this->command_message( $verb ) );
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
+		}
 	}
 
 	/**
@@ -3243,9 +3417,12 @@ class CommandInterpreterTest extends TestCase {
 		$i                  = $this->armed_interpreter();
 		Core::$secure_level = 3;
 
-		$out = $i->dispatch( $verb, [ 'a', 'b', 'c' ], $this->command_message( $verb ) );
-
-		$this->assertStringContainsString( 'disabled at secure level', $out );
+		try {
+			$i->dispatch( $verb, [ 'a', 'b', 'c' ], $this->command_message( $verb ) );
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
+		}
 	}
 
 	/**
@@ -3298,13 +3475,16 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->sink( new Capture_Sink_Node() );
 		Core::$secure_level = 1;
 
-		$out = $interpreter->dispatch(
-			'rebuild_everything',
-			[],
-			$this->command_message( 'rebuild_everything' )
-		);
-
-		$this->assertStringContainsString( 'disabled at secure level', $out );
+		try {
+			$interpreter->dispatch(
+				'rebuild_everything',
+				[],
+				$this->command_message( 'rebuild_everything' )
+			);
+			$this->fail( 'the verb must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'disabled at secure level', $e->getMessage() );
+		}
 	}
 
 	private function armed_interpreter(): Command_Interpreter_Node {

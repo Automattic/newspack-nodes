@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A command-interpreter refusal now raises TM_ERROR instead of answering with
+  a plain string.** Tachikoma's interpreter dies on one — `die qq(can't find
+  node "$name"\n)` — and both our ports returned it, which the contract
+  classifies as TM_RESPONSE, i.e. success. A machine consumer could not tell
+  the two apart without parsing English, and `DraftInterpreterNode.REFUSED`
+  existed only to guess: a four-prefix regex that read any verb refusing in
+  other words as success. Every `unknown node…`, `unknown class…`, `unknown
+  formatter…`, `no such topic…` and `usage: …` return in the PHP and JS
+  interpreters — plus Partition's and Topic's `with_index` — now throws, so the
+  central catch wraps it as `TM_COMMAND|TM_ERROR`. Wire-visible: the reply TYPE
+  changes for those refusals. The message text is unchanged, and `REFUSED` is
+  gone; the draft keeps naming the statement in its stderr line
+  (`connect_node: unknown node: settings-sync`), which the base line does not.
+
+  Tachikoma reaches TM_ERROR two ways — `die` and `$self->error()` — so its
+  `error()` sites are refusals too, and they now raise here as well: `ls` and
+  `dump_node`'s `can't find node "…"` / `can't find key "…"` (the ones a
+  dashboard actually consumes, and the same text `move_node` was already
+  throwing), the secure ratchet's `invalid secure level`, `cannot lower secure
+  level from N` and `process already secured`, the secure-level denial from
+  `dispatch()`, and `reply_to cannot invoke reply_to`. A security denial is the
+  refusal a caller most needs to detect, and it was answering as success.
+
 ### Fixed
 
 - **Opening a topology logged `unknown node` for every borrowed edge source.**
