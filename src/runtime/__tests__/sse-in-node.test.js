@@ -735,6 +735,36 @@ test( 'the watchdog tick emits nothing into the data sink', () => {
 	}
 } );
 
+test( 'reconnect backoff widens against a dead endpoint and resets on connect', () => {
+	jest.useFakeTimers();
+	try {
+		expectConsoleWarn(
+			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
+		);
+		const { sse } = makeSseIn();
+		sse.start();
+
+		// A flat 2s retry is 30 requests/minute per tab, forever — and each
+		// attempt takes an SSE slot from a pool capped at 10 per user/IP.
+		const delays = [];
+		for ( let i = 0; i < 5; i++ ) {
+			jest.advanceTimersByTime( sse.reconnectDelayMs() );
+			delays.push( sse.reconnectDelayMs() );
+			sse._forceReconnect();
+		}
+
+		expect( delays[ 0 ] ).toBeLessThan( delays[ 1 ] );
+		expect( delays[ 4 ] ).toBeGreaterThanOrEqual( delays[ 3 ] );
+		expect( delays[ 4 ] ).toBeLessThanOrEqual( 30000 );
+
+		// A successful handshake clears it, as the PHP half does.
+		sse._applyConnected( connectedRaw() );
+		expect( sse.reconnectDelayMs() ).toBe( delays[ 0 ] );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
 test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', () => {
 	jest.useFakeTimers();
 	try {
