@@ -12,11 +12,16 @@
  * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
  * entry leaves the node disconnected (no mis-configured patrons created).
  *
- * Mirrors the JS RemoteLinkNode. Two subclasses specialize the base via protected
- * seams: connection (`restore_position`, `should_connect`) and the dashboard status
- * snapshot (`publish_status`, `record_heartbeat_sent`, `record_heartbeat_reply`
- * — all no-ops here, so only `Remote_Source_Node` publishes).
- * `Remote_Source_Node` adds the durable aggregation offsetlog + that status snapshot.
+ * Mirrors the JS RemoteLinkNode. ONE subclass specializes the base in PHP —
+ * `Remote_Source_Node`, which adds the durable aggregation offsetlog and the
+ * dashboard status snapshot. The seams are shaped for two because the JS side
+ * still has the second (`src/runtime/remote-ipc-node.js`); PHP's `Remote_IPC_Node`
+ * was deleted, so `should_connect()` has a single implementation returning a
+ * constant, and the status seams (`publish_status`, `record_heartbeat_sent`,
+ * `record_heartbeat_reply`) are no-ops here that only `Remote_Source_Node` fills.
+ *
+ * No topology instantiates `Remote_Link` itself; it reaches the graph as that
+ * subclass, or through its `@api` dynamic entrypoints (`connect`, `close`).
  *
  * @package Newspack_Nodes
  */
@@ -413,13 +418,6 @@ class Remote_Link_Node extends Timer_Node {
 		$sse = new SSE_In_Node();
 		$sse->name( "{$this->name}:sse-in" );
 		$sse->patron( $this );
-		// SSE_In forwards parsed output to THIS node's own downstream wiring.
-		if ( null !== $this->sink ) {
-			$sse->sink( $this->sink );
-		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$sse->target( $this->target );
-		}
 		// Delivery seam: links forward downstream; Remote_Source buffers.
 		$sse->on_message = function ( string $raw ): void {
 			$this->deliver_downstream( $raw );
@@ -528,7 +526,6 @@ class Remote_Link_Node extends Timer_Node {
 
 	public function connect_node( string $target ): void {
 		$this->target = $target;
-		$this->sse_in?->target( $target );
 	}
 
 	/**

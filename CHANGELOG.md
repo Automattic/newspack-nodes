@@ -70,6 +70,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`SSE_In_Node`'s contract said it forwards to its sink; it never has.** The
+  class contains no reference to `$this->sink`, `$this->target` or `Message::TO`
+  — delivery is the `on_message` seam alone, and the patron owns unpack, FROM
+  stamping, target and the sink fill. `Remote_Link_Node` nonetheless assigned a
+  sink and a target the node never read, and re-pointed that target on every
+  `connect_node()`, which made the dead path look live. The three assignments are
+  gone, and the header, `fill()`'s docblock and the AGENTS.md row now say what the
+  node does. `node_schema()` already omitted `has_target`, so the schema and the
+  prose had been contradicting each other.
+
+- **Two headers named things that do not exist.** `Remote_Link_Node` claimed "two
+  subclasses specialize the base" — PHP's `Remote_IPC_Node` was deleted and only
+  the JS one remains, which is why `should_connect()` has a single constant
+  implementation. The JS `RemoteLinkNode` tabulated `{name}:sse-in`,
+  `{name}:http` and `{name}:heartbeat` as its children when it creates ONE
+  deliberately-unnamed SseIn and configures the process-wide `_http` and
+  `_heartbeat` singletons — a reader would look for all three in the inspector
+  and find none.
+
 - **The browser SSE client reconnected on a flat interval with no backoff.**
   Every reconnect path retried once per 2s watchdog tick and never widened, so a
   hard-down or 500ing endpoint drew 30 requests a minute per open tab,

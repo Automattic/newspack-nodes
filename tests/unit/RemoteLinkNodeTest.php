@@ -167,9 +167,11 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( 'https://austin.example', $this->read_private( $sse, 'url' ) );
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
-		// SSE_In forwards to the link's OWN downstream target, not back to it.
-		$this->assertSame( $sink, $sse->sink() );
-		$this->assertSame( 'downstream', $sse->target() );
+		// SSE_In reads neither: delivery is its `on_message` seam, and THIS
+		// node unpacks, stamps and fills its own sink.
+		$this->assertNull( $sse->sink() );
+		$this->assertSame( $sink, $node->sink() );
+		$this->assertSame( 'downstream', $this->read_private( $node, 'target' ) );
 
 		$http = Core::node( 'link-austin:http-out' );
 		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
@@ -724,7 +726,9 @@ class RemoteLinkNodeTest extends TestCase {
 	// connect_node — target propagation.
 	// ---------------------------------------------------------------------
 
-	public function test_connect_node_propagates_target_to_sse_in(): void {
+	public function test_connect_node_retargets_this_node_not_its_sse_child(): void {
+		// The child never read a target; re-pointing it on every rewire only
+		// looked like the sink/target path was live.
 		$this->seed_vault();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->fire();
@@ -732,7 +736,7 @@ class RemoteLinkNodeTest extends TestCase {
 		$node->connect_node( 'new-downstream' );
 
 		$this->assertSame( 'new-downstream', $this->read_private( $node, 'target' ) );
-		$this->assertSame( 'new-downstream', Core::node( 'link-austin:sse-in' )->target() );
+		$this->assertSame( '', Core::node( 'link-austin:sse-in' )->target() );
 	}
 
 	public function test_connect_node_before_patrons_only_sets_target(): void {

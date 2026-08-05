@@ -197,10 +197,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 'u', $this->read_private( $sse, 'auth_username' ) );
 		$this->assertSame( 'firehose.p0', $this->read_private( $sse, 'subscribe' ) );
 		// SSE_In hands each raw `msg` payload to the Remote_Source's delivery seam, which
-		// appends it to the Durable_Reader buffer (a poison line is quarantined on drain), and
-		// keeps its downstream target for forward_line's TO.
+		// appends it to the Durable_Reader buffer (a poison line is quarantined on drain).
+		// The target for forward_line's TO belongs to THIS node; SSE_In never reads one.
 		$this->assertInstanceOf( \Closure::class, $sse->on_message, 'the raw-delivery seam is wired' );
-		$this->assertSame( 'downstream', $sse->target() );
+		$this->assertSame( 'downstream', $this->read_private( $node, 'target' ) );
 	}
 
 	// ---------------------------------------------------------------------

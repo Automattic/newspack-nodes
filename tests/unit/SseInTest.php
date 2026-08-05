@@ -134,6 +134,31 @@ class SseInTest extends TestCase {
 		$this->assertSame( [ 'segment' => 0, 'offset' => 0 ], $node->position(), 'the per-message cursor no longer advances in SSE_In' );
 	}
 
+	public function test_a_msg_frame_never_reaches_the_sink(): void {
+		// Delivery is the `on_message` seam only; the patron owns unpack, FROM
+		// stamping, target and the sink fill. The class docblock used to claim
+		// this node "forwards them to its sink with TO=target", and the patron
+		// assigned a sink and target this node has never read.
+		[ $node ]  = $this->configured_node();
+		$sink      = new Capture_Sink_Node();
+		$delivered = [];
+		$node->sink( $sink );
+		$node->on_message = static function ( string $raw ) use ( &$delivered ): void {
+			$delivered[] = $raw;
+		};
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::ID ]    = '1:0:10';
+		$m[ Message::VALUE ] = [ 'x' => 1 ];
+		$packed              = Message::packed( $m );
+
+		$node->process_sse_chunk( "event: msg\ndata: {$packed}\n\n" );
+
+		$this->assertSame( [ $packed ], $delivered, 'the seam is the delivery path' );
+		$this->assertSame( [], $sink->captured, 'nothing goes to the sink' );
+	}
+
 	public function test_msg_with_large_from_still_handed_raw(): void {
 		// SSE_In hands the raw payload regardless of the message's FROM. The FROM-overflow drop is
 		// now the owner's deliver_downstream / forward_line concern, not SSE_In's.

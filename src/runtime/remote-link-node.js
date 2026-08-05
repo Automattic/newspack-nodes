@@ -1,11 +1,18 @@
 /**
  * RemoteLinkNode — the full-duplex "be the browser" SSE+HTTP channel, as one
- * node. It composes the three children every SSE dashboard and the console
- * worker attachment used to wire by hand:
+ * node. It composes what every SSE dashboard and the console worker attachment
+ * used to wire by hand:
  *
- *   {name}:sse-in     SseIn     — inbound EventSource stream (frames → link sink/target)
- *   {name}:http       HttpOut   — outbound /command POST boundary
- *   {name}:heartbeat  Heartbeat — slot keepalive, poking `workers` via {name}:http
+ *   an SseIn        — inbound EventSource stream (frames → link sink/target).
+ *                     THIS link's own, and deliberately unnamed: it is reached
+ *                     through `this.sseIn`, never `Core.node()`.
+ *   `_http`         — the process-wide HttpOut singleton, the outbound /command
+ *                     POST boundary. Configured here, never aliased per link.
+ *   `_heartbeat`    — the process-wide Heartbeat singleton, slot keepalive.
+ *                     Armed and stopped by this link's connection lifecycle.
+ *
+ * The last two are shared backbone, not per-link children — a second link
+ * configures the same two nodes.
  *
  * plus the `connected → lease` bridge (the SseIn's connect handshake carries
  * the exact slot + lease owner the Heartbeat must keep alive). A dashboard
