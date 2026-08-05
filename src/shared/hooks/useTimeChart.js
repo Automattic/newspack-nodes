@@ -9,24 +9,21 @@ import * as d3 from 'd3';
 // --- Constants ---
 
 /**
- * Settings the host plugin localizes onto `window` before the bundle runs.
- * Absent when no host injects them, which is why the retention window below
- * falls back to 24 hours.
+ * Retention window assumed when a caller does not supply one: 24 hours.
  *
- * @typedef {Object} EventLoggerDashboards
- * @property {number} [retentionSeconds] Log retention window, in seconds.
+ * The substrate does not know any host's retention and must not go looking.
+ * Reading a consumer plugin's localized global from this module gave every
+ * OTHER consumer the fallback silently, and froze the value at
+ * bundle-evaluation time whatever the host localized afterwards. A host owns
+ * its own window and passes it to `buildTimeSlots()`.
  */
-
-export const RETENTION_SECONDS =
-	Number(
-		/** @type {Window & { eventLoggerDashboards?: EventLoggerDashboards }} */ (
-			window
-		).eventLoggerDashboards?.retentionSeconds
-	) || 86400;
+export const DEFAULT_RETENTION_SECONDS = 86400;
 export const BUCKET_MINUTES = 5;
 export const BUCKET_SECONDS = BUCKET_MINUTES * 60;
 export const BUCKET_MS = BUCKET_SECONDS * 1000;
-export const NUM_BUCKETS = Math.ceil( RETENTION_SECONDS / BUCKET_SECONDS );
+export const NUM_BUCKETS = Math.ceil(
+	DEFAULT_RETENTION_SECONDS / BUCKET_SECONDS
+);
 
 export const MARGIN = { top: 20, right: 160, bottom: 65, left: 60 };
 
@@ -56,14 +53,18 @@ export const PALETTE = [
 // --- Helpers ---
 
 /**
- * Build 5-minute time slots over the retention window.
+ * Build 5-minute time slots over a retention window.
  *
+ * @param {number} [retentionSeconds] Window to cover; defaults to 24 hours.
  * @return {Array} Array of { date, bucketKey } objects.
  */
-export const buildTimeSlots = () => {
+export const buildTimeSlots = (
+	retentionSeconds = DEFAULT_RETENTION_SECONDS
+) => {
+	const buckets = Math.ceil( retentionSeconds / BUCKET_SECONDS );
 	const now = new Date();
 	const slots = [];
-	for ( let i = NUM_BUCKETS - 1; i >= 0; i-- ) {
+	for ( let i = buckets - 1; i >= 0; i-- ) {
 		const date = new Date( now.getTime() - i * BUCKET_MS );
 		date.setMinutes( Math.floor( date.getMinutes() / 5 ) * 5, 0, 0 );
 		const bucketKey = [

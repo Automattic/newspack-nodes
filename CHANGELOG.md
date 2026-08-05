@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`useTimeChart` read a consumer plugin's `window` global at import time.**
+  `RETENTION_SECONDS` came from `window.eventLoggerDashboards.retentionSeconds`,
+  a global only `newspack-event-logger-nodes` localizes — so every OTHER consumer
+  of this canonical shared module silently got the 24-hour fallback, and the
+  value froze at bundle-evaluation time whatever a host set afterwards. The
+  substrate now exports `DEFAULT_RETENTION_SECONDS` and `buildTimeSlots()` takes
+  the window as an argument; a host owns its own value.
+
 - **`wp nodes ingest` told an operator already using `--allow_large_writes` to
   re-run with it.** With the flag on, `$cap` is the 32 MiB large-write cap, so an
   oversize record exceeds the largest a partition can store — re-running changes
