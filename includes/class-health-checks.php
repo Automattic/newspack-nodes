@@ -130,7 +130,7 @@ final class Health_Checks {
 		];
 		// Only when a row arrived that no family claimed.
 		if ( [] !== $groups['other-alerts'] ) {
-			$results[] = self::alert_result( 'other-alerts', 'Other alerts', $groups['other-alerts'], '' );
+			$results[] = self::alert_failures( 'other-alerts', 'Other alerts', $groups['other-alerts'] );
 		}
 		return $results;
 	}
@@ -151,9 +151,20 @@ final class Health_Checks {
 	 * @return HealthResult
 	 */
 	private static function alert_result( string $id, string $label, array $group, string $healthy ): array {
-		if ( [] === $group ) {
-			return self::result( $id, $label, self::STATUS_GOOD, $healthy );
-		}
+		return [] === $group
+			? self::result( $id, $label, self::STATUS_GOOD, $healthy )
+			: self::alert_failures( $id, $label, $group );
+	}
+
+	/**
+	 * Report a family that HAS alerts. Split from `alert_result()` so the
+	 * unrecognized-family row, which is only built when it has rows, does not
+	 * have to pass a healthy message that could never be reached.
+	 *
+	 * @param array<int,array<string,string>> $group Non-empty alert rows.
+	 * @return HealthResult
+	 */
+	private static function alert_failures( string $id, string $label, array $group ): array {
 		$status = Alerts::SEVERITY_CRITICAL === Alerts::worst_severity( $group )
 			? self::STATUS_CRITICAL
 			: self::STATUS_RECOMMENDED;
