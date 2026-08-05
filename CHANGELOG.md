@@ -70,6 +70,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An uploaded topology kept the previously-opened one's identity.** The
+  nine-step load sequence existed in three hand-maintained copies — open, upload
+  and entering edit mode — and they had drifted: `handleUpload` never set
+  `editingName`/`editingSource`, so Download named the file after whatever was
+  open before and Save prefilled the same wrong name; it also skipped
+  `assertResolved`. All three go through one `loadIntoEditor()` now, and the two
+  differences that ARE intentional are one named `fromServer` flag: an opened
+  topology re-baselines (so the load starts clean) and can have its config edges
+  asserted against the server's resolved list, while an upload is unsaved work
+  the moment it lands — and with no resolved list, asserting would throw on any
+  `<config:…>` token it uses.
+
 - **The crash-recovery seal lived on the wrong trait.** `Dead_Letter_Queue` is the
   quarantine primitive — `Partition_Node` uses it alone to quarantine a write it
   cannot make — but it also declared `$sealed_quarantine`, `$crawl_skip_head`,

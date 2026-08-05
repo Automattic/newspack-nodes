@@ -1090,6 +1090,42 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'confirm-modal' ) ).not.toBeNull();
 	} );
 
+	it( 'UPLOAD takes over the editor identity from the previously-opened topology', async () => {
+		// handleUpload never set editingName/editingSource, so after an upload
+		// the editor still carried the last-opened topology's identity — which
+		// is what Download names the file after and what Save prefills.
+		globalThis.__hooks.fetchTopology.mockResolvedValue( {
+			name: 'demo',
+			source: 'user',
+			tsl: 'make_node Echo e\n',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const clicks = [];
+		window.URL.createObjectURL = jest.fn( () => 'blob:mock' );
+		window.URL.revokeObjectURL = jest.fn();
+		const clickSpy = jest
+			.spyOn( window.HTMLAnchorElement.prototype, 'click' )
+			.mockImplementation( function download() {
+				clicks.push( this.download );
+			} );
+		try {
+			const { getByText } = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( getByText( 'edit' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'upload' ) );
+			} );
+			await act( async () => {} );
+			await act( async () => {
+				fireEvent.click( getByText( 'download' ) );
+			} );
+			expect( clicks ).toEqual( [ 'up.tsl' ] );
+		} finally {
+			clickSpy.mockRestore();
+		}
+	} );
+
 	it( 'edit hides the delete button when the loaded topology is stock-only', async () => {
 		globalThis.__hooks.topologies = [];
 		globalThis.__hooks.fetchTopology.mockResolvedValue( {

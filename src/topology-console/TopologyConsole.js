@@ -560,6 +560,66 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ catalog.classes, setDraftCatalog ]
 	);
 
+	/**
+	 * THE way a document enters the editor.
+	 *
+	 * Open, upload and mode-change each used to re-implement this nine-step
+	 * sequence, and they had already drifted: upload never called
+	 * `assertResolved` and never set the editor identity, so after an upload
+	 * the editor still carried the previously-opened topology's name — which is
+	 * what Download names the file after and what Save prefills.
+	 *
+	 * @param {Object}  doc                       The document to load.
+	 * @param {string}  doc.tsl                   Source text.
+	 * @param {Object}  doc.catalogClasses        Classes from `loadPhpCatalog()`.
+	 * @param {Object}  [doc.expansion]           Pre-fetched include expansion.
+	 * @param {Object}  [doc.resolvedConfigEdges] Server-resolved config edges.
+	 * @param {string}  doc.name                  Editor identity.
+	 * @param {string}  [doc.source]              'stock' | 'user' | '' for local.
+	 * @param {boolean} [doc.fromServer]          Whether the document has a server home. It drives the two things that
+	 *                                            genuinely differ between an opened topology and an uploaded file: a
+	 *                                            server document re-baselines, so the load starts clean, and its config
+	 *                                            edges can be asserted against the server's resolved list. An upload is
+	 *                                            unsaved work the moment it lands, so leaving still prompts — and with
+	 *                                            no resolved list, asserting would throw on any `<config:…>` token.
+	 * @return {Promise<void>} Resolves once the editor holds the document.
+	 */
+	const loadIntoEditor = useCallback(
+		async ( {
+			tsl,
+			catalogClasses,
+			expansion: preExpanded = null,
+			resolvedConfigEdges = null,
+			name,
+			source = '',
+			fromServer = true,
+		} ) => {
+			const includes = DraftInterpreterNode.includesOf( tsl );
+			const fetchedExpansion =
+				preExpanded ?? ( await fetchExpandedIncludes( includes ) );
+			primeExpandedIncludes( includes, fetchedExpansion );
+			setDraftCatalog( catalogClasses );
+			// Sync ref: re-fetch diffs vs THIS, not EMPTY.
+			seededExpansionRef.current = fetchedExpansion;
+			const snapshot = loadDraft(
+				tsl,
+				fetchedExpansion,
+				resolvedConfigEdges
+			);
+			if ( fromServer ) {
+				// Re-baselining is what makes the load clean.
+				setDirtySnapshot( snapshot );
+				assertResolved( resolvedConfigEdges );
+			}
+			setEditingName( name );
+			setEditingSource( source );
+			setSelectedId( null );
+			// Close settings so the panel reseeds from loaded frontmatter.
+			setSettingsOpen( false );
+		},
+		[ assertResolved, loadDraft, setDraftCatalog, setDirtySnapshot ]
+	);
+
 	// Server-saved layout (fetchLayout): seed source, autoLayout is fallback.
 	const [ savedLayout, setSavedLayout ] = useState( null );
 	const { fetchLayout, saveLayout } = useLayout();
@@ -1018,28 +1078,16 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						fetchTopology( topology ),
 						loadPhpCatalog(),
 					] )
-						.then( async ( [ resp, loadedCatalog ] ) => {
-							const tsl = resp.tsl || '';
-							const includes =
-								DraftInterpreterNode.includesOf( tsl );
-							const fetchedExpansion =
-								resp.expanded ??
-								( await fetchExpandedIncludes( includes ) );
-							primeExpandedIncludes( includes, fetchedExpansion );
-							setDraftCatalog( loadedCatalog.classes );
-							// Sync ref: re-fetch diffs vs THIS, not EMPTY.
-							seededExpansionRef.current = fetchedExpansion;
-							setDirtySnapshot(
-								loadDraft(
-									tsl,
-									fetchedExpansion,
-									resp.resolved_config_edges
-								)
-							);
-							assertResolved( resp.resolved_config_edges );
-							setEditingName( resp.name );
-							setEditingSource( resp.source || '' );
-						} )
+						.then( ( [ resp, loadedCatalog ] ) =>
+							loadIntoEditor( {
+								tsl: resp.tsl || '',
+								catalogClasses: loadedCatalog.classes,
+								expansion: resp.expanded,
+								resolvedConfigEdges: resp.resolved_config_edges,
+								name: resp.name,
+								source: resp.source || '',
+							} )
+						)
 						.catch( ( e ) => {
 							// Draft stays blank; surface WHY, don't go silent.
 							const msg =
@@ -1085,8 +1133,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			fetchTopology,
 			loadPhpCatalog,
 			loadDraft,
-			setDraftCatalog,
-			assertResolved,
+			loadIntoEditor,
 		]
 	);
 
@@ -1395,29 +1442,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					fetchTopology( name ),
 					loadPhpCatalog(),
 				] );
-				const tsl = resp.tsl || '';
-				const includes = DraftInterpreterNode.includesOf( tsl );
-				const fetchedExpansion =
-					resp.expanded ??
-					( await fetchExpandedIncludes( includes ) );
-				primeExpandedIncludes( includes, fetchedExpansion );
-				setDraftCatalog( loadedCatalog.classes );
-				// Sync ref: re-fetch diffs vs THIS, not EMPTY.
-				seededExpansionRef.current = fetchedExpansion;
-				// Replace draft AND dirtySnapshot so the load starts clean.
-				setDirtySnapshot(
-					loadDraft(
-						tsl,
-						fetchedExpansion,
-						resp.resolved_config_edges
-					)
-				);
-				assertResolved( resp.resolved_config_edges );
-				setEditingName( resp.name );
-				setEditingSource( resp.source || '' );
-				setSelectedId( null );
-				// Close settings so the panel reseeds from loaded frontmatter.
-				setSettingsOpen( false );
+				await loadIntoEditor( {
+					tsl: resp.tsl || '',
+					catalogClasses: loadedCatalog.classes,
+					expansion: resp.expanded,
+					resolvedConfigEdges: resp.resolved_config_edges,
+					name: resp.name,
+					source: resp.source || '',
+				} );
 				// Storage key includes editingName, so the hook auto-loads.
 				setToast( {
 					kind: 'success',
@@ -1436,13 +1468,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[
-			fetchTopology,
-			loadPhpCatalog,
-			loadDraft,
-			setDraftCatalog,
-			assertResolved,
-		]
+		[ fetchTopology, loadPhpCatalog, loadIntoEditor ]
 	);
 
 	/**
@@ -1582,14 +1608,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					file.text(),
 					loadPhpCatalog(),
 				] );
-				const includes = DraftInterpreterNode.includesOf( text );
-				const fetchedExpansion =
-					await fetchExpandedIncludes( includes );
-				primeExpandedIncludes( includes, fetchedExpansion );
-				setDraftCatalog( loadedCatalog.classes );
-				// Sync ref: the reconcile effect diffs vs THIS, not EMPTY.
-				seededExpansionRef.current = fetchedExpansion;
-				loadDraft( text, fetchedExpansion );
+				// Takes over the identity; no server home until it is saved.
+				await loadIntoEditor( {
+					tsl: text,
+					catalogClasses: loadedCatalog.classes,
+					name: file.name.replace( /\.tsl$/, '' ),
+					fromServer: false,
+				} );
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -1605,7 +1630,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ loadPhpCatalog, loadDraft, setDraftCatalog ]
+		[ loadPhpCatalog, loadIntoEditor ]
 	);
 
 	const handleSaveConfirm = useCallback(
