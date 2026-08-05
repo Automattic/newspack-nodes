@@ -473,21 +473,21 @@ describe( 'Metadata node', () => {
 					sink: '_router',
 				},
 				_router: { class: 'Router' },
-				_topicprobe: { class: 'TopicProbe', target: '_topicprobe:log' },
-				'_topicprobe:log': { class: 'Partition' },
+				topicprobe: { class: 'TopicProbe', target: 'topicprobe:log' },
+				'topicprobe:log': { class: 'Partition' },
 				firehose: { class: 'Consumer', target: 'request-builder' },
 				'request-builder': { class: 'Request_Builder' },
 			} );
 			const ids = nodes.map( ( n ) => n.id ).sort();
 			expect( ids ).toEqual( [
-				'_topicprobe',
-				'_topicprobe:log',
 				'firehose',
 				'request-builder',
+				'topicprobe',
+				'topicprobe:log',
 			] );
 			// The probe→log edge renders; nothing references the backbone.
 			const touched = edges.flatMap( ( e ) => [ e.from, e.to ] );
-			expect( touched ).toContain( '_topicprobe' );
+			expect( touched ).toContain( 'topicprobe' );
 			expect( touched ).not.toContain( '_router' );
 		} );
 	} );

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `max_segments` moved ahead of `min_lifetime` in the positional
+  constructor.** Partition, Log and Topic now all declare
+  `segment_size, min_segments, num_segments, max_segments, min_lifetime, lifetime`.
+  The hard cap used to sit in the trailing slot, so every caller that passed the
+  five retention axes and omitted it now has to pass it — an omitted middle slot
+  shifts both lifetimes. Every stock topology, fixture, sidecar geometry
+  (offsetlog, dead-letter, IPC scratch, settings log) and the ELN firehose Topic
+  were updated in lockstep, and `SegmentRetentionArgOrderTest` pins the order
+  across all three classes plus the child partitions a Topic builds by hand.
+
+- **`topicprobe` lost its `_` prefix**, and both probe logs were resized to
+  `1048576 2 8 0 86400 86400` — 8 x 1 MiB segments with a derived hard cap of 16
+  and a full day on both lifetime axes. At the previous `1048576 2 2 86400 0` the
+  age rule was off (`lifetime` 0) and the retained span was a pure byte budget:
+  topicprobe sat pinned at the derived 4-segment cap, about 15 hours, so the
+  dashboards could not show the day they advertised.
+
 ### Added
 
 - **`Topology_Analyzer`** — the TSL static analysis split out of

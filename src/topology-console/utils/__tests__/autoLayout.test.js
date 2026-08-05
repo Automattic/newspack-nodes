@@ -893,15 +893,15 @@ describe( 'autoLayout — disconnected components', () => {
 		nodes: [
 			'null',
 			...SPOKES,
-			'_topicprobe',
-			'_topicprobe:log',
+			'topicprobe',
+			'topicprobe:log',
 			'settings:consumer',
 			'settings-sync',
 			'discovery-collector',
 			'_repl',
 		].map( ( id ) => ( { id } ) ),
 		edges: [
-			{ from: '_topicprobe', to: '_topicprobe:log' },
+			{ from: 'topicprobe', to: 'topicprobe:log' },
 			{ from: 'settings:consumer', to: 'settings-sync' },
 			...SPOKES.map( ( to ) => ( { from: 'settings-sync', to } ) ),
 			...SPOKES.map( ( to ) => ( { from: 'discovery-collector', to } ) ),

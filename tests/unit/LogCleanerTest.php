@@ -158,9 +158,9 @@ class LogCleanerTest extends TestCase {
 		// through the ordinary declared-set path — no whitelist.
 		\file_put_contents(
 			"{$this->stock}/topic-probe.tsl",
-			"make_node TopicProbe _topicprobe 15\n"
-			. "make_node Partition  _topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 2 86400 0\n"
-			. "connect_node _topicprobe _topicprobe:log\n"
+			"make_node TopicProbe topicprobe 15\n"
+			. "make_node Partition  topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400\n"
+			. "connect_node topicprobe topicprobe:log\n"
 		);
 		$this->declare_topology(
 			'probing-workers',

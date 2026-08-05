@@ -49,7 +49,7 @@ class LogTest extends TestCase {
 		// Log inherits Partition's dual-rule cleanup; the two lifetime knobs are
 		// optional trailing args (default 0) so age retention is configurable too.
 		$log = new Log_Node();
-		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3", "100", "200" ] );
+		$log->arguments( [ "{$this->tmp}/out.log", "1024", "2", "3", "0", "100", "200" ] );
 		$ref = new \ReflectionClass( $log );
 		$this->assertSame( 100, $ref->getProperty( 'min_lifetime' )->getValue( $log ) );
 		$this->assertSame( 200, $ref->getProperty( 'lifetime' )->getValue( $log ) );
@@ -232,7 +232,7 @@ class LogTest extends TestCase {
 	public function test_node_schema_arguments_are_file_segment_size_and_retention_knobs(): void {
 		$args  = Log_Node::node_schema()['arguments'];
 		$names = \array_column( $args, 'name' );
-		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'num_segments', 'min_lifetime', 'lifetime', 'max_segments' ], $names );
+		$this->assertSame( [ 'file', 'segment_size', 'min_segments', 'num_segments', 'max_segments', 'min_lifetime', 'lifetime' ], $names );
 	}
 
 	public function test_node_schema_inherits_large_write_verbs_and_is_terminal(): void {

@@ -37,8 +37,8 @@ class WorkerScaffoldingTest extends TestCase {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 
-		$this->assertNull( Core::node( '_topicprobe' ) );
-		$this->assertNull( Core::node( '_topicprobe:log' ) );
+		$this->assertNull( Core::node( 'topicprobe' ) );
+		$this->assertNull( Core::node( 'topicprobe:log' ) );
 	}
 
 	public function test_build_scaffolding_does_not_mount_job_probe(): void {

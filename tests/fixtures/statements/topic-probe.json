@@ -4,16 +4,16 @@
         "values": [
             "make_node",
             "TopicProbe",
-            "_topicprobe",
+            "topicprobe",
             "15"
         ],
         "spans": [
             "make_node",
             "TopicProbe",
-            "_topicprobe",
+            "topicprobe",
             "15"
         ],
-        "raw": "make_node TopicProbe _topicprobe 15",
+        "raw": "make_node TopicProbe topicprobe 15",
         "line": 1
     },
     {
@@ -21,41 +21,43 @@
         "values": [
             "make_node",
             "Partition",
-            "_topicprobe:log",
+            "topicprobe:log",
             "<config:logs_dir>/topicprobe.p0",
             "1048576",
             "2",
-            "2",
+            "8",
+            "0",
             "86400",
-            "0"
+            "86400"
         ],
         "spans": [
             "make_node",
             "Partition",
-            "_topicprobe:log",
+            "topicprobe:log",
             "<config:logs_dir>/topicprobe.p0",
             "1048576",
             "2",
-            "2",
+            "8",
+            "0",
             "86400",
-            "0"
+            "86400"
         ],
-        "raw": "make_node Partition _topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 2 86400 0",
+        "raw": "make_node Partition topicprobe:log <config:logs_dir>/topicprobe.p0 1048576 2 8 0 86400 86400",
         "line": 2
     },
     {
         "verb": "connect_node",
         "values": [
             "connect_node",
-            "_topicprobe",
-            "_topicprobe:log"
+            "topicprobe",
+            "topicprobe:log"
         ],
         "spans": [
             "connect_node",
-            "_topicprobe",
-            "_topicprobe:log"
+            "topicprobe",
+            "topicprobe:log"
         ],
-        "raw": "connect_node _topicprobe _topicprobe:log",
+        "raw": "connect_node topicprobe topicprobe:log",
         "line": 3
     },
     {

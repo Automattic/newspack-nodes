@@ -129,6 +129,7 @@ class Ingest_CLI_Command {
 				$num_segments,
 				0,
 				0,
+				0,
 			] ) );
 			if ( $lock ) {
 				$topic->allow_large_writes();

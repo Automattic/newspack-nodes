@@ -12,8 +12,8 @@ include topic-probe
 make_node Consumer firehose:consumer <config:logs_dir>/firehose.p<partition> <config:offsets_dir>/<topology>.firehose.p<partition> <config:deadletter_dir>/<topology>.firehose.p<partition>
 make_node Partition alerts:partition <config:logs_dir>/alerts.p0
 make_node Partition errors:partition <config:logs_dir>/errors.p0
-make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0
-make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0
+make_node Partition completed:partition <config:logs_dir>/completed.p0 1048576 <config:min_segments> <config:num_segments> 0 0 0
 make_node Partition requests:partition <config:logs_dir>/requests.p<partition>
 make_node Request_Builder request-builder 100 3
 make_node Tee completed:tee

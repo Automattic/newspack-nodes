@@ -63,7 +63,7 @@ class TopicProbeTest extends TestCase {
 
 		$capture = new Capture_Sink_Node();
 		$probe   = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -88,7 +88,7 @@ class TopicProbeTest extends TestCase {
 	public function test_fire_emits_nothing_when_no_consumers(): void {
 		$capture = new Capture_Sink_Node();
 		$probe   = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 		$this->assertCount( 0, $capture->captured );
@@ -101,7 +101,7 @@ class TopicProbeTest extends TestCase {
 		$this->stub_consumer( 'firehose' );
 
 		$probe = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -115,7 +115,7 @@ class TopicProbeTest extends TestCase {
 	public function test_arguments_sets_interval_and_returns_raw_string(): void {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' ); // set_timer hitchhikes the Router TIMER
 		$probe = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$this->assertSame( [ '5' ], $probe->arguments( [ '5' ] ) );
 		// The getter (null arg) returns the raw string last set, not a re-parse.
 		$this->assertSame( [ '5' ], $probe->arguments() );
@@ -126,7 +126,7 @@ class TopicProbeTest extends TestCase {
 	public function test_arguments_empty_string_keeps_default_interval(): void {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
 		$probe = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$this->assertSame( [], $probe->arguments( [] ) );
 		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
 		$this->assertSame( 15000, $ref->getValue( $probe ) );
@@ -144,7 +144,7 @@ class TopicProbeTest extends TestCase {
 		// notify still happens, then it returns before sweeping any Consumer.
 		$this->stub_consumer( 'firehose' );
 		$probe = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 
 		$fired = [];
 		$probe->register( 'FIRE', 'cb', function ( $payload ) use ( &$fired ): void {
@@ -169,7 +169,7 @@ class TopicProbeTest extends TestCase {
 
 		$capture = new Capture_Sink_Node();
 		$probe   = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
 
@@ -186,7 +186,7 @@ class TopicProbeTest extends TestCase {
 		$this->stub_consumer( 'firehose' );
 		$capture = new Capture_Sink_Node();
 		$probe   = new TopicProbe_Node();
-		$probe->name( '_topicprobe' );
+		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		// Arm the way production does — the gate belongs to the hitchhike, so
 		// the node has to be IN it, not merely carry a matching interval_ms.
