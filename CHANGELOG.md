@@ -51,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Inspector's browser-scope sparklines drew only the last 5 minutes of an
+  hour-long ring.** `inspectorSparklinePath` sized its geometry from
+  `INSP_SPARK_HISTORY_MAX = 60` rather than from the data, an undocumented cap on
+  the `history` prop that the browser scope violates by 12x — `IoTelemetry`'s
+  ring holds 720 samples. The first 660 points landed at negative x where the
+  viewBox clips them, while `max` and the peak label still spanned all 720: a
+  live curve permanently flattened by a busy minute that had scrolled off-screen,
+  under a "last ~60m" label describing a window it no longer drew. The path is
+  sized by its data now.
+
 - **`TriageView` correlated four verbs' replies by command name through one
   shared capture slot.** Every `dl_*` command was minted from the shared
   `_output` Dumper, so all four replies landed on a node the view does not own;
