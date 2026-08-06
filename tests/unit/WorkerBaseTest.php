@@ -66,6 +66,19 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/test-worker.p0.lock.d" ) );
 	}
 
+	public function test_a_reload_signal_does_not_stop_the_worker(): void {
+		// A reload says "re-read your config", never "exit" — the restart
+		// channel is the only thing that retires a process.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+
+		$this->assertTrue(
+			\Newspack_Nodes\Lock_Node::request_reload_at( "{$this->tmp}/locks/test-worker.p0.lock.d" )
+		);
+
+		$this->assertTrue( $w->should_continue() );
+	}
+
 	public function test_should_continue_returns_false_after_max_runtime(): void {
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0, max_runtime: 1 );
 		$w->acquire();

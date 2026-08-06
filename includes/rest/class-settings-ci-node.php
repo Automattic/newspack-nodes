@@ -79,12 +79,13 @@ class Settings_CI_Node extends Service_CI_Node {
 
 		\update_option( "newspack_nodes_{$short}", $sanitized, true );
 		RuntimeConfig::reset();
-		// Best-effort, as on the admin path; the supervisor reloads regardless.
+		// Best-effort; the next worker generation reads it regardless.
 		try {
-			Restart_Planner::request_restarts(
-				Settings_Schema::get()->restart_for( $short ),
-				RuntimeConfig::get_locks_directory()
-			);
+			$locks_dir = RuntimeConfig::get_locks_directory();
+			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );
+			// @longform Every live worker's option cache is frozen at boot, so
+			// the ones this save does not recycle must be told to re-read.
+			Restart_Planner::request_reloads( $locks_dir );
 		} catch ( \Throwable $e ) {
 			Core::print_less_often( 'settings: restart planning failed: ', $e->getMessage() );
 		}

@@ -15,7 +15,7 @@ For the full architecture and rationale, see [architecture-guide.md](architectur
 POST  /wp-json/newspack-nodes/v1/workers/spawn
 ```
 
-HMAC-validated zombie-process spawn. Used internally by the supervisor and by the worker's own `self_respawn()` chain. **Not for public callers** — the HMAC token rotates every 10s and is per-site (`NONCE_SALT`-keyed); externally calling this endpoint without a valid token returns `403 Forbidden`.
+HMAC-validated zombie-process spawn. Used internally by every worker's `_fleet` peer scan, the WP-Cron cold-start pass, and the worker's own `self_respawn()` chain. **Not for public callers** — the HMAC token rotates every 10s and is per-site (`NONCE_SALT`-keyed); externally calling this endpoint without a valid token returns `403 Forbidden`.
 
 ### Request
 
@@ -39,13 +39,11 @@ Body: form-encoded (`application/x-www-form-urlencoded`) or JSON (`application/j
 }
 ```
 
-For `type=supervisor`, the response additionally includes a sanitized `result` payload drawn from the supervisor's synchronous `run()` return. Sanitization is generic, not a fixed whitelist: `Spawn_Controller::sanitize_worker_result()` keeps a string `status` field and surfaces every other key matching `[a-zA-Z0-9_]{1,40}` whose value is numeric (cast to int), capped at 32 fields. Strings, arrays, paths, and traces are dropped so no internal paths leak.
-
 The endpoint acknowledges synchronously, then detaches from FPM via `fastcgi_finish_request()` (or proceeds inline if not in FPM context, e.g. CLI tests). After detach:
 
 1. `ignore_user_abort(true) + set_time_limit(0)` so the process survives the client disconnect.
 2. `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` and `$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']` are populated for sub-actions / logging.
-3. For topology workers, the `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`. For `type=supervisor`, the controller instantiates and runs the supervisor synchronously inside the request — no separate fork.
+3. The `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`. Every accepted `type` is a topology; there is no other process shape.
 
 Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships two builtin topologies — `job-worker` (the generic `Job_Worker_Node`, spawned per-partition) and `settings-sync` (a single-instance settings-sync control plane, `num_partitions = 1`) — both registered from `topologies/` via `Topology_Registry::register_builtin_dir` and spawned through the same `Topology_Registry::spawn_worker` handler on `newspack_nodes/spawn_worker`. Application plugins (e.g., `newspack-event-logger-nodes`) register the rest. **Every active topology, builtin or app, spawns through this one hook** — there is no separate "control-plane" spawn path.
 
@@ -61,7 +59,7 @@ Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the
 }
 ```
 
-Returned when the `nonce` does not validate against either the current or previous 10s HMAC window. This is the normal response for unauthenticated callers — the supervisor regenerates the token each tick.
+Returned when the `nonce` does not validate against either the current or previous 10s HMAC window. This is the normal response for unauthenticated callers — the token is re-minted every window.
 
 ## Authentication
 
@@ -70,7 +68,7 @@ model is [Command Signing](#command-signing) below.
 
 The spawn endpoint uses dual-mode auth (`Spawn_Controller::check_permission`):
 
-1. **HMAC nonce** — `Supervisor::validate_spawn_token()` against the current or previous 10s window. Used by the supervisor's automated POSTs and the worker's self-respawn POSTs. No user capability check.
+1. **HMAC nonce** — `Spawn_Coordinator::validate_spawn_token()` against the current or previous 10s window. Used by the peer scan, the cron cold-start pass, and the worker's self-respawn POSTs. No user capability check.
 2. **WordPress admin** — `current_user_can( 'manage_options' )` AND `wp_verify_nonce( $nonce, 'newspack_nodes_spawn_worker' )` AND a 2s per-user rate limit (transient-backed). For dashboard-initiated spawns. Order matters: capability is checked before rate-limit so unauthenticated requests can't poison the rate-limit transient table.
 
 Both paths require the `nonce` field; only the validator differs. There is no env-var bypass — `NEWSPACK_NODES_WORKER_TYPE` / `_PARTITION` are written to `$_SERVER` *after* auth passes (see [Worker Identity Tags](#worker-identity-tags)) and are not consulted during permission checks.
@@ -150,18 +148,18 @@ $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;  // e.g. "3"
 
 These are process-identity tags, not credentials. Downstream code uses them to:
 
-- **Exclude worker self-traffic from stats.** Log readers see request entries from worker processes and skip them so the supervisor / firehose-worker churn doesn't pollute global request counters.
+- **Exclude worker self-traffic from stats.** Log readers see request entries from worker processes and skip them so fleet churn doesn't pollute global request counters.
 - **Tag log lines for correlation.** Audit / error log writers can include `[firehose-workers/p3]` so tail-grep tooling knows where an entry came from.
 - **Provide context to sub-actions.** The `newspack_nodes/spawn_worker` action handler and any nested `do_action`s inside the worker can introspect the env to know which worker they're inside without re-passing arguments.
 
-`Supervisor::run()` writes the same keys (`'supervisor'` / `'0'`) at the top of its tick loop so it's tagged consistently with topology workers.
+`Bootstrap::run_supervisor_tick()` writes the same keys (`'supervisor'` / `'0'`) so the WP-Cron cold-start pass is tagged consistently with topology workers.
 
 ## Rate Limiting
 
-The spawn endpoint applies a 2-second per-user rate limit (`Spawn_Controller::RATE_LIMIT_S`) on the WordPress-admin auth path — transient-backed, returning `429` on overflow. The HMAC path is not rate-limited at the REST layer; spawn rate-limiting for internal traffic happens at the supervisor:
+The spawn endpoint applies a 2-second per-user rate limit (`Spawn_Controller::RATE_LIMIT_S`) on the WordPress-admin auth path — transient-backed, returning `429` on overflow. The HMAC path is not rate-limited at the REST layer; spawn rate-limiting for internal traffic happens at the endpoint, the one gate every spawner crosses:
 
-- `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key (`Supervisor_Base::MIN_SPAWN_INTERVAL_S`).
-- Tracked in `Supervisor_Base::$last_spawn_time`; updated after every spawn attempt (success or failure).
+- `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key (`Spawn_Coordinator::MIN_SPAWN_INTERVAL_S`).
+- Tracked in `Spawn_Coordinator::$last_spawn_time`; updated after every spawn attempt (success or failure).
 
 The `/command` endpoint applies its own per-user burst limit (`HTTP_In_Node::check_permission`): `RATE_LIMIT_BURST = 30` POSTs per `RATE_LIMIT_WINDOW_S = 1` second per user, bucketed by clock-second (transient-backed), returning `429 Too Many Requests` on overflow. The burst budget is tunable via the `newspack_nodes/command_rate_limit` filter (clamped to a minimum of 1).
 

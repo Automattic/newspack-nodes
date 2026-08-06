@@ -16,7 +16,7 @@ A WordPress-internal node-graph runtime — a message-passing node graph built o
 - [Event_Framework](#event_framework)
 - [Lock](#lock)
 - [Worker Lifecycle](#worker-lifecycle)
-- [Supervisor Lifecycle](#supervisor-lifecycle)
+- [Fleet Revival](#fleet-revival)
 - [Job_Worker_Node](#job_worker_node)
 - [REPL: wp nodes cli](#repl-wp-nodes-cli)
 - [Config System (declarative settings)](#config-system-declarative-settings)
@@ -464,7 +464,7 @@ PHP I/O quirks the implementation handles:
 
 ## Lock
 
-Mkdir-based advisory locking with a PID-stamped heartbeat file. Used by workers, the supervisor, and `Partition::allow_large_writes()`. Atomic on every filesystem we ship on (NFS, tmpfs, ext4 — `mkdir(2)` is the POSIX-mandated atomic primitive). No `flock`, no daemon, no DB row.
+Mkdir-based advisory locking with a PID-stamped heartbeat file. Used by workers and `Partition::allow_large_writes()`. Atomic on every filesystem we ship on (NFS, tmpfs, ext4 — `mkdir(2)` is the POSIX-mandated atomic primitive). No `flock`, no daemon, no DB row.
 
 The surface (`includes/class-lock-node.php`):
 
@@ -499,9 +499,9 @@ Release is unconditional via the static `force_release_at()` (unlinks heartbeat/
 
 **Heartbeat**: workers touch their heartbeat every 10s during drain. `heartbeat()` calls `verify_ownership()` first; if the on-disk PID no longer matches `getmypid()` (someone stale-stole us), it flips local `is_held=false` and returns false so `release()` becomes a no-op and the displaced holder stops writing. `Partition::fill()` calls `heartbeat()` inline on the no-event-loop large-write path.
 
-**Stale takeover**: once `STALE_TIMEOUT` elapses without a refresh, the next acquirer steals the dir and the displaced holder fails its next heartbeat and exits. This is the supervisor's main job for workers, and it's how concurrent `wp nodes restart` invocations don't fight over slots.
+**Stale takeover**: once `STALE_TIMEOUT` elapses without a refresh, the next acquirer steals the dir and the displaced holder fails its next heartbeat and exits. This is what the peer scan relies on, and it's how concurrent `wp nodes restart` invocations don't fight over slots.
 
-**`should_restart()` / `request_restart()`**: writes `$lock_path/restart` as a sentinel. Workers poll `should_restart()` on every drain tick and exit cleanly when the flag is present **or** the heartbeat file is gone / its PID no longer matches (PID-content theft). The flag is cleared on the next acquire (`write_acquire_files` unlinks it). Static `request_restart_at( $lock_dir )` lets a stranger (admin request, supervisor) signal restart into another process's lock dir without a `Lock_Node` instance.
+**`should_restart()` / `request_restart()`**: writes `$lock_path/restart` as a sentinel. Workers poll `should_restart()` on every drain tick and exit cleanly when the flag is present **or** the heartbeat file is gone / its PID no longer matches (PID-content theft). The flag is cleared on the next acquire (`write_acquire_files` unlinks it). Static `request_restart_at( $lock_dir )` lets a stranger (admin request, a peer's scan, the fleet sweep) signal restart into another process's lock dir without a `Lock_Node` instance.
 
 ## Worker Lifecycle
 
@@ -544,30 +544,35 @@ The predicate runs on every drain iteration, and again from `pump()` (at most on
 
 The first two categories are *cooperative* stops, and the shutdown handoff treats them differently from an operational one: `timeout` and `memory` route each durable reader through the fair-shot rule, which strikes an in-flight poison message and clears an innocent one; everything else is a clean graceful checkpoint ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)). A `memory` stop whose fresh post-reset baseline was already past `BASELINE_WATERMARK_PCT = 0.50` blames a leak or an undersized `memory_limit` instead — it alerts and strikes nothing. On a FATAL shutdown (`is_fatal_shutdown()`) the handoff is skipped entirely, which is what lets a deterministic poison message climb toward the crash threshold.
 
-The shutdown handler catches `exit()` / `die()` calls that bypass `finally`, releases the lock, and lets the supervisor respawn quickly.
+The shutdown handler catches `exit()` / `die()` calls that bypass `finally`, releases the lock, and lets a peer respawn it quickly.
 
 **Memory watermark rationale**: `wp_generate_attachment_metadata` loads full-resolution images into GD; per-job residue accumulates; PHP's fatal-on-OOM is uncatchable and bypasses `finally` / `self_respawn` / offsetlog flush. 80% watermark lets workers exit cleanly before OOM.
 
-## Supervisor Lifecycle
+## Fleet Revival
 
-Long-running, ~595s. Same lifecycle pattern as workers, with `run()` doing supervisor-specific work:
+There is no supervisor process. Every worker revives its peers, and WP-Cron catches a fleet
+with nothing left running.
+
+`Worker_Base::build_scaffolding()` mounts `_fleet` (`Fleet_Node`, a `Timer_Node`) alongside
+`_router` and `_command_interpreter`, so the scan hitchhikes the router tick:
 
 ```
-acquire supervisor.lock.d   (global singleton; defer to a running supervisor)
-loop every 1s for ~595s:
-    every 10s: heartbeat the supervisor lock
-    should_restart() check — break if the lock was stolen or a restart is flagged
-    refresh HMAC spawn token (10s window)
-    every 15s: check_config (reload config, rebuild worker_locks, reconcile lock dirs),
-               sweep orphan partitions + IPC dirs, fire newspack_nodes/supervisor_periodic
-    for each registered worker:
+every router tick (1s):
+    every 15s: re-read config (invalidate + reset), refuse a write-conflicting set,
+               defer newly-appeared types NEW_TYPE_SPAWN_DELAY_S = 5s,
+               drain every worker if the last topology was deactivated,
+               enqueue the Fleet_Sweep housekeeping job (one winner per window)
+    for each active-fleet worker, at most MAX_SPAWNS_PER_TICK = 4 per tick:
         if !lock_dir OR heartbeat > worker.stale_timeout:
             if last_spawn for this worker > 15s ago, and past any new-type deferral:
                 POST /spawn   (fire-and-forget)
-release supervisor lock
-POST /spawn supervisor   (fire-and-forget)
-exit
 ```
+
+`Fleet_Sweep` is an ordinary `unique` job on the `job-worker` pool — it reconciles lock dirs,
+reaps leaked `*.lock.d.stealing.*` scratch, sweeps orphan log partitions and IPC dirs, then
+fires `newspack_nodes/periodic`. Housekeeping therefore requires an active
+`job-worker` topology; revival deliberately does not, because a dead fleet has no worker to
+run a job.
 
 **Spawn endpoint auth**: an HMAC token rotating every `Internal_Request_Token::WINDOW_S = 10` seconds, accepted for the current AND previous window for race tolerance. `Internal_Request_Token` keeps the purposes apart — a spawn token is not a health-cache token, because the purpose string is inside the HMAC:
 
@@ -578,18 +583,18 @@ $token  = hash_hmac( 'sha256', "newspack_nodes_{$purpose}:{$window}", $salt );  
 
 `Spawn_Controller` also accepts an external request from a `manage_options` user with a valid WordPress nonce, behind a 2-second per-user rate limit, and validates the type and partition against the active fleet before spawning anything.
 
-**Spawn rate limit**: `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key. Prevents thundering-herd respawns when locks flap. The **endpoint** is the one gate every spawn path crosses — self-respawns, supervisor posts, and cron alike — so it both checks the window and records the accepted spawn, persisted through `Cache_Backend::shared_first()` (transient fallback) at twice the interval. A throttled request answers 429. The tick loop records its POSTs in memory only: persisting there would make the endpoint reject the very POST the record announces.
+**Spawn rate limit**: `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key. Prevents thundering-herd respawns when locks flap, and it is what makes N peer scanners as safe as one scanner was. The **endpoint** is the one gate every spawn path crosses — self-respawns, peer scans, and cron alike — so it both checks the window and records the accepted spawn, persisted through `Cache_Backend::shared_first()` (transient fallback) at twice the interval. A throttled request answers 429. A scanner records its own POSTs in memory only: persisting there would make the endpoint reject the very POST the record announces.
 
-**Worker-registry refresh**: plugin activation/deactivation changes which workers are registered via the `newspack_nodes/topologies` filter. The supervisor rebuilds worker descriptors from current filter values on every `check_config()` tick (every 15s), so newly-registered workers get spawned and deactivated workers get their locks released within one tick of the change. A type that has just appeared is deferred `NEW_TYPE_SPAWN_DELAY_S = 5` seconds so a still-exiting predecessor can flush; a cold start skips the deferral. `check_config()` also refuses to spawn a set with a topology write-conflict (two fleets on one partition), and `reconcile_lock_dirs()` reaps lock dirs outside the active fleet plus any `*.lock.d.stealing.*` scratch a killed steal leaked.
+**Worker-registry refresh**: plugin activation/deactivation changes which workers are registered via the `newspack_nodes/topologies` filter. Each `Fleet_Node` rebuilds worker descriptors from current filter values every 15s, so newly-registered workers get spawned and deactivated workers get their locks flagged within one window of the change. A type that has just appeared is deferred `NEW_TYPE_SPAWN_DELAY_S = 5` seconds so a still-exiting predecessor can flush; a cold start skips the deferral. The scan also refuses to spawn a set with a topology write-conflict (two fleets on one partition), and `Fleet_Sweep::reconcile_lock_dirs()` reaps lock dirs outside the active fleet plus any `*.lock.d.stealing.*` scratch a killed steal leaked.
 
-**WP-Cron backstop**: the `newspack_nodes/supervisor` action runs on a registered 60-second schedule (`newspack_nodes_minute`). The handler instantiates and runs the supervisor only if topologies are registered. WP-Cron's only job: cold-start the supervisor when the self-respawn chain breaks. Steady state, the supervisor's own self-respawn keeps the chain alive — WP-Cron's tick finds a healthy supervisor lock and returns immediately. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
+**WP-Cron backstop**: the `newspack_nodes/supervisor` action runs on a registered 60-second schedule (`newspack_nodes_minute`). The handler runs ONE cold-start pass — `Spawn_Coordinator::spawn_due_workers()` — and returns; it takes no lock and enters no loop. Its only job: revive the fleet when nothing is left to scan. Steady state, every live worker's peer scan keeps the fleet up and the cron pass finds nothing due. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
 
 **Two-tier safety net**:
 
-- Workers self-respawn -> supervisor catches stale-locked workers (heartbeat > per-worker `stale_timeout`, force-releases, spawns fresh).
-- Supervisor self-respawns -> WP-Cron catches a dead supervisor (cold start, `kill -9`, host outage).
+- Workers self-respawn, and every live worker's `_fleet` scan catches a peer whose lock is missing or stale.
+- WP-Cron catches a fleet with nothing left running (cold start, `kill -9`, host outage).
 
-Each tier only knows about the level immediately below. Clean separation; no cross-tier coupling.
+Supervision survives the loss of any single process; only total fleet death falls through to cron cadence.
 
 ## Job_Worker_Node
 

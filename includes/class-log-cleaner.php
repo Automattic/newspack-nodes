@@ -8,7 +8,7 @@
  * (wherever it sits in a declared path) over 0..N-1, so there is no `.p{N}`
  * regex. Liveness-free: it does NOT read worker locks, lock dirs, ipc dirs, or
  * live-worker descriptors — worker/topology lifecycle (the "orange") lives in
- * Supervisor.
+ * Fleet_Node and Fleet_Sweep.
  *
  * @package Newspack_Nodes
  */
@@ -60,7 +60,7 @@ class Log_Cleaner {
 	/**
 	 * Single-pass declared-set collector. Resolves each config ROOT once and loops
 	 * the operator's ACTIVE topology set (`Bootstrap::get_topologies()` — the same
-	 * source the supervisor spawns from) once, filling both buckets UNIFORMLY. Driving
+	 * source the fleet spawns from) once, filling both buckets UNIFORMLY. Driving
 	 * retention off the active set rather than the on-disk `.tsl` glob means a
 	 * superseded-but-shipped topology's logs AND offsetlogs are reclaimed once it's
 	 * deactivated (no live worker's dirs are at risk — anything spawning is, by
@@ -200,7 +200,7 @@ class Log_Cleaner {
 			if ( $grace > 0 && \time() - self::newest_mtime( $path ) < $grace ) {
 				continue;
 			}
-			Supervisor_Base::delete_directory_recursive( $path, $base_dir );
+			Spawn_Coordinator::delete_directory_recursive( $path, $base_dir );
 			if ( ! \is_dir( $path ) ) {
 				$deleted[] = $path;
 			}

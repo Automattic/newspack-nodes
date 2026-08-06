@@ -99,6 +99,26 @@ class Remote_Link_Node extends Timer_Node {
 		$this->parse_schema_args( $args );
 		if ( [] !== $args ) {
 			$this->set_timer( self::TICK_INTERVAL_MS );
+			// @longform Subscribe where the vault config is captured, so
+			// capture and re-read live together. Null outside a worker (REPL
+			// or request scope): no fleet, so nothing detects a change.
+			//
+			// @longform CLOSURE, not Node-name dispatch. `fill()` relays
+			// anything it does not recognize OUT to a remote spoke, so a name
+			// registration would route control through the one entry point
+			// whose fall-through is a third party, and every message would then
+			// have to be discriminated from control. A closure builds no
+			// message at all: provenance is the callback identity, one closure
+			// per (emitter, event), so there is nothing to verify. Only an
+			// explicit `return false` unregisters (`notify()` compares
+			// identity), so a void handler keeps listening.
+			Core::node( Node_Names::FLEET )?->register(
+				'RELOAD',
+				$this->name,
+				function (): void {
+					$this->reload();
+				}
+			);
 		}
 		return $args;
 	}
@@ -150,6 +170,19 @@ class Remote_Link_Node extends Timer_Node {
 		$this->queue_connect( $sse );
 		$this->maybe_send_heartbeat();
 		$this->publish_status();
+	}
+
+	/**
+	 * The credentials this node reads live in its patrons, resolved once from
+	 * the Vault. Dropping them is HALF the re-read: the Vault memoizes its
+	 * entries for the life of the process, so the other half is `Vault::reset()`
+	 * on `Config::RESET_ACTION`, which the fleet fires before it announces the
+	 * RELOAD. Without that, the next tick rebuilds both patrons from the same
+	 * cached entry and a rotated credential reconnects a healthy stream with the
+	 * old password. The cursor is restored as on any reconnect.
+	 */
+	public function reload(): void {
+		$this->drop_patrons();
 	}
 
 	/**
@@ -488,6 +521,42 @@ class Remote_Link_Node extends Timer_Node {
 		return [];
 	}
 
+	/**
+	 * Teardown: tear down both patrons, then remove self.
+	 *
+	 * @api Dynamic entrypoint.
+	 */
+	public function remove_node(): void {
+		// @longform Registrations are by NAME: a stale one outlives the node
+		// and gets walked on the next notify (Timer_Node drops TIMER alike).
+		Core::node( Node_Names::FLEET )?->unregister( 'RELOAD', $this->name );
+		$this->drop_patrons();
+		parent::remove_node();
+	}
+
+	/**
+	 * Tear down the three patron siblings and any connect queued against them.
+	 *
+	 * @longform A queued closure holds this node and its SSE_In; popped after
+	 * teardown it reconnects a stream nothing owns any more and strands a cURL
+	 * handle in the drain loop, holding a slot nothing can release.
+	 */
+	private function drop_patrons(): void {
+		$this->connect_queued = false;
+		self::$connect_queue  = \array_values(
+			\array_filter(
+				self::$connect_queue,
+				fn ( $queued ): bool => $queued[1] !== $this
+			)
+		);
+		$this->sse_in?->remove_node();
+		$this->sse_in = null;
+		$this->http_out?->remove_node();
+		$this->http_out = null;
+		$this->null_sink?->remove_node();
+		$this->null_sink = null;
+	}
+
 	/** Drop every pending connect. Teardown only; a live graph purges per link. */
 	public static function reset_connect_queue(): void {
 		self::$connect_queue = [];
@@ -526,31 +595,6 @@ class Remote_Link_Node extends Timer_Node {
 
 	public function connect_node( string $target ): void {
 		$this->target = $target;
-	}
-
-	/**
-	 * Teardown: tear down both patrons, then remove self.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function remove_node(): void {
-		// @longform A queued closure holds this node and its SSE_In; popped
-		// after teardown it reconnects a removed node and strands a cURL
-		// handle in the drain loop, holding a slot nothing can release.
-		$this->connect_queued = false;
-		self::$connect_queue  = \array_values(
-			\array_filter(
-				self::$connect_queue,
-				fn ( $queued ): bool => $queued[1] !== $this
-			)
-		);
-		$this->sse_in?->remove_node();
-		$this->sse_in = null;
-		$this->http_out?->remove_node();
-		$this->http_out = null;
-		$this->null_sink?->remove_node();
-		$this->null_sink = null;
-		parent::remove_node();
 	}
 
 	/**

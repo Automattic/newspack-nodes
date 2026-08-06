@@ -541,7 +541,7 @@ class Admin {
 		}
 		\ksort( $topology_workers );
 
-		// Active topologies (catalog + operator overlay) supervisor spawns.
+		// Active topologies (catalog + operator overlay) the fleet spawns.
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
@@ -1180,7 +1180,7 @@ class Admin {
 		echo '<p>' . \esc_html__( 'Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
 	public static function alerting_section_callback(): void {
-		echo '<p>' . \esc_html__( 'Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each supervisor tick; no worker restart. Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
+		echo '<p>' . \esc_html__( 'Thresholds for the fleet-health alerts (Site Health, admin notice, alert action). Read live each fleet sweep; no worker restart. Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
 
 	/**
@@ -1202,8 +1202,11 @@ class Admin {
 		try {
 			$locks_dir = Config::get_locks_directory();
 			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );
+			// @longform Every live worker's option cache is frozen at boot, so
+			// the ones this save does not recycle must be told to re-read.
+			Restart_Planner::request_reloads( $locks_dir );
 		} catch ( \Throwable $e ) {
-			// Best-effort: the next supervisor pass picks up the new config.
+			// Best-effort: the next worker generation loads the new config.
 			return;
 		}
 	}

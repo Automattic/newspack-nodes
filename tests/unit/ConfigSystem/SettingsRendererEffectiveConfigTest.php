@@ -79,7 +79,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$rows = $this->rows_by_key();
 		$this->assertSame( '7', (string) $rows['max_segments']['stored'] );
 		$this->assertStringContainsString( 'combined', $rows['max_segments']['restart'] );
-		$this->assertStringContainsString( 'supervisor', \strtolower( $rows['num_partitions']['restart'] ) );
+		$this->assertStringContainsString( 'config re-read', \strtolower( $rows['num_partitions']['restart'] ) );
 	}
 
 	public function test_unstored_setting_reports_file_default_and_no_overlay(): void {
@@ -99,7 +99,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 	public function test_immediate_and_supervisor_restart_strings(): void {
 		$rows = $this->rows_by_key();
 		// num_partitions is classified supervisor_only.
-		$this->assertSame( 'Applies on next supervisor tick', $rows['num_partitions']['restart'] );
+		$this->assertSame( 'Applies on next config re-read', $rows['num_partitions']['restart'] );
 		// remote_max_segments is classified [] (read directly, no worker restart).
 		$this->assertSame( 'Takes effect immediately', $rows['remote_max_segments']['restart'] );
 	}

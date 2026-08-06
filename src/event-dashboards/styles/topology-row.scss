@@ -50,7 +50,7 @@
 
 		// Fixed-width pill details so the P0/P1 pills don't reflow as their
 		// uptime / heartbeat values change or a restart marker blinks in.
-		.supervisor-age {
+		.process-age {
 			width: 34px;
 			text-align: right;
 		}

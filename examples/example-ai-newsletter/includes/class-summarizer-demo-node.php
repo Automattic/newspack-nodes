@@ -15,17 +15,6 @@ use Newspack_Nodes\Message;
 
 class Summarizer_Demo_Node extends Node {
 
-	/**
-	 * The ONE seam a real summarizer replaces: item -> one-line summary. Toy = deterministic template.
-	 *
-	 * @param array<string,mixed> $item
-	 */
-	protected function summarize( array $item ): string {
-		$title = \is_string( $item['title'] ?? null ) ? $item['title'] : '(untitled)';
-		$body  = Core::as_string( $item['body'] ?? null );
-		return $title . ' — ' . \mb_substr( $body, 0, 80 );
-	}
-
 	public function fill( array $message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
@@ -43,8 +32,19 @@ class Summarizer_Demo_Node extends Node {
 		$out[ Message::TYPE ]  = Message::TM_STRUCT;
 		$out[ Message::FROM ]  = $this->name;
 		$out[ Message::VALUE ] = $item;
-		// parent::fill (base, not $this — would recurse) stamps TO from target, increments the counter, and forwards to sink.
+		// parent::fill — base, not $this, which would recurse.
 		parent::fill( $out );
+	}
+
+	/**
+	 * The ONE seam a real summarizer replaces: item -> one-line summary. Toy = deterministic template.
+	 *
+	 * @param array<string,mixed> $item
+	 */
+	protected function summarize( array $item ): string {
+		$title = \is_string( $item['title'] ?? null ) ? $item['title'] : '(untitled)';
+		$body  = Core::as_string( $item['body'] ?? null );
+		return $title . ' — ' . \mb_substr( $body, 0, 80 );
 	}
 
 	public static function node_schema(): array {

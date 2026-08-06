@@ -227,7 +227,7 @@ const TopologyRow = memo( function TopologyRow( {
 							>
 								P{ p.partition }
 							</span>
-							<span className="supervisor-age">
+							<span className="process-age">
 								{ p.started_at && p.status === 'running'
 									? formatAge( p.started_at, currentTime )
 									: '' }

@@ -555,25 +555,21 @@ Skip the build and your live `wp nodes` runs the *old* code — and because the 
 **Restart long-lived processes after the complete deploy.** A running worker
 holds the old class in its PHP process for the rest of its ~10-minute lifespan.
 Wait until all topology-provider plugins have been installed and activated as
-WordPress plugins, then refresh the workers first and the singleton supervisor
-last:
+WordPress plugins, then refresh the workers:
 
 ```bash
 docker exec -u bend eve-pyrobase1-1 wp nodes restart all --path=/var/www/html
-docker exec -u bend eve-pyrobase1-1 wp nodes restart supervisor --path=/var/www/html
 ```
 
-Run both commands as the worker's OS user: Nodes ownership-guards the runtime
-tree where those restart flags are written.
+Run it as the worker's OS user: Nodes ownership-guards the runtime tree where
+those restart flags are written.
 
-The first command restarts every worker topology so it loads the new PHP;
-`restart all` deliberately excludes the supervisor. The second requests a
-clean supervisor turnover with a fresh WordPress bootstrap, rebuilding its
-process-local topology catalog from the complete provider set. Without that
-final restart, a supervisor born while a provider's plugin directory was
-temporarily absent can remain blind to the provider until its natural turnover.
+Each restarted worker gets a fresh WordPress bootstrap, rebuilding its
+process-local topology catalog from the complete provider set. Restart only
+after every provider is in place: a worker born while a provider's plugin
+directory was temporarily absent stays blind to it until its natural turnover.
 
-**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes every `.tsl` in `topologies/` a *catalog* entry; the supervisor only spawns a topology in the *active* set. Activate the aggregator — the four stage files are `include`d by it, so they need no activation of their own — from the Overview tab of the **Nodes** admin page or from the CLI, then confirm:
+**Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes every `.tsl` in `topologies/` a *catalog* entry; only a topology in the *active* set is spawned. Activate the aggregator — the four stage files are `include`d by it, so they need no activation of their own — from the Overview tab of the **Nodes** admin page or from the CLI, then confirm:
 
 ```bash
 docker exec eve-pyrobase1-1 wp nodes activate newspack-intelligence --allow-root --path=/var/www/html
@@ -598,7 +594,7 @@ The toy guide's punchline was *Ana and Ben never met* — capability added by wi
 
 You added three real classes — `Github_Source_Node`, `Linear_Source_Node`, `Feed_Source_Node` — and each one supplies only `config()`, `fetch()`, its `:config` verb handlers, and a `node_schema()` built from the shared `source_schema()`, because the new **`Source_Node`** base absorbed every connector concern the toy used to copy per source: the TICK trigger, the bounded dedup set, the fire-and-forget emit, and the shared `normalize_item()` that flattens three wildly different payloads into one item shape. You added a `Source` interface to name the seam, a closure-HTTP seam per connector so the network-touching code runs under coverage, and a `set_vault_id` pointer into the substrate's Vault so the connectors have credentials to fetch with.
 
-And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body, timestamp }` exactly as before. The router, the worker lifecycle, the supervisor, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
+And here's what you **still** never touched. The summarizer, the scorer, the digest builder — none of them learned the items stopped being canned; they consume `{ source, id, title, url, body, timestamp }` exactly as before. The router, the worker lifecycle, fleet revival, the topology console, the Vault credential store, the offsetlog snapshot in the durable middle — all reused. The connectors dropped into a graph full of pieces they've never seen, because they upheld the one contract: a message arrives at `fill()`, you do your work, you forward it to your sink.
 
 That was the short hop the toy guide promised — `items()` → `fetch()`. It turned out to be two method bodies of *intent* wrapped in a base class of *plumbing*, a Vault-backed credential pointer, and a test seam. The intent really was small. The plumbing is what the substrate lets you write once and stop thinking about.
 
@@ -609,6 +605,6 @@ That was the short hop the toy guide promised — `items()` → `fetch()`. It tu
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the toy walkthrough this guide extends (re-read §7–9 with the real code in mind).
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — this guide's sibling: the production console/dashboard surfaces (palette vs inspector, measured transcript ceilings, the icons build gotcha) and the *insights out* half §4 deferred.
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the original toy Publisher Insights React dashboard walkthrough.
-- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
+- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
 - **[architecture-decisions.md](architecture-decisions.md)** — the load-bearing ADRs (ADR-3 fire-and-forget, ADR-4 PIPE_BUF, ADR-5 lazy init).
 - **[`../../newspack-intelligence/`](../../newspack-intelligence/)** — the complete production plugin: `includes/`, the five composed `.tsl` files under `topologies/`, the PHPUnit suite.

@@ -90,13 +90,6 @@ const DUMP_GRAPH = {
 			outputs_status: [],
 		},
 	],
-	supervisor: {
-		type: 'supervisor',
-		status: 'running',
-		started_at: 1000,
-		heartbeat_age: 2,
-		restart_pending: false,
-	},
 	logs: [
 		{
 			name: 'a-log',
@@ -236,29 +229,6 @@ describe( 'useTopologyManager', () => {
 		const log = status.logs.find( ( l ) => 'a-log' === l.name );
 		expect( log ).toBeTruthy();
 		expect( log.partitions[ 0 ].segments ).toHaveLength( 1 );
-	} );
-
-	it( 'passes the supervisor card model through', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-		expect( result.current.supervisor ).not.toBeNull();
-		expect( result.current.supervisor.type ).toBe( 'supervisor' );
-	} );
-
-	it( 'exposes currentTime from the worker-status model', async () => {
-		const { client } = healthClient( {
-			heartbeatIntervalS: 10,
-			currentTime: 2000,
-			workers: [ worker( 0, { heartbeatAge: 5, behind: 0 } ) ],
-		} );
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-		expect( result.current.currentTime ).toBe( 2000 );
 	} );
 
 	it( 'deactivate dispatches `topologies deactivate <name>`', async () => {
@@ -525,13 +495,6 @@ function healthDump( {
 			distance: w.behind,
 			msgs: 0,
 		} ) ),
-		supervisor: {
-			type: 'supervisor',
-			status: 'running',
-			started_at: 1000,
-			heartbeat_age: 2,
-			restart_pending: false,
-		},
 		logs: workers.map( ( w ) => ( {
 			name: `a.p${ w.partition }`,
 			partitions: [

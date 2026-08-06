@@ -221,7 +221,7 @@ if ( ! function_exists( 'set_transient' ) ) {
 }
 
 // Note: wp_cache_set / wp_cache_get are intentionally NOT stubbed here.
-// SupervisorBase falls back to set_transient/get_transient when the object
+// Spawn_Coordinator falls back to set_transient/get_transient when the object
 // cache API is unavailable, and the cross-process persistence test exercises
 // that fallback path. Tests can opt into object-cache simulation by defining
 // these in their own setUp via runkit (not currently used).

@@ -7,7 +7,7 @@ You know PHP and WordPress. You've never touched a "node graph." This page gets 
 This runtime is WordPress-internal; there is no standalone mode. It assumes four things.
 
 - **PHP 8.2+** — declared in the plugin header (`Requires PHP: 8.2`) and enforced by `composer.json` (`"php": ">=8.2"`).
-- **WordPress, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: config in the options table, the supervisor's safety net on WP-Cron, worker spawn / commands / SSE over the REST API. (The plugin header declares no minimum WordPress version — run a current release.)
+- **WordPress, with WP-Cron and the REST API.** The substrate's lifecycle *is* WordPress: config in the options table, the cold-start safety net on WP-Cron, worker spawn / commands / SSE over the REST API. (The plugin header declares no minimum WordPress version — run a current release.)
 - **WP-CLI** — every command on this page (`wp plugin …`, `wp nodes status`, `wp nodes cli …`) is WP-CLI.
 - **Cache backend — APCu covers one web cache domain; Memcached spans domains.** The runtime comes up without Memcached: `shared_first()` prefers a configured Memcached and otherwise takes usable APCu. Normal workers are long-running REST-spawned web requests, so they share the web server's APCu domain with the browser/hub command-auth endpoints. An attached `wp nodes cli` need not see that APCu: it signs commands with the site secret and ships them to the worker over filesystem IPC, where the web worker verifies them and records nonce claims through its own backend. A debugging-only direct `wp nodes run` differs for its first lifetime because it runs in WP-CLI — without Memcached it needs CLI APCu enabled until its REST-spawned successor takes over. Another host, or an independent PHP-FPM/APCu pool, requires Memcached. With neither backend, or on a command-session miss, command verification fails closed.
 
@@ -95,7 +95,7 @@ mkdir -p /tmp/example-ai-newsletter
 #    active set is empty — nothing spawns by surprise. Activate it from the
 #    Nodes admin page's Overview tab, or from the CLI:
 wp nodes activate example-ai-newsletter
-#    Now the supervisor has spawned it:
+#    Now it has been spawned:
 wp nodes status
 #   example-ai-newsletter.p0  live  3s ago  2m 10s
 ```

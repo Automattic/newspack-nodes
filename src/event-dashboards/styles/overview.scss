@@ -1,6 +1,6 @@
 /**
- * Overview hub tab — the merged board. SummaryCards + Topics panels + supervisor
- * over a fold-all/unfold-all toolbar and one TopologyRow per active topology (its
+ * Overview hub tab — the merged board. SummaryCards + Topics panels over a
+ * fold-all/unfold-all toolbar and one TopologyRow per active topology (its
  * own `.nodes-tm__*` styles, folded or unfolded), in the user's drag order;
  * stopped topologies sink into a de-emphasized chip group. Palette tracks the
  * event-dashboards dark theme (base.scss).

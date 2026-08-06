@@ -7,6 +7,8 @@
 
 namespace Newspack_Nodes;
 
+use Newspack_Nodes\Config_System\Restart_Planner;
+
 \defined( 'ABSPATH' ) || exit;
 
 /**
@@ -55,6 +57,7 @@ final class Health_Checks {
 			$cache_result ?? self::cache_backend(),
 			self::filesystem( $base_dir, $refused ),
 			self::ownership( $base_dir, $configured, $refused ),
+			self::housekeeping(),
 			...$fleet,
 		];
 	}
@@ -64,7 +67,6 @@ final class Health_Checks {
 		$message = 'Fleet state could not be evaluated because the runtime base directory is unavailable.';
 		return [
 			self::result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', self::STATUS_RECOMMENDED, $message ),
-			self::result( Alerts::FAMILY_SUPERVISOR_LIVENESS, 'Supervisor liveness', self::STATUS_RECOMMENDED, $message ),
 			self::result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', self::STATUS_RECOMMENDED, $message ),
 			self::result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', self::STATUS_RECOMMENDED, $message ),
 		];
@@ -90,7 +92,6 @@ final class Health_Checks {
 	private static function fleet_results( array $alerts ): array {
 		$groups = [
 			Alerts::FAMILY_WORKER_LIVENESS     => [],
-			Alerts::FAMILY_SUPERVISOR_LIVENESS => [],
 			Alerts::FAMILY_CONSUMER_LAG        => [],
 			Alerts::FAMILY_DEAD_LETTERS        => [],
 			'other-alerts'                     => [],
@@ -124,7 +125,6 @@ final class Health_Checks {
 		}
 		$results = [
 			self::alert_result( Alerts::FAMILY_WORKER_LIVENESS, 'Worker liveness', $groups[ Alerts::FAMILY_WORKER_LIVENESS ], 'All configured workers are running.' ),
-			self::alert_result( Alerts::FAMILY_SUPERVISOR_LIVENESS, 'Supervisor liveness', $groups[ Alerts::FAMILY_SUPERVISOR_LIVENESS ], 'The supervisor has no stale-heartbeat alert.' ),
 			self::alert_result( Alerts::FAMILY_CONSUMER_LAG, 'Consumer lag', $groups[ Alerts::FAMILY_CONSUMER_LAG ], 'All consumers are within the configured lag threshold.' ),
 			self::alert_result( Alerts::FAMILY_DEAD_LETTERS, 'Dead letters', $groups[ Alerts::FAMILY_DEAD_LETTERS ], 'No reader exceeds the configured dead-letter threshold.' ),
 		];
@@ -288,6 +288,39 @@ final class Health_Checks {
 	/** @return HealthResult */
 	private static function ownership_mismatch( string $path, int $owner, int $uid ): array {
 		return self::result( 'ownership', 'Ownership', self::STATUS_CRITICAL, "Runtime directory {$path} is owned by uid {$owner}, but this process runs as uid {$uid}. Recover with: chown -R <webuser> {$path}" );
+	}
+
+	/**
+	 * Housekeeping runs as an ordinary job on the `Job_Worker` pool, so an
+	 * active fleet with no pool loses retention, orphan reaping, alert emission,
+	 * the delayed-jobs sweep and every `newspack_nodes/periodic`
+	 * subscriber — silently, while every other check stays green. Derived from
+	 * the parsed graphs, never a topology name.
+	 *
+	 * @return HealthResult
+	 */
+	private static function housekeeping(): array {
+		try {
+			$active = Bootstrap::get_topologies();
+			$pools  = Restart_Planner::topologies_for( [ 'Job_Worker' ] );
+		} catch ( \Throwable $e ) {
+			return self::result( 'housekeeping', 'Housekeeping', self::STATUS_RECOMMENDED, 'Housekeeping could not be evaluated: ' . $e->getMessage() );
+		}
+		if ( [] === $active ) {
+			return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'No topology is active, so there is nothing to keep house for.' );
+		}
+		if ( [] === $pools ) {
+			return self::result(
+				'housekeeping',
+				'Housekeeping',
+				self::STATUS_CRITICAL,
+				'No active topology declares a Job_Worker, so housekeeping never runs: '
+				. 'log retention, orphan partition/IPC reaping, alert emission, the delayed-jobs '
+				. 'sweep and every newspack_nodes/periodic subscriber are all stopped. '
+				. 'Recover with: wp nodes activate job-worker'
+			);
+		}
+		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'Housekeeping runs on the job pool declared by: ' . \implode( ', ', $pools ) . '.' );
 	}
 
 	/**

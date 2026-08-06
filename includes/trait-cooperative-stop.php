@@ -2,24 +2,16 @@
 /**
  * Cooperative_Stop: THE stop policy for every long-running process.
  *
- * AGENTS.md states that `should_continue()` "owns every cooperative-stop
- * trigger for EVERY worker type … No node implements its own restart." That was
- * true of workers and false of the supervisor, which extends `Supervisor_Base`
- * rather than `Worker_Base` and hand-rolled the lifecycle inline: its own lock
- * acquire, its own heartbeat cadence spelled `STALE_TIMEOUT / 6`, its own
- * max-runtime bail, its own `finally { release(); respawn(); }`, and constants
- * re-declared at the same values.
- *
- * The re-implementation was not a superset. It had two of the four triggers —
- * restart-requested and max-runtime — and NO memory watermark, no DB-liveness
- * check and no lock-dir-gone check, in the process that runs longest and that
- * calls `newspack_nodes/supervisor_periodic` every 15s for ~595s, running
- * arbitrary third-party hook code under `set_time_limit(0)`. A leak there was
- * bounded only by the FPM child's OOM, which skips the `finally` and therefore
- * skips the respawn, leaving the whole fleet waiting on the cron tier.
+ * `should_continue()` owns every cooperative-stop trigger — lock lost, lock dir
+ * gone, restart requested, max-runtime, memory watermark, DB liveness — and the
+ * heartbeat rides along, so a process that asks whether to keep running also
+ * proves it is alive. No node implements its own restart.
  *
  * A consumer supplies the two things that genuinely differ — where its lock dir
  * lives, and what to call itself in a stop message — and inherits the policy.
+ * Re-implementing any subset of it is how a process ends up with no memory
+ * watermark: a leak then bounded only by the FPM child's OOM, which skips the
+ * `finally` and therefore the respawn.
  *
  * @package Newspack_Nodes
  */
@@ -78,7 +70,7 @@ trait Cooperative_Stop {
 
 	/**
 	 * The `.lock.d` directory THIS process holds. Named apart from
-	 * `Supervisor_Base::lock_path( $type, $partition )`, which answers a
+	 * `Spawn_Coordinator::lock_path( $type, $partition )`, which answers a
 	 * different question — where some OTHER worker's lock lives.
 	 */
 	abstract protected function held_lock_path(): string;
@@ -104,7 +96,7 @@ trait Cooperative_Stop {
 			return $this->stop( 'lock dir gone' );
 		}
 
-		// request_restart() flags our lock dir; exit so supervisor respawns.
+		// request_restart() flags our lock dir; exit so a peer respawns us.
 		if ( $this->lock->should_restart() ) {
 			return $this->stop( 'restart requested' );
 		}

@@ -12,7 +12,7 @@
  * resolver" while about sixty of its 1459 lines did that and the rest were
  * three other classes. Analysis sat in the same file as the code that forks
  * worker processes, so every change carried the whole dependency set —
- * `Bootstrap`, `Supervisor`, `Worker_Base`, `update_option()`, `rest_url()` —
+ * `Bootstrap`, `Fleet_Node`, `Worker_Base`, `update_option()`, `rest_url()` —
  * and `activate()` lived 1200 lines from the `deactivate()` its docblock
  * cross-references.
  *
@@ -834,7 +834,7 @@ class Topology_Analyzer {
 		// @longform Bounded like Bootstrap::num_partitions_for and
 		// Log_Cleaner: a typo'd count would otherwise loop that many times
 		// per sweep and return a declared set that size.
-		return \min( (int) $resolved, Supervisor_Base::MAX_PARTITIONS );
+		return \min( (int) $resolved, Spawn_Coordinator::MAX_PARTITIONS );
 	}
 
 	/**
@@ -1115,7 +1115,7 @@ class Topology_Analyzer {
 
 	/**
 	 * One-line human summary of find_conflicts() output, shared by the admin
-	 * sanitizer's settings error and the supervisor's refusal log so the two
+	 * sanitizer's settings error and the spawner's refusal log so the two
 	 * gates phrase a conflict identically. Empty input → empty string.
 	 *
 	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
@@ -1131,7 +1131,7 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
+	 * Lightweight `var name = value` extractor for fleet metadata reads (no topology execution).
 	 *
 	 * @return array<string,string>
 	 */

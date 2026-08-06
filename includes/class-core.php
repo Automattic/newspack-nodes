@@ -59,7 +59,7 @@ class Core {
 	 * the real libcurl call. Tests reassign in bootstrap to capture POST bodies
 	 * without short-circuiting the curl_init / curl_setopt_array / errno-
 	 * classification path — that lets the suite cover the real setopt + error-
-	 * classification logic. Shared by Supervisor (spawn fan-out) and Worker_Base
+	 * classification logic. Shared by Spawn_Coordinator (spawn fan-out) and Worker_Base
 	 * (self-respawn): one helper, one seam, single source of truth.
 	 *
 	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.

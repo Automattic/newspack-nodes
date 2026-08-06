@@ -121,6 +121,24 @@ class SettingsCITest extends TestCase {
 		$this->assertSame( 9, $GLOBALS['_wp_options']['newspack_nodes_max_segments'] );
 	}
 
+	public function test_set_verb_asks_every_worker_to_re_read_its_config(): void {
+		// num_partitions is 'supervisor_only' — it restarts nothing, and without
+		// a reload signal a running worker serves its boot-time value for the
+		// rest of its ~595s lifetime instead of picking it up within 15s.
+		$topologies = $this->make_temp_dir( 'settings-ci-topologies-' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $topologies );
+		\file_put_contents( "{$topologies}/combined.tsl", "make_node Echo relay\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
+		\Newspack_Nodes\Config::reset();
+		\mkdir( "{$this->tmp}/locks/combined.p0.lock.d", 0755, true );
+
+		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 7' );
+
+		$this->assertFileExists( "{$this->tmp}/locks/combined.p0.lock.d/" . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
 		$interpreter = new Settings_CI_Node();
 		$result      = VerbHarness::fire( $interpreter, 'settings', 'set', 'max_segments -3' );

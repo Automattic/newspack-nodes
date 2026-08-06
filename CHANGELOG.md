@@ -7,6 +7,213 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-08-06
+
+### Added
+
+- **A `reload` lock-dir signal: "re-read your config", never "exit".**
+  `Lock_Node::RELOAD_FLAG` + `request_reload_at()` sit beside the restart flag,
+  and `Fleet_Node` consumes the watermark in its own lock dir by MTIME rather
+  than by unlinking it — an unlink-after-consume loses a touch that lands
+  mid-reload and cannot survive a lock steal. On a new watermark it purges the
+  SHARED options cache and `notify()`s a `RELOAD` event. `force_release_at()`
+  DOES unlink the flag, because `rmdir` only removes an empty dir and a survivor
+  turns every clean release into an orphan peers must steal.
+
+- **A Vault change now makes the workers that read the Vault re-read it.**
+  `Bootstrap::reload_vault_consumers()` hangs off `newspack_nodes/vault/changed`
+  beside `forget_command_session` and drops a reload watermark on every partition
+  of each active topology whose graph declares a `Remote_Link` / `Remote_Source`,
+  so a new or re-credentialed spoke is picked up without waiting out the
+  ~10-minute worker recycle AND without a process recycle. `Remote_Link_Node`
+  subscribes to `RELOAD` and drops its patrons, so the next tick rebuilds them
+  from the current Vault entry.
+
+  That last step needed `Vault` to stop being the odd one out: it memoizes its
+  merged server list for the life of the process, and the only thing that
+  cleared it was the request-scope `Vault::fresh()`. It now registers
+  `Vault::reset()` on `Config::RESET_ACTION` beside `Log_Discovery::reset` and
+  `Topology_Registry::reset_basename_cache` — so ANY config reset drops it, not
+  just a reload. Without that a reload would have torn down a healthy SSE stream
+  and reconnected it with the same stale credentials. The affected topologies are DERIVED through
+  `Restart_Planner::topologies_for()` — a topology NAME is deployment config, and
+  the previous version of this lived in newspack-event-logger-nodes with
+  `hub-control` hardcoded, which every future consumer would have had to copy. A
+  topology declaring no vault-consuming node is left alone, and an unparseable
+  one is skipped rather than failing the Vault save.
+
+- **`Job_Intake::try_queue()` — enqueue a job or give up, never block.**
+  `queue()` waits up to `Partition_Node::DEFAULT_LOCK_WAIT_MS` (65s, now a named
+  constant rather than a literal) for the partition write lock. That is longer
+  than the 60s default `stale_timeout`, so a caller inside a worker's drain loop
+  stops heartbeating, reads as down to its peers, and gets its lock stolen while
+  it is alive. `try_queue()` try-locks and returns false instead. Use it from any
+  node; `queue()` keeps its blocking behavior for request-scope callers.
+
+- **`wp nodes doctor` now names the job-pool dependency.** Housekeeping runs as a
+  job, so an active fleet with no `Job_Worker` loses retention, orphan
+  partition/IPC reaping, alert emission, the delayed-jobs sweep and every
+  `periodic` subscriber — silently, with every other check green. The
+  seventh health result names that and the `wp nodes activate job-worker` fix.
+
+- **Every worker now scans its peers and revives the ones that are down.**
+  `Fleet_Node` mounts as `_fleet` in `Worker_Base::build_scaffolding()` and runs
+  the peer-spawn scan on the router tick, plus a 15s re-read of the active set.
+  This is what retires the supervisor: its whole justification for holding a
+  resident PHP-FPM child was noticing a crashed worker within a second, and any
+  live peer can notice instead. The spawn
+  endpoint's `MIN_SPAWN_INTERVAL_S` throttle already deduplicates three
+  independent spawners, so it deduplicates N the same way. Supervision now
+  survives the loss of any single process rather than dying with one.
+
+  See `docs/superpowers/specs/2026-08-06-delete-the-supervisor.md` in dndocker.
+
+- **Fleet housekeeping now runs as an ordinary job, `nodes_fleet_sweep`.**
+  Retention, orphan-ipc reaping, lock-dir reconcile and the
+  `newspack_nodes/periodic` hook move out of the supervisor tick and
+  into a job that `Fleet_Node` enqueues once per 15s window. The one-per-window
+  guarantee is `Job_Intake`'s atomic `unique` claim, so N scanners produce one
+  sweep with no lock to leak, and a worker that dies mid-sweep gets the
+  Job_Worker crash lifecycle (bounded retry, then `:deadletter`) instead of
+  stranding a lock dir.
+
+  The split is load-bearing: **revival cannot be a job, housekeeping can.** The
+  peer-spawn scan stays inline because a dead fleet has no worker to run a job;
+  everything else runs where third-party code belongs. A missing claim store
+  (no memcached, no APCu) degrades housekeeping and never blocks revival.
+
+### Removed
+
+- **The supervisor process is gone.** `Supervisor` — the 595-second loop holding
+  `locks/supervisor.lock.d` — is deleted, along with the eight special cases
+  that kept it the one process shape in the runtime that was not a worker: the
+  `'supervisor' === $type` branch and `run_supervisor_sync()` in
+  `Spawn_Controller`, its `validate_partition()` and `validate_worker_type()`
+  supervisor arms, `Bootstrap::run_supervisor_tick()`'s loop, and the CLI's
+  `restart supervisor` target, partition `-1` status row and separate `types`
+  listing. Every behavior it had has a successor: revival in each worker's
+  `_fleet` scan, housekeeping in the `nodes_fleet_sweep` job, and cold start in
+  the cron pass below. `locks/supervisor.lock.d` no longer exists; nothing
+  reads it. Supersedes [ADR-9](docs/architecture-decisions.md#adr-9-two-tier-safety-net).
+
+  Operator-visible: `wp nodes restart supervisor` is rejected as an unknown
+  target (`restart all` covers every worker), `wp nodes status` and
+  `wp nodes types` no longer report a supervisor row, and `POST /workers/spawn`
+  refuses `type=supervisor` like any other unknown type — with it, the
+  supervisor-only `result` field of that response.
+
+- **`Alerts::FAMILY_SUPERVISOR_LIVENESS`, the `supervisor_down` alert, and the
+  `supervisor` key of `workers.dump_graph`.** `wp nodes doctor` and Site Health
+  now render six canonical rows instead of seven, the aggregator's spoke
+  roll-up drops its `supervisor` field, and the Overview dashboard's supervisor
+  card (`SupervisorStatus.js`) is deleted — a descriptor that can no longer
+  exist. `Cli::restart_supervisor()` / `Cli::supervisor_status()` and the
+  `Workers_CI` restart routing that keyed on `supervisor` go with them.
+
+### Changed
+
+- **The WP-Cron tick is now a single cold-start pass.**
+  `Bootstrap::run_supervisor_tick()` keeps its minute cadence but wires the
+  runtime, checks the enable gate, and spawns anything whose lock dir is missing
+  or whose heartbeat is stale — then returns. No 595s loop, no singleton lock.
+  It is the ONLY revival path when zero workers are alive, so it is also the
+  one that pays for total fleet death: revival then waits up to a cron minute
+  rather than a second. `expand_workers()` — which fires the third-party
+  `newspack_nodes/topologies` filter — now runs INSIDE the tick's try, because
+  the tier of last resort must not fatal every cron minute because one provider
+  threw.
+
+- **`Spawn_Coordinator` is the shared spawn coordinator**
+  (`includes/class-spawn-coordinator.php`), renamed from the base class the
+  deleted supervisor used to extend — there is no process left for a "base" to
+  be the base of, and no alias or shim, because the old name never appeared in
+  a release that also lacked the supervisor. It gains `generate_spawn_token()`
+  / `validate_spawn_token()` and the `nonce_salt` constructor argument (omitted
+  resolves `wp_salt('nonce')`, the one production key), `spawn_fleet()`,
+  `kill_readers()`, `post_spawn()` and `spawn_due_workers()`. Nothing on it
+  takes a lock or runs a loop, which is what lets the cron pass, every worker's
+  `_fleet` scan and the topology activation verbs share one implementation
+  instead of three. `Bootstrap::supervisor()` and `Spawn_Controller` now type
+  against it.
+
+- **`Fleet_Node` no longer purges the shared options cache every 15 seconds.**
+  That blind purge dropped the memcached `alloptions` entry once per worker per
+  window, making `alloptions` effectively uncacheable site-wide. Invalidation is
+  now driven by the reload watermark; the 15s `expand_workers()` re-read and the
+  in-process `Config::reset()` are unchanged.
+
+- **`newspack_nodes/supervisor_periodic` is renamed to `newspack_nodes/periodic`**,
+  with no alias and no deprecation shim. There is no supervisor left to name,
+  and the four subscribers across three plugins ship together. A subscriber left
+  on the old name is never called, silently; the fix is the hook string and
+  nothing else. See `docs/upgrading.md`.
+
+- **A settings save now asks every live worker to re-read.**
+  `Restart_Planner::request_reloads()` touches the reload watermark in every
+  partition of every active topology, and the substrate settings page, the
+  `settings set` verb and event-logger-nodes' settings page all call it beside
+  their existing `request_restarts()`. A restart classification only says which
+  workers must RECYCLE, but every worker alive holds an option cache frozen at
+  boot — so a field classified `restart: []` or `'supervisor_only'`
+  (`alert_lag_threshold`, `alert_deadletter_threshold`, `alert_emit_interval`,
+  `log_sources`, `num_partitions`) took a full ~595s worker lifetime to land
+  instead of ≤15s. Activation and deactivation are unaffected; they act in
+  request scope. Reload costs no process recycle, so the broad fan-out is cheap.
+
+### Fixed
+
+- **An evicted lock holder destroyed its successor's lock dir.** A worker
+  blocked in a long job stops heartbeating, goes stale, and a peer steals the
+  dir. `should_restart()` reports the theft but deliberately leaves `is_held`
+  alone, and `release()` checked only that flag — so the evicted worker ran
+  `force_release_at()` on the directory the SUCCESSOR now owned. The successor
+  died of `lock dir gone` on its next tick and both respawned, turning a
+  self-correcting handoff into a restart loop: paired `stopping — restart
+  requested` / `stopping — lock dir gone` lines at the same second, forever.
+  `release()` now verifies ownership against the heartbeat PID. Failing closed
+  leaks a dir at worst, and a leaked dir goes stale and is stolen normally.
+
+- **`lint-comment-length.php .` checked nothing.** It iterated `argv` and
+  skipped anything that was not a `.php` FILE, so a directory argument matched
+  neither branch and the script exited 0 having read no source. `npm run
+  lint:php` — the gate run by hand — was therefore green by construction, while
+  lint-staged, which passes explicit paths, failed at commit time on violations
+  nobody could reproduce. It now expands a directory argument, and the 13
+  violations that had accumulated behind it are fixed.
+
+- **`Job_Intake::queue()` swallowed a cooperative stop.** Its `catch
+  ( \RuntimeException )` is the lock-contention boolean contract, and
+  `Worker_Should_Stop extends \RuntimeException` — so a stop raised while a
+  job was being enqueued was eaten and the worker ran past its deadline.
+  [ADR-14](docs/architecture-decisions.md#adr-14-cooperative-stop-propagates-through-broad-catches)
+  says a broad catch on the drain path re-throws it first; now it does.
+
+- **The WP-Cron tick threw instead of reporting an unusable base directory.**
+  `run_supervisor_tick()` called `ensure_runtime_wired()` outside its try, and
+  that reaches `Config::get_base_directory()`, which throws on a base it cannot
+  use — so a misconfigured install raised out of the cron callback every minute
+  instead of logging once. It now consults `runtime_base_is_available()` first,
+  as `register_rest_routes()` and `self_heal_supervisor_cron()` already did.
+
+- **A `Timer_Node` comment was never true.** Its header claimed a
+  void-returning closure "coerces to falsy and self-unregisters after one
+  tick". `Node::notify()` has compared `false === $keep` since the first
+  commit, so a void closure returns null and is kept. The real reason the
+  router hitchhike uses name dispatch is that `Router_Node::notify_timer()`
+  never calls `notify()` at all — it walks `registrations['TIMER']` as a name
+  list and calls `fire_cb()` on each resolved node, and a closure carries no
+  node to fire. The header now says that.
+
+- **Test filters leaked across the whole suite.** The `add_filter()` shim only
+  appended to `$GLOBALS['_wp_actions']` and nothing reset it between tests, so
+  one test's callback ran for every later test in the process. `TestCase` now
+  snapshots and restores the hook table. This was already causing real damage —
+  `Admin\DevtoolsTabBundlesTest` failed silently under random order, and one
+  seed went from 19 failures / 6 errors / 3 risky to clean. Two further leaks
+  fixed alongside it: `LockNodeRootTest` left `CLI::$uid_provider` pinned to
+  uid 0 (which makes `Config::write_denied()` true, silently no-oping every
+  downstream restart-flag write across seven test classes), and
+  `SettingsSyncNodeTest` left a `Command_Auth` session registered.
 ## [2.10.0] - 2026-08-05
 
 ### Changed
@@ -46,7 +253,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unknown node: settings-sync`). Nothing was missing on the canvas — that path
   passes the baseline correctly — so the only symptom was the noise. The
   returned name set is unchanged: the borrowed names were unioned in either way.
-
 
 ## [2.9.0] - 2026-08-04
 
@@ -1826,7 +2032,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also event-logger-nodes' live memcache-TTL property — matching the word
   libelled ~15 correct lines there while catching nothing the arity rule missed.
 
-
 ## [2.3.1] - 2026-07-31
 
 ### Fixed
@@ -1839,7 +2044,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   days in complete silence on a host whose handshake sat near the budget. It now
   compares `CURLINFO_SIZE_UPLOAD_T` against the body length, so a partial send is
   reported as `timed out after N of M bytes were sent`.
-
 
 ## [2.3.0] - 2026-07-31
 
@@ -1876,7 +2080,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate.** Function-level prose moved into docblocks, inline prose condensed to
   one line; four algorithm notes that genuinely need the length carry
   `@longform`. No behavior change — the tool's own test still passes 38/38.
-
 
 ## [2.2.13] - 2026-07-31
 
@@ -1916,7 +2119,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependency, and cghooks-installed `.git/hooks` files are now dead files git
   ignores.
 
-
 ## [2.2.12] - 2026-07-31
 
 ### Removed
@@ -1932,7 +2134,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModalShell` gained a `className` passthrough so the picker keeps its 640px
   `--wide` sizing instead of inheriting the 1000px `--large`, and it now gets
   the portal, skin root, and close control every other dialog has.
-
 
 ## [2.2.11] - 2026-07-31
 
@@ -1957,7 +2158,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing-selected edit panel and the hull panel. This also fixes its
   alignment: in the node panel it was a sibling of `EditForm`'s `<aside>`, so
   it fell outside that element's padding and hung left of every other section.
-
 
 - **The danger role is reserved for controls that destroy something.** Every
   glyph control in the console wore `button-link-delete`, so clearing a
@@ -4678,7 +4878,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical Newspack theme tokens (`newspack-nodes-theme` stylesheet) — the single source of truth for the in-product look across every dashboard.** A new `src/theme/newspack-theme.scss` defines the `--np-*` custom properties (Cobalt-led palette, Inter, light neutrals, status colors, type scale, spacing, radii, a sanctioned categorical chart palette) straight from `DESIGN.product.md`, built to `build/theme/index.css` and shipped as the `newspack-nodes-theme` style handle. The consumption model is a runtime CSS-variable cascade: a dashboard enqueues the handle as a style dependency, carries `.newspack-nodes-theme` on its root, and references `var(--np-*)` — so the three sibling plugins (this substrate, event-logger-nodes, pyrobase) share ONE definition with no cross-plugin SCSS sharing or build coupling (it works for standalone pyrobase because nodes is a hard runtime dependency). The Topology Console's `.theme-newspack` skin now `@use`s the same partial and maps its own `--paper/--ink/--cyan/…` onto the `--np-*` tokens, so the console and the dashboards can't drift.
 - **Undocumented `set_skin` / `list_skins` REPL builtins replace the Topology Console skin picker.** The Header skin `<select>` is removed; skins now switch from the REPL (in both the console and the debug overlay, which share the `Shell` + local-dispatch path). `set_skin <name>` resolves a case-insensitive name against the `THEMES` registry — exact slug, then exact label, then label-prefix, then slug-prefix (so `set_skin CRT Phosphor` lands on `crt` and `set_skin Newspack` on `newspack`, not `newspack-brand`); an unrecognized name is rejected with an error and changes nothing. `list_skins` prints the registry with the live skin marked. Both emit `{ kind: 'local' }` signals the host resolves + applies via the existing global skin preference (persisted to `newspack-nodes:theme`, shared with the overlay), and are intentionally absent from `help` (they never reach the interpreter verb table). A new pure `skinCommands` helper (`resolveSkin` / `formatSkinList`) carries the resolution, and `getStoredTheme()` is now the single source for the live skin slug (collapsing the duplicate reader in `usePanelChrome`).
 
-
 - **TopicProbe dashboard stream — foundation (browser data layer).** The SSE client can now request a server-side seek: `SseConnectorNode` (and so `SseInNode`/`RemoteLink`) gained a `positions` field that `start()` serializes into the `&positions=<json>` stream param the `messages/stream` endpoint already honors; `RemoteLink.connect(positions)` / `setSubscribe(subscribe, positions)` thread it through (default null → tail-seek, unchanged for existing callers). On top of it: a `TopicProbeView` node accumulates, per `offsetlog_dir`, a bounded rate+backlog series from the probe records (`rate` = Δ`bytes_read`/Δ`ts` with worker-restart counter-reset handling → never negative; `backlog` = `bytes_behind`; React-facing `setState` is time-throttled so a 24h `start` replay burst doesn't thrash), and a `useTopicProbeStream({ mode })` hook mounts one `RemoteLink` tailing `topicprobe.p0` — `mode:'history'` seeks from `start` (24h replay), `mode:'follow'` tails (a visibility reconnect always tail-follows so it never re-replays into the populated view). Foundation only — not yet wired into a tab; the Overview 24h graphs + Topologies follow consume it next.
 - **Workers emit consumer stats to a shared `topicprobe` log (new `TopicProbe` node).** Every worker process now auto-mounts a `TopicProbe` (a `Timer_Node` that hitchhikes the Router TIMER, self-gated to 15s against `last_fire_time`) which sweeps its local `Consumer_Node`s — the analog of Tachikoma's TopicProbe over `%Tachikoma::Nodes` — and writes one small `TM_STRUCT` record **per consumer** into `{base}/logs/topicprobe.p0` (a 5 MiB × 2-segment, 24h Partition): `{ ts, host, consumer, offsetlog_dir, source, cursor_seg, cursor_off, bytes_read, bytes_behind, msg_sent, worker_type, target, targets }`. `bytes_read` (monotonic) drives byte-rate; `bytes_behind` (summed from real on-disk segment sizes — exact, no `segment_size` guess) is the backlog. One record per consumer keeps each append under PIPE_BUF, so the shared log stays multi-writer atomic (the firehose pattern — no lock, no oversize drop); a bad/uninitialized consumer is skipped, never failing the whole snapshot. `Consumer_Node::probe_stats()` is the read seam. `Log_Cleaner` whitelists `topicprobe.p0` (it's declared by no `.tsl`) so the orphan sweep spares it — but only once a real declared set already exists, preserving the fail-closed "empty set → skip sweep" guard. This is the durable, 24h-retained source for the dashboards' byte-rate + backlog graphs; the position-readers and the dashboards move onto it (and the per-consumer memcache publish retires) in follow-ups.
 - **DevTools hub: a new Overview landing tab — a live fleet-health board, the default first paint.** Modeled on Tachikoma's topics dashboard (rate + backlog, ranked) and the Workers-&-Lag pattern: a fleet strip (topology/active counts, partitions-up, a worst-health pill), the supervisor card, then one row per ACTIVE topology — per-partition worker pills (running/dead + heartbeat freshness), a live consumer-**lag sparkline** + current lag, and fleet uptime — sorted worst-health first so trouble surfaces. Stopped topologies sink into a de-emphasized chip group (Edit only; nothing's live to open). The lag sparkline is a client-side rolling ring buffer of the recent poll samples (the hub has no time-series store — long history stays in Grafana) so you can see whether a backlog is draining or climbing, not just its current size. It's order 0 so the hub opens on it instead of building the Console's heavy graph; the Console moves to order 5 (second). Reuses the shared `consoleHref` deep-links.
@@ -4718,7 +4917,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The DevTools hub is now fully light Newspack, and the Aggregator + Vault tabs are reskinned to match.** The hub frame + tab bar previously inherited the WP admin color scheme (a dark backdrop under light dashboard cards); the hub is a themed product surface, so it now renders light Newspack (`--np-surface-subtle` frame, `--np-text` tab labels, Cobalt active underline + focus ring) regardless of the admin scheme — dashboards read fully light (light backdrop + light cards + dark data charts / log panes), matching the console's Newspack skin. The Aggregator Status tab and the Vault admin (previously still dark) flip onto the `var(--np-*)` tokens; the Aggregator's `HTTP 200` chip no longer renders green-on-red (the status wrapper that boxed even successful codes in error-red is neutralized — error-red stays only on actual error text). The shared connection banner uses the Newspack error token. The now-unused `useAdminChromeColors` hook was removed.
 - **The event dashboards are reskinned to the Newspack theme (light Cobalt-on-white chrome + dark data/log surfaces).** Every event-dashboards panel (Overview, Summary Cards, the worker-status tree, Topology rows, Raw Logs) now reads as Newspack: the chrome (cards, tables, controls, headers, tree) is the light product look mapped onto the `var(--np-*)` tokens, while the genuine data-viz + log surfaces (the Topics charts, the Raw Logs viewer pane) stay dark — exactly as the Topology Console's Newspack skin keeps a dark REPL. The Material-blue accent (`#64b5f6`) and the ad-hoc dark palette are gone; Cobalt leads, status is functional (success/warning/error), and the rate/health/provenance chips use the functional + chart palette. The dashboards now enqueue the shared `newspack-nodes-theme` handle as a style dependency (the new default in `Admin::enqueue_react_page`, registered early on `admin_enqueue_scripts` so sibling plugins can depend on it too) and carry `.newspack-nodes-theme` on the hub root so `var(--np-*)` resolves.
 
-
 - **Overview fold state persists down to the inner nodes/partitions, and a new segment animates its fills in.** The Overview already persisted the topology-level fold; the within-tree node/partition folds (the nested chevrons) now persist to localStorage too (`overviewPrefs` gains a `collapsed` key), so an expanded subtree survives a reload like the section folds do. And a segment that slides into a partition's bar now mounts with empty fills and animates them in as part of the left→right cascade, instead of appearing pre-drawn at full width.
 - **Overview rows are user-orderable, stable, and the folded summary uses the expanded heading style.** (1) Rows no longer auto-sort worst-health-first — a flapping `behind` badge reshuffled the list on every poll; they now render in the user's own **drag order** (a grip handle, native HTML5 DnD), and that order PLUS each topology's fold state **persist to localStorage** (`overviewOrder` / `overviewPrefs`), restored on reload. (2) The folded summary row and the unfolded detail row are now ONE `TopologyRow` (heading always; body only when unfolded), so the compact summary shows the SAME per-partition pills as the expanded view — each partition with its OWN uptime (the folded row previously showed a single bogus shared uptime). (3) The catch-up **ETA is back**: it shows beside the health badge when behind/stalled, and a consumer is no longer counted `behind` until its ETA reaches **1 minute** (`deriveHealth` uses `etaSeconds( behind, read_rate ) >= 60`; a sub-minute backlog drains on its own). Each worker now carries its own `read_rate` (`reconstructWorkers`) to feed the rollup, and `formatEta` is split into `etaSeconds` + `formatEtaSeconds`.
 - **The Overview and Topologies tabs are merged into one foldable Overview tab.** There is no longer a separate "Topologies" hub tab; the per-topology live detail tree it carried now folds into the Overview's active rows. Each active topology renders FOLDED by default (a compact summary row); an expand chevron unfolds it in place to the full `TopologyRow` heading + live `TopologySection` detail tree (the old Topologies look), and a topology-level collapse chevron folds it back. A **Fold all** / **Unfold all** toolbar (shown only when ≥1 topology is active) drives every active row at once; the within-tree node fold is a separate, independently-threaded `collapsed` set. Inactive topologies stay in the compact "Stopped" group with no fold affordance. `consoleHref` / `sectionFor` / the detail-row component moved from the deleted `TopologyManager.js` into a new `TopologyRow.js`.
@@ -4745,7 +4943,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Topology Console + debug overlay: autofit fills the canvas instead of sitting at native zoom.** `tightViewBoxFor` no longer floors the viewBox to the canvas size (which left small/short graphs marooned in a sea of margin). It now does a fit-all `meet` scale that fills ~90% of the binding dimension (capped at 2× so a lone node doesn't balloon), and treats the unobstructed canvas as the viewport: the expanded REPL transcript's overlay height (`bottomObstructionPx`, reported by `ReplFooter`) is reserved and the graph is fit + centered into the band *above* it, so nodes never hide behind the transcript. Both the console and the debug overlay share this (the overlay now wires the transcript-overlay → autofit plumbing it previously lacked).
 - **Refactor: the console and the debug overlay now share one `useGraphSurface` hook** for the ConsoleShell chrome (inspector collapse + auto-expand-on-select, the transcript-overlay → autofit obstruction, palette, REPL-expand state), returning `canvasChromeProps` / `replChromeProps` fragments both spread. Previously each surface assembled its own copy, so canvas/inspector behaviors had to be wired twice and the overlay kept drifting; this single-sources that wiring. No behavior change.
 
-
 - **Dropped the stock `aggregator.tsl` — the aggregator topology is ELN-only.** Its only node beyond the firehose `Topic` is the ELN `Remote_Job_Rewrite_Node`, so after removing the ELN-specific parts there's nothing substrate-worthy left (unlike `hub-control.tsl`, which keeps a substrate base + ELN override). `newspack-event-logger-nodes` now ships the full `aggregator.tsl`; `make_node Remote_Source` / `Aggregator_CI`'s `graph_for('aggregator')` resolve it via the registered ELN stock dir. `StatusCITest` now exercises the actual substrate stock topologies (`hub-control` / `job-worker`).
 - **`register_stock_dir` now gives the LAST-registered stock dir precedence.** `Topology_Registry::register_stock_dir()` prepends (`array_unshift`) rather than appending, so when two stock dirs declare the same topology name the most-recently-registered one wins on `resolve()` (test renamed `test_multiple_stock_dirs_first_wins` → `…_last_wins`).
 - **`Topic_Node` no longer JSON-encodes every message just to size it (hot-path perf).** `Topic_Node::fill()` called `Message::packed_size()` on every routed message to self-track `bytes_written`/`largest_msg_sent` — and `packed_size()` is `strlen( wp_json_encode( … ) )`, so it encoded the entire message (a 1MB+ JSONL line for large payloads) only to take its length and throw the encoding away, on the routing hot path. A Topic only routes; its partitions already encode-and-size when they actually write. So `Topic_Node::bytes_written()` / `largest_msg_sent()` now aggregate (sum / max) over the owned `Partition_Node`s, and the per-`fill()` encode is gone — no redundant encode of every message at the routing hop. (`stats`/`dump_metadata` figures are unchanged; the consumer already calls these as methods.)
@@ -4756,7 +4953,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Vault tab: the add-server form moved into a modal, and the server table columns are re-proportioned.** An **Add Server** button above the table opens the id / url / username / password form in a modal (the existing `ConfirmRemoveModal` backdrop/ESC/dialog shell is now a shared `Modal` both dialogs use); the modal focuses the first field on open and closes on a successful add (the fresh table row is the confirmation) or on Cancel / ESC / backdrop. The **Add Server** (primary) and **Cancel** actions sit together in the modal footer (status text left-aligned, buttons right) rather than the submit floating in the form body. The `.nodes-vault__modal` shell gained real overlay CSS (dimmed full-screen backdrop + centered WP-admin card) — previously the class was unstyled, so the remove-confirm dialog rendered inline; both dialogs now render as proper modals. The server table (`table-layout: fixed`) now sets explicit column widths — URL 53%, ID 12%, Status 15%, Actions 20% — so a long `https://…` URL no longer wraps while Status/Actions waste width.
 - Topology Console: polished the existing skins for legibility — AA-fixed muted text, evened the paper/ink ramps, and split the four status LEDs into distinct hues where they previously collapsed (Blueprint, Nord, Aurora, Neo-Tokyo, SCADA, …). Swiss Brutalist's monochrome and CRT Phosphor Terminal are intentionally unchanged.
 - Topology Console (all skins): the canvas grid now stays visible at every zoom — the line is a constant 1px (`non-scaling-stroke`) instead of vanishing sub-pixel when zoomed out — and the decorative title block + corner reticles sit behind nodes instead of painting over them.
-
 
 - **`kill_readers()` moved from `Config` (static) to `Supervisor` (instance)** — the worker-restart-flag drop now lives with the rest of the supervisor lifecycle control; call it via `Bootstrap::supervisor()->kill_readers( $groups )` instead of `Config::kill_readers( $groups )`.
 
@@ -4786,13 +4982,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The dashboard log catalog is sourced from the GC's declared set, so an externally-written log a topology only consumes shows its segments instead of "No segments".** `Workers_CI_Node::enumerate_logs` (the `dump_graph` `logs[]` the worker-status segment bars read) built its own union of active-topology resolved logs + `Log_Cleaner::producer_log_dirs()`, which omitted logs written outside any `.tsl` and only *consumed* by a topology (e.g. `settings.p0`, the auto-mounted `topicprobe.p0`) — their nodes rendered "No segments" despite real on-disk segments. It now iterates `Log_Cleaner::declared_log_dirs()` — the same set the GC sweep retains — so the catalog and the retention set can't drift. (The per-topology `graph` payload stays active-only; inactive logs in the catalog are inert, referenced by no active graph.)
 - **Command error messages no longer show HTML entities (`&#039;`, `&lt;`, `&gt;`) in the dashboard or the cli.** Verb handlers `esc_html()` their dynamic throw messages to satisfy the phpcs `EscapeOutput` sniff, but `interpret()` placed that HTML-escaped string verbatim into the `TM_ERROR` payload — which is plain text bound for a JSON→React text node (which re-escapes) and the `wp nodes` cli terminal, neither an HTML sink. So a topology activate write-conflict (and every other verb error) rendered as `activating &#039;perf&#039; conflicts: a &lt;b&gt;`. `interpret()` now `html_entity_decode()`s the caught message, normalizing it to plain text at the data boundary — fixing the modal and the cli for all throw sites at once.
 
-
 - **Topology Console: clicking NEW in the editor no longer blanks the whole editor body.** `handleNew` built a raw `{ nodes: [], edges: [] }` draft without the `_repl` anchor that `handleModeChange` adds, so the layout graph had zero nodes, `layoutReady` stayed false, and `ConsoleShell` fell through to the building placeholder — no palette, canvas, or inspector. `handleNew` now wraps the blank draft in `withReplAnchor()` like entering edit mode does.
 - **Topology Console (Newspack / Newspack Brand skins): the routing target dropdown is now rounded like the other controls.** The Newspack skins round the header selects, mode group, inspector action buttons, and the `+ add target` chip, but the routing **target** select (`.topology-edit-row__input`) was left with square corners — visibly inconsistent next to the rounded buttons and PATH/SKIN dropdowns. It now gets the same 8px radius.
 - **`Remote_Source_Node` ages out a stale heartbeat round-trip so the dashboard Status badge reflects liveness.** `last_heartbeat_response` was a write-once timestamp (set on each `workers.heartbeat` reply, never cleared), so a spoke that went dark would latch the Status badge on `success`. `publish_status()` now nulls `last_heartbeat_response`/`last_heartbeat_rtt` in the snapshot whenever the link is disconnected OR no reply has landed within the node's own `HEARTBEAT_INTERVAL * 4` window (the same span as the slot TTL) — restoring the old clear-on-disconnect semantics and extending them to the connected-but-stale case.
 - **Aggregator Status dashboard now shows real per-spoke status (was stuck DISCONNECTED/PENDING).** The dashboard read status fields the current producer never writes (`last_connection_status`, `last_heartbeat_response_status`, `last_connection_error`, `last_connection_response`) — a contract drift from the pull-side cutover that replaced the monolithic ELN `Remote_Source_Node` with the substrate one. The view now derives from the substrate `np:remote:*` snapshot's actual fields: connection badge from `connected`, error from `last_error`, HTTP code from `last_http_code`, connected-count from `connected === true`; the stale `server.enabled` disabled-card styling is dropped. The heartbeat "Status" badge derives from `connected && last_heartbeat_response` (gated on `connected`, since `last_heartbeat_response` is a sticky timestamp that's never cleared — disconnected → `pending`, mirroring the old clear-on-disconnect).
 - **`last_sse_heartbeat` ("Server HB") restored.** The deleted ELN `Remote_Source_Node::record_sse_heartbeat()` (which stamped `last_sse_heartbeat = Core::$now` on each received SSE `heartbeat` frame) was never re-implemented in the substrate, so the "Server HB" row went blank. `SSE_In_Node` now records the receipt timestamp on each `heartbeat` frame (reset to null on (re)connect), exposes it via `connection()`, and `Remote_Source_Node::publish_status()` writes it into the snapshot.
-
 
 - **Topology Console left `_http`/`_heartbeat` orphaned on unmount → white-screen on the next tab.** Each `RemoteIpc` composes the shared reserved-name `_http`/`_heartbeat` singletons lazily (on first send) and deliberately leaves them registered when it tears down ("for the graph to tear down"), but `useConsoleGraph` never completed that contract. The orphaned `_http` survived the console unmount, so switching to a tab whose `useDashboardGraph` does `makeNode( 'HttpOut', '_http' )` (an unconditional register) threw `node name collision: _http already registered` and blanked the dashboard. The console teardown now removes both singletons (before tearing down the spine, so the Heartbeat can unregister from the live router's TIMER set).
 

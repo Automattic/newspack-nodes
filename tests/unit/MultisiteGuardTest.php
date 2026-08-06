@@ -5,18 +5,16 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config_System\Restart_Planner;
-use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
  * The multisite stance: the fleet is network-global. Locks, IPC, and logs
- * are filesystem-flat with no blog namespace, so only the main site runs
- * the supervisor / spawns workers; subsites no-op loud.
+ * are filesystem-flat with no blog namespace, so only the main site spawns
+ * workers; subsites no-op loud.
  */
 #[CoversClass( Bootstrap::class )]
 #[CoversClass( CLI::class )]
 #[CoversClass( Restart_Planner::class )]
-#[CoversClass( Supervisor::class )]
 class MultisiteGuardTest extends TestCase {
 
 	protected function tearDown(): void {
@@ -93,14 +91,14 @@ class MultisiteGuardTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$lock_dir}/restart" );
 	}
 
-	public function test_supervisor_run_no_ops_on_a_subsite(): void {
+	public function test_cold_start_tick_no_ops_on_a_subsite(): void {
+		$this->seed_active_topology( 'msguard-topology-2208' );
 		$GLOBALS['_wp_test_is_multisite'] = true;
 		$GLOBALS['_wp_test_is_main_site'] = false;
-		$tmp = $this->make_temp_dir( 'newspack-msguard-' );
+		$GLOBALS['_test_outbound_posts']  = [];
 
-		$supervisor = new Supervisor( $tmp, 'salt-xyz' );
-		$supervisor->run();
+		Bootstrap::run_supervisor_tick();
 
-		$this->assertDirectoryDoesNotExist( "{$tmp}/locks", 'a subsite supervisor must return before touching the filesystem' );
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'], 'a subsite must not spawn the network-global fleet' );
 	}
 }

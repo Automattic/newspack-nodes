@@ -126,7 +126,7 @@ class Worker_Base {
 			} catch ( \RuntimeException $e ) {
 				// @longform A malformed .tsl fails loud but CLEAN: one line,
 				// lock freed, NO self-respawn (a hot loop on the same bad
-				// file); the supervisor retries on its own throttled tick.
+				// file); a peer's scan retries on its own throttled tick.
 				Core::stderr( "{$this->worker_type}.p{$this->partition}: topology load failed: " . $e->getMessage() );
 				$this->shutdown_handled = true;
 				Core::cleanup_all_nodes();
@@ -293,7 +293,7 @@ class Worker_Base {
 	 * Fire-and-forget spawn POST so another process takes over after we exit.
 	 *
 	 * Routes through Core::fire_and_forget_post — the same raw-curl path the
-	 * Supervisor uses (wp_remote_post's Requests transport floors the timeout at
+	 * Fleet_Node uses (wp_remote_post's Requests transport floors the timeout at
 	 * 1s, defeating the sub-second fire-and-forget contract; the helper guards on the
 	 * curl extension itself). Body stays byte-compatible with the spawn endpoint's
 	 * {type, partition, nonce} contract so HMAC/nonce validation still passes.
@@ -336,6 +336,10 @@ class Worker_Base {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
+
+		// @longform Peer-spawn scan: every worker revives the fleet, so
+		// supervision outlives any one process; the throttle dedupes them.
+		$interpreter->make_node( 'Fleet', Node_Names::FLEET, $this->base_dir, $this->held_lock_path() );
 
 		// _repl output Partition: allow_large_writes (dumps exceed PIPE_BUF).
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {

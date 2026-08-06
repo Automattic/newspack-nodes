@@ -25,7 +25,7 @@ export const CATALOG_NODE = 'topologies:catalog';
  *
  * @typedef {Object} CatalogLocalizedData
  * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
- * @property {string[]}               [activeTopologies]    Topologies the supervisor spawns.
+ * @property {string[]}               [activeTopologies]    Topologies the fleet spawns.
  * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
  */
 

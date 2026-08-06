@@ -5,7 +5,7 @@
  * Alerts::evaluate() computes worker-down / consumer-lag / dlq-growth alerts
  * from the SAME snapshot Workers_CI builds. Alerts::emit() journals one
  * entry per alert into the alerts.p0 partition, rate-limited so a persisting
- * condition doesn't re-journal every supervisor tick.
+ * condition doesn't re-journal every sweep.
  *
  * @package Newspack_Nodes
  */
@@ -77,12 +77,6 @@ class AlertsTest extends TestCase {
 		if ( ! \is_dir( $lock_dir ) ) {
 			\mkdir( $lock_dir, 0755, true );
 		}
-		\touch( "{$lock_dir}/heartbeat", \time() - $age_seconds );
-	}
-
-	private function seed_supervisor_heartbeat( string $base, int $age_seconds ): void {
-		$lock_dir = "{$base}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0755, true );
 		\touch( "{$lock_dir}/heartbeat", \time() - $age_seconds );
 	}
 
@@ -159,17 +153,6 @@ class AlertsTest extends TestCase {
 		$this->seed_heartbeat( $base, 'live-workers', 0 );
 
 		$this->assertSame( [], Alerts::evaluate() );
-	}
-
-	public function test_supervisor_stale_yields_a_critical_alert(): void {
-		$base = $this->arrange( [ 'live-workers' ] );
-		$this->seed_heartbeat( $base, 'live-workers', 0 );
-		$this->seed_supervisor_heartbeat( $base, 300 );
-
-		$by_key = $this->alerts_by_key( Alerts::evaluate() );
-
-		$this->assertArrayHasKey( 'supervisor_down', $by_key );
-		$this->assertSame( Alerts::SEVERITY_CRITICAL, $by_key['supervisor_down']['severity'] );
 	}
 
 	public function test_consumer_over_distance_threshold_yields_a_warning(): void {

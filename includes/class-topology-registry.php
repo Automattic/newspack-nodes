@@ -193,7 +193,7 @@ class Topology_Registry {
 	/**
 	 * Drop the per-process option snapshot then the config snapshot so the next
 	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Supervisor::check_config(). Public so the
+	 * set. Same pair, same order, as Fleet_Node::check_config(). Public so the
 	 * Topologies_CI delete verb (which mutates the active set on its own path)
 	 * shares this one definition instead of carrying a parallel copy.
 	 */
@@ -254,7 +254,7 @@ class Topology_Registry {
 	 * `topologies deactivate` CI verb and the `wp nodes deactivate` CLI verb call.
 	 * Removes the name from the effective active set, writes, invalidates the
 	 * config cache, then drops a restart flag on every live worker lock dir via
-	 * Supervisor::kill_readers(). Callers validate the name + gate the capability.
+	 * Spawn_Coordinator::kill_readers(). Callers validate the name + gate the capability.
 	 *
 	 * @param string $name Topology name (already validated by the caller).
 	 * @return array{name: string, active: false}
@@ -367,12 +367,12 @@ class Topology_Registry {
 			}
 			$runner = self::$spawn_runner ?? static function ( string $t, int $p, string $topology_name, int $stale ): void {
 				$base_dir   = \Newspack_Nodes\Bootstrap::base_dir();
-				$supervisor = new \Newspack_Nodes\Supervisor( $base_dir, \wp_salt( 'nonce' ) );
+				$coordinator = new \Newspack_Nodes\Spawn_Coordinator( $base_dir );
 				$wb         = new \Newspack_Nodes\Worker_Base( $base_dir, $t, $p, stale_timeout: $stale );
 				$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {
 					\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 				};
-				$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
+				$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $coordinator->generate_spawn_token( \time() ) );
 			};
 			$w_topology = Core::as_string( $w['topology'] );
 			$w_stale    = Core::as_int( $w['stale_timeout'] );

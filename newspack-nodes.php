@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: WordPress-internal node-graph runtime for composable services.
- * Version: 2.10.0
+ * Version: 2.11.0
  * Author: Automattic
  * License: GPL-2.0-or-later
  * Requires PHP: 8.2
@@ -15,7 +15,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '2.10.0' );
+	\define( 'NEWSPACK_NODES_VERSION', '2.11.0' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
@@ -113,6 +113,7 @@ if ( \function_exists( 'add_action' ) ) {
 	// On config reload: reset log view + basename cache (narrow, keeps dirs).
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Log_Discovery', 'reset' ] );
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Topology_Registry', 'reset_basename_cache' ] );
+	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Vault', 'reset' ] );
 	// Self-heal: re-arm the supervisor cron on admin view if it got cleared.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
 }

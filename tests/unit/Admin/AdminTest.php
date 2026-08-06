@@ -435,6 +435,21 @@ class AdminTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
+	public function test_saving_a_restartless_setting_still_asks_every_worker_to_re_read(): void {
+		// num_partitions restarts nothing, and a running worker's option cache is
+		// frozen at boot — so with no reload signal the new value waits out a
+		// whole ~595s worker lifetime instead of the next 15s window.
+		$this->register_fixture_topologies();
+		$this->prepare_lock_dir( 'combined', 0 );
+		$this->prepare_lock_dir( 'aggregator', 0 );
+
+		( new Admin() )->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
+
+		$this->assertFileExists( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->assertFileExists( "{$this->base_dir}/locks/aggregator.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->assertFileDoesNotExist( "{$this->base_dir}/locks/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG, 're-read, never recycle' );
+	}
+
 	public function test_maybe_request_worker_restart_memcache_servers_restarts_all_live_topologies(): void {
 		// memcache_servers is 'all' → every active topology restarts (the
 		// Memcached handle lives in every long-lived worker process).

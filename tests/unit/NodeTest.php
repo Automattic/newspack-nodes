@@ -28,6 +28,21 @@ final class Config_Sibling_Node extends Node {
 
 #[CoversClass( Node::class )]
 class NodeTest extends TestCase {
+	public function test_notify_without_a_payload_sends_an_empty_string_not_null(): void {
+		// TM_INFO VALUEs are strings. A bare notify() would otherwise overwrite
+		// new_message()'s '' default with null and hand a subscriber a null VALUE.
+		$listener = new Capture_Sink_Node();
+		$listener->name( 'reload-listener' );
+		$emitter = new \Newspack_Nodes\Timer_Node();
+		$emitter->name( 'signal-source' );
+		$emitter->register( 'FIRE', 'reload-listener' );
+
+		$emitter->notify( 'FIRE' );
+
+		$this->assertCount( 1, $listener->captured );
+		$this->assertSame( '', $listener->captured[0][ \Newspack_Nodes\Message::VALUE ] );
+	}
+
 	public function test_dump_metadata_defaults_to_empty(): void {
 		// Base hook contributes no extra metadata; subclasses override to add fields.
 		$n = new Capture_Sink_Node();

@@ -115,8 +115,43 @@ function check_file( string $file ): array {
 	return $violations;
 }
 
+/**
+ * Expand a directory argument to the `.php` files under it; pass a file through.
+ *
+ * @longform Without this a directory argument matched neither branch of the
+ * filter below and was silently skipped, so `lint-comment-length.php .` — the
+ * form `npm run lint:php` uses — exited 0 having checked nothing. The gate ran
+ * green by hand for everyone while lint-staged, which passes explicit paths,
+ * failed at commit time on violations nobody could reproduce.
+ *
+ * @param string $path File or directory.
+ * @return list<string>
+ */
+function expand_path( string $path ): array {
+	if ( \is_file( $path ) ) {
+		return [ $path ];
+	}
+	if ( ! \is_dir( $path ) ) {
+		return [];
+	}
+	$out      = [];
+	$iterator = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS ) );
+	foreach ( $iterator as $entry ) {
+		if ( $entry->isFile() && 'php' === $entry->getExtension() ) {
+			$out[] = \ltrim( \preg_replace( '#^\./#', '', $entry->getPathname() ) ?? '', '' );
+		}
+	}
+	\sort( $out, \SORT_NATURAL );
+	return $out;
+}
+
+$targets = [];
+foreach ( \array_slice( $argv, 1 ) as $argument ) {
+	$targets = \array_merge( $targets, expand_path( $argument ) );
+}
+
 $failed = false;
-foreach ( \array_slice( $argv, 1 ) as $file ) {
+foreach ( $targets as $file ) {
 	if ( ! \str_ends_with( $file, '.php' ) || ! \is_file( $file ) ) {
 		continue;
 	}

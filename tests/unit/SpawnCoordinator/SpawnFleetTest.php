@@ -1,12 +1,12 @@
 <?php
-namespace Newspack_Nodes\Tests\Unit\Supervisor;
+namespace Newspack_Nodes\Tests\Unit\SpawnCoordinator;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\Supervisor;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
-#[CoversClass( Supervisor::class )]
+#[CoversClass( Spawn_Coordinator::class )]
 class SpawnFleetTest extends TestCase {
 	private string $tmp;
 
@@ -17,7 +17,7 @@ class SpawnFleetTest extends TestCase {
 		Bootstrap::$supervisor_enabled_override = null;
 		Bootstrap::$supervisor_factory          = null;
 		$this->use_base_dir( $this->tmp );
-		// Active set = catalog ∩ this overlay (mirrors SupervisorTest::setUp).
+		// Active set = catalog ∩ this overlay.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [
 			'firehose-workers',
 			'job-workers',
@@ -44,7 +44,7 @@ class SpawnFleetTest extends TestCase {
 			'firehose-workers' => [ 'num_partitions' => 3, 'topology' => '/x.php' ],
 			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
 		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$count = $s->spawn_fleet( 'firehose-workers' );
 
@@ -72,7 +72,7 @@ class SpawnFleetTest extends TestCase {
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
 		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$s->spawn_fleet( 'firehose-workers' );
 
@@ -81,7 +81,7 @@ class SpawnFleetTest extends TestCase {
 		$token = $posts[0]['args']['body']['nonce'];
 		$this->assertTrue(
 			$s->validate_spawn_token( $token, \time() ),
-			'spawn_fleet reuses the supervisor spawn token'
+			'spawn_fleet reuses the coordinator spawn token'
 		);
 	}
 
@@ -89,7 +89,7 @@ class SpawnFleetTest extends TestCase {
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
 		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$count = $s->spawn_fleet( 'does-not-exist' );
 
@@ -112,7 +112,7 @@ class SpawnFleetTest extends TestCase {
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
 		\Newspack_Nodes\Config::reset();
 
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$count = $s->spawn_fleet( 'beta' );
 

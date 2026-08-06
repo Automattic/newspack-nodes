@@ -6,8 +6,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\Supervisor_Base;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Bootstrap::class )]
@@ -248,7 +247,7 @@ class BootstrapTest extends TestCase {
 			}
 		);
 		$this->assertSame(
-			\Newspack_Nodes\Supervisor_Base::MAX_PARTITIONS,
+			\Newspack_Nodes\Spawn_Coordinator::MAX_PARTITIONS,
 			Bootstrap::num_partitions_for( 'huge' )
 		);
 	}
@@ -430,9 +429,9 @@ class BootstrapTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 
 		$workers = Bootstrap::expand_workers();
-		$this->assertCount( Supervisor_Base::MAX_PARTITIONS, $workers );
+		$this->assertCount( Spawn_Coordinator::MAX_PARTITIONS, $workers );
 		// Last partition index is MAX_PARTITIONS-1.
-		$this->assertSame( Supervisor_Base::MAX_PARTITIONS - 1, $workers[ Supervisor_Base::MAX_PARTITIONS - 1 ]['partition'] );
+		$this->assertSame( Spawn_Coordinator::MAX_PARTITIONS - 1, $workers[ Spawn_Coordinator::MAX_PARTITIONS - 1 ]['partition'] );
 	}
 
 	public function test_expand_workers_clamps_zero_partitions_to_one(): void {
@@ -473,10 +472,8 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_supervisor_factory_seam_overrides_construction(): void {
-		$fake = new class( '/tmp', 'salt' ) extends Supervisor {
-			public function run(): void {}
-		};
-		Bootstrap::$supervisor_factory = static fn (): Supervisor => $fake;
+		$fake                          = new Spawn_Coordinator( '/tmp/seam-4242' );
+		Bootstrap::$supervisor_factory = static fn (): Spawn_Coordinator => $fake;
 		$this->assertSame( $fake, Bootstrap::supervisor() );
 	}
 
@@ -908,9 +905,8 @@ class BootstrapTest extends TestCase {
 
 	// ── supervisor() factory ──────────────────────────────────────────────
 
-	public function test_supervisor_returns_supervisor_instance(): void {
-		$s = Bootstrap::supervisor();
-		$this->assertInstanceOf( Supervisor::class, $s );
+	public function test_supervisor_returns_a_spawn_coordinator(): void {
+		$this->assertInstanceOf( Spawn_Coordinator::class, Bootstrap::supervisor() );
 	}
 
 	// ── get_topology_catalog ──────────────────────────────────────────────
@@ -1095,27 +1091,142 @@ class BootstrapTest extends TestCase {
 		$this->assertTrue( true, 'deactivate() must run to completion (idempotent)' );
 	}
 
+	// ── run_supervisor_tick: the cold-start pass ─────────────────────────
+
+	/**
+	 * Declare an active fleet rooted at a fresh runtime dir, and return it.
+	 *
+	 * @param array<string, array<string, mixed>> $topologies Catalog entries.
+	 */
+	private function cold_start_fleet( array $topologies ): string {
+		$dir = $this->make_temp_dir( 'cold-start-' );
+		$this->use_base_dir( $dir );
+		\add_filter( 'newspack_nodes/topologies', static fn () => $topologies );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_keys( $topologies );
+		$GLOBALS['_test_outbound_posts']                     = [];
+		\Newspack_Nodes\Config::reset();
+		return $dir;
+	}
+
+	public function test_run_supervisor_tick_reports_an_unusable_base_instead_of_throwing(): void {
+		// This is the LAST revival path when no worker is alive, and it runs on
+		// a cron callback every minute. A misconfigured base must log once and
+		// return, as the two sibling entry points already do — not throw out of
+		// the callback sixty times an hour.
+		$prev_env    = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		$tmp         = $this->make_temp_dir( 'cold-start-no-base-' );
+		$runtime_ref = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$saved_wired = $runtime_ref->getValue();
+		$buf         = '';
+		Core::set_stderr_handler( static function ( $m ) use ( &$buf ): void {
+			$buf .= $m;
+		} );
+		try {
+			$conf = "{$tmp}/empty-base.php";
+			\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+			\update_option( 'newspack_nodes_base_directory', '' );
+			$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'cold-start-workers' ];
+			\Newspack_Nodes\Config::reset();
+			// A cron minute is a fresh request: the wiring has not run yet, and
+			// that is the call that resolves the base.
+			$runtime_ref->setValue( null, false );
+
+			Bootstrap::run_supervisor_tick();
+
+			$this->assertStringContainsString( 'runtime wiring unavailable', $buf );
+		} finally {
+			$runtime_ref->setValue( null, $saved_wired );
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev_env ? '' : $prev_env ) );
+			\Newspack_Nodes\Config::reset();
+			$this->rmdir_recursive( $tmp );
+		}
+	}
+
+	public function test_run_supervisor_tick_spawns_every_worker_whose_lock_is_missing(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 3, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+
+		Bootstrap::run_supervisor_tick();
+
+		$posts = $GLOBALS['_test_outbound_posts'];
+		$this->assertCount( 3, $posts, 'a dead fleet must be revived partition by partition' );
+		$this->assertSame( 'cold-start-workers', $posts[0]['args']['body']['type'] );
+
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_run_supervisor_tick_skips_a_worker_with_a_fresh_heartbeat(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		\mkdir( "{$dir}/locks/cold-start-workers.p0.lock.d", 0755, true );
+		\touch( "{$dir}/locks/cold-start-workers.p0.lock.d/heartbeat" );
+
+		Bootstrap::run_supervisor_tick();
+
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'], 'a live worker needs no cron rescue' );
+
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * The cron pass is a single sweep, not a resident process: it holds no
+	 * singleton lock, so a second runner can never be locked out of reviving a
+	 * fleet that has nothing left running.
+	 */
+	public function test_run_supervisor_tick_holds_no_singleton_lock(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+
+		Bootstrap::run_supervisor_tick();
+
+		$this->assertDirectoryDoesNotExist( "{$dir}/locks/supervisor.lock.d" );
+
+		$this->rmdir_recursive( $dir );
+	}
+
+	/**
+	 * `expand_workers()` fires the third-party `newspack_nodes/topologies`
+	 * filter. The tier of last resort must not fatal every cron minute because
+	 * one provider threw.
+	 */
+	public function test_run_supervisor_tick_survives_a_throwing_topologies_provider(): void {
+		$dir = $this->make_temp_dir( 'cold-start-hostile-' );
+		$this->use_base_dir( $dir );
+		\add_filter( 'newspack_nodes/topologies', static function (): array {
+			throw new \RuntimeException( 'hostile topology provider' );
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'cold-start-workers' ];
+		\Newspack_Nodes\Config::reset();
+
+		$stderr = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$stderr ): void {
+			$stderr[] = $line;
+		} );
+		$after = 0;
+		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
+
+		Bootstrap::run_supervisor_tick();
+
+		$this->assertSame( 1, $after, 'the lifecycle action must still fire from finally' );
+		$this->assertStringContainsString(
+			'hostile topology provider',
+			\implode( "\n", $stderr ),
+			'the swallowed throwable must be logged, not silently dropped'
+		);
+
+		$this->rmdir_recursive( $dir );
+	}
+
 	// ── run_supervisor_tick: full execution ──────────────────────────────
 
-	public function test_run_supervisor_tick_invokes_supervisor_run_when_topology_present(): void {
-		// Happy-path branch: logging enabled, topologies non-empty → wraps the
-		// `newspack_nodes/before_supervisor_run` and `/after_supervisor_run`
-		// actions around a Supervisor::run() invocation, and tags $_SERVER
-		// with worker_type=supervisor.
-		\add_filter( 'newspack_nodes/topologies', function () {
-			return [
-				'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-			];
-		} );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers' ];
-		\Newspack_Nodes\Config::reset();
-		// Inject a no-op Supervisor so the wrapper (env tag + before/after actions)
-		// is exercised without running the real 595s spawn loop.
-		Bootstrap::$supervisor_factory = static fn (): Supervisor => new class( '/tmp', 'salt' ) extends Supervisor {
-			public function run(): void {}
-		};
-
-		// Pre-flight: clean state.
+	public function test_run_supervisor_tick_wraps_the_pass_in_its_lifecycle_actions(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
 			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
@@ -1129,55 +1240,14 @@ class BootstrapTest extends TestCase {
 
 		$this->assertSame( 'supervisor', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
 		$this->assertSame( '0', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
-		$this->assertSame( 1, $before, 'before_supervisor_run action must fire' );
-		$this->assertSame( 1, $after, 'after_supervisor_run action must fire even when supervisor bails fast' );
-
-		// Clean up env after.
-		unset(
-			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
-			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
-		);
-	}
-
-	public function test_run_supervisor_tick_after_action_fires_even_when_run_throws(): void {
-		// The finally block must fire `after_supervisor_run` even when
-		// Supervisor::run() throws — the action is part of the lifecycle
-		// contract, not gated on success.
-		\add_filter( 'newspack_nodes/topologies', function () {
-			return [ 'noop' => [ 'num_partitions' => 1, 'topology' => '/x.php' ] ];
-		} );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'noop' ];
-		\Newspack_Nodes\Config::reset();
-		// Inject a Supervisor whose run() throws, to prove the finally still fires.
-		Bootstrap::$supervisor_factory = static fn (): Supervisor => new class( '/tmp', 'salt' ) extends Supervisor {
-			public function run(): void {
-				throw new \RuntimeException( 'simulated supervisor failure' );
-			}
-		};
-
-		$after = 0;
-		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
-
-		$stderr = [];
-		Core::set_stderr_handler( static function ( string $line ) use ( &$stderr ): void {
-			$stderr[] = $line;
-		} );
-
-		// Must NOT propagate: the cron tier is the safety net of last resort —
-		// a repeated fatal there kills the tier whose job is catching failures.
-		Bootstrap::run_supervisor_tick();
-
-		$this->assertSame( 1, $after, 'after_supervisor_run must fire from finally on throw' );
-		$this->assertStringContainsString(
-			'simulated supervisor failure',
-			\implode( "\n", $stderr ),
-			'the swallowed throwable must be logged, not silently dropped'
-		);
+		$this->assertSame( 1, $before );
+		$this->assertSame( 1, $after );
 
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
 			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
 		);
+		$this->rmdir_recursive( $dir );
 	}
 
 	// ── init_memcached: substrate-owned Core::$memd bootstrap ──────────────

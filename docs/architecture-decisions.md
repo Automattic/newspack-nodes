@@ -312,9 +312,9 @@ group). Lifetime ~595s. Self-respawn fires in `finally`, with `release()` **befo
 `self_respawn()` so the successor can acquire the lock immediately.
 
 **Alternatives considered:** A resident daemon — unavailable on the platform. No self-respawn
-(supervisor-only restart) — rejected: every ~10-minute recycle would idle the slot until the
-supervisor's stale-lock rescue; self-respawn hands off immediately and leaves the supervisor
-as the safety net (ADR-9), not the scheduler.
+(rescue-only restart) — rejected: every ~10-minute recycle would idle the slot until a peer's
+stale-lock rescue; self-respawn hands off immediately and leaves the peer scan as the safety
+net (ADR-9), not the scheduler.
 
 **Consequences:** Correctness depends on flawless offsetlog resume across ~144 respawns/day
 per worker and on the release-before-respawn ordering. The lifetime is a platform-shaped
@@ -327,25 +327,36 @@ dance collapses into a normal long-lived loop.
 
 ## ADR-9: Two-tier safety net
 
-**Status:** Accepted
+**Status:** Accepted (revised — the middle tier is no longer a process)
 
 **Context:** With no daemon, a dead worker must be revived by something already in the
 system — and whatever revives it can itself die.
 
-**Decision:** Two tiers. Workers self-respawn; the **supervisor** catches stale-locked
-workers (heartbeat > `stale_timeout`) and force-spawns. The supervisor self-respawns;
-**WP-Cron** catches a dead supervisor at minute cadence.
+**Decision:** Two tiers. Workers self-respawn AND scan their peers: every worker mounts
+`_fleet` (`Fleet_Node`), which on each router tick spawns any fleet worker whose lock dir is
+missing or whose heartbeat exceeds its `stale_timeout`. **WP-Cron** catches a fleet with
+nothing left running, at minute cadence, via a single cold-start pass
+(`Bootstrap::run_supervisor_tick()` → `Spawn_Coordinator::spawn_due_workers()`).
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
-unavailable; the substrate's own Supervisor is itself a capped request under the same 15-minute
-rule, which is exactly why it needs a tier above it (WP-Cron).
+unavailable. A DEDICATED supervisor process as the middle tier — that is what this ADR
+originally specified, and it was deleted: the supervisor was never a supervisor in the OS
+sense. It could not signal a worker, reap it, or restart it in place — it polled lock-dir
+mtimes and POSTed to an HTTP endpoint. Polling is work the pollees can do for each other, and
+the throttle that makes three spawners safe makes N safe. What this ADR actually established
+is that revival must not depend on a single process; peer scanning honors that more
+completely than a dedicated tier did, and gives back a permanently-resident PHP-FPM child.
 
-**Consequences:** Three independent spawners (worker `finally`, supervisor tick, cron),
-bounded against respawn storms by the 15s `is_recently_spawned` throttle. The spawn
-ENDPOINT is where that throttle is enforced and recorded, because it is the one gate all
-three cross; the record persists through `Cache_Backend::shared_first()`, falling back to a
-transient. Worst-case revival latency is cron cadence.
+**Consequences:** N independent spawners (each worker's `finally`, each worker's `_fleet`
+scan, cron), bounded against respawn storms by the 15s `is_recently_spawned` throttle. The
+spawn ENDPOINT is where that throttle is enforced and recorded, because it is the one gate
+they all cross; the record persists through `Cache_Backend::shared_first()`, falling back to
+a transient. Supervision now survives the loss of any single process instead of dying with
+one. The cost: with EVERY worker dead there is nothing left to scan, so a total fleet death
+waits up to a cron minute — which is why the cold-start pass deserves its direct tests.
+Housekeeping (retention sweeps, orphan-IPC reaping, `newspack_nodes/periodic`)
+moved to `Fleet_Sweep`, a `unique` job, and so now requires an active `job-worker` topology.
 
 **Revisit if:** an OS-level process supervisor becomes available — the tiered self-revival
 collapses into it.

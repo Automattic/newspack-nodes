@@ -279,7 +279,7 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		$result = Topology_Analyzer::resolved_resource_dirs( 'agg', 1 );
 
 		$this->assertCount(
-			\Newspack_Nodes\Supervisor_Base::MAX_PARTITIONS,
+			\Newspack_Nodes\Spawn_Coordinator::MAX_PARTITIONS,
 			$result['logs']
 		);
 	}

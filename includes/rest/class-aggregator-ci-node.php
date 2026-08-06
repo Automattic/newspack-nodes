@@ -91,9 +91,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Whitelist + roll up a spoke's `dump_graph` payload into named fields only:
-	 * worker live/stale/dead counts, worst consumer distance, dead-letter total,
-	 * supervisor status. A worker that is neither live nor stale is a
-	 * never-started `dead`.
+	 * worker live/stale/dead counts, worst consumer distance, dead-letter total.
+	 * A worker that is neither live nor stale is a never-started `dead`.
 	 *
 	 * @param string                 $id      Spoke id.
 	 * @param array<array-key, mixed> $payload The spoke's dump_graph payload.
@@ -123,9 +122,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			}
 		}
 
-		$supervisor = Core::arr( $payload['supervisor'] ?? [] );
-		$hb_age     = $supervisor['heartbeat_age'] ?? null;
-
 		return [
 			'id'                  => $id,
 			'workers'             => [
@@ -136,10 +132,6 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			],
 			'worst_distance'      => $worst_distance,
 			'deadletter_segments' => Core::num_int( $payload['deadletter_segments'] ?? 0 ),
-			'supervisor'          => [
-				'status'        => Core::as_string( $supervisor['status'] ?? 'unknown' ),
-				'heartbeat_age' => \is_numeric( $hb_age ) ? (int) $hb_age : null,
-			],
 		];
 	}
 	/**

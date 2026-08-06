@@ -46,4 +46,4 @@ The short expansions the rest of the docs assume.
 - **Topic / Partition** — the durable append-only segmented log (Partition is one partition's files; Topic routes writes across N of them by KEY hash).
 - **Consumer** — the durable reader: tails a Partition with a crash-safe cursor (the **offsetlog**) so it resumes where it left off.
 - **worker** — a long-running WP-CLI process draining one topology's graph; named `{type}.p{N}`.
-- **supervisor** — the WP-Cron-driven safety net that spawns and rescues workers.
+- **`_fleet`** — the peer-spawn scan every worker runs on its router tick; WP-Cron cold-starts a fleet with nothing left running.

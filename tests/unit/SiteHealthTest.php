@@ -69,12 +69,6 @@ class SiteHealthTest extends TestCase {
 				'messages' => [ 'Worker liveness health-7319 succeeded.' ],
 			],
 			[
-				'id'       => 'supervisor-liveness',
-				'label'    => 'Supervisor liveness',
-				'status'   => Health_Checks::STATUS_GOOD,
-				'messages' => [ 'Supervisor liveness health-7319 succeeded.' ],
-			],
-			[
 				'id'       => 'consumer-lag',
 				'label'    => 'Consumer lag',
 				'status'   => Health_Checks::STATUS_GOOD,
@@ -103,7 +97,7 @@ class SiteHealthTest extends TestCase {
 		$this->assertSame( [], $tests['async'] );
 	}
 
-	public function test_run_health_test_evaluates_once_and_renders_all_seven_good_rows(): void {
+	public function test_run_health_test_evaluates_once_and_renders_all_six_good_rows(): void {
 		$report = $this->good_report();
 		$calls  = 0;
 		Bootstrap::$health_report_evaluator = static function () use ( $report, &$calls ): array {
@@ -119,8 +113,8 @@ class SiteHealthTest extends TestCase {
 		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
 		$this->assertSame( [ 'label' => 'Newspack Nodes', 'color' => 'blue' ], $result['badge'] );
 		$this->assertSame( 'newspack_nodes_fleet', $result['test'] );
-		$this->assertSame( 7, \substr_count( $result['description'], '<li>' ) );
-		$this->assertSame( 7, \substr_count( $result['description'], '<strong>OK ' ) );
+		$this->assertSame( 6, \substr_count( $result['description'], '<li>' ) );
+		$this->assertSame( 6, \substr_count( $result['description'], '<strong>OK ' ) );
 		foreach ( $report as $check ) {
 			$this->assertStringContainsString( $check['label'], $result['description'] );
 			$this->assertStringContainsString( $check['messages'][0], $result['description'] );
@@ -236,8 +230,8 @@ class SiteHealthTest extends TestCase {
 
 			$this->assertContains(
 				[ Alerts::class, 'emit' ],
-				$GLOBALS['_wp_actions']['newspack_nodes/supervisor_periodic'] ?? [],
-				'alert emit must be hooked to the supervisor periodic tick'
+				$GLOBALS['_wp_actions']['newspack_nodes/periodic'] ?? [],
+				'alert emit must be hooked to the fleet periodic sweep'
 			);
 		} finally {
 			$runtime_ref->setValue( null, $saved_runtime );

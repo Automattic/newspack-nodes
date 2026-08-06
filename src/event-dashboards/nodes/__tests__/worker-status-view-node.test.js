@@ -65,7 +65,6 @@ function restartErrorReply( id, payload ) {
 
 const baseModel = ( overrides = {} ) => ( {
 	workers: [],
-	supervisor: null,
 	logs: [],
 	byteRates: {},
 	writeRates: {},

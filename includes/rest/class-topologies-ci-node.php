@@ -71,7 +71,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @return array<int|string, mixed>
 	 */
 	public static function cmd_list(): array {
-		// Active = what the supervisor would spawn (catalog + overlay).
+		// Active = what the fleet would spawn (catalog + overlay).
 		$resolved = Bootstrap::get_topologies();
 		$active   = [];
 		foreach ( $resolved as $name => $_def ) {
