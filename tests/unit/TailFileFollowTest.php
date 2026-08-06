@@ -44,6 +44,25 @@ class TailFileFollowTest extends TestCase {
 		return $t;
 	}
 
+	public function test_file_mode_seek_without_a_container_lands_on_the_current_file(): void {
+		$path = "{$this->tmp}/resume.log";
+		\file_put_contents( $path, "alpha-7788\nbeta-991122\n" );
+
+		$cap = new Capture_Sink_Node();
+		$t   = $this->follow( $path );
+		$t->sink( $cap );
+		// No 'segment' key: resume this offset in whatever generation is live.
+		// A resume that names inode 0 instead never validates and restarts at 0.
+		$t->next_offset( [ 'offset' => 11 ] );
+		$this->pump( $t );
+
+		$this->assertSame(
+			[ "beta-991122\n" ],
+			$this->values( $cap ),
+			'the offset must apply to the current file, not replay from the top'
+		);
+	}
+
 	public function test_file_mode_idle_since_reports_when_the_followed_file_last_grew(): void {
 		$path = "{$this->tmp}/quiet.log";
 		\file_put_contents( $path, "one\n" );

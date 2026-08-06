@@ -54,6 +54,20 @@ class LogStreamOutNodeTest extends TestCase {
 		$this->assertSame( 9, $this->read_private( $tail, 'cursor_offset' ) );
 	}
 
+	public function test_cursor_position_omits_the_container_until_the_inode_is_known(): void {
+		$path = "{$this->tmp}/gyro-live.log";
+		\file_put_contents( $path, "abcdefgh\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
+
+		$tail = ( new Log_Stream_Out_Node() )->open_subscription( 'gyro', null )[0];
+
+		// The byte offset is seated by next_offset('end'), but the inode lands
+		// in cursor_segment only when the handle opens on the first poll. An
+		// advertised `0:9` is a resume against inode 0, which never validates —
+		// the reader restarts from the top of the file on every reconnect.
+		$this->assertSame( ':9', $tail->cursor_position() );
+	}
+
 	public function test_position_keyed_by_name_seeds_the_file_mode_resume_candidate(): void {
 		$path = "{$this->tmp}/gyro-live.log";
 		\file_put_contents( $path, "abcdefgh\n" );

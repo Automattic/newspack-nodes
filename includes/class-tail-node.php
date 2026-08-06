@@ -57,8 +57,9 @@ class Tail_Node extends Consumer_Node {
 	 * File mode: an explicit array-form next_offset() seek {inode, offset} made BEFORE the file
 	 * opens (build time), awaiting validation on the first poll once the live inode is known. A
 	 * runtime seek (handle already open) validates immediately and leaves this null. null = none.
+	 * A null `inode` means the seek named no generation: apply it to the current one.
 	 *
-	 * @var array{inode:int,offset:int}|null
+	 * @var array{inode:int|null,offset:int}|null
 	 */
 	private ?array $file_seek_candidate = null;
 
@@ -184,7 +185,8 @@ class Tail_Node extends Consumer_Node {
 		$this->at_eof              = false;
 		$this->file_seek_candidate = null;
 		if ( \is_array( $position ) ) {
-			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : $this->cursor_segment;
+			// Absent stays absent: coerced, a closed handle stores inode 0.
+			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : null;
 			$offset = \max( 0, Core::num_int( $position['offset'] ?? 0 ) );
 			if ( null !== $this->follow_handle ) {
 				$this->cursor_offset = $this->validate_resume_offset( $inode, $offset );
@@ -343,11 +345,15 @@ class Tail_Node extends Consumer_Node {
 	 * (duplicate lines), never lost lines. cursor == size (the file ends exactly on the last emitted
 	 * newline) is valid and simply reads nothing until it grows.
 	 */
-	private function validate_resume_offset( int $stored_inode, int $cursor ): int {
+	private function validate_resume_offset( ?int $stored_inode, int $cursor ): int {
 		if ( $cursor <= 0 ) {
 			return 0;
 		}
-		if ( 0 === $this->cursor_segment || $stored_inode !== $this->cursor_segment ) {
+		if ( 0 === $this->cursor_segment ) {
+			return 0;
+		}
+		// A null inode means the current generation; size + boundary guard it.
+		if ( null !== $stored_inode && $stored_inode !== $this->cursor_segment ) {
 			return 0;
 		}
 		if ( $this->file_current_size() < $cursor ) {
@@ -422,6 +428,26 @@ class Tail_Node extends Consumer_Node {
 			. self::MODE_FILE . "' (follow a single filename with logrotate semantics); it defaults to '"
 			. self::MODE_SEGMENTED . "' when omitted."
 		) );
+	}
+
+	/**
+	 * File-mode override: drop the container when the inode is not known yet.
+	 *
+	 * @longform The byte offset is seated eagerly by next_offset(), but the
+	 * inode reaches cursor_segment only when the handle opens on the first
+	 * poll — and a stream that closes idle before polling never gets there.
+	 * Advertising `0:<offset>` resumes against inode 0, which never validates,
+	 * so the reader restarts from the top of the file on every reconnect. An
+	 * empty container means "this offset, in whatever generation is current",
+	 * which is what next_offset() already does for a missing `segment` key.
+	 *
+	 * @return string `{inode}:{offset}`, or `:{offset}` while the inode is unknown.
+	 */
+	public function cursor_position(): string {
+		if ( self::MODE_FILE === $this->source_mode && 0 === $this->cursor_segment ) {
+			return ":{$this->cursor_offset}";
+		}
+		return parent::cursor_position();
 	}
 
 	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */

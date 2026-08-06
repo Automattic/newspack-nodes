@@ -213,7 +213,11 @@ class SSE_Out_Node extends Node {
 	 * note rather than failing the reopen; its subscription falls back to the
 	 * query parameter.
 	 *
-	 * @return array<string,array{segment:int,offset:int}>
+	 * An EMPTY container (`name=:offset`) omits `segment` entirely, which reads
+	 * as "this offset, in whatever generation is current" — what a file-mode
+	 * Tail advertises before its inode is known.
+	 *
+	 * @return array<string,array{segment?:int,offset:int}>
 	 */
 	private function parse_cursor_token( string $token ): array {
 		$out = [];
@@ -221,14 +225,16 @@ class SSE_Out_Node extends Node {
 			if ( '' === $entry ) {
 				continue;
 			}
-			if ( ! \preg_match( '/^([a-z0-9_-]+\/)?([a-z0-9_-][a-z0-9_.-]*)=(\d+):(\d+)$/D', $entry, $m ) ) {
+			if ( ! \preg_match( '/^([a-z0-9_-]+\/)?([a-z0-9_-][a-z0-9_.-]*)=(\d*):(\d+)$/D', $entry, $m ) ) {
 				$this->print_less_often( 'dropping malformed resume token entry' );
 				continue;
 			}
-			$out[ $m[1] . $m[2] ] = [
-				'segment' => (int) $m[3],
-				'offset'  => (int) $m[4],
-			];
+			// An empty container means this offset in the current generation.
+			$position = [ 'offset' => (int) $m[4] ];
+			if ( '' !== $m[3] ) {
+				$position['segment'] = (int) $m[3];
+			}
+			$out[ $m[1] . $m[2] ] = $position;
 		}
 		return $out;
 	}
