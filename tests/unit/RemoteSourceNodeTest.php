@@ -1480,6 +1480,46 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
 	}
 
+	public function test_a_released_slot_never_reaches_the_dashboard(): void {
+		// An idle stream ends and releases its own slot; a heartbeat already in
+		// flight lands on the tombstone. Latching that into last_error paints a
+		// healthy link with a failure banner it will never clear on its own.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertNull( ( $status ?: [] )['last_error'] ?? null );
+	}
+
+	public function test_a_stolen_slot_still_reaches_the_dashboard(): void {
+		// The counterpart guard: an eviction is a real fault and must surface.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertStringContainsString( 'pointer_owner_mismatch', (string) $status['last_error'] );
+	}
+
+	/**
+	 * A `workers.heartbeat` error reply addressed back to the link that minted it.
+	 *
+	 * @return array<int,mixed> The 7-field positional message array.
+	 */
+	private function heartbeat_error( string $link, string $payload ): array {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$reply[ Message::TO ]    = $link;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => $payload,
+		];
+		return $reply;
+	}
+
 	public function test_tick_publishes_status_snapshot(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin' );

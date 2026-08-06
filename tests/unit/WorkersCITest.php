@@ -537,6 +537,42 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( "SSE slot lease not owned: pointer_owner_mismatch\n", $result );
 	}
 
+	public function test_heartbeat_verb_tells_a_released_slot_from_a_stolen_one(): void {
+		// release() tombstones the pointer to 0, which is not a takeover: an idle
+		// stream ending releases its slot, and a client heartbeat already in
+		// flight lands on the tombstone. Reporting that as an owner mismatch
+		// makes a routine reconnect race look like an eviction.
+		$memd                       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd = $memd;
+		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
+			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
+			\get_current_user_id(),
+			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			8,
+			83
+		);
+		$this->assertIsArray( $lease );
+		\Newspack_Nodes\SSE_Slot_Pool::release(
+			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
+			\get_current_user_id(),
+			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			$lease['slot'],
+			$lease['owner']
+		);
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result = VerbHarness::fire(
+			$interpreter,
+			'workers',
+			'heartbeat',
+			[ (string) $lease['slot'], (string) $lease['owner'] ]
+		);
+
+		$this->assertSame( "SSE slot lease not owned: slot_released\n", $result );
+		\Newspack_Nodes\Core::$memd = null;
+	}
+
 	public function test_heartbeat_verb_names_a_slot_that_was_never_claimed(): void {
 		// Nothing ever acquired this slot — a pool namespace mismatch (the request
 		// reached a different host, user or IP than the stream did) reads this way.

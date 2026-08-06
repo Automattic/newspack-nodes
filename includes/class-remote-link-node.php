@@ -36,6 +36,9 @@ class Remote_Link_Node extends Timer_Node {
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 15;
 
+	/** `SSE_Slot_Pool` lease state for a slot released under us — expected, not an error. */
+	public const RELEASED_SLOT = 'slot_released';
+
 	/** 10Hz poll; housekeeping self-latches. Protected: PLAY re-arms it. */
 	protected const TICK_INTERVAL_MS = 100;
 
@@ -136,7 +139,8 @@ class Remote_Link_Node extends Timer_Node {
 			$failure = self::heartbeat_failure( $message );
 			if ( null === $failure ) {
 				$this->record_heartbeat_reply();
-			} else {
+			} elseif ( ! \str_contains( $failure, self::RELEASED_SLOT ) ) {
+				// A released slot is a race, not a fault. Say nothing.
 				$this->stderr( 'ERROR: client heartbeat failed - ' . $failure );
 				$this->record_heartbeat_failure( $failure );
 			}

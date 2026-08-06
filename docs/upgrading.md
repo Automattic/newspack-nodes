@@ -45,10 +45,12 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 - **A failed SSE slot heartbeat now names the state it found.** The
   `workers heartbeat` verb still errors with `SSE slot lease not owned`, now
-  suffixed with `: pointer_missing`, `: pointer_owner_mismatch`,
-  `: liveness_missing`, `: backend_read_error` or
+  suffixed with `: pointer_missing`, `: slot_released`,
+  `: pointer_owner_mismatch`, `: liveness_missing`, `: backend_read_error` or
   `: recovered_during_inspection`. A client matching on the exact old string
-  needs a prefix match instead.
+  needs a prefix match instead. `slot_released` is the release tombstone
+  (pointer 0) and means a normal reconnect race, not a takeover — a client of
+  its own should treat it as routine, as `Remote_Link_Node` now does.
 
 ## 2.11.0
 

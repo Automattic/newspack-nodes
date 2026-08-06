@@ -399,6 +399,57 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertNull( Core::node( 'link-austin:http-out' ) );
 	}
 
+	public function test_a_released_slot_is_not_logged_as_an_error(): void {
+		// An idle stream ends and releases its slot; a heartbeat already in
+		// flight lands on the tombstone. That race is the design working, and
+		// with a 5s idle timeout against a 15s heartbeat it recurs forever.
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$log = '';
+		Core::set_stderr_handler(
+			static function ( string $m ) use ( &$log ): void {
+				$log .= $m;
+			}
+		);
+
+		$node->fill( $this->heartbeat_error( 'link-austin', 'SSE slot lease not owned: slot_released' ) );
+
+		$this->assertSame( '', $log );
+	}
+
+	public function test_a_stolen_slot_is_still_logged_as_an_error(): void {
+		// The counterpart guard: silencing the benign race must not silence a
+		// real eviction, which means the lease TTL expired under us.
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$log = '';
+		Core::set_stderr_handler(
+			static function ( string $m ) use ( &$log ): void {
+				$log .= $m;
+			}
+		);
+
+		$node->fill( $this->heartbeat_error( 'link-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
+
+		$this->assertStringContainsString( 'pointer_owner_mismatch', $log );
+	}
+
+	/**
+	 * A `workers.heartbeat` error reply addressed back to the link that minted it.
+	 *
+	 * @return array<int,mixed> The 7-field positional message array.
+	 */
+	private function heartbeat_error( string $link, string $payload ): array {
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$reply[ Message::TO ]    = $link;
+		$reply[ Message::VALUE ] = [
+			'name'    => 'heartbeat',
+			'payload' => $payload,
+		];
+		return $reply;
+	}
+
 	// ---------------------------------------------------------------------
 	// Heartbeat — minted as a workers.heartbeat command through HTTP_Out.
 	// ---------------------------------------------------------------------
