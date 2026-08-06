@@ -105,7 +105,7 @@ class WorkersCITest extends TestCase {
 	}
 
 	/**
-	 * Seed a TopicProbe record at logs/topicprobe.p0 for a `{source}.p{partition}`
+	 * Seed a Topic_Probe record at logs/topicprobe.p0 for a `{source}.p{partition}`
 	 * consumer — the single enumeration + cursor source dump_metadata now reads.
 	 * Accepts the legacy offsetlog-shaped `$extra` (seg/off/source_log/name) and
 	 * maps it onto the probe record's fields. Appends so several seeds accumulate.

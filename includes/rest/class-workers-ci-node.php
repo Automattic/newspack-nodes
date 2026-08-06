@@ -489,7 +489,7 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * One row per active Consumer, via the canonical per-Consumer enumeration
-	 * (`CLI::consumer_rows()`, sourced from the TopicProbe log) — shared with
+	 * (`CLI::consumer_rows()`, sourced from the Topic_Probe log) — shared with
 	 * `wp nodes status` so the dashboard and cli read positions exactly one way.
 	 *
 	 * @return array<int,array<string,mixed>>

@@ -24,7 +24,7 @@ import {
  * sums into WINDOWED totals. The Δ rule (in `_delta`) is the single source both
  * consume: a worker restart (counter reset, new < prior) or the first sample counts
  * the NEW record's value — a recycled generation's runs=1 is one new run, never
- * negative, never eaten — unlike TopicProbe's throughput rates, which zero on
+ * negative, never eaten — unlike Topic_Probe's throughput rates, which zero on
  * restart. Windowed totals (runs, errors, items, delta-weighted avg duration) are
  * summed over the retained window in `_entryView`, so they shrink with the series as
  * old samples prune. Last-run detail + newest cumulative come from the latest

@@ -1114,7 +1114,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 // so a key that names only the tree path made folding it in one row fold it in
 // all of them.
 it( 'scopes an entity key by topology, so a shared node name cannot collide', () => {
-	// `logic` is what a TopicProbe resolves to; the key IS the persisted
+	// `logic` is what a Topic_Probe resolves to; the key IS the persisted
 	// contract, so pin both strings rather than only their difference.
 	const graphTopo = { nodes: [ gn( 'topicprobe', 'logic' ) ], edges: [] };
 	const sections = buildTopologySections(

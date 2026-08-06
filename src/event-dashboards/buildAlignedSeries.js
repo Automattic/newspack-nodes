@@ -1,4 +1,4 @@
-// The TopicProbe sweep interval, and so the narrowest useful bucket.
+// The Topic_Probe sweep interval, and so the narrowest useful bucket.
 const BUCKET_BASE_S = 15;
 
 /**
@@ -8,7 +8,7 @@ const BUCKET_BASE_S = 15;
  * mode.
  *
  * Why a bucket GRID, not the raw union of sample instants: each worker process
- * runs its own TopicProbe sweeping on an independent 15s phase, so topics in
+ * runs its own Topic_Probe sweeping on an independent 15s phase, so topics in
  * different processes emit their samples at OFFSET instants. Merging on the raw
  * union then leaves every topic with a gap at every OTHER topic's instant — and
  * a `?? 0` gap-fill turns a LEVEL gauge (backlog/cacheSize) into a [3MB,0,3MB,0…]

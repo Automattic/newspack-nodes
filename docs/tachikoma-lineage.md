@@ -29,7 +29,7 @@ Paths below are relative to that directory. Line numbers are from the checkout a
 | `Core::right_now()` | `$Tachikoma::Right_Now` |
 | `Core::$recent_log` capped at 100 lines | `@RECENT_LOG` |
 | `Core::print_less_often( $text, ...$extra )` — key on `$text` alone | the `$text, @extra` rate-limited logging pair |
-| `TopicProbe_Node` sweeping `Core::$nodes_by_name` | `%Tachikoma::Nodes` |
+| `Topic_Probe_Node` sweeping `Core::$nodes_by_name` | `%Tachikoma::Nodes` |
 
 ### Router and the drain loop
 
@@ -65,7 +65,7 @@ Paths below are relative to that directory. Line numbers are from the checkout a
 | `Table_Node` | `Nodes/Table.pm` — the vocabulary; the backing store diverges (see below) |
 | `Struct_To_JSON_Node` / `JSON_To_Struct_Node` | the `Nodes/StorableToJSON.pm` / `Nodes/JSONtoStorable.pm` pair |
 | `Probe_To_Graphite_Node`, `Graphite_Node` | `Nodes/TopicProbeToGraphite.pm` and the Graphite egress behind it |
-| `TopicProbe_Node` | the counterpart of `Nodes/TopicProbe.pm`, consumer branch |
+| `Topic_Probe_Node` | the counterpart of `Nodes/TopicProbe.pm`, consumer branch |
 | `Echo_Node` dropping a pathless TM_ERROR | `Nodes/Echo.pm` |
 | `HTTP_Out_Node`'s wire-inbound clause | `Nodes/Socket.pm:852-862` |
 

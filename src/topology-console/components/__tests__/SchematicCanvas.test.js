@@ -2368,7 +2368,7 @@ describe( 'SchematicCanvas', () => {
 				{ ...baseProps }
 				parsed={ {
 					nodes: [
-						{ id: 'inner-probe', class: 'TopicProbe' },
+						{ id: 'inner-probe', class: 'Topic_Probe' },
 						{ id: 'outer-a', class: 'Echo' },
 						{ id: 'outer-b', class: 'Echo' },
 					],

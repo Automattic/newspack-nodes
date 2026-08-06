@@ -173,7 +173,7 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Probe seam: the raw snapshot `TopicProbe` reads from outside this Consumer,
+	 * Probe seam: the raw snapshot `Topic_Probe` reads from outside this Consumer,
 	 * as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). Just
 	 * the state at this instant — `SOURCE` (partition tailed) + `READER` (offsetlog
 	 * dir basename, the durable per-reader id) + the consumer cursor + the partition

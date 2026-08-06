@@ -210,7 +210,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_probe_stats_is_a_lean_positional_snapshot(): void {
-		// probe_stats() is the raw snapshot TopicProbe reads from OUTSIDE the
+		// probe_stats() is the raw snapshot Topic_Probe reads from OUTSIDE the
 		// Consumer — the POSITIONAL Probe_Record: SOURCE (partition tailed) +
 		// READER (offsetlog dir basename) + cursor + partition END (last seg + size)
 		// + DISTANCE (backlog) + MSGS. No derived/extra fields.
@@ -300,7 +300,7 @@ class ConsumerTest extends TestCase {
 
 		$stats = $c->probe_stats();
 
-		// Write the record exactly as TopicProbe would (positional VALUE), read back.
+		// Write the record exactly as Topic_Probe would (positional VALUE), read back.
 		$dir = "{$this->tmp}/logs/topicprobe.p0";
 		\mkdir( $dir, 0755, true );
 		$message                   = Message::new_message();
@@ -1621,7 +1621,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_fire_checkpoints_at_most_once_per_30s(): void {
-		// The offsetlog is crash-resume only (not a position source — TopicProbe is),
+		// The offsetlog is crash-resume only (not a position source — Topic_Probe is),
 		// so fire() checkpoints at most every CHECKPOINT_INTERVAL_S (30s), not every
 		// poll. Each checkpoint appends one offsetlog entry, so entry-count == checkpoints.
 		$source = new Partition_Node();

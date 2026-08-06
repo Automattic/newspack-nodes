@@ -11,7 +11,7 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Job_Probe sweeps this process's Job_Workers (the jobs analog of TopicProbe's
+ * Job_Probe sweeps this process's Job_Workers (the jobs analog of Topic_Probe's
  * Consumer sweep) and emits ONE lean positional Jobstats_Record snapshot per job
  * identity per tick into its sink (the shared jobstats log). The Message TIMESTAMP
  * is the sweep instant; the cumulative counters are folded downstream into rates.

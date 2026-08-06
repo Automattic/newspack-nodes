@@ -112,6 +112,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`TopicProbe` is renamed `Topic_Probe`.** The class is `Topic_Probe_Node` and
+  the `make_node` type is `Topic_Probe`, so the probe follows
+  [ADR-10](docs/architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)
+  like its sibling `Job_Probe_Node` — the two were spelled differently for no
+  reason. There is no alias and no deprecation shim: a `.tsl` still saying
+  `make_node TopicProbe` fails to resolve a class. Stock `topic-probe.tsl` is
+  updated, so a topology that only ever `include topic-probe`s needs nothing.
+  The node name (`topicprobe`) and the log (`topicprobe.p0`) are unchanged.
+
 - **The WP-Cron tick is now a single cold-start pass.**
   `Bootstrap::run_supervisor_tick()` keeps its minute cadence but wires the
   runtime, checks the enable gate, and spawns anything whose lock dir is missing

@@ -6,7 +6,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
-use Newspack_Nodes\TopicProbe_Node;
+use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 

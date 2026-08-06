@@ -114,14 +114,14 @@ class CLI {
 	 * Index of every active Consumer's latest stats record from the shared
 	 * topicprobe log, keyed by `offsetlog_dir` — the durable per-reader identity.
 	 * This is the single live-position source the dashboard + `wp nodes status`
-	 * read (it replaced memcache + the offsetlog fallback); TopicProbe appends one
+	 * read (it replaced memcache + the offsetlog fallback); Topic_Probe appends one
 	 * record per Consumer every ~15s.
 	 *
 	 * @return array<string,array<mixed>> offsetlog_dir → the latest probe record VALUE.
 	 */
 	public function read_probe_index(): array {
 		return Partition_Node::read_tail_index_by(
-			"{$this->base_dir}/logs/" . TopicProbe_Node::LOG_DIR,
+			"{$this->base_dir}/logs/" . Topic_Probe_Node::LOG_DIR,
 			Probe_Record::READER
 		);
 	}

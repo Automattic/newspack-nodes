@@ -1,5 +1,5 @@
 /**
- * Roll the TopicProbe view's per-`reader` samples up to per-group (default
+ * Roll the Topic_Probe view's per-`reader` samples up to per-group (default
  * per-`source`, the topic a consumer tails) TIME SERIES for the Overview's
  * Topics panels: message rate, byte rate, and backlog — modeled on Tachikoma's
  * Grafana Topics dashboard (rate + backlog, ranked by max).

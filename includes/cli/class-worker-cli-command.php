@@ -3,7 +3,7 @@
  * WorkerCliCommand: WP-CLI subcommands for worker lifecycle management.
  *
  * Adds `wp nodes types` / `run <type>` / `restart <type>` / `status` beyond the
- * existing `ls` / `cli`. Live positions come from the shared TopicProbe log
+ * existing `ls` / `cli`. Live positions come from the shared Topic_Probe log
  * (via `CLI::consumer_rows()`), not memcache.
  *
  * @package Newspack_Nodes
@@ -101,7 +101,7 @@ class Worker_CLI_Command {
 	/**
 	 * Fleet overview: every catalog topology with per-partition worker state
 	 * (live/stale/down from the lock heartbeats, plus uptime from the lock-dir
-	 * age), then the consumer-lag table from the TopicProbe snapshot.
+	 * age), then the consumer-lag table from the Topic_Probe snapshot.
 	 *
 	 * ## OPTIONS
 	 *

@@ -138,7 +138,7 @@ const endPosition = ( segments, endSegment, endSize ) =>
 
 /**
  * Probe-cadence rate step. The cursor/end byte positions come from the 15s
- * TopicProbe snapshot but dump_graph polls ~1s, so deltaing against the poll
+ * Topic_Probe snapshot but dump_graph polls ~1s, so deltaing against the poll
  * clock gives 14 zeros then a 15× spike. Instead recompute ONLY when the value
  * actually advances (= new probe data), over the real elapsed time since the
  * last advance, and HOLD the rate while the value is unchanged. A value that
