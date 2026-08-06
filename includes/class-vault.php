@@ -513,7 +513,7 @@ class Vault {
 	 * @param string $user  Stored username.
 	 * @param string $pass  Stored password.
 	 * @param string $token Stored bearer token.
-	 * @return string e.g. `Basic dXNlcjpwYXNz`, or ''.
+	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
 	 */
 	public static function credential_header( string $user, string $pass, string $token = '' ): string {
 		if ( '' !== $user && '' !== $pass ) {
