@@ -160,6 +160,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of ≤15s. Activation and deactivation are unaffected; they act in
   request scope. Reload costs no process recycle, so the broad fan-out is cheap.
 
+### Changed
+
+- **Log lines identify the SITE, not the pool box.** `Core::log_midfix()` led
+  every line with `gethostname()`, which on shared hosting names the machine —
+  `pool195-106-36.bur.atomicsites.net`, identical for every site on it — so an
+  aggregated log could not tell whose worker wrote a line. It now uses the host
+  of `home_url()`, memoized (that call reads an option and runs filters, and
+  this is on every logged line), falling back to the machine name before
+  WordPress is loaded.
+
+- **A job handler this worker does not own is silent.** `Job_Worker` warned once
+  per job for a missing `job` handler while staying silent for a missing
+  `remote_job` one. That is backwards on a spoke: its `Job_Router` produces into
+  its own `jobs.log` and `rewrite-remote-job` runs hub-side, so every
+  hub-destined job arrives as an unownable `job` and logged a warning for work
+  that completes fine on the hub. Both kinds are silent now.
+
 ### Fixed
 
 - **An evicted lock holder destroyed its successor's lock dir.** A worker

@@ -313,10 +313,12 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $this->jobs_executed( $jw ) );
 	}
 
-	public function test_missing_local_job_handler_warns_but_missing_remote_job_is_silent(): void {
-		// A missing LOCAL job handler is a real misconfig — warn. A missing
-		// remote_job handler is expected off-hub (hub-only handlers), so stay
-		// silent instead of flooding "no remote_job handler" on every spoke.
+	public function test_a_handler_this_worker_does_not_own_is_silent(): void {
+		// @longform Neither kind warns. A spoke's Job_Router produces jobs into
+		// its own jobs.log that only the hub can run — rewrite-remote-job runs
+		// hub-side — so a spoke sees every hub-destined job as an unownable
+		// `job` and warned once per job for work completing fine elsewhere. The
+		// remote_job branch was already silent for the mirror-image reason.
 		$jw = new class() extends Job_Worker_Node {
 			/** @var string[] */
 			public array $warnings = [];
@@ -326,10 +328,8 @@ class JobWorkerTest extends TestCase {
 		};
 
 		$jw->fill( $this->job_message( 'unregistered', [], 'job' ) );
-		$this->assertCount( 1, $jw->warnings, 'a missing local job handler warns' );
-		$this->assertStringContainsString( 'no job handler registered', $jw->warnings[0] );
+		$this->assertSame( [], $jw->warnings, 'a job this worker does not own must not warn' );
 
-		$jw->warnings = [];
 		$jw->fill( $this->job_message( 'unregistered', [], 'remote_job' ) );
 		$this->assertSame( [], $jw->warnings, 'a missing remote_job handler must not warn' );
 	}

@@ -68,6 +68,9 @@ class Core {
 	 */
 	public static ?\Closure $curl_exec = null;
 
+	/** Memoized `home_url()` host for the log midfix; cleared by reset(). */
+	private static string $log_host = '';
+
 	/** Process start time, stamped each Core::reset(); the `uptime` verb subtracts it from $now. */
 	public static float $init_time = 0.0;
 
@@ -214,7 +217,7 @@ class Core {
 	 */
 	public static function log_midfix( ?string $text = null ): string {
 		$uptime = (int) ( Core::$now - Core::$init_time );
-		$midfix = ( \gethostname() ?: 'unknown' ) . ' '
+		$midfix = self::log_host() . ' '
 			. self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ';
 		if ( null === $text ) {
 			return $midfix;
@@ -223,6 +226,28 @@ class Core {
 		// Prepend the midfix to the start of every line (Perl m///mg).
 		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
 		return $text . "\n";
+	}
+
+	/**
+	 * Site identity for the log midfix — the host of `home_url()`.
+	 *
+	 * @longform `gethostname()` names the MACHINE, and on shared hosting that is
+	 * a pool box every site on it reports identically
+	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
+	 * whose worker wrote a line. The site's own host can. Memoized because
+	 * `home_url()` reads an option and runs filters, and this is on every logged
+	 * line; falls back to the machine name before WordPress is loaded.
+	 */
+	private static function log_host(): string {
+		if ( '' !== self::$log_host ) {
+			return self::$log_host;
+		}
+		$host = '';
+		if ( \function_exists( 'home_url' ) && \function_exists( 'wp_parse_url' ) ) {
+			$host = Core::as_string( \wp_parse_url( \home_url(), \PHP_URL_HOST ) );
+		}
+		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
+		return self::$log_host;
 	}
 
 	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
@@ -308,6 +333,7 @@ class Core {
 		self::$var               = [];
 		self::$memd              = null;
 		self::$secure_level      = null;
+		self::$log_host          = '';
 		self::set_stderr_handler( static function ( string $text, bool $raw = false ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
