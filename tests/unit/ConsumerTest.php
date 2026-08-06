@@ -46,6 +46,41 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 	}
 
+	public function test_idle_since_reports_when_the_newest_segment_last_grew(): void {
+		$dir = "{$this->tmp}/data.p0";
+		\mkdir( $dir, 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'quiet-since-forever';
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+		$stamp = \time() - 617;
+		\touch( "{$dir}/0.log", $stamp );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ $dir, "{$this->tmp}/offsets.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+		$c->next_offset( 'end' );
+
+		$this->assertSame( (float) $stamp, $c->idle_since(), 'a caught-up consumer reports its newest segment mtime' );
+	}
+
+	public function test_idle_since_is_null_while_bytes_are_still_owed(): void {
+		$dir = "{$this->tmp}/data.p0";
+		\mkdir( $dir, 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'owed-and-stale';
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
+		\touch( "{$dir}/0.log", \time() - 617 );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ $dir, "{$this->tmp}/offsets.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+		$c->next_offset( 'start' );
+
+		$this->assertNull( $c->idle_since(), 'unread bytes must never read as idle, however stale the mtime' );
+	}
+
 	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
 		// A third positional arg names the quarantine dir for poison messages
 		// (dead-letter [42]); the Consumer auto-builds a `:deadletter` sibling

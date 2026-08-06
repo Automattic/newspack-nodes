@@ -39,6 +39,8 @@ class FakeEventSource {
 	constructor( url ) {
 		this.url = url;
 		this.listeners = {};
+		// As a real one: CONNECTING until the handshake. dispatch() completes
+		// it, and a test asserting a half-open stream sets OPEN itself.
 		this.readyState = FakeEventSource.CONNECTING;
 		FakeEventSource.last = this;
 	}
@@ -50,6 +52,8 @@ class FakeEventSource {
 		this.readyState = FakeEventSource.CLOSED;
 	}
 	dispatch( name, data ) {
+		// Delivering anything means the connection is established.
+		this.readyState = FakeEventSource.OPEN;
 		( this.listeners[ name ] || [] ).forEach( ( cb ) => cb( { data } ) );
 	}
 	// Drive es.onerror with a readyState (CLOSED=gave up; CONNECTING=retry).
@@ -719,6 +723,60 @@ test( 'the watchdog arms through setTimer, and close() stops it', () => {
 	}
 } );
 
+// @longform
+// Standing down while CONNECTING must be BOUNDED. A proxy that accepts the
+// socket but never sends headers leaves the browser in CONNECTING firing no
+// `error`, so an unbounded stand-down removes the only recovery there is and
+// the tab sits dead until the browser's own network timeout, minutes later.
+test( 'a stream wedged in CONNECTING is still force-reconnected eventually', () => {
+	jest.useFakeTimers();
+	try {
+		expectConsoleWarn(
+			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
+		);
+		const { sse } = makeSseIn();
+		sse.start();
+		const opened = sse._es;
+		sse.lastEventTime = Date.now() - 90000;
+		sse._watchdogBase = Date.now() - 90000;
+		opened.readyState = FakeEventSource.CONNECTING;
+
+		sse.fire();
+
+		expect( sse._es ).not.toBe( opened );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
+// @longform
+// The server closes an idle stream and advertises `retry:`, so the browser sits
+// in CONNECTING for that whole window. FORCE_AFTER_MS is 10s and the advertised
+// gap is 15s, so the watchdog fired FIVE SECONDS before the browser's own
+// reconnect — on every cycle — logging an error and doubling the backoff for a
+// stream that was working exactly as designed. The watchdog exists for
+// HALF-OPEN sockets (readyState OPEN, no data); a browser between connections
+// is not that, which is what the `error` handler already assumes.
+test( 'the watchdog stands down while the browser is reconnecting', () => {
+	jest.useFakeTimers();
+	try {
+		const { sse } = makeSseIn();
+		sse.start();
+		const opened = sse._es;
+		// Silent well past FORCE_AFTER_MS, but the browser owns the gap.
+		sse.lastEventTime = Date.now() - 47000;
+		sse._watchdogBase = Date.now() - 47000;
+		opened.readyState = FakeEventSource.CONNECTING;
+
+		sse.fire();
+
+		// A forced reconnect replaces the EventSource; standing down keeps it.
+		expect( sse._es ).toBe( opened );
+	} finally {
+		jest.useRealTimers();
+	}
+} );
+
 // The base Timer.fire() emits a TM_BYTESTREAM timestamp down its sink. This
 // node's sink is the DATA path, where that is indistinguishable from a record.
 test( 'the watchdog tick emits nothing into the data sink', () => {
@@ -837,6 +895,7 @@ test( 'watchdog forces close+reopen after total silence past FORCE_AFTER_MS', ()
 		const { sse } = makeSseIn();
 		sse.start();
 		const first = FakeEventSource.last;
+		first.readyState = FakeEventSource.OPEN; // established, then went silent
 		jest.advanceTimersByTime( 13000 ); // > 10s silence, no frame arrived
 		const second = FakeEventSource.last;
 		expect( first.closed ).toBe( true );
@@ -907,6 +966,7 @@ test( 'a forced reconnect reports RECONNECTING and warns', () => {
 	try {
 		const { sse } = makeSseIn();
 		sse.start();
+		FakeEventSource.last.readyState = FakeEventSource.OPEN;
 		jest.advanceTimersByTime( 13000 );
 		expect( sse.setStateCache.RECONNECTING ).toBe( 'watchdog' );
 		expect( warn ).toHaveBeenCalledWith(
@@ -943,6 +1003,7 @@ test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-r
 		sse.start();
 		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // replay
 		// Stream goes silent; the watchdog forces a reconnect.
+		FakeEventSource.last.readyState = FakeEventSource.OPEN;
 		jest.advanceTimersByTime( 13000 );
 		// Reopens LIVE (tail), not another full replay of the seed.
 		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );

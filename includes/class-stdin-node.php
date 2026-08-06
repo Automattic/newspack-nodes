@@ -11,10 +11,14 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Stdin_Node extends Timer_Node {
-	private const BUSY_POLL_MS = 0;   // Bytes pending — drain ASAP next tick.
-	private const EOF_POLL_MS  = 10;  // post-TM_EOF: check deadline + drain.
+	/** Bytes pending — drain ASAP next tick. */
+	private const BUSY_POLL_MS = 0;
 
-	private const IDLE_POLL_MS = 100; // No bytes pending — back off.
+	/** Post-TM_EOF: check the deadline, then drain. */
+	private const EOF_POLL_MS  = 10;
+
+	/** No bytes pending — back off. */
+	private const IDLE_POLL_MS = 100;
 	public bool $exit = false;
 
 	/** @var resource */

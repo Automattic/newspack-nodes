@@ -108,6 +108,16 @@ if [[ -f "$reordertest" ]]; then
 	ok "reorder twins clean"
 fi
 
+# The comment gate rejects more than length now — a stray comment outside a
+# function, and the orphaned docblock that prompted it — so its own rules need
+# a test that runs.
+commenttest="$(git rev-parse --show-toplevel)/scripts/test-lint-comments.sh"
+if [[ -f "$commenttest" ]]; then
+	step "test-lint-comments (the comment gate's own tests)"
+	bash "$commenttest" || fail "test-lint-comments failed — the comment gate is broken (see above)"
+	ok "comment gate clean"
+fi
+
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"

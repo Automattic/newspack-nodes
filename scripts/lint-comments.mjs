@@ -1,6 +1,6 @@
 /**
  * Pre-commit gate: inline comments are ONE line, <= 80 visual columns (JS twin
- * of scripts/lint-comment-length.php).
+ * of scripts/lint-comments.php).
  *
  * Heuristic lexer over comment-only lines (only whitespace before the `//`),
  * so string contents rarely false-positive; a hit inside a template literal is

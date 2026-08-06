@@ -20,21 +20,22 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Remote_Source_Node extends Remote_Link_Node {
-	// Dead_Letter_Queue rides in with Durable_Reader, which drives it.
+	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
 	use Durable_Reader;
 
 	/** Memcache TTL for the status snapshot (seconds). */
 	public const STATUS_TTL = 300;
-	private const PUMP_ARM_BYTES    = 262144; // 256 KB.
-
 	/**
-	 * SSE backpressure valve water marks (bytes). The buffer drains whole each tick,
+	 * SSE backpressure valve water marks: arm at 256 KB, disarm at 512 KB.
+	 *
+	 * The buffer drains whole each tick,
 	 * so accumulation happens between ticks in on_message: disarm when it crosses
 	 * HIGH, re-arm when the drain brings it back under LOW. The hysteresis keeps the
 	 * valve OPEN through normal flow — the throughput fix for hub-aggregation lag
 	 * (the old gate disarmed on every buffered line, stop-starting the spoke).
 	 */
-	private const PUMP_DISARM_BYTES = 524288; // 512 KB.
+	private const PUMP_ARM_BYTES    = 262144;
+	private const PUMP_DISARM_BYTES = 524288;
 
 	private int $last_heartbeat_response = 0;
 	private ?string $last_heartbeat_error = null;
@@ -78,8 +79,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->last_checkpoint = Core::$now;
 		}
 	}
-
-	// --- Durable_Reader pump seams — the five push-specific overrides ---
 
 	/**
 	 * Boot seam: seed the durable read position on the first poll. Delegates to the idempotent
@@ -206,8 +205,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->write_checkpoint_frame( $graceful, true );
 	}
 
-	// --- Push-specific poison helpers ---
-
 	/**
 	 * Crawl-entry head sacrifice (the surviving sacrifice_head 3-way compare): decide the fate of
 	 * the first relayed message under an armed head-skip. An EXACT crumb-start match on the boot
@@ -282,8 +279,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$length = ( 3 === $count ) ? (int) $parts[2] : \strlen( $line ) + 1;
 		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => $length ];
 	}
-
-	// --- Durable position restore + shutdown handoff ---
 
 	/**
 	 * Read the latest committed frame, seed the node cursor + boot pin, resume the shared
@@ -383,8 +378,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->buffer         = '';
 	}
 
-	// --- Patron wiring — SSE_In's raw payload feeds the pump buffer ---
-
 	/**
 	 * Build the base patrons, then override SSE_In's delivery seam: each raw `msg` payload is
 	 * appended (with its newline) to the Durable_Reader buffer for the tick to drain — the push
@@ -402,8 +395,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		return $sse;
 	}
-
-	// --- Status snapshot: only aggregated spokes publish (IPC = no-op) ---
 
 	/** Stamp the heartbeat send-time so record_heartbeat_reply() can compute the round-trip. */
 	protected function record_heartbeat_sent( int $now ): void {
@@ -488,7 +479,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
 	}
 
-	// Keyed by NODE NAME first so two spokes on same partition don't collide.
+	/** Keyed by NODE NAME first so two spokes on same partition don't collide. */
 	private function status_key(): string {
 		return "np:remote:{$this->name}:{$this->remote_partition}";
 	}
@@ -526,8 +517,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
-	// --- Sidecar naming: offsetlog + dead-letter, keyed by NODE NAME ---
-
 	/** One node pulls one remote partition, so its sidecars are named for it. */
 	protected function offsetlog_name(): string {
 		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:offsetlog" : '';
@@ -553,8 +542,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function checkpoint_frame_extra(): array {
 		return [ '_ts' => (int) Core::$now ];
 	}
-
-	// --- Time-travel transport (Time_Travel trait): mapped onto SSE pull ---
 
 	/**
 	 * Fold the time-travel READ surface (frames + cursor) into the canvas-poll payload. The

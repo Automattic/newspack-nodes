@@ -367,6 +367,25 @@ class Tail_Node extends Consumer_Node {
 		return \is_string( $byte ) ? $byte : '';
 	}
 
+	/**
+	 * File-mode override: one followed path, so its own mtime is the answer.
+	 * Segmented mode keeps the parent's newest-segment walk.
+	 *
+	 * @return float|null Epoch seconds the followed file last grew.
+	 */
+	public function idle_since(): ?float {
+		if ( self::MODE_FILE !== $this->source_mode ) {
+			return parent::idle_since();
+		}
+		$path = $this->source_file;
+		if ( ! $this->file_lag()['caught_up'] || '' === $path || ! \is_file( $path ) ) {
+			return null;
+		}
+		\clearstatcache( true, $path );
+		$mtime = @\filemtime( $path );
+		return \is_int( $mtime ) ? (float) $mtime : null;
+	}
+
 	/** @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int} */
 	private function file_lag(): array {
 		$size         = $this->file_current_size();

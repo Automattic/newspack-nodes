@@ -498,13 +498,6 @@ class Vault {
 	}
 
 	/**
-	 * Validate a server ID format.
-	 *
-	 * @api
-	 * @param string $id Server ID to validate.
-	 * @return bool True if valid.
-	 */
-	/**
 	 * THE `Authorization` header value for a spoke's stored credentials, or ''
 	 * when it needs none. Basic wins over Bearer: a config carrying both means
 	 * the operator set a username and password, which is the more specific

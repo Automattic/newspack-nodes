@@ -2334,6 +2334,29 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	public function test_dump_metadata_skips_the_scaffolding_mounted_fleet_node(): void {
+		// `_fleet` is mounted by Worker_Base scaffolding, not by any TSL, and
+		// nothing patrons it — so it drew on the canvas of every worker. Its
+		// schema said `category => Hidden`, which only governs the palette.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->dispatch( 'make_node', [ 'Capture_Sink', 'visible_node' ] );
+
+		$fleet = new \Newspack_Nodes\Fleet_Node();
+		$fleet->name( \Newspack_Nodes\Node_Names::FLEET );
+		$this->assertNull( $fleet->patron(), 'scaffolding mounts it unowned — the point' );
+
+		$metadata = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertIsArray( $metadata );
+		$this->assertArrayHasKey( 'visible_node', $metadata );
+		$this->assertArrayNotHasKey(
+			\Newspack_Nodes\Node_Names::FLEET,
+			$metadata,
+			'the peer-spawn scan is infrastructure, not part of anyone\'s graph'
+		);
+	}
+
 	public function test_dump_metadata_skips_a_node_whose_schema_is_hidden(): void {
 		// Hook-mounted infrastructure has no owner to patron it — _connect_timer
 		// is shared process-wide by every Remote_Link — so it declared

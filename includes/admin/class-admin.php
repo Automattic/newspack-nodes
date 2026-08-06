@@ -341,8 +341,6 @@ class Admin {
 		return $entry;
 	}
 
-	// -- Field callbacks ----------------------------------------------------
-
 	public static function num_partitions_callback(): void {
 		self::render_number( 'num_partitions', \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
@@ -1010,8 +1008,6 @@ class Admin {
 		$schema->register_sections_and_fields( self::SETTINGS_PAGE );
 	}
 
-	// -- Sanitizers ---------------------------------------------------------
-
 	/**
 	 * Sanitize a base-directory path: no null bytes, no `..`, must be absolute,
 	 * trailing slash stripped; '' on any violation.
@@ -1169,8 +1165,6 @@ class Admin {
 		}
 		return \max( 0, \min( 604800, \absint( $value ) ) );
 	}
-
-	// -- Section callbacks --------------------------------------------------
 
 	public static function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';

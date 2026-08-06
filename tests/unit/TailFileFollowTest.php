@@ -44,6 +44,30 @@ class TailFileFollowTest extends TestCase {
 		return $t;
 	}
 
+	public function test_file_mode_idle_since_reports_when_the_followed_file_last_grew(): void {
+		$path = "{$this->tmp}/quiet.log";
+		\file_put_contents( $path, "one\n" );
+		$stamp = \time() - 617;
+		\touch( $path, $stamp );
+		$cap = new Capture_Sink_Node();
+		$t   = $this->follow( $path );
+		$t->sink( $cap );
+		$t->next_offset( 'start' );
+		$this->pump( $t );
+
+		$this->assertSame( (float) $stamp, $t->idle_since(), 'a caught-up file-mode Tail reports its own mtime' );
+	}
+
+	public function test_file_mode_idle_since_is_null_while_bytes_are_still_owed(): void {
+		$path = "{$this->tmp}/owed.log";
+		\file_put_contents( $path, "one\ntwo\n" );
+		\touch( $path, \time() - 617 );
+		$t = $this->follow( $path );
+		$t->next_offset( 'start' );
+
+		$this->assertNull( $t->idle_since(), 'unread bytes must never read as idle, however stale the mtime' );
+	}
+
 	public function test_file_mode_stamps_the_inode_offset_length_breadcrumb(): void {
 		// The seek tracker's Replay->Live flip reads Message::ID; a minted line
 		// must carry inode:offset:length (the empty default breaks the flip).

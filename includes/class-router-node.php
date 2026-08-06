@@ -79,7 +79,7 @@ class Router_Node extends Timer_Node {
 		$target->fill( $message );
 	}
 
-	// Dispatch TIMER via notify_timer (Router has no sink) + prune logs.
+	/** Dispatch TIMER via notify_timer (Router has no sink) + prune logs. */
 	public function fire_cb(): void {
 		// Armed but undeclared; null is a graph-only process with no surface.
 		if ( 0 === Core::$secure_level ) {
@@ -176,7 +176,7 @@ class Router_Node extends Timer_Node {
 		$this->handling_error = false;
 	}
 
-	// Call each TIMER node's fire_cb; array_keys snapshot = safe unset.
+	/** Call each TIMER node's fire_cb; array_keys snapshot = safe unset. */
 	public function notify_timer(): void {
 		foreach ( array_keys( $this->registrations['TIMER'] ) as $name ) {
 			$node = Core::node( $name );

@@ -25,7 +25,6 @@ use Newspack_Nodes\Rest\Workers_CI_Node;
 
 class Alerts {
 
-	/** A degraded condition an operator should look at. */
 	/**
 	 * Alert families, declared on every row this class mints.
 	 *

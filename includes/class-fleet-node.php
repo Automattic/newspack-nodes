@@ -273,6 +273,7 @@ class Fleet_Node extends Timer_Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'      => 'Hidden',
+			'hidden'        => true,
 			'description'   => 'Peer-spawn scan: revives fleet workers whose lock is missing or stale.',
 			'arguments'     => [
 				[ 'name' => 'base_dir', 'type' => 'string', 'required' => true, 'description' => 'Runtime state root holding locks/.' ],

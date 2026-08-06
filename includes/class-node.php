@@ -38,7 +38,6 @@ class Node {
 		Message::TM_UNTYPED    => 'TM_UNTYPED',
 	];
 
-	/** Cached config string; dump_config round-trips it back into the make_node line. */
 	/** @var list<string> Constructor argument tokens (Tachikoma's raw `arguments`). */
 	protected array $arguments = [];
 

@@ -76,7 +76,7 @@ class Timer_Node extends Node {
 		$this->fire();
 	}
 
-	// Emit heartbeat unless target-less & sink is CI (spam guard); notify FIRE.
+	/** Emit heartbeat unless target-less & sink is CI (spam guard); notify FIRE. */
 	protected function fire(): void {
 		if ( '' !== $this->target || ! ( $this->sink instanceof Command_Interpreter_Node ) ) {
 			if ( null === $this->sink ) {
