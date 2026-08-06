@@ -25,12 +25,19 @@ class Partition_Node extends Timer_Node {
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
 	/**
-	 * Default write-lock wait: long enough to outwait a respawning predecessor.
-	 * It EXCEEDS the 60s lock stale_timeout, so a caller inside a drain loop
-	 * must not use it — waiting it out stops the worker's heartbeat and gets its
-	 * own lock stolen while it is alive. Those callers pass 0 (try-lock).
+	 * Default write-lock wait, for EXTERNAL writers — a page render through
+	 * pyrobase's Log runtime, `wp nodes ingest` — that hold no worker lease and
+	 * have no loop to retry from. Long enough to ride out a live writer's burst,
+	 * short enough that a web request never hangs on one.
+	 *
+	 * @longform It deliberately does NOT outwait a crashed predecessor's lock,
+	 * which only becomes stealable once its heartbeat ages past STALE_TIMEOUT.
+	 * Sitting through that window means blocking longer than the lease anyone
+	 * inside a drain loop is working under, so the safe default is to fail and
+	 * let the caller come back. Topology workers pass 0 (try-lock) or a debounce
+	 * window and retry on their next tick, which costs nothing.
 	 */
-	public const DEFAULT_LOCK_WAIT_MS = 65000;
+	public const DEFAULT_LOCK_WAIT_MS = 15000;
 
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
@@ -1352,7 +1359,7 @@ class Partition_Node extends Timer_Node {
 		/** @var self $patron */
 		$patron   = $interpreter->patron();
 		$debounce = \max( 0, Core::as_int( $args[0] ?? '' ) );
-		$patron->allow_large_writes( 65000, $debounce );
+		$patron->allow_large_writes( self::DEFAULT_LOCK_WAIT_MS, $debounce );
 		return "ok\n";
 	}
 

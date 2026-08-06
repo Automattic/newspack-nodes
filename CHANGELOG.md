@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Partition::DEFAULT_LOCK_WAIT_MS` is 15s, was 65s.** The old value was sized
+  to outwait a *crashed* predecessor's write lock, which only becomes stealable
+  once its heartbeat ages past `STALE_TIMEOUT` — so the default blocked longer
+  than the lease anyone inside a drain loop is working under, and its docblock
+  had to warn half its callers off it. The default is for external writers
+  (pyrobase's Log runtime, `wp nodes ingest`) that hold no lease and have no
+  loop to retry from; no page render should hang a minute on a lock. Callers
+  that want the old behavior can still pass it explicitly. Two call sites spelled
+  `65000` literally instead of using the constant and would have drifted; both
+  now reference it, and a test pins both invariants — the default stays under
+  the stale window, and nothing spells it as a literal.
+
 ## [2.12.0] - 2026-08-06
 
 ### Fixed
