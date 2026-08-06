@@ -304,7 +304,7 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
-		httpOf( 'demo.p0' ).client = { postBatch };
+		httpOf().client = { postBatch };
 		// Point the cwd at the active worker so polls route to its HttpOut.
 		Core.node( names.CWD ).target = 'demo.p0';
 		// One Router TIMER tick: every poll rides ONE POST via active HttpOut.
@@ -646,7 +646,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
-		httpOf( 'demo.p0' ).client = { postBatch };
+		httpOf().client = { postBatch };
 		act( () => {
 			result.current.shell.fill( 'ls -al' );
 		} );
@@ -728,7 +728,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		await act( async () => {} );
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
-		httpOf( 'demo.p0' ).client = { postBatch };
+		httpOf().client = { postBatch };
 		// cd onto a worker: gating sets `_cwd.target` to the bare reader.
 		Core.node( names.CWD ).target = 'demo.p0';
 		act( () => {
@@ -751,7 +751,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( [] );
-		httpOf( 'demo.p0' ).client = { postBatch };
+		httpOf().client = { postBatch };
 		// cd /: the gating effect leaves `_cwd.target` empty (local root).
 		Core.node( names.CWD ).target = '';
 		act( () => {

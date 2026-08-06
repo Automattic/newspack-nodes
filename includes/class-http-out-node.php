@@ -673,7 +673,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * and password, which is the more specific statement.
 	 *
 	 * @param array<array-key, mixed> $server Decrypted vault server config.
-	 * @return string e.g. `Basic dXNlcjpwYXNz`, or ''.
+	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
 	 */
 	private static function authorization( array $server ): string {
 		return Vault::credential_header_for( $server );
