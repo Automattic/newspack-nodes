@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.12.0
 
 - **`Bootstrap::supervisor()` is renamed to `Bootstrap::spawn_coordinator()`,
   and `Bootstrap::is_supervisor_enabled()` to `Bootstrap::is_fleet_enabled()`.**
