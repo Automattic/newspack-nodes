@@ -15,18 +15,6 @@ use Newspack_Nodes\Message;
 class Releases_Source_Demo_Node extends Node {
 
 	/**
-	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
-	 *
-	 * @return array<int,array<string,string>>
-	 */
-	protected function items(): array {
-		return [
-			[ 'title' => 'Roundup Block ships', 'url' => 'https://example.test/r1', 'body' => 'AI summarizes selected posts into a draft.' ],
-			[ 'title' => 'Editorial Assistant GA', 'url' => 'https://example.test/r2', 'body' => 'Inline AI assistance in the editor.' ],
-		];
-	}
-
-	/**
 	 * TICK is a runtime trigger: a TM_REQUEST handled here in fill() (NOT a
 	 * TM_COMMAND verb — that flag is for startup/admin). Any other type is
 	 * ignored; a source mints, it doesn't consume.
@@ -65,6 +53,18 @@ class Releases_Source_Demo_Node extends Node {
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
 		parent::fill( $reply );
+	}
+
+	/**
+	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
+	protected function items(): array {
+		return [
+			[ 'title' => 'Roundup Block ships', 'url' => 'https://example.test/r1', 'body' => 'AI summarizes selected posts into a draft.' ],
+			[ 'title' => 'Editorial Assistant GA', 'url' => 'https://example.test/r2', 'body' => 'Inline AI assistance in the editor.' ],
+		];
 	}
 
 	public static function node_schema(): array {

@@ -15,19 +15,6 @@ use Newspack_Nodes\Message;
 class Community_Source_Demo_Node extends Node {
 
 	/**
-	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
-	 *
-	 * @return array<int,array<string,string>>
-	 */
-	protected function items(): array {
-		return [
-			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
-			[ 'title' => 'Local meetup recap', 'url' => 'https://example.test/c2', 'body' => 'Highlights from the latest in-person reader meetup downtown.' ],
-			[ 'title' => 'Volunteer spotlight', 'url' => 'https://example.test/c3', 'body' => 'A community moderator shares why they give their time.' ],
-		];
-	}
-
-	/**
 	 * TICK is a runtime trigger: a TM_REQUEST handled here in fill() (NOT a
 	 * TM_COMMAND verb — that flag is for startup/admin). Any other type is
 	 * ignored; a source mints, it doesn't consume.
@@ -66,6 +53,19 @@ class Community_Source_Demo_Node extends Node {
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'emitted' => $emitted ];
 		parent::fill( $reply );
+	}
+
+	/**
+	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
+	protected function items(): array {
+		return [
+			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
+			[ 'title' => 'Local meetup recap', 'url' => 'https://example.test/c2', 'body' => 'Highlights from the latest in-person reader meetup downtown.' ],
+			[ 'title' => 'Volunteer spotlight', 'url' => 'https://example.test/c3', 'body' => 'A community moderator shares why they give their time.' ],
+		];
 	}
 
 	public static function node_schema(): array {
