@@ -108,13 +108,6 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'No active topologies', $GLOBALS['_test_wp_cli_warns'][0] );
 	}
 
-	public function test_types_lists_supervisor_without_active_topologies(): void {
-		( new Worker_CLI_Command() )->types( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'supervisor (singleton runtime process)', $haystack );
-	}
-
 	public function test_types_lists_registered_groups(): void {
 		$this->register_topology( 'firehose-workers', 4 );
 		$this->register_topology( 'aggregator', 1 );
@@ -144,7 +137,7 @@ class CliWorkerCommandTest extends TestCase {
 			$this->fail( 'Expected invalid restart target to fail.' );
 		} catch ( \RuntimeException ) {
 			$this->assertSame(
-				[ 'Invalid restart target: no-such-type. Available: firehose-workers, supervisor, all' ],
+				[ 'Invalid restart target: no-such-type. Available: firehose-workers, all' ],
 				$GLOBALS['_test_wp_cli_errors']
 			);
 		}
@@ -185,78 +178,6 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p2.lock.d" ) );
 	}
 
-	public function test_restart_supervisor_bypasses_worker_catalog_and_writes_flag(): void {
-		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0755, true );
-		\add_filter(
-			'newspack_nodes/topologies',
-			static function (): array {
-				throw new \LogicException( 'Supervisor restart must not resolve worker topologies.' );
-			}
-		);
-
-		( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
-
-		$this->assertTrue( Lock_Node::is_restart_pending( $lock_dir ) );
-		$this->assertSame( [ 'Requested supervisor restart.' ], $GLOBALS['_test_wp_cli_success'] );
-	}
-
-	public function test_restart_supervisor_fails_when_successor_does_not_reappear(): void {
-		$waits      = [];
-		CLI::$sleep = static function ( int $seconds ) use ( &$waits ): void {
-			$waits[] = $seconds;
-		};
-
-		try {
-			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
-			$this->fail( 'Expected a missing supervisor successor to fail.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'Unable to request supervisor restart.', $e->getMessage() );
-		}
-
-		$this->assertSame( [ 1 ], $waits );
-		$this->assertSame( [ 'Unable to request supervisor restart.' ], $GLOBALS['_test_wp_cli_errors'] );
-	}
-
-	public function test_restart_supervisor_keeps_existing_lock_write_denial_loud(): void {
-		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0755, true );
-		\file_put_contents( "{$lock_dir}/heartbeat", '8117' );
-		CLI::$uid_provider = static fn (): int => 0;
-		CLI::$sleep        = static function (): void {
-			throw new \LogicException( 'An existing-lock failure must not enter the handoff wait.' );
-		};
-
-		try {
-			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [] );
-			$this->fail( 'Expected an existing-lock write denial to fail.' );
-		} catch ( \RuntimeException $e ) {
-			$this->assertStringContainsString( 'Unable to request supervisor restart.', $e->getMessage() );
-		} finally {
-			CLI::$uid_provider = null;
-		}
-
-		$this->assertSame( [ 'Unable to request supervisor restart.' ], $GLOBALS['_test_wp_cli_errors'] );
-		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
-		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
-	}
-
-	public function test_restart_supervisor_rejects_partition_option(): void {
-		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0755, true );
-
-		try {
-			( new Worker_CLI_Command() )->restart( [ 'supervisor' ], [ 'partition' => 7 ] );
-			$this->fail( 'Expected supervisor partition option to fail.' );
-		} catch ( \RuntimeException ) {
-			$this->assertSame(
-				[ 'The supervisor is a singleton and does not accept --partition.' ],
-				$GLOBALS['_test_wp_cli_errors']
-			);
-		}
-		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir ) );
-	}
-
 	public function test_restart_writes_flag_for_specific_partition(): void {
 		$this->register_topology( 'firehose-workers', 2 );
 
@@ -294,13 +215,11 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'aggregator', 1 );
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
-		\mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
 
 		( new Worker_CLI_Command() )->restart( [ 'all' ], [] );
 
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );
-		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/locks/supervisor.lock.d" ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -339,31 +258,6 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'aggregator.p0', $haystack );
 		$this->assertStringContainsString( 'aggregator.p1', $haystack );
 		$this->assertStringContainsString( 'wp nodes cli <Worker>', $haystack, 'status must teach the attach command' );
-	}
-
-	public function test_status_renders_the_supervisor_row(): void {
-		// The supervisor is the process the whole safety net rests on; the
-		// fleet-health command must see supervisor.lock.d (it has no `.p<N>`).
-		$this->register_topology( 'aggregator', 1 );
-		$dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $dir, 0755, true );
-		\file_put_contents( "{$dir}/heartbeat", '4242' );
-		\file_put_contents( "{$dir}/started", (string) ( \time() - 90 ) );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertStringContainsString( 'supervisor', $haystack );
-		$this->assertStringNotContainsString( 'supervisor.p', $haystack, 'the supervisor is not a partitioned worker' );
-	}
-
-	public function test_status_reports_a_missing_supervisor_as_down(): void {
-		$this->register_topology( 'aggregator', 1 );
-
-		( new Worker_CLI_Command() )->status( [], [] );
-
-		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		$this->assertMatchesRegularExpression( '/supervisor\s+down/', $haystack );
 	}
 
 	public function test_status_marks_active_topology_without_a_lock_as_down(): void {

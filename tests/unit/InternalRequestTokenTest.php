@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Internal_Request_Token;
-use Newspack_Nodes\Supervisor;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Internal_Request_Token::class )]
@@ -85,8 +85,8 @@ class InternalRequestTokenTest extends TestCase {
 		) );
 	}
 
-	public function test_supervisor_spawn_token_wire_value_is_unchanged(): void {
-		$supervisor = new Supervisor( '/tmp/token-test-7319', self::SALT );
+	public function test_spawn_token_wire_value_is_unchanged(): void {
+		$coordinator = new Spawn_Coordinator( '/tmp/token-test-7319', self::SALT );
 		$window     = (int) \floor( self::NOW / 10 );
 		$expected   = \hash_hmac(
 			'sha256',
@@ -102,7 +102,7 @@ class InternalRequestTokenTest extends TestCase {
 				self::SALT
 			)
 		);
-		$this->assertSame( $expected, $supervisor->generate_spawn_token( self::NOW ) );
+		$this->assertSame( $expected, $coordinator->generate_spawn_token( self::NOW ) );
 	}
 
 	public function test_empty_required_inputs_fail_loudly(): void {

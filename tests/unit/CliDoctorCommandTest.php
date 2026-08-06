@@ -155,6 +155,14 @@ class CliDoctorCommandTest extends TestCase {
 
 		Config::reset();
 		Topology_Registry::reset();
+		// A healthy fleet runs the job pool: housekeeping is a job, so a fleet
+		// without one is a real degradation the report is expected to name.
+		$stock = "{$this->tmp}/stock-topologies";
+		if ( ! \mkdir( $stock, 0700, true ) ) {
+			throw new \RuntimeException( 'Healthy doctor topology dir could not be created.' );
+		}
+		\file_put_contents( "{$stock}/{$type}.tsl", "make_node Job_Worker chore-runner\n" );
+		Topology_Registry::register_stock_dir( $stock );
 	}
 
 	private function seed_consumer_probe( string $reader, string $source, int $distance ): void {
@@ -228,8 +236,8 @@ class CliDoctorCommandTest extends TestCase {
 			'cache-backend',
 			'filesystem',
 			'ownership',
+			'housekeeping',
 			'worker-liveness',
-			'supervisor-liveness',
 			'consumer-lag',
 			'dead-letters',
 		];

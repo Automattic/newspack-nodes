@@ -4,8 +4,7 @@
  *
  * Accepts POST /newspack-nodes/v1/workers/spawn with {type, partition, nonce}.
  * Dual auth: internal HMAC token (current OR previous 10s window) OR external
- * manage_options + nonce (with a 2s per-user rate limit). type='supervisor'
- * runs Supervisor::run() synchronously — the worker IS the supervisor.
+ * manage_options + nonce (with a 2s per-user rate limit).
  *
  * @package Newspack_Nodes
  */
@@ -16,8 +15,7 @@ use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\Supervisor_Base;
+use Newspack_Nodes\Spawn_Coordinator;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -29,10 +27,10 @@ class Spawn_Controller {
 	/** Per-user rate limit window for external spawn requests. */
 	public const RATE_LIMIT_S = 2;
 
-	private Supervisor $supervisor;
+	private Spawn_Coordinator $coordinator;
 
-	public function __construct( Supervisor $supervisor ) {
-		$this->supervisor = $supervisor;
+	public function __construct( Spawn_Coordinator $coordinator ) {
+		$this->coordinator = $coordinator;
 	}
 
 	/**
@@ -54,7 +52,7 @@ class Spawn_Controller {
 		}
 
 		// Internal HMAC path — no cap/nonce; spawn() throttles per worker.
-		if ( $this->supervisor->validate_spawn_token( $nonce, \time() ) ) {
+		if ( $this->coordinator->validate_spawn_token( $nonce, \time() ) ) {
 			return true;
 		}
 
@@ -111,8 +109,8 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Spawn handler. Detaches from FPM, validates the partition, dispatches
-	 * to the supervisor (special-cased) or fires the spawn_worker action.
+	 * Spawn handler. Detaches from FPM, validates the partition, then fires
+	 * the spawn_worker action the topology owner hooks.
 	 *
 	 * @param \WP_REST_Request $req Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -133,14 +131,14 @@ class Spawn_Controller {
 
 		// The one throttle every spawn path crosses (Tachikoma-style).
 		$now = Core::right_now();
-		if ( $this->supervisor->is_recently_spawned( $type, $partition, $now ) ) {
+		if ( $this->coordinator->is_recently_spawned( $type, $partition, $now ) ) {
 			return new \WP_Error(
 				'spawn_throttled',
-				\sprintf( '%s.p%d spawned less than %ds ago', $type, $partition, Supervisor_Base::MIN_SPAWN_INTERVAL_S ),
+				\sprintf( '%s.p%d spawned less than %ds ago', $type, $partition, Spawn_Coordinator::MIN_SPAWN_INTERVAL_S ),
 				[ 'status' => 429 ]
 			);
 		}
-		$this->supervisor->record_spawn( $type, $partition, $now );
+		$this->coordinator->record_spawn( $type, $partition, $now );
 
 		// Ack synchronously; work zombie-style (FPM detach no-op in CLI/test).
 		if ( \function_exists( 'fastcgi_finish_request' ) ) {
@@ -152,20 +150,6 @@ class Spawn_Controller {
 		// Worker context for sub-actions / logging.
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;
-
-		// Supervisor-as-worker: run sync (self-manages lock contention).
-		if ( 'supervisor' === $type ) {
-			$result = $this->run_supervisor_sync();
-			return new \WP_REST_Response(
-				[
-					'spawned'   => true,
-					'type'      => 'supervisor',
-					'partition' => 0,
-					'result'    => $this->sanitize_worker_result( $result ),
-				],
-				200
-			);
-		}
 
 		// Topology worker: owners hook this to build the graph and execute().
 		\do_action( 'newspack_nodes/spawn_worker', $type, $partition );
@@ -181,8 +165,7 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Validate a partition number for a type: [0, num_partitions); supervisor
-	 * requires partition===0.
+	 * Validate a partition number for a type: [0, num_partitions).
 	 *
 	 * @param string $type      Worker type.
 	 * @param int    $partition Partition number.
@@ -192,13 +175,8 @@ class Spawn_Controller {
 		if ( $partition < 0 ) {
 			return false;
 		}
-		if ( $partition >= Supervisor_Base::MAX_PARTITIONS ) {
+		if ( $partition >= Spawn_Coordinator::MAX_PARTITIONS ) {
 			return false;
-		}
-
-		// There can be only one supervisor.
-		if ( 'supervisor' === $type ) {
-			return 0 === $partition;
 		}
 
 		$max = 0;
@@ -212,55 +190,6 @@ class Spawn_Controller {
 			return false;
 		}
 		return $partition < $max;
-	}
-
-	/**
-	 * Build a fresh Supervisor and run() it synchronously. try/catch so a
-	 * transient failure doesn't crash the request — the cron backstop catches it.
-	 *
-	 * @return array{status: string}
-	 */
-	private function run_supervisor_sync(): array {
-		try {
-			$supervisor = Bootstrap::supervisor();
-			$supervisor->run();
-			return [ 'status' => 'completed' ];
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'Newspack_Nodes\\SpawnController: supervisor run failed: ', $e->getMessage() );
-			return [ 'status' => 'error' ];
-		}
-	}
-
-	/**
-	 * Project a worker result to a safe response by VALUE TYPE, not by field name
-	 * (project-agnostic): keep the string `status`, then surface any field with a
-	 * numeric value (cast to int) under a safe `[a-zA-Z0-9_]` key. Strings, arrays,
-	 * paths and traces are dropped, so no internal paths/keys leak; capped so a
-	 * misbehaving worker can't flood the response.
-	 *
-	 * @param mixed $result Worker-reported result (unsanitized from the wire).
-	 * @return array<string, string|int> Sanitized projection.
-	 */
-	public function sanitize_worker_result( $result ): array {
-		if ( ! \is_array( $result ) ) {
-			return [ 'status' => 'unknown' ];
-		}
-		$safe = [
-			'status' => isset( $result['status'] ) && \is_string( $result['status'] ) ? $result['status'] : 'unknown',
-		];
-		$count = 0;
-		foreach ( $result as $key => $value ) {
-			if ( 'status' === $key || ! \is_string( $key ) || ! \preg_match( '/^[a-zA-Z0-9_]{1,40}$/', $key ) ) {
-				continue;
-			}
-			if ( \is_numeric( $value ) ) {
-				$safe[ $key ] = (int) $value;
-				if ( ++$count >= 32 ) {
-					break;
-				}
-			}
-		}
-		return $safe;
 	}
 
 	public function register_routes(): void {
@@ -291,8 +220,8 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Validate a worker type: a topology type (via expand_workers) or
-	 * 'supervisor'. Rejecting unknown types blocks arbitrary class instantiation.
+	 * Validate a worker type against expand_workers(). Rejecting unknown types
+	 * blocks arbitrary class instantiation.
 	 *
 	 * @param mixed $type Worker type (unsanitized request param).
 	 * @return bool True if valid.
@@ -300,10 +229,6 @@ class Spawn_Controller {
 	public function validate_worker_type( $type ): bool {
 		if ( ! \is_string( $type ) || '' === $type ) {
 			return false;
-		}
-
-		if ( 'supervisor' === $type ) {
-			return true;
 		}
 
 		foreach ( Bootstrap::expand_workers() as $w ) {

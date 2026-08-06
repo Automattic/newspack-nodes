@@ -4,6 +4,7 @@
 	"CONSOLE_TAP": "_shell",
 	"CWD": "_cwd",
 	"DMESG": "_dmesg",
+	"FLEET": "_fleet",
 	"HEARTBEAT": "_heartbeat",
 	"HTTP": "_http",
 	"METADATA": "_metadata",

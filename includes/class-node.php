@@ -211,7 +211,7 @@ class Node {
 	}
 
 	/** Fire the event to all currently-registered listeners. */
-	public function notify( string $event, mixed $payload = null ): void {
+	public function notify( string $event, mixed $payload = '' ): void {
 		if ( ! isset( $this->registrations[ $event ] ) ) {
 			return;
 		}
@@ -238,7 +238,8 @@ class Node {
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = $this->name;
 		$message[ Message::KEY ]   = $event;
-		$message[ Message::VALUE ] = $payload;
+		// Never null — TM_INFO VALUEs are strings.
+		$message[ Message::VALUE ] = $payload ?? '';
 		$target->fill( $message );
 		return true;
 	}

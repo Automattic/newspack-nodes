@@ -96,4 +96,43 @@ class RestartPlannerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$locks}/multipart.p3.lock.d" );
 		$this->rmdir_recursive( $locks );
 	}
+
+	public function test_request_reloads_covers_every_active_topology_and_partition(): void {
+		// Unclassified by design: every worker alive holds a Config cache frozen
+		// at boot, whatever the saved field's restart classification says.
+		$locks = $this->make_temp_dir( 'locks-' );
+		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
+		\mkdir( "{$locks}/job-worker.p0.lock.d", 0777, true );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$locks}/multipart.p{$p}.lock.d", 0777, true );
+		}
+
+		$touched = Restart_Planner::request_reloads( $locks );
+
+		$this->assertEqualsCanonicalizing( [ 'combined', 'aggregator', 'job-worker', 'multipart' ], $touched );
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->assertFileExists( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->assertFileExists( "{$locks}/multipart.p{$p}.lock.d/" . Lock_Node::RELOAD_FLAG );
+		}
+		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG, 're-read, never recycle' );
+		$this->rmdir_recursive( $locks );
+	}
+
+	public function test_request_reloads_is_a_no_op_off_the_fleet_site(): void {
+		// The fleet is network-global; a subsite must not touch the main site's
+		// lock dirs, exactly as request_restarts() refuses to.
+		$locks = $this->make_temp_dir( 'locks-' );
+		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
+		$GLOBALS['_wp_test_is_multisite']  = true;
+		$GLOBALS['_wp_test_is_main_site']  = false;
+
+		try {
+			$this->assertSame( [], Restart_Planner::request_reloads( $locks ) );
+			$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		} finally {
+			unset( $GLOBALS['_wp_test_is_multisite'], $GLOBALS['_wp_test_is_main_site'] );
+			$this->rmdir_recursive( $locks );
+		}
+	}
 }

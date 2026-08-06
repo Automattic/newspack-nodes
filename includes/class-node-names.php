@@ -20,6 +20,7 @@ final class Node_Names {
 	public const COMPLETION          = '_completion';
 	public const CWD                 = '_cwd';
 	public const DMESG               = '_dmesg';
+	public const FLEET               = '_fleet';
 	public const HEARTBEAT           = '_heartbeat';
 	public const HTTP                = '_http';
 	public const METADATA            = '_metadata';
@@ -42,6 +43,7 @@ final class Node_Names {
 	public const SESSION_SCAFFOLDING = [
 		self::COMMAND_INTERPRETER,
 		self::CONNECT_TIMER,
+		self::FLEET,
 		self::ROUTER,
 		self::OUTPUT,
 		self::CONSOLE_TAP,

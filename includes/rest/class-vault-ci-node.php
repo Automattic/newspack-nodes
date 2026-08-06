@@ -14,7 +14,7 @@
  *
  * Public list/get shape: `{ id, url, has_credentials, is_config }` — never
  * credentials. Mutating verbs fire the `newspack_nodes/vault/changed` action so
- * applications can react (settings-sync, supervisor restart, etc.) without the
+ * applications can react (settings-sync, fleet restart, etc.) without the
  * substrate knowing those application concerns.
  *
  * The `test` verb's spoke POST + JSONL parse is the shared
@@ -197,7 +197,7 @@ class Vault_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Announce a Vault mutation so applications can react (settings-sync,
-	 * supervisor restart, etc.) without the substrate knowing those concerns.
+	 * fleet restart, etc.) without the substrate knowing those concerns.
 	 *
 	 * @param string $id     Server id.
 	 * @param string $action added|updated|removed.

@@ -25,26 +25,6 @@ class Scorer_Demo_Node extends Node {
 	/** Title keywords that bump priority, +1.0 each (case-insensitive). */
 	private const KEYWORDS = [ 'award', 'launch', 'ships', 'GA', 'million', '10k' ];
 
-	/**
-	 * The ONE seam a real scorer replaces: item -> notional priority score.
-	 * Deterministic: source weight + a +1.0 bump per matched title keyword.
-	 *
-	 * @param array<string,mixed> $item
-	 */
-	protected function score( array $item ): float {
-		$source = Core::as_string( $item['source'] ?? null );
-		$base   = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
-		$title  = Core::as_string( $item['title'] ?? null );
-		$bump   = 0.0;
-		foreach ( self::KEYWORDS as $kw ) {
-			// Whole-word, case-insensitive — so 'GA' doesn't match "Garage" nor 'award' "awarded".
-			if ( 1 === \preg_match( '/\b' . \preg_quote( $kw, '/' ) . '\b/i', $title ) ) {
-				$bump += 1.0;
-			}
-		}
-		return \round( $base + $bump, 1 );
-	}
-
 	public function fill( array $message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
@@ -62,8 +42,28 @@ class Scorer_Demo_Node extends Node {
 		$out[ Message::TYPE ]  = Message::TM_STRUCT;
 		$out[ Message::FROM ]  = $this->name;
 		$out[ Message::VALUE ] = $item;
-		// parent::fill (base, not $this — would recurse) stamps TO from target, increments the counter, and forwards to sink.
+		// parent::fill — base, not $this, which would recurse.
 		parent::fill( $out );
+	}
+
+	/**
+	 * The ONE seam a real scorer replaces: item -> notional priority score.
+	 * Deterministic: source weight + a +1.0 bump per matched title keyword.
+	 *
+	 * @param array<string,mixed> $item
+	 */
+	protected function score( array $item ): float {
+		$source = Core::as_string( $item['source'] ?? null );
+		$base   = self::SOURCE_WEIGHT[ $source ] ?? 1.0;
+		$title  = Core::as_string( $item['title'] ?? null );
+		$bump   = 0.0;
+		foreach ( self::KEYWORDS as $kw ) {
+			// Whole-word and case-insensitive: 'GA' must not match "Garage".
+			if ( 1 === \preg_match( '/\b' . \preg_quote( $kw, '/' ) . '\b/i', $title ) ) {
+				$bump += 1.0;
+			}
+		}
+		return \round( $base + $bump, 1 );
 	}
 
 	public static function node_schema(): array {

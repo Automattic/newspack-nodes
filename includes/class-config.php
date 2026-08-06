@@ -515,7 +515,7 @@ class Config {
 	 *
 	 * Purges the two aggregate groups AND each schema key's own cache entry —
 	 * WP core caches an option under its own key in addition to alloptions/
-	 * notoptions, so a long-running process (a supervisor tick_loop) that read
+	 * notoptions, so a long-running process (a draining worker) that read
 	 * a key once would otherwise keep serving that stale value even after this
 	 * runs, no matter how often it's called.
 	 */

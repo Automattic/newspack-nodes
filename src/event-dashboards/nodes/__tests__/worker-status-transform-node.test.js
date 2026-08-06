@@ -678,7 +678,6 @@ describe( 'workerstatus:transform — model envelope', () => {
 				'prevSegments',
 				'removingSegments',
 				'segmentSize',
-				'supervisor',
 				'writeRates',
 				'workers',
 			].sort()
@@ -706,19 +705,17 @@ describe( 'workerstatus:transform — model envelope', () => {
 		expect( model.graph ).toEqual( {} );
 	} );
 
-	test( 'forwards supervisor straight through; forwards logs when the reader is at the live end', () => {
+	test( 'forwards logs when the reader is at the live end', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const s = snap();
-		s.supervisor = { type: 'supervisor', status: 'running' };
 		// Reader caught up to the live end → trim is a no-op, logs unchanged.
 		s.consumers = [
 			consumerRow( 'firehose.p0', 'firehose.p0', 0, { end_size: 100 } ),
 		];
 		withClock( () => t.fill( metadataMsg( s ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
-		expect( model.supervisor ).toEqual( s.supervisor );
 		expect( model.logs ).toEqual( s.logs );
 	} );
 

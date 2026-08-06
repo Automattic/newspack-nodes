@@ -16,16 +16,15 @@ namespace Newspack_Nodes;
 class Worker_CLI_Command {
 
 	/**
-	 * Request a supervisor or worker restart by writing a `restart` flag into its lock dir.
+	 * Request a worker restart by writing a `restart` flag into its lock dir.
 	 *
 	 * The current holder polls `should_restart()` from its drain loop and exits
-	 * cleanly. The supervisor (or self-respawn path) starts a fresh process.
+	 * cleanly; its self-respawn (or a peer's scan) starts a fresh process.
 	 *
 	 * ## OPTIONS
 	 *
 	 * <target>
-	 * : Worker type to restart, `supervisor` for the singleton runtime process,
-	 * or `all` for all worker types.
+	 * : Worker type to restart, or `all` for all worker types.
 	 *
 	 * [--partition=<partition>]
 	 * : Restrict to one partition (0-based). Every partition of the matched
@@ -36,7 +35,6 @@ class Worker_CLI_Command {
 	 *
 	 *     wp nodes restart firehose-workers
 	 *     wp nodes restart firehose-workers --partition=0
-	 *     wp nodes restart supervisor
 	 *     wp nodes restart all
 	 *
 	 * @when after_wp_load
@@ -49,24 +47,13 @@ class Worker_CLI_Command {
 		if ( '' === $target ) {
 			\WP_CLI::error( 'Restart target required. Use: wp nodes restart <target>' );
 		}
-		if ( 'supervisor' === $target ) {
-			if ( isset( $assoc_args['partition'] ) ) {
-				\WP_CLI::error( 'The supervisor is a singleton and does not accept --partition.' );
-			}
-			if ( ! $this->cli()->restart_supervisor() ) {
-				\WP_CLI::error( 'Unable to request supervisor restart.' );
-			}
-			\WP_CLI::success( 'Requested supervisor restart.' );
-			return;
-		}
-
 		$workers = $this->workers();
 		$valid   = \array_unique( \array_column( $workers, 'type' ) );
 		// -1 means every partition, which is the default.
 		$partition = self::entry_int( $assoc_args, 'partition', -1 );
 
 		if ( 'all' !== $target && ! \in_array( $target, $valid, true ) ) {
-			$available = \array_merge( $valid, [ 'supervisor', 'all' ] );
+			$available = \array_merge( $valid, [ 'all' ] );
 			\WP_CLI::error( 'Invalid restart target: ' . $target . '. Available: ' . \implode( ', ', $available ) );
 		}
 
@@ -75,18 +62,6 @@ class Worker_CLI_Command {
 		$restarted = $cli->restart_workers( $workers, $filter, $partition );
 
 		\WP_CLI::success( "Requested restart for {$restarted} worker(s)." );
-	}
-
-	/**
-	 * Helper for command implementations to reach the same Cli helper without
-	 * recreating it every time.
-	 */
-	private function cli(): CLI {
-		return new CLI( $this->base_dir() );
-	}
-
-	private function base_dir(): string {
-		return Config::get_base_directory();
 	}
 
 	/**
@@ -109,6 +84,18 @@ class Worker_CLI_Command {
 	private static function entry_int( $entry, string $key, int $fallback ): int {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
 		return Core::as_int( $value, $fallback );
+	}
+
+	/**
+	 * Helper for command implementations to reach the same Cli helper without
+	 * recreating it every time.
+	 */
+	private function cli(): CLI {
+		return new CLI( $this->base_dir() );
+	}
+
+	private function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 	/**
@@ -149,13 +136,8 @@ class Worker_CLI_Command {
 		// One row per expected worker of each active topology; no lock = down.
 		$active = Bootstrap::get_topologies();
 		$rows   = [];
-		// Supervisor first — the safety net the fleet rows below depend on.
-		$sup = $this->cli()->supervisor_status();
-		if ( null !== $sup || ! empty( $active ) ) {
-			$rows[] = self::fleet_row( 'supervisor', -1, $sup, $now );
-		}
 		foreach ( $active as $name => $config ) {
-			// The count the supervisor spawns against; floors at 1.
+			// The count the fleet spawns against; floors at 1.
 			$partitions = Bootstrap::num_partitions_for( $name );
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now );
@@ -218,7 +200,7 @@ class Worker_CLI_Command {
 	 * One fleet-table row for a {topology, partition} slot.
 	 *
 	 * @param string                    $name Topology name.
-	 * @param int                       $p    Partition; negative = unpartitioned (the supervisor).
+	 * @param int                       $p    Partition.
 	 * @param array<string, mixed>|null $w    Matching liveness row, if any.
 	 * @param int                       $now  Clock.
 	 * @return array<string, int|string>
@@ -232,7 +214,7 @@ class Worker_CLI_Command {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
 		return [
-			'Worker'    => $p < 0 ? $name : "{$name}.p{$p}",
+			'Worker'    => "{$name}.p{$p}",
 			'State'     => $state,
 			'Heartbeat' => $heartbeat_at > 0 ? CLI::format_duration( $now - $heartbeat_at ) . ' ago' : '-',
 			'Uptime'    => $started_at > 0 ? CLI::format_duration( $now - $started_at ) : '-',
@@ -372,9 +354,8 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * List the singleton supervisor runtime process separately, followed by the
-	 * active worker topology groups it will spawn (`Bootstrap::get_topologies()`),
-	 * so this agrees with `wp nodes status`.
+	 * List the active worker topology groups the fleet spawns
+	 * (`Bootstrap::get_topologies()`), so this agrees with `wp nodes status`.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -386,9 +367,6 @@ class Worker_CLI_Command {
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function types( array $args, array $assoc_args ): void {
-		\WP_CLI::log( 'Runtime processes:' );
-		\WP_CLI::log( '  - supervisor (singleton runtime process)' );
-
 		$topologies = Bootstrap::get_topologies();
 
 		if ( empty( $topologies ) ) {
@@ -484,7 +462,7 @@ class Worker_CLI_Command {
 		\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
 
 		// Bootstrap::supervisor() so the HMAC salt matches the runtime.
-		$supervisor = Bootstrap::supervisor();
+		$coordinator = Bootstrap::supervisor();
 
 		$wb = new Worker_Base(
 			$this->base_dir(),
@@ -496,7 +474,7 @@ class Worker_CLI_Command {
 		$spawn_url = \function_exists( 'rest_url' )
 			? \rest_url( 'newspack-nodes/v1/workers/spawn' )
 			: '';
-		$token     = $supervisor->generate_spawn_token( \time() );
+		$token     = $coordinator->generate_spawn_token( \time() );
 
 		$result = $wb->execute( $topology, $spawn_url, $token );
 		// The debugging verb: the skip reason IS the diagnosis — print it.
@@ -505,11 +483,11 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Sweep orphan log + offsetlog dirs now, instead of waiting for the supervisor.
+	 * Sweep orphan log + offsetlog dirs now, instead of waiting for the sweep job.
 	 *
 	 * A dir is an orphan when no ACTIVE topology declares it — so deactivating a
-	 * topology is what orphans its data, not stopping its workers. The supervisor
-	 * already runs this sweep every config-check tick, but spares any dir written
+	 * topology is what orphans its data, not stopping its workers. The fleet
+	 * sweep already runs this every window, but spares any dir written
 	 * within the last hour so a mid-deploy blip cannot eat live data. `--force`
 	 * drops that wait to zero: use it to reclaim a topology you just tore down.
 	 *

@@ -5,7 +5,7 @@
  * Verbs:
  *   list           — minimal worker enumeration (Cli::ls_workers() projection +
  *                    live cursor positions) for programmatic callers.
- *   dump_graph     — full operator-grade envelope (`{workers[], supervisor,
+ *   dump_graph     — full operator-grade envelope (`{workers[],
  *                    logs[], num_partitions, max_segments, segment_size,
  *                    timestamp}`) plus a `graph` map of active-topology-name =>
  *                    `{nodes, edges}`; the dashboard reads it; heavyweight.
@@ -80,9 +80,8 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Build the full operator-grade envelope. Public so the substrate Alerts
-	 * evaluator reads the SAME `{workers[], consumers[], supervisor,
-	 * deadletter_segments}` snapshot without re-implementing the lock-dir /
-	 * heartbeat / probe reads.
+	 * evaluator reads the SAME `{workers[], consumers[], deadletter_segments}`
+	 * snapshot without re-implementing the lock-dir / heartbeat / probe reads.
 	 *
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
 	 */
@@ -129,9 +128,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		// Per-reader probe STATE (cursor, end, distance), keyed by reader.
 		$consumers = self::enumerate_offsetlog_rows( $base_dir );
 
-		// Supervisor status: singleton at supervisor.lock.d/ (no partition).
-		$supervisor = self::build_supervisor_status( "{$locks_base}/supervisor.lock.d", $now );
-
 		// Per-log catalog, resolver-driven; segment_size honors TSL overrides.
 		$segment_size_overrides = self::collect_segment_size_overrides();
 		$logs                   = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides );
@@ -144,7 +140,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		return [
 			'workers'        => $workers,
 			'consumers'      => $consumers,
-			'supervisor'     => $supervisor,
 			'logs'           => $logs,
 			'log_partitions' => $log_partitions,
 			'deadletter_segments'  => \array_sum( $deadletter_by_reader ),
@@ -213,35 +208,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			'heartbeat_at'    => $heartbeat_at,
 			'live'            => $live,
 			'stale'           => $stale,
-			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
-		];
-	}
-
-	/**
-	 * Build the supervisor descriptor (status, heartbeat age, started_at,
-	 * restart_pending). Singleton, so no `partition` field.
-	 *
-	 * @return array<string, mixed>
-	 */
-	private static function build_supervisor_status( string $lock_dir, int $now ): array {
-		$status        = 'dead';
-		$heartbeat_age = null;
-		$hb_file       = $lock_dir . '/heartbeat';
-		if ( \file_exists( $hb_file ) ) {
-			$mtime = @\filemtime( $hb_file );
-			if ( false !== $mtime ) {
-				$heartbeat_age = $now - $mtime;
-				if ( $heartbeat_age < Lock_Node::STALE_TIMEOUT ) {
-					$status = 'running';
-				}
-			}
-		}
-
-		return [
-			'type'            => 'supervisor',
-			'status'          => $status,
-			'started_at'      => Lock_Node::get_started_time( $lock_dir ),
-			'heartbeat_age'   => $heartbeat_age,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 		];
 	}
@@ -664,16 +630,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		foreach ( $types as $t ) {
 			$filter[ $t ] = true;
 		}
-		$restarted = 0;
-		// Supervisor at supervisor.lock.d (no partition); route it separately.
-		$cli = $self->cli();
-		if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
-			++$restarted;
-			unset( $filter['supervisor'] );
-		}
-		if ( ! empty( $filter ) || empty( $types ) ) {
-			$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
-		}
+		$cli       = $self->cli();
+		$restarted = $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
 		return [ 'restarted' => $restarted ];
 	}
 
@@ -692,7 +650,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'dump_graph',
-					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
+					'description' => 'Full operator-grade fleet/log metadata + per-topology .tsl graph.',
 					'args'        => [],
 					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump_graph(),
 				],
@@ -704,7 +662,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'restart',
-					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
+					'description' => 'Restart matching workers: `restart <type>… [--partition=<n>]`.',
 					'args'        => [
 						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],

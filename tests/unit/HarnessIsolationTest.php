@@ -13,13 +13,13 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\Supervisor;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
 final class HarnessIsolationTest extends TestCase {
 
 	public function test_setup_clears_a_leaked_supervisor_factory(): void {
-		Bootstrap::$supervisor_factory = static fn (): Supervisor => new Supervisor( '/tmp', 'salt' );
+		Bootstrap::$supervisor_factory = static fn (): Spawn_Coordinator => new Spawn_Coordinator( '/tmp', 'salt' );
 
 		$this->setUp();
 
@@ -36,7 +36,7 @@ final class HarnessIsolationTest extends TestCase {
 
 		$this->assertNull(
 			Bootstrap::$supervisor_enabled_override,
-			'setUp() must reset Bootstrap::$supervisor_enabled_override so a leaked false cannot disable the supervisor in a later class'
+			'setUp() must reset Bootstrap::$supervisor_enabled_override so a leaked false cannot disable the fleet in a later class'
 		);
 	}
 }

@@ -24,6 +24,14 @@ class Partition_Node extends Timer_Node {
 
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 
+	/**
+	 * Default write-lock wait: long enough to outwait a respawning predecessor.
+	 * It EXCEEDS the 60s lock stale_timeout, so a caller inside a drain loop
+	 * must not use it — waiting it out stops the worker's heartbeat and gets its
+	 * own lock stolen while it is alive. Those callers pass 0 (try-lock).
+	 */
+	public const DEFAULT_LOCK_WAIT_MS = 65000;
+
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
 	public const MAX_LINE_SIZE        = 4096;
@@ -428,7 +436,7 @@ class Partition_Node extends Timer_Node {
 	 * @throws \RuntimeException when the lock cannot be acquired (hold mode).
 	 * @return self
 	 */
-	public function allow_large_writes( int $max_wait_ms = 65000, int $debounce_ms = 0 ): self {
+	public function allow_large_writes( int $max_wait_ms = self::DEFAULT_LOCK_WAIT_MS, int $debounce_ms = 0 ): self {
 		$stale_timeout = 60;
 		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
 

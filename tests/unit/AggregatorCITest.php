@@ -481,7 +481,6 @@ class AggregatorCITest extends TestCase {
 					[ 'reader' => 'y.p0', 'distance' => 88_888 ],
 				],
 				'deadletter_segments' => 6,
-				'supervisor'          => [ 'status' => 'running', 'heartbeat_age' => 3 ],
 			]
 		);
 
@@ -491,8 +490,6 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( [ 'total' => 3, 'live' => 1, 'stale' => 1, 'dead' => 1 ], $out['workers'] );
 		$this->assertSame( 88_888, $out['worst_distance'] );
 		$this->assertSame( 6, $out['deadletter_segments'] );
-		$this->assertSame( 'running', $out['supervisor']['status'] );
-		$this->assertSame( 3, $out['supervisor']['heartbeat_age'] );
 	}
 
 	public function test_probe_verb_requires_a_known_server(): void {

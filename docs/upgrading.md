@@ -4,6 +4,38 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.11.0
+
+- **`wp nodes restart supervisor` is gone, because the supervisor is gone.**
+  There is no singleton process to restart. Workers revive each other through
+  the `_fleet` scan every one of them runs, so restarting a worker is the only
+  operation left: `wp nodes restart <type>`, or `wp nodes restart all`. Drop the
+  `supervisor` target from any script — it is rejected, not ignored.
+- **`wp nodes status` and `wp nodes types` no longer report a supervisor.**
+  `status` drops the partition `-1` row that led its table; `types` drops the
+  separate "singleton supervisor" line above the topology groups. Anything
+  parsing `--format=json` for a row whose partition is `-1`, or for a
+  `supervisor` key, finds neither. Every remaining row is an ordinary
+  `type.p<N>` worker.
+- **`POST /workers/spawn` with `type=supervisor` now returns 400.** The type is
+  no longer valid; there is nothing to spawn. Cold start is WP-Cron's single
+  pass, not a spawn request.
+- **`wp nodes doctor` replaces the `supervisor-liveness` check with
+  `housekeeping`.** The report is still seven results. The new one is
+  load-bearing in a way the old one was not: fleet housekeeping — retention,
+  orphan partition and IPC reaping, the delayed-jobs sweep, alert emission and
+  every `newspack_nodes/periodic` subscriber — now runs as a job, so an active
+  fleet with no `Job_Worker` topology loses all of it silently. If doctor
+  reports it CRITICAL, run `wp nodes activate job-worker`.
+
+- **`newspack_nodes/supervisor_periodic` is renamed to
+  `newspack_nodes/periodic`.** There is no supervisor left to name, and the
+  cadence is unchanged at 15s. There is no alias and no deprecation shim: a
+  subscriber still on the old name is never called, silently. Rewrite each
+  `add_action( 'newspack_nodes/supervisor_periodic', … )` to
+  `add_action( 'newspack_nodes/periodic', … )` — the callback, priority and
+  argument count all stay as they are.
+
 ## 2.3.5
 
 - **`wp nodes restart <type>` restarts every partition; `--all-partitions` is

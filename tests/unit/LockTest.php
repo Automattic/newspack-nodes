@@ -11,6 +11,29 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Lock_Node::class )]
 #[Medium]
 class LockTest extends TestCase {
+	public function test_release_spares_a_lock_dir_another_process_stole(): void {
+		// An evicted holder must not destroy its successor. A worker blocked in
+		// a long job goes stale, a peer steals, and the original then exits —
+		// if release() trusts its own is_held flag it deletes the THIEF's dir,
+		// and the healthy successor dies of "lock dir gone" one tick later.
+		$path = "{$this->tmp}/locks/ledger-workers.p4.lock.d";
+		$held = new Lock_Node( $path, 7 );
+		$this->assertTrue( $held->acquire() );
+
+		// Exactly what a real steal leaves behind: our dir, someone else's PID.
+		$thief_pid = \getmypid() + 9187;
+		\file_put_contents( "{$path}/heartbeat", (string) $thief_pid );
+
+		$held->release();
+
+		$this->assertDirectoryExists( $path, "the thief's lock dir must survive the evicted holder's release" );
+		$this->assertSame(
+			(string) $thief_pid,
+			\trim( (string) \file_get_contents( "{$path}/heartbeat" ) ),
+			"the thief's heartbeat must be untouched"
+		);
+	}
+
 	private string $tmp;
 
 	protected function setUp(): void {
@@ -101,6 +124,38 @@ class LockTest extends TestCase {
 	// abstraction (the user explicitly killed it). Locking now happens once at
 	// allow_large_writes() time on the Partition, with a heartbeat Timer
 	// keeping the lock fresh; see PartitionTest::test_allow_large_writes_*.
+
+	// --- Reload channel -----------------------------------------------------
+
+	public function test_request_reload_at_creates_a_flag_distinct_from_restart(): void {
+		$dir = "{$this->tmp}/test.lock.d";
+		$holder = new Lock_Node( $dir );
+		$this->assertTrue( $holder->acquire() );
+
+		$this->assertTrue( Lock_Node::request_reload_at( $dir ) );
+
+		$this->assertFileExists( $dir . '/' . Lock_Node::RELOAD_FLAG );
+		// The whole point: a config reload must never cost a process recycle.
+		$this->assertFileDoesNotExist( $dir . '/' . Lock_Node::RESTART_FLAG );
+		$this->assertFalse( $holder->should_restart() );
+	}
+
+	public function test_request_reload_at_returns_false_when_lock_dir_missing(): void {
+		$this->assertFalse( Lock_Node::request_reload_at( "{$this->tmp}/nonexistent.lock.d" ) );
+	}
+
+	public function test_force_release_at_clears_the_reload_flag_so_the_dir_can_go(): void {
+		// rmdir() only empties an EMPTY dir: a surviving reload flag would turn
+		// every clean release into an orphan peers must steal through the grace.
+		$dir = "{$this->tmp}/test.lock.d";
+		\mkdir( $dir, 0755, true );
+		\touch( "{$dir}/heartbeat" );
+		Lock_Node::request_reload_at( $dir );
+
+		Lock_Node::force_release_at( $dir );
+
+		$this->assertFalse( \is_dir( $dir ) );
+	}
 
 	// --- Restart channel ----------------------------------------------------
 
@@ -521,7 +576,7 @@ class LockTest extends TestCase {
 	 * actually writes: acquire through write_acquire_files() (the mkdir already
 	 * succeeded — the plant lands in the window after it), and heartbeat with a
 	 * target holding our pid, which is exactly what verify_ownership reads.
-	 * Supervisor_Base already refuses to follow a link when sweeping.
+	 * Spawn_Coordinator already refuses to follow a link when sweeping.
 	 */
 	public function test_the_acquire_write_refuses_a_symlinked_heartbeat(): void {
 		$victim = "{$this->tmp}/victim.txt";

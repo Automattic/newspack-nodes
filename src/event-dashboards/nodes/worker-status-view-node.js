@@ -8,7 +8,6 @@ const REMOVING_CLEAR_MS = 400;
 // Empty model so a pre-poll error still publishes a render-able view.
 const emptyModel = () => ( {
 	workers: [],
-	supervisor: null,
 	logs: [],
 	byteRates: {},
 	writeRates: {},

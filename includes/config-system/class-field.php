@@ -54,7 +54,7 @@ class Field {
 	 *                                                  - list of CONSUMER NODE-TYPE tokens (e.g. ['Partition','Topic'] or ['Flame_Builder']);
 	 *                                                    restarts active topologies whose graph instantiates a matching node (by class ancestry);
 	 *                                                  - 'all' — every active topology (process-wide settings: base dir, memcache);
-	 *                                                  - 'supervisor_only' — no worker touch (supervisor refreshes each loop);
+	 *                                                  - 'supervisor_only' — no worker touch (each worker re-reads config);
 	 *                                                  - [] — no restart (read per-request in the web process, or not worker-relevant).
 	 *                                                  NEVER a topology name — those drift; node classes are stable. See Restart_Planner.
 	 * @param callable|null            $sanitize       register_setting sanitize_callback; required for option fields.

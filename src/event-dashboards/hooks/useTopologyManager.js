@@ -248,13 +248,12 @@ function flushed( pending ) {
  * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
  * @param {number}  [opts.refreshMs]     Poll interval in ms; also the unit of the
  *                                       staleness window. Defaults to 5000.
- * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
- *   readRate: number, writeRate: number, logPartitions: number,
- *   activate: Function, deactivate: Function, restart: Function,
- *   connected: boolean }} The Topology Manager data + mutations: every topology
- *   row (status merged onto the active ones), the supervisor card, the clock for
- *   supervisor uptime, the fleet-global R/W byte rates + on-disk log-partition
- *   count for the summary cards, the mutation verbs, and connected.
+ * @return {{ topologies: Array, readRate: number, writeRate: number,
+ *   logPartitions: number, activate: Function, deactivate: Function,
+ *   restart: Function, connected: boolean }} The Topology Manager data +
+ *   mutations: every topology row (status merged onto the active ones), the
+ *   fleet-global R/W byte rates + on-disk log-partition count for the summary
+ *   cards, the mutation verbs, and connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, paused = false } = opts;
@@ -311,9 +310,6 @@ export function useTopologyManager( opts = {} ) {
 			};
 		} );
 	}, [ topologyModel, workerModel ] );
-
-	const supervisor = workerModel?.supervisor ?? null;
-	const currentTime = workerModel?.currentTime;
 
 	// Last SUCCESSFUL poll: a fresh model identity is the success signal.
 	const lastSuccessRef = useRef( 0 );
@@ -380,8 +376,6 @@ export function useTopologyManager( opts = {} ) {
 
 	return {
 		topologies,
-		supervisor,
-		currentTime,
 		readRate,
 		writeRate,
 		logPartitions,

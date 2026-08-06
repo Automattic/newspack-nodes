@@ -223,6 +223,56 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
+	// ── housekeeping: the active job-worker pool it now depends on ─────────
+
+	/** Register a stock topology dir and activate $names, with $tsl contents. */
+	private function activate_topologies( array $tsl ): void {
+		$stock = $this->make_temp_dir( 'health-housekeeping-stock-' );
+		foreach ( $tsl as $name => $contents ) {
+			\file_put_contents( "{$stock}/{$name}.tsl", $contents );
+		}
+		Topology_Registry::reset();
+		Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_keys( $tsl );
+		Config::reset();
+	}
+
+	public function test_housekeeping_is_good_when_an_active_topology_runs_the_job_pool(): void {
+		$this->activate_topologies( [
+			'ledger-lab' => "make_node Echo relay\n",
+			'chore-lab'  => "make_node Job_Worker chore-runner\n",
+		] );
+
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
+	}
+
+	public function test_housekeeping_is_critical_when_no_active_topology_runs_the_job_pool(): void {
+		// `combined` + `performance` without the pool was a working config; it
+		// now loses retention, orphan reaping, alerts, delayed jobs and every
+		// `periodic` subscriber, silently. Doctor must name it.
+		$this->activate_topologies( [
+			'ledger-lab' => "make_node Echo relay\n",
+			'audit-lab'  => "make_node Tee fanout\n",
+		] );
+
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+
+		$this->assertSame( Health_Checks::STATUS_CRITICAL, $result['status'] );
+		$this->assertStringContainsString( 'job-worker', $result['messages'][0] );
+	}
+
+	public function test_housekeeping_is_good_when_nothing_is_active(): void {
+		// No workers means no logs growing and nothing to keep house for; the
+		// fleet checks report the empty fleet vacuously good for the same reason.
+		$this->activate_topologies( [] );
+
+		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
+
+		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
+	}
+
 	public function test_evaluate_returns_exactly_the_seven_results_in_canonical_order(): void {
 		$results = Health_Checks::evaluate(
 			[
@@ -238,8 +288,8 @@ class HealthChecksTest extends TestCase {
 				'cache-backend',
 				'filesystem',
 				'ownership',
+				'housekeeping',
 				'worker-liveness',
-				'supervisor-liveness',
 				'consumer-lag',
 				'dead-letters',
 			],
@@ -250,8 +300,8 @@ class HealthChecksTest extends TestCase {
 				'Cache backend',
 				'Filesystem',
 				'Ownership',
+				'Housekeeping',
 				'Worker liveness',
-				'Supervisor liveness',
 				'Consumer lag',
 				'Dead letters',
 			],
@@ -406,7 +456,7 @@ class HealthChecksTest extends TestCase {
 
 		$this->assertSame( 'critical', $results['filesystem']['status'] );
 		$this->assertSame( 'critical', $results['ownership']['status'] );
-		foreach ( [ 'worker-liveness', 'supervisor-liveness', 'consumer-lag', 'dead-letters' ] as $id ) {
+		foreach ( [ 'worker-liveness', 'consumer-lag', 'dead-letters' ] as $id ) {
 			$this->assertSame( 'recommended', $results[ $id ]['status'], $id );
 			$this->assertStringContainsString( 'could not be evaluated', $results[ $id ]['messages'][0], $id );
 		}
@@ -455,18 +505,6 @@ class HealthChecksTest extends TestCase {
 		$messages = \implode( "\n", $results['worker-liveness']['messages'] );
 		$this->assertStringContainsString( 'health-missing-7319.p0', $messages );
 		$this->assertStringContainsString( 'health-stale-7319.p0', $messages );
-	}
-
-	public function test_stale_supervisor_is_critical_in_supervisor_family(): void {
-		$lock_dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $lock_dir, 0700, true );
-		\touch( "{$lock_dir}/heartbeat", \time() - 300 );
-
-		$results = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) );
-
-		$this->assertSame( 'critical', $results['supervisor-liveness']['status'] );
-		$this->assertCount( 1, $results['supervisor-liveness']['messages'] );
-		$this->assertStringContainsString( 'Supervisor stopped heartbeating', $results['supervisor-liveness']['messages'][0] );
 	}
 
 	public function test_consumer_family_preserves_two_messages_above_configured_threshold(): void {
@@ -595,9 +633,9 @@ class HealthChecksTest extends TestCase {
 		$this->assertNotNull( $other, 'an unrecognized family gets its own result' );
 		$this->assertContains( 'Invented health alert 7319.', $other['messages'] );
 
-		// The four known families still report, so nothing else is lost.
+		// The three known families still report, so nothing else is lost.
 		$ids = \array_column( $results, 'id' );
-		foreach ( [ 'worker-liveness', 'supervisor-liveness', 'consumer-lag', 'dead-letters' ] as $id ) {
+		foreach ( [ 'worker-liveness', 'consumer-lag', 'dead-letters' ] as $id ) {
 			$this->assertContains( $id, $ids );
 		}
 	}
@@ -606,7 +644,6 @@ class HealthChecksTest extends TestCase {
 		// Health_Checks used to re-derive the taxonomy by str_starts_with on
 		// the key, so renaming a key prefix for readability fataled Site Health.
 		$rows = [
-			'supervisor_down'         => Alerts::FAMILY_SUPERVISOR_LIVENESS,
 			'consumer_lag:reader'     => Alerts::FAMILY_CONSUMER_LAG,
 			'deadletter:reader'       => Alerts::FAMILY_DEAD_LETTERS,
 			'worker_down:job.p0'      => Alerts::FAMILY_WORKER_LIVENESS,

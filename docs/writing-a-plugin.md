@@ -369,7 +369,7 @@ connect_node tee        _repl
 
 A few things this file adds that the by-hand session didn't:
 
-- `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology falls back to the runtime's own `num_partitions` setting, 1 by default, but copy the line so the example partitions the way the shipped file does.)
+- `var num_partitions = 1` is a topology **variable** — frontmatter the runtime reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology falls back to the runtime's own `num_partitions` setting, 1 by default, but copy the line so the example partitions the way the shipped file does.)
 - A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`, the output IPC partition every worker mounts. The `_repl` tap is what lets the topology console (and an attached `wp nodes cli`) *see* the draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node §6 comes back to.)
 - `Log log <file> 1 2 7` passes the node's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `min_segments` (`2`, the age-rule floor), `num_segments` (`7`, the count-rule target: prune the oldest back to seven). The by-hand version omitted them and took the defaults (one large growing segment).
 
@@ -565,7 +565,7 @@ And the same contract is what makes each node testable in isolation: the example
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the next guide in order: this same pipeline, now with a React admin dashboard reading its live state.
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — the production deep dive: picks up where §7 stops and walks the real `newspack-intelligence` plugin — a `Source` interface, real connectors (GitHub, Linear, RSS/Atom), credentials in the substrate's Vault, and a network test seam.
 - **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
-- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
+- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, fleet revival, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
 - **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough.
 - **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.

@@ -4,12 +4,12 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Rest\Spawn_Controller;
-use Newspack_Nodes\Supervisor;
+use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Spawn_Controller::class )]
 class SpawnControllerTest extends TestCase {
-	private Supervisor $supervisor;
+	private Spawn_Coordinator $supervisor;
 	private Spawn_Controller $controller;
 
 	protected function setUp(): void {
@@ -24,7 +24,7 @@ class SpawnControllerTest extends TestCase {
 		Bootstrap::$supervisor_factory          = null;
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
-		$this->supervisor = new Supervisor( '/tmp', 'NONCE_SALT_FOR_TEST' );
+		$this->supervisor = new Spawn_Coordinator( '/tmp', 'NONCE_SALT_FOR_TEST' );
 		$this->controller = new Spawn_Controller( $this->supervisor );
 	}
 
@@ -194,8 +194,9 @@ class SpawnControllerTest extends TestCase {
 
 	// ── validate_worker_type ──────────────────────────────────────────────
 
-	public function test_validate_worker_type_accepts_supervisor(): void {
-		$this->assertTrue( $this->controller->validate_worker_type( 'supervisor' ) );
+	public function test_validate_worker_type_rejects_supervisor(): void {
+		// There is no supervisor process; `supervisor` is just an unknown type.
+		$this->assertFalse( $this->controller->validate_worker_type( 'supervisor' ) );
 	}
 
 	public function test_validate_worker_type_accepts_topology_type(): void {
@@ -252,12 +253,6 @@ class SpawnControllerTest extends TestCase {
 		// Even with malformed topology, MAX_PARTITIONS still caps.
 		$this->assertFalse( $this->controller->validate_partition( 'huge', 16 ) );
 		$this->assertFalse( $this->controller->validate_partition( 'huge', 100 ) );
-	}
-
-	public function test_validate_partition_supervisor_requires_zero(): void {
-		$this->assertTrue( $this->controller->validate_partition( 'supervisor', 0 ) );
-		$this->assertFalse( $this->controller->validate_partition( 'supervisor', 1 ) );
-		$this->assertFalse( $this->controller->validate_partition( 'supervisor', 5 ) );
 	}
 
 	// ── spawn dispatch ────────────────────────────────────────────────────
@@ -331,119 +326,5 @@ class SpawnControllerTest extends TestCase {
 		$this->assertTrue( $data['spawned'] );
 		$this->assertSame( 'firehose-workers', $data['type'] );
 		$this->assertSame( 0, $data['partition'] );
-	}
-
-	// ── supervisor-as-worker dispatch ─────────────────────────────────────
-
-	public function test_spawn_supervisor_runs_supervisor_synchronously(): void {
-		// Disable logging so Supervisor::run() exits early in check_config()
-		// before touching any locks. We just want to verify the dispatch
-		// path; Supervisor's tick loop has its own tests.
-		Bootstrap::$supervisor_enabled_override = false;
-
-		$req = $this->make_request( [
-			'type'      => 'supervisor',
-			'partition' => 0,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
-		] );
-		$response = $this->controller->spawn( $req );
-
-		$this->assertInstanceOf( \WP_REST_Response::class, $response );
-		$this->assertSame( 200, $response->get_status() );
-
-		$data = $response->get_data();
-		$this->assertTrue( $data['spawned'] );
-		$this->assertSame( 'supervisor', $data['type'] );
-		$this->assertSame( 0, $data['partition'] );
-		$this->assertArrayHasKey( 'result', $data );
-	}
-
-	// ── sanitize_worker_result (type-based projection) ────────────────────
-
-	public function test_sanitize_worker_result_keeps_status_and_numeric_fields(): void {
-		$result = [
-			'status'             => 'completed',
-			'entries_processed'  => 1234,
-			'requests_complete'  => 7,
-			'requests_pending'   => 2,
-			'flames_written'     => 11,
-			'jobs_processed'     => 89,
-			'memory_usage'       => 999, // arbitrary numeric counter now surfaces (type-based, not name-whitelisted)
-			// non-numeric / nested fields that must NOT propagate:
-			'stack_trace'        => 'Fatal at /var/www/secret.php:99',
-			'error'              => 'database creds invalid',
-			'_internal_state'    => [ 'private' => 'data' ],
-		];
-
-		$safe = $this->controller->sanitize_worker_result( $result );
-
-		$this->assertSame( 'completed', $safe['status'] );
-		$this->assertSame( 1234, $safe['entries_processed'] );
-		$this->assertSame( 7, $safe['requests_complete'] );
-		$this->assertSame( 2, $safe['requests_pending'] );
-		$this->assertSame( 11, $safe['flames_written'] );
-		$this->assertSame( 89, $safe['jobs_processed'] );
-		$this->assertSame( 999, $safe['memory_usage'] );
-
-		$this->assertArrayNotHasKey( 'stack_trace', $safe );
-		$this->assertArrayNotHasKey( 'error', $safe );
-		$this->assertArrayNotHasKey( '_internal_state', $safe );
-	}
-
-	public function test_sanitize_worker_result_surfaces_arbitrary_numeric_counter(): void {
-		// A non-ELN plugin's worker counter must survive — this was stripped by
-		// the old SAFE_RESULT_FIELDS name whitelist.
-		$safe = $this->controller->sanitize_worker_result(
-			[ 'status' => 'done', 'custom_counter' => '7', 'entries_processed' => 3 ]
-		);
-		$this->assertSame( 'done', $safe['status'] );
-		$this->assertSame( 7, $safe['custom_counter'] );
-		$this->assertSame( 3, $safe['entries_processed'] );
-	}
-
-	public function test_sanitize_worker_result_drops_non_numeric_and_bad_keys(): void {
-		$safe = $this->controller->sanitize_worker_result(
-			[ 'status' => 'ok', 'trace' => '/var/secret/path', 'nested' => [ 1, 2 ], 'bad key!' => 5 ]
-		);
-		$this->assertArrayNotHasKey( 'trace', $safe );
-		$this->assertArrayNotHasKey( 'nested', $safe );
-		$this->assertArrayNotHasKey( 'bad key!', $safe );
-	}
-
-	public function test_sanitize_worker_result_caps_field_count(): void {
-		$big = [ 'status' => 'ok' ];
-		for ( $i = 0; $i < 100; $i++ ) {
-			$big[ "f{$i}" ] = $i;
-		}
-		// status + at most 32 numeric counters.
-		$this->assertLessThanOrEqual( 33, \count( $this->controller->sanitize_worker_result( $big ) ) );
-	}
-
-	public function test_sanitize_worker_result_skips_non_numeric_fields(): void {
-		$result = [
-			'status'            => 'completed',
-			'entries_processed' => 'banana', // non-numeric
-		];
-		$safe = $this->controller->sanitize_worker_result( $result );
-		$this->assertArrayNotHasKey( 'entries_processed', $safe );
-	}
-
-	public function test_sanitize_worker_result_handles_non_array(): void {
-		$this->assertSame( [ 'status' => 'unknown' ], $this->controller->sanitize_worker_result( null ) );
-		$this->assertSame( [ 'status' => 'unknown' ], $this->controller->sanitize_worker_result( 'string' ) );
-	}
-
-	public function test_sanitize_worker_result_defaults_status_to_unknown(): void {
-		$safe = $this->controller->sanitize_worker_result( [ 'entries_processed' => 5 ] );
-		$this->assertSame( 'unknown', $safe['status'] );
-	}
-
-	public function test_sanitize_worker_result_coerces_numeric_strings_to_int(): void {
-		$result = [
-			'status'            => 'completed',
-			'entries_processed' => '42', // numeric string is acceptable
-		];
-		$safe = $this->controller->sanitize_worker_result( $result );
-		$this->assertSame( 42, $safe['entries_processed'] );
 	}
 }

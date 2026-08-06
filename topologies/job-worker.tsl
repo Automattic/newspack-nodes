@@ -2,7 +2,7 @@
 #
 #   Consumer (jobs.log) ─→ JobWorker
 
-# Frontmatter — supervisor reads these via Topology_Registry::frontmatter().
+# Frontmatter — the runtime reads these via Topology_Registry::frontmatter().
 # Job handlers run user code that can be slow; lift the lock-stale timeout so
 # in-flight jobs aren't killed mid-execution.
 var stale_timeout = 600;

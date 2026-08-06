@@ -6,7 +6,7 @@ Reach for this page when:
 
 - a worker is supposed to be running but isn't,
 - a message you produced doesn't seem to be flowing through the graph,
-- the supervisor keeps respawning workers, or
+- workers keep getting respawned, or
 - you want to inspect node state without restarting anything.
 
 ## REPL: `wp nodes cli`
@@ -21,7 +21,7 @@ Two modes:
 
 **Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it. The `<reader>.p<N>` ids below (e.g. `firehose-workers.p0`) are placeholders — run `wp nodes status` for the live ids in your environment.
 
-The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes status` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once the supervisor respawns it.
+The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes status` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once a peer respawns it.
 
 Useful verbs (run from inside the cli prompt — see `help` for the full set):
 
@@ -77,31 +77,23 @@ The non-readline path is fgets-based. On stdin EOF, the cli emits a TM_EOF Messa
 ## Worker health
 
 ```bash
-wp nodes doctor                     # seven environment + fleet checks; WARN exits 0, FAIL exits 1
-wp nodes types                      # singleton supervisor + topology groups (no liveness info)
+wp nodes doctor                     # six environment + fleet checks; WARN exits 0, FAIL exits 1
+wp nodes types                      # active topology groups (no liveness info)
 wp nodes status                     # active workers + last heartbeat age (live vs stale); --format=json for scripts
 wp nodes run <type> [--partition=<N>]   # run a worker in the foreground — boot errors hit your terminal
-wp nodes restart all   # force-restart every worker topology; excludes supervisor
+wp nodes restart all   # force-restart every worker topology
 wp nodes restart <type> --partition=<N> # one type, one partition
-wp nodes restart supervisor             # restart the singleton; no partition flags
 ```
 
 Doctor does not treat `DISABLE_WP_CRON` or the presence of a particular
-supervisor event as a health result. A platform may invoke `wp-cron.php`
+cron event as a health result. A platform may invoke `wp-cron.php`
 externally, so those settings are unreliable proxies. WordPress core Site
 Health checks actual missed or late scheduled events; Nodes reports actual
-worker and supervisor liveness in its own seven-check report.
+worker liveness in its own seven-check report.
 
 `wp nodes run` is the tool for "worker spawns but immediately exits" — the process stays attached, and on exit it prints the worker's own reason (`restart flag`, `max_runtime`, memory watermark, …).
 
-The visible-dashboard restart (Workers_CI over REST) and
-`wp nodes restart supervisor` both request a clean restart of the singleton
-supervisor. `wp nodes types` exposes that singleton separately from the active
-topology groups. It is a lifecycle target, not a topology: it cannot be passed
-to `wp nodes run`, has no partitions, and is not included in
-`wp nodes restart all`.
-
-A worker reports State `live` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`; `stale` means the supervisor will respawn it on the next minute-cron tick, and `down` means an active topology has no lock dir at all (the rescue case). Uptime reads the lock dir's `started` file.
+A worker reports State `live` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`; `stale` means a peer's `_fleet` scan (or the minute cron, when none is left) will respawn it, and `down` means an active topology has no lock dir at all (the rescue case). Uptime reads the lock dir's `started` file.
 
 ## Log layout
 
@@ -122,7 +114,7 @@ Listing a partition dir, you'll also see `{seg}.idx` sidecars next to each `{seg
 
 ## Common failure modes
 
-**Worker spawns but immediately exits.** Check the heartbeat file and the supervisor log. Most common substrate-side cause: the spawn HTTP request hit a `/spawn` controller that couldn't acquire the Lock (another worker is already holding it; that's idempotent and harmless). Application-side: the event-logger's `Log_Manager` refuses to run as root to avoid leaving the web user unable to write later — so if you ran wp-cron `--allow-root`, the worker noisily aborts. Either way, run wp-cron as the web user.
+**Worker spawns but immediately exits.** Check the heartbeat file and the worker's stderr. Most common substrate-side cause: the spawn HTTP request hit a `/spawn` controller that couldn't acquire the Lock (another worker is already holding it; that's idempotent and harmless). Application-side: the event-logger's `Log_Manager` refuses to run as root to avoid leaving the web user unable to write later — so if you ran wp-cron `--allow-root`, the worker noisily aborts. Either way, run wp-cron as the web user.
 
 **Messages enter Topic but don't reach the Consumer downstream.** The Consumer (or Tail, for a non-partitioned file) reads what Partition wrote. If the Partition didn't flush the batch, the reader won't see it on poll. Check the segment file's mtime/size with `ls -la`. If the segment is empty after a write, the Partition's batch is still pending — `set_timer(0, true)` flushes at the end of the event-loop iteration, so a synchronous write-then-read (no event loop tick between them) will see nothing.
 

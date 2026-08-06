@@ -19,6 +19,13 @@ class Lock_Node extends Node {
 
 	/** Grace period (s) before stealing an orphan dir (no heartbeat) — holder may be mid-acquire. */
 	public const ORPHAN_GRACE_S = 1;
+	/**
+	 * Config-changed watermark. Read by MTIME and never unlinked by its
+	 * consumer — an unlink-after-consume loses a touch that lands mid-reload,
+	 * and a comparison survives a lock steal where a removal does not. Distinct
+	 * from RESTART_FLAG on purpose: this says "re-read", never "exit".
+	 */
+	public const RELOAD_FLAG    = 'reload';
 	public const RESTART_FLAG   = 'restart';
 
 	public const STALE_TIMEOUT  = 60;
@@ -68,22 +75,6 @@ class Lock_Node extends Node {
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		@\touch( $hb_path );
-		return true;
-	}
-
-	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
-	public function verify_ownership(): bool {
-		if ( ! $this->is_held ) {
-			return false;
-		}
-		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
-		\clearstatcache( true, $hb );
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$pid = @\file_get_contents( $hb );
-		if ( false === $pid || (int) \trim( $pid ) !== \getmypid() ) {
-			$this->is_held = false;
-			return false;
-		}
 		return true;
 	}
 
@@ -231,7 +222,7 @@ class Lock_Node extends Node {
 
 	/**
 	 * A lock-dir file path, or null when something planted a symlink there —
-	 * the write would land at its target. Supervisor_Base refuses to follow one
+	 * the write would land at its target. Spawn_Coordinator refuses to follow one
 	 * when sweeping; the writer refuses too.
 	 */
 	private function unlinked_path( string $file ): ?string {
@@ -239,13 +230,42 @@ class Lock_Node extends Node {
 		return \is_link( $path ) ? null : $path;
 	}
 
+	/**
+	 * Give up the lock — but only if we still hold it.
+	 *
+	 * @longform Verified against the heartbeat PID, never against our own
+	 * `is_held` flag. A worker blocked in a long job stops heartbeating, goes
+	 * stale, and a peer steals the dir; `should_restart()` reports the theft but
+	 * deliberately leaves `is_held` alone, so a flag-only check here would have
+	 * the evicted holder `force_release_at()` the SUCCESSOR's directory. The
+	 * successor then dies of "lock dir gone" on its next tick and both respawn,
+	 * turning a self-correcting handoff into a restart loop. Failing closed
+	 * leaks a dir at worst, and a leaked dir goes stale and is stolen normally.
+	 */
 	public function release(): void {
-		if ( ! $this->is_held ) {
+		if ( ! $this->verify_ownership() ) {
+			$this->is_held = false;
 			return;
 		}
 		self::force_release_at( $this->lock_path );
 		$this->is_held = false;
 		$this->set_state( 'RELEASED', $this->lock_path );
+	}
+
+	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
+	public function verify_ownership(): bool {
+		if ( ! $this->is_held ) {
+			return false;
+		}
+		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
+		\clearstatcache( true, $hb );
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$pid = @\file_get_contents( $hb );
+		if ( false === $pid || (int) \trim( $pid ) !== \getmypid() ) {
+			$this->is_held = false;
+			return false;
+		}
+		return true;
 	}
 
 	/**
@@ -264,6 +284,13 @@ class Lock_Node extends Node {
 		@\unlink( $lock_dir . '/' . self::STARTED_FILE );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $lock_dir . '/' . self::RESTART_FLAG );
+		// @longform The reload watermark is never unlinked by its CONSUMER, but
+		// it must go here: rmdir() only removes an empty dir, so a survivor
+		// turns every clean release into an orphan peers steal through the
+		// grace window. Losing it costs nothing: the successor boots on
+		// fresh config, so it has nothing stale to reload.
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+		@\unlink( $lock_dir . '/' . self::RELOAD_FLAG );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
 		@\rmdir( $lock_dir );
 	}
@@ -290,6 +317,29 @@ class Lock_Node extends Node {
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
 		return false !== @\file_put_contents( $lock_dir . '/' . self::RESTART_FLAG, (string) \time() );
+	}
+
+	/**
+	 * Signal the lock's holder that its config is stale — re-read, do not exit.
+	 *
+	 * The file's CONTENT is the whole signal: a fresh watermark per request, which
+	 * the holder acts on whenever it differs from the one it last acted on.
+	 * MTIME cannot carry it — the filesystem resolves to a second and a settings
+	 * save writes several options in one request, so a second request inside that
+	 * second would be lost rather than merely late. Rewriting an existing flag is
+	 * the intended repeat path, so this never checks for absence first.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 * @return bool True if the watermark was written.
+	 */
+	public static function request_reload_at( string $lock_dir ): bool {
+		$lock_dir = \rtrim( $lock_dir, '/' );
+		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'reload flag' ) ) {
+			return false;
+		}
+		$watermark = \time() . '.' . \bin2hex( \random_bytes( 6 ) );
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+		return false !== @\file_put_contents( $lock_dir . '/' . self::RELOAD_FLAG, $watermark );
 	}
 
 	/**
@@ -339,12 +389,12 @@ class Lock_Node extends Node {
 	 * THE staleness rule for a worker heartbeat: no heartbeat file, or one
 	 * older than the threshold this worker declares.
 	 *
-	 * Four readers of this one mtime once had four policies — the supervisor's
-	 * respawn decision and the Workers dashboard honoured a topology's declared
+	 * Four readers of this one mtime once had four policies — the respawn
+	 * decision and the Workers dashboard honoured a topology's declared
 	 * `stale_timeout`, `wp nodes status` used a flat 60, and two dashboards
 	 * hardcoded 30. So a job-worker mid-job (`job-worker.tsl` lifts the
 	 * threshold to 600 precisely because job handlers run slow user code) read
-	 * DOWN in the CLI and the UI while the supervisor correctly left it alone.
+	 * DOWN in the CLI and the UI while the peer scan correctly left it alone.
 	 *
 	 * @param string $lock_dir      The `.lock.d` directory.
 	 * @param int    $now           Clock, so one scan judges every worker alike.

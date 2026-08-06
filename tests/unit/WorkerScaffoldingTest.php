@@ -30,6 +30,34 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
 
+	public function test_build_scaffolding_mounts_the_fleet_scanner(): void {
+		// Every worker scans its peers; supervision survives any one process.
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
+		$w->build_scaffolding();
+
+		$this->assertInstanceOf( \Newspack_Nodes\Fleet_Node::class, Core::node( \Newspack_Nodes\Node_Names::FLEET ) );
+	}
+
+	public function test_the_fleet_scanner_carries_no_secret_in_its_arguments(): void {
+		// arguments() is what cmd_dump_metadata returns and dump_config
+		// serializes, and redact_secrets() cannot mask a bare positional.
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
+		$w->build_scaffolding();
+		$fleet = Core::node( \Newspack_Nodes\Node_Names::FLEET );
+
+		$this->assertNotNull( $fleet );
+		$this->assertStringNotContainsString(
+			\wp_salt( 'nonce' ),
+			\implode( ' ', $fleet->arguments() ) . ' ' . $fleet->dump_config()
+		);
+	}
+
+	public function test_the_fleet_scanner_is_session_scaffolding(): void {
+		// Auto-mounted infra: remove_node must refuse, or a REPL typo ends
+		// supervision in that worker silently.
+		$this->assertContains( \Newspack_Nodes\Node_Names::FLEET, \Newspack_Nodes\Node_Names::SESSION_SCAFFOLDING );
+	}
+
 	public function test_build_scaffolding_does_not_mount_topic_probe(): void {
 		// The probe moved to TSL (`include topic-probe` per topology): worker
 		// scaffolding no longer hardwires it, so a graph without the include

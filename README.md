@@ -1,6 +1,6 @@
 # Newspack Nodes
 
-A node-graph runtime for composable services, built as WordPress plugin infrastructure. Nodes pass messages and sink into one another; underneath them the runtime is WordPress — config in the options table, the supervisor on WP-Cron, worker spawn and commands over the REST API, position and stats in memcache. It is WordPress-internal, not a standalone PHP bus.
+A node-graph runtime for composable services, built as WordPress plugin infrastructure. Nodes pass messages and sink into one another; underneath them the runtime is WordPress — config in the options table, the cold-start safety net on WP-Cron, worker spawn and commands over the REST API, position and stats in memcache. It is WordPress-internal, not a standalone PHP bus.
 
 ## Why
 
@@ -8,7 +8,7 @@ The traditional WordPress plugin shape — singletons, hooks-as-coupling, monoli
 
 Newspack Nodes is a different bet. The substrate gives you one contract: every node receives messages via `fill( array $message )`, and every node sinks into another node. That uniformity is what makes composition work — any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
 
-The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific. The four stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks); `topologies/job-intake.tsl`, which drains the large-write job ingress on substrate-only installs; `topologies/settings-sync.tsl`, the single-instance settings-sync control plane; and `topologies/topic-probe.tsl`, the per-worker consumer-stats sweep. But every part of the lifecycle underneath belongs to WordPress, so "application-independent" is the honest claim and "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
+The runtime is independent of any *application* — but not of WordPress. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Fleet, Job_Worker, REPL) and ships nothing application-specific. The four stock topologies are `topologies/job-worker.tsl`, which drives the generic Job_Worker_Node (its application context arriving through `before_job` / `after_job` hooks); `topologies/job-intake.tsl`, which drains the large-write job ingress on substrate-only installs; `topologies/settings-sync.tsl`, the single-instance settings-sync control plane; and `topologies/topic-probe.tsl`, the per-worker consumer-stats sweep. But every part of the lifecycle underneath belongs to WordPress, so "application-independent" is the honest claim and "standalone runtime" is not. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
 This is the Lego-bricks architecture pitched at the team meetup, brought to PHP/WordPress — and running in production on WordPress.com Atomic.
 

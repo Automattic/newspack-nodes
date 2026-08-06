@@ -70,7 +70,7 @@ function runtime_base_directory(): string {
  * Remove the runtime's on-disk state — logs, locks, offsets, IPC, deadletters,
  * user topologies. Scoped to the KNOWN runtime subtrees (a base dir shared
  * with operator files loses only ours), symlink-safe and containment-checked
- * via `Supervisor_Base::delete_directory_recursive`. The base dir itself goes
+ * via `Spawn_Coordinator::delete_directory_recursive`. The base dir itself goes
  * only when the runtime owned everything in it (rmdir refuses non-empty).
  *
  * @param string $base_dir Configured runtime base directory.
@@ -84,9 +84,9 @@ function delete_runtime_tree( string $base_dir ): void {
 	if ( \is_link( $base_dir ) ) {
 		return;
 	}
-	require_once __DIR__ . '/class-supervisor-base.php';
+	require_once __DIR__ . '/class-spawn-coordinator.php';
 	foreach ( [ 'logs', 'locks', 'offsets', 'ipc', 'deadletter', 'topologies' ] as $subdir ) {
-		Supervisor_Base::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
+		Spawn_Coordinator::delete_directory_recursive( "{$base_dir}/{$subdir}", $base_dir );
 	}
 	// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir -- one-time uninstall of the runtime's own reserved dir.
 	@\rmdir( $base_dir );

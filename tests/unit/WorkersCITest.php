@@ -429,41 +429,6 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( [ 'demo-workers' => true ], $fake_cli->called_with['filter'] );
 	}
 
-	public function test_restart_verb_routes_supervisor_through_restart_supervisor(): void {
-		// The supervisor lives at `supervisor.lock.d` — no `.pN` suffix — so
-		// `Cli::ls_workers()` never sees it and `restart_workers` (which
-		// only knows the partitioned `{type}.p{N}` shape) can't touch it.
-		// The verb routes supervisor restarts through the dedicated
-		// `Cli::restart_supervisor()` and only delegates partitioned types
-		// to `restart_workers`.
-		$fake_cli = new class {
-			public int  $supervisor_calls = 0;
-			public ?array $restart_called_with = null;
-			public function ls_workers(): array { return []; }
-			public function read_probe_index(): array { return []; }
-			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
-			public function restart_supervisor(): bool {
-				++$this->supervisor_calls;
-				return true;
-			}
-			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
-				$this->restart_called_with = [ 'filter' => $filter ];
-				return 0;
-			}
-		};
-		$interpreter = new Workers_CI_Node();
-		$interpreter->cli = $fake_cli;
-
-		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', 'supervisor' );
-
-		$this->assertSame( [ 'restarted' => 1 ], $result );
-		$this->assertSame( 1, $fake_cli->supervisor_calls );
-		// With only supervisor in the filter, restart_workers must NOT
-		// fire — the filter is empty after the supervisor is peeled off,
-		// and an empty filter would otherwise wildcard-restart every worker.
-		$this->assertNull( $fake_cli->restart_called_with );
-	}
-
 	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
 		// The client sends only the exact lease pair; the server applies its own
 		// deliberately non-default TTL (47), not a client-provided fallback.
@@ -649,8 +614,8 @@ class WorkersCITest extends TestCase {
 	// callers.
 	// -------------------------------------------------------------------------
 
-	public function test_dump_metadata_returns_seven_top_level_keys(): void {
-		// Envelope shape: workers[], supervisor, logs[], num_partitions,
+	public function test_dump_metadata_returns_every_top_level_key(): void {
+		// Envelope shape: workers[], logs[], num_partitions,
 		// max_segments, segment_size, timestamp. Even with no workers
 		// configured + no disk state, every envelope key must be present so
 		// the dashboard can fan out from a stable shape.
@@ -664,7 +629,6 @@ class WorkersCITest extends TestCase {
 		foreach (
 			[
 				'workers',
-				'supervisor',
 				'logs',
 				'num_partitions',
 				'max_segments',
@@ -678,9 +642,6 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 1, $result['num_partitions'] );
 		$this->assertSame( 8, $result['max_segments'] );
 		$this->assertSame( 16 * 1024 * 1024, $result['segment_size'] );
-		// Supervisor descriptor is always emitted as a single object.
-		$this->assertIsArray( $result['supervisor'] );
-		$this->assertSame( 'supervisor', $result['supervisor']['type'] );
 	}
 
 	public function test_dump_metadata_max_segments_envelope_sources_from_config(): void {
@@ -1087,21 +1048,6 @@ class WorkersCITest extends TestCase {
 		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
 		$this->assertSame( 0, $result['deadletter_segments'] );
-	}
-
-	public function test_dump_metadata_includes_supervisor_descriptor(): void {
-		// The supervisor is a singleton — exactly one entry, always emitted,
-		// at the un-suffixed lock dir `supervisor.lock.d`. No `partition`
-		// field (it doesn't run as a partition fleet).
-		$base = $this->arrange_base_dir();
-		$interpreter     = new Workers_CI_Node();
-		$interpreter->cli   = $this->stub_cli();
-		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
-
-		$this->assertIsArray( $result['supervisor'] );
-		$this->assertSame( 'supervisor', $result['supervisor']['type'] );
-		$this->assertArrayNotHasKey( 'partition', $result['supervisor'] );
-		$this->assertArrayHasKey( 'status', $result['supervisor'] );
 	}
 
 	public function test_dump_metadata_logs_carry_segments_and_consumers_carry_cursor(): void {

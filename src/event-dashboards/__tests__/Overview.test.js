@@ -118,7 +118,6 @@ function active( name, health, workers, source = 'user' ) {
 function hookValue( overrides = {} ) {
 	return {
 		topologies: [],
-		supervisor: null,
 		currentTime: 5000,
 		readRate: 0,
 		writeRate: 0,
@@ -498,24 +497,6 @@ describe( 'Overview — remaining interactions', () => {
 		);
 		// A null slot means "pending" — the control is not rendered at all.
 		expect( queryByText( '+ New Topology' ) ).toBeNull();
-	} );
-
-	it( 'restarts the supervisor when its restart control is clicked', () => {
-		const restart = jest.fn();
-		useTopologyManager.mockReturnValue(
-			hookValue( {
-				supervisor: {
-					status: 'running',
-					started_at: 1000,
-					heartbeat_age: 2,
-					restart_pending: false,
-				},
-				restart,
-			} )
-		);
-		const { getByRole } = render( <Overview /> );
-		fireEvent.click( getByRole( 'button', { name: '↻' } ) );
-		expect( restart ).toHaveBeenCalledWith( 'supervisor' );
 	} );
 
 	it( 'dismisses the alert modal when its OK button is clicked', () => {

@@ -38,15 +38,13 @@ class Alerts {
 	 */
 	public const FAMILY_WORKER_LIVENESS = 'worker-liveness';
 
-	public const FAMILY_SUPERVISOR_LIVENESS = 'supervisor-liveness';
-
 	public const FAMILY_CONSUMER_LAG = 'consumer-lag';
 
 	public const FAMILY_DEAD_LETTERS = 'dead-letters';
 
 	public const SEVERITY_WARNING = 'warning';
 
-	/** A worker/supervisor that was running has stopped — needs attention now. */
+	/** A worker that was running has stopped — needs attention now. */
 	public const SEVERITY_CRITICAL = 'critical';
 
 	/** A previously journaled condition that is no longer present. */
@@ -68,13 +66,13 @@ class Alerts {
 	 * Journal alert TRANSITIONS into `alerts.p0` — a row when a condition
 	 * raises or changes severity, and a `resolved` row when it clears. A
 	 * persisting condition journals nothing: the journal records state
-	 * changes, not heartbeats. Hooked to the supervisor's periodic tick; the
+	 * changes, not heartbeats. Hooked to the fleet's periodic sweep; the
 	 * transient gate is a flap backstop (at most one batch per interval), and
 	 * the last-journaled state advances only on a successful write, so a
 	 * gated or failed tick reconciles on the next open window. Entries mirror
 	 * the errors family (`{ n, k:'alert', m, ts }`) plus `severity`; KEY is
 	 * the alert's stable key. The write is throw-guarded: a rotate-lock
-	 * timeout or unwritable dir must never unwind the supervisor tick.
+	 * timeout or unwritable dir must never unwind the sweep.
 	 */
 	public static function emit(): void {
 		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
@@ -147,18 +145,6 @@ class Alerts {
 			if ( null !== $alert ) {
 				$alerts[] = $alert;
 			}
-		}
-
-		$supervisor = Core::arr( $meta['supervisor'] ?? [] );
-		// Never-heartbeated supervisor stays silent (cron not yet fired).
-		if ( 'dead' === ( $supervisor['status'] ?? '' ) && null !== ( $supervisor['heartbeat_age'] ?? null ) ) {
-			$age      = Core::as_int( $supervisor['heartbeat_age'] );
-			$alerts[] = [
-				'key'      => 'supervisor_down',
-				'family'   => self::FAMILY_SUPERVISOR_LIVENESS,
-				'severity' => self::SEVERITY_CRITICAL,
-				'message'  => "Supervisor stopped heartbeating {$age}s ago.",
-			];
 		}
 
 		$lag_threshold = Core::num_int( Config::value( 'alert_lag_threshold' ) );
@@ -249,7 +235,7 @@ class Alerts {
 	 * @param string $severity One of the SEVERITY_* constants.
 	 */
 	public static function journal_event( string $key, string $text, string $severity ): void {
-		// Fresh read: the supervisor loop never refreshes Core::$now.
+		// Fresh read: a caller outside the drain may hold a frozen Core::$now.
 		$ts                            = Core::right_now();
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;

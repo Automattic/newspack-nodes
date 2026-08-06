@@ -5,13 +5,13 @@
  * The delayed-jobs sweep. Jobs enqueued with `not_before`/`delay` park in a
  * single hardwired `jobdelay.p0` partition (the alerts.p0 precedent: low
  * volume, one dir, one reader). This sweep runs on the existing
- * `newspack_nodes/supervisor_periodic` tick: it drains the delay log with a
+ * `newspack_nodes/periodic` tick: it drains the delay log with a
  * durable-cursor Consumer, delivers every due entry into the live jobintake
  * (delay fields stripped, partition key re-hashed), and circulates the
  * not-yet-due remainder back to the tail. The delay log is a circulating
  * buffer — restart-safe, no new storage, no new timers.
  *
- * Granularity = the supervisor tick (~15s). Delivery is at-least-once: a
+ * Granularity = the fleet sweep (~15s). Delivery is at-least-once: a
  * crash between deliver/re-append and checkpoint re-plays that sweep's
  * entries, the same guarantee the rest of the substrate gives.
  *
@@ -31,7 +31,7 @@ class Job_Delay {
 	public const READER = 'jobdelay-sweep';
 
 	/**
-	 * Supervisor-tick entry point: sweep, never throw into the tick loop.
+	 * Fleet-sweep entry point: sweep, never throw into the housekeeping job.
 	 */
 	public static function sweep_action(): void {
 		try {

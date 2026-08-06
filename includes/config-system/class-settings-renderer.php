@@ -147,7 +147,7 @@ class Settings_Renderer {
 	 */
 	private static function restart_impact( array|string $restart ): string {
 		if ( 'supervisor_only' === $restart ) {
-			return \__( 'Applies on next supervisor tick', 'newspack-nodes' );
+			return \__( 'Applies on next config re-read', 'newspack-nodes' );
 		}
 		if ( [] === $restart ) {
 			return \__( 'Takes effect immediately', 'newspack-nodes' );

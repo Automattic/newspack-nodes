@@ -20,6 +20,18 @@ abstract class TestCase extends PHPUnitTestCase {
 	 */
 	private array $saved_config_resolvers = [];
 
+	/**
+	 * Snapshot of the hook table at setUp, restored in tearDown. The shim's
+	 * add_filter() only ever appends, and nothing defines remove_filter, so a
+	 * per-test callback outlives its test: one FleetNodeTest filter that THROWS
+	 * stayed on `newspack_nodes/topologies` and made every later test's
+	 * expand_workers() raise, spawning nothing. Plugin-load registrations are
+	 * inside the snapshot and survive; per-test ones do not.
+	 *
+	 * @var array<string, list<callable>>
+	 */
+	private array $saved_wp_actions = [];
+
 	/** Root make_temp_dir() hands dirs out under, resolved once per test in setUp(). */
 	private string $temp_root = '';
 
@@ -47,6 +59,7 @@ abstract class TestCase extends PHPUnitTestCase {
 		// previous test (dirty flag, fleet descriptors, etc.) doesn't
 		// bleed into this one.
 		$GLOBALS['_wp_options'] = [];
+		$this->saved_wp_actions = $GLOBALS['_wp_actions'] ?? [];
 
 		// Service_CI verbs are gated by default; start every test denied so a
 		// cap granted in one test can't leak into another's deny-path. Classes
@@ -129,6 +142,9 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::$config_resolvers = $this->saved_config_resolvers;
 		}
+		if ( isset( $GLOBALS['_wp_actions'] ) ) {
+			$GLOBALS['_wp_actions'] = $this->saved_wp_actions;
+		}
 		// Worker_Base seams a fixture (e.g. FatalProbeWorker) may have pinned —
 		// including the token provider ensure_runtime_wired installs globally.
 		if ( \class_exists( '\Newspack_Nodes\Worker_Base', false ) ) {
@@ -165,7 +181,11 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Config::reset();
 		}
 		if ( \class_exists( '\Newspack_Nodes\CLI', false ) ) {
-			\Newspack_Nodes\CLI::$sleep = null;
+			// @longform A leaked root uid makes Config::write_denied() true, so
+			// Lock_Node::request_restart_at() silently writes nothing — every
+			// restart-flag test downstream of LockNodeRootTest then fails, and
+			// only in the orders where it happens to run first.
+			\Newspack_Nodes\CLI::$uid_provider = null;
 		}
 		$this->reset_health_test_state();
 		\Newspack_Nodes\Remote_Link_Node::reset_connect_queue();

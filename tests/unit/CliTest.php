@@ -345,65 +345,6 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $count );
 	}
 
-	public function test_restart_supervisor_writes_flag_at_un_suffixed_lock_dir(): void {
-		// The supervisor is the only worker that doesn't run as a partition
-		// fleet; it lives at `{locks}/supervisor.lock.d` with no `.pN`
-		// suffix. `restart_workers` only knows the `{type}.p{N}` shape, so
-		// the supervisor needs its own path.
-		\mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
-
-		$cli = new CLI( $this->tmp );
-
-		$this->assertTrue( $cli->restart_supervisor() );
-		$this->assertFileExists( "{$this->tmp}/locks/supervisor.lock.d/" . Lock_Node::RESTART_FLAG );
-	}
-
-	public function test_restart_supervisor_accepts_live_lock_that_reappears_during_handoff(): void {
-		$lock_dir    = "{$this->tmp}/locks/supervisor.lock.d";
-		$started_at  = \time() - 137;
-		$heartbeat_at = \time() - 7;
-		$waits       = [];
-
-		CLI::$sleep = static function ( int $seconds ) use ( $lock_dir, $started_at, $heartbeat_at, &$waits ): void {
-			$waits[] = $seconds;
-			\mkdir( $lock_dir, 0755, true );
-			\file_put_contents( "{$lock_dir}/heartbeat", '7391' );
-			\touch( "{$lock_dir}/heartbeat", $heartbeat_at );
-			\file_put_contents( "{$lock_dir}/started", (string) $started_at );
-		};
-
-		$result = ( new CLI( $this->tmp ) )->restart_supervisor();
-
-		$this->assertTrue( $result, 'a live successor appearing during the handoff is a successful restart' );
-		$this->assertSame( [ 1 ], $waits, 'the handoff check waits exactly one second' );
-		$this->assertFileDoesNotExist(
-			"{$lock_dir}/" . Lock_Node::RESTART_FLAG,
-			'the successor must not receive a second restart request'
-		);
-		$status = ( new CLI( $this->tmp ) )->supervisor_status();
-		$this->assertNotNull( $status );
-		$this->assertFalse( $status['stale'] );
-		$this->assertSame( $started_at, $status['started_at'] );
-	}
-
-	public function test_restart_supervisor_rejects_stale_lock_that_reappears_during_handoff(): void {
-		$lock_dir     = "{$this->tmp}/locks/supervisor.lock.d";
-		$heartbeat_at = \time() - 137;
-		$waits        = [];
-		CLI::$sleep   = static function ( int $seconds ) use ( $lock_dir, $heartbeat_at, &$waits ): void {
-			$waits[] = $seconds;
-			\mkdir( $lock_dir, 0755, true );
-			\file_put_contents( "{$lock_dir}/heartbeat", '9151' );
-			\touch( "{$lock_dir}/heartbeat", $heartbeat_at );
-		};
-
-		$result = ( new CLI( $this->tmp ) )->restart_supervisor();
-
-		$this->assertFalse( $result, 'a stale successor heartbeat is not a successful restart' );
-		$this->assertSame( [ 1 ], $waits );
-		$this->assertFileDoesNotExist( "{$lock_dir}/" . Lock_Node::RESTART_FLAG );
-	}
-
 	// ── read_probe_index() ───────────────────────────────────────────────────────
 
 	/** Append a positional Probe_Record snapshot to logs/topicprobe.p0/0.log. */
@@ -491,39 +432,6 @@ class CliTest extends TestCase {
 		$this->assertSame( '1GB', CLI::format_bytes( 1024 * 1024 * 1024 ) );
 		// Petabyte-scale falls into GB branch (no PB tier).
 		$this->assertSame( '1024GB', CLI::format_bytes( 1024 * 1024 * 1024 * 1024 ) );
-	}
-
-	// ── format_duration() ──────────────────────────────────────────────────────
-
-	// ── supervisor_status() ────────────────────────────────────────────────────
-
-	public function test_supervisor_status_reads_the_supervisor_lock(): void {
-		$dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $dir, 0755, true );
-		\file_put_contents( "{$dir}/heartbeat", '4242' );
-		\file_put_contents( "{$dir}/started", (string) ( \time() - 137 ) );
-
-		$status = ( new CLI( $this->tmp ) )->supervisor_status();
-
-		$this->assertNotNull( $status, 'a supervisor lock dir must be visible to status' );
-		$this->assertFalse( $status['stale'] );
-		$this->assertEqualsWithDelta( \time() - 137, $status['started_at'], 2 );
-		$this->assertGreaterThan( 0, $status['heartbeat_at'] );
-	}
-
-	public function test_supervisor_status_marks_a_stale_heartbeat(): void {
-		$dir = "{$this->tmp}/locks/supervisor.lock.d";
-		\mkdir( $dir, 0755, true );
-		\file_put_contents( "{$dir}/heartbeat", '4242' );
-		\touch( "{$dir}/heartbeat", \time() - 300 );
-
-		$status = ( new CLI( $this->tmp ) )->supervisor_status();
-		$this->assertNotNull( $status );
-		$this->assertTrue( $status['stale'] );
-	}
-
-	public function test_supervisor_status_is_null_without_a_lock_dir(): void {
-		$this->assertNull( ( new CLI( $this->tmp ) )->supervisor_status() );
 	}
 
 }

@@ -9,7 +9,6 @@
  * A live view over useTopologyManager + the TopicProbe stream:
  *  - the shared SummaryCards row (topology/active counts, worker liveness,
  *    on-disk partitions, health, global R/W rates, 24h produced totals),
- *  - the supervisor card,
  *  - THREE Tachikoma-style Topics panels — Message Rate, Byte Rate, Backlog —
  *    each a multi-series 24h time chart (one series per topic/source) with a
  *    ranked max/avg legend, and
@@ -47,7 +46,6 @@ import { useTopicProbeStream } from './hooks/useTopicProbeStream';
 import { useNodeState } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
-import { SupervisorStatus } from './SupervisorStatus';
 import { consoleHref, TopologyRow } from './TopologyRow';
 import { formatBytes, formatByteRate, formatMsgRate } from './formatters';
 import {
@@ -107,8 +105,6 @@ export default function Overview( { headerControlsSlot } ) {
 	// PAUSE all background updates while dragging (poll + probe view).
 	const {
 		topologies,
-		supervisor,
-		currentTime,
 		readRate,
 		writeRate,
 		logPartitions,
@@ -357,13 +353,6 @@ export default function Overview( { headerControlsSlot } ) {
 					fillMode={ fillModeForMetric( 'cacheSize' ) }
 				/>
 			</div>
-			{ supervisor && (
-				<SupervisorStatus
-					supervisor={ supervisor }
-					currentTime={ currentTime }
-					onRestart={ () => restart( 'supervisor' ) }
-				/>
-			) }
 			{ actives.length > 0 && (
 				<div className="nodes-overview__toolbar">
 					<button

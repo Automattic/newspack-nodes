@@ -15,6 +15,12 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Settings_Sync_Node::class )]
 class SettingsSyncNodeTest extends TestCase {
 
+	/** wired_node() mints a real 'tw0' session; leaked, it makes a later no-session test find one. */
+	protected function tearDown(): void {
+		Command_Auth::forget_session( 'tw0' );
+		parent::tearDown();
+	}
+
 	public function test_add_setting_registers_entry(): void {
 		$node = new Settings_Sync_Node();
 		$node->name( 'settings-sync' );

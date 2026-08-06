@@ -20,6 +20,17 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Remote_Link_Node::class )]
 class RemoteLinkNodeTest extends TestCase {
 
+	/** The mounted fleet's own lock dir — where its reload watermark lands. */
+	private string $fleet_lock_dir = '';
+
+	/**
+	 * Monotonic test clock. A fleet tick enqueues the housekeeping sweep, which
+	 * re-reads the wall clock and so un-freezes `Core::$now` mid-call; anything
+	 * that compounded off `Core::$now` would march backwards and stall both the
+	 * config window and the link's per-second housekeeping latch.
+	 */
+	private float $clock = 0.0;
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->use_base_dir( $this->make_temp_dir() );
@@ -27,6 +38,7 @@ class RemoteLinkNodeTest extends TestCase {
 		// arguments() arms a 1000ms TICK timer that router-hitchhikes (>=1000),
 		// which needs _router present — as it always is in a live graph.
 		( new Router_Node() )->name( '_router' );
+		$this->clock = Core::right_now();
 	}
 
 	protected function tearDown(): void {
@@ -186,6 +198,134 @@ class RemoteLinkNodeTest extends TestCase {
 
 		$node->fire();
 		$this->assertSame( $first, Core::node( 'link-austin:sse-in' ) );
+	}
+
+	// ---------------------------------------------------------------------
+	// RELOAD: credentials captured in the patrons are re-read, not recycled.
+	// ---------------------------------------------------------------------
+
+	/** Mount a `_fleet` this link can subscribe to, as a live worker graph has. */
+	private function mount_fleet(): \Newspack_Nodes\Fleet_Node {
+		$base                 = $this->make_temp_dir( 'link-fleet-' );
+		$this->fleet_lock_dir = "{$base}/locks/link-lab.p0.lock.d";
+		\mkdir( $this->fleet_lock_dir, 0755, true );
+		$fleet = new \Newspack_Nodes\Fleet_Node();
+		$fleet->name( \Newspack_Nodes\Node_Names::FLEET );
+		$fleet->sink( Core::node( \Newspack_Nodes\Node_Names::ROUTER ) );
+		$fleet->arguments( [ $base, $this->fleet_lock_dir ] );
+		return $fleet;
+	}
+
+	/**
+	 * Signal a reload the way a Vault save does — a watermark in the worker's
+	 * own lock dir, consumed on the fleet's next config window. Never
+	 * `notify( 'RELOAD' )` by hand: the purge and the config reset that precede
+	 * the notification are the half of this path that carries the credentials.
+	 */
+	private function signal_reload( \Newspack_Nodes\Fleet_Node $fleet ): void {
+		\Newspack_Nodes\Lock_Node::request_reload_at( $this->fleet_lock_dir );
+		$this->advance( \Newspack_Nodes\Fleet_Node::CONFIG_CHECK_INTERVAL + 1 );
+		$fleet->fire_cb();
+	}
+
+	/** Move the monotonic test clock forward and publish it as `Core::$now`. */
+	private function advance( float $seconds ): void {
+		$this->clock += $seconds;
+		Core::$now    = $this->clock;
+	}
+
+	/** Re-credential the seeded spoke to a host distinct from the seed. */
+	private function recredential( string $url ): void {
+		\update_option( Vault::OPTION_KEY, [ 'austin' => [ 'url' => $url, 'auth_username' => 'u2', 'auth_password' => 'p2', 'token' => 't2' ] ] );
+	}
+
+	/** The RELOAD subscriber keys registered on the fleet, closures included. */
+	private function reload_subscribers( \Newspack_Nodes\Fleet_Node $fleet ): array {
+		return \array_keys( $this->read_private( $fleet, 'registrations' )['RELOAD'] ?? [] );
+	}
+
+	/** Step past the once-per-second housekeeping latch, then tick. */
+	private function tick_next_second( Remote_Link_Node $node ): void {
+		$this->advance( 1 );
+		$node->fire();
+	}
+
+	public function test_a_reload_makes_the_link_re_read_its_vault_credentials(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+		$this->assertSame( 'https://austin.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
+
+		$this->recredential( 'https://austin-7714.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-7714.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
+	}
+
+	public function test_a_second_reload_is_still_delivered(): void {
+		// The registration must survive its own delivery: notify() drops a
+		// listener whose handler returns exactly false, so only a deliberate
+		// "stop listening" ends the subscription — never a void handler.
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$node->fire();
+
+		$this->recredential( 'https://austin-7714.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+		$this->assertSame( 'https://austin-7714.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
+
+		$this->recredential( 'https://austin-8135.example' );
+		$this->signal_reload( $fleet );
+		$this->tick_next_second( $node );
+
+		$this->assertSame( 'https://austin-8135.example', $this->read_private( Core::node( 'link-austin:sse-in' ), 'url' ) );
+	}
+
+	public function test_a_node_that_never_subscribed_is_not_on_the_reload_list(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		$this->make_link( 'link-austin' );
+		$bystander = new Null_Node();
+		$bystander->name( 'quiet-bystander-6612' );
+
+		$this->assertSame( [ 'link-austin' ], $this->reload_subscribers( $fleet ), 'only vault-consuming nodes subscribe' );
+	}
+
+	public function test_remove_node_unregisters_from_reload(): void {
+		// Registrations are keyed by name, so a removed node that left one
+		// behind keeps a closure alive holding the dead node.
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-shortlived-5528', [ 'austin', 'firehose.p0' ] );
+		$this->assertSame( [ 'link-shortlived-5528' ], $this->reload_subscribers( $fleet ) );
+
+		$node->remove_node();
+
+		$this->assertSame( [], $this->reload_subscribers( $fleet ) );
+	}
+
+	public function test_normal_traffic_is_unchanged_by_subscribing(): void {
+		// Control never touches fill(), so a data message wearing the event name
+		// is relayed verbatim — no discrimination, nothing to get wrong.
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-austin' );
+		$this->assertSame( [ 'link-austin' ], $this->reload_subscribers( $fleet ) );
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$m[ Message::KEY ]   = 'RELOAD';
+		$m[ Message::VALUE ] = 'ledger-line-4471';
+		$node->fill( $m );
+
+		$batch = $this->read_private( Core::node( 'link-austin:http-out' ), 'batch' );
+		$this->assertCount( 1, $batch );
+		$this->assertSame( 'ledger-line-4471', $batch[0][ Message::VALUE ] );
+		$this->assertSame( 'RELOAD', $batch[0][ Message::KEY ] );
 	}
 
 	public function test_missing_vault_entry_stays_disconnected_no_patrons(): void {

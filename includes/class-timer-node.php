@@ -2,7 +2,13 @@
 /**
  * Timer: periodic / one-shot fire. Two modes: own EventFramework slot (set_timer($ms)) or Router-hitchhike (set_timer() no args).
  *
- * Hitchhike uses Node-name dispatch, not a closure: a void-returning closure coerces to falsy and self-unregisters after one tick.
+ * Hitchhike uses Node-name dispatch, not a closure, because `Router_Node::notify_timer()`
+ * never calls `notify()`: it walks `registrations['TIMER']` as a NAME list, resolves each
+ * to its node and calls `fire_cb()` on it. A closure would carry no node to fire.
+ *
+ * (The reason this comment used to give — that a void-returning closure self-unregisters —
+ * was never true: `notify()` has compared `false === $keep` since it was written, and a
+ * void closure returns null.)
  *
  * @package Newspack_Nodes
  */

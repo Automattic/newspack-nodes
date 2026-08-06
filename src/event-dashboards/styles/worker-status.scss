@@ -263,48 +263,8 @@
 	padding: 8px 0;
 }
 
-// Supervisor Section — a white card + border, matching the topology rows.
-.supervisor-section {
-	background: var(--paper-2);
-	border: 1px solid var(--paper-shadow);
-	border-radius: var(--np-radius-md);
-	padding: 8px 12px;
-	margin-bottom: 12px;
-}
-
-.supervisor-list {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-}
-
-.supervisor-name {
-	font-weight: 600;
-	font-size: 13px;
-	color: var(--ink);
-	min-width: 150px;
-	font-family: base.$mono-font;
-}
-
-.supervisor-row {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 4px 8px;
-
-	&.dead .supervisor-name {
-		opacity: 0.5;
-	}
-}
-
-.supervisor-instance {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	flex: 1;
-}
-
-.supervisor-age {
+// Uptime cell inside a per-partition process pill.
+.process-age {
 	font-size: 10px;
 	color: var(--ink-3);
 	min-width: 24px;

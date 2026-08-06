@@ -115,4 +115,32 @@ class Restart_Planner {
 		}
 		return false;
 	}
+
+	/**
+	 * Touch the reload flag in every partition lock dir of every ACTIVE topology;
+	 * return the topology names touched.
+	 *
+	 * Unclassified by design, and the counterpart to `request_restarts()`: a
+	 * restart classification says which workers must RECYCLE, while every worker
+	 * alive holds a Config cache frozen at boot and so must re-read whatever
+	 * changed. Without this, a field classified `[]` or `'supervisor_only'` waits
+	 * out a whole ~595s worker lifetime instead of landing on the next 15s
+	 * window. Reload costs no process recycle, so the broad fan-out is cheap.
+	 *
+	 * @param string $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @return array<int,string>
+	 */
+	public static function request_reloads( string $locks_dir ): array {
+		if ( ! Bootstrap::fleet_site() ) {
+			return [];
+		}
+		$topologies = \array_map( 'strval', \array_keys( Bootstrap::get_topologies() ) );
+		foreach ( $topologies as $name ) {
+			$count = Bootstrap::num_partitions_for( $name );
+			for ( $p = 0; $p < $count; $p++ ) {
+				Lock_Node::request_reload_at( "{$locks_dir}/{$name}.p{$p}.lock.d" );
+			}
+		}
+		return $topologies;
+	}
 }

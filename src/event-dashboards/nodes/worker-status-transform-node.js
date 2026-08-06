@@ -107,7 +107,7 @@ export class WorkerStatusTransformNode extends Node {
 	 * rate-delta state for the next snapshot.
 	 *
 	 * @param {Object} data The lean dump_graph payload: `graph`, `workers`,
-	 *                      `consumers`, `logs`, `supervisor`, `timestamp`, and
+	 *                      `consumers`, `logs`, `timestamp`, and
 	 *                      the sticky scalars (`segment_size`,
 	 *                      `heartbeat_interval_s`, `log_partitions`).
 	 */
@@ -202,7 +202,6 @@ export class WorkerStatusTransformNode extends Node {
 
 		const model = {
 			workers: richWorkers,
-			supervisor: data.supervisor ?? null,
 			logs: liveLogs,
 			graph: data.graph ?? {},
 			byteRates: newByteRates,

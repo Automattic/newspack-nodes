@@ -14,7 +14,7 @@ Read `AGENTS.md` first for the architecture-decisions and key-files map; this sk
 
 - Adding a Node subclass to the substrate (something every consumer benefits from, not application-specific)
 - Adding or modifying CommandInterpreter shell verbs
-- Touching Worker / Supervisor lifecycle code
+- Touching Worker / fleet-revival lifecycle code
 - Any change that ships in `newspack-nodes/` and rides through the deploy + restart cycle
 
 For application-side changes (RequestBuilder, FlameBuilder, REST controllers, dashboards), use the event-logger-nodes plugin's own workflow skill.

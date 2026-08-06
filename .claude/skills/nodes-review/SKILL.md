@@ -1,6 +1,6 @@
 ---
 name: nodes-review
-description: Code review checklist for substrate (newspack-nodes) changes. Use whenever reviewing a diff that touches Node, Message, Router, Topic, Partition, Tee, Tail, Consumer, Worker, Supervisor, or anything else under the newspack-nodes plugin's includes/.
+description: Code review checklist for substrate (newspack-nodes) changes. Use whenever reviewing a diff that touches Node, Message, Router, Topic, Partition, Tee, Tail, Consumer, Worker, Fleet, or anything else under the newspack-nodes plugin's includes/.
 argument-hint: "[file or class]"
 ---
 
