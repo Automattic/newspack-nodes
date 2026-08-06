@@ -356,10 +356,20 @@ class Tail_Node extends Consumer_Node {
 		if ( null !== $stored_inode && $stored_inode !== $this->cursor_segment ) {
 			return 0;
 		}
-		if ( $this->file_current_size() < $cursor ) {
-			return 0;
+		$size = $this->file_current_size();
+		if ( $size < $cursor ) {
+			return null === $stored_inode ? $size : 0;
 		}
-		return "\n" === $this->read_byte_at( $cursor - 1 ) ? $cursor : 0;
+		if ( "\n" === $this->read_byte_at( $cursor - 1 ) ) {
+			return $cursor;
+		}
+		// @longform A container-less resume is a LIVE TAIL saying "put me back
+		// where I was". Its offset is the raw file size, which is not a line
+		// boundary when the log was sampled mid-write — and answering 0 there
+		// dumps the whole file to a viewer that asked to follow the end.
+		// Falling forward to the current end loses at most a partial line; a
+		// durable resume (named inode) keeps restarting from 0.
+		return null === $stored_inode ? $size : 0;
 	}
 
 	/** Read the single byte at $pos from the open follow handle, or '' when it can't be read. */
@@ -444,10 +454,17 @@ class Tail_Node extends Consumer_Node {
 	 * @return string `{inode}:{offset}`, or `:{offset}` while the inode is unknown.
 	 */
 	public function cursor_position(): string {
-		if ( self::MODE_FILE === $this->source_mode && 0 === $this->cursor_segment ) {
-			return ":{$this->cursor_offset}";
+		if ( self::MODE_FILE !== $this->source_mode ) {
+			return parent::cursor_position();
 		}
-		return parent::cursor_position();
+		$inode  = $this->cursor_segment;
+		$offset = $this->cursor_offset;
+		// A pending seek IS the position; cursor_offset is 0 until the poll.
+		if ( null !== $this->file_seek_candidate ) {
+			$inode  = $this->file_seek_candidate['inode'] ?? 0;
+			$offset = $this->file_seek_candidate['offset'];
+		}
+		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $offset;
 	}
 
 	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */

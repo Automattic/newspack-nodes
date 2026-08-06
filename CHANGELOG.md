@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.3] - 2026-08-06
+
+### Fixed
+
+- **A reopened log stream advertised `:0` and replayed the whole file, forever.**
+  On a REOPEN `Tail_Node::next_offset()` receives an array position while the
+  handle is still closed, so it stashes the seek in `file_seek_candidate` and
+  leaves `cursor_offset` at 0 until the first poll. `cursor_position()` read
+  `cursor_offset`, so the second connect advertised `<name>=:0`, the client
+  echoed it back, and every reopen after that replayed the file — then
+  advertised `:0` again. Self-perpetuating, which is why it never recovered.
+  The pending candidate IS the position when one is set.
+
+  The first connect was always fine, because `'end'` seats `cursor_offset`
+  directly; only the reopen takes the candidate path. That asymmetry is what
+  made it look like a resume-token problem rather than an advertisement one.
+
+- **A mid-line resume dumped the entire file instead of following the end.**
+  `next_offset( 'end' )` is the raw file SIZE, which is not a line boundary when
+  a busy log is sampled mid-write. `validate_resume_offset()` answered 0 for a
+  failed boundary check — the whole file, to a viewer that asked to follow the
+  end. A container-less resume (the live-tail form) now falls forward to the
+  current end, losing at most a partial line. A durable resume naming an inode
+  still restarts at 0, which is what rotation recovery depends on.
+
 ## [2.11.2] - 2026-08-06
 
 ### Fixed

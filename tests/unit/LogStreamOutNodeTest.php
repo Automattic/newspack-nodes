@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Tail_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -52,6 +53,66 @@ class LogStreamOutNodeTest extends TestCase {
 		$this->assertSame( '', $this->read_private( $tail, 'deadletter_dir' ) );
 		// No position → live tail from END (9 bytes, distinct from offset 0).
 		$this->assertSame( 9, $this->read_private( $tail, 'cursor_offset' ) );
+	}
+
+	public function test_reopening_with_the_advertised_resume_id_does_not_replay(): void {
+		$path = "{$this->tmp}/php-error.log";
+		\file_put_contents( $path, "line-one\nline-two\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		// First connect: tail from END, and advertise where that is.
+		$first = ( new Log_Stream_Out_Node() )->open_subscription( 'php', null )[0];
+		$token = 'php=' . $first->cursor_position();
+
+		// The reopen carries it as Last-Event-ID and sends no positions param.
+		$ctrl     = new Log_Stream_Out_Node();
+		$resumed  = $ctrl->resume_positions( null, $token );
+		$reopened = $ctrl->open_subscription( 'php', $resumed )[0];
+		$cap      = new Capture_Sink_Node();
+		$reopened->sink( $cap );
+		for ( $i = 0; $i < 5; $i++ ) {
+			$reopened->poll();
+		}
+
+		$this->assertSame( [], $cap->captured, "the reopen must not replay; token was {$token}" );
+	}
+
+	public function test_reopening_mid_line_resumes_live_instead_of_replaying_the_file(): void {
+		// A live log sampled mid-write: 'end' is the raw file SIZE, which is not
+		// a line boundary. First connect never validates it, but the reopen
+		// does — and a failed boundary check returns 0, i.e. the whole file.
+		$path = "{$this->tmp}/php-error.log";
+		\file_put_contents( $path, "line-one\nline-two\npartial-no-newline" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$first = ( new Log_Stream_Out_Node() )->open_subscription( 'php', null )[0];
+		$token = 'php=' . $first->cursor_position();
+
+		$ctrl     = new Log_Stream_Out_Node();
+		$reopened = $ctrl->open_subscription( 'php', $ctrl->resume_positions( null, $token ) )[0];
+		$cap      = new Capture_Sink_Node();
+		$reopened->sink( $cap );
+		// The first tick only fills the buffer; pump until it stops producing.
+		for ( $i = 0; $i < 5; $i++ ) {
+			$reopened->poll();
+		}
+
+		$this->assertSame( [], $cap->captured, "a live tail must never replay the file; token was {$token}" );
+	}
+
+	public function test_a_reopened_tail_advertises_its_pending_seek_not_zero(): void {
+		// THE replay loop: on a reopen the position lands in file_seek_candidate
+		// and cursor_offset stays 0 until the first poll opens the handle. A
+		// cursor_position() reading cursor_offset therefore advertises `:0`, the
+		// client echoes `:0`, and every reopen after that replays the whole file.
+		$path = "{$this->tmp}/php-error.log";
+		\file_put_contents( $path, "line-one\nline-two\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		$ctrl = new Log_Stream_Out_Node();
+		$tail = $ctrl->open_subscription( 'php', $ctrl->resume_positions( null, 'php=:9' ) )[0];
+
+		$this->assertSame( ':9', $tail->cursor_position() );
 	}
 
 	public function test_cursor_position_omits_the_container_until_the_inode_is_known(): void {
