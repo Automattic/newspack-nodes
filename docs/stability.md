@@ -46,18 +46,26 @@ not by this contract.
 
 ## Deprecation policy
 
-A frozen name is never removed or re-shaped inside a major version. When a better shape
+A frozen name is never removed in the same release that replaces it. When a better shape
 arrives, the new name ships alongside the old; the old keeps working for **at
 least one minor release**, marked deprecated in its docblock with its
-replacement documented in [upgrading.md](upgrading.md). Removal happens only in
-the next major, with the fix beside it in upgrading.md.
+replacement documented in [upgrading.md](upgrading.md). Removal then happens in
+a later minor — deprecate in `2.11.0`, remove in `2.12.0` at the earliest —
+with the fix beside it in upgrading.md.
+
+A **major** is for a break that cannot be deprecated: a frozen name that changes
+meaning rather than moving, or one whose old behaviour cannot coexist with the
+new. Deleting an entity that no longer exists is not that — there is nothing to
+deprecate toward, so it goes in a minor with an upgrading.md entry.
 
 Additive change — new verbs, new nodes, new hooks, new optional arguments — is
 free in any minor.
 
 ## Versioning
 
-Semantic versioning. Patch = fixes only; minor = additive; major = the only
-place a frozen name may break. The maintenance rule from
-[upgrading.md](upgrading.md) stands: any release that changes a consumer-facing
-contract adds its entry there in the same commit as its CHANGELOG entry.
+Semantic versioning. Patch = fixes only; minor = additive, plus the removal of
+anything deprecated for at least one minor before it; major = a frozen name
+breaking in place, where no deprecation window can exist. The maintenance rule
+from [upgrading.md](upgrading.md) stands: any release that changes a
+consumer-facing contract adds its entry there in the same commit as its
+CHANGELOG entry.

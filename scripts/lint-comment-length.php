@@ -16,6 +16,9 @@
 const MAX_COLS  = 80;
 const TAB_WIDTH = 4;
 
+/** Directories never linted: unit tests are exempt by owner's rule, the rest are not ours. */
+const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git' ];
+
 /** Visual length with tabs expanded to the next TAB_WIDTH stop. */
 function visual_length( string $line ): int {
 	$col = 0;
@@ -134,12 +137,20 @@ function expand_path( string $path ): array {
 	if ( ! \is_dir( $path ) ) {
 		return [];
 	}
-	$out      = [];
-	$iterator = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS ) );
-	foreach ( $iterator as $entry ) {
-		if ( $entry->isFile() && 'php' === $entry->getExtension() ) {
-			$out[] = \ltrim( \preg_replace( '#^\./#', '', $entry->getPathname() ) ?? '', '' );
-		}
+	$dirs = new \RecursiveDirectoryIterator( $path, \FilesystemIterator::SKIP_DOTS );
+	// @longform Prune rather than filter after the walk: descending
+	// node_modules only to discard it costs about a second of syscalls, and
+	// an unreadable directory throws out of the iterator.
+	$pruned = new \RecursiveCallbackFilterIterator(
+		$dirs,
+		static fn ( \SplFileInfo $entry ): bool =>
+			$entry->isDir()
+				? ! \in_array( $entry->getFilename(), SKIP_DIRS, true )
+				: 'php' === \strtolower( $entry->getExtension() )
+	);
+	$out = [];
+	foreach ( new \RecursiveIteratorIterator( $pruned ) as $entry ) {
+		$out[] = (string) \preg_replace( '#^\./#', '', $entry->getPathname() );
 	}
 	\sort( $out, \SORT_NATURAL );
 	return $out;
@@ -155,8 +166,8 @@ foreach ( $targets as $file ) {
 	if ( ! \str_ends_with( $file, '.php' ) || ! \is_file( $file ) ) {
 		continue;
 	}
-	// Unit tests are exempt (owner's rule), as are vendored trees.
-	if ( 1 === \preg_match( '#(^|/)(tests|vendor|node_modules|build|coverage|release|\.phpstan)/#', $file ) ) {
+	// Also filter explicit paths: lint-staged passes files, not a directory.
+	if ( 1 === \preg_match( '#(^|/)(' . \implode( '|', \array_map( '\preg_quote', SKIP_DIRS ) ) . ')/#', $file ) ) {
 		continue;
 	}
 	foreach ( check_file( $file ) as $violation ) {
