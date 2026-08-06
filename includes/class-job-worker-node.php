@@ -49,6 +49,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 /**
  * Job Worker class.
+ *
+ * @phpstan-type Job_Stat array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,last_status:string,last_message:string,probe_ts:float}
  */
 class Job_Worker_Node extends Node {
 	use Schema_Reflection;
@@ -73,10 +75,11 @@ class Job_Worker_Node extends Node {
 
 	/**
 	 * Per-identity job-stats accumulator. Keyed by `handler:id` (top-level `id`
-	 * present) or `handler`; each entry holds cumulative counters + last-run detail.
+	 * present) or `handler`; each entry holds THIS probe window's counters (drained
+	 * by probe_stats), the instant that window opened, and the last-run detail.
 	 * The Job_Probe sweeps it via probe_stats() into the durable jobstats.p0 log.
 	 *
-	 * @var array<string,array{handler:string,runs:int,errors:int,duration_ms:float,queue_ms:float,items_ok:int,items_err:int,last_ts:int,last_duration_ms:int,last_status:string,last_message:string}>
+	 * @var array<string,Job_Stat>
 	 */
 	private array $job_stats = [];
 
@@ -381,6 +384,8 @@ class Job_Worker_Node extends Node {
 			'last_duration_ms' => 0,
 			'last_status'      => '',
 			'last_message'     => '',
+			// Window opens at the first run, not at worker start.
+			'probe_ts'         => Core::$now,
 		];
 
 		++$s['runs'];
@@ -485,32 +490,59 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Probe seam: the accumulator as a LIST of positional Jobstats_Record snapshots
-	 * (one per identity), for the Job_Probe to sweep into jobstats.p0. Mirrors
-	 * Consumer_Node::probe_stats(), which yields ONE record; a worker owns many
-	 * identities, so this yields many. Empty until the first job runs.
+	 * Probe seam: a LIST of positional Jobstats_Record snapshots (one per identity)
+	 * for the Job_Probe to sweep into jobstats.p0. Mirrors Consumer_Node's ONE
+	 * record; a worker owns many identities, so this yields many. Empty until the
+	 * first job runs.
+	 *
+	 * A DRAINING read — call it once per sweep. Each record carries the work done
+	 * since the previous call plus the interval it covers, so a reader divides ONE
+	 * record instead of differencing across records (which read a ~595s worker
+	 * recycle as a counter reset). A drained identity keeps reporting with zero
+	 * deltas and live last-run detail, so its row and its plotted 0 survive.
 	 *
 	 * @return array<int,array<int,int|string>> Jobstats_Record-indexed positional arrays.
 	 */
 	public function probe_stats(): array {
 		$records = [];
 		foreach ( $this->job_stats as $key => $s ) {
-			$record                                    = [];
-			$record[ Jobstats_Record::KEY ]            = $key;
-			$record[ Jobstats_Record::HANDLER ]        = $s['handler'];
-			$record[ Jobstats_Record::RUNS ]           = $s['runs'];
-			$record[ Jobstats_Record::ERRORS ]         = $s['errors'];
-			$record[ Jobstats_Record::DURATION_MS ]    = (int) \round( $s['duration_ms'] );
-			$record[ Jobstats_Record::QUEUE_MS ]       = (int) \round( $s['queue_ms'] );
-			$record[ Jobstats_Record::ITEMS_OK ]       = $s['items_ok'];
-			$record[ Jobstats_Record::ITEMS_ERR ]      = $s['items_err'];
-			$record[ Jobstats_Record::LAST_TS ]        = $s['last_ts'];
+			$record                                      = [];
+			$record[ Jobstats_Record::KEY ]              = $key;
+			$record[ Jobstats_Record::HANDLER ]          = $s['handler'];
+			$record[ Jobstats_Record::RUNS_DELTA ]       = $s['runs'];
+			$record[ Jobstats_Record::ERRORS_DELTA ]     = $s['errors'];
+			$record[ Jobstats_Record::DURATION_MS_DELTA ] = (int) \round( $s['duration_ms'] );
+			$record[ Jobstats_Record::QUEUE_MS_DELTA ]   = (int) \round( $s['queue_ms'] );
+			$record[ Jobstats_Record::ITEMS_OK_DELTA ]   = $s['items_ok'];
+			$record[ Jobstats_Record::ITEMS_ERR_DELTA ]  = $s['items_err'];
+			$record[ Jobstats_Record::LAST_TS ]          = $s['last_ts'];
 			$record[ Jobstats_Record::LAST_DURATION_MS ] = $s['last_duration_ms'];
-			$record[ Jobstats_Record::LAST_STATUS ]    = $s['last_status'];
-			$record[ Jobstats_Record::LAST_MESSAGE ]   = $s['last_message'];
-			$records[] = $record;
+			$record[ Jobstats_Record::LAST_STATUS ]      = $s['last_status'];
+			$record[ Jobstats_Record::LAST_MESSAGE ]     = $s['last_message'];
+			$record[ Jobstats_Record::ELAPSED_MS ]       = (int) \round( \max( 0.0, Core::$now - $s['probe_ts'] ) * 1000 );
+			$records[]                                   = $record;
+			$this->job_stats[ $key ]                     = $this->drained( $s );
 		}
 		return $records;
+	}
+
+	/**
+	 * Re-baseline one identity's accumulator after its record ships: the counters
+	 * reset to zero and the window reopens at now. Last-run detail is untouched —
+	 * the table shows it whether or not the identity ran this interval.
+	 *
+	 * @param Job_Stat $s The identity's accumulator entry.
+	 * @return Job_Stat The same entry with a fresh window.
+	 */
+	private function drained( array $s ): array {
+		$s['runs']        = 0;
+		$s['errors']      = 0;
+		$s['duration_ms'] = 0.0;
+		$s['queue_ms']    = 0.0;
+		$s['items_ok']    = 0;
+		$s['items_err']   = 0;
+		$s['probe_ts']    = Core::$now;
+		return $s;
 	}
 
 	public static function node_schema(): array {

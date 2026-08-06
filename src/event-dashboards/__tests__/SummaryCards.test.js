@@ -117,13 +117,13 @@ it( 'sums the current backlog across readers from the probe consumers', () => {
 
 it( 'formats the 24h produced messages + bytes from the probe consumers', () => {
 	const series = [
-		{ ts: 0, msgRate: 0, byteRate: 0 },
-		{ ts: 15, msgRate: 100, byteRate: 1000 },
+		{ ts: 0, msgs: 500, bytes: 5000 },
+		{ ts: 15, msgs: 1000, bytes: 10000 },
 	];
 	const { container } = renderCards( {
 		consumers: { r1: { source: 's', series } },
 	} );
-	// 100/s×15s=1500 msgs; 1000 B/s×15s=15000 B ≈ 15 KB (decimal dropped ≥10).
+	// Σ 1500 msgs; Σ 15000 B ≈ 15 KB (decimal dropped ≥10).
 	expect( card( container, 'messages' ) ).toContain( '1.5K' );
 	expect( card( container, 'bytes' ) ).toContain( '15 KB' );
 } );

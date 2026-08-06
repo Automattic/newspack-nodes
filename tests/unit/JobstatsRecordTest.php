@@ -16,20 +16,21 @@ class JobstatsRecordTest extends TestCase {
 	/** The canonical layout — dense 0..N. */
 	public function test_php_indices_are_dense_and_ordered(): void {
 		$this->assertSame(
-			[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ],
+			[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
 			[
 				Jobstats_Record::KEY,
 				Jobstats_Record::HANDLER,
-				Jobstats_Record::RUNS,
-				Jobstats_Record::ERRORS,
-				Jobstats_Record::DURATION_MS,
-				Jobstats_Record::QUEUE_MS,
-				Jobstats_Record::ITEMS_OK,
-				Jobstats_Record::ITEMS_ERR,
+				Jobstats_Record::RUNS_DELTA,
+				Jobstats_Record::ERRORS_DELTA,
+				Jobstats_Record::DURATION_MS_DELTA,
+				Jobstats_Record::QUEUE_MS_DELTA,
+				Jobstats_Record::ITEMS_OK_DELTA,
+				Jobstats_Record::ITEMS_ERR_DELTA,
 				Jobstats_Record::LAST_TS,
 				Jobstats_Record::LAST_DURATION_MS,
 				Jobstats_Record::LAST_STATUS,
 				Jobstats_Record::LAST_MESSAGE,
+				Jobstats_Record::ELAPSED_MS,
 			]
 		);
 	}
@@ -41,18 +42,19 @@ class JobstatsRecordTest extends TestCase {
 		$this->assertIsString( $js, 'jobstats-record.js must exist' );
 
 		$expected = [
-			'KEY'              => Jobstats_Record::KEY,
-			'HANDLER'          => Jobstats_Record::HANDLER,
-			'RUNS'             => Jobstats_Record::RUNS,
-			'ERRORS'           => Jobstats_Record::ERRORS,
-			'DURATION_MS'      => Jobstats_Record::DURATION_MS,
-			'QUEUE_MS'         => Jobstats_Record::QUEUE_MS,
-			'ITEMS_OK'         => Jobstats_Record::ITEMS_OK,
-			'ITEMS_ERR'        => Jobstats_Record::ITEMS_ERR,
-			'LAST_TS'          => Jobstats_Record::LAST_TS,
-			'LAST_DURATION_MS' => Jobstats_Record::LAST_DURATION_MS,
-			'LAST_STATUS'      => Jobstats_Record::LAST_STATUS,
-			'LAST_MESSAGE'     => Jobstats_Record::LAST_MESSAGE,
+			'KEY'               => Jobstats_Record::KEY,
+			'HANDLER'           => Jobstats_Record::HANDLER,
+			'RUNS_DELTA'        => Jobstats_Record::RUNS_DELTA,
+			'ERRORS_DELTA'      => Jobstats_Record::ERRORS_DELTA,
+			'DURATION_MS_DELTA' => Jobstats_Record::DURATION_MS_DELTA,
+			'QUEUE_MS_DELTA'    => Jobstats_Record::QUEUE_MS_DELTA,
+			'ITEMS_OK_DELTA'    => Jobstats_Record::ITEMS_OK_DELTA,
+			'ITEMS_ERR_DELTA'   => Jobstats_Record::ITEMS_ERR_DELTA,
+			'LAST_TS'           => Jobstats_Record::LAST_TS,
+			'LAST_DURATION_MS'  => Jobstats_Record::LAST_DURATION_MS,
+			'LAST_STATUS'       => Jobstats_Record::LAST_STATUS,
+			'LAST_MESSAGE'      => Jobstats_Record::LAST_MESSAGE,
+			'ELAPSED_MS'        => Jobstats_Record::ELAPSED_MS,
 		];
 		foreach ( $expected as $name => $value ) {
 			$this->assertSame(

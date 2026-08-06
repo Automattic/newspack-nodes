@@ -206,6 +206,56 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertSame( 'timeout', $entry['reason'], 'a cooperative stop routes durable consumers to the fair-shot rule' );
 	}
 
+	public function test_clean_shutdown_sweeps_every_shutdown_sweeper_before_teardown(): void {
+		// The final partial interval would otherwise be lost: a worker recycles
+		// every ~595s, so the probe's last (unswept) window is real work. Nodes
+		// OPT IN via Shutdown_Sweeper; Worker_Base names no class.
+		$probe = new RecordingSweeper();
+		$probe->name( 'topicprobe' );
+
+		$w      = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
+		$w->err = null; // clean exit.
+		$w->shutdown_handoff();
+
+		$this->assertSame( 1, $probe->sweeps );
+	}
+
+	public function test_fatal_shutdown_does_not_sweep(): void {
+		// A dead process cannot report: the fatal path already skips the cursor
+		// handoff, and the final sweep rides the same gate.
+		$probe = new RecordingSweeper();
+		$probe->name( 'topicprobe' );
+
+		$w      = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
+		$w->err = [ 'type' => \E_ERROR, 'message' => 'oom', 'file' => 'f', 'line' => 1 ];
+		$w->shutdown_handoff();
+
+		$this->assertSame( 0, $probe->sweeps );
+	}
+
+	public function test_a_throwing_sweeper_does_not_block_the_cursor_handoff(): void {
+		$boom = new class() extends \Newspack_Nodes\Node implements \Newspack_Nodes\Shutdown_Sweeper {
+			public function shutdown_sweep(): void {
+				throw new \RuntimeException( 'log gone' );
+			}
+		};
+		$boom->name( 'badprobe' );
+		$this->seed_offsetlog_frame( "{$this->tmp}/offsets.p0", 0, 0, 2, '' );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		$w      = new FatalProbeWorker( $this->tmp, 'firehose', 0 );
+		$w->err = null;
+		$w->shutdown_handoff();
+
+		$entry = $this->newest_offsetlog_entry_for( "{$this->tmp}/offsets.p0" );
+		$this->assertSame( 0, $entry['attempts'] );
+	}
+
 	public function test_fatal_shutdown_skips_graceful_handoff_so_attempts_climb(): void {
 		// A catchable fatal (OOM) runs the shutdown handler but is NOT a clean recycle: the
 		// handler must NOT graceful-checkpoint (which resets attempts to 0), or a deterministic
@@ -350,6 +400,14 @@ class WorkerScaffoldingTest extends TestCase {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$interpreter = $w->build_scaffolding();
 		$this->assertSame( Core::node( '_router' ), $interpreter->sink() );
+	}
+}
+
+/** A node that opts into the final shutdown sweep and counts how often it ran. */
+class RecordingSweeper extends \Newspack_Nodes\Node implements \Newspack_Nodes\Shutdown_Sweeper {
+	public int $sweeps = 0;
+	public function shutdown_sweep(): void {
+		++$this->sweeps;
 	}
 }
 

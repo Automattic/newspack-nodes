@@ -361,7 +361,7 @@ class CliTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = $fields['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $fields['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $fields['distance'] ?? 0;
-		$record[ Probe_Record::MSGS ]       = $fields['msgs'] ?? 0;
+		$record[ Probe_Record::MSGS_DELTA ]       = $fields['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;

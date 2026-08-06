@@ -123,7 +123,7 @@ class WorkersCITest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = $extra['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $extra['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $extra['distance'] ?? $extra['bytes_behind'] ?? 0;
-		$record[ Probe_Record::MSGS ]       = $extra['msgs'] ?? 0;
+		$record[ Probe_Record::MSGS_DELTA ]       = $extra['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;

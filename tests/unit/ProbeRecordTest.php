@@ -16,7 +16,7 @@ class ProbeRecordTest extends TestCase {
 	/** The canonical layout — dense 0..N. */
 	public function test_php_indices_are_dense_and_ordered(): void {
 		$this->assertSame(
-			[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 ],
+			[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 ],
 			[
 				Probe_Record::SOURCE,
 				Probe_Record::READER,
@@ -25,9 +25,11 @@ class ProbeRecordTest extends TestCase {
 				Probe_Record::END_SEGMENT,
 				Probe_Record::END_SIZE,
 				Probe_Record::DISTANCE,
-				Probe_Record::MSGS,
+				Probe_Record::MSGS_DELTA,
 				Probe_Record::END_BYTES,
 				Probe_Record::CACHE_SIZE,
+				Probe_Record::BYTES_READ_DELTA,
+				Probe_Record::ELAPSED_MS,
 			]
 		);
 	}
@@ -38,16 +40,17 @@ class ProbeRecordTest extends TestCase {
 		);
 		$this->assertIsString( $js, 'probe-record.js must exist' );
 
-		// Indices 2..5 (cursor/end) are PHP-write-only — the JS mirror omits
-		// them. The remaining values still pin the shared layout: a renumber
-		// on either side breaks this.
+		// Indices 2..5 (cursor/end) and 8 (END_BYTES) are PHP-write-only — the
+		// JS mirror omits them. The remaining values still pin the shared
+		// layout: a renumber on either side breaks this.
 		$expected = [
-			'SOURCE'     => Probe_Record::SOURCE,
-			'READER'     => Probe_Record::READER,
-			'DISTANCE'   => Probe_Record::DISTANCE,
-			'MSGS'       => Probe_Record::MSGS,
-			'END_BYTES'  => Probe_Record::END_BYTES,
-			'CACHE_SIZE' => Probe_Record::CACHE_SIZE,
+			'SOURCE'           => Probe_Record::SOURCE,
+			'READER'           => Probe_Record::READER,
+			'DISTANCE'         => Probe_Record::DISTANCE,
+			'MSGS_DELTA'       => Probe_Record::MSGS_DELTA,
+			'CACHE_SIZE'       => Probe_Record::CACHE_SIZE,
+			'BYTES_READ_DELTA' => Probe_Record::BYTES_READ_DELTA,
+			'ELAPSED_MS'       => Probe_Record::ELAPSED_MS,
 		];
 		foreach ( $expected as $name => $value ) {
 			$this->assertSame(

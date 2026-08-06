@@ -21,8 +21,9 @@ import {
 	SOURCE,
 	READER,
 	DISTANCE,
-	MSGS,
-	END_BYTES,
+	MSGS_DELTA,
+	BYTES_READ_DELTA,
+	ELAPSED_MS,
 } from '../../../runtime/probe-record';
 
 class FakeEventSource {
@@ -69,6 +70,7 @@ function probeFrame( {
 	source = 'firehose.p0',
 	distance = 0,
 	msgs = 0,
+	elapsedMs = 15000,
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -80,8 +82,9 @@ function probeFrame( {
 	v[ SOURCE ] = source;
 	v[ READER ] = reader;
 	v[ DISTANCE ] = distance;
-	v[ MSGS ] = msgs;
-	v[ END_BYTES ] = msgs;
+	v[ MSGS_DELTA ] = msgs;
+	v[ BYTES_READ_DELTA ] = msgs;
+	v[ ELAPSED_MS ] = elapsedMs;
 	m[ VALUE ] = v;
 	return m;
 }
@@ -205,13 +208,18 @@ describe( 'useTopicProbeStream', () => {
 			FakeEventSource.last.dispatch(
 				'msg',
 				JSON.stringify(
-					probeFrame( { msgs: 4000, distance: 7800, ts: 103 } )
+					probeFrame( {
+						msgs: 3000,
+						distance: 7800,
+						elapsedMs: 3000,
+						ts: 103,
+					} )
 				)
 			);
 		} );
 		const snap = Core.node( VIEW ).snapshot();
 		expect( snap[ 'firehose.p0' ] ).toBeTruthy();
-		// +3000 msgs / 3s
+		// 3000 msgs over the record's own 3s window.
 		expect( snap[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
 		expect( snap[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );

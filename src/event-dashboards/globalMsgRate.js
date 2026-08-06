@@ -3,7 +3,8 @@
  * "Messages/s" card: Σ over distinct sources of each source's latest msgRate.
  *
  * The probe's `SOURCE` is the per-PARTITION log a consumer tails (`firehose.p0`),
- * and `msgRate` is that partition's production rate (Δ MSGS / Δ ts). So co-readers
+ * and `msgRate` is that partition's production rate (the record's own
+ * MSGS_DELTA over its ELAPSED_MS). So co-readers
  * of ONE source (two topologies tailing `firehose.p0`) report the SAME rate — we
  * dedup them by source (max), never sum — while a topic's distinct partitions are
  * distinct sources (`firehose.p0`, `firehose.p1`), summed for the topic total.

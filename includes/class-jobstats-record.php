@@ -3,10 +3,12 @@
  * Jobstats_Record: the positional layout of a jobstats.p0 record's Message VALUE.
  *
  * A `Job_Probe` snapshot is a small POSITIONAL array (no keys) so the browser can
- * replay 24h of it over SSE cheaply. Fields 2..7 are CUMULATIVE counters — readers
- * derive per-second rates from consecutive records (Δcounter / Δ TIMESTAMP), and a
- * worker restart reads as a counter reset → rate 0. Fields 8..11 are the last-run
- * detail. The Message's TIMESTAMP is the sweep instant, never duplicated here.
+ * replay 24h of it over SSE cheaply. Each record is SELF-CONTAINED: fields 2..7
+ * are the work done since the previous sweep and `ELAPSED_MS` is the interval that
+ * work covers, so a reader divides ONE record and never differences across records
+ * — a worker recycles every ~595s, and differencing read that as a counter reset.
+ * Fields 8..11 are the last-run detail. The Message's TIMESTAMP is the sweep
+ * instant, never duplicated here.
  *
  * Indices mirror `src/runtime/jobstats-record.js` (a parity test pins them).
  *
@@ -25,23 +27,23 @@ class Jobstats_Record {
 	/** Handler name (grouping/display; the `id`-free half of KEY). */
 	public const HANDLER = 1;
 
-	/** Cumulative runs (every executed job, success or error). */
-	public const RUNS = 2;
+	/** Runs during ELAPSED_MS (every executed job, success or error). */
+	public const RUNS_DELTA = 2;
 
-	/** Cumulative error-status runs (a subset of RUNS). */
-	public const ERRORS = 3;
+	/** Error-status runs during ELAPSED_MS (a subset of RUNS_DELTA). */
+	public const ERRORS_DELTA = 3;
 
-	/** Cumulative sum of run durations, milliseconds. */
-	public const DURATION_MS = 4;
+	/** Sum of run durations during ELAPSED_MS, milliseconds. */
+	public const DURATION_MS_DELTA = 4;
 
-	/** Cumulative sum of queue latencies (start − enqueue ts), milliseconds. */
-	public const QUEUE_MS = 5;
+	/** Sum of queue latencies (start − enqueue ts) during ELAPSED_MS, milliseconds. */
+	public const QUEUE_MS_DELTA = 5;
 
-	/** Cumulative sum of handler-reported success_count (negative sentinel dropped). */
-	public const ITEMS_OK = 6;
+	/** Sum of handler-reported success_count during ELAPSED_MS (negative sentinel dropped). */
+	public const ITEMS_OK_DELTA = 6;
 
-	/** Cumulative sum of handler-reported error_count. */
-	public const ITEMS_ERR = 7;
+	/** Sum of handler-reported error_count during ELAPSED_MS. */
+	public const ITEMS_ERR_DELTA = 7;
 
 	/** Wall-clock epoch (seconds) of the last run. */
 	public const LAST_TS = 8;
@@ -54,5 +56,8 @@ class Jobstats_Record {
 
 	/** One-line summary of the last run (capped). */
 	public const LAST_MESSAGE = 11;
+
+	/** Milliseconds the deltas above cover — the interval since this identity's previous sweep. */
+	public const ELAPSED_MS = 12;
 
 }

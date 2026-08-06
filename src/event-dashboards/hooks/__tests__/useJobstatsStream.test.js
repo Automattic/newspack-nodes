@@ -16,7 +16,12 @@ import {
 	VALUE,
 	TM_STRUCT,
 } from '../../../runtime/message';
-import { KEY, HANDLER, RUNS } from '../../../runtime/jobstats-record';
+import {
+	KEY,
+	HANDLER,
+	RUNS_DELTA,
+	ELAPSED_MS,
+} from '../../../runtime/jobstats-record';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -60,6 +65,7 @@ function jobstatsFrame( {
 	key = 'evtemplate',
 	handler = 'evtemplate',
 	runs = 0,
+	elapsedMs = 15000,
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -69,7 +75,8 @@ function jobstatsFrame( {
 	const v = [];
 	v[ KEY ] = key;
 	v[ HANDLER ] = handler;
-	v[ RUNS ] = runs;
+	v[ RUNS_DELTA ] = runs;
+	v[ ELAPSED_MS ] = elapsedMs;
 	m[ VALUE ] = v;
 	return m;
 }

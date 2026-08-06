@@ -10,9 +10,10 @@ import {
 	SOURCE,
 	READER,
 	DISTANCE,
-	MSGS,
-	END_BYTES,
+	MSGS_DELTA,
+	BYTES_READ_DELTA,
 	CACHE_SIZE,
+	ELAPSED_MS,
 } from '../../../runtime/probe-record';
 
 // Probe ts here is an OFFSET from a recent epoch base; absTs bypasses it.
@@ -26,8 +27,9 @@ function probeMsg( {
 	source = 'firehose.p0',
 	distance = 0,
 	msgs = 0,
-	endBytes = 0,
+	bytes = 0,
 	cacheSize = 0,
+	elapsedMs = 15000,
 } = {} ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -36,9 +38,10 @@ function probeMsg( {
 	v[ SOURCE ] = source;
 	v[ READER ] = reader;
 	v[ DISTANCE ] = distance;
-	v[ MSGS ] = msgs;
-	v[ END_BYTES ] = endBytes;
+	v[ MSGS_DELTA ] = msgs;
+	v[ BYTES_READ_DELTA ] = bytes;
 	v[ CACHE_SIZE ] = cacheSize;
+	v[ ELAPSED_MS ] = elapsedMs;
 	m[ VALUE ] = v;
 	return m;
 }
@@ -56,25 +59,55 @@ describe( 'TopicProbeViewNode', () => {
 		expect( snap[ 'firehose.p0' ].source ).toBe( 'firehose.p0' );
 	} );
 
-	it( 'computes msgs-rate from consecutive msgs deltas over the ts gap', () => {
+	it( 'divides ONE record: msgRate is its MSGS_DELTA over its own ELAPSED_MS', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { msgs: 1000, ts: 100 } ) );
-		v.fill( probeMsg( { msgs: 4000, ts: 103 } ) ); // 1000 msg/s
+		v.fill( probeMsg( { msgs: 3000, elapsedMs: 3000, ts: 103 } ) );
 		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
 	} );
 
-	it( 'computes byte-rate from consecutive END_BYTES deltas over the ts gap', () => {
+	it( 'divides ONE record: byteRate is its BYTES_READ_DELTA over its own ELAPSED_MS', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { endBytes: 1000, ts: 100 } ) );
-		v.fill( probeMsg( { endBytes: 4000, ts: 103 } ) ); // 1000 B/s
+		v.fill( probeMsg( { bytes: 3000, elapsedMs: 3000, ts: 103 } ) );
 		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 1000 );
 	} );
 
-	it( 'treats an END_BYTES drop (segment GC) as byte-rate 0, never negative', () => {
+	it( 'keeps a non-zero rate across a worker restart (the counter reset that used to plot a literal 0)', () => {
+		// A worker recycles every ~595s. The pre-restart record reports a big
+		// window of work; the recycled generation's FIRST record reports its own
+		// small window. Both are real rates — neither is 0.
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { endBytes: 9000, ts: 100 } ) );
-		v.fill( probeMsg( { endBytes: 200, ts: 115 } ) ); // GC dropped segments
-		expect( v.snapshot()[ 'firehose.p0' ].latest.byteRate ).toBe( 0 );
+		v.fill(
+			probeMsg( { msgs: 4230, bytes: 84600, elapsedMs: 15000, ts: 100 } )
+		);
+		v.fill(
+			probeMsg( { msgs: 37, bytes: 740, elapsedMs: 15000, ts: 115 } )
+		);
+		const series = v.snapshot()[ 'firehose.p0' ].series;
+		expect( series[ 0 ].msgRate ).toBeCloseTo( 282, 5 );
+		expect( series[ 1 ].msgRate ).toBeCloseTo( 37 / 15, 5 );
+		expect( series[ 1 ].byteRate ).toBeCloseTo( 740 / 15, 5 );
+	} );
+
+	it( 'a zero-elapsed record reads as rate 0 rather than dividing by zero', () => {
+		// Two sweeps inside one clock second (the shutdown sweep right after a
+		// tick) carry ELAPSED_MS 0. The delta still rides for the totals.
+		const v = new TopicProbeViewNode();
+		v.fill( probeMsg( { msgs: 91, bytes: 1820, elapsedMs: 0, ts: 100 } ) );
+		const latest = v.snapshot()[ 'firehose.p0' ].latest;
+		expect( latest.msgRate ).toBe( 0 );
+		expect( latest.byteRate ).toBe( 0 );
+		expect( latest.msgs ).toBe( 91 );
+	} );
+
+	it( 'carries the record delta and elapsed onto the sample, so buckets can re-divide', () => {
+		const v = new TopicProbeViewNode();
+		v.fill(
+			probeMsg( { msgs: 91, bytes: 1820, elapsedMs: 15000, ts: 100 } )
+		);
+		const latest = v.snapshot()[ 'firehose.p0' ].latest;
+		expect( latest.msgs ).toBe( 91 );
+		expect( latest.bytes ).toBe( 1820 );
+		expect( latest.elapsed ).toBe( 15 );
 	} );
 
 	it( 'reports the latest offsetlog cache size', () => {
@@ -91,17 +124,18 @@ describe( 'TopicProbeViewNode', () => {
 		expect( v.snapshot()[ 'firehose.p0' ].latest.backlog ).toBe( 7800 );
 	} );
 
-	it( 'treats a msgs DROP (worker restart resets the counter) as rate 0, never negative', () => {
+	it( 'a negative delta (a corrupt record) reads as 0, never negative', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { msgs: 9000, ts: 100 } ) );
-		v.fill( probeMsg( { msgs: 200, ts: 115 } ) ); // counter reset
-		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
+		v.fill( probeMsg( { msgs: -200, bytes: -9, ts: 115 } ) );
+		const latest = v.snapshot()[ 'firehose.p0' ].latest;
+		expect( latest.msgRate ).toBe( 0 );
+		expect( latest.byteRate ).toBe( 0 );
 	} );
 
-	it( 'the first sample for a consumer has rate 0 (no prior to delta against)', () => {
+	it( 'the FIRST record for a consumer already carries a rate (it is self-contained)', () => {
 		const v = new TopicProbeViewNode();
-		v.fill( probeMsg( { msgs: 5000, ts: 100 } ) );
-		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 0 );
+		v.fill( probeMsg( { msgs: 5000, elapsedMs: 5000, ts: 100 } ) );
+		expect( v.snapshot()[ 'firehose.p0' ].latest.msgRate ).toBe( 1000 );
 	} );
 
 	it( 'keeps a bounded rate+backlog series per consumer (ring-capped)', () => {

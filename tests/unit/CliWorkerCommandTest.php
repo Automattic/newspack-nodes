@@ -71,7 +71,7 @@ class CliWorkerCommandTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = $value['end_segment'] ?? 0;
 		$record[ Probe_Record::END_SIZE ]   = $value['end_size'] ?? 0;
 		$record[ Probe_Record::DISTANCE ]   = $value['distance'] ?? $value['bytes_behind'] ?? 0;
-		$record[ Probe_Record::MSGS ]       = $value['msgs'] ?? 0;
+		$record[ Probe_Record::MSGS_DELTA ]       = $value['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;

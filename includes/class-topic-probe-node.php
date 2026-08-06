@@ -4,10 +4,14 @@
  * TopicProbe.pm (consumer branch) for our multi-process world — each worker process
  * runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`, the analog of
  * `%Tachikoma::Nodes`) and emitting one snapshot record per tick into the shared
- * `topicprobe` log. Consumer + partition state ride together at one instant:
- * each consumer's seg:off cursor plus the EXACT byte volumes — `bytes_read`
- * (monotonic, → byte-rate) and `bytes_behind` (backlog, from real on-disk segment
- * sizes). Log-only — no memcache; the log is the sole position source.
+ * `topicprobe` log. Consumer + partition state ride together at one instant: each
+ * consumer's seg:off cursor and its `bytes_behind` backlog (from real on-disk
+ * segment sizes), plus the messages and bytes it moved since its previous sweep
+ * and the interval that covers — a SELF-CONTAINED record a reader divides on its
+ * own, so a ~595s worker recycle is just another window rather than a counter
+ * reset. Because the sweep DRAINS each Consumer's counters, exactly one
+ * Topic_Probe may run per process. Log-only — no memcache; the log is the sole
+ * position source.
  *
  * @package Newspack_Nodes
  */
@@ -16,7 +20,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Topic_Probe_Node extends Timer_Node {
+class Topic_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 
 	/** Shared probe-log dir basename (the topic-probe TSL declares the path). */
 	public const LOG_DIR = 'topicprobe.p0';
@@ -83,6 +87,14 @@ class Topic_Probe_Node extends Timer_Node {
 			++$this->counter;
 			$sink->fill( $message );
 		}
+	}
+
+	/**
+	 * Clean-shutdown opt-in: emit the window since the last tick, which the timer
+	 * gate would otherwise swallow when the worker recycles mid-interval.
+	 */
+	public function shutdown_sweep(): void {
+		$this->fire();
 	}
 
 	public static function node_schema(): array {

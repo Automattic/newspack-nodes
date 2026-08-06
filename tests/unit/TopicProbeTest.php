@@ -46,8 +46,11 @@ class TopicProbeTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = 3;
 		$record[ Probe_Record::END_SIZE ]   = 100 + $distance;
 		$record[ Probe_Record::DISTANCE ]   = $distance;
-		$record[ Probe_Record::MSGS ]       = 42;
+		$record[ Probe_Record::MSGS_DELTA ] = 42;
 		$record[ Probe_Record::END_BYTES ]  = 100 + $distance;
+		$record[ Probe_Record::CACHE_SIZE ] = 0;
+		$record[ Probe_Record::BYTES_READ_DELTA ] = 512;
+		$record[ Probe_Record::ELAPSED_MS ] = 15000;
 		$c->canned = $record;
 		$c->name( $name ); // registers into Core::$nodes_by_name (the sweep set)
 		$c->make_ready();
@@ -72,7 +75,7 @@ class TopicProbeTest extends TestCase {
 			$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
 			$this->assertSame( Core::$now, $msg[ Message::TIMESTAMP ] );
 			$this->assertCount(
-				9,
+				12,
 				$msg[ Message::VALUE ],
 				'lean positional record — no ts/host/derived fields'
 			);
@@ -83,6 +86,22 @@ class TopicProbeTest extends TestCase {
 		);
 		\sort( $readers );
 		$this->assertSame( [ 'firehose.p0', 'gyroscope.p0' ], $readers );
+	}
+
+	public function test_shutdown_sweep_emits_the_final_partial_interval(): void {
+		// A worker recycles every ~595s, so the window since the last tick is real
+		// work. The probe OPTS IN to the clean-shutdown sweep and emits it even
+		// though the timer gate has not elapsed.
+		$this->stub_consumer( 'firehose', 200 );
+		$capture = new Capture_Sink_Node();
+		$probe   = new Topic_Probe_Node();
+		$probe->name( 'topicprobe' );
+		$probe->sink( $capture );
+		$probe->fire_cb(); // the regular tick
+
+		$this->assertInstanceOf( \Newspack_Nodes\Shutdown_Sweeper::class, $probe );
+		$probe->shutdown_sweep();
+		$this->assertCount( 2, $capture->captured, 'the final window rides out on a clean stop' );
 	}
 
 	public function test_fire_emits_nothing_when_no_consumers(): void {

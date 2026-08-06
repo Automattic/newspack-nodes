@@ -198,7 +198,8 @@ class Tail_Node extends Consumer_Node {
 
 	/**
 	 * Probe snapshot. File mode reports lag as file-size − read-position (no segments); segmented
-	 * defers to Consumer. Topic_Probe already try/catches, but a clean record beats a skipped one.
+	 * defers to Consumer. Draining, like the parent: counters ride as the work done since the
+	 * previous sweep. Topic_Probe already try/catches, but a clean record beats a skipped one.
 	 *
 	 * @return array<int,int|string>
 	 */
@@ -207,6 +208,7 @@ class Tail_Node extends Consumer_Node {
 			return parent::probe_stats();
 		}
 		$size                                   = $this->file_current_size();
+		$window                                 = $this->drain_probe_window();
 		$record                                 = [];
 		$record[ Probe_Record::SOURCE ]         = '' !== $this->source_file ? \basename( $this->source_file ) : '';
 		$record[ Probe_Record::READER ]         = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
@@ -215,9 +217,11 @@ class Tail_Node extends Consumer_Node {
 		$record[ Probe_Record::END_SEGMENT ]    = $this->cursor_segment;
 		$record[ Probe_Record::END_SIZE ]       = $size;
 		$record[ Probe_Record::DISTANCE ]       = \max( 0, $size - ( $this->cursor_offset + \strlen( $this->buffer ) ) );
-		$record[ Probe_Record::MSGS ]           = $this->counter;
+		$record[ Probe_Record::MSGS_DELTA ]     = $window['msgs'];
 		$record[ Probe_Record::END_BYTES ]      = $size;
 		$record[ Probe_Record::CACHE_SIZE ]     = 0;
+		$record[ Probe_Record::BYTES_READ_DELTA ] = $window['bytes'];
+		$record[ Probe_Record::ELAPSED_MS ]     = $window['elapsed_ms'];
 		return $record;
 	}
 

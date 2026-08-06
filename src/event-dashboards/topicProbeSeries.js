@@ -5,13 +5,15 @@
  * Grafana Topics dashboard (rate + backlog, ranked by max).
  *
  * Readers of one source sweep on the same 15s tick (one shared `ts`), so summing
- * by `ts` aligns cleanly. Each series also carries its `max`/`avg` for the ranked
- * legend.
+ * by `ts` aligns cleanly. Each point also carries the WEIGHT its metric is a
+ * quotient of, so `buildAlignedSeries` can re-divide a bucket holding several
+ * samples (Σwork / Σweight) instead of letting one sample win. Each series also
+ * carries its `max`/`avg` for the ranked legend.
  */
 
-// LEVEL gauges hold across gaps, RATE metrics zero-fill; mode derived by name.
+// LEVEL gauges hold across gaps; RATE metrics zero-fill + re-divide per bucket.
 const LEVEL_MODE = { fill: 'hold', agg: 'last' };
-const RATE_MODE = { fill: 'zero', agg: 'max' };
+const RATE_MODE = { fill: 'zero', agg: 'rate' };
 const FILL_MODES = {
 	msgRate: RATE_MODE,
 	byteRate: RATE_MODE,
@@ -22,12 +24,22 @@ const FILL_MODES = {
 };
 
 /**
+ * The sample field each metric is a per-unit quotient OF, so a bucket aggregate
+ * can weight by it. Per-second rates divide by seconds; queue latency is a
+ * per-RUN mean, so weighting it by seconds would treat a busy window and an idle
+ * one as equals.
+ */
+const WEIGHT_FIELDS = { queueLatencyMs: 'runsDelta' };
+const DEFAULT_WEIGHT_FIELD = 'elapsed';
+
+/**
  * Fill/aggregate mode for a Topics metric: LEVEL gauges hold across gaps and
- * keep the last reading per bucket; RATE metrics zero-fill gaps and keep the
- * bucket peak. Unknown metrics fall back to RATE.
+ * keep the last reading per bucket; RATE metrics zero-fill gaps and re-divide
+ * the bucket's summed work by its summed weight. Unknown metrics fall back to
+ * RATE.
  *
  * @param {string} metric One of `msgRate` | `byteRate` | `backlog` | `cacheSize`.
- * @return {{fill:('hold'|'zero'),agg:('last'|'max')}} The fill/aggregate mode.
+ * @return {{fill:('hold'|'zero'),agg:('last'|'rate')}} The fill/aggregate mode.
  */
 export function fillModeForMetric( metric ) {
 	return FILL_MODES[ metric ] || RATE_MODE;
@@ -40,7 +52,7 @@ export function fillModeForMetric( metric ) {
  *                                                                                                                           The `topicprobe:view` consumers map.
  * @param {string}                                                                                                 metric    One of `msgRate` | `byteRate` | `backlog`.
  * @param {Function}                                                                                               [keyOf]   Group key per consumer (default its `source`).
- * @return {Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>}
+ * @return {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,avg:number}>}
  *   Per group key: the ts-sorted points + the series max + avg (for the ranked legend).
  */
 export function topicChartSeries(
@@ -48,6 +60,7 @@ export function topicChartSeries(
 	metric,
 	keyOf = ( c ) => c.source
 ) {
+	const weightField = WEIGHT_FIELDS[ metric ] || DEFAULT_WEIGHT_FIELD;
 	const byKey = {};
 	for ( const c of Object.values( consumers || {} ) ) {
 		const key = keyOf( c ) || '';
@@ -57,20 +70,23 @@ export function topicChartSeries(
 		( byKey[ key ] ||= [] ).push( c );
 	}
 
-	/** @type {Object<string,{points:Array<{ts:number,value:number}>,max:number,avg:number}>} */
+	/** @type {Object<string,{points:Array<{ts:number,value:number,weight:number}>,max:number,avg:number}>} */
 	const out = {};
 	for ( const [ key, list ] of Object.entries( byKey ) ) {
 		const byTs = new Map();
 		for ( const c of list ) {
 			for ( const s of c.series || [] ) {
-				byTs.set(
-					s.ts,
-					( byTs.get( s.ts ) || 0 ) + ( s[ metric ] || 0 )
-				);
+				const prev = byTs.get( s.ts ) || { value: 0, weight: 0 };
+				byTs.set( s.ts, {
+					// Rates ADD across the readers sampling one instant...
+					value: prev.value + ( s[ metric ] || 0 ),
+					// ...but share its window, so take the widest.
+					weight: Math.max( prev.weight, s[ weightField ] || 0 ),
+				} );
 			}
 		}
 		const tss = [ ...byTs.keys() ].sort( ( a, b ) => a - b );
-		const points = tss.map( ( ts ) => ( { ts, value: byTs.get( ts ) } ) );
+		const points = tss.map( ( ts ) => ( { ts, ...byTs.get( ts ) } ) );
 		const values = points.map( ( p ) => p.value );
 		const max = values.length ? Math.max( ...values ) : 0;
 		const avg = values.length

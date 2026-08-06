@@ -170,7 +170,7 @@ class Worker_CLI_Command {
 				'Source'    => $cr['source'],
 				'Partition' => $cr['partition'],
 				'Behind'    => CLI::format_bytes( $cr['distance'] ),
-				'Msgs'      => $cr['msgs'],
+				'Msgs/int'  => $cr['msgs'],
 			];
 		}
 		\usort(
@@ -189,7 +189,7 @@ class Worker_CLI_Command {
 			self::render( $format, $rows, [ 'Worker', 'State', 'Heartbeat', 'Uptime' ] );
 		}
 		if ( ! empty( $consumers ) ) {
-			self::render( $format, $consumers, [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs' ] );
+			self::render( $format, $consumers, [ 'Reader', 'Source', 'Partition', 'Behind', 'Msgs/int' ] );
 		}
 		if ( '' === $format ) {
 			\WP_CLI::log( 'Attach a REPL to a live worker with: wp nodes cli <Worker>' );
