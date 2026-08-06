@@ -169,7 +169,7 @@ class Topic_Node extends Node {
 	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
 	private function apply_large_write_mode( Partition_Node $p ): void {
 		if ( 'lock' === $this->large_write_mode ) {
-			$p->allow_large_writes( 65000, $this->large_write_debounce_ms );
+			$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS, $this->large_write_debounce_ms );
 		} elseif ( 'void' === $this->large_write_mode ) {
 			$p->void_warranty();
 		}

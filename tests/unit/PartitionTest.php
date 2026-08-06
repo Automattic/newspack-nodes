@@ -512,6 +512,36 @@ class PartitionTest extends TestCase {
 		$this->assertFalse( file_exists( "{$this->tmp}.p0/0.log" ), 'oversize fill must not touch the segment' );
 	}
 
+	public function test_default_lock_wait_cannot_outlast_a_worker_lease(): void {
+		// The wait blocks the caller. Any value at or past the lock stale window
+		// means a caller that waits it out stops heartbeating long enough to
+		// lose the very lease it is working under — and this is a DEFAULT, so
+		// the safe choice has to be the one you get by not thinking about it.
+		$this->assertLessThan(
+			\Newspack_Nodes\Lock_Node::STALE_TIMEOUT * 1000,
+			Partition_Node::DEFAULT_LOCK_WAIT_MS
+		);
+	}
+
+	public function test_no_call_site_hardcodes_the_default_lock_wait(): void {
+		// Two literals 400 lines apart drift the moment the constant moves.
+		$sources = [
+			\dirname( __DIR__, 2 ) . '/includes/class-partition-node.php',
+			\dirname( __DIR__, 2 ) . '/includes/class-topic-node.php',
+			\dirname( __DIR__, 2 ) . '/includes/class-job-intake.php',
+		];
+		foreach ( $sources as $path ) {
+			$body = (string) \file_get_contents( $path );
+			// The declaration itself is the one legal spelling of the number.
+			$body = \str_replace( 'DEFAULT_LOCK_WAIT_MS = ' . Partition_Node::DEFAULT_LOCK_WAIT_MS, '', $body );
+			$this->assertStringNotContainsString(
+				(string) Partition_Node::DEFAULT_LOCK_WAIT_MS,
+				$body,
+				\basename( $path ) . ' spells the default lock wait literally; use the constant'
+			);
+		}
+	}
+
 	public function test_allow_large_writes_lifts_limit_to_10MB(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
