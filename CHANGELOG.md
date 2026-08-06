@@ -30,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **An SSE stream now closes when it is idle, and tells the client when to come
   back.** `SSE_Out_Node` emits the SSE `retry:` field at stream start
-  (`sse_retry_ms`, default 15000) and ends the drain after `sse_idle_timeout`
-  seconds (default 15) carrying no `msg` event. Every open stream held a
+  (`sse_retry_ms`, default 5000) and ends the drain after `sse_idle_timeout`
+  seconds (default 5) carrying no `msg` event. Every open stream held a
   PHP-FPM child around the clock — half the budget on a two-child spoke, for a
   dashboard nobody was watching. Heartbeats deliberately do NOT count as
   activity: an idle-but-live stream is exactly the one worth closing. The close
@@ -373,8 +373,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The browser SSE client no longer reports every scheduled reconnect as
   death.** `SseInNode`'s watchdog forced a reconnect after 10s of silence
-  (`STALE_AFTER_MS + GRACE_MS`), but the server now advertises a 15s reopen
-  delay — so the watchdog tripped five seconds into every gap, logging
+  (`STALE_AFTER_MS + GRACE_MS`), but the server now advertises a reopen delay
+  and a longer one outlives that window — so the watchdog tripped inside the
+  browser's own gap on any `sse_retry_ms` at or above it, logging
   `SSE silent past timeout` and doubling the backoff for a stream working
   exactly as designed. It now stands down while the EventSource is CONNECTING,
   which is the same distinction the `error` handler already makes: the watchdog

@@ -225,13 +225,13 @@ class SettingsSchemaTest extends TestCase {
 		// added later never appears in it. SSE_Out reads `$idle_timeout > 0`,
 		// so null read as "disabled" and the idle close shipped inert. Asserting
 		// Config::value() cannot catch this — the test env loads the repo's own
-		// config file and answers 15 either way.
+		// config file and answers the default either way.
 		$fields = [];
 		foreach ( Settings_Schema::get()->fields() as $field ) {
 			$fields[ $field->key ] = $field;
 		}
 
-		$this->assertSame( 15, $fields['sse_idle_timeout']->default ?? null );
-		$this->assertSame( 15000, $fields['sse_retry_ms']->default ?? null );
+		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
+		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
 	}
 }
