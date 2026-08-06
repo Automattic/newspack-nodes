@@ -21,7 +21,9 @@ class TopicProbeNamingTest extends TestCase {
 	/**
 	 * `TopicProbe` survives only in these continuations: `.pm` / `ToGraphite` name
 	 * Tachikoma's Perl modules, `View` / `Stream` are JS identifiers (JS renders
-	 * `Topic_Probe` as `TopicProbe`), `Test` is a PHPUnit class name.
+	 * `Topic_Probe` as `TopicProbe`), and `Test` is the class name in
+	 * `tests/unit/TopicProbeTest.php` — a DIFFERENT file, so the `__FILE__`
+	 * guard in `scan()` does not cover it. Drop `Test` and that file trips this.
 	 */
 	private const RETIRED = '/TopicProbe(?!ToGraphite|\.pm|View|Stream|Test)/';
 

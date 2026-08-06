@@ -27,7 +27,7 @@ class SpawnCoordinatorNamingTest extends TestCase {
 				}
 			}
 		}
-		foreach ( \glob( "{$root}/*.{php,md,json}", \GLOB_BRACE ) ?: [] as $file ) {
+		foreach ( \glob( "{$root}/*.{php,md,json,tsl}", \GLOB_BRACE ) ?: [] as $file ) {
 			if ( \str_ends_with( $file, 'CHANGELOG.md' ) ) {
 				continue;
 			}
