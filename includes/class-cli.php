@@ -85,6 +85,8 @@ class CLI {
 	 * `.tsl` graph by `reader`/`source`; `wp nodes status` renders them directly,
 	 * unattributed. Keyed in the array by insertion; `reader` is the id.
 	 *
+	 * `msgs` is the newest record's per-probe-interval count, not a cumulative.
+	 *
 	 * @return array<int,array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}>
 	 */
 	public function consumer_rows(): array {
@@ -103,7 +105,7 @@ class CLI {
 				'end_segment'    => Core::as_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
 				'end_size'   => Core::as_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
 				'distance'   => Core::as_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
-				'msgs'       => Core::as_int( $record[ Probe_Record::MSGS ] ?? 0 ),
+				'msgs'       => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
 			];
 		}
 		return $rows;

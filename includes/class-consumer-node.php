@@ -72,9 +72,16 @@ class Consumer_Node extends Timer_Node {
 	 */
 	private array $snapshot_carry = [];
 
+	/** Probe baseline: the counters and instant probe_stats() last drained at. */
+	private int $probe_msgs   = 0;
+	private int $probe_bytes  = 0;
+	private float $probe_ts   = 0.0;
+
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
+		// The first probe window opens now, so its elapsed is time-since-birth.
+		$this->probe_ts = Core::$now;
 		// Build {name}:config interpreter so add_snapshot_node dispatchable.
 		$this->auto_wire_interpreter();
 	}
@@ -173,18 +180,19 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Probe seam: the raw snapshot `Topic_Probe` reads from outside this Consumer,
-	 * as the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). Just
-	 * the state at this instant — `SOURCE` (partition tailed) + `READER` (offsetlog
-	 * dir basename, the durable per-reader id) + the consumer cursor + the partition
-	 * END (newest segment + size, so the topologies tab trims its live list back to
-	 * here) + `DISTANCE` (bytes behind, for the overview graph) + `MSGS`. Rates and
-	 * totals are NOT logged — readers derive them from consecutive records.
+	 * Probe seam: the snapshot `Topic_Probe` reads from outside this Consumer, as
+	 * the POSITIONAL `Probe_Record` array (kept tiny for 24h SSE replay). A
+	 * DRAINING read — call it once per sweep. Positions ride verbatim (`SOURCE`,
+	 * `READER`, the cursor, the partition END, `DISTANCE`, `CACHE_SIZE`); the
+	 * counters ride as the work done since the previous call, with the interval
+	 * that work covers, so a reader divides ONE record instead of differencing
+	 * across records (which read a ~595s worker recycle as a counter reset).
 	 *
 	 * @return array<int,int|string> A `Probe_Record`-indexed positional array.
 	 */
 	public function probe_stats(): array {
 		$lag                                    = $this->compute_lag();
+		$window                                 = $this->drain_probe_window();
 		$record                                 = [];
 		$record[ Probe_Record::SOURCE ]         = '' !== $this->source_dir ? \basename( $this->source_dir ) : '';
 		$record[ Probe_Record::READER ]         = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
@@ -193,10 +201,32 @@ class Consumer_Node extends Timer_Node {
 		$record[ Probe_Record::END_SEGMENT ]    = $lag['end_segment'];
 		$record[ Probe_Record::END_SIZE ]       = $lag['end_size'];
 		$record[ Probe_Record::DISTANCE ]       = $lag['bytes_behind'];
-		$record[ Probe_Record::MSGS ]           = $this->counter;
+		$record[ Probe_Record::MSGS_DELTA ]     = $window['msgs'];
 		$record[ Probe_Record::END_BYTES ]      = $lag['end_bytes'];
 		$record[ Probe_Record::CACHE_SIZE ]     = $this->offsetlog_cache_size();
+		$record[ Probe_Record::BYTES_READ_DELTA ] = $window['bytes'];
+		$record[ Probe_Record::ELAPSED_MS ]     = $window['elapsed_ms'];
 		return $record;
+	}
+
+	/**
+	 * Close the probe window: the messages sent and bytes read since the previous
+	 * sweep, plus how long that window ran, then re-baseline. Reported bytes are
+	 * the ones this reader actually READ, so retention deleting a segment cannot
+	 * make the figure fall the way the partition's on-disk size does.
+	 *
+	 * @return array{msgs:int,bytes:int,elapsed_ms:int}
+	 */
+	protected function drain_probe_window(): array {
+		$window = [
+			'msgs'       => \max( 0, $this->counter - $this->probe_msgs ),
+			'bytes'      => \max( 0, $this->bytes_read - $this->probe_bytes ),
+			'elapsed_ms' => (int) \round( \max( 0.0, Core::$now - $this->probe_ts ) * 1000 ),
+		];
+		$this->probe_msgs  = $this->counter;
+		$this->probe_bytes = $this->bytes_read;
+		$this->probe_ts    = Core::$now;
+		return $window;
 	}
 
 	/**

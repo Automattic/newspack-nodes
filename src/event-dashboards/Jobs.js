@@ -3,8 +3,8 @@
  *
  * A thin view over `useJobstatsStream` (history mode → 24h replay) + the
  * `jobstats:view` model. Per job identity it shows the 24h windowed run + failure
- * totals (summed over the same series the charts plot, so worker recycles don't
- * collapse the count to the latest generation's 1), the average + last durations,
+ * totals (summed over the same per-interval series the charts plot, so a worker
+ * recycle contributes its window like any other), the average + last durations,
  * the last outcome (status badge + one-line message), and when it last ran — plus
  * two Tachikoma-style rate panels (runs/s, errors/s) rolled up per handler from the
  * same per-identity series. The batteries-included answer to "are my background jobs

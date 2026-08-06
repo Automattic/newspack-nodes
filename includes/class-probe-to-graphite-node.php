@@ -5,8 +5,9 @@
  * Modeled on Tachikoma's `TopicProbeToGraphite.pm` over the substrate's
  * positional Probe_Record: fill() accumulates the latest record per reader,
  * fire() formats `prefix.host.nodes.topics.<reader>.<field> value ts`
- * plaintext lines (fields: distance, msgs — upstream's distance/msg_sent),
- * batches them 16 per TM_BYTESTREAM message to its sink, and clears state.
+ * plaintext lines (fields: distance, msgs_delta — upstream's distance/msg_sent,
+ * except msgs is our per-probe-interval count rather than a cumulative), batches
+ * them 16 per TM_BYTESTREAM message to its sink, and clears state.
  *
  * Wire: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite` (and/or
  * `→ Newspack_Log`). The reader id is sanitized `\W+ → _` for the metric
@@ -30,8 +31,8 @@ class Probe_To_Graphite_Node extends Timer_Node {
 
 	/** Metric fields emitted per reader, in Probe_Record positions. */
 	private const FIELDS = [
-		'distance' => Probe_Record::DISTANCE,
-		'msgs'     => Probe_Record::MSGS,
+		'distance'   => Probe_Record::DISTANCE,
+		'msgs_delta' => Probe_Record::MSGS_DELTA,
 	];
 
 	private string $prefix = 'hosts';

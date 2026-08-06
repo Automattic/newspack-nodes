@@ -36,6 +36,52 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   no change, and neither does the node name `topicprobe` or the `topicprobe.p0`
   log path.
 
+- **The `topicprobe.p0` and `jobstats.p0` record layouts changed: counters are
+  now per-interval deltas.** A worker recycles every ~595s, so a cumulative
+  in-process counter resets six times an hour and any reader differencing
+  consecutive records reported a rate of 0 at each reset. Each record now
+  carries the work done since that reader's previous sweep plus an `ELAPSED_MS`
+  covering it, so you divide ONE record: `rate = DELTA / (ELAPSED_MS / 1000)`,
+  guarding `ELAPSED_MS === 0` (two sweeps can share a clock second). Drop any
+  prior-record state, reset detection or negative clamping you kept.
+
+  Renames, all at their existing indices — there is no alias, so a reader
+  referencing an old constant fails at import:
+  - `Probe_Record::MSGS` → `MSGS_DELTA` (index 7)
+  - `Jobstats_Record::{RUNS, ERRORS, DURATION_MS, QUEUE_MS, ITEMS_OK,
+    ITEMS_ERR}` → the same names with a `_DELTA` suffix (indices 2..7)
+
+  New slots: `Probe_Record::BYTES_READ_DELTA` (10) and `ELAPSED_MS` (11);
+  `Jobstats_Record::ELAPSED_MS` (12). If you derived a byte rate by
+  differencing `Probe_Record::END_BYTES`, switch to `BYTES_READ_DELTA` —
+  `END_BYTES` is the partition's on-disk size and drops when retention deletes
+  a segment, which read as a second spurious reset. `END_BYTES` itself is
+  unchanged and still the on-disk footprint.
+
+  Backward compatibility was waived: records written before the upgrade decode
+  with the new meanings until they age out, and both logs keep 24h.
+
+- **`Consumer_Node::probe_stats()` and `Job_Worker_Node::probe_stats()` are
+  DRAINING reads.** Each call returns the window since the last call and
+  re-baselines, so calling one twice a tick halves your data. Mount at most one
+  `Topic_Probe` and one `Job_Probe` per process — what a stock topology already
+  does. If you call `probe_stats()` from your own code for a one-off reading,
+  stop; read the log instead.
+
+- **`wp nodes status` renames the consumer table's `Msgs` column to
+  `Msgs/int`**, and `Probe_To_Graphite_Node` emits
+  `<prefix>.<host>.nodes.topics.<reader>.msgs_delta` where it emitted `.msgs`.
+  Both now report per-probe-interval counts rather than a cumulative; the
+  renames are there so the change of meaning is visible instead of silent.
+  Update any Graphite dashboard or `--format=json` consumer that names them.
+
+- **`buildAlignedSeries`'s RATE aggregate is `agg: 'rate'`, not `agg: 'max'`,
+  and its points carry a `weight`.** If you call it directly, pass points shaped
+  `{ ts, value, weight }` — `weight` being the denominator `value` is a
+  quotient of (seconds for a per-second rate). A point with no weight still
+  counts, degrading to a plain mean. Passing `agg: 'max'` is no longer
+  recognised and falls through to the rate aggregate.
+
 - **`newspack_nodes/supervisor_periodic` is renamed to
   `newspack_nodes/periodic`.** There is no supervisor left to name, and the
   cadence is unchanged at 15s. There is no alias and no deprecation shim: a

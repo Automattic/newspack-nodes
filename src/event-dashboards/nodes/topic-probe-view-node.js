@@ -3,9 +3,10 @@ import {
 	SOURCE,
 	READER,
 	DISTANCE,
-	MSGS,
-	END_BYTES,
+	MSGS_DELTA,
+	BYTES_READ_DELTA,
 	CACHE_SIZE,
+	ELAPSED_MS,
 } from '../../runtime/probe-record';
 
 /**
@@ -13,11 +14,12 @@ import {
  *
  * Each inbound frame is one Consumer's lean POSITIONAL probe record (the
  * `Probe_Record` layout); the snapshot instant is the Message TIMESTAMP. The view
- * accumulates, PER `READER`, a bounded series of `{ ts, msgRate, byteRate, backlog,
- * cacheSize }`: `backlog` is the record's DISTANCE verbatim; `msgRate`/`byteRate`
- * are DERIVED from consecutive records (Δ MSGS|END_BYTES / Δ ts) — the only data
- * source is the probe stream, never a live value. A counter reset (worker restart)
- * or the first sample yields rate 0, never negative.
+ * accumulates, PER `READER`, a bounded series of `{ ts, elapsed, msgs, bytes,
+ * msgRate, byteRate, backlog, cacheSize }`. Every field comes from ONE record:
+ * `msgs`/`bytes` are its deltas, `elapsed` the interval they cover, the rates
+ * their quotient, `backlog`/`cacheSize` its levels verbatim. Nothing is
+ * differenced across records, so a worker recycle (which used to look like a
+ * counter reset) is just another window.
  *
  * The ring/throttle/TTL/eviction machinery lives in ProbeStreamViewNode; this
  * subclass supplies only the READER identity + the msgs/bytes field mapping.
@@ -49,13 +51,13 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * Fold one probe record into its consumer's entry and push a derived sample.
+	 * Fold one probe record into its consumer's entry and push its sample.
 	 *
-	 * `backlog` and `cacheSize` are the record's DISTANCE and CACHE_SIZE verbatim;
-	 * `msgRate`/`byteRate` are derived against the prior record (Δ MSGS|END_BYTES over
-	 * Δts). A counter reset (worker restart) or the first sample yields rate 0, never
-	 * negative. A record older than the live window is dropped; an unseen reader gets
-	 * a fresh entry.
+	 * Every field is read off THIS record: `msgs`/`bytes` are its deltas (clamped
+	 * non-negative), `elapsed` the seconds they cover, the rates their quotient —
+	 * 0 when the window is empty rather than a division by zero — and `backlog`
+	 * and `cacheSize` its levels verbatim. A record older than the live window is
+	 * dropped; an unseen reader gets a fresh entry.
 	 *
 	 * @param {string}               reader Consumer reader id, from `_identityOf`.
 	 * @param {Array<string|number>} value  The positional `Probe_Record` VALUE.
@@ -68,46 +70,33 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		}
 		let c = this.entries[ reader ];
 		if ( ! c ) {
-			c = {
-				source: '',
-				series: [],
-				_lastMsgs: null,
-				_lastEndBytes: null,
-				_lastTs: 0,
-				_lastSeen: 0,
-			};
+			c = { source: '', series: [], _lastSeen: 0 };
 			this.entries[ reader ] = c;
 		}
 		c._lastSeen = Date.now();
 		c.source = String( value[ SOURCE ] ?? c.source );
 
-		const msgs = Number( value[ MSGS ] ) || 0;
-		const endBytes = Number( value[ END_BYTES ] ) || 0;
-		const backlog = Number( value[ DISTANCE ] ) || 0;
-		const cacheSize = Number( value[ CACHE_SIZE ] ) || 0;
-		// msgRate/byteRate from consecutive records (Δ/Δts); reset → 0.
-		const dt = ts > c._lastTs ? ts - c._lastTs : 0;
-		const msgRate =
-			null !== c._lastMsgs && dt > 0 && msgs >= c._lastMsgs
-				? ( msgs - c._lastMsgs ) / dt
-				: 0;
-		const byteRate =
-			null !== c._lastEndBytes && dt > 0 && endBytes >= c._lastEndBytes
-				? ( endBytes - c._lastEndBytes ) / dt
-				: 0;
-		c._lastMsgs = msgs;
-		c._lastEndBytes = endBytes;
-		c._lastTs = ts;
-
-		c.series.push( { ts, msgRate, byteRate, backlog, cacheSize } );
+		const msgs = this._delta( value[ MSGS_DELTA ] );
+		const bytes = this._delta( value[ BYTES_READ_DELTA ] );
+		const elapsed = this._delta( value[ ELAPSED_MS ] ) / 1000;
+		c.series.push( {
+			ts,
+			elapsed,
+			msgs,
+			bytes,
+			msgRate: elapsed > 0 ? msgs / elapsed : 0,
+			byteRate: elapsed > 0 ? bytes / elapsed : 0,
+			backlog: Number( value[ DISTANCE ] ) || 0,
+			cacheSize: Number( value[ CACHE_SIZE ] ) || 0,
+		} );
 		this._capSeries( c.series );
 	}
 
 	/**
 	 * The published per-consumer snapshot: the source partition, a copy of the newest
-	 * derived sample, and a copy of the series the charts plot.
+	 * sample, and a copy of the series the charts plot.
 	 *
-	 * @param {Object} c The internal entry (series plus its `_last*` fold state).
+	 * @param {Object} c The internal entry (its series plus liveness bookkeeping).
 	 * @return {Object} { source, latest, series }.
 	 */
 	_entryView( c ) {

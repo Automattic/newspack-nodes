@@ -213,7 +213,7 @@ class ConsumerTest extends TestCase {
 		// probe_stats() is the raw snapshot Topic_Probe reads from OUTSIDE the
 		// Consumer — the POSITIONAL Probe_Record: SOURCE (partition tailed) +
 		// READER (offsetlog dir basename) + cursor + partition END (last seg + size)
-		// + DISTANCE (backlog) + MSGS. No derived/extra fields.
+		// + DISTANCE (backlog) + the per-interval deltas. No extra fields.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$first  = $this->produce( 'first' );
@@ -229,7 +229,7 @@ class ConsumerTest extends TestCase {
 		$this->pump_consumer( $c );
 
 		$stats = $c->probe_stats();
-		$this->assertCount( 10, $stats, 'lean positional record' );
+		$this->assertCount( 12, $stats, 'lean positional record' );
 		// READER = offsetlog dir basename; SOURCE = partition tailed (its basename).
 		$this->assertSame( 'firehose.job-router.p0', $stats[ Probe_Record::READER ] );
 		$this->assertSame( 'data.p0', $stats[ Probe_Record::SOURCE ] );
@@ -239,7 +239,7 @@ class ConsumerTest extends TestCase {
 		// Partition END = the one segment + its (non-zero) size.
 		$this->assertSame( 0, $stats[ Probe_Record::END_SEGMENT ] );
 		$this->assertGreaterThan( 0, $stats[ Probe_Record::END_SIZE ] );
-		$this->assertSame( 2, $stats[ Probe_Record::MSGS ] );
+		$this->assertSame( 2, $stats[ Probe_Record::MSGS_DELTA ] );
 		// END_BYTES = the partition's total bytes; caught up → equals what we consumed.
 		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $stats[ Probe_Record::END_BYTES ] );
 	}
@@ -283,6 +283,72 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::CACHE_SIZE ] );
 	}
 
+	public function test_probe_stats_reports_per_interval_deltas_and_the_interval_they_cover(): void {
+		// A record is SELF-CONTAINED: the work done since the previous sweep plus
+		// the elapsed interval, so a reader divides ONE record. Differencing across
+		// records is what read a worker recycle as a counter reset (rate 0).
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		for ( $i = 0; $i < 7; $i++ ) {
+			$source->fill( $this->produce( "first-{$i}" ) );
+		}
+		$source->flush();
+
+		Core::$now = 5000.0;
+		$c         = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+
+		Core::$now  = 5015.0;
+		$first      = $c->probe_stats();
+		$first_read = $c->bytes_read();
+		$this->assertSame( 7, $first[ Probe_Record::MSGS_DELTA ] );
+		$this->assertSame( $first_read, $first[ Probe_Record::BYTES_READ_DELTA ] );
+		$this->assertSame( 15000, $first[ Probe_Record::ELAPSED_MS ] );
+
+		for ( $i = 0; $i < 5; $i++ ) {
+			$source->fill( $this->produce( "second-{$i}" ) );
+		}
+		$source->flush();
+		$this->pump_consumer( $c );
+
+		Core::$now = 5045.0;
+		$second    = $c->probe_stats();
+		$this->assertSame( 5, $second[ Probe_Record::MSGS_DELTA ], 'only the work since the previous sweep' );
+		$this->assertSame( $c->bytes_read() - $first_read, $second[ Probe_Record::BYTES_READ_DELTA ] );
+		$this->assertSame( 30000, $second[ Probe_Record::ELAPSED_MS ] );
+	}
+
+	public function test_probe_stats_bytes_delta_survives_a_retention_segment_delete(): void {
+		// BYTES_READ_DELTA counts bytes the consumer actually READ, so retention
+		// deleting a segment (which shrinks END_BYTES) cannot make it negative —
+		// the second reset that differencing END_BYTES used to suffer.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", "512", "1", "86400" ] );
+		$source->fill( $this->produce( \str_repeat( 'a', 400 ) ) );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->probe_stats();
+
+		$source->fill( $this->produce( \str_repeat( 'b', 400 ) ) );
+		$source->flush();
+		$this->pump_consumer( $c );
+		// Retention drops the oldest segment: END_BYTES falls, bytes_read doesn't.
+		foreach ( (array) \glob( "{$this->tmp}/data.p0/0.log" ) as $path ) {
+			\unlink( (string) $path );
+		}
+
+		$stats = $c->probe_stats();
+		$this->assertGreaterThan( 0, $stats[ Probe_Record::BYTES_READ_DELTA ] );
+	}
+
 	public function test_probe_stats_round_trips_through_cli_consumer_rows(): void {
 		// Pin the writer→reader contract by index: the exact positions probe_stats()
 		// WRITES are the positions CLI::consumer_rows() READS back off the log.
@@ -318,7 +384,7 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $stats[ Probe_Record::END_SEGMENT ], $row['end_segment'] );
 		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $row['end_size'] );
 		$this->assertSame( $stats[ Probe_Record::DISTANCE ], $row['distance'] );
-		$this->assertSame( $stats[ Probe_Record::MSGS ], $row['msgs'] );
+		$this->assertSame( $stats[ Probe_Record::MSGS_DELTA ], $row['msgs'] );
 		$this->assertSame( 0, $row['partition'] );
 	}
 
@@ -1250,7 +1316,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_counter_counts_only_successfully_forwarded_messages(): void {
-		// probe MSGS / throughput reflect work actually delivered downstream. A message
+		// probe MSGS_DELTA / throughput reflect work actually delivered downstream. A
 		// quarantined on a throw (or re-delivered after a cooperative stop) must NOT inflate
 		// the counter — otherwise a respawn double-counts the same re-delivered message.
 		$source = new Partition_Node();
@@ -1267,7 +1333,7 @@ class ConsumerTest extends TestCase {
 		} );
 		$this->pump_consumer( $c );
 
-		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS ], 'a quarantined message is not counted as forwarded' );
+		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS_DELTA ], 'a quarantined message is not counted as forwarded' );
 	}
 
 	public function test_counter_not_incremented_when_dispatch_is_cooperatively_stopped(): void {
@@ -1285,7 +1351,7 @@ class ConsumerTest extends TestCase {
 			$this->addToAssertionCount( 1 );
 		}
 
-		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS ], 'a message re-delivered after a stop is not counted' );
+		$this->assertSame( 0, $c->probe_stats()[ Probe_Record::MSGS_DELTA ], 'a message re-delivered after a stop is not counted' );
 	}
 
 	public function test_cooperative_timeout_does_not_strike_a_merely_buffered_message(): void {

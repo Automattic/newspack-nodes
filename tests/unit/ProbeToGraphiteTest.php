@@ -48,7 +48,7 @@ class ProbeToGraphiteTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ] = 3;
 		$record[ Probe_Record::END_SIZE ]    = 100 + $distance;
 		$record[ Probe_Record::DISTANCE ]    = $distance;
-		$record[ Probe_Record::MSGS ]        = $msgs;
+		$record[ Probe_Record::MSGS_DELTA ]        = $msgs;
 
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -67,7 +67,7 @@ class ProbeToGraphiteTest extends TestCase {
 		$this->assertSame(
 			[
 				'eve.' . gethostname() . '.nodes.topics.combined_firehose_p0.distance 120 1000000',
-				'eve.' . gethostname() . '.nodes.topics.combined_firehose_p0.msgs 45 1000000',
+				'eve.' . gethostname() . '.nodes.topics.combined_firehose_p0.msgs_delta 45 1000000',
 			],
 			$lines
 		);

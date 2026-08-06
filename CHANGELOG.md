@@ -112,6 +112,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Probe records carry a per-interval DELTA and the interval it covers, not a
+  cumulative counter.** A worker recycles every ~595s
+  (`DEFAULT_MAX_RUNTIME`), so its in-process counters reset six times an hour,
+  and every reader that derived a rate by differencing consecutive records
+  plotted a literal zero at each reset. Now `Probe_Record` and
+  `Jobstats_Record` each carry the work done since that reader's previous sweep
+  plus an `ELAPSED_MS`, so a reader divides ONE record and a recycle is just
+  another window. That deletes the bug class rather than the instance: the
+  reset-detection state and guards in `topic-probe-view-node.js` and
+  `jobstats-view-node.js` are gone, along with `Jobstats_View`'s
+  `_delta`/`_rate` hidden-reset rule.
+
+  `Probe_Record::MSGS` becomes `MSGS_DELTA`, and the byte rate no longer
+  differences `END_BYTES` — the partition's on-disk size, which FALLS whenever
+  retention deletes a segment, a second reset for an unrelated reason. The new
+  `BYTES_READ_DELTA` reports the base `Node::$bytes_read` counter instead, so
+  rotation cannot move it. `END_BYTES` stays at its index as the position it
+  always was. `Jobstats_Record` fields 2..7 all gain a `_DELTA` suffix.
+  `Consumer_Node::probe_stats()` and `Job_Worker_Node::probe_stats()` are now
+  DRAINING reads — one probe per process, which is what a topology mounts.
+
+  Ancillary: `wp nodes status` labels the consumer column `Msgs/int`, and
+  `Probe_To_Graphite_Node` emits `…topics.<reader>.msgs_delta` in place of
+  `.msgs`. Both are the same rename made visible rather than a silent change of
+  meaning. Existing on-disk records read as garbage for one retention period;
+  both logs keep 24h.
+
+- **A RATE bucket in `buildAlignedSeries` SUMS its samples' work instead of
+  keeping the peak.** `agg: 'max'` is defensible for a rate and wrong for a
+  quantity: two samples from one source landing in one bucket silently
+  discarded the smaller, which wide `maxPoints`-downsampled buckets make
+  routine. The new `agg: 'rate'` re-divides, Σ(value × weight) / Σweight — each
+  point carries the weight its metric is a quotient of (elapsed seconds for the
+  throughput rates, runs for `queueLatencyMs`, since a per-run mean weighted by
+  seconds treats a busy window and an idle one as equals). `fill: 'zero'` is
+  unchanged, a gap being genuinely no work; `backlog` and `cacheSize` remain
+  LEVEL. `probe24hTotals` likewise sums the deltas rather than integrating
+  rate × dt, so the first sample now counts.
+
+- **A clean worker shutdown sweeps the probes one last time.** The window since
+  the last tick is real work a mid-interval recycle used to drop on the floor.
+  `Worker_Base::shutdown_handoff()` calls `shutdown_sweep()` on every node
+  implementing the new `Shutdown_Sweeper` interface — an OPT-IN, so
+  `Worker_Base` names no class — before the durable-cursor handoff, while the
+  graph is intact. It rides the existing `is_fatal_shutdown()` gate, because a
+  dead process cannot report anything; a sweeper that throws is logged and
+  skipped rather than blocking the cursors.
+
 - **`TopicProbe` is renamed `Topic_Probe`.** The class is `Topic_Probe_Node` and
   the `make_node` type is `Topic_Probe`, so the probe follows
   [ADR-10](docs/architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution)

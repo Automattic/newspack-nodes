@@ -17,28 +17,28 @@ describe( 'fillModeForMetric', () => {
 		} );
 	} );
 
-	it( 'maps RATE metrics to zero/max', () => {
+	it( 'maps RATE metrics to zero/rate — a bucket re-divides Σwork by Σelapsed', () => {
 		expect( fillModeForMetric( 'msgRate' ) ).toEqual( {
 			fill: 'zero',
-			agg: 'max',
+			agg: 'rate',
 		} );
 		expect( fillModeForMetric( 'byteRate' ) ).toEqual( {
 			fill: 'zero',
-			agg: 'max',
+			agg: 'rate',
 		} );
 	} );
 
 	it( 'maps queue latency to RATE (an event metric — holding it painted the last job across idle hours)', () => {
 		expect( fillModeForMetric( 'queueLatencyMs' ) ).toEqual( {
 			fill: 'zero',
-			agg: 'max',
+			agg: 'rate',
 		} );
 	} );
 
-	it( 'defaults an unknown metric to RATE (zero/max)', () => {
+	it( 'defaults an unknown metric to RATE (zero/rate)', () => {
 		expect( fillModeForMetric( 'whatever' ) ).toEqual( {
 			fill: 'zero',
-			agg: 'max',
+			agg: 'rate',
 		} );
 	} );
 } );
@@ -60,15 +60,17 @@ describe( 'topicChartSeries', () => {
 			] ),
 		};
 		const byteRate = topicChartSeries( consumers, 'byteRate' );
-		expect( byteRate[ 'firehose.p0' ].points ).toEqual( [
-			{ ts: 100, value: 1500 }, // 1000 + 500
-			{ ts: 115, value: 2500 }, // 2000 + 500
+		expect(
+			byteRate[ 'firehose.p0' ].points.map( ( p ) => [ p.ts, p.value ] )
+		).toEqual( [
+			[ 100, 1500 ], // 1000 + 500
+			[ 115, 2500 ], // 2000 + 500
 		] );
 		expect( byteRate[ 'firehose.p0' ].max ).toBe( 2500 );
 		expect( byteRate[ 'firehose.p0' ].avg ).toBe( 2000 );
-		expect( byteRate[ 'jobs.p0' ].points ).toEqual( [
-			{ ts: 100, value: 50 },
-		] );
+		expect(
+			byteRate[ 'jobs.p0' ].points.map( ( p ) => [ p.ts, p.value ] )
+		).toEqual( [ [ 100, 50 ] ] );
 
 		// Same consumers, different metric → backlog series.
 		const backlog = topicChartSeries( consumers, 'backlog' );
@@ -108,7 +110,41 @@ describe( 'topicChartSeries', () => {
 			'backlog',
 			( c ) => map[ c.source ]
 		);
-		expect( out.combined.points ).toEqual( [ { ts: 100, value: 1200 } ] );
+		expect( out.combined.points.map( ( p ) => [ p.ts, p.value ] ) ).toEqual(
+			[ [ 100, 1200 ] ]
+		);
+	} );
+
+	it( "carries each point's elapsed weight so a bucket can re-divide it", () => {
+		// A bucket aggregate is Σwork / Σelapsed, so a point has to say how long
+		// its own sample covered. Readers sweep in lockstep, so the group takes
+		// the widest window at that instant.
+		const consumers = {
+			'firehose.p0': consumer( 'firehose.p0', [
+				{ ts: 100, msgRate: 10, elapsed: 15 },
+			] ),
+			'firehose.job-router.p0': consumer( 'firehose.p0', [
+				{ ts: 100, msgRate: 4, elapsed: 12 },
+			] ),
+		};
+		expect(
+			topicChartSeries( consumers, 'msgRate' )[ 'firehose.p0' ].points
+		).toEqual( [ { ts: 100, value: 14, weight: 15 } ] );
+	} );
+
+	it( 'weights queue latency by RUNS, not by elapsed — its denominator is runs', () => {
+		// queueLatencyMs is a per-run mean, so re-dividing a bucket has to be
+		// Σqueue / Σruns. Weighting by seconds would average two windows of very
+		// different job counts as if they were equal.
+		const consumers = {
+			'a.p0': consumer( 'a.p0', [
+				{ ts: 100, queueLatencyMs: 800, runsDelta: 4, elapsed: 15 },
+			] ),
+		};
+		expect(
+			topicChartSeries( consumers, 'queueLatencyMs' )[ 'a.p0' ]
+				.points[ 0 ]
+		).toEqual( { ts: 100, value: 800, weight: 4 } );
 	} );
 
 	it( 'skips consumers with no group key and tolerates an empty map', () => {

@@ -4,9 +4,11 @@
  * worker process runs one, sweeping ITS local Job_Workers (`Core::$nodes_by_name`)
  * and emitting one snapshot record per job IDENTITY per tick into the shared
  * `jobstats` log. A Job_Worker owns many identities, so one worker yields many
- * records (unlike Topic_Probe, where one Consumer yields one). Cumulative counters
- * ride raw at one instant — the Message's TIMESTAMP is the time; rates and averages
- * are DERIVED by readers from consecutive records, never logged.
+ * records (unlike Topic_Probe, where one Consumer yields one). Each record is
+ * SELF-CONTAINED — the work done since that identity's previous sweep plus the
+ * interval it covers — so a reader divides ONE record and a ~595s worker recycle
+ * is just another window, not a counter reset. Because the sweep DRAINS each
+ * accumulator, exactly one Job_Probe may run per process.
  *
  * @package Newspack_Nodes
  */
@@ -15,7 +17,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Job_Probe_Node extends Timer_Node {
+class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 
 	private const DEFAULT_INTERVAL_S = 15;
 
@@ -112,6 +114,14 @@ class Job_Probe_Node extends Timer_Node {
 			$message[ Message::VALUE ]              = $value;
 		}
 		return $message;
+	}
+
+	/**
+	 * Clean-shutdown opt-in: emit the window since the last tick, which the timer
+	 * gate would otherwise swallow when the worker recycles mid-interval.
+	 */
+	public function shutdown_sweep(): void {
+		$this->fire();
 	}
 
 	public static function node_schema(): array {

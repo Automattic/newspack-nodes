@@ -62,10 +62,10 @@ class JobWorkerStatsTest extends TestCase {
 
 		$record = $this->record_for( $jw, 'ingest' );
 		$this->assertSame( 'ingest', $record[ Jobstats_Record::HANDLER ] );
-		$this->assertSame( 1, $record[ Jobstats_Record::RUNS ] );
-		$this->assertSame( 0, $record[ Jobstats_Record::ERRORS ] );
-		$this->assertSame( 7, $record[ Jobstats_Record::ITEMS_OK ] );
-		$this->assertSame( 0, $record[ Jobstats_Record::ITEMS_ERR ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 0, $record[ Jobstats_Record::ERRORS_DELTA ] );
+		$this->assertSame( 7, $record[ Jobstats_Record::ITEMS_OK_DELTA ] );
+		$this->assertSame( 0, $record[ Jobstats_Record::ITEMS_ERR_DELTA ] );
 		$this->assertSame( 'success', $record[ Jobstats_Record::LAST_STATUS ] );
 		$this->assertSame( (int) Core::$now, $record[ Jobstats_Record::LAST_TS ] );
 	}
@@ -77,9 +77,9 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'sync' ) );
 
 		$record = $this->record_for( $jw, 'sync' );
-		$this->assertSame( 1, $record[ Jobstats_Record::RUNS ] );
-		$this->assertSame( 1, $record[ Jobstats_Record::ERRORS ] );
-		$this->assertSame( 3, $record[ Jobstats_Record::ITEMS_ERR ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::ERRORS_DELTA ] );
+		$this->assertSame( 3, $record[ Jobstats_Record::ITEMS_ERR_DELTA ] );
 		$this->assertSame( 'error', $record[ Jobstats_Record::LAST_STATUS ] );
 		$this->assertStringContainsString( 'Job failed', $record[ Jobstats_Record::LAST_MESSAGE ] );
 	}
@@ -91,9 +91,9 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'sync' ) );
 
 		$record = $this->record_for( $jw, 'sync' );
-		$this->assertSame( 0, $record[ Jobstats_Record::ERRORS ], 'partial errors count as a successful run' );
-		$this->assertSame( 5, $record[ Jobstats_Record::ITEMS_OK ] );
-		$this->assertSame( 2, $record[ Jobstats_Record::ITEMS_ERR ] );
+		$this->assertSame( 0, $record[ Jobstats_Record::ERRORS_DELTA ], 'partial errors count as a successful run' );
+		$this->assertSame( 5, $record[ Jobstats_Record::ITEMS_OK_DELTA ] );
+		$this->assertSame( 2, $record[ Jobstats_Record::ITEMS_ERR_DELTA ] );
 		$this->assertSame( 'success', $record[ Jobstats_Record::LAST_STATUS ] );
 		$this->assertStringContainsString( 'Completed with errors', $record[ Jobstats_Record::LAST_MESSAGE ] );
 	}
@@ -123,8 +123,8 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'noop' ) );
 
 		$record = $this->record_for( $jw, 'noop' );
-		$this->assertSame( 1, $record[ Jobstats_Record::RUNS ] );
-		$this->assertSame( 0, $record[ Jobstats_Record::ITEMS_OK ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 0, $record[ Jobstats_Record::ITEMS_OK_DELTA ] );
 		$this->assertSame( 'success', $record[ Jobstats_Record::LAST_STATUS ] );
 		$this->assertSame( 'Job completed successfully', $record[ Jobstats_Record::LAST_MESSAGE ] );
 	}
@@ -142,8 +142,8 @@ class JobWorkerStatsTest extends TestCase {
 		$this->assertTrue( $threw, 'poison must still propagate to the Consumer' );
 
 		$record = $this->record_for( $jw, 'boom' );
-		$this->assertSame( 1, $record[ Jobstats_Record::RUNS ] );
-		$this->assertSame( 1, $record[ Jobstats_Record::ERRORS ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 1, $record[ Jobstats_Record::ERRORS_DELTA ] );
 		$this->assertSame( 'error', $record[ Jobstats_Record::LAST_STATUS ] );
 		$this->assertSame( 'kaboom-42', $record[ Jobstats_Record::LAST_MESSAGE ] );
 	}
@@ -196,9 +196,63 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'tick' ) );
 
 		$record = $this->record_for( $jw, 'tick' );
-		$this->assertSame( 2, $record[ Jobstats_Record::RUNS ] );
-		$this->assertSame( 8, $record[ Jobstats_Record::ITEMS_OK ], 'items accumulate across runs' );
-		$this->assertGreaterThanOrEqual( 0, $record[ Jobstats_Record::DURATION_MS ] );
+		$this->assertSame( 2, $record[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 8, $record[ Jobstats_Record::ITEMS_OK_DELTA ], 'items accumulate across runs' );
+		$this->assertGreaterThanOrEqual( 0, $record[ Jobstats_Record::DURATION_MS_DELTA ] );
+	}
+
+	public function test_probe_stats_drains_the_accumulator_so_each_record_is_one_interval(): void {
+		// probe_stats() is a DRAINING read: a record carries the work since the
+		// previous sweep, so a reader divides ONE record instead of differencing
+		// across records (which read a worker recycle as a counter reset → a
+		// literal 0 on the chart).
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'ingest', fn () => [ 'stats' => [ 'success_count' => 6, 'error_count' => 0 ] ] );
+
+		$jw->fill( $this->job_message( 'ingest' ) );
+		$jw->fill( $this->job_message( 'ingest' ) );
+		$jw->fill( $this->job_message( 'ingest' ) );
+
+		$first = $this->record_for( $jw, 'ingest' );
+		$this->assertSame( 3, $first[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 18, $first[ Jobstats_Record::ITEMS_OK_DELTA ] );
+
+		$jw->fill( $this->job_message( 'ingest' ) );
+		$second = $this->record_for( $jw, 'ingest' );
+		$this->assertSame( 1, $second[ Jobstats_Record::RUNS_DELTA ], 'only the work since the previous sweep' );
+		$this->assertSame( 6, $second[ Jobstats_Record::ITEMS_OK_DELTA ] );
+	}
+
+	public function test_probe_stats_reports_the_interval_its_deltas_cover(): void {
+		// ELAPSED_MS is the window since this identity's previous sweep, so the
+		// record is self-contained and the reader never needs a prior timestamp.
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'ingest', fn () => null );
+
+		$jw->fill( $this->job_message( 'ingest' ) );
+		// A run un-freezes Core::$now (real elapsed), so baseline off the drain.
+		$this->record_for( $jw, 'ingest' );
+		Core::$now += 23;
+
+		$this->assertSame(
+			23000,
+			$this->record_for( $jw, 'ingest' )[ Jobstats_Record::ELAPSED_MS ]
+		);
+	}
+
+	public function test_probe_stats_keeps_reporting_an_idle_identity_with_zero_deltas(): void {
+		// A drained identity still rides every sweep — zero work, live last-run
+		// detail — so the table keeps the row and the chart plots 0, not a gap.
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'ingest', fn () => [ 'stats' => [ 'success_count' => 6, 'error_count' => 0 ] ] );
+
+		$jw->fill( $this->job_message( 'ingest' ) );
+		$this->record_for( $jw, 'ingest' );
+
+		$idle = $this->record_for( $jw, 'ingest' );
+		$this->assertSame( 0, $idle[ Jobstats_Record::RUNS_DELTA ] );
+		$this->assertSame( 0, $idle[ Jobstats_Record::ITEMS_OK_DELTA ] );
+		$this->assertSame( 'success', $idle[ Jobstats_Record::LAST_STATUS ], 'last-run detail survives the drain' );
 	}
 
 	public function test_queue_latency_is_derived_from_the_enqueue_ts(): void {
@@ -209,6 +263,6 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'lag', [], null, \microtime( true ) - 8.0 ) );
 
 		$record = $this->record_for( $jw, 'lag' );
-		$this->assertGreaterThanOrEqual( 7500, $record[ Jobstats_Record::QUEUE_MS ] );
+		$this->assertGreaterThanOrEqual( 7500, $record[ Jobstats_Record::QUEUE_MS_DELTA ] );
 	}
 }

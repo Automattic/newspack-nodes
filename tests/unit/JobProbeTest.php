@@ -30,16 +30,17 @@ class JobProbeTest extends TestCase {
 		$r                                    = [];
 		$r[ Jobstats_Record::KEY ]            = $key;
 		$r[ Jobstats_Record::HANDLER ]        = $handler;
-		$r[ Jobstats_Record::RUNS ]           = $runs;
-		$r[ Jobstats_Record::ERRORS ]         = 0;
-		$r[ Jobstats_Record::DURATION_MS ]    = 12;
-		$r[ Jobstats_Record::QUEUE_MS ]       = 3;
-		$r[ Jobstats_Record::ITEMS_OK ]       = 5;
-		$r[ Jobstats_Record::ITEMS_ERR ]      = 0;
+		$r[ Jobstats_Record::RUNS_DELTA ]     = $runs;
+		$r[ Jobstats_Record::ERRORS_DELTA ]   = 0;
+		$r[ Jobstats_Record::DURATION_MS_DELTA ] = 12;
+		$r[ Jobstats_Record::QUEUE_MS_DELTA ] = 3;
+		$r[ Jobstats_Record::ITEMS_OK_DELTA ] = 5;
+		$r[ Jobstats_Record::ITEMS_ERR_DELTA ] = 0;
 		$r[ Jobstats_Record::LAST_TS ]        = 999;
 		$r[ Jobstats_Record::LAST_DURATION_MS ] = 8;
 		$r[ Jobstats_Record::LAST_STATUS ]    = 'success';
 		$r[ Jobstats_Record::LAST_MESSAGE ]   = 'Job completed successfully';
+		$r[ Jobstats_Record::ELAPSED_MS ]     = 15000;
 		return $r;
 	}
 
@@ -75,11 +76,26 @@ class JobProbeTest extends TestCase {
 			$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
 			$this->assertSame( Core::$now, $msg[ Message::TIMESTAMP ] );
 			$this->assertSame( '_jobstats:log', $msg[ Message::TO ] );
-			$this->assertCount( 12, $msg[ Message::VALUE ] );
+			$this->assertCount( 13, $msg[ Message::VALUE ] );
 		}
 		$keys = \array_map( static fn ( $m ) => $m[ Message::VALUE ][ Jobstats_Record::KEY ], $capture->captured );
 		\sort( $keys );
 		$this->assertSame( [ 'cron:films', 'evtemplate' ], $keys );
+	}
+
+	public function test_shutdown_sweep_emits_the_final_partial_interval(): void {
+		// Same opt-in as Topic_Probe: the window since the last tick is real work
+		// a ~595s recycle would otherwise drop on the floor.
+		$this->stub_worker( 'combined', [ $this->make_record( 'evtemplate', 'evtemplate', 4 ) ] );
+		$capture = new Capture_Sink_Node();
+		$probe   = new Job_Probe_Node();
+		$probe->name( '_jobstats' );
+		$probe->sink( $capture );
+		$probe->fire_cb();
+
+		$this->assertInstanceOf( \Newspack_Nodes\Shutdown_Sweeper::class, $probe );
+		$probe->shutdown_sweep();
+		$this->assertCount( 2, $capture->captured );
 	}
 
 	public function test_fire_emits_nothing_when_no_job_workers(): void {

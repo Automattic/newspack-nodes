@@ -193,6 +193,7 @@ class Worker_Base {
 		if ( $this->is_fatal_shutdown() ) {
 			return;
 		}
+		$this->sweep_shutdown_sweepers();
 		$this->checkpoint_durable_consumers();
 	}
 
@@ -204,6 +205,25 @@ class Worker_Base {
 			return false;
 		}
 		return \in_array( $error['type'], [ \E_ERROR, \E_PARSE, \E_CORE_ERROR, \E_COMPILE_ERROR, \E_USER_ERROR ], true );
+	}
+
+	/**
+	 * Final sweep for every node that opted into Shutdown_Sweeper — the probes'
+	 * partial interval since their last tick, which a ~595s recycle would
+	 * otherwise drop. Runs before the cursor handoff, while the graph is intact.
+	 * One sweeper's failure is logged and skipped: the cursors matter more.
+	 */
+	private function sweep_shutdown_sweepers(): void {
+		foreach ( Core::$nodes_by_name as $node ) {
+			if ( ! $node instanceof Shutdown_Sweeper ) {
+				continue;
+			}
+			try {
+				$node->shutdown_sweep();
+			} catch ( \Throwable $e ) {
+				Core::print_less_often( "{$this->worker_type}.p{$this->partition}: shutdown sweep failed: ", $e->getMessage() );
+			}
+		}
 	}
 
 	/**

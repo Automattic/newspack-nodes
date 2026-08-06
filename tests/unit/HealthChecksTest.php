@@ -169,7 +169,7 @@ class HealthChecksTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = 0;
 		$record[ Probe_Record::END_SIZE ]       = 0;
 		$record[ Probe_Record::DISTANCE ]       = $distance;
-		$record[ Probe_Record::MSGS ]           = 7319;
+		$record[ Probe_Record::MSGS_DELTA ]           = 7319;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;

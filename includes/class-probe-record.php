@@ -3,9 +3,12 @@
  * Probe_Record: the positional layout of a topicprobe.p0 record's Message VALUE.
  *
  * A `Topic_Probe` snapshot is a small POSITIONAL array (no keys) so the browser
- * can replay 24h of it over SSE cheaply. It is the raw consumer/partition state
- * at one instant — the Message's TIMESTAMP is the time; everything else (rates,
- * totals) is DERIVED by readers from consecutive records, never logged.
+ * can replay 24h of it over SSE cheaply. Each record is SELF-CONTAINED: the work
+ * done since the previous sweep (`MSGS_DELTA`, `BYTES_READ_DELTA`) plus the
+ * `ELAPSED_MS` that work covers, so a reader divides ONE record. Every other slot
+ * is a POSITION or LEVEL read off disk, already correct across a restart. Nothing
+ * is derived by differencing consecutive records — a worker recycles every ~595s,
+ * and differencing read that as a counter reset (a literal 0 on the chart).
  *
  * Indices mirror `src/runtime/probe-record.js` (a parity test pins them).
  *
@@ -39,13 +42,19 @@ class Probe_Record {
 	/** Distance: bytes the consumer is behind (the backlog), for the overview graph. */
 	public const DISTANCE = 6;
 
-	/** Messages the consumer has sent. */
-	public const MSGS = 7;
+	/** Messages the consumer sent during ELAPSED_MS. */
+	public const MSGS_DELTA = 7;
 
-	/** Absolute partition byte position (Σ live segment sizes); readers derive the byte rate from its delta. */
+	/** Absolute partition byte position (Σ live segment sizes) — the on-disk footprint, NOT a rate source. */
 	public const END_BYTES = 8;
 
 	/** Offsetlog cache size: byte size of the consumer's newest offsetlog segment (0 for ephemeral readers). */
 	public const CACHE_SIZE = 9;
+
+	/** Bytes the consumer read during ELAPSED_MS; unlike END_BYTES it cannot fall when retention deletes a segment. */
+	public const BYTES_READ_DELTA = 10;
+
+	/** Milliseconds the deltas above cover — the interval since this consumer's previous sweep. */
+	public const ELAPSED_MS = 11;
 
 }

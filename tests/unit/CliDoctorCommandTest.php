@@ -179,7 +179,7 @@ class CliDoctorCommandTest extends TestCase {
 		$record[ Probe_Record::END_SEGMENT ]    = 0;
 		$record[ Probe_Record::END_SIZE ]       = 0;
 		$record[ Probe_Record::DISTANCE ]       = $distance;
-		$record[ Probe_Record::MSGS ]           = 8_843;
+		$record[ Probe_Record::MSGS_DELTA ]           = 8_843;
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;

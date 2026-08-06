@@ -217,6 +217,18 @@ export class ProbeStreamViewNode extends Node {
 	}
 
 	/**
+	 * One record slot as a non-negative number. A probe record carries the work
+	 * done in its OWN window, so the only way to see a negative is a corrupt
+	 * frame; the clamp keeps one from subtracting out of a windowed total.
+	 *
+	 * @param {string|number|undefined} raw The positional slot's value.
+	 * @return {number} The clamped delta.
+	 */
+	_delta( raw ) {
+		return Math.max( 0, Number( raw ) || 0 );
+	}
+
+	/**
 	 * Enforce the ring cap in place, right after a subclass pushes a sample.
 	 * The cap sits above the 24h window, so the prune is the real boundary and
 	 * this only bounds memory when records arrive faster than expected.

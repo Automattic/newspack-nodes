@@ -3,14 +3,15 @@
  * epoch-aligned time-bucket grid (bucket = probe interval, widened only to keep
  * the axis under `maxPoints`), then fill each bucket per the metric's mode:
  * LEVEL gauges (backlog/cacheSize) HOLD the last value across empty buckets
- * (0 before the first sample); RATE metrics zero-fill and MAX-aggregate. This
- * kills the phase-offset sawtooth the old raw-union + `?? 0` path drew. No DOM.
+ * (0 before the first sample); RATE metrics zero-fill and re-divide the bucket's
+ * summed work by its summed weight. This kills the phase-offset sawtooth the old
+ * raw-union + `?? 0` path drew. No DOM.
  */
 
 import { buildAlignedSeries } from '../buildAlignedSeries';
 
 const HOLD = { fill: 'hold', agg: 'last' };
-const ZERO = { fill: 'zero', agg: 'max' };
+const ZERO = { fill: 'zero', agg: 'rate' };
 
 describe( 'buildAlignedSeries', () => {
 	it( 'returns empty when no series have points', () => {
@@ -102,14 +103,54 @@ describe( 'buildAlignedSeries', () => {
 		] );
 	} );
 
-	it( 'a RATE metric zero-fills an empty bucket and MAX-aggregates within a bucket', () => {
+	it( 'a RATE bucket SUMS the work of every sample in it, rather than letting one win', () => {
+		// Two samples from ONE source land in the same bucket: 10/s over 15s
+		// (150 units) and 0/s over 15s (0 units) is 150 units over 30s = 5/s.
+		// Taking the max would report 10/s and silently discard the idle window.
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 10, weight: 15 },
+						{ ts: 5, value: 0, weight: 15 },
+						{ ts: 30, value: 20, weight: 15 },
+					],
+					max: 20,
+				},
+			},
+			100,
+			ZERO
+		);
+		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
+			5, 0, 20,
+		] );
+	} );
+
+	it( 'weights a RATE bucket by each sample’s own interval', () => {
+		// 60/s across 1s (60 units) + 0/s across 14s = 60 units over 15s = 4/s.
+		const out = buildAlignedSeries(
+			{
+				a: {
+					points: [
+						{ ts: 0, value: 60, weight: 1 },
+						{ ts: 1, value: 0, weight: 14 },
+					],
+					max: 60,
+				},
+			},
+			100,
+			ZERO
+		);
+		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 4 );
+	} );
+
+	it( 'falls back to a plain mean when a RATE bucket carries no weights', () => {
 		const out = buildAlignedSeries(
 			{
 				a: {
 					points: [
 						{ ts: 0, value: 10 },
 						{ ts: 5, value: 40 },
-						{ ts: 30, value: 20 },
 					],
 					max: 40,
 				},
@@ -117,19 +158,16 @@ describe( 'buildAlignedSeries', () => {
 			100,
 			ZERO
 		);
-		// bucket 0 = max(10,40)=40; bucket 15 empty → 0; bucket 30 = 20.
-		expect( out.series[ 0 ].values.map( ( v ) => v.value ) ).toEqual( [
-			40, 0, 20,
-		] );
+		expect( out.series[ 0 ].values[ 0 ].value ).toBe( 25 );
 	} );
 
-	it( 'defaults to RATE behavior (zero-fill + max) when no mode is given', () => {
+	it( 'defaults to RATE behavior (zero-fill + re-divide) when no mode is given', () => {
 		const out = buildAlignedSeries(
 			{
 				a: {
 					points: [
-						{ ts: 0, value: 10 },
-						{ ts: 30, value: 20 },
+						{ ts: 0, value: 10, weight: 15 },
+						{ ts: 30, value: 20, weight: 15 },
 					],
 					max: 20,
 				},
