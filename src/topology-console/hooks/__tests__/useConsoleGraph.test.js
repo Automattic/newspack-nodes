@@ -25,6 +25,9 @@ import names from '../../../runtime/reserved-node-names.json';
 import * as wire from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 
+// The wire wraps the payload into a reply Message itself.
+const reply = ( payload ) => payload;
+
 // The command wire is faked, not the client — commands travel the real graph
 // and their replies come back addressed `TO = FROM`. beforeEach answers the
 // background topology seed so it is a real no-op, not a swallowed failure.
@@ -411,16 +414,16 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		const { result } = renderGraph( { streamEnabled: true } );
 		act( () => lastConnector.emitConnected( 42 ) );
 		expect( result.current.ssePid ).toBe( 42 );
-		act( () => setVisibility( 'hidden' ) );
+		setVisibility( 'hidden' );
 		expect( lastConnector.closed ).toBe( true );
 		expect( result.current.ssePid ).toBeNull();
 	} );
 
 	it( 'reopens the stream when the tab becomes visible again', () => {
 		renderGraph( { streamEnabled: true } );
-		act( () => setVisibility( 'hidden' ) );
+		setVisibility( 'hidden' );
 		lastConnector.startCount = 0;
-		act( () => setVisibility( 'visible' ) );
+		setVisibility( 'visible' );
 		expect( lastConnector.startCount ).toBe( 1 );
 	} );
 
@@ -443,13 +446,13 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 
 		// …so an inactive router is a silent poller: notify_timer only runs
 		// from the router's own fire path.
-		act( () => setVisibility( 'hidden' ) );
+		setVisibility( 'hidden' );
 		expect( router.mode ).toBe( 'inactive' );
 
 		// Resuming must actually repaint: at cwd '/' this poll is LOCAL (it
 		// dumps the browser's own graph, no request), so pausing it while
 		// hidden is only acceptable if it comes straight back.
-		act( () => setVisibility( 'visible' ) );
+		setVisibility( 'visible' );
 		expect( router.mode ).not.toBe( 'inactive' );
 		const resumed = metadata.counter;
 		// Metadata self-throttles to its own 1s interval off Core.now(), so a
@@ -472,13 +475,13 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		renderGraph( { enabled: false } );
 		const router = Core.node( names.ROUTER );
 
-		act( () => setVisibility( 'hidden' ) );
+		setVisibility( 'hidden' );
 		expect( router.mode ).toBe( 'inactive' );
 		// The tick interval survives the pause: a bare setTimer() hitchhike
 		// reads it, and would inherit 0 from stopTimer.
 		expect( router.interval_ms ).toBe( 1000 );
 
-		act( () => setVisibility( 'visible' ) );
+		setVisibility( 'visible' );
 		expect( router.mode ).not.toBe( 'inactive' );
 	} );
 
@@ -486,8 +489,8 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		renderGraph( { streamEnabled: false } );
 		// The session worker's RemoteIpc EXISTS (it's always mounted)…
 		expect( Core.node( 'demo.p0' ) ).toBeInstanceOf( RemoteIpcNode );
-		act( () => setVisibility( 'hidden' ) );
-		act( () => setVisibility( 'visible' ) );
+		setVisibility( 'hidden' );
+		setVisibility( 'visible' );
 		// Streaming off: connect() never ran; no SseIn child built (null).
 		expect( Core.node( 'demo.p0' ).sseIn ).toBeNull();
 		expect( lastConnector ).toBeNull();
@@ -904,9 +907,6 @@ describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
 		expect( result.current.ssePid ).toBeNull();
 	} );
 } );
-
-// The wire wraps the payload into a reply Message itself.
-const reply = ( payload ) => payload;
 
 describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 	it( 'resolves a tokenized top-level override on a borrowed seed node', async () => {

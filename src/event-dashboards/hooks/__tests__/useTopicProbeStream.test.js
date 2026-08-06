@@ -70,6 +70,9 @@ function probeFrame( {
 	source = 'firehose.p0',
 	distance = 0,
 	msgs = 0,
+	// Distinct from `msgs`: seeding both deltas the same lets a view that reads
+	// the wrong field still pass every byteRate assertion.
+	bytesRead = msgs * 100,
 	elapsedMs = 15000,
 } = {} ) {
 	const m = newMessage();
@@ -83,7 +86,7 @@ function probeFrame( {
 	v[ READER ] = reader;
 	v[ DISTANCE ] = distance;
 	v[ MSGS_DELTA ] = msgs;
-	v[ BYTES_READ_DELTA ] = msgs;
+	v[ BYTES_READ_DELTA ] = bytesRead;
 	v[ ELAPSED_MS ] = elapsedMs;
 	m[ VALUE ] = v;
 	return m;

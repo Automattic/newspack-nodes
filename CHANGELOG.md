@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test-integrity fixes from a Copilot review pass.** `useTopicProbeStream`'s
+  fixture seeded `BYTES_READ_DELTA` from `msgs`, so both deltas carried the same
+  value and a view reading the wrong field would still have passed every
+  byte-rate assertion; it now derives a distinct value. `useJobstatsStream` had
+  no reconnect/graph-rebuild test even though it history-seeks through the same
+  `RemoteLink` as `useTopicProbeStream`, whose twin test was the only coverage —
+  breaking the seek now fails two tests instead of one. `useConsoleGraph`'s
+  visibility helper wraps its own `act()`, so the nine call sites no longer nest
+  a second one, and `reply` moved from line 909 up beside its first use.
+
 ## [2.11.1] - 2026-08-06
 
 ### Fixed

@@ -109,6 +109,32 @@ describe( 'useJobstatsStream', () => {
 		);
 	} );
 
+	it( 'reconnects (re-seeking history) after a graph rebuild drops + recreates the link', async () => {
+		// A graph-gen bump rebuilds the link; connect must re-fire. The twin of
+		// this in useTopicProbeStream.test.js was the only place it was covered,
+		// and both hooks history-seek through the same RemoteLink.
+		renderHook( () =>
+			useJobstatsStream( {
+				mode: 'history',
+				commandClient: fakeClient(),
+			} )
+		);
+		await act( async () => {} );
+		const firstLink = Core.node( LINK );
+		const before = FakeEventSource.instances.length;
+
+		await act( async () => {
+			Core.bumpGraphGeneration();
+		} );
+
+		expect( Core.node( LINK ) ).not.toBe( firstLink ); // rebuilt
+		// reconnected
+		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
+		expect( FakeEventSource.last.url ).toContain(
+			encodeURIComponent( JSON.stringify( { 'jobstats.p0': 'start' } ) )
+		); // re-seeks history, not a tail-follow
+	} );
+
 	it( "mode:'follow' tail-seeks (no positions param)", async () => {
 		renderHook( () =>
 			useJobstatsStream( { mode: 'follow', commandClient: fakeClient() } )
