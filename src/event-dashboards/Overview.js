@@ -6,7 +6,7 @@
  * LAG (the health metric of a log pipeline) — as a live trend, not just a number,
  * because what matters is whether the backlog is draining or climbing.
  *
- * A live view over useTopologyManager + the TopicProbe stream:
+ * A live view over useTopologyManager + the Topic_Probe stream:
  *  - the shared SummaryCards row (topology/active counts, worker liveness,
  *    on-disk partitions, health, global R/W rates, 24h produced totals),
  *  - THREE Tachikoma-style Topics panels — Message Rate, Byte Rate, Backlog —

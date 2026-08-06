@@ -4,7 +4,7 @@
  *
  * ONE place computes the operator-facing alert conditions — worker down,
  * consumer lag climbing, dead-letter growth — from the SAME snapshot
- * Workers_CI already builds (lock-dir heartbeats, the TopicProbe cursor log,
+ * Workers_CI already builds (lock-dir heartbeats, the Topic_Probe cursor log,
  * the on-disk quarantine dirs). It re-implements none of those reads.
  *
  * Three consumers of the result: WP Site Health tests + the admin notice call

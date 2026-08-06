@@ -9,7 +9,7 @@ import {
 } from '../../runtime/probe-record';
 
 /**
- * `topicprobe:view` — owns the TopicProbe stream view model.
+ * `topicprobe:view` — owns the Topic_Probe stream view model.
  *
  * Each inbound frame is one Consumer's lean POSITIONAL probe record (the
  * `Probe_Record` layout); the snapshot instant is the Message TIMESTAMP. The view
@@ -130,7 +130,7 @@ export class TopicProbeViewNode extends ProbeStreamViewNode {
 		return {
 			category: 'Hidden',
 			description:
-				'TopicProbe stream render-model sink (the React view node).',
+				'Topic_Probe stream render-model sink (the React view node).',
 			has_target: false,
 			arguments: [],
 			commands: [],

@@ -386,7 +386,7 @@ Both shapes **inherit** the durable offsetlog cursor, snapshot co-commit, dead-l
 
 **Remote reader family (SSE-pull aggregation).** `Remote_Source_Node` is a self-sufficient, topology-visible SSE-pull node: it extends `Remote_Link_Node` (the channel layer — `SSE_In_Node` + `HTTP_Out_Node` patrons, heartbeat, reconnect, status) and `use`s the same `Durable_Reader` trait Consumer does, so each raw SSE `msg` payload appends to the pump buffer and the tick drains it exactly like a Consumer — with the same durable offsetlog cursor, time travel, and dead-letter/crash lifecycle ([ADR-12](architecture-decisions.md#adr-12-dead-letter-poison--crash-lifecycle)). Only two seams differ from a disk reader: the refill arms an async cURL valve rather than reading a block, and the cursor comes from each message's own breadcrumb rather than the local buffer chop. Credentials and URL come from the `Vault` entry the node's `<vault-id>` argument names; a missing entry leaves it disconnected rather than building mis-configured patrons. These are the cURL-driven nodes that register handles with the drain loop (see [Event_Framework](#event_framework)).
 
-**TopicProbe** (`TopicProbe_Node`) is a periodic Consumer-stats sweep: each worker process runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`) and emitting one positional `Probe_Record` per tick — cursor, partition end, bytes behind, message count — into the shared `topicprobe.p0` log. The default cadence is 15s, and since that exceeds 1000ms it rides the Router hitchhike. That log is the ONE live-position source: `wp nodes status` and the dashboards read it, not memcache. **Job_Probe** (`Job_Probe_Node`) is its counterpart for `Job_Worker`s, sweeping per-identity job stats into `jobstats.p0` — one record per Consumer for the first, many per worker for the second.
+**Topic_Probe** (`Topic_Probe_Node`) is a periodic Consumer-stats sweep: each worker process runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`) and emitting one positional `Probe_Record` per tick — cursor, partition end, bytes behind, message count — into the shared `topicprobe.p0` log. The default cadence is 15s, and since that exceeds 1000ms it rides the Router hitchhike. That log is the ONE live-position source: `wp nodes status` and the dashboards read it, not memcache. **Job_Probe** (`Job_Probe_Node`) is its counterpart for `Job_Worker`s, sweeping per-identity job stats into `jobstats.p0` — one record per Consumer for the first, many per worker for the second.
 
 ## Backpressure (none)
 
@@ -608,7 +608,7 @@ Ships with a stock `topologies/job-worker.tsl` in the substrate's built-in dir (
 
 ## REPL: wp nodes cli
 
-`wp nodes status` (alias `ls`) — fleet overview: every catalog topology with per-partition State (`live`/`stale`/`down` from the lock heartbeats), heartbeat age, uptime (the lock dir's `started` file), then the consumer-lag table from the TopicProbe snapshot.
+`wp nodes status` (alias `ls`) — fleet overview: every catalog topology with per-partition State (`live`/`stale`/`down` from the lock heartbeats), heartbeat age, uptime (the lock dir's `started` file), then the consumer-lag table from the Topic_Probe snapshot.
 
 `wp nodes cli` — open an interactive REPL. Two modes:
 

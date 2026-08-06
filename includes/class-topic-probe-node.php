@@ -1,7 +1,7 @@
 <?php
 /**
- * TopicProbe: periodic Consumer-stats sweep. The counterpart of Tachikoma's
- * TopicProbe (consumer branch) for our multi-process world — each worker process
+ * Topic_Probe: periodic Consumer-stats sweep. The counterpart of Tachikoma's
+ * TopicProbe.pm (consumer branch) for our multi-process world — each worker process
  * runs one, sweeping ITS local Consumers (`Core::$nodes_by_name`, the analog of
  * `%Tachikoma::Nodes`) and emitting one snapshot record per tick into the shared
  * `topicprobe` log. Consumer + partition state ride together at one instant:
@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class TopicProbe_Node extends Timer_Node {
+class Topic_Probe_Node extends Timer_Node {
 
 	/** Shared probe-log dir basename (the topic-probe TSL declares the path). */
 	public const LOG_DIR = 'topicprobe.p0';
@@ -41,7 +41,7 @@ class TopicProbe_Node extends Timer_Node {
 		$this->arguments = $args;
 		$trimmed         = ( $args[0] ?? '' );
 		if ( '' !== $trimmed && ! \preg_match( '/^[0-9]+$/', $trimmed ) ) {
-			throw new \InvalidArgumentException( 'Bad arguments for TopicProbe' );
+			throw new \InvalidArgumentException( 'Bad arguments for Topic_Probe' );
 		}
 		$interval_s = '' === $trimmed ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $trimmed );
 		// set_timer registers TIMER hitchhike; fire_cb() gates to interval_ms.
@@ -71,7 +71,7 @@ class TopicProbe_Node extends Timer_Node {
 			try {
 				$record = $node->probe_stats();
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( "TopicProbe skipped {$node->name()}: ", $e->getMessage() );
+				$this->print_less_often( "Topic_Probe skipped {$node->name()}: ", $e->getMessage() );
 				continue;
 			}
 			$message                       = Message::new_message();

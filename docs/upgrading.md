@@ -28,6 +28,14 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   fleet with no `Job_Worker` topology loses all of it silently. If doctor
   reports it CRITICAL, run `wp nodes activate job-worker`.
 
+- **The `TopicProbe` node type is renamed `Topic_Probe`.** The class is
+  `Topic_Probe_Node`, matching its sibling `Job_Probe_Node` and ADR-10. There is
+  no alias: a topology whose own file says `make_node TopicProbe <name> [interval]`
+  fails to resolve a class at load. Rewrite it to `make_node Topic_Probe …`.
+  Stock `topic-probe.tsl` is already updated, so an `include topic-probe` needs
+  no change, and neither does the node name `topicprobe` or the `topicprobe.p0`
+  log path.
+
 - **`newspack_nodes/supervisor_periodic` is renamed to
   `newspack_nodes/periodic`.** There is no supervisor left to name, and the
   cadence is unchanged at 15s. There is no alias and no deprecation shim: a

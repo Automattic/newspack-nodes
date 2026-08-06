@@ -198,7 +198,7 @@ class Tail_Node extends Consumer_Node {
 
 	/**
 	 * Probe snapshot. File mode reports lag as file-size − read-position (no segments); segmented
-	 * defers to Consumer. TopicProbe already try/catches, but a clean record beats a skipped one.
+	 * defers to Consumer. Topic_Probe already try/catches, but a clean record beats a skipped one.
 	 *
 	 * @return array<int,int|string>
 	 */

@@ -1,5 +1,5 @@
 /**
- * Integrate the TopicProbe view's rate series into produced 24h totals for the
+ * Integrate the Topic_Probe view's rate series into produced 24h totals for the
  * SummaryCards "messages sent" / "bytes sent" cards: Σ (rate × dt) over each
  * source's series, summed across sources.
  *

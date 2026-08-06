@@ -464,7 +464,7 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'parseMetadata hides process scaffolding', () => {
-		it( 'drops the backbone but keeps the TSL-declared TopicProbe visible', () => {
+		it( 'drops the backbone but keeps the TSL-declared Topic_Probe visible', () => {
 			// The probe moved into topology TSL (`include topic-probe`): it is
 			// an ordinary declared node now and renders like one.
 			const { nodes, edges } = parseMetadata( {
@@ -473,7 +473,7 @@ describe( 'Metadata node', () => {
 					sink: '_router',
 				},
 				_router: { class: 'Router' },
-				topicprobe: { class: 'TopicProbe', target: 'topicprobe:log' },
+				topicprobe: { class: 'Topic_Probe', target: 'topicprobe:log' },
 				'topicprobe:log': { class: 'Partition' },
 				firehose: { class: 'Consumer', target: 'request-builder' },
 				'request-builder': { class: 'Request_Builder' },

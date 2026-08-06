@@ -2,7 +2,7 @@
 /**
  * Probe_Record: the positional layout of a topicprobe.p0 record's Message VALUE.
  *
- * A `TopicProbe` snapshot is a small POSITIONAL array (no keys) so the browser
+ * A `Topic_Probe` snapshot is a small POSITIONAL array (no keys) so the browser
  * can replay 24h of it over SSE cheaply. It is the raw consumer/partition state
  * at one instant — the Message's TIMESTAMP is the time; everything else (rates,
  * totals) is DERIVED by readers from consecutive records, never logged.

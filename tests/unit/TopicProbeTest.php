@@ -6,18 +6,18 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Probe_Record;
-use Newspack_Nodes\TopicProbe_Node;
+use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * TopicProbe sweeps this process's Consumers (faithful to Tachikoma's
+ * Topic_Probe sweeps this process's Consumers (faithful to Tachikoma's
  * `for keys %Tachikoma::Nodes { isa Consumer }`) and emits ONE lean positional
  * `Probe_Record` snapshot per Consumer per tick into its sink (the shared
  * topicprobe log). Raw state only — the Message TIMESTAMP is the time; rates and
  * totals are derived downstream, never logged.
  */
-#[CoversClass( TopicProbe_Node::class )]
+#[CoversClass( Topic_Probe_Node::class )]
 class TopicProbeTest extends TestCase {
 
 	protected function setUp(): void {
@@ -62,7 +62,7 @@ class TopicProbeTest extends TestCase {
 		$this->stub_consumer( 'gyroscope', 0 );
 
 		$capture = new Capture_Sink_Node();
-		$probe   = new TopicProbe_Node();
+		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
@@ -87,7 +87,7 @@ class TopicProbeTest extends TestCase {
 
 	public function test_fire_emits_nothing_when_no_consumers(): void {
 		$capture = new Capture_Sink_Node();
-		$probe   = new TopicProbe_Node();
+		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
@@ -100,7 +100,7 @@ class TopicProbeTest extends TestCase {
 		$capture->name( '_sink_in_registry' );
 		$this->stub_consumer( 'firehose' );
 
-		$probe = new TopicProbe_Node();
+		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
@@ -114,7 +114,7 @@ class TopicProbeTest extends TestCase {
 
 	public function test_arguments_sets_interval_and_returns_raw_string(): void {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' ); // set_timer hitchhikes the Router TIMER
-		$probe = new TopicProbe_Node();
+		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$this->assertSame( [ '5' ], $probe->arguments( [ '5' ] ) );
 		// The getter (null arg) returns the raw string last set, not a re-parse.
@@ -125,7 +125,7 @@ class TopicProbeTest extends TestCase {
 
 	public function test_arguments_empty_string_keeps_default_interval(): void {
 		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
-		$probe = new TopicProbe_Node();
+		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$this->assertSame( [], $probe->arguments( [] ) );
 		$ref = new \ReflectionProperty( $probe, 'interval_ms' );
@@ -133,7 +133,7 @@ class TopicProbeTest extends TestCase {
 	}
 
 	public function test_arguments_rejects_non_numeric(): void {
-		$probe = new TopicProbe_Node();
+		$probe = new Topic_Probe_Node();
 		$this->expectException( \InvalidArgumentException::class );
 		$probe->arguments( [ 'every-15s' ] );
 	}
@@ -143,7 +143,7 @@ class TopicProbeTest extends TestCase {
 		// fire() directly (fire_cb would short-circuit before reaching it): the FIRE
 		// notify still happens, then it returns before sweeping any Consumer.
 		$this->stub_consumer( 'firehose' );
-		$probe = new TopicProbe_Node();
+		$probe = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 
 		$fired = [];
@@ -168,7 +168,7 @@ class TopicProbeTest extends TestCase {
 		$this->stub_consumer( 'firehose' );
 
 		$capture = new Capture_Sink_Node();
-		$probe   = new TopicProbe_Node();
+		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		$probe->fire_cb();
@@ -185,7 +185,7 @@ class TopicProbeTest extends TestCase {
 		// per interval_s, gated against last_fire_time — like Consumer's publish.
 		$this->stub_consumer( 'firehose' );
 		$capture = new Capture_Sink_Node();
-		$probe   = new TopicProbe_Node();
+		$probe   = new Topic_Probe_Node();
 		$probe->name( 'topicprobe' );
 		$probe->sink( $capture );
 		// Arm the way production does — the gate belongs to the hitchhike, so

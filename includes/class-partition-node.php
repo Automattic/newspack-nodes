@@ -1283,7 +1283,7 @@ class Partition_Node extends Timer_Node {
 	 * Reads at most `$max_bytes` from the END of the NEWEST segment and returns
 	 * `key => VALUE` for the LAST record carrying each distinct `$key_field`.
 	 * Records append chronologically, so the tail holds the most recent ones; a
-	 * producer that writes every key on a short interval (TopicProbe: every 15s)
+	 * producer that writes every key on a short interval (Topic_Probe: every 15s)
 	 * keeps every active key present. A bounded tail read is cheaper than the
 	 * whole segment. A leading partial line (the tail may start mid-record) is
 	 * dropped; records whose key is missing/empty/non-string are skipped.

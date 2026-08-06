@@ -30,7 +30,7 @@ const ENTRY_TTL_MS = 300000; // 5 min
  */
 
 /**
- * Shared base for the durable-probe stream view nodes (TopicProbe + Jobstats).
+ * Shared base for the durable-probe stream view nodes (Topic_Probe + Jobstats).
  *
  * Owns the ring/throttle/TTL/eviction/prune machinery a probe stream needs so the
  * subclasses supply ONLY their field mapping: `_identityOf(value)` (which slot is

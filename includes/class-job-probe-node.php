@@ -1,10 +1,10 @@
 <?php
 /**
- * Job_Probe: periodic Job_Worker-stats sweep. The jobs analog of TopicProbe — each
+ * Job_Probe: periodic Job_Worker-stats sweep. The jobs analog of Topic_Probe — each
  * worker process runs one, sweeping ITS local Job_Workers (`Core::$nodes_by_name`)
  * and emitting one snapshot record per job IDENTITY per tick into the shared
  * `jobstats` log. A Job_Worker owns many identities, so one worker yields many
- * records (unlike TopicProbe, where one Consumer yields one). Cumulative counters
+ * records (unlike Topic_Probe, where one Consumer yields one). Cumulative counters
  * ride raw at one instant — the Message's TIMESTAMP is the time; rates and averages
  * are DERIVED by readers from consecutive records, never logged.
  *

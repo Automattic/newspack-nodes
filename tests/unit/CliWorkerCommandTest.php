@@ -57,7 +57,7 @@ class CliWorkerCommandTest extends TestCase {
 
 	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/0.log. */
 	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
-		// status() enumerates Consumers from the TopicProbe log; seed a lean
+		// status() enumerates Consumers from the Topic_Probe log; seed a lean
 		// positional Probe_Record there.
 		$dir = "{$this->tmp}/logs/topicprobe.p0";
 		if ( ! \is_dir( $dir ) ) {
