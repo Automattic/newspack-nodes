@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.1] - 2026-08-06
+
+### Fixed
+
+- **Secret scanning and CodeQL findings cleared.** `dXNlcjpwYXNz` in two
+  `@return` docblocks is base64 of `user:pass`, a placeholder rather than a
+  credential — but a literal base64 blob is indistinguishable from one to a
+  scanner, so the example spells out what it stands for. CodeQL's superfluous
+  trailing arguments: `useConsoleGraph.test.js` called `httpOf( 'demo.p0' )` in
+  four places where `httpOf` takes no parameters, reading as though the helper
+  selected a per-worker node when `_http` is the process-wide HttpOut singleton.
+
+- **The two rename guards no longer fire on unrelated releases.** They asserted
+  that the CURRENT changelog section names the renamed class, so the first patch
+  after a rename failed for not re-announcing something it did not do. They now
+  assert the released changelog documents the rename anywhere. The
+  retired-name-in-the-changelog assertion is dropped outright: describing a
+  rename means naming what it used to be called, and the source scans already
+  own the rule that no code references the old name.
+
+### Changed
+
+- Dependencies: `fast-uri` 3.1.4 -> 3.1.5 (the high-severity advisory), and the
+  `softprops/action-gh-release` pin 3.0.1 -> 3.0.2.
+
 ## [2.11.0] - 2026-08-06
 
 ### Added

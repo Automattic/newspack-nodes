@@ -48,18 +48,18 @@ class TopicProbeNamingTest extends TestCase {
 		$this->assertSame( [], $found, "the retired TopicProbe name survives:\n" . \implode( "\n", $found ) );
 	}
 
-	public function test_the_current_changelog_section_names_the_new_class(): void {
-		$root    = \dirname( __DIR__, 2 );
-		$log     = (string) \file_get_contents( $root . '/CHANGELOG.md' );
-		$version = (string) \file_get_contents( $root . '/package.json' );
-		$this->assertSame( 1, \preg_match( '/"version"\s*:\s*"([^"]+)"/', $version, $m ) );
+	public function test_the_changelog_documents_the_rename(): void {
+		$root = \dirname( __DIR__, 2 );
+		$log  = (string) \file_get_contents( $root . '/CHANGELOG.md' );
 
-		$start = \strpos( $log, "## [{$m[1]}]" );
-		$this->assertIsInt( $start, "no CHANGELOG section for {$m[1]}" );
-		$end     = \strpos( $log, "\n## [", $start + 1 );
-		$section = \substr( $log, $start, false === $end ? null : $end - $start );
+		// @longform Anchored to the RELEASED changelog, not to whatever version
+		// is current: pinning it to the current section made every later patch
+		// fail for not re-announcing a rename it did not make.
+		$released = \strpos( $log, "\n## [" );
+		$this->assertIsInt( $released, 'no released CHANGELOG section' );
+		$log = \substr( $log, $released );
 
-		$this->assertStringContainsString( 'Topic_Probe_Node', $section );
+		$this->assertStringContainsString( 'Topic_Probe_Node', $log );
 	}
 
 	private function names_the_retired_class( string $haystack ): bool {
