@@ -45,8 +45,7 @@ class RestartPlannerTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/{$name}.tsl", $contents );
 	}
 
-	public function test_supervisor_only_and_empty_resolve_to_nothing(): void {
-		$this->assertSame( [], Restart_Planner::topologies_for( 'supervisor_only' ) );
+	public function test_empty_classification_resolves_to_nothing(): void {
 		$this->assertSame( [], Restart_Planner::topologies_for( [] ) );
 	}
 

@@ -12,7 +12,7 @@ use Newspack_Nodes\Tests\TestCase;
  * Topology conflict detection: two enabled topologies must not both WRITE the
  * same file (a data partition or a Consumer offsetlog). Two writers to one file
  * corrupt it — the hazard void_warranty() no longer catches with a lock, so it's
- * caught upfront at enable-time + supervisor-spawn-time instead.
+ * caught upfront at enable-time + fleet-spawn-time instead.
  */
 #[CoversClass( Topology_Registry::class )]
 #[CoversClass( Topology_Analyzer::class )]
@@ -148,7 +148,7 @@ class TopologyRegistryConflictsTest extends TestCase {
 		$this->write_tsl( 'w', "make_node Partition b:partition <config:logs_dir>/b.p<partition> <config:segment_size> <config:min_segments> <config:max_segments> <config:min_lifetime> <config:max_lifetime>" );
 		$this->assertSame( $first, Topology_Analyzer::write_set( 'w' ), 'cached until the per-tick reset' );
 
-		// reset_basename_cache() (Config::RESET_ACTION on each supervisor tick) picks up the edit.
+		// reset_basename_cache() (Config::RESET_ACTION on each fleet tick) picks up the edit.
 		Topology_Registry::reset_basename_cache();
 		$this->assertContains( 'partition:<config:logs_dir>/b.p<partition>', Topology_Analyzer::write_set( 'w' ) );
 	}

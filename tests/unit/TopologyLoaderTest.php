@@ -163,7 +163,7 @@ class TopologyLoaderTest extends TestCase {
 
 	public function test_load_supports_var_frontmatter_and_semicolons(): void {
 		// Frontmatter `var` lines populate Core::$var so subsequent
-		// statements (and supervisor-side metadata reads) can pick
+		// statements (and worker-side metadata reads) can pick
 		// them up. Semicolons separate statements on a single line.
 		$this->write_tsl(
 			'frontmatter',

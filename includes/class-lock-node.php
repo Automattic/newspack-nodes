@@ -235,7 +235,7 @@ class Lock_Node extends Node {
 	 *
 	 * @longform Verified against the heartbeat PID, never against our own
 	 * `is_held` flag. A worker blocked in a long job stops heartbeating, goes
-	 * stale, and a peer steals the dir; `should_restart()` reports the theft but
+	 * stale, and a peer steals the dir; `restart_reason()` reports the theft but
 	 * deliberately leaves `is_held` alone, so a flag-only check here would have
 	 * the evicted holder `force_release_at()` the SUCCESSOR's directory. The
 	 * successor then dies of "lock dir gone" on its next tick and both respawn,
@@ -343,14 +343,18 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * True if a restart flag is present OR the heartbeat is gone / PID-stolen.
+	 * Why this lock's holder should exit, or '' to keep running.
+	 *
+	 * Three unrelated situations end a worker through this one channel, and an
+	 * operator reading `restart requested` off a worker that nobody restarted
+	 * has no way to tell which — so each says what actually happened.
 	 *
 	 * Heavy clearstatcache is intentional — long-running workers won't see external changes otherwise.
 	 */
-	public function should_restart(): bool {
+	public function restart_reason(): string {
 		\clearstatcache( true, $this->lock_path . '/' . self::RESTART_FLAG );
 		if ( \is_file( $this->lock_path . '/' . self::RESTART_FLAG ) ) {
-			return true;
+			return 'restart requested';
 		}
 
 		// PID-content theft check: only meaningful if we believe we hold it.
@@ -359,13 +363,14 @@ class Lock_Node extends Node {
 			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 			$content = @\file_get_contents( $this->lock_path . '/' . self::HEARTBEAT_FILE );
 			if ( false === $content ) {
-				return true; // Heartbeat gone — lock dir deleted from under us.
+				return 'lock heartbeat gone';
 			}
-			if ( (int) $content !== \getmypid() ) {
-				return true; // PID mismatch — another process now holds it.
+			$holder = (int) $content;
+			if ( $holder !== \getmypid() ) {
+				return "lock stolen by pid {$holder}";
 			}
 		}
-		return false;
+		return '';
 	}
 
 	/**

@@ -93,12 +93,12 @@ abstract class TestCase extends PHPUnitTestCase {
 			\Newspack_Nodes\Log_Sources::$builtin_sources = null;
 		}
 
-		// Bootstrap seams a class may set and not clear: a leaked supervisor_factory
+		// Bootstrap seams a class may set and not clear: a leaked spawn_coordinator_factory
 		// (BootstrapTest binds one to /tmp) misdirects kill_readers' restart-flag
-		// drops; a leaked supervisor_enabled_override=false disables the supervisor.
+		// drops; a leaked fleet_enabled_override=false disables the fleet.
 		if ( \class_exists( '\Newspack_Nodes\Bootstrap' ) ) {
-			\Newspack_Nodes\Bootstrap::$supervisor_factory          = null;
-			\Newspack_Nodes\Bootstrap::$supervisor_enabled_override = null;
+			\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory          = null;
+			\Newspack_Nodes\Bootstrap::$fleet_enabled_override = null;
 		}
 		$this->reset_health_test_state();
 

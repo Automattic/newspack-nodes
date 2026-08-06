@@ -1015,7 +1015,7 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_succeeds_without_arming_a_gc_flag(): void {
-		// The GC now runs every supervisor config-check tick against the
+		// The GC now runs every fleet config-check tick against the
 		// config-declared set, so save no longer arms a dirty flag — it just
 		// persists the topology.
 		$result = VerbHarness::fire(

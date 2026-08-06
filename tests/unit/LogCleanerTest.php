@@ -244,7 +244,7 @@ class LogCleanerTest extends TestCase {
 	}
 
 	public function test_sweeps_an_inactive_topologys_log_and_offset_alike(): void {
-		// Retention follows the operator's ACTIVE set (the supervisor's source), not
+		// Retention follows the operator's ACTIVE set (the fleet's source), not
 		// disk presence — applied UNIFORMLY to logs and offsets. A topology whose .tsl
 		// ships on disk but isn't activated has BOTH its log and its offsetlog reclaimed.
 		$this->declare_topology( 'keeper-workers', $this->log_and_offset_tsl( 'keeper' ) );            // active

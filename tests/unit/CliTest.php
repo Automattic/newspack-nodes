@@ -92,7 +92,7 @@ class CliTest extends TestCase {
 	 * used a flat `Lock_Node::STALE_TIMEOUT`, so a job-worker mid-job — whose
 	 * `job-worker.tsl` declares `stale_timeout = 600` precisely because job
 	 * handlers run user code that can be slow — showed DOWN at 120s while the
-	 * supervisor (which honours the declaration) correctly left it alone and
+	 * fleet (which honours the declaration) correctly left it alone and
 	 * never respawned it. The operator saw a dead worker that was working.
 	 *
 	 * 300 is above the 60s default and below the declared 600.

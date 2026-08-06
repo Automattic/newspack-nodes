@@ -92,7 +92,7 @@ class Fleet_Node extends Timer_Node {
 	 */
 	protected function fire(): void {
 		$this->notify( 'FIRE', Core::$now );
-		if ( '' === $this->base_dir || ! Bootstrap::is_supervisor_enabled() ) {
+		if ( '' === $this->base_dir || ! Bootstrap::is_fleet_enabled() ) {
 			return;
 		}
 		try {

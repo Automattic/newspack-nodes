@@ -576,7 +576,7 @@ class ConsumerTest extends TestCase {
 		// Dashboard needs per-Consumer metadata so it can render rows
 		// like "worker X · consumer Y · target Z" instead of the static
 		// hardcoded WORKER_INPUTS map. Worker_type comes from the env
-		// var the supervisor sets; target is what Node::target() holds.
+		// var the fleet sets; target is what Node::target() holds.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64*1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );

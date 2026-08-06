@@ -13,7 +13,9 @@
  *         (the positional grammar Settings_Sync_Node fans out to spokes),
  *         writes via `update_option()`, then returns the post-set snapshot.
  *         Resets the application Config so the snapshot rebuild sees the new
- *         value rather than the stale cache.
+ *         value rather than the stale cache. A `set` to the value already
+ *         stored still answers with the snapshot, but writes nothing and
+ *         signals neither a restart nor a reload.
  *
  * Allowed-keys whitelist + min/max bounds (1..2^30 for the count/size keys,
  * 0..2^30 for the lifetime keys), `manage_options` requirement, WP option keys. Throws
@@ -75,6 +77,16 @@ class Settings_CI_Node extends Service_CI_Node {
 		$sanitized = self::sanitize_int( $value, $field->min, $field->max ?? \PHP_INT_MAX );
 		if ( null === $sanitized ) {
 			throw new \RuntimeException( \esc_html( "invalid value for setting: {$short}" ) );
+		}
+
+		// @longform A `set` to a value already in place is a no-op, not a
+		// save. Settings_Sync re-pushes every registered option on its
+		// sweep whether or not it moved, so acting on an unchanged push
+		// recycles the whole fleet every sweep. The admin path is gated
+		// for free: `updated_option` never fires.
+		$stored = \get_option( "newspack_nodes_{$short}", null );
+		if ( null !== $stored && $sanitized === Core::as_int( $stored ) ) {
+			return self::snapshot();
 		}
 
 		\update_option( "newspack_nodes_{$short}", $sanitized, true );

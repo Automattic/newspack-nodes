@@ -3,7 +3,7 @@
  * Cooperative_Stop: THE stop policy for every long-running process.
  *
  * `should_continue()` owns every cooperative-stop trigger — lock lost, lock dir
- * gone, restart requested, max-runtime, memory watermark, DB liveness — and the
+ * gone, lock flagged or stolen, max-runtime, memory watermark, DB liveness — and the
  * heartbeat rides along, so a process that asks whether to keep running also
  * proves it is alive. No node implements its own restart.
  *
@@ -96,9 +96,10 @@ trait Cooperative_Stop {
 			return $this->stop( 'lock dir gone' );
 		}
 
-		// request_restart() flags our lock dir; exit so a peer respawns us.
-		if ( $this->lock->should_restart() ) {
-			return $this->stop( 'restart requested' );
+		// A flag, a gone heartbeat, or a stolen lock — each names itself.
+		$restart_reason = $this->lock->restart_reason();
+		if ( '' !== $restart_reason ) {
+			return $this->stop( $restart_reason );
 		}
 
 		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {

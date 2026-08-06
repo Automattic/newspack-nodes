@@ -58,8 +58,8 @@ class SpawnCoordinatorTest extends TestCase {
 		$this->assertFalse( $s->is_recently_spawned( 'foo', 0, $now + 20 ) );
 	}
 
-	public function test_record_spawn_persists_across_supervisor_instances(): void {
-		// Simulates a supervisor process exit + restart (cron backstop or
+	public function test_record_spawn_persists_across_coordinator_instances(): void {
+		// Simulates a worker process exit + restart (cron backstop or
 		// self-respawn). The new instance must see the recent spawn so it
 		// honors the 15s rate limit instead of re-spawning the same worker.
 		$now = microtime( true );
@@ -265,7 +265,7 @@ class SpawnCoordinatorTest extends TestCase {
 	/**
 	 * A lock dir can exist transiently without a heartbeat file (mid-acquire,
 	 * or after force_release that left the dir but cleaned the heartbeat).
-	 * Supervisor must treat this as "needs spawn" — the worker is not running.
+	 * fleet must treat this as "needs spawn" — the worker is not running.
 	 *
 	 * This is distinct from "no lock dir" (test_worker_needs_spawn_when_no_lock)
 	 * and "stale heartbeat" (test_worker_needs_spawn_when_heartbeat_stale).

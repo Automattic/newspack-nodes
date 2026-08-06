@@ -422,10 +422,10 @@ class AdminTest extends TestCase {
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
 	}
 
-	public function test_maybe_request_worker_restart_no_op_for_supervisor_only_options(): void {
-		// 'supervisor_only' (num_partitions) restarts NOTHING — even with a live
+	public function test_maybe_request_worker_restart_no_op_for_no_restart_options(): void {
+		// num_partitions restarts NOTHING — even with a live
 		// topology present that the classification would otherwise resolve
-		// against. The supervisor refreshes config each loop; touching a worker
+		// against. The fleet refreshes config each loop; touching a worker
 		// here would be a correctness bug.
 		$this->register_fixture_topologies();
 		$this->prepare_lock_dir( 'combined', 0 );

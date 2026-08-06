@@ -134,7 +134,7 @@ class BootstrapVaultReloadTest extends TestCase {
 	}
 
 	public function test_a_throwing_provider_does_not_fatal_the_vault_save(): void {
-		Bootstrap::$supervisor_factory = static function (): Spawn_Coordinator {
+		Bootstrap::$spawn_coordinator_factory = static function (): Spawn_Coordinator {
 			throw new \RuntimeException( 'spawn coordinator unavailable 8823' );
 		};
 

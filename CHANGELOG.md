@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A settings-sync sweep recycled a spoke's entire fleet every 300s.**
+  `Settings_CI::cmd_set` requested restarts and reloads unconditionally, without
+  checking whether the value had changed. `Settings_Sync` re-pushes every
+  registered option on its interval whether or not anything moved — deliberately,
+  so a spoke that missed an event converges — so each sweep flagged a restart on
+  every worker whose topology matched a storage-geometry field, and flagged a
+  reload on all the rest, which re-globs and re-parses every `.tsl` to reach the
+  identical answer. Observed on a staging spoke as `jobs.p0: stopping — restart
+  requested` on a cadence, with an audit log showing thirteen options written to
+  the values they already held. `set` is now a no-op when the stored value
+  matches; it still returns the same snapshot. The admin path was already gated
+  for free, by `updated_option` not firing on an unchanged write.
+
+### Changed
+
+- **`restart requested` no longer covers three unrelated situations.**
+  `Lock_Node::should_restart()` returned one bool for an operator's restart flag,
+  a heartbeat file deleted out from under the holder, and a peer that stole the
+  lock after the holder went stale — and every one of them logged `restart
+  requested`. Replaced by `restart_reason(): string`, which reports
+  `restart requested`, `lock heartbeat gone`, or `lock stolen by pid <n>`. The
+  stale-lock case is the common one on a worker running a long job, and it read
+  as an operator action nobody took.
+
+- **A failed SSE slot heartbeat says which state it found.** `workers heartbeat`
+  threw a bare `SSE slot lease not owned` for four different conditions, while
+  `SSE_Slot_Pool::inspect()` — already wired into `SSE_Out`'s own check-failure
+  path — computed exactly which. The verb now appends it: `pointer_missing`,
+  `pointer_owner_mismatch`, `liveness_missing`, `backend_read_error` or
+  `recovered_during_inspection`.
+
+### Removed
+
+- **The supervisor's name, everywhere it outlived the process.** The supervisor
+  was deleted in 2.11.0; what survived was vocabulary. `Bootstrap::supervisor()`
+  → `spawn_coordinator()` (it returns a `Spawn_Coordinator`, and always did),
+  `is_supervisor_enabled()` → `is_fleet_enabled()` (it gates the fleet, including
+  `Fleet_Node::fire()`), the matching test seams, and the reconcile pass's
+  `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` label, now `reconcile`. Nothing
+  compares against that literal; it is a stats dimension.
+
+- **The `'supervisor_only'` restart classification.** `Restart_Planner` resolved
+  it and `[]` through the same branch to the same empty result, so the token had
+  no behavior left — but `Settings_Renderer` printed a different sentence for
+  each, showing operators two descriptions of one outcome. Both now render the
+  window they actually share, derived from `Fleet_Node::SCAN_INTERVAL_MS`.
+  `SpawnCoordinatorNamingTest` guards the retired identifiers.
+
 ## [2.11.3] - 2026-08-06
 
 ### Fixed

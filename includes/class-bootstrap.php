@@ -52,12 +52,11 @@ class Bootstrap {
 	/**
 	 * Fleet enable/disable test seam. Production leaves this null (enabled) —
 	 * the fleet has no production off-switch (no config field, no caller).
-	 * Tests set false to exercise the disabled path. Replaced the test-only
-	 * `newspack_nodes/enable_supervisor` filter.
+	 * Tests set false to exercise the disabled path.
 	 *
 	 * @var bool|null
 	 */
-	public static ?bool $supervisor_enabled_override = null;
+	public static ?bool $fleet_enabled_override = null;
 
 	/**
 	 * Spawn-coordinator construction seam. Lazily-defaulted to a closure
@@ -68,7 +67,7 @@ class Bootstrap {
 	 *
 	 * @var (\Closure(): Spawn_Coordinator)|null
 	 */
-	public static ?\Closure $supervisor_factory = null;
+	public static ?\Closure $spawn_coordinator_factory = null;
 
 	/** Guards ensure_runtime_wired() so repeat entry-point calls in one request are no-ops. */
 	private static bool $runtime_wired = false;
@@ -169,7 +168,7 @@ class Bootstrap {
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
 		// Self-respawn tokens must be minted at POST time, not worker boot.
-		Worker_Base::$token_provider ??= static fn (): string => self::supervisor()->generate_spawn_token( \time() );
+		Worker_Base::$token_provider ??= static fn (): string => self::spawn_coordinator()->generate_spawn_token( \time() );
 		// Fleet alerting: rate-limited alert emission.
 		\add_action( 'newspack_nodes/periodic', [ Alerts::class, 'emit' ] );
 		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
@@ -234,8 +233,8 @@ class Bootstrap {
 	}
 
 	/** The request-scope spawn coordinator (factory seam for tests). */
-	public static function supervisor(): Spawn_Coordinator {
-		$factory = self::$supervisor_factory ?? static fn (): Spawn_Coordinator => new Spawn_Coordinator( self::base_dir() );
+	public static function spawn_coordinator(): Spawn_Coordinator {
+		$factory = self::$spawn_coordinator_factory ?? static fn (): Spawn_Coordinator => new Spawn_Coordinator( self::base_dir() );
 		return $factory();
 	}
 
@@ -244,9 +243,9 @@ class Bootstrap {
 		return Config::get_base_directory();
 	}
 
-	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
+	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */
 	public static function self_heal_reconcile_cron(): void {
-		if ( ! self::is_supervisor_enabled() ) {
+		if ( ! self::is_fleet_enabled() ) {
 			return;
 		}
 		if ( ! self::runtime_base_is_available() ) {
@@ -262,8 +261,8 @@ class Bootstrap {
 	}
 
 	/** Fleet enable gate (default true); false unschedules the cron and stops the peer scan. */
-	public static function is_supervisor_enabled(): bool {
-		return self::$supervisor_enabled_override ?? true;
+	public static function is_fleet_enabled(): bool {
+		return self::$fleet_enabled_override ?? true;
 	}
 
 	/**
@@ -281,13 +280,13 @@ class Bootstrap {
 		}
 	}
 
-	/** Activation hook: schedule the supervisor cron at minute cadence. */
+	/** Activation hook: schedule the reconcile cron at minute cadence. */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( self::CRON_EVENT ) ) {
 			$result = \wp_schedule_event( \time() + 5, self::CRON_SCHEDULE, self::CRON_EVENT, [], true );
 			if ( \is_wp_error( $result ) ) {
 				Core::print_less_often(
-					'supervisor cron schedule failed: ',
+					'reconcile cron schedule failed: ',
 					\sprintf(
 						'code=%s message=%s schedule=' . self::CRON_SCHEDULE,
 						$result->get_error_code(),
@@ -423,11 +422,11 @@ class Bootstrap {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
 		try {
-			$supervisor = self::supervisor();
+			$coordinator = self::spawn_coordinator();
 			foreach ( Restart_Planner::topologies_for( [ 'Remote_Link', 'Remote_Source' ] ) as $name ) {
 				$count = self::num_partitions_for( $name );
 				for ( $p = 0; $p < $count; $p++ ) {
-					Lock_Node::request_reload_at( $supervisor->lock_path( $name, $p ) );
+					Lock_Node::request_reload_at( $coordinator->lock_path( $name, $p ) );
 				}
 			}
 		} catch ( \Throwable $e ) {
@@ -454,9 +453,9 @@ class Bootstrap {
 	 * `job-worker` pool is the point: retention and orphan reaping now run even
 	 * when the fleet is down, which is when disk most needs reclaiming.
 	 *
-	 * `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` keeps its `supervisor` value: it
-	 * is the label newspack-event-logger-nodes files this pass's stats under,
-	 * and renaming it only splits that row's history.
+	 * `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` labels this pass `reconcile` — the
+	 * dimension newspack-event-logger-nodes files its stats under. Nothing compares
+	 * against the literal; it is a label, not a worker type.
 	 */
 	public static function reconcile_fleet(): void {
 		if ( ! self::fleet_site() ) {
@@ -470,12 +469,12 @@ class Bootstrap {
 			return;
 		}
 		self::ensure_runtime_wired();
-		if ( ! self::is_supervisor_enabled() ) {
+		if ( ! self::is_fleet_enabled() ) {
 			self::unschedule_reconcile();
 			return;
 		}
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'reconcile';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
 		try {
 			self::run_reconcile_steps();
@@ -487,7 +486,7 @@ class Bootstrap {
 		}
 	}
 
-	/** Unschedule the supervisor cron event. */
+	/** Unschedule the reconcile cron event. */
 	public static function unschedule_reconcile(): void {
 		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
 			return;
@@ -509,7 +508,7 @@ class Bootstrap {
 		// @longform Third-party surface, so it gets its own step: fired bare it
 		// both escaped the callback and skipped the spawn behind it.
 		self::reconcile_step( 'before', static fn() => \do_action( 'newspack_nodes/before_reconcile' ) );
-		$coordinator = self::supervisor();
+		$coordinator = self::spawn_coordinator();
 		$base_dir    = self::base_dir();
 		self::reconcile_step( 'spawn', static fn() => $coordinator->spawn_due_workers( Core::right_now() ) );
 		self::reconcile_step( 'lock-dirs', static fn() => $coordinator->reconcile_lock_dirs() );
@@ -536,7 +535,7 @@ class Bootstrap {
 	}
 
 	/**
-	 * Veto-time diagnostic for the supervisor cron, registered on
+	 * Veto-time diagnostic for the reconcile cron, registered on
 	 * pre_schedule_event AND pre_reschedule_event at PHP_INT_MAX - 2. When an
 	 * earlier callback short-circuits OUR event with false or a WP_Error,
 	 * log the active filter chain — the culprit is in it by definition.
@@ -561,7 +560,7 @@ class Bootstrap {
 		$filter = (string) \current_filter();
 		$reason = \is_wp_error( $pre ) ? $pre->get_error_code() . ': ' . $pre->get_error_message() : 'false';
 		Core::print_less_often(
-			'supervisor cron vetoed: ',
+			'reconcile cron vetoed: ',
 			\sprintf(
 				'filter=%s value=%s callbacks=[%s]',
 				$filter,
@@ -633,7 +632,7 @@ class Bootstrap {
 	}
 
 	/**
-	 * Late schedule_event diagnostic for supervisor cron vetoes.
+	 * Late schedule_event diagnostic for reconcile cron vetoes.
 	 *
 	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
 	 * @return mixed $event, unchanged.
@@ -650,7 +649,7 @@ class Bootstrap {
 
 		$filter = (string) \current_filter();
 		Core::print_less_often(
-			'supervisor cron vetoed: ',
+			'reconcile cron vetoed: ',
 			\sprintf(
 				'filter=%s value=falsy callbacks=[%s]',
 				$filter,
@@ -675,7 +674,7 @@ class Bootstrap {
 
 		// Slot-pool seams here, not ensure_runtime_wired: SSE_Out is REST-only.
 		SSE_Slot_Pool::wire();
-		( new Spawn_Controller( self::supervisor() ) )->register_routes();
+		( new Spawn_Controller( self::spawn_coordinator() ) )->register_routes();
 		( new Auth_Controller() )->register_routes();
 		( new SSE_Out_Node() )->register_routes();
 		( new Log_Stream_Out_Node() )->register_routes();
@@ -863,7 +862,7 @@ class Bootstrap {
 	}
 
 	/**
-	 * Register a 60-second cron interval for the supervisor tick.
+	 * Register a 60-second cron interval for the reconcile tick.
 	 * Wired to the `cron_schedules` filter from the plugin file.
 	 *
 	 * @param array<string, mixed> $schedules Existing cron schedules.
@@ -879,7 +878,7 @@ class Bootstrap {
 		return $schedules;
 	}
 
-	/** Deactivation hook: clear the supervisor cron. */
+	/** Deactivation hook: clear the reconcile cron. */
 	public static function deactivate(): void {
 		\wp_clear_scheduled_hook( self::CRON_EVENT );
 	}

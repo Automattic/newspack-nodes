@@ -2,7 +2,7 @@
 /**
  * Tests for `wp nodes gc [--force]`.
  *
- * The supervisor already sweeps orphan log/offset dirs every config-check tick,
+ * The fleet already sweeps orphan log/offset dirs every config-check tick,
  * but only once a dir has been quiet for `Log_Cleaner::DELETE_GRACE_S`. An
  * operator tearing a topology down wants the dirs gone now, so this verb runs
  * the same sweep on demand and `--force` drops the grace to zero.

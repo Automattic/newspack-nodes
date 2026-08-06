@@ -46,7 +46,7 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 						type: 'int',
 						label: 'Num Partitions',
 						section: 'storage',
-						restart: 'supervisor_only',
+						restart: [],
 						sanitize: static fn ( $v ) => $v,
 						render: static function (): void {},
 					),
@@ -127,8 +127,8 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 		public function test_restart_for_returns_the_fields_groups(): void {
 			$schema = $this->sample_schema();
 			$this->assertSame( [ 'request-workers', 'job-workers' ], $schema->restart_for( 'max_segments' ) );
-			$this->assertSame( 'supervisor_only', $schema->restart_for( 'num_partitions' ) );
-			// A topology save restarts nothing (supervisor pulls it).
+			$this->assertSame( [], $schema->restart_for( 'num_partitions' ) );
+			// A topology save restarts nothing — the fleet re-reads its active set.
 			$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 			// An unknown option (e.g. an internal bookkeeping key) classifies as no-restart.
 			$this->assertSame( [], $schema->restart_for( 'internal_bookkeeping_7319' ) );

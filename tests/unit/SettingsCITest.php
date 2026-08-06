@@ -24,6 +24,7 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Settings_CI_Node::class )]
 class SettingsCITest extends TestCase {
 	private string $tmp;
+	private string $lock_dir;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -32,12 +33,14 @@ class SettingsCITest extends TestCase {
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/settings-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
 		$this->use_base_dir( $this->tmp );
+		$this->lock_dir                       = "{$this->tmp}/locks/combined.p0.lock.d";
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 	}
 
 	protected function tearDown(): void {
 		VerbHarness::reset();
+		\Newspack_Nodes\Topology_Registry::reset();
 		Settings_Event_Writer::$append_seam = null;
 		unset( $GLOBALS['_wp_actions'][ \Newspack_Nodes\Config::RESET_ACTION ] );
 		$GLOBALS['_wp_options']               = [];
@@ -122,21 +125,53 @@ class SettingsCITest extends TestCase {
 	}
 
 	public function test_set_verb_asks_every_worker_to_re_read_its_config(): void {
-		// num_partitions is 'supervisor_only' — it restarts nothing, and without
-		// a reload signal a running worker serves its boot-time value for the
-		// rest of its ~595s lifetime instead of picking it up within 15s.
-		$topologies = $this->make_temp_dir( 'settings-ci-topologies-' );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $topologies );
-		\file_put_contents( "{$topologies}/combined.tsl", "make_node Echo relay\n" );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
-		\Newspack_Nodes\Config::reset();
-		\mkdir( "{$this->tmp}/locks/combined.p0.lock.d", 0755, true );
+		// num_partitions restarts nothing, and without a reload signal a running
+		// worker serves its boot-time value for the rest of its ~595s lifetime
+		// instead of picking it up within 15s.
+		$this->activate_partition_topology();
 
 		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_partitions 7' );
 
-		$this->assertFileExists( "{$this->tmp}/locks/combined.p0.lock.d/" . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
-		\Newspack_Nodes\Topology_Registry::reset();
+		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_set_verb_to_the_value_already_stored_recycles_nothing(): void {
+		// The hub's settings-sync re-pushes EVERY registered option every 300s
+		// whether or not it changed. Acting on a no-op push flags a restart on
+		// every matching worker, so the whole fleet recycles each sweep.
+		$this->activate_partition_topology();
+		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
+		\Newspack_Nodes\Config::reset();
+
+		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
+
+		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_set_verb_to_a_new_value_still_restarts_and_reloads(): void {
+		// The counterpart guard: gating the no-op push must not gate the real one.
+		$this->activate_partition_topology();
+		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
+		\Newspack_Nodes\Config::reset();
+
+		VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 21' );
+
+		$this->assertSame( 21, $GLOBALS['_wp_options']['newspack_nodes_num_segments'] );
+		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( $this->lock_dir . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_set_verb_to_the_value_already_stored_still_returns_the_snapshot(): void {
+		// The hub reads the reply to confirm convergence; a no-op must still answer.
+		$this->activate_partition_topology();
+		$GLOBALS['_wp_options']['newspack_nodes_num_segments'] = 13;
+		\Newspack_Nodes\Config::reset();
+
+		$result = VerbHarness::fire( new Settings_CI_Node(), 'settings', 'set', 'num_segments 13' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 13, $result['num_segments'] );
 	}
 
 	public function test_set_verb_rejects_a_value_outside_the_declared_bounds(): void {
@@ -209,6 +244,26 @@ class SettingsCITest extends TestCase {
 			"Settings_CI is absent from the class catalog — its node_schema category was dropped to ''/'Hidden', or class discovery is broken"
 		);
 		$this->assertSame( 'Service', $by_shell['Settings_CI'] );
+	}
+
+	/**
+	 * Make `combined` the one active topology and give it a live lock dir.
+	 *
+	 * It holds a Partition, so it matches the `['Partition','Topic','Log']`
+	 * classification the storage-geometry fields carry — the restart flag and
+	 * the unclassified reload flag are both observable at `$this->lock_dir`.
+	 */
+	private function activate_partition_topology(): void {
+		$topologies = $this->make_temp_dir( 'settings-ci-topologies-' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $topologies );
+		\file_put_contents(
+			"{$topologies}/combined.tsl",
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1 2 0\n"
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
+		\Newspack_Nodes\Config::reset();
+		\mkdir( $this->lock_dir, 0755, true );
 	}
 
 	/**

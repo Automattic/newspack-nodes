@@ -51,11 +51,11 @@ class Restart_Planner {
 	/**
 	 * Active topology names a save of a field with this classification restarts.
 	 *
-	 * @param array<int,string>|string $restart 'supervisor_only' | [] | 'all' | node-type tokens.
+	 * @param array<int,string>|string $restart [] | 'all' | node-type tokens.
 	 * @return array<int,string>
 	 */
 	public static function topologies_for( array|string $restart ): array {
-		if ( 'supervisor_only' === $restart || [] === $restart ) {
+		if ( [] === $restart ) {
 			return [];
 		}
 		$active = \array_map( 'strval', \array_keys( Bootstrap::get_topologies() ) );
@@ -123,7 +123,7 @@ class Restart_Planner {
 	 * Unclassified by design, and the counterpart to `request_restarts()`: a
 	 * restart classification says which workers must RECYCLE, while every worker
 	 * alive holds a Config cache frozen at boot and so must re-read whatever
-	 * changed. Without this, a field classified `[]` or `'supervisor_only'` waits
+	 * changed. Without this, a field classified `[]` waits
 	 * out a whole ~595s worker lifetime instead of landing on the next 15s
 	 * window. Reload costs no process recycle, so the broad fan-out is cheap.
 	 *

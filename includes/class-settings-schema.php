@@ -57,7 +57,7 @@ class Settings_Schema {
 					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,
 					// Fleet_Node re-reads each window.
-					restart: 'supervisor_only',
+					restart: [],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
 					render: [ Admin::class, 'num_partitions_callback' ],
 				),

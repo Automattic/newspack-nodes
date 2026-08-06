@@ -93,7 +93,7 @@ class Schema {
 	/**
 	 * Raw worker-restart classification for a short option key, returned verbatim
 	 * for Restart_Planner to resolve: the field's consumer node-type list, 'all',
-	 * 'supervisor_only', or [] (unknown key or no-restart field). Never a topology
+	 * or [] (unknown key or no-restart field). Never a topology
 	 * name.
 	 *
 	 * @return array<int,string>|string

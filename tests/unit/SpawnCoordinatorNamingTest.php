@@ -14,13 +14,34 @@ class SpawnCoordinatorNamingTest extends TestCase {
 	/** Trees the rename must have reached; CHANGELOG history is checked separately. */
 	private const SCANNED = [ 'includes', 'src', 'tests', 'docs', 'topologies', 'examples', 'scripts', '.claude' ];
 
-	private const RETIRED = [ 'Supervisor_Base', 'supervisor-base', 'SupervisorBase' ];
+	/**
+	 * Identifiers, not the bare word: `docs/upgrading.md` has to name what the
+	 * supervisor WAS, exactly as the CHANGELOG does. These are the names that
+	 * could plausibly come back.
+	 */
+	private const RETIRED = [
+		'Supervisor_Base',
+		'supervisor-base',
+		'SupervisorBase',
+		'supervisor_only',
+		'is_supervisor_enabled',
+		'supervisor_enabled_override',
+		'supervisor_factory',
+		'::supervisor(',
+		'enable_supervisor',
+		'supervisor_periodic',
+	];
 
 	public function test_no_source_file_still_names_the_retired_class(): void {
 		$root  = \dirname( __DIR__, 2 );
 		$found = [];
 		foreach ( self::SCANNED as $dir ) {
 			foreach ( $this->scan( "{$root}/{$dir}" ) as $file ) {
+				// The migration guide has to name what each thing WAS, exactly
+				// as the CHANGELOG does — that IS its content.
+				if ( \str_ends_with( $file, 'docs/upgrading.md' ) ) {
+					continue;
+				}
 				$hit = $this->retired_names_in( (string) \file_get_contents( $file ) );
 				if ( [] !== $hit ) {
 					$found[] = \substr( $file, \strlen( $root ) + 1 ) . ': ' . \implode( ', ', $hit );

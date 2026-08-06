@@ -113,6 +113,27 @@ class WorkerBaseTest extends TestCase {
 		$this->assertStringContainsString( 'memory watermark', $buf );
 	}
 
+	public function test_should_continue_names_a_stolen_lock_rather_than_a_restart(): void {
+		// A worker blocked in a long job goes stale and a peer steals the dir.
+		// Reporting that as "restart requested" sends an operator looking for
+		// the `wp nodes restart` nobody ran.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$thief = \getmypid() + 4242;
+		\file_put_contents( "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat", (string) $thief );
+		$buf = '';
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( $m ) use ( &$buf ) {
+				$buf .= $m;
+			}
+		);
+
+		$this->assertFalse( $w->should_continue() );
+
+		$this->assertStringContainsString( "lock stolen by pid {$thief}", $buf );
+		$this->assertStringNotContainsString( 'restart requested', $buf );
+	}
+
 	public function test_should_continue_stamps_timeout_stop_reason(): void {
 		// A max_runtime stop is categorized 'timeout' so the shutdown path applies the
 		// cooperative-stop fair-shot rule (dead-letter [42]), not a blanket graceful handoff.
@@ -447,7 +468,7 @@ class WorkerBaseTest extends TestCase {
 
 		$this->assertSame( 'ok', $result['status'] );
 
-		// Lock dir released — supervisor / next spawn can take over.
+		// Lock dir released — fleet / next spawn can take over.
 		$this->assertFalse( \is_dir( $topology_lock_path ) );
 
 		// Self-respawn POSTed to the spawn endpoint with the right body.
@@ -461,7 +482,7 @@ class WorkerBaseTest extends TestCase {
 	public function test_execute_reports_a_topology_load_failure_cleanly_without_respawn(): void {
 		// A malformed .tsl fails LOUD but CLEAN: one stderr line, lock released,
 		// and NO self-respawn -- an immediate respawn would hot-loop on the same
-		// bad file; the supervisor retries on its own throttled tick.
+		// bad file; the fleet retries on its own throttled tick.
 		$posts = [];
 		$this->capture_spawn_posts( $posts );
 
