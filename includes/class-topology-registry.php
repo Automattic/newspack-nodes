@@ -169,7 +169,7 @@ class Topology_Registry {
 		\update_option( 'newspack_nodes_topologies', $next );
 		self::invalidate_config_cache();
 
-		$spawned = \Newspack_Nodes\Bootstrap::supervisor()->spawn_fleet( $name );
+		$spawned = \Newspack_Nodes\Bootstrap::spawn_coordinator()->spawn_fleet( $name );
 
 		return [
 			'name'    => $name,
@@ -257,7 +257,7 @@ class Topology_Registry {
 		\update_option( 'newspack_nodes_topologies', $active );
 		self::invalidate_config_cache();
 
-		\Newspack_Nodes\Bootstrap::supervisor()->kill_readers( [ $name ] );
+		\Newspack_Nodes\Bootstrap::spawn_coordinator()->kill_readers( [ $name ] );
 
 		return [
 			'name'   => $name,

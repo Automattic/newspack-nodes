@@ -6,9 +6,9 @@
  *
  * activate materializes the effective active set (Bootstrap::get_topologies()),
  * adds the name, writes the option, invalidates the config cache, then spawns
- * the fleet immediately via Supervisor::spawn_fleet(). deactivate is the
+ * the fleet immediately via Topology_Registry's spawn path. deactivate is the
  * symmetric drain: remove the name, write, invalidate, then kill the fleet via
- * Supervisor::kill_readers().
+ * its kill_readers path.
  *
  * Spawn is captured via the bootstrap-installed Core::$curl_exec seam,
  * which records every fire-and-forget POST into $GLOBALS['_test_outbound_posts'].

@@ -16,6 +16,7 @@
 namespace Newspack_Nodes\Config_System;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Fleet_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -146,11 +147,12 @@ class Settings_Renderer {
 	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
 	 */
 	private static function restart_impact( array|string $restart ): string {
-		if ( 'supervisor_only' === $restart ) {
-			return \__( 'Applies on next config re-read', 'newspack-nodes' );
-		}
 		if ( [] === $restart ) {
-			return \__( 'Takes effect immediately', 'newspack-nodes' );
+			return \sprintf(
+				/* translators: %d: seconds between a worker's config-reload windows. */
+				\__( 'No restart (workers re-read within ~%ds)', 'newspack-nodes' ),
+				\intdiv( Fleet_Node::SCAN_INTERVAL_MS, 1000 )
+			);
 		}
 		$topologies = Restart_Planner::topologies_for( $restart );
 		if ( [] === $topologies ) {

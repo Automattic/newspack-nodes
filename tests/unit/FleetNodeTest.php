@@ -39,7 +39,7 @@ class FleetNodeTest extends TestCase {
 		$this->use_base_dir( $this->decoy );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'ledger-workers' ];
 		Config::reset();
-		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$fleet_enabled_override = null;
 		( new Router_Node() )->name( Node_Names::ROUTER );
 	}
 
@@ -53,7 +53,7 @@ class FleetNodeTest extends TestCase {
 		$GLOBALS['_test_outbound_posts'] = [];
 		$GLOBALS['_wp_test_transients']  = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
-		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$fleet_enabled_override = null;
 		Config::reset();
 		parent::tearDown();
 	}
@@ -269,7 +269,7 @@ class FleetNodeTest extends TestCase {
 
 	public function test_refuses_to_spawn_a_write_conflicting_set(): void {
 		// Two topologies writing one partition log with DIFFERENT geometry. The
-		// supervisor refuses that set; a second spawner that does not would keep
+		// fleet refuses that set; a second spawner that does not would keep
 		// the conflict alive. Byte-identical declarations would instead be the
 		// sanctioned multi-writer share (topic-probe), and no conflict at all.
 		$stock = $this->make_temp_dir( 'fleet-conflict-stock-' );

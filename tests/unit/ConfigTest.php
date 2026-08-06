@@ -356,7 +356,7 @@ class ConfigTest extends TestCase {
 	public function test_invalidate_options_cache_purges_each_schema_keys_own_cache_entry(): void {
 		// The aggregate `alloptions`/`notoptions` groups are only two of the cache
 		// entries a long-running process can hold stale — WP core also caches each
-		// option under its own key. A supervisor process that read `topologies`
+		// option under its own key. A worker process that read `topologies`
 		// once and never saw invalidate_options_cache() purge THAT key would keep
 		// serving the stale value forever, no matter how often reset() runs.
 		$GLOBALS['_wp_cache_delete_calls'] = [];

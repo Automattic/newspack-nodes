@@ -133,7 +133,7 @@ class JobDelayTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 		try {
 			Job_Delay::sweep_action();
-			$this->assertTrue( true, 'supervisor tick must survive a sweep failure' );
+			$this->assertTrue( true, 'fleet tick must survive a sweep failure' );
 		} finally {
 			$this->use_base_dir( $this->tmp, [ 'num_partitions' => 2 ] );
 		}

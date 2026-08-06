@@ -8,9 +8,10 @@ use Newspack_Nodes\Worker_Base;
 /**
  * Lock::request_restart → WorkerBase::should_continue=false integration test.
  *
- * Spec line 832: "Single restart channel. Lock::request_restart($lock_dir) drops
- * a `restart` file inside any locked process's lock dir, checked every 250ms
- * via Lock::should_restart(). Same mechanism for workers and the supervisor itself."
+ * Single restart channel: `Lock_Node::request_restart_at( $lock_dir )` drops a
+ * `restart` file inside any locked process's lock dir, which that process picks
+ * up from `Lock_Node::restart_reason()` on its next `should_continue()`. One
+ * mechanism for every long-running process.
  */
 class RestartChannelTest extends TestCase {
 	private string $tmp;

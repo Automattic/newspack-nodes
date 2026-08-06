@@ -4,6 +4,52 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Bootstrap::supervisor()` is renamed to `Bootstrap::spawn_coordinator()`,
+  and `Bootstrap::is_supervisor_enabled()` to `Bootstrap::is_fleet_enabled()`.**
+  The test seams follow: `$supervisor_factory` → `$spawn_coordinator_factory`,
+  `$supervisor_enabled_override` → `$fleet_enabled_override`. No aliases —
+  rewrite each call. The methods never returned a supervisor; the first hands
+  back a `Spawn_Coordinator`, and the second gates the whole fleet, including
+  `Fleet_Node::fire()`.
+
+- **`$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` on the reconcile pass is now
+  `reconcile`, not `supervisor`.** This reverses the 2.11.0 note below. Nothing
+  in any plugin compares against the literal — it is a stats dimension, not a
+  worker type — so the only effect is that event-logger rows filed under
+  `supervisor` stop growing and a `reconcile` series starts beside them. Update
+  any saved dashboard filter or query that pinned the old value.
+
+- **The `'supervisor_only'` restart classification is gone; use `[]`.** The two
+  were already identical — `Restart_Planner::topologies_for()` resolved both to
+  "restart nothing" — while the settings UI printed a different sentence for
+  each. A `Field` still carrying the string keeps working (an unknown string
+  resolves to no restart), but it now renders under the same label as `[]`.
+
+- **A `settings set` command that does not change the value is a no-op.**
+  `Settings_CI`'s `set` verb now compares against the stored value first and
+  skips the write, the `Config::reset()`, the restart request and the reload
+  request when they match. It still returns the same post-set snapshot, so no
+  caller changes. This is what a hub's `Settings_Sync` sweep needs: it re-pushes
+  every registered option on its interval whether or not anything moved, and
+  acting on those pushes recycled a spoke's whole fleet once per sweep.
+
+- **`Lock_Node::should_restart(): bool` is replaced by
+  `Lock_Node::restart_reason(): string`.** `''` means keep running; anything
+  else is the reason, and goes verbatim into the worker's stop line. Rewrite
+  `if ( $lock->should_restart() )` as `if ( '' !== $lock->restart_reason() )`.
+  The three situations that share this channel — an operator's restart flag, a
+  vanished heartbeat, a peer that stole the lock — all used to log `restart
+  requested`, which sent operators looking for a restart nobody ran.
+
+- **A failed SSE slot heartbeat now names the state it found.** The
+  `workers heartbeat` verb still errors with `SSE slot lease not owned`, now
+  suffixed with `: pointer_missing`, `: pointer_owner_mismatch`,
+  `: liveness_missing`, `: backend_read_error` or
+  `: recovered_during_inspection`. A client matching on the exact old string
+  needs a prefix match instead.
+
 ## 2.11.0
 
 - **`/messages/stream` and `/log/stream` now END on their own.** A stream that

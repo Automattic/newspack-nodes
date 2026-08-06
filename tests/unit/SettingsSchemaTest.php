@@ -122,7 +122,7 @@ class SettingsSchemaTest extends TestCase {
 	public function test_restart_classification_matches_runtime_boundaries(): void {
 		$schema = Settings_Schema::get();
 
-		$this->assertSame( 'supervisor_only', $schema->restart_for( 'num_partitions' ) );
+		$this->assertSame( [], $schema->restart_for( 'num_partitions' ) );
 		$this->assertSame( [ 'Partition', 'Topic', 'Log' ], $schema->restart_for( 'segment_size' ) );
 		$this->assertSame( 'all', $schema->restart_for( 'memcache_servers' ) );
 		$this->assertSame( 'all', $schema->restart_for( 'base_directory' ) );
@@ -132,7 +132,7 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
 	}
 
-	/** The fleet-alert thresholds restart nothing — Alerts reads them live per invocation (supervisor tick / admin / Site Health). */
+	/** The fleet-alert thresholds restart nothing — Alerts reads them live per invocation (fleet tick / admin / Site Health). */
 	public function test_alert_thresholds_restart_nothing(): void {
 		$schema = Settings_Schema::get();
 

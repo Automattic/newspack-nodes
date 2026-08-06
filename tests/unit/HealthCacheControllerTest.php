@@ -26,7 +26,7 @@ class HealthCacheControllerTest extends TestCase {
 
 	protected function tearDown(): void {
 		Health_Cache_Controller::$clock        = null;
-		Bootstrap::$supervisor_factory         = null;
+		Bootstrap::$spawn_coordinator_factory         = null;
 		Cache_Backend::$apcu_usable            = static fn (): bool => false;
 		$GLOBALS['_wp_test_registered_routes'] = [];
 		$GLOBALS['_wp_test_is_multisite']      = false;
@@ -117,7 +117,7 @@ class HealthCacheControllerTest extends TestCase {
 	public function test_current_and_previous_health_tokens_are_accepted_without_runtime_dependencies(): void {
 		Core::$memd                       = null;
 		Cache_Backend::$apcu_usable       = static fn (): bool => throw new \RuntimeException( 'cache accessed' );
-		Bootstrap::$supervisor_factory    = static fn (): \Newspack_Nodes\Supervisor => throw new \RuntimeException( 'supervisor constructed' );
+		Bootstrap::$spawn_coordinator_factory    = static fn (): \Newspack_Nodes\Spawn_Coordinator => throw new \RuntimeException( 'spawn coordinator constructed' );
 		$config_dir                       = $this->make_temp_dir( 'health-route-token-8843-' );
 		$config_file                      = $config_dir . '/refused.php';
 		\file_put_contents(

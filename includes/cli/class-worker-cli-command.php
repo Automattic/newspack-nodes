@@ -18,7 +18,7 @@ class Worker_CLI_Command {
 	/**
 	 * Request a worker restart by writing a `restart` flag into its lock dir.
 	 *
-	 * The current holder polls `should_restart()` from its drain loop and exits
+	 * The current holder polls `restart_reason()` from its drain loop and exits
 	 * cleanly; its self-respawn (or a peer's scan) starts a fresh process.
 	 *
 	 * ## OPTIONS
@@ -461,8 +461,8 @@ class Worker_CLI_Command {
 
 		\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
 
-		// Bootstrap::supervisor() so the HMAC salt matches the runtime.
-		$coordinator = Bootstrap::supervisor();
+		// Bootstrap::spawn_coordinator() so the HMAC salt matches the runtime.
+		$coordinator = Bootstrap::spawn_coordinator();
 
 		$wb = new Worker_Base(
 			$this->base_dir(),

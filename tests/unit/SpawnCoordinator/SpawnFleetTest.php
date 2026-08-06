@@ -14,8 +14,8 @@ class SpawnFleetTest extends TestCase {
 		parent::setUp();
 		$this->tmp                              = $this->make_temp_dir();
 		$GLOBALS['_test_outbound_posts']        = [];
-		Bootstrap::$supervisor_enabled_override = null;
-		Bootstrap::$supervisor_factory          = null;
+		Bootstrap::$fleet_enabled_override = null;
+		Bootstrap::$spawn_coordinator_factory          = null;
 		$this->use_base_dir( $this->tmp );
 		// Active set = catalog ∩ this overlay.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [

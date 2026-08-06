@@ -79,7 +79,7 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$rows = $this->rows_by_key();
 		$this->assertSame( '7', (string) $rows['max_segments']['stored'] );
 		$this->assertStringContainsString( 'combined', $rows['max_segments']['restart'] );
-		$this->assertStringContainsString( 'config re-read', \strtolower( $rows['num_partitions']['restart'] ) );
+		$this->assertStringContainsString( 're-read', \strtolower( $rows['num_partitions']['restart'] ) );
 	}
 
 	public function test_unstored_setting_reports_file_default_and_no_overlay(): void {
@@ -96,12 +96,15 @@ class SettingsRendererEffectiveConfigTest extends TestCase {
 		$this->assertSame( '9', (string) $rows['max_segments']['effective'] );
 	}
 
-	public function test_immediate_and_supervisor_restart_strings(): void {
-		$rows = $this->rows_by_key();
-		// num_partitions is classified supervisor_only.
-		$this->assertSame( 'Applies on next config re-read', $rows['num_partitions']['restart'] );
-		// remote_max_segments is classified [] (read directly, no worker restart).
-		$this->assertSame( 'Takes effect immediately', $rows['remote_max_segments']['restart'] );
+	public function test_no_restart_fields_all_report_the_same_reload_window(): void {
+		// Both were classified as restarting nothing and both reach live workers
+		// the same way — through the unclassified reload watermark — so two
+		// different sentences described one behavior.
+		$rows     = $this->rows_by_key();
+		$expected = 'No restart (workers re-read within ~15s)';
+
+		$this->assertSame( $expected, $rows['num_partitions']['restart'] );
+		$this->assertSame( $expected, $rows['remote_max_segments']['restart'] );
 	}
 
 	public function test_unset_remote_field_reports_file_default(): void {

@@ -534,7 +534,52 @@ class WorkersCITest extends TestCase {
 			[ (string) $lease['slot'], (string) $wrong_owner ]
 		);
 
-		$this->assertSame( "SSE slot lease not owned\n", $result );
+		$this->assertSame( "SSE slot lease not owned: pointer_owner_mismatch\n", $result );
+	}
+
+	public function test_heartbeat_verb_names_a_slot_that_was_never_claimed(): void {
+		// Nothing ever acquired this slot — a pool namespace mismatch (the request
+		// reached a different host, user or IP than the stream did) reads this way.
+		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', [ '4', '9182736455' ] );
+
+		$this->assertSame( "SSE slot lease not owned: pointer_missing\n", $result );
+		\Newspack_Nodes\Core::$memd = null;
+	}
+
+	public function test_heartbeat_verb_names_a_lease_that_expired_under_a_live_pointer(): void {
+		// The client went quiet longer than the slot TTL, or memcached evicted the
+		// liveness key. Distinct from a steal: the pointer still names this owner.
+		$memd                       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		\Newspack_Nodes\Core::$memd = $memd;
+		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
+			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
+			\get_current_user_id(),
+			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			8,
+			83
+		);
+		$this->assertIsArray( $lease );
+		foreach ( $memd->keys() as $key ) {
+			if ( \str_ends_with( $key, ':lease:' . $lease['owner'] ) ) {
+				$memd->delete( $key );
+			}
+		}
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result = VerbHarness::fire(
+			$interpreter,
+			'workers',
+			'heartbeat',
+			[ (string) $lease['slot'], (string) $lease['owner'] ]
+		);
+
+		$this->assertSame( "SSE slot lease not owned: liveness_missing\n", $result );
+		\Newspack_Nodes\Core::$memd = null;
 	}
 
 	// ── cleanup_status verb ─────────────────────────────────────────────────

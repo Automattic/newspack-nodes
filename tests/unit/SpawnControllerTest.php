@@ -9,7 +9,7 @@ use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Spawn_Controller::class )]
 class SpawnControllerTest extends TestCase {
-	private Spawn_Coordinator $supervisor;
+	private Spawn_Coordinator $fleet;
 	private Spawn_Controller $controller;
 
 	protected function setUp(): void {
@@ -20,12 +20,12 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']  = [];
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		$GLOBALS['_wp_test_current_user_id']   = 0;
-		Bootstrap::$supervisor_enabled_override = null;
-		Bootstrap::$supervisor_factory          = null;
+		Bootstrap::$fleet_enabled_override = null;
+		Bootstrap::$spawn_coordinator_factory          = null;
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
-		$this->supervisor = new Spawn_Coordinator( '/tmp', 'NONCE_SALT_FOR_TEST' );
-		$this->controller = new Spawn_Controller( $this->supervisor );
+		$this->fleet = new Spawn_Coordinator( '/tmp', 'NONCE_SALT_FOR_TEST' );
+		$this->controller = new Spawn_Controller( $this->fleet );
 	}
 
 	protected function tearDown(): void {
@@ -65,9 +65,9 @@ class SpawnControllerTest extends TestCase {
 	// ── spawn throttle ─────────────────────────────────────────────────────
 
 	public function test_spawn_rejects_a_respawn_inside_the_throttle_window(): void {
-		// The endpoint is the ONE gate every spawn crosses (supervisor tick,
+		// The endpoint is the ONE gate every spawn crosses (fleet tick,
 		// self_respawn, external UI). A crash-on-boot worker self-respawning as
-		// fast as FPM forks must be rejected here — the supervisor's own
+		// fast as FPM forks must be rejected here — the coordinator's own
 		// is_recently_spawned check never sees the self-respawn path.
 		$this->with_topology( [
 			'burnout' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
@@ -79,7 +79,7 @@ class SpawnControllerTest extends TestCase {
 		$req = $this->make_request( [
 			'type'      => 'burnout',
 			'partition' => 1,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
 
 		$first = $this->controller->spawn( $req );
@@ -134,7 +134,7 @@ class SpawnControllerTest extends TestCase {
 	}
 
 	public function test_check_permission_accepts_valid_hmac_token(): void {
-		$token = $this->supervisor->generate_spawn_token( \time() );
+		$token = $this->fleet->generate_spawn_token( \time() );
 		$req   = $this->make_request( [ 'nonce' => $token ] );
 		$this->assertTrue( $this->controller->check_permission( $req ) );
 	}
@@ -183,8 +183,8 @@ class SpawnControllerTest extends TestCase {
 
 	public function test_hmac_path_does_not_consume_rate_limit(): void {
 		// Internal HMAC requests must NOT trip the per-user 2s rate limit
-		// — supervisor manages its own MIN_SPAWN_INTERVAL_S.
-		$token = $this->supervisor->generate_spawn_token( \time() );
+		// — fleet manages its own MIN_SPAWN_INTERVAL_S.
+		$token = $this->fleet->generate_spawn_token( \time() );
 		$req   = $this->make_request( [ 'nonce' => $token ] );
 
 		$this->assertTrue( $this->controller->check_permission( $req ) );
@@ -194,9 +194,9 @@ class SpawnControllerTest extends TestCase {
 
 	// ── validate_worker_type ──────────────────────────────────────────────
 
-	public function test_validate_worker_type_rejects_supervisor(): void {
-		// There is no supervisor process; `supervisor` is just an unknown type.
-		$this->assertFalse( $this->controller->validate_worker_type( 'supervisor' ) );
+	public function test_validate_worker_type_rejects_the_reconcile_label(): void {
+		// There is no fleet process; `fleet` is just an unknown type.
+		$this->assertFalse( $this->controller->validate_worker_type( 'fleet' ) );
 	}
 
 	public function test_validate_worker_type_accepts_topology_type(): void {
@@ -264,7 +264,7 @@ class SpawnControllerTest extends TestCase {
 		$req = $this->make_request( [
 			'type'      => 'firehose-workers',
 			'partition' => 5,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
 		$result = $this->controller->spawn( $req );
 		$this->assertInstanceOf( \WP_Error::class, $result );
@@ -286,7 +286,7 @@ class SpawnControllerTest extends TestCase {
 		$req = $this->make_request( [
 			'type'      => 'firehose-workers',
 			'partition' => 2,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
 		$this->controller->spawn( $req );
 
@@ -302,7 +302,7 @@ class SpawnControllerTest extends TestCase {
 		$req = $this->make_request( [
 			'type'      => 'flame-builder',
 			'partition' => 2,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
 		$this->controller->spawn( $req );
 
@@ -317,7 +317,7 @@ class SpawnControllerTest extends TestCase {
 		$req = $this->make_request( [
 			'type'      => 'firehose-workers',
 			'partition' => 0,
-			'nonce'     => $this->supervisor->generate_spawn_token( \time() ),
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
 		] );
 		$response = $this->controller->spawn( $req );
 		$this->assertInstanceOf( \WP_REST_Response::class, $response );

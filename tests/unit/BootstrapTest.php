@@ -20,10 +20,10 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_test_outbound_posts']      = [];
 		$GLOBALS['_wp_test_next_scheduled']    = false;
 		unset( $GLOBALS['_wp_test_schedule_event_response'], $GLOBALS['_wp_test_current_filter'], $GLOBALS['wp_filter'] );
-		// Bootstrap supervisor seams are process-static; clear so a test that sets
+		// Bootstrap fleet seams are process-static; clear so a test that sets
 		// them doesn't bleed into the next.
-		Bootstrap::$supervisor_enabled_override = null;
-		Bootstrap::$supervisor_factory          = null;
+		Bootstrap::$fleet_enabled_override = null;
+		Bootstrap::$spawn_coordinator_factory          = null;
 		// Config is statically cached — clear so each test sees fresh option
 		// values. get_topologies() now reads Config::load_config()['num_partitions']
 		// to default synthesized entries, so stale cache here leaks
@@ -234,11 +234,11 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( 6, Bootstrap::num_partitions_for( 'grp' ) );
 	}
 
-	public function test_num_partitions_for_clamps_to_supervisor_range(): void {
-		// The menu count must match what the supervisor would SPAWN — and
+	public function test_num_partitions_for_clamps_to_spawnable_range(): void {
+		// The menu count must match what the fleet would SPAWN — and
 		// expand_workers clamps to [1, MAX_PARTITIONS]. An out-of-range count
 		// (frontmatter typo / bad catalog entry) must clamp the same way, else
-		// the Path menu lists workers the supervisor never starts.
+		// the Path menu lists workers the fleet never starts.
 		\add_filter(
 			'newspack_nodes/topologies',
 			static function ( array $topologies ): array {
@@ -273,7 +273,7 @@ class BootstrapTest extends TestCase {
 	public function test_get_topologies_drops_operator_names_that_have_no_tsl_file(): void {
 		// Operator option points at a topology with no TSL file (typo or
 		// stale selection after the app removed the file). Must not blow
-		// up the supervisor — silently dropped.
+		// up the fleet — silently dropped.
 		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'no-such-topology', 'also-missing' ];
 
@@ -460,27 +460,27 @@ class BootstrapTest extends TestCase {
 		$this->assertCount( 1, $workers );
 	}
 
-	// ── is_supervisor_enabled ────────────────────────────────────────────────
+	// ── is_fleet_enabled ────────────────────────────────────────────────
 
-	public function test_is_supervisor_enabled_defaults_true(): void {
-		$this->assertTrue( Bootstrap::is_supervisor_enabled() );
+	public function test_is_fleet_enabled_defaults_true(): void {
+		$this->assertTrue( Bootstrap::is_fleet_enabled() );
 	}
 
-	public function test_is_supervisor_enabled_override_to_false(): void {
-		Bootstrap::$supervisor_enabled_override = false;
-		$this->assertFalse( Bootstrap::is_supervisor_enabled() );
+	public function test_is_fleet_enabled_override_to_false(): void {
+		Bootstrap::$fleet_enabled_override = false;
+		$this->assertFalse( Bootstrap::is_fleet_enabled() );
 	}
 
-	public function test_supervisor_factory_seam_overrides_construction(): void {
+	public function test_spawn_coordinator_factory_seam_overrides_construction(): void {
 		$fake                          = new Spawn_Coordinator( '/tmp/seam-4242' );
-		Bootstrap::$supervisor_factory = static fn (): Spawn_Coordinator => $fake;
-		$this->assertSame( $fake, Bootstrap::supervisor() );
+		Bootstrap::$spawn_coordinator_factory = static fn (): Spawn_Coordinator => $fake;
+		$this->assertSame( $fake, Bootstrap::spawn_coordinator() );
 	}
 
 	// ── reconcile_fleet gate ──────────────────────────────────────────
 
 	public function test_reconcile_fleet_unschedules_when_logging_disabled(): void {
-		Bootstrap::$supervisor_enabled_override = false;
+		Bootstrap::$fleet_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = 1234567890;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
@@ -488,13 +488,13 @@ class BootstrapTest extends TestCase {
 
 		$this->assertNotEmpty(
 			$GLOBALS['_wp_test_unscheduled_events'],
-			'supervisor disabled must unschedule the supervisor cron'
+			'fleet disabled must unschedule the reconcile cron'
 		);
 		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
 	}
 
 	public function test_reconcile_fleet_unschedules_only_when_event_present(): void {
-		Bootstrap::$supervisor_enabled_override = false;
+		Bootstrap::$fleet_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = false;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
@@ -508,7 +508,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_reconcile_fleet_returns_without_unscheduling_when_no_topologies(): void {
 		// Logging is on, but no topologies are registered — no workers to
-		// spawn, no reason to actually run the supervisor's 595s loop. But
+		// spawn, no reason to actually run the fleet's 595s loop. But
 		// DO leave the cron scheduled so the next tick after the operator
 		// flips a gate back on picks up the fresh topology fleet without
 		// requiring plugin re-activation. A minute-cadence no-op tick is
@@ -525,7 +525,7 @@ class BootstrapTest extends TestCase {
 		);
 		$this->assertEmpty(
 			$GLOBALS['_test_outbound_posts'],
-			'empty topology fleet must not invoke supervisor->run()'
+			'empty topology fleet must not invoke fleet run()'
 		);
 	}
 
@@ -565,7 +565,7 @@ class BootstrapTest extends TestCase {
 
 	// ── activate / deactivate ─────────────────────────────────────────────
 
-	public function test_activate_schedules_supervisor_at_minute_cadence(): void {
+	public function test_activate_schedules_reconcile_at_minute_cadence(): void {
 		Bootstrap::activate();
 		$this->assertNotEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 		$evt = $GLOBALS['_wp_test_scheduled_events'][0];
@@ -579,7 +579,7 @@ class BootstrapTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 	}
 
-	// ── supervisor cron scheduling diagnostics ───────────────────────────
+	// ── reconcile cron scheduling diagnostics ───────────────────────────
 
 	/** Capture Core::stderr output for the duration of a callable. */
 	private function capture_stderr( callable $fn ): string {
@@ -598,7 +598,7 @@ class BootstrapTest extends TestCase {
 			Bootstrap::activate();
 		} );
 
-		$this->assertStringContainsString( 'supervisor cron schedule failed', $log );
+		$this->assertStringContainsString( 'reconcile cron schedule failed', $log );
 		$this->assertStringContainsString( 'code=invalid_schedule', $log );
 		$this->assertStringContainsString( 'Event schedule does not exist.', $log );
 	}
@@ -705,7 +705,7 @@ class BootstrapTest extends TestCase {
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
 
 		$this->assertFalse( $pre );
-		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'reconcile cron vetoed', $log );
 		$this->assertStringContainsString( 'filter=pre_schedule_event', $log );
 		$this->assertStringContainsString( 'value=false', $log );
 		$this->assertStringContainsString( 'callbacks=[10 newspack_nodes_test_veto_filter]', $log );
@@ -767,10 +767,10 @@ class BootstrapTest extends TestCase {
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
-		$this->assertSame( 1, \substr_count( $log, 'supervisor cron vetoed' ) );
+		$this->assertSame( 1, \substr_count( $log, 'reconcile cron vetoed' ) );
 	}
 
-	public function test_schedule_event_detector_logs_false_veto_with_remembered_supervisor_context(): void {
+	public function test_schedule_event_detector_logs_false_veto_with_remembered_reconcile_context(): void {
 		global $wp_filter;
 
 		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
@@ -799,13 +799,13 @@ class BootstrapTest extends TestCase {
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
 
 		$this->assertFalse( $pre );
-		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'reconcile cron vetoed', $log );
 		$this->assertStringContainsString( 'filter=schedule_event', $log );
 		$this->assertStringContainsString( 'value=falsy', $log );
 		$this->assertStringContainsString( 'callbacks=[10 newspack_nodes_test_schedule_event_veto]', $log );
 	}
 
-	public function test_schedule_event_detector_logs_null_veto_with_remembered_supervisor_context(): void {
+	public function test_schedule_event_detector_logs_null_veto_with_remembered_reconcile_context(): void {
 		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
 		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
@@ -817,12 +817,12 @@ class BootstrapTest extends TestCase {
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
 		$this->assertNull( $pre );
-		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'reconcile cron vetoed', $log );
 		$this->assertStringContainsString( 'filter=schedule_event', $log );
 		$this->assertStringContainsString( 'value=falsy', $log );
 	}
 
-	public function test_schedule_event_detector_ignores_false_veto_without_supervisor_context(): void {
+	public function test_schedule_event_detector_ignores_false_veto_without_reconcile_context(): void {
 		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
 		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_reconcile_schedule_event_veto' ] ) );
 
@@ -862,7 +862,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_self_heal_skips_when_logging_disabled(): void {
-		Bootstrap::$supervisor_enabled_override = false;
+		Bootstrap::$fleet_enabled_override = false;
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
 			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
 			return $topologies;
@@ -903,10 +903,10 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
-	// ── supervisor() factory ──────────────────────────────────────────────
+	// ── spawn_coordinator() factory ──────────────────────────────────────────────
 
-	public function test_supervisor_returns_a_spawn_coordinator(): void {
-		$this->assertInstanceOf( Spawn_Coordinator::class, Bootstrap::supervisor() );
+	public function test_spawn_coordinator_returns_a_spawn_coordinator(): void {
+		$this->assertInstanceOf( Spawn_Coordinator::class, Bootstrap::spawn_coordinator() );
 	}
 
 	// ── get_topology_catalog ──────────────────────────────────────────────
@@ -973,7 +973,7 @@ class BootstrapTest extends TestCase {
 	public function test_base_dir_propagates_throw_when_unconfigured(): void {
 		// No silent `/tmp/newspack-nodes` fallback: base_dir() must propagate
 		// Config::get_base_directory()'s RuntimeException when base_directory
-		// is unconfigured, so the supervisor fails loud instead of running
+		// is unconfigured, so the fleet fails loud instead of running
 		// against a phantom default tree.
 		$prev_env = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		$tmp      = $this->make_temp_dir( 'bootstrap-no-base-' );
@@ -1044,7 +1044,7 @@ class BootstrapTest extends TestCase {
 	public function test_ensure_runtime_wired_does_not_force_load_the_sse_controller(): void {
 		// The SSE slot-pool seams must NOT be wired by ensure_runtime_wired — touching
 		// SSE_Out_Node::$acquire_slot there force-autoloads the 500-line REST controller
-		// on every admin page and supervisor-cron tick that never streams.
+		// on every admin page and reconcile-cron tick that never streams.
 		$acquire_ref = new \ReflectionProperty( \Newspack_Nodes\Rest\SSE_Out_Node::class, 'acquire_slot' );
 		$saved       = $acquire_ref->getValue();
 		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
@@ -1071,7 +1071,7 @@ class BootstrapTest extends TestCase {
 			$provider = \Newspack_Nodes\Worker_Base::$token_provider;
 			$this->assertNotNull( $provider, 'production wiring must mint self-respawn tokens at POST time' );
 			$this->assertTrue(
-				Bootstrap::supervisor()->validate_spawn_token( (string) $provider(), \time() ),
+				Bootstrap::spawn_coordinator()->validate_spawn_token( (string) $provider(), \time() ),
 				'the minted token must pass the current HMAC window'
 			);
 		} finally {
@@ -1081,8 +1081,8 @@ class BootstrapTest extends TestCase {
 
 	// ── deactivate ─────────────────────────────────────────────────────────
 
-	public function test_deactivate_clears_supervisor_cron_hook(): void {
-		// Deactivation calls wp_clear_scheduled_hook for the supervisor.
+	public function test_deactivate_clears_reconcile_cron_hook(): void {
+		// Deactivation calls wp_clear_scheduled_hook for the fleet.
 		// The stub doesn't capture invocations, so we just verify the call
 		// runs to completion without throwing — the same idempotency the
 		// real WP function provides.
@@ -1183,7 +1183,7 @@ class BootstrapTest extends TestCase {
 
 		Bootstrap::reconcile_fleet();
 
-		$this->assertDirectoryDoesNotExist( "{$dir}/locks/supervisor.lock.d" );
+		$this->assertDirectoryDoesNotExist( "{$dir}/locks/fleet.lock.d" );
 
 		$this->rmdir_recursive( $dir );
 	}
@@ -1402,7 +1402,7 @@ class BootstrapTest extends TestCase {
 
 		Bootstrap::reconcile_fleet();
 
-		$this->assertSame( 'supervisor', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+		$this->assertSame( 'reconcile', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
 		$this->assertSame( '0', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
 		$this->assertSame( 1, $before );
 		$this->assertSame( 1, $after );

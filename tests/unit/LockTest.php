@@ -137,7 +137,7 @@ class LockTest extends TestCase {
 		$this->assertFileExists( $dir . '/' . Lock_Node::RELOAD_FLAG );
 		// The whole point: a config reload must never cost a process recycle.
 		$this->assertFileDoesNotExist( $dir . '/' . Lock_Node::RESTART_FLAG );
-		$this->assertFalse( $holder->should_restart() );
+		$this->assertSame( '', $holder->restart_reason() );
 	}
 
 	public function test_request_reload_at_returns_false_when_lock_dir_missing(): void {
@@ -159,29 +159,29 @@ class LockTest extends TestCase {
 
 	// --- Restart channel ----------------------------------------------------
 
-	public function test_should_restart_false_by_default(): void {
+	public function test_restart_reason_empty_by_default(): void {
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$lock->acquire();
-		$this->assertFalse( $lock->should_restart() );
+		$this->assertSame( '', $lock->restart_reason() );
 	}
 
-	public function test_request_restart_at_creates_flag_seen_by_should_restart(): void {
+	public function test_request_restart_at_creates_flag_seen_by_restart_reason(): void {
 		$holder = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $holder->acquire() );
 
 		// Different Lock instance pointing at the same path simulates an
-		// external requester (REST endpoint, admin action, supervisor).
+		// external requester (REST endpoint, admin action, peer worker).
 		$external = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" ) );
 
-		$this->assertTrue( $holder->should_restart() );
+		$this->assertSame( 'restart requested', $holder->restart_reason() );
 		$this->assertFileExists( "{$this->tmp}/test.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
 	public function test_request_restart_at_returns_false_when_lock_dir_missing(): void {
 		$lock = new Lock_Node( "{$this->tmp}/nonexistent.lock.d" );
 		$this->assertFalse( Lock_Node::request_restart_at( "{$this->tmp}/nonexistent.lock.d" ) );
-		$this->assertFalse( $lock->should_restart() );
+		$this->assertSame( '', $lock->restart_reason() );
 	}
 
 	public function test_request_restart_at_static_form(): void {
@@ -190,7 +190,7 @@ class LockTest extends TestCase {
 
 		// Static path-only API.
 		$this->assertTrue( Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" ) );
-		$this->assertTrue( $holder->should_restart() );
+		$this->assertSame( 'restart requested', $holder->restart_reason() );
 	}
 
 	public function test_request_restart_at_returns_false_for_missing_dir(): void {
@@ -210,50 +210,69 @@ class LockTest extends TestCase {
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$lock->acquire();
 		Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" );
-		$this->assertTrue( $lock->should_restart() );
+		$this->assertSame( 'restart requested', $lock->restart_reason() );
 
 		$lock->release();
-		$this->assertFalse( $lock->should_restart() );
+		$this->assertSame( '', $lock->restart_reason() );
 		$this->assertFalse( is_dir( "{$this->tmp}/test.lock.d" ) );
 	}
 
 	// --- PID-content theft detection ---------------------------------------
 
-	public function test_should_restart_detects_heartbeat_pid_mismatch(): void {
+	public function test_restart_reason_detects_heartbeat_pid_mismatch(): void {
 		// Holder believes it has the lock. An external party overwrites the
-		// heartbeat with a different PID. Holder's should_restart() returns true
-		// so it exits cleanly and lets the supervisor respawn.
+		// heartbeat with a different PID. The holder reports the theft so it
+		// exits cleanly and a peer respawns it.
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $lock->acquire() );
-		$this->assertFalse( $lock->should_restart() );
+		$this->assertSame( '', $lock->restart_reason() );
 
 		// Simulate lock theft: another process writes its own PID over ours.
-		file_put_contents(
-			"{$this->tmp}/test.lock.d/heartbeat",
-			(string) ( getmypid() + 99999 )
-		);
+		$thief = getmypid() + 99999;
+		file_put_contents( "{$this->tmp}/test.lock.d/heartbeat", (string) $thief );
 
-		$this->assertTrue( $lock->should_restart() );
+		$this->assertSame( "lock stolen by pid {$thief}", $lock->restart_reason() );
 	}
 
-	public function test_should_restart_detects_heartbeat_file_gone(): void {
+	public function test_restart_reason_detects_heartbeat_file_gone(): void {
 		// Catastrophic case: heartbeat file deleted out from under us. Treat as
 		// lock theft / orphan — exit clean.
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $lock->acquire() );
 		unlink( "{$this->tmp}/test.lock.d/heartbeat" );
 
-		$this->assertTrue( $lock->should_restart() );
+		$this->assertSame( 'lock heartbeat gone', $lock->restart_reason() );
 	}
 
-	public function test_should_restart_skips_pid_check_when_not_held(): void {
+	public function test_restart_reason_skips_pid_check_when_not_held(): void {
 		// External-pointer Lock (didn't acquire): PID check shouldn't fire.
 		// only the restart-flag check matters.
 		$external = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		mkdir( "{$this->tmp}/test.lock.d", 0755, true );
 		file_put_contents( "{$this->tmp}/test.lock.d/heartbeat", '99999' );
 
-		$this->assertFalse( $external->should_restart() );
+		$this->assertSame( '', $external->restart_reason() );
+	}
+
+	public function test_restart_reason_tells_the_three_causes_apart(): void {
+		// One bool covering all three read as an operator-requested restart
+		// whether an operator asked, the dir vanished, or a peer stole the lock.
+		$flagged = new Lock_Node( "{$this->tmp}/flagged.lock.d" );
+		$flagged->acquire();
+		Lock_Node::request_restart_at( "{$this->tmp}/flagged.lock.d" );
+
+		$stolen = new Lock_Node( "{$this->tmp}/stolen.lock.d" );
+		$stolen->acquire();
+		file_put_contents( "{$this->tmp}/stolen.lock.d/heartbeat", (string) ( getmypid() + 12345 ) );
+
+		$vanished = new Lock_Node( "{$this->tmp}/vanished.lock.d" );
+		$vanished->acquire();
+		unlink( "{$this->tmp}/vanished.lock.d/heartbeat" );
+
+		$reasons = [ $flagged->restart_reason(), $stolen->restart_reason(), $vanished->restart_reason() ];
+
+		$this->assertSame( 'restart requested', $reasons[0] );
+		$this->assertSame( $reasons, \array_unique( $reasons ) );
 	}
 
 	// --- Started-time helper ------------------------------------------------
