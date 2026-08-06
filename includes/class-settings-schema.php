@@ -297,11 +297,13 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_idle_timeout',
 					type: 'int',
+					default: 15,
 					ui: false,
 				),
 				new Field(
 					key: 'sse_retry_ms',
 					type: 'int',
+					default: 15000,
 					ui: false,
 				),
 				// ui:false overlay; registering lets Save wipe the active set.
