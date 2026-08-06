@@ -10,6 +10,19 @@ use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Core::class )]
 class CoreTest extends TestCase {
+	public function test_log_midfix_identifies_the_site_not_the_pool_host(): void {
+		// Atomic's gethostname() is a shared pool box (pool195-106-36.bur…),
+		// identical across every site on it and useless in an aggregated log.
+		$GLOBALS['_wp_test_home_url'] = 'https://tucsonweekly.newspackstaging.community';
+		Core::reset();
+
+		$midfix = Core::log_midfix();
+
+		$this->assertStringContainsString( 'tucsonweekly.newspackstaging.community', $midfix );
+		$this->assertStringNotContainsString( (string) \gethostname(), $midfix );
+		unset( $GLOBALS['_wp_test_home_url'] );
+	}
+
 	/** @var \Closure|null Bootstrap-installed curl seam, restored in tearDown so a test reassignment can't leak. */
 	private $saved_curl_exec;
 

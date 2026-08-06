@@ -145,10 +145,13 @@ class Job_Worker_Node extends Node {
 			return;
 		}
 		$handlers = ( 'remote_job' === $kind ) ? $this->remote_handlers : $this->local_handlers;
+		// @longform Silent for BOTH kinds. A worker seeing a handler it does
+		// not own is the normal hub-and-spoke case, not a misconfiguration: a
+		// spoke's Job_Router produces into its own jobs.log and
+		// rewrite-remote-job runs hub-side, so every hub-destined job reaches
+		// the spoke's worker as an unownable `job` — one warning per job, for
+		// work that completes fine on the hub.
 		if ( ! isset( $handlers[ $handler ] ) ) {
-			if ( 'job' === $kind ) {
-				$this->print_less_often( 'no job handler registered for: ', $handler );
-			}
 			return;
 		}
 		$parameters = $entry['parameters'] ?? [];
