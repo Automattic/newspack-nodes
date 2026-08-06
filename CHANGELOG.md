@@ -178,8 +178,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   neither branch and the script exited 0 having read no source. `npm run
   lint:php` — the gate run by hand — was therefore green by construction, while
   lint-staged, which passes explicit paths, failed at commit time on violations
-  nobody could reproduce. It now expands a directory argument, and the 13
-  violations that had accumulated behind it are fixed.
+  nobody could reproduce. It now expands a directory argument, pruning the
+  skip-list during the walk rather than filtering after it (descending
+  `node_modules` only to discard it cost ~1s of syscalls and threw outright on
+  an unreadable directory — 2.4s to 0.1s), with one `SKIP_DIRS` shared by the
+  directory walk and the explicit-path filter. Every violation that had
+  accumulated behind it, here and in the four siblings, is fixed.
 
 - **`Job_Intake::queue()` swallowed a cooperative stop.** Its `catch
   ( \RuntimeException )` is the lock-contention boolean contract, and
