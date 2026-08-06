@@ -112,13 +112,6 @@ class Job_Intake {
 	private ?int $pinned_partition = null;
 
 	/**
-	 * How long a write may wait for the per-Partition write lock. The default
-	 * outwaits a respawning predecessor; `try_queue()` drops it to zero for
-	 * callers that cannot afford to block.
-	 */
-	private int $lock_wait_ms = Partition_Node::DEFAULT_LOCK_WAIT_MS;
-
-	/**
 	 * Constructor.
 	 *
 	 * Both `$base_dir` and `$num_partitions` default to the substrate config
@@ -374,7 +367,7 @@ class Job_Intake {
 			$p->sink( $ci );
 		}
 		$p->arguments( [ "{$log_base}.p{$partition}" ] );
-		$p->allow_large_writes( $this->lock_wait_ms );
+		$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
 		$this->partitions[ $slot ] = $p;
 		return $p;
 	}
@@ -432,36 +425,11 @@ class Job_Intake {
 		?int $num_partitions = null,
 		array $options = []
 	): bool {
-		return self::write_once( $handler, $parameters, $key, $base_dir, $num_partitions, $options, Partition_Node::DEFAULT_LOCK_WAIT_MS );
-	}
-
-	/**
-	 * One-shot write behind both entry points: build an intake, write, close.
-	 *
-	 * The `RuntimeException` catch is the contention/refusal path, reported as
-	 * `false`. `Worker_Should_Stop` is a RuntimeException too but is a lifecycle
-	 * signal, so it goes back out (ADR-14) — eaten here it would strand a worker
-	 * that pump() had already told to stop.
-	 *
-	 * @param array<string, mixed> $parameters   Job parameters.
-	 * @param array<string, mixed> $options      Optional behaviors — see write_job().
-	 * @param int                  $lock_wait_ms Write-lock wait; 0 = try-lock.
-	 */
-	private static function write_once(
-		string $handler,
-		array $parameters,
-		?string $key,
-		?string $base_dir,
-		?int $num_partitions,
-		array $options,
-		int $lock_wait_ms
-	): bool {
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
 			return false;
 		}
 
-		$intake               = new self( $base_dir, $num_partitions );
-		$intake->lock_wait_ms = $lock_wait_ms;
+		$intake = new self( $base_dir, $num_partitions );
 		try {
 			$result = $intake->write_job( $handler, $parameters, $key, null, $options );
 		} catch ( Worker_Should_Stop $e ) {
@@ -472,26 +440,6 @@ class Job_Intake {
 			$intake->close();
 		}
 		return $result;
-	}
-
-	/**
-	 * Enqueue without ever waiting on the partition write lock — for callers
-	 * running INSIDE a worker's drain loop, where the default ~65s wait exceeds
-	 * the 60s lock stale_timeout: waiting it out stops the caller's own
-	 * heartbeat, peers read it as down, and a successor steals its lock while it
-	 * is alive with open Partition handles.
-	 *
-	 * Contended means false, immediately. Only use this where a dropped write is
-	 * recoverable — a periodic, idempotent enqueue that retries next tick.
-	 *
-	 * @api Used by external plugins with drain-loop enqueue paths.
-	 * @param string               $handler    Handler name.
-	 * @param array<string, mixed> $parameters Job parameters.
-	 * @param array<string, mixed> $options    Optional behaviors — see write_job().
-	 * @return bool True on success; false on validation failure OR contention.
-	 */
-	public static function try_queue( string $handler, array $parameters, array $options = [] ): bool {
-		return self::write_once( $handler, $parameters, null, null, null, $options, 0 );
 	}
 
 	/**

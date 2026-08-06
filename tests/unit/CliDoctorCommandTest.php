@@ -68,7 +68,9 @@ class CliDoctorCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_warns']        = [];
 		$GLOBALS['_test_wp_cli_errors']       = [];
 		$GLOBALS['_test_wp_cli_success']      = [];
-		$GLOBALS['_wp_test_next_scheduled']   = false;
+		// Healthy baseline: the reconciliation cron is scheduled, so the
+		// housekeeping result is GOOD and each test drives its own failure.
+		$GLOBALS['_wp_test_next_scheduled']   = 1893456789;
 		$this->http_calls                     = 0;
 
 		Topology_Registry::reset();

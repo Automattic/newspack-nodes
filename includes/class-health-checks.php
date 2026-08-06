@@ -7,8 +7,6 @@
 
 namespace Newspack_Nodes;
 
-use Newspack_Nodes\Config_System\Restart_Planner;
-
 \defined( 'ABSPATH' ) || exit;
 
 /**
@@ -291,36 +289,38 @@ final class Health_Checks {
 	}
 
 	/**
-	 * Housekeeping runs as an ordinary job on the `Job_Worker` pool, so an
-	 * active fleet with no pool loses retention, orphan reaping, alert emission,
-	 * the delayed-jobs sweep and every `newspack_nodes/periodic`
-	 * subscriber — silently, while every other check stays green. Derived from
-	 * the parsed graphs, never a topology name.
+	 * Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute cron, so a
+	 * missing `newspack_nodes/reconcile` event loses retention, orphan reaping,
+	 * alert emission, the delayed-jobs sweep and every `newspack_nodes/periodic`
+	 * subscriber — silently, while every other check stays green. The same event
+	 * is the cold-start revival tier, and a veto is easy to miss because a
+	 * short-circuited schedule is silent.
 	 *
 	 * @return HealthResult
 	 */
 	private static function housekeeping(): array {
 		try {
 			$active = Bootstrap::get_topologies();
-			$pools  = Restart_Planner::topologies_for( [ 'Job_Worker' ] );
 		} catch ( \Throwable $e ) {
 			return self::result( 'housekeeping', 'Housekeeping', self::STATUS_RECOMMENDED, 'Housekeeping could not be evaluated: ' . $e->getMessage() );
 		}
 		if ( [] === $active ) {
 			return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'No topology is active, so there is nothing to keep house for.' );
 		}
-		if ( [] === $pools ) {
+		$next = \function_exists( 'wp_next_scheduled' ) ? \wp_next_scheduled( Bootstrap::CRON_EVENT ) : false;
+		if ( ! $next ) {
 			return self::result(
 				'housekeeping',
 				'Housekeeping',
 				self::STATUS_CRITICAL,
-				'No active topology declares a Job_Worker, so housekeeping never runs: '
-				. 'log retention, orphan partition/IPC reaping, alert emission, the delayed-jobs '
-				. 'sweep and every newspack_nodes/periodic subscriber are all stopped. '
-				. 'Recover with: wp nodes activate job-worker'
+				'The ' . Bootstrap::CRON_EVENT . ' cron event is not scheduled, so nothing runs the '
+				. 'reconciliation pass: log retention, orphan partition/IPC reaping, alert emission, '
+				. 'the delayed-jobs sweep, every newspack_nodes/periodic subscriber and cold-start '
+				. 'worker revival are all stopped. Recover with: wp cron event schedule '
+				. Bootstrap::CRON_EVENT . ' now ' . Bootstrap::CRON_SCHEDULE
 			);
 		}
-		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'Housekeeping runs on the job pool declared by: ' . \implode( ', ', $pools ) . '.' );
+		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'The reconciliation pass is scheduled; next run ' . \gmdate( 'Y-m-d H:i:s', $next ) . ' UTC.' );
 	}
 
 	/**

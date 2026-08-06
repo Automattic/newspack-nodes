@@ -1,11 +1,14 @@
 <?php
 /**
- * Fleet: the peer-spawn scan every worker runs on its router tick.
+ * Fleet: the peer-spawn scan every worker runs every 15 seconds.
  *
  * A worker whose lock dir is missing or whose heartbeat has gone stale is
  * spawned by whichever peer notices first; the spawn endpoint's
  * MIN_SPAWN_INTERVAL_S throttle deduplicates N scanners exactly as it already
  * deduplicated the worker / cron pair.
+ *
+ * Revival only. Housekeeping rides `Bootstrap::reconcile_fleet()` on the minute
+ * cron, so it needs no live worker and no job pool.
  *
  * @package Newspack_Nodes
  */
@@ -17,29 +20,34 @@ namespace Newspack_Nodes;
 class Fleet_Node extends Timer_Node {
 	use Schema_Reflection;
 
-	/** Also the topology (de)activation latency. */
-	public const CONFIG_CHECK_INTERVAL = 15;
+	/**
+	 * @longform Scan cadence, and so also the topology (de)activation latency.
+	 * Not the router tick: a missing lock dir is the only case a faster scan
+	 * reaches sooner, and a crashed worker's queue is durable, so that lag costs
+	 * nothing. The stale-heartbeat case is dominated by the topology's
+	 * stale_timeout (60s default) either way. Fifteen seconds is 15x fewer
+	 * glob/stat passes per worker, times every worker.
+	 */
+	public const SCAN_INTERVAL_MS = 15000;
 
 	/**
-	 * @longform Ceiling on spawn POSTs per tick. Each is a BLOCKING curl capped
-	 * at Core::POST_TIMEOUT_MS, and unlike the cron cold-start pass — which has
-	 * a process to itself — this runs inside a worker's drain loop, so every
+	 * @longform Ceiling on spawn POSTs per pass. Each is a BLOCKING curl capped
+	 * at Core::POST_TIMEOUT_MS, and unlike the cron reconciliation pass — which
+	 * has a process to itself — this runs inside a worker's drain loop, so every
 	 * POST is time stolen from message processing. A cold fleet spreads its
-	 * spawns over consecutive ticks instead of stalling one.
+	 * spawns over consecutive passes instead of stalling one; the uncapped cron
+	 * pass is what revives a large fleet in one go.
 	 */
 	public const MAX_SPAWNS_PER_TICK = 4;
 
 	/** Defer the first spawn of a newly-appeared type so a still-exiting predecessor can flush. */
-	public const NEW_TYPE_SPAWN_DELAY_S = 5;
+	public const NEW_TYPE_SPAWN_DELAY_SCANS = 1;
 
 	/** Runtime state root; locks/ lives under it. Assigned by parse_schema_args. */
 	private string $base_dir = '';
 
 	/** Spawn coordination: lock paths, staleness, the shared spawn throttle. */
 	private ?Spawn_Coordinator $coordinator = null;
-
-	/** When the active set was last re-read (epoch seconds). */
-	private float $last_config_check = 0.0;
 
 	/** This worker's own lock dir, where its reload watermark lands. Assigned by parse_schema_args. */
 	private string $lock_dir = '';
@@ -70,8 +78,8 @@ class Fleet_Node extends Timer_Node {
 		// and `dump_metadata` returns, and `redact_secrets()` cannot mask a
 		// bare positional.
 		$this->coordinator = new Spawn_Coordinator( $this->base_dir );
-		// No-arg: the hitchhike self-adjusts if the router's cadence changes.
-		$this->set_timer();
+		// Router-hitchhiked; Timer_Node throttles it down to SCAN_INTERVAL_MS.
+		$this->set_timer( self::SCAN_INTERVAL_MS );
 		return $this->arguments;
 	}
 
@@ -96,11 +104,9 @@ class Fleet_Node extends Timer_Node {
 		}
 	}
 
-	/** Spawn every active-fleet worker whose lock reads as down, bounded per tick. */
+	/** Spawn every active-fleet worker whose lock reads as down, bounded per pass. */
 	private function scan( float $now ): void {
-		if ( ( $now - $this->last_config_check ) >= self::CONFIG_CHECK_INTERVAL ) {
-			$this->check_config( $now );
-		}
+		$this->refresh_active_set( $now );
 		$coordinator = $this->coordinator;
 		if ( null === $coordinator || empty( $this->workers ) ) {
 			return;
@@ -160,32 +166,31 @@ class Fleet_Node extends Timer_Node {
 	}
 
 	/**
-	 * Re-read the active fleet. A worker outlives many operator changes and
-	 * Config caches for the life of the process, so the reset is what makes an
-	 * activation land at all — without it the set is frozen at boot. The SHARED
-	 * cache purge is signal-driven (`maybe_reload`), not done blindly here: a
-	 * blind purge every window per worker makes `alloptions` uncacheable
-	 * site-wide.
+	 * Re-read the active fleet, resetting Config only when a reload watermark
+	 * says the cached copy is stale.
+	 *
+	 * The reset is not free: it fires `Config::RESET_ACTION`, whose subscribers
+	 * drop the parsed-TSL cache, so every worker re-globs both topology dirs and
+	 * re-parses every `.tsl` on the next `expand_workers()`. Unconditionally,
+	 * that is once per pass per worker to reach the identical answer — the
+	 * watermark IS the signal that makes the OPTION cache stale, so without one
+	 * there is no option to re-read. The other two RESET_ACTION subscribers read
+	 * DISK, not options, so an edited `.tsl` or a new logs dir is now picked up
+	 * on the next recycle rather than within 15s — deploys already end in
+	 * `wp nodes restart`. `expand_workers()` stays unconditional: it is the
+	 * scan's input, not a poll.
 	 */
-	private function check_config( float $now ): void {
-		$this->last_config_check = $now;
+	private function refresh_active_set( float $now ): void {
 		// @longform Purge, reset, THEN announce: a subscriber reading inline
 		// must see the config the reload delivers, not the boot values.
 		// `notify()`, not `set_state()` — a node built after a reload already
 		// read current config, so replaying the event at it is a pointless
 		// re-read. String payload: TM_INFO VALUEs are flat strings.
 		$watermark = $this->take_reload_watermark();
-		Config::reset();
 		if ( '' !== $watermark ) {
+			Config::reset();
 			$this->notify( 'RELOAD', $watermark );
 		}
-
-		// @longform Housekeeping is NOT gated on spawn eligibility. It rides
-		// this cadence but answers to nobody below: an empty or conflicting
-		// active set refuses SPAWNING only, and a worker already running keeps
-		// running. Retention, orphan reaping, alerts, delayed jobs and every
-		// `periodic` subscriber must still get their window.
-		Fleet_Sweep::enqueue( $now );
 
 		// @longform OBSERVED, never assumed: a first check reading empty is a
 		// cold start, not a deactivation, and must not retire the fleet.
@@ -213,7 +218,7 @@ class Fleet_Node extends Timer_Node {
 			$known = \array_flip( \array_column( $this->workers, 'type' ) );
 			foreach ( $workers as $worker ) {
 				if ( ! isset( $known[ $worker['type'] ] ) ) {
-					$this->spawn_after[ $worker['type'] ] ??= $now + self::NEW_TYPE_SPAWN_DELAY_S;
+					$this->spawn_after[ $worker['type'] ] ??= $now + ( self::NEW_TYPE_SPAWN_DELAY_SCANS * self::SCAN_INTERVAL_MS / 1000.0 );
 				}
 			}
 		}

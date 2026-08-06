@@ -8,7 +8,7 @@
  * (wherever it sits in a declared path) over 0..N-1, so there is no `.p{N}`
  * regex. Liveness-free: it does NOT read worker locks, lock dirs, ipc dirs, or
  * live-worker descriptors — worker/topology lifecycle (the "orange") lives in
- * Fleet_Node and Fleet_Sweep.
+ * Fleet_Node and Spawn_Coordinator.
  *
  * @package Newspack_Nodes
  */

@@ -1,21 +1,25 @@
 <?php
 /**
  * Spawn Coordinator: lock paths, staleness, the shared spawn throttle, the HMAC
- * spawn token, and the POST that carries it.
+ * spawn token, the POST that carries it, and the reconcile of lock/ipc dirs the
+ * active fleet no longer accounts for.
  *
  * Request-scope only. Nothing here takes a lock or runs a loop, which is what
  * lets the cold-start cron pass, the peer scan inside every worker, and the
  * topology-activation verbs all share one coordinator.
  *
- * Two members answer to the name only obliquely, and stay by measure. The
+ * Some members answer to the name only obliquely, and stay by measure. The
  * spawn/stop pair is one unit: `kill_readers()` is `spawn_fleet()`'s inverse,
  * called from the same request scope over the same `base_dir` lock tree, and
- * splitting it would put half a lifecycle in each of two classes. The
- * directory utilities (`remove_stale_directory`, `delete_directory_recursive`,
- * `is_within`) are generic and shared with `Fleet_Sweep`, `Log_Cleaner` and
- * uninstall — a home of their own is defensible, but they are the jail guard
- * uninstall loads by `require_once` without an autoloader, so moving them buys
- * a new file and a new dependency for the same code.
+ * splitting it would put half a lifecycle in each of two classes. The janitorial
+ * pair (`reconcile_lock_dirs()`, `cleanup_orphan_ipc()`) is the same tree read
+ * the other way — which dirs the active fleet no longer accounts for — and both
+ * consume the staleness rules and the contained delete right here. The directory
+ * utilities (`remove_stale_directory`, `delete_directory_recursive`, `is_within`)
+ * are generic and shared with `Log_Cleaner` and uninstall — a home of their own
+ * is defensible, but they are the jail guard uninstall loads by `require_once`
+ * without an autoloader, so moving them buys a new file and a new dependency for
+ * the same code.
  *
  * @package Newspack_Nodes
  */
@@ -53,6 +57,174 @@ class Spawn_Coordinator {
 	public function __construct( string $base_dir, ?string $nonce_salt = null ) {
 		$this->base_dir   = \rtrim( $base_dir, '/' );
 		$this->nonce_salt = $nonce_salt ?? \wp_salt( 'nonce' );
+	}
+
+	/**
+	 * Reconcile every on-disk `*.lock.d` against the active fleet: a partition
+	 * past its topology's count is removed if stale, then flagged to retire.
+	 *
+	 * Order matters — remove_stale_directory must run BEFORE request_restart_at,
+	 * or the flag's fresh mtime blocks the removal. Nothing here is urgent: a
+	 * surplus worker retires within one lifetime on its own, through
+	 * `Spawn_Controller::validate_partition()`.
+	 */
+	public function reconcile_lock_dirs(): void {
+		$active = [];
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			$active[ $worker['type'] ] = \max( $active[ $worker['type'] ] ?? 0, $worker['partition'] + 1 );
+		}
+		if ( empty( $active ) ) {
+			return; // No known fleet: every dir would read as an orphan.
+		}
+		$locks_dir = "{$this->base_dir}/locks";
+		$this->reap_steal_scratch_dirs( $locks_dir );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( \glob( "{$locks_dir}/*.lock.d" ) ?: [] as $path ) {
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', \basename( $path, '.lock.d' ), $m ) ) {
+				continue; // Non-partitioned dir — not a worker.
+			}
+			if ( (int) $m[2] < ( $active[ $m[1] ] ?? 0 ) ) {
+				continue; // In fleet.
+			}
+			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
+			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
+				Lock_Node::request_restart_at( $path );
+			}
+		}
+	}
+
+	/**
+	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
+	 * steal. A normal steal removes its scratch in two syscalls; a process killed
+	 * in that window leaks one and nothing else reaps it. Only sweep dirs older
+	 * than STALE_TIMEOUT — far beyond any in-flight steal — so a live takeover is
+	 * never reaped out from under itself.
+	 *
+	 * @param string $locks_dir Absolute path to locks/.
+	 */
+	private function reap_steal_scratch_dirs( string $locks_dir ): void {
+		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( \glob( "{$locks_dir}/*.lock.d.stealing.*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+			\clearstatcache( true, $path );
+			$mtime = @\filemtime( $path );
+			if ( false === $mtime || $mtime > $cutoff ) {
+				continue; // Unreadable or an in-flight steal — leave it.
+			}
+			self::delete_directory_recursive( $path, $this->base_dir );
+		}
+	}
+
+	/**
+	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
+	 *
+	 * @param string $path      Directory to delete.
+	 * @param string $base_path Containment root (top-level call only).
+	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
+	 */
+	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
+		if ( ! self::is_within( $path, $base_path ) ) {
+			return;
+		}
+		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe base.
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base
+			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
+			return;
+		}
+		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
+	}
+
+	/**
+	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
+	 *
+	 * @param string $path      Candidate path.
+	 * @param string $base_path Containment root.
+	 * @return bool True if $path is within $base_path.
+	 */
+	public static function is_within( string $path, string $base_path ): bool {
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+		// Accept equality: containment predicate; callers reject it if needed.
+		$real_base_trim = \rtrim( $real_base, '/' );
+		if ( $real_path === $real_base_trim ) {
+			return true;
+		}
+		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
+	}
+
+	/**
+	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
+	 */
+	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
+		if ( $depth > $max_depth ) {
+			return;
+		}
+		if ( \is_link( $path ) ) {
+			return;
+		}
+		if ( ! \is_dir( $path ) ) {
+			return;
+		}
+		$items = @\scandir( $path ) ?: [];
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$child = $path . '/' . $item;
+			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
+				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
+			} else {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				@\unlink( $child );
+			}
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
+		@\rmdir( $path );
+	}
+
+	/**
+	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
+	 *
+	 * @param string $dir          Candidate stale directory.
+	 * @param int    $stale_age_s  Threshold in seconds.
+	 */
+	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
+		// Symlink: unlink rather than recurse, so we can't escape base_dir.
+		if ( \is_link( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- substrate manages its own base_dir tree (default /tmp/newspack-nodes/); the VIP hosted-filesystem rule doesn't apply to a runtime's reserved directory.
+			@\unlink( $dir );
+			return;
+		}
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- see above.
+			@\unlink( $dir );
+			return;
+		}
+
+		$newest_mtime = 0;
+		$files        = @\scandir( $dir ) ?: [];
+		foreach ( $files as $file ) {
+			if ( '.' === $file || '..' === $file ) {
+				continue;
+			}
+			$child = $dir . '/' . $file;
+			if ( \is_link( $child ) ) {
+				continue;
+			}
+			$mtime = @\filemtime( $child );
+			if ( false !== $mtime && $mtime > $newest_mtime ) {
+				$newest_mtime = $mtime;
+			}
+		}
+
+		if ( $newest_mtime > 0 && ( \time() - $newest_mtime ) > $stale_age_s ) {
+			self::delete_directory_recursive( $dir, $this->base_dir );
+		}
 	}
 
 	/**
@@ -187,115 +359,25 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
-	 *
-	 * @param string $dir          Candidate stale directory.
-	 * @param int    $stale_age_s  Threshold in seconds.
+	 * Reap ipc dirs for workers no longer in the fleet. A live worker's lock dir
+	 * defers its own removal, so a worker mid-recycle keeps its IPC.
 	 */
-	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
-		// Symlink: unlink rather than recurse, so we can't escape base_dir.
-		if ( \is_link( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- substrate manages its own base_dir tree (default /tmp/newspack-nodes/); the VIP hosted-filesystem rule doesn't apply to a runtime's reserved directory.
-			@\unlink( $dir );
-			return;
+	public function cleanup_orphan_ipc(): void {
+		$active = [];
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			$active[ "{$worker['type']}.p{$worker['partition']}" ] = true;
 		}
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- see above.
-			@\unlink( $dir );
-			return;
-		}
-
-		$newest_mtime = 0;
-		$files        = @\scandir( $dir ) ?: [];
-		foreach ( $files as $file ) {
-			if ( '.' === $file || '..' === $file ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( \glob( "{$this->base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			$name = \basename( $dir );
+			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
 				continue;
 			}
-			$child = $dir . '/' . $file;
-			if ( \is_link( $child ) ) {
-				continue;
+			if ( \is_dir( "{$this->base_dir}/locks/{$name}.lock.d" ) ) {
+				continue; // A live worker still holds it.
 			}
-			$mtime = @\filemtime( $child );
-			if ( false !== $mtime && $mtime > $newest_mtime ) {
-				$newest_mtime = $mtime;
-			}
-		}
-
-		if ( $newest_mtime > 0 && ( \time() - $newest_mtime ) > $stale_age_s ) {
 			self::delete_directory_recursive( $dir, $this->base_dir );
 		}
-	}
-
-	/**
-	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
-	 *
-	 * @param string $path      Directory to delete.
-	 * @param string $base_path Containment root (top-level call only).
-	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
-	 */
-	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
-		if ( ! self::is_within( $path, $base_path ) ) {
-			return;
-		}
-		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe base.
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base
-			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
-			return;
-		}
-		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
-	}
-
-	/**
-	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
-	 *
-	 * @param string $path      Candidate path.
-	 * @param string $base_path Containment root.
-	 * @return bool True if $path is within $base_path.
-	 */
-	public static function is_within( string $path, string $base_path ): bool {
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base ) {
-			return false;
-		}
-		// Accept equality: containment predicate; callers reject it if needed.
-		$real_base_trim = \rtrim( $real_base, '/' );
-		if ( $real_path === $real_base_trim ) {
-			return true;
-		}
-		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
-	}
-
-	/**
-	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
-	 */
-	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
-		if ( $depth > $max_depth ) {
-			return;
-		}
-		if ( \is_link( $path ) ) {
-			return;
-		}
-		if ( ! \is_dir( $path ) ) {
-			return;
-		}
-		$items = @\scandir( $path ) ?: [];
-		foreach ( $items as $item ) {
-			if ( '.' === $item || '..' === $item ) {
-				continue;
-			}
-			$child = $path . '/' . $item;
-			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
-				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
-			} else {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $child );
-			}
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		@\rmdir( $path );
 	}
 
 	/**

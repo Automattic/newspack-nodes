@@ -477,28 +477,28 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( $fake, Bootstrap::supervisor() );
 	}
 
-	// ── run_supervisor_tick gate ──────────────────────────────────────────
+	// ── reconcile_fleet gate ──────────────────────────────────────────
 
-	public function test_run_supervisor_tick_unschedules_when_logging_disabled(): void {
+	public function test_reconcile_fleet_unschedules_when_logging_disabled(): void {
 		Bootstrap::$supervisor_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = 1234567890;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertNotEmpty(
 			$GLOBALS['_wp_test_unscheduled_events'],
 			'supervisor disabled must unschedule the supervisor cron'
 		);
-		$this->assertSame( 'newspack_nodes/supervisor', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
 	}
 
-	public function test_run_supervisor_tick_unschedules_only_when_event_present(): void {
+	public function test_reconcile_fleet_unschedules_only_when_event_present(): void {
 		Bootstrap::$supervisor_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = false;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertEmpty(
 			$GLOBALS['_wp_test_unscheduled_events'],
@@ -506,7 +506,7 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
-	public function test_run_supervisor_tick_returns_without_unscheduling_when_no_topologies(): void {
+	public function test_reconcile_fleet_returns_without_unscheduling_when_no_topologies(): void {
 		// Logging is on, but no topologies are registered — no workers to
 		// spawn, no reason to actually run the supervisor's 595s loop. But
 		// DO leave the cron scheduled so the next tick after the operator
@@ -517,7 +517,7 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 		$GLOBALS['_test_outbound_posts']       = [];
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertEmpty(
 			$GLOBALS['_wp_test_unscheduled_events'],
@@ -529,17 +529,17 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
-	// ── unschedule_supervisor ─────────────────────────────────────────────
+	// ── unschedule_reconcile ─────────────────────────────────────────────
 
-	public function test_unschedule_supervisor_clears_existing_event(): void {
+	public function test_unschedule_reconcile_clears_existing_event(): void {
 		$GLOBALS['_wp_test_next_scheduled']     = 99;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
-		Bootstrap::unschedule_supervisor();
+		Bootstrap::unschedule_reconcile();
 
 		$this->assertCount( 1, $GLOBALS['_wp_test_unscheduled_events'] );
 		$this->assertSame( 99, $GLOBALS['_wp_test_unscheduled_events'][0]['timestamp'] );
-		$this->assertSame( 'newspack_nodes/supervisor', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
 	}
 
 	// ── cron_schedules ────────────────────────────────────────────────────
@@ -570,7 +570,7 @@ class BootstrapTest extends TestCase {
 		$this->assertNotEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 		$evt = $GLOBALS['_wp_test_scheduled_events'][0];
 		$this->assertSame( 'newspack_nodes_minute', $evt['recurrence'] );
-		$this->assertSame( 'newspack_nodes/supervisor', $evt['hook'] );
+		$this->assertSame( 'newspack_nodes/reconcile', $evt['hook'] );
 	}
 
 	public function test_activate_skipped_when_already_scheduled(): void {
@@ -609,7 +609,7 @@ class BootstrapTest extends TestCase {
 		foreach ( [ 'pre_schedule_event', 'pre_reschedule_event' ] as $filter ) {
 			$this->assertContains(
 				[
-					'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ],
+					'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_reconcile_schedule_veto' ],
 					'priority'      => PHP_INT_MAX - 2,
 					'accepted_args' => 2,
 				],
@@ -633,7 +633,7 @@ class BootstrapTest extends TestCase {
 		);
 		$this->assertContains(
 			[
-				'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_event_veto' ],
+				'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_reconcile_schedule_event_veto' ],
 				'priority'      => PHP_INT_MAX - 2,
 				'accepted_args' => 1,
 			],
@@ -648,7 +648,7 @@ class BootstrapTest extends TestCase {
 		$log = '';
 		$pre = null;
 		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
-			$pre = Bootstrap::log_supervisor_schedule_veto( false, $event );
+			$pre = Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 
 		$this->assertFalse( $pre );
@@ -658,9 +658,9 @@ class BootstrapTest extends TestCase {
 	public function test_veto_detector_passes_through_malformed_events_without_logging(): void {
 		$results = [];
 		$log     = $this->capture_stderr( static function () use ( &$results ): void {
-			$results[] = Bootstrap::log_supervisor_schedule_veto( false, null );
-			$results[] = Bootstrap::log_supervisor_schedule_veto( false, (object) [] );
-			$results[] = Bootstrap::log_supervisor_schedule_veto( false, 'not-an-object' );
+			$results[] = Bootstrap::log_reconcile_schedule_veto( false, null );
+			$results[] = Bootstrap::log_reconcile_schedule_veto( false, (object) [] );
+			$results[] = Bootstrap::log_reconcile_schedule_veto( false, 'not-an-object' );
 		} );
 
 		$this->assertSame( [ false, false, false ], $results );
@@ -668,12 +668,12 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_veto_detector_ignores_null_and_truthy_pre(): void {
-		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$results = [];
 		$log     = $this->capture_stderr( static function () use ( &$results, $event ): void {
-			$results[] = Bootstrap::log_supervisor_schedule_veto( null, $event );
-			$results[] = Bootstrap::log_supervisor_schedule_veto( true, $event );
+			$results[] = Bootstrap::log_reconcile_schedule_veto( null, $event );
+			$results[] = Bootstrap::log_reconcile_schedule_veto( true, $event );
 		} );
 
 		$this->assertSame( [ null, true ], $results );
@@ -696,11 +696,11 @@ class BootstrapTest extends TestCase {
 				],
 			],
 		];
-		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = null;
 		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
-			$pre = Bootstrap::log_supervisor_schedule_veto( false, $event );
+			$pre = Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
 
@@ -713,12 +713,12 @@ class BootstrapTest extends TestCase {
 
 	public function test_veto_detector_logs_wp_error_code_and_message(): void {
 		$GLOBALS['_wp_test_current_filter'] = 'pre_reschedule_event';
-		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 		$error                              = new \WP_Error( 'cron_storage_down', 'Could not persist the event.' );
 
 		$pre = null;
 		$log = $this->capture_stderr( static function () use ( &$pre, $event, $error ): void {
-			$pre = Bootstrap::log_supervisor_schedule_veto( $error, $event );
+			$pre = Bootstrap::log_reconcile_schedule_veto( $error, $event );
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
@@ -746,10 +746,10 @@ class BootstrapTest extends TestCase {
 				],
 			],
 		];
-		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$log = $this->capture_stderr( static function () use ( $event ): void {
-			Bootstrap::log_supervisor_schedule_veto( false, $event );
+			Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
 
@@ -759,11 +759,11 @@ class BootstrapTest extends TestCase {
 
 	public function test_veto_detector_rate_limits_repeat_logs_within_process(): void {
 		$GLOBALS['_wp_test_current_filter'] = 'pre_schedule_event';
-		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$log = $this->capture_stderr( static function () use ( $event ): void {
-			Bootstrap::log_supervisor_schedule_veto( false, $event );
-			Bootstrap::log_supervisor_schedule_veto( false, $event );
+			Bootstrap::log_reconcile_schedule_veto( false, $event );
+			Bootstrap::log_reconcile_schedule_veto( false, $event );
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
@@ -774,7 +774,7 @@ class BootstrapTest extends TestCase {
 		global $wp_filter;
 
 		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
-		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_supervisor_schedule_event_veto' ] ) );
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_reconcile_schedule_event_veto' ] ) );
 
 		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
 		$wp_filter                          = [
@@ -789,12 +789,12 @@ class BootstrapTest extends TestCase {
 				],
 			],
 		];
-		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = null;
 		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
-			$pre = Bootstrap::log_supervisor_schedule_event_veto( false );
+			$pre = Bootstrap::log_reconcile_schedule_event_veto( false );
 		} );
 		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
 
@@ -807,12 +807,12 @@ class BootstrapTest extends TestCase {
 
 	public function test_schedule_event_detector_logs_null_veto_with_remembered_supervisor_context(): void {
 		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
-		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$event                              = (object) [ 'hook' => 'newspack_nodes/reconcile' ];
 
 		$pre = 'unchanged';
 		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
-			$pre = Bootstrap::log_supervisor_schedule_event_veto( null );
+			$pre = Bootstrap::log_reconcile_schedule_event_veto( null );
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
@@ -824,7 +824,7 @@ class BootstrapTest extends TestCase {
 
 	public function test_schedule_event_detector_ignores_false_veto_without_supervisor_context(): void {
 		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
-		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_supervisor_schedule_event_veto' ] ) );
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_reconcile_schedule_event_veto' ] ) );
 
 		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
 		$event                              = (object) [ 'hook' => 'wp_update_plugins' ];
@@ -832,7 +832,7 @@ class BootstrapTest extends TestCase {
 		$pre = null;
 		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
 			Bootstrap::remember_schedule_event_context( $event );
-			$pre = Bootstrap::log_supervisor_schedule_event_veto( false );
+			$pre = Bootstrap::log_reconcile_schedule_event_veto( false );
 		} );
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
@@ -841,7 +841,7 @@ class BootstrapTest extends TestCase {
 	}
 
 
-	// ── self_heal_supervisor_cron ─────────────────────────────────────────
+	// ── self_heal_reconcile_cron ─────────────────────────────────────────
 
 	public function test_self_heal_schedules_when_logging_on_topologies_present_cron_missing(): void {
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
@@ -852,13 +852,13 @@ class BootstrapTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 
-		Bootstrap::self_heal_supervisor_cron();
+		Bootstrap::self_heal_reconcile_cron();
 
 		$this->assertNotEmpty(
 			$GLOBALS['_wp_test_scheduled_events'],
 			'self-heal must call activate() when all 3 conditions are met'
 		);
-		$this->assertSame( 'newspack_nodes/supervisor', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] );
+		$this->assertSame( 'newspack_nodes/reconcile', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] );
 	}
 
 	public function test_self_heal_skips_when_logging_disabled(): void {
@@ -869,7 +869,7 @@ class BootstrapTest extends TestCase {
 		} );
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 
-		Bootstrap::self_heal_supervisor_cron();
+		Bootstrap::self_heal_reconcile_cron();
 
 		$this->assertEmpty(
 			$GLOBALS['_wp_test_scheduled_events'],
@@ -880,7 +880,7 @@ class BootstrapTest extends TestCase {
 	public function test_self_heal_skips_when_no_topologies_selected(): void {
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 
-		Bootstrap::self_heal_supervisor_cron();
+		Bootstrap::self_heal_reconcile_cron();
 
 		$this->assertEmpty(
 			$GLOBALS['_wp_test_scheduled_events'],
@@ -895,7 +895,7 @@ class BootstrapTest extends TestCase {
 		} );
 		$GLOBALS['_wp_test_next_scheduled'] = 1234567890;
 
-		Bootstrap::self_heal_supervisor_cron();
+		Bootstrap::self_heal_reconcile_cron();
 
 		$this->assertEmpty(
 			$GLOBALS['_wp_test_scheduled_events'],
@@ -1091,7 +1091,7 @@ class BootstrapTest extends TestCase {
 		$this->assertTrue( true, 'deactivate() must run to completion (idempotent)' );
 	}
 
-	// ── run_supervisor_tick: the cold-start pass ─────────────────────────
+	// ── reconcile_fleet: the cold-start pass ─────────────────────────
 
 	/**
 	 * Declare an active fleet rooted at a fresh runtime dir, and return it.
@@ -1108,7 +1108,7 @@ class BootstrapTest extends TestCase {
 		return $dir;
 	}
 
-	public function test_run_supervisor_tick_reports_an_unusable_base_instead_of_throwing(): void {
+	public function test_reconcile_fleet_reports_an_unusable_base_instead_of_throwing(): void {
 		// This is the LAST revival path when no worker is alive, and it runs on
 		// a cron callback every minute. A misconfigured base must log once and
 		// return, as the two sibling entry points already do — not throw out of
@@ -1132,7 +1132,7 @@ class BootstrapTest extends TestCase {
 			// that is the call that resolves the base.
 			$runtime_ref->setValue( null, false );
 
-			Bootstrap::run_supervisor_tick();
+			Bootstrap::reconcile_fleet();
 
 			$this->assertStringContainsString( 'runtime wiring unavailable', $buf );
 		} finally {
@@ -1143,12 +1143,12 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
-	public function test_run_supervisor_tick_spawns_every_worker_whose_lock_is_missing(): void {
+	public function test_reconcile_fleet_spawns_every_worker_whose_lock_is_missing(): void {
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 3, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
 		] );
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$posts = $GLOBALS['_test_outbound_posts'];
 		$this->assertCount( 3, $posts, 'a dead fleet must be revived partition by partition' );
@@ -1157,14 +1157,14 @@ class BootstrapTest extends TestCase {
 		$this->rmdir_recursive( $dir );
 	}
 
-	public function test_run_supervisor_tick_skips_a_worker_with_a_fresh_heartbeat(): void {
+	public function test_reconcile_fleet_skips_a_worker_with_a_fresh_heartbeat(): void {
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
 		] );
 		\mkdir( "{$dir}/locks/cold-start-workers.p0.lock.d", 0755, true );
 		\touch( "{$dir}/locks/cold-start-workers.p0.lock.d/heartbeat" );
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'], 'a live worker needs no cron rescue' );
 
@@ -1176,12 +1176,12 @@ class BootstrapTest extends TestCase {
 	 * singleton lock, so a second runner can never be locked out of reviving a
 	 * fleet that has nothing left running.
 	 */
-	public function test_run_supervisor_tick_holds_no_singleton_lock(): void {
+	public function test_reconcile_fleet_holds_no_singleton_lock(): void {
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertDirectoryDoesNotExist( "{$dir}/locks/supervisor.lock.d" );
 
@@ -1193,7 +1193,7 @@ class BootstrapTest extends TestCase {
 	 * filter. The tier of last resort must not fatal every cron minute because
 	 * one provider threw.
 	 */
-	public function test_run_supervisor_tick_survives_a_throwing_topologies_provider(): void {
+	public function test_reconcile_fleet_survives_a_throwing_topologies_provider(): void {
 		$dir = $this->make_temp_dir( 'cold-start-hostile-' );
 		$this->use_base_dir( $dir );
 		\add_filter( 'newspack_nodes/topologies', static function (): array {
@@ -1207,9 +1207,9 @@ class BootstrapTest extends TestCase {
 			$stderr[] = $line;
 		} );
 		$after = 0;
-		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
+		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertSame( 1, $after, 'the lifecycle action must still fire from finally' );
 		$this->assertStringContainsString(
@@ -1221,9 +1221,173 @@ class BootstrapTest extends TestCase {
 		$this->rmdir_recursive( $dir );
 	}
 
-	// ── run_supervisor_tick: full execution ──────────────────────────────
+	// ── reconcile_fleet: the housekeeping it absorbed ────────────────────
 
-	public function test_run_supervisor_tick_wraps_the_pass_in_its_lifecycle_actions(): void {
+	public function test_reconcile_fleet_fires_the_periodic_hook(): void {
+		// Housekeeping no longer rides a job on the `job-worker` pool, so it runs
+		// even when the fleet is down — which is when disk most needs reclaiming.
+		$dir   = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		$fired = 0;
+		\add_action( 'newspack_nodes/periodic', static function () use ( &$fired ): void {
+			++$fired;
+		} );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertSame( 1, $fired );
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_reconcile_fleet_flags_a_lock_dir_past_the_active_partition_count(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 2, 'topology' => '/cs.tsl' ],
+		] );
+		\mkdir( "{$dir}/locks/cold-start-workers.p5.lock.d", 0755, true );
+		\touch( "{$dir}/locks/cold-start-workers.p5.lock.d/heartbeat" );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertFileExists( "{$dir}/locks/cold-start-workers.p5.lock.d/restart" );
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_reconcile_fleet_reaps_an_orphan_ipc_dir(): void {
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		\mkdir( "{$dir}/ipc/cold-start-workers.p0/input", 0755, true );
+		\mkdir( "{$dir}/ipc/retired-workers.p7/input", 0755, true );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertDirectoryExists( "{$dir}/ipc/cold-start-workers.p0" );
+		$this->assertDirectoryDoesNotExist( "{$dir}/ipc/retired-workers.p7" );
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_reconcile_fleet_runs_log_retention(): void {
+		// DELETE_GRACE_S is 3600 and the pass is a minute apart, so retention ran
+		// 240 times per eligible deletion on the old 15s sweep.
+		$dir = $this->make_temp_dir( 'cold-start-retention-' );
+		$this->use_base_dir( $dir );
+		\Newspack_Nodes\Config::register_token_namespace();
+		$stock = "{$dir}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/ledger.tsl",
+			"var num_partitions = 1\n"
+			. 'make_node Partition ledger:partition <config:logs_dir>/ledger.p<partition>'
+			. " <config:segment_size> <config:min_segments> <config:max_segments> 0 0\n"
+		);
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'ledger' ];
+		\Newspack_Nodes\Config::reset();
+
+		$orphan = "{$dir}/logs/retired-log.p0";
+		\mkdir( $orphan, 0755, true );
+		\file_put_contents( "{$orphan}/0.log", "x\n" );
+		$stale = \time() - ( \Newspack_Nodes\Log_Cleaner::DELETE_GRACE_S + 600 );
+		\touch( "{$orphan}/0.log", $stale );
+		\touch( $orphan, $stale );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertDirectoryDoesNotExist( $orphan, 'an undeclared log dir past the grace is reclaimed' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_reconcile_fleet_spawns_before_it_keeps_house(): void {
+		// Spawn is the revival path and the only time-critical step; janitorial
+		// work must never preempt it. Observed from inside the LAST step.
+		$dir             = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		$posts_at_periodic = null;
+		\add_action( 'newspack_nodes/periodic', static function () use ( &$posts_at_periodic ): void {
+			$posts_at_periodic = \count( $GLOBALS['_test_outbound_posts'] ?? [] );
+		} );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertSame( 1, $posts_at_periodic, 'the spawn POST must already have gone out' );
+		$this->rmdir_recursive( $dir );
+	}
+
+	// ── reconcile_fleet: hostile input ───────────────────────────────────
+
+	public function test_a_throwing_before_reconcile_subscriber_costs_neither_the_spawn_nor_the_callback(): void {
+		// `before_reconcile` is third-party surface — event-logger-nodes already
+		// subscribes. It fired OUTSIDE the try, so one throwing subscriber both
+		// escaped the cron callback and skipped the spawn, deterministically,
+		// every minute, with doctor still green (it checks the event is
+		// SCHEDULED, never that a pass succeeded).
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		\add_action( 'newspack_nodes/before_reconcile', static function (): void {
+			throw new \RuntimeException( 'a before_reconcile subscriber exploded' );
+		} );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertCount(
+			1,
+			$GLOBALS['_test_outbound_posts'] ?? [],
+			'a throwing before_reconcile subscriber must not cost the spawn'
+		);
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_a_throwing_periodic_subscriber_costs_neither_the_spawn_nor_retention(): void {
+		// Third-party code: pyrobase and nuclear-gyrobase both subscribe. One bad
+		// subscriber must not escape the cron callback or undo the pass.
+		$dir = $this->cold_start_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
+		] );
+		\mkdir( "{$dir}/ipc/retired-workers.p7/input", 0755, true );
+		\add_action( 'newspack_nodes/periodic', static function (): void {
+			throw new \RuntimeException( 'a periodic subscriber exploded' );
+		} );
+		$after = 0;
+		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'], 'the spawn already ran and stands' );
+		$this->assertDirectoryDoesNotExist( "{$dir}/ipc/retired-workers.p7", 'ipc reaping already ran and stands' );
+		$this->assertSame( 1, $after );
+		$this->rmdir_recursive( $dir );
+	}
+
+	public function test_a_throwing_topologies_filter_still_leaves_the_periodic_hook_its_window(): void {
+		// spawn, lock reconcile, retention and ipc reaping all read the active
+		// set, so a hostile provider fails all four. Per-step isolation is what
+		// keeps the fifth — every third-party `periodic` subscriber — running.
+		$dir = $this->make_temp_dir( 'cold-start-isolation-' );
+		$this->use_base_dir( $dir );
+		\add_filter( 'newspack_nodes/topologies', static function (): array {
+			throw new \RuntimeException( 'hostile topology provider' );
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'cold-start-workers' ];
+		\Newspack_Nodes\Config::reset();
+		$fired = 0;
+		\add_action( 'newspack_nodes/periodic', static function () use ( &$fired ): void {
+			++$fired;
+		} );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertSame( 1, $fired, 'one failing step must not cost the others their window' );
+		$this->rmdir_recursive( $dir );
+	}
+
+	// ── reconcile_fleet: full execution ──────────────────────────────
+
+	public function test_reconcile_fleet_wraps_the_pass_in_its_lifecycle_actions(): void {
 		$dir = $this->cold_start_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl' ],
 		] );
@@ -1233,10 +1397,10 @@ class BootstrapTest extends TestCase {
 		);
 		$before = 0;
 		$after  = 0;
-		\add_action( 'newspack_nodes/before_supervisor_run', function () use ( &$before ) { ++$before; } );
-		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
+		\add_action( 'newspack_nodes/before_reconcile', function () use ( &$before ) { ++$before; } );
+		\add_action( 'newspack_nodes/after_reconcile', function () use ( &$after ) { ++$after; } );
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertSame( 'supervisor', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
 		$this->assertSame( '0', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );

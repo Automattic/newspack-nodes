@@ -101,11 +101,57 @@ class FleetNodeTest extends TestCase {
 		return \array_column( \array_column( $GLOBALS['_test_outbound_posts'] ?? [], 'args' ), 'body' );
 	}
 
+	/** The scan cadence in seconds — what a test must advance past to get a second pass. */
+	private function scan_interval_s(): float {
+		return Fleet_Node::SCAN_INTERVAL_MS / 1000;
+	}
+
 	private function make_lock( string $name, bool $alive = true ): void {
 		\mkdir( "{$this->tmp}/locks/{$name}.lock.d", 0755, true );
 		if ( $alive ) {
 			\touch( "{$this->tmp}/locks/{$name}.lock.d/heartbeat" );
 		}
+	}
+
+	// ── the scan cadence ───────────────────────────────────────────────────
+
+	public function test_the_scan_arms_a_fifteen_second_router_timer(): void {
+		// Revival off a stale heartbeat is dominated by stale_timeout (60s), so
+		// scanning every router tick buys ~1s on the crash path alone and costs
+		// 15x the glob/stat passes per worker, times every worker.
+		$fleet = $this->mount_fleet();
+
+		$this->assertSame( 15000, Fleet_Node::SCAN_INTERVAL_MS );
+		$this->assertSame( Fleet_Node::SCAN_INTERVAL_MS, $fleet->interval_ms );
+		$this->assertSame( 'router', $fleet->timer_mode(), 'the scan hitchhikes the router heartbeat' );
+	}
+
+	public function test_a_router_tick_inside_the_scan_interval_does_not_rescan(): void {
+		// Twelve partitions down against a four-per-pass cap: a second pass two
+		// seconds later would post four MORE. Only the timer holds it at four.
+		$this->with_topology( [ 'ledger-workers' => [ 'num_partitions' => 12, 'topology' => '/ledger.php' ] ] );
+		$fleet = $this->mount_fleet();
+		$start = 1893456123.0;
+
+		Core::$now = $start;
+		$fleet->fire_cb();
+		$this->assertCount( Fleet_Node::MAX_SPAWNS_PER_TICK, $this->posted_bodies() );
+
+		Core::$now = $start + 2.0;
+		$fleet->fire_cb();
+		$this->assertCount(
+			Fleet_Node::MAX_SPAWNS_PER_TICK,
+			$this->posted_bodies(),
+			'a router tick inside the scan interval must not rescan'
+		);
+
+		Core::$now = $start + ( Fleet_Node::SCAN_INTERVAL_MS / 1000 ) + 1.0;
+		$fleet->fire_cb();
+		$this->assertCount(
+			Fleet_Node::MAX_SPAWNS_PER_TICK * 2,
+			$this->posted_bodies(),
+			'the next window resumes the scan'
+		);
 	}
 
 	// ── the peer-spawn scan ────────────────────────────────────────────────
@@ -156,18 +202,6 @@ class FleetNodeTest extends TestCase {
 		$this->mount_fleet()->fire_cb();
 
 		$this->assertSame( [], $this->posted_bodies(), 'inside the throttle window a peer scan must not re-POST' );
-	}
-
-	public function test_consecutive_ticks_post_once_per_worker(): void {
-		$this->with_topology( $this->ledger( 1 ) );
-		// The POST is fire-and-forget; the endpoint's record lands after we
-		// return, so the next tick has only our own memory to go on.
-		$fleet = $this->mount_fleet();
-		Core::right_now();
-		$fleet->fire_cb();
-		$fleet->fire_cb();
-
-		$this->assertCount( 1, $this->posted_bodies(), 'a tick must remember what it just spawned' );
 	}
 
 	public function test_caps_the_spawn_posts_it_issues_in_one_tick(): void {
@@ -253,53 +287,6 @@ class FleetNodeTest extends TestCase {
 		$this->rmdir_recursive( $stock );
 	}
 
-	public function test_a_write_conflicting_set_still_gets_its_housekeeping(): void {
-		// The refusal has ONE owner: spawning. A worker already running in a
-		// conflicting set keeps running, so retention, orphan reaping, alerts,
-		// delayed jobs and every `periodic` subscriber must still
-		// get their window — otherwise one bad activation silently stops
-		// housekeeping fleet-wide while every worker carries on.
-		$prev       = Core::$memd;
-		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$stock      = $this->make_temp_dir( 'fleet-conflict-sweep-stock-' );
-		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\nmake_node Partition requests:partition <config:logs_dir>/requests.p<partition> 1048576 2 4 0 0\n" );
-		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\nmake_node Partition audit:partition <config:logs_dir>/requests.p<partition> 4194304 8 16 0 0\n" );
-		Topology_Registry::reset();
-		Topology_Registry::register_stock_dir( $stock );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
-		Config::reset();
-
-		$now       = 1893628800.0;
-		Core::$now = $now;
-		$this->mount_fleet()->fire_cb();
-
-		$this->assertSame( [], $this->posted_bodies(), 'a conflicting set must not be spawned' );
-		$this->assertFalse(
-			\Newspack_Nodes\Fleet_Sweep::enqueue( $now ),
-			'housekeeping is not gated on spawn eligibility — the window must already be claimed'
-		);
-		Core::$memd = $prev;
-		$this->rmdir_recursive( $stock );
-	}
-
-	public function test_an_empty_active_set_still_gets_its_housekeeping(): void {
-		// Same rule for a deactivated fleet: orphan reaping and retention are
-		// exactly what a site with nothing running still needs.
-		$prev       = Core::$memd;
-		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$this->with_topology( [] );
-
-		$now       = 1893715200.0;
-		Core::$now = $now;
-		$this->mount_fleet()->fire_cb();
-
-		$this->assertFalse(
-			\Newspack_Nodes\Fleet_Sweep::enqueue( $now ),
-			'an empty active set must still claim its housekeeping window'
-		);
-		Core::$memd = $prev;
-	}
-
 	public function test_defers_the_first_spawn_of_a_newly_activated_type(): void {
 		$this->with_topology( \array_merge( $this->ledger( 1 ), [
 			'audit-workers' => [ 'num_partitions' => 1, 'topology' => '/audit.php' ],
@@ -312,13 +299,16 @@ class FleetNodeTest extends TestCase {
 		$this->assertSame( [], $this->posted_bodies(), 'only ledger is active, and it is alive' );
 
 		// Operator activates audit-workers; its predecessor may still be flushing.
+		// The settings save fans a reload watermark out with the write — that
+		// signal is what makes the cached active set stale.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'ledger-workers', 'audit-workers' ];
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + 1;
+		$this->signal_reload( 1730000731 );
+		Core::$now = $start + $this->scan_interval_s() + 1;
 		$fleet->fire_cb();
 		$this->assertSame( [], $this->posted_bodies(), 'a newly-seen type waits for its predecessor to flush' );
 
-		// Absolute, not relative: the sweep enqueue re-stamps Core::$now.
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + Fleet_Node::NEW_TYPE_SPAWN_DELAY_S + 2;
+		// A whole scan interval later: past both the timer and the spawn delay.
+		Core::$now = $start + ( 2 * $this->scan_interval_s() ) + 2;
 		$fleet->fire_cb();
 		$this->assertSame( [ 'audit-workers' ], \array_column( $this->posted_bodies(), 'type' ) );
 	}
@@ -345,9 +335,11 @@ class FleetNodeTest extends TestCase {
 		$fleet->fire_cb();
 		$this->assertFileDoesNotExist( "{$this->tmp}/locks/ledger-workers.p0.lock.d/restart", 'a live fleet is left alone' );
 
-		// Operator deactivates everything: running workers must retire.
+		// Operator deactivates everything: running workers must retire. The
+		// write's reload watermark is what makes the cached set stale.
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [];
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + 1;
+		$this->signal_reload( 1730000731 );
+		Core::$now = $start + $this->scan_interval_s() + 1;
 		$fleet->fire_cb();
 
 		$this->assertFileExists( "{$this->tmp}/locks/ledger-workers.p0.lock.d/restart" );
@@ -408,7 +400,7 @@ class FleetNodeTest extends TestCase {
 		$start = Core::right_now();
 		$fleet->fire_cb();
 
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + 1;
+		Core::$now = $start + $this->scan_interval_s() + 1;
 		$fleet->fire_cb();
 
 		$this->assertSame( [ '1730000731' ], $seen, 'the same watermark must be acted on once' );
@@ -427,7 +419,7 @@ class FleetNodeTest extends TestCase {
 
 		// Distinct from the first watermark AND from any wall-clock default.
 		$this->signal_reload( 1730004297 );
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + 1;
+		Core::$now = $start + $this->scan_interval_s() + 1;
 		$fleet->fire_cb();
 
 		$this->assertSame( [ '1730000731', '1730004297' ], $seen );
@@ -474,7 +466,7 @@ class FleetNodeTest extends TestCase {
 
 		\Newspack_Nodes\Lock_Node::request_reload_at( $this->own_lock_dir() );
 		\touch( $flag, 1730000731 );
-		Core::$now = $start + Fleet_Node::CONFIG_CHECK_INTERVAL + 1;
+		Core::$now = $start + $this->scan_interval_s() + 1;
 		$fleet->fire_cb();
 
 		$this->assertCount( 2, $seen, 'a second request inside one second is late at worst, never lost' );
@@ -493,6 +485,53 @@ class FleetNodeTest extends TestCase {
 		$fleet->fire_cb();
 
 		$this->assertFileExists( $this->own_lock_dir() . '/' . \Newspack_Nodes\Lock_Node::RELOAD_FLAG );
+	}
+
+	public function test_a_pass_with_no_watermark_never_resets_config(): void {
+		// Config::reset() fires RESET_ACTION, whose subscribers drop the parsed-TSL
+		// cache — so an unconditional reset re-globs both topology dirs and
+		// re-parses every .tsl every window to reach the value it already had.
+		// The watermark is what makes the cache stale; without one there is
+		// nothing to re-read.
+		$this->with_topology( $this->ledger( 1 ) );
+		$this->make_lock( 'ledger-workers.p0' );
+		$fleet = $this->mount_fleet();
+		\update_option( 'newspack_nodes_lifetime', 8135 );
+		$this->assertSame( 8135, Config::value( 'lifetime' ), 'seed the cache with a value no default shares' );
+
+		$resets = 0;
+		\add_action( Config::RESET_ACTION, static function () use ( &$resets ): void {
+			++$resets;
+		} );
+		// A write nothing signalled: the cached fleet is current by definition.
+		\update_option( 'newspack_nodes_lifetime', 44021 );
+
+		Core::right_now();
+		$fleet->fire_cb();
+
+		$this->assertSame( 0, $resets, 'no watermark, no reset, no TSL re-parse' );
+		$this->assertSame( 8135, Config::value( 'lifetime' ), 'the cache must survive an unsignalled pass' );
+	}
+
+	public function test_a_watermark_resets_config_so_the_pass_reads_the_new_value(): void {
+		$this->with_topology( $this->ledger( 1 ) );
+		$this->make_lock( 'ledger-workers.p0' );
+		$fleet = $this->mount_fleet();
+		\update_option( 'newspack_nodes_lifetime', 8135 );
+		$this->assertSame( 8135, Config::value( 'lifetime' ) );
+
+		$resets = 0;
+		\add_action( Config::RESET_ACTION, static function () use ( &$resets ): void {
+			++$resets;
+		} );
+		\update_option( 'newspack_nodes_lifetime', 44021 );
+		$this->signal_reload( 1730004297 );
+
+		Core::right_now();
+		$fleet->fire_cb();
+
+		$this->assertSame( 1, $resets, 'a signalled pass resets exactly once' );
+		$this->assertSame( 44021, Config::value( 'lifetime' ) );
 	}
 
 	public function test_a_missing_watermark_never_notifies(): void {
@@ -518,34 +557,21 @@ class FleetNodeTest extends TestCase {
 		$fleet->arguments( [] );
 	}
 
-	public function test_the_config_check_enqueues_the_housekeeping_sweep(): void {
-		// One sweep per window, fleet-wide. Observed through the claim itself:
-		// after the node's check, a peer asking for the same window must lose.
-		$prev       = Core::$memd;
-		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$this->with_topology( $this->ledger( 1 ) );
-
-		$now       = 1893456000.0;
-		Core::$now = $now;
-		$this->mount_fleet()->fire_cb();
-
-		$this->assertFalse(
-			\Newspack_Nodes\Fleet_Sweep::enqueue( $now ),
-			'the scan must have already claimed this window'
-		);
-		Core::$memd = $prev;
-	}
-
-	public function test_housekeeping_being_unavailable_does_not_stop_revival(): void {
-		// The unique claim needs memcached or APCu; a host with neither must
-		// still revive workers. Revival may never depend on housekeeping.
+	public function test_the_scan_enqueues_no_job_of_its_own(): void {
+		// The scan is revival and nothing else: housekeeping moved to the cron
+		// pass, so a fleet with no claim store, no job pool and no memcached
+		// still revives. Revival may never depend on housekeeping.
 		Core::$memd = null;
+		\Newspack_Nodes\Cache_Backend::$apcu_usable = static fn (): bool => false;
 		$this->with_topology( $this->ledger( 1 ) );
 
 		Core::right_now();
 		$this->mount_fleet()->fire_cb();
 
 		$this->assertCount( 1, $this->posted_bodies(), 'a claim store outage must not stop the peer scan' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- test scratch.
+		$this->assertSame( [], \glob( "{$this->tmp}/logs/jobintake.p0/*" ) ?: [], 'the scan writes no job' );
+		\Newspack_Nodes\Cache_Backend::$apcu_usable = null;
 	}
 
 	public function test_node_schema_documents_its_own_arguments(): void {

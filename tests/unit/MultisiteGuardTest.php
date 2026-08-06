@@ -97,7 +97,7 @@ class MultisiteGuardTest extends TestCase {
 		$GLOBALS['_wp_test_is_main_site'] = false;
 		$GLOBALS['_test_outbound_posts']  = [];
 
-		Bootstrap::run_supervisor_tick();
+		Bootstrap::reconcile_fleet();
 
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'], 'a subsite must not spawn the network-global fleet' );
 	}
