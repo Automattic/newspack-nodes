@@ -217,4 +217,21 @@ class SettingsSchemaTest extends TestCase {
 		}
 	}
 
+
+	public function test_the_sse_stream_knobs_declare_their_defaults_on_the_field(): void {
+		// @longform A default that lives only in the shipped
+		// newspack-nodes-config.php is null on every EXISTING deployment,
+		// permanently: a deploy preserves the operator's config file, so a key
+		// added later never appears in it. SSE_Out reads `$idle_timeout > 0`,
+		// so null read as "disabled" and the idle close shipped inert. Asserting
+		// Config::value() cannot catch this — the test env loads the repo's own
+		// config file and answers 15 either way.
+		$fields = [];
+		foreach ( Settings_Schema::get()->fields() as $field ) {
+			$fields[ $field->key ] = $field;
+		}
+
+		$this->assertSame( 15, $fields['sse_idle_timeout']->default ?? null );
+		$this->assertSame( 15000, $fields['sse_retry_ms']->default ?? null );
+	}
 }
