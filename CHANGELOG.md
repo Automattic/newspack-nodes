@@ -37,8 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   threw a bare `SSE slot lease not owned` for four different conditions, while
   `SSE_Slot_Pool::inspect()` — already wired into `SSE_Out`'s own check-failure
   path — computed exactly which. The verb now appends it: `pointer_missing`,
-  `pointer_owner_mismatch`, `liveness_missing`, `backend_read_error` or
-  `recovered_during_inspection`.
+  `slot_released`, `pointer_owner_mismatch`, `liveness_missing`,
+  `backend_read_error` or `recovered_during_inspection`.
+
+- **A slot released under a client is no longer reported as a fault.**
+  `inspect()` read the release tombstone — `release()` CAS's the pointer to 0 —
+  as `pointer_owner_mismatch`, the same answer it gives for a genuine takeover.
+  They are opposites: a stream that ends releases its own slot, so a heartbeat
+  already in flight lands on the tombstone, and with `sse_idle_timeout` at 5s
+  against a 15s heartbeat that race recurs indefinitely. It is now
+  `slot_released`, and `Remote_Link_Node` neither logs it nor latches it into
+  the status snapshot — so a healthy link stops wearing a failure banner it
+  would never clear. A real eviction still does both.
 
 ### Removed
 

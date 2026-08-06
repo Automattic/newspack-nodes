@@ -276,7 +276,7 @@ class SSE_Slot_Pool {
 			return self::inspection_result( $backend, 'pointer_missing' );
 		}
 		if ( $owner !== $pointer['value'] ) {
-			return self::inspection_result( $backend, 'pointer_owner_mismatch' );
+			return self::inspection_result( $backend, self::mismatch_state( $pointer['value'] ) );
 		}
 
 		$liveness = $backend->read( self::lease_key( $pointer_key, $owner ) );
@@ -295,7 +295,7 @@ class SSE_Slot_Pool {
 			return self::inspection_result( $backend, 'pointer_missing' );
 		}
 		if ( $owner !== $pointer['value'] ) {
-			return self::inspection_result( $backend, 'pointer_owner_mismatch' );
+			return self::inspection_result( $backend, self::mismatch_state( $pointer['value'] ) );
 		}
 		return self::inspection_result( $backend, 'recovered_during_inspection' );
 	}
@@ -310,6 +310,21 @@ class SSE_Slot_Pool {
 			$result = \array_merge( $result, $backend->diagnostic_metadata() );
 		}
 		return $result;
+	}
+
+	/**
+	 * Which kind of not-ours a pointer holding someone else's value is.
+	 *
+	 * @longform The tombstone is not a takeover. `release()` CAS's the pointer
+	 * to 0, so an idle stream ending its own slot leaves exactly this, and a
+	 * client heartbeat already in flight lands on it — routine, and constant
+	 * when the idle timeout is shorter than the heartbeat interval. A positive
+	 * owner is the real thing: our lease TTL expired and a rival claimed it.
+	 *
+	 * @param mixed $pointer_value The pointer's current value.
+	 */
+	private static function mismatch_state( mixed $pointer_value ): string {
+		return 0 === $pointer_value ? 'slot_released' : 'pointer_owner_mismatch';
 	}
 
 	/** Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable. */
