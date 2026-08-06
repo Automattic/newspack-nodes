@@ -39,6 +39,8 @@ class SettingsSchemaTest extends TestCase {
 		'alert_lag_threshold',
 		'alert_deadletter_threshold',
 		'alert_emit_interval',
+		'sse_idle_timeout',
+		'sse_retry_ms',
 		'topologies',
 		'allowed_users',
 		'spawn_verify_ssl',

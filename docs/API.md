@@ -336,6 +336,39 @@ Unwired, the endpoint uses an explicit unmetered sentinel lease and the other
 seams are no-ops. When `$acquire_slot` returns `false`, the controller responds
 `429 Too Many Requests` before sending any SSE headers.
 
+The first line on the wire is the SSE `retry:` field, carrying `sse_retry_ms`
+(default 15000). It is what makes the close below safe: a browser `EventSource`
+honors it natively, and `SSE_In_Node` parses it to tell a scheduled close from
+a transport failure. Set `sse_retry_ms` to 0 to advertise nothing.
+
+The stream then **closes itself after `sse_idle_timeout` seconds** (default 15)
+with no `msg` event — heartbeats are liveness, not activity, and do not defer
+it, since the point is to stop holding a PHP-FPM child for a dashboard nobody
+is watching. The close is a clean EOF with no terminal event: a `disconnect`
+frame means failure, and this is not one. Set `sse_idle_timeout` to 0 to keep
+the pre-2.11.0 behavior of streaming until the client goes away.
+
+### Resuming: `id:` and `Last-Event-ID`
+
+Every `msg` carries an SSE `id:` — the resume state of the WHOLE stream, as
+comma-separated `name=segment:offset` pairs, one per live subscription. It is
+opaque: the offset is the next read boundary, computed server-side from the
+reader's own breadcrumb, so a client never does arithmetic on it and never has
+to know the on-disk record framing.
+
+A browser `EventSource` echoes the last one it saw as the `Last-Event-ID`
+request header on reconnect, and the server honours it. **It takes precedence
+over the `positions` query parameter**, per subscription — an `EventSource`
+reopens on the URL it was constructed with, so that parameter is the original
+one and stale by definition. That is what makes the idle close safe: the window
+between the close and the reopen is exactly where the next burst lands (the
+stream went quiet, which is why it closed), and a tail-seeking reopen would drop
+it. A malformed entry is dropped and its subscription falls back to `positions`.
+
+A hand-rolled client that keeps its own cursor (the substrate's own
+`SSE_In_Node`, which pulls over cURL) can ignore both and keep sending
+`positions`; nothing changed for it.
+
 The first application frame is `event: connected`. Its packed TM_INFO Message
 has `KEY=connected` and a flat VALUE of
 `PID <pid> SLOT <slot> OWNER <owner> SUBSCRIPTIONS <csv> INTERVAL <ms>`.

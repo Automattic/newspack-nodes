@@ -6,7 +6,7 @@
  * `aggregator:view` is gone; the graph now owns TWO independent per-concern
  * slices, each on its own slice verb with its own inspectable reply path:
  *
- *   summary:view → the header strip (connected/total counts + snapshot clock)
+ *   summary:view → the header strip (connected/idle/total counts + clock)
  *   servers:view → the server cards (per-server partition grids)
  *
  * This component reads each slice via its own useNodeState and renders — the pure
@@ -31,6 +31,7 @@ import './styles/aggregator-status.scss';
 // Slice-model defaults before first poll — drive the loading gates.
 const EMPTY_SUMMARY = {
 	connected: 0,
+	idle: 0,
 	total: 0,
 	serverNow: null,
 	error: null,
@@ -119,6 +120,38 @@ const getRttClass = ( rtt ) => {
 };
 
 /**
+ * One partition's three-state connection reading. A stream the server closed at
+ * EOF is IDLE — healthy, and due back at `scheduled_reconnect_at` — so it must
+ * never be styled or counted as the failure a bare `! connected` would make it.
+ *
+ * @param {Object} status Partition status data.
+ * @return {string} One of connected|idle|disconnected.
+ */
+const partitionState = ( status ) => {
+	if ( status?.connected ) {
+		return 'connected';
+	}
+	return status?.scheduled_reconnect_at ? 'idle' : 'disconnected';
+};
+
+/**
+ * How long until a stream closed at EOF comes back — the useful fact about an
+ * idle spoke, where a last-attempt timestamp says nothing.
+ *
+ * @param {number}  timestamp Unix second the reopen is due.
+ * @param {?number} [now]     Server snapshot clock; browser clock when omitted.
+ * @return {string} e.g. "in 9s".
+ */
+const formatCountdown = ( timestamp, now ) => {
+	const ref = now ?? Date.now() / 1000;
+	return sprintf(
+		// translators: %d: seconds until the stream reopens.
+		__( 'in %ds', 'newspack-nodes' ),
+		Math.max( 0, Math.round( timestamp - ref ) )
+	);
+};
+
+/**
  * Partition Status Component.
  *
  * @param {Object} props           Component props.
@@ -128,13 +161,14 @@ const getRttClass = ( rtt ) => {
  * @return {import('react').ReactElement} Rendered component.
  */
 function PartitionStatus( { partition, status, now } ) {
-	const connected = !! status.connected;
-	const connectionStatus = connected ? 'connected' : 'disconnected';
+	const connectionStatus = partitionState( status );
+	const connected = 'connected' === connectionStatus;
+	const idle = 'idle' === connectionStatus;
 	// Gate on connected: heartbeat ts is sticky, else dead spoke latches OK.
 	const heartbeatStatus =
 		connected && status.last_heartbeat_response ? 'success' : 'pending';
-	// Rolled-up health drives the card's left rail: ok / degraded / down.
-	let health = 'down';
+	// Health rails the card's left edge: ok / idle / degraded / down.
+	let health = idle ? 'idle' : 'down';
 	if ( connected ) {
 		health = heartbeatStatus === 'success' ? 'ok' : 'degraded';
 	}
@@ -159,12 +193,22 @@ function PartitionStatus( { partition, status, now } ) {
 			<div className="aggregator-partition-stats">
 				<div className="aggregator-partition-row">
 					<span className="newspack-nodes-stat-label aggregator-partition-stat-label">
-						{ connected
-							? __( 'Connected', 'newspack-nodes' )
-							: __( 'Attempt', 'newspack-nodes' ) }
+						{ idle && __( 'Reconnects', 'newspack-nodes' ) }
+						{ connected && __( 'Connected', 'newspack-nodes' ) }
+						{ ! idle &&
+							! connected &&
+							__( 'Attempt', 'newspack-nodes' ) }
 					</span>
 					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						{ formatTime( status.last_connection_attempt, now ) }
+						{ idle
+							? formatCountdown(
+									status.scheduled_reconnect_at,
+									now
+							  )
+							: formatTime(
+									status.last_connection_attempt,
+									now
+							  ) }
 					</span>
 				</div>
 				<div className="aggregator-partition-row">
@@ -297,9 +341,9 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 		( a, b ) => Number( a ) - Number( b )
 	);
 
-	// Count connected partitions.
+	// Count partitions that are up — streaming, or idle between streams.
 	const connectedPartitions = partitionKeys.filter(
-		( p ) => partitions[ p ]?.connected === true
+		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
 	).length;
 
 	const [ probing, setProbing ] = useState( false );
@@ -373,7 +417,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 	const serversSlice =
 		useNodeState( 'servers:view', 'view' ) ?? EMPTY_SERVERS;
 	// Header strip reads the summary slice (counts + clock + refresh marker).
-	const { connected, total, serverNow, lastRefresh } = summary;
+	const { connected, idle, total, serverNow, lastRefresh } = summary;
 	// Server cards read the servers slice (data + its own loading/error gate).
 	const { servers, error, loading } = serversSlice;
 
@@ -400,8 +444,19 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 			</div>
 			{ servers && (
 				<div className="aggregator-status-server-count">
-					<strong>{ connected }</strong> / { total }{ ' ' }
-					{ __( 'connected', 'newspack-nodes' ) }
+					{ /* Idle spokes are up: counting them missing reads as a
+					     shortfall on a fleet where nothing is wrong. */ }
+					<strong>{ connected + idle }</strong> / { total }{ ' ' }
+					{ __( 'up', 'newspack-nodes' ) }
+					{ idle > 0 && (
+						<span className="aggregator-status-idle-count">
+							{ sprintf(
+								// translators: %d: number of spokes between streams.
+								__( '%d idle', 'newspack-nodes' ),
+								idle
+							) }
+						</span>
+					) }
 				</div>
 			) }
 			<select

@@ -51,6 +51,7 @@ export class AggregatorSummaryViewNode extends SliceViewNode {
 	emptySlice() {
 		return {
 			connected: 0,
+			idle: 0,
 			total: 0,
 			serverNow: null,
 			error: null,
@@ -76,6 +77,7 @@ export class AggregatorSummaryViewNode extends SliceViewNode {
 		}
 		return {
 			connected: summary.connected || 0,
+			idle: summary.idle || 0,
 			total: summary.total || 0,
 			serverNow: summary.server_now ?? null,
 			error: null,

@@ -1450,6 +1450,36 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 	}
 
+	public function test_publish_status_carries_the_schedule_a_stream_closed_at_eof_returns_on(): void {
+		// The dashboard must tell "closed on purpose, back at T" from "failed",
+		// and a null last_error also means "never attempted" — so the schedule
+		// itself rides the snapshot as its own field.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1748970000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$handle = $sse->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $handle );
+
+		$sse->process_sse_chunk( "retry: 9000\n\n" );
+		$this->set_slot( $sse, 5 );
+		// The stub handle never transferred, so seed the status a live 200
+		// stream would have observed while its bytes arrived.
+		( new \ReflectionProperty( SSE_In_Node::class, 'last_http_code' ) )->setValue( $sse, 200 );
+		$sse->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$this->assertFalse( $status['connected'] );
+		$this->assertNull( $status['last_error'], 'a scheduled close is not a failure' );
+		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
+	}
+
 	public function test_tick_publishes_status_snapshot(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		[ $node ] = $this->make_remote( 'remote-austin' );

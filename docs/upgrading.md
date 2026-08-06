@@ -6,6 +6,32 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## 2.11.0
 
+- **`/messages/stream` and `/log/stream` now END on their own.** A stream that
+  carries no `msg` event for `sse_idle_timeout` seconds (default 15) closes,
+  after advertising the SSE `retry:` field (`sse_retry_ms`, default 15000) at
+  stream start. A browser `EventSource` needs no change — reopening on `retry:`
+  is what it is for, and it echoes the `id:` below automatically. A hand-rolled
+  client does: treat a clean EOF as a scheduled reconnect, not a failure, and
+  resume from the last `id:` (or its own cursor). The close carries NO
+  `disconnect` frame; that frame still means the lease was lost. A client that
+  cannot be changed keeps the old behavior by setting `sse_idle_timeout` to 0.
+
+- **Every `msg` now carries an SSE `id:`, and `Last-Event-ID` beats
+  `positions`.** The id is the whole stream's resume state —
+  `name=segment:offset` per live subscription — and a reconnect that presents it
+  resumes each subscription exactly where it stopped, overriding the query
+  parameter per subscription. Treat it as opaque: the offset is already the next
+  read boundary, so adding a record length to it seeks into the middle of a
+  record. A client that sends `positions` and no `Last-Event-ID` is unaffected.
+
+- **The `aggregator` `summary` verb gained an `idle` count.** `connected` now
+  means actively streaming, `idle` means closed at EOF and due back, and both
+  are up — a dashboard that renders `connected / total` will under-report a
+  healthy fleet. Add `idle` to the numerator. The per-partition snapshot gained
+  `scheduled_reconnect_at` (unix second, null when not waiting on a schedule):
+  that is the explicit idle reading, since a null `last_error` also means
+  "never attempted".
+
 - **`wp nodes restart supervisor` is gone, because the supervisor is gone.**
   There is no singleton process to restart. Workers revive each other through
   the `_fleet` scan every one of them runs, so restarting a worker is the only

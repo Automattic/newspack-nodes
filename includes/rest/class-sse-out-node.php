@@ -21,6 +21,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Core;
@@ -113,13 +114,28 @@ class SSE_Out_Node extends Node {
 	/** Has anything been emitted since the last flush? */
 	protected bool $needs_flush = false;
 
+	/** When this stream last carried DATA; heartbeats deliberately don't count. */
+	protected float $last_data = 0.0;
+
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
+
+	/**
+	 * Where each live subscription resumes, keyed by dir name, as `seg:offset`.
+	 * Rides every `msg` as the SSE `id:` so a reopen restores the WHOLE stream:
+	 * one subscription's cursor would leave its siblings on the stale query
+	 * parameter, re-delivering everything they had already seen.
+	 *
+	 * @var array<string,string>
+	 */
+	private array $cursors = [];
 
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array $message ): void {
 		++$this->counter;
-		$this->send_sse_event( 'msg', $message );
+		$this->last_data = Core::$now ?: Core::right_now();
+		$this->track_cursor( $message );
+		$this->send_sse_event( 'msg', $message, $this->cursor_token() );
 	}
 
 	/**
@@ -135,7 +151,10 @@ class SSE_Out_Node extends Node {
 		$subscribe     = $request->get_param( 'subscribe' );
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
 		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
-		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
+		$positions     = $this->resume_positions(
+			$this->parse_positions( Core::as_string( $positions_raw ) ),
+			Core::as_string( $request->get_header( 'Last-Event-ID' ) )
+		);
 		$interval      = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
@@ -164,6 +183,93 @@ class SSE_Out_Node extends Node {
 		}
 		$parts = \array_map( 'trim', \explode( ',', $raw ) );
 		return \array_values( \array_filter( $parts, static fn ( $s ) => '' !== $s ) );
+	}
+
+	/**
+	 * The positions a stream actually opens at. A `Last-Event-ID` entry BEATS
+	 * the query parameter for its subscription: a native `EventSource` reopens
+	 * on the URL it was constructed with, so that parameter is the original one
+	 * and stale by definition, while the header is the cursor this server
+	 * stamped on the last message the client actually received.
+	 *
+	 * @param array<array-key,mixed>|null $positions      Decoded `positions` parameter.
+	 * @param string                      $last_event_id  The client's echoed resume token.
+	 * @return array<array-key,mixed>|null Merged positions, or null to tail-seek all.
+	 */
+	public function resume_positions( ?array $positions, string $last_event_id ): ?array {
+		$resume = $this->parse_cursor_token( $last_event_id );
+		if ( [] === $resume ) {
+			return $positions;
+		}
+		return \array_merge( \is_array( $positions ) ? $positions : [], $resume );
+	}
+
+	/**
+	 * Decode a resume token — `name=seg:offset` pairs, comma-separated — into
+	 * the positions shape. A malformed entry is dropped with a rate-limited
+	 * note rather than failing the reopen; its subscription falls back to the
+	 * query parameter.
+	 *
+	 * @return array<string,array{segment:int,offset:int}>
+	 */
+	private function parse_cursor_token( string $token ): array {
+		$out = [];
+		foreach ( \explode( ',', $token ) as $entry ) {
+			if ( '' === $entry ) {
+				continue;
+			}
+			if ( ! \preg_match( '/^([a-z0-9_-]+\/)?([a-z0-9_-][a-z0-9_.-]*)=(\d+):(\d+)$/D', $entry, $m ) ) {
+				$this->print_less_often( 'dropping malformed resume token entry' );
+				continue;
+			}
+			$out[ $m[1] . $m[2] ] = [
+				'segment' => (int) $m[3],
+				'offset'  => (int) $m[4],
+			];
+		}
+		return $out;
+	}
+
+	/**
+	 * Record where the subscription this message came from resumes NEXT. The
+	 * boundary is computed HERE, from the reader's own `seg:offset:length`
+	 * breadcrumb, because the +1 for the record's framing newline already rides
+	 * that length — a client adding it back would have to know the on-disk
+	 * framing, and would mis-seek into a record the day it changed.
+	 *
+	 * @param array<int,mixed> $message The 7-field positional Message.
+	 */
+	private function track_cursor( array $message ): void {
+		if ( ! \preg_match( '/^(\d+):(\d+):(\d+)$/D', Core::as_string( $message[ Message::ID ] ?? '' ), $m ) ) {
+			return;
+		}
+		$dir = self::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ?? '' ) );
+		if ( '' === $dir ) {
+			return;
+		}
+		$this->cursors[ $dir ] = $m[1] . ':' . ( (int) $m[2] + (int) $m[3] );
+	}
+
+	/** The whole stream's resume state, as the SSE `id:` a client echoes back. */
+	private function cursor_token(): string {
+		$pairs = [];
+		foreach ( $this->cursors as $dir => $position ) {
+			$pairs[] = "{$dir}={$position}";
+		}
+		return \implode( ',', $pairs );
+	}
+
+	/**
+	 * The subscription dir a FROM breadcrumb names — the inverse of
+	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
+	 * one is the first path segment alone.
+	 */
+	private static function dir_from_stamp( string $from ): string {
+		$parts = \explode( '/', $from );
+		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
+			return "{$parts[0]}/{$parts[1]}";
+		}
+		return $parts[0];
 	}
 
 	/**
@@ -257,6 +363,8 @@ class SSE_Out_Node extends Node {
 				$this->init_sse_headers();
 			}
 
+			// Lead with the reopen schedule; every close relies on it.
+			$this->send_retry_hint( Core::num_int( Config::value( 'sse_retry_ms' ), 0 ) );
 			$this->send_sse_event( 'connected', $this->build_connected_msg( $active_lease, $subs, $interval ) );
 			// Padding clears proxy buffers; a bare flush does not.
 			$this->flush_if_needed();
@@ -311,8 +419,12 @@ class SSE_Out_Node extends Node {
 			// Heartbeat every $interval ms so an idle-but-live stream ≠ dead.
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = Core::right_now();
+			$this->last_data    = $last_heartbeat;
+			// Own cursors: never advertise the last stream's subscriptions.
+			$this->cursors      = [];
+			$idle_timeout       = Core::num_int( Config::value( 'sse_idle_timeout' ), 0 );
 			Event_Framework::instance()->drain(
-				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $active_lease, $partition, $subs ): bool {
+				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $active_lease, $partition, $subs ): bool {
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $active_lease, $partition ) ) {
 						$this->send_sse_event( 'disconnect', $this->build_disconnect_msg() );
@@ -327,6 +439,11 @@ class SSE_Out_Node extends Node {
 						return false;
 					}
 					$now = Core::$now; // the enclosing drain refreshes this each tick
+					// Idle a window: close clean, let `retry:` reopen it.
+					if ( $idle_timeout > 0 && ( $now - $this->last_data ) >= $idle_timeout ) {
+						$this->flush_if_needed();
+						return false;
+					}
 					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
 						$this->send_sse_event( 'heartbeat', $this->build_heartbeat_msg( $now ) );
 						// Self-heal glob subs against the live filesystem.
@@ -414,15 +531,41 @@ class SSE_Out_Node extends Node {
 	 *
 	 * @param string            $event   Event name.
 	 * @param array<int, mixed> $message 7-field positional Message.
+	 * @param string            $id      Resume token; omitted leaves the client's last one standing.
 	 */
-	protected function send_sse_event( string $event, array $message ): void {
+	protected function send_sse_event( string $event, array $message, string $id = '' ): void {
 		$event = $this->sanitize_event_name( $event );
 		if ( '' === $event ) {
 			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
 		}
-		$json    = Message::packed( $message );
-		$payload = "event: {$event}\ndata: {$json}\n\n";
-		// SSE wire must reach the client byte-for-byte; escaping corrupts it.
+		$json   = Message::packed( $message );
+		$prefix = '' === $id ? '' : 'id: ' . self::sanitize_id( $id ) . "\n";
+		$this->write_wire( "{$prefix}event: {$event}\ndata: {$json}\n\n" );
+	}
+
+	/** Keep a resume token to one line — a newline in it would break framing. */
+	private static function sanitize_id( string $id ): string {
+		return (string) \preg_replace( '/[^a-zA-Z0-9_.:,=\/-]/', '', $id );
+	}
+
+	/**
+	 * Emit the SSE `retry:` field — how long a client waits before reopening
+	 * after ANY close, including the deliberate idle one. A browser
+	 * `EventSource` honors it natively; `SSE_In_Node` parses it to tell a
+	 * scheduled close from a transport failure. Non-positive advertises
+	 * nothing, leaving every client on its own reconnect policy.
+	 *
+	 * @param int $retry_ms Reconnect delay in milliseconds.
+	 */
+	protected function send_retry_hint( int $retry_ms ): void {
+		if ( $retry_ms <= 0 ) {
+			return;
+		}
+		$this->write_wire( "retry: {$retry_ms}\n\n" );
+	}
+
+	/** Put one framed chunk on the wire. Never escaped — SSE framing is bytes. */
+	private function write_wire( string $payload ): void {
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo $payload;
 		\flush();

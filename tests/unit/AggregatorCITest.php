@@ -241,6 +241,37 @@ class AggregatorCITest extends TestCase {
 		$this->assertSame( 2, $decoded['total'] );
 	}
 
+	public function test_summary_verb_counts_a_spoke_idle_at_eof_as_up_not_missing(): void {
+		// spoke-a is streaming; spoke-b closed at EOF and is due back. Both are
+		// up — a header that read spoke-b as missing would alarm an operator
+		// about a fleet where nothing is wrong.
+		$this->seed_aggregator_topology(
+			[
+				[ 'spoke-a', 'austin', 'firehose.p<partition>' ],
+				[ 'spoke-b', 'denver', 'firehose.p<partition>' ],
+				[ 'spoke-c', 'tucson', 'firehose.p<partition>' ],
+			]
+		);
+		Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
+		Core::$memd->set(
+			'np:remote:spoke-b:firehose.p0',
+			[ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ],
+			60
+		);
+		Core::$memd->set(
+			'np:remote:spoke-c:firehose.p0',
+			[ 'connected' => false, 'last_error' => 'connection refused 8531' ],
+			60
+		);
+
+		$interpreter = new Aggregator_CI_Node();
+		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
+
+		$this->assertSame( 1, $decoded['connected'] );
+		$this->assertSame( 1, $decoded['idle'], 'a stream closed at EOF is idle, not down' );
+		$this->assertSame( 3, $decoded['total'] );
+	}
+
 	public function test_summary_verb_stamps_a_wall_clock_server_now(): void {
 		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
 

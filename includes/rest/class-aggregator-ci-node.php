@@ -193,6 +193,28 @@ class Aggregator_CI_Node extends Service_CI_Node {
 		return $result;
 	}
 
+	/**
+	 * One server's three-state reading, best partition wins: `connected` while
+	 * any partition streams, `idle` while one is closed at EOF and due back, and
+	 * `down` otherwise. Idle is healthy — counting it as missing reads as a
+	 * shortfall on a fleet where nothing is wrong.
+	 *
+	 * @param array<int,array<array-key,mixed>> $partitions Per-partition snapshots.
+	 * @return string One of connected|idle|down.
+	 */
+	private static function server_state( array $partitions ): string {
+		$state = 'down';
+		foreach ( $partitions as $partition ) {
+			if ( true === ( $partition['connected'] ?? false ) ) {
+				return 'connected';
+			}
+			if ( null !== ( $partition['scheduled_reconnect_at'] ?? null ) ) {
+				$state = 'idle';
+			}
+		}
+		return $state;
+	}
+
 	/** @api Used by the substrate to provide UI etc. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
@@ -202,21 +224,23 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'summary',
-					'description' => 'De-god header slice: connected/total counts + snapshot clock (computed from the status snapshot).',
+					'description' => 'De-god header slice: connected/idle/total counts + snapshot clock (computed from the status snapshot).',
 					'args'        => [],
 					'handler'     => self::slice_verb( static function (): array {
 						$snapshot  = self::build_snapshot();
 						$connected = 0;
+						$idle      = 0;
 						foreach ( $snapshot as $server ) {
-							foreach ( $server['partitions'] as $partition ) {
-								if ( true === ( $partition['connected'] ?? false ) ) {
-									++$connected;
-									break;
-								}
+							$state = self::server_state( $server['partitions'] );
+							if ( 'connected' === $state ) {
+								++$connected;
+							} elseif ( 'idle' === $state ) {
+								++$idle;
 							}
 						}
 						return [
 							'connected'  => $connected,
+							'idle'       => $idle,
 							'total'      => \count( $snapshot ),
 							'server_now' => \time(),
 						];

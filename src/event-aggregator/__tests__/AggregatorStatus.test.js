@@ -58,6 +58,31 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
+// One server carrying BOTH post-close states, so no single code path can
+// satisfy the idle and the failed expectations at once: p0 closed at EOF and
+// is due back, p1 died of a transport error and is not coming back on its own.
+const IDLE_CLOCK = 1748970000;
+const IDLE_AND_FAILED = [
+	{
+		id: 'server3',
+		vault_id: 'server3-vault-cred',
+		url: 'https://c.example.test',
+		partitions: {
+			0: {
+				connected: false,
+				scheduled_reconnect_at: IDLE_CLOCK + 9,
+				last_connection_attempt: IDLE_CLOCK - 6,
+				last_error: null,
+			},
+			1: {
+				connected: false,
+				last_error: 'connection refused 8531',
+				last_http_code: 502,
+			},
+		},
+	},
+];
+
 // A stand-in slice-view node: model in setStateCache.view; setState notifies.
 function fixtureNode( name, model ) {
 	const node = {
@@ -88,6 +113,7 @@ function fixtureNode( name, model ) {
 function registerSlices( { summary = {}, servers = {} } = {} ) {
 	fixtureNode( 'summary:view', {
 		connected: 0,
+		idle: 0,
 		total: 0,
 		serverNow: null,
 		error: null,
@@ -260,7 +286,67 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		expect( container.textContent ).toContain( '1 / 2 connected' );
+		expect( container.textContent ).toContain( '1 / 2 up' );
+	} );
+
+	it( 'renders a stream closed at EOF as idle, with the schedule it will return on', () => {
+		registerSlices( {
+			summary: { serverNow: IDLE_CLOCK, loading: false },
+			servers: { servers: IDLE_AND_FAILED, loading: false },
+		} );
+		const { container } = mount();
+		const idle = container.querySelector( '.aggregator-partition.is-idle' );
+
+		expect( idle ).toBeTruthy();
+		expect( idle.textContent ).toContain( 'idle' );
+		expect( idle.textContent ).not.toContain( 'disconnected' );
+		expect( idle.textContent ).toContain( 'Reconnects' );
+		expect( idle.textContent ).toContain( 'in 9s' );
+		expect(
+			idle.querySelector( '.aggregator-partition-error' )
+		).toBeNull();
+	} );
+
+	it( 'still rails a failed stream as an error beside an idle one', () => {
+		registerSlices( {
+			summary: { serverNow: IDLE_CLOCK, loading: false },
+			servers: { servers: IDLE_AND_FAILED, loading: false },
+		} );
+		const { container } = mount();
+		const failed = container.querySelector(
+			'.aggregator-partition.is-down'
+		);
+
+		expect( failed ).toBeTruthy();
+		expect( failed.textContent ).toContain( 'disconnected' );
+		expect(
+			failed.querySelector( '.aggregator-partition-error' ).textContent
+		).toContain( 'connection refused 8531' );
+	} );
+
+	it( 'counts an idle partition as present in the server card total', () => {
+		registerSlices( {
+			summary: { serverNow: IDLE_CLOCK, loading: false },
+			servers: { servers: IDLE_AND_FAILED, loading: false },
+		} );
+		const { container } = mount();
+		expect(
+			container.querySelector( '.aggregator-server-partition-count' )
+				.textContent
+		).toContain( '1/2 partitions' );
+	} );
+
+	it( 'counts idle spokes as up in the header, naming how many are idle', () => {
+		registerSlices( {
+			summary: { connected: 1, idle: 2, total: 3, loading: false },
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const count = container.querySelector(
+			'.aggregator-status-server-count'
+		);
+		expect( count.textContent ).toContain( '3 / 3 up' );
+		expect( count.textContent ).toContain( '2 idle' );
 	} );
 
 	it( 'shows the empty state when servers is an empty array', () => {
