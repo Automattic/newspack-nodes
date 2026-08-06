@@ -92,6 +92,10 @@ class SSE_In_Node extends Node {
 
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
+	/** Reopen delay the server advertised via `retry:`; null = it advertised none. */
+	private ?int  $server_retry_ms      = null;
+	/** Wall-second this stream is due back after a scheduled close; null = not waiting on one. */
+	private ?int  $scheduled_reconnect_at = null;
 	private bool  $require_ssl          = false;
 	/** Lease owner captured from the `connected` handshake. */
 	private ?int  $owner                = null;
@@ -214,6 +218,8 @@ class SSE_In_Node extends Node {
 		$this->last_error         = null;
 		$this->last_http_code     = null;
 		$this->last_sse_heartbeat = null;
+		$this->server_retry_ms    = null;
+		$this->scheduled_reconnect_at = null;
 		$this->handle             = $ch;
 		$this->last_attempt       = $now;
 		$this->connected_at       = null;
@@ -255,7 +261,9 @@ class SSE_In_Node extends Node {
 
 	/**
 	 * Called by Event_Framework when curl_multi_info_read returns CURLMSG_DONE for
-	 * this node's easy handle. Reconnect/backoff on completion.
+	 * this node's easy handle. Reconnect/backoff on completion — except for a
+	 * clean EOF from a server that advertised `retry:`, which is the close it
+	 * scheduled and not a failure at all (see `schedule_reconnect`).
 	 *
 	 * @api Dynamic entrypoint.
 	 * @param array{msg?:int, handle?:\CurlHandle, result?:int} $info
@@ -287,6 +295,9 @@ class SSE_In_Node extends Node {
 				&& null !== $this->terminal_disconnect_reason
 			) {
 				$this->last_error = 'Server closed stream: ' . $this->terminal_disconnect_reason;
+			} elseif ( \CURLE_OK === $result && 200 === $http_code && null !== $this->server_retry_ms ) {
+				$this->schedule_reconnect( $this->server_retry_ms );
+				return;
 			} elseif ( \CURLE_OK !== $result ) {
 				$curl_description = \curl_strerror( $result );
 				$description      = self::safe_diagnostic_text(
@@ -362,6 +373,10 @@ class SSE_In_Node extends Node {
 		switch ( $field ) {
 			case 'event':
 				$this->current_event['event'] = $value;
+				break;
+			case 'retry':
+				// Per the SSE spec a malformed value is ignored, not an error.
+				$this->server_retry_ms = self::canonical_decimal( $value, true ) ?? $this->server_retry_ms;
 				break;
 			case 'data':
 				$this->current_event['data'] .= $value;
@@ -581,6 +596,23 @@ class SSE_In_Node extends Node {
 		$this->increase_backoff();
 	}
 
+	/**
+	 * A close the server scheduled with `retry:`. Hold the advertised delay from
+	 * THIS moment — a long-lived stream has already outrun a delay measured from
+	 * its connect — and leave the failure state untouched: no error, no doubling
+	 * backoff, nothing a dashboard reads as a dead link.
+	 *
+	 * @param int $retry_ms The advertised reopen delay.
+	 */
+	private function schedule_reconnect( int $retry_ms ): void {
+		$seconds = \max( self::INITIAL_BACKOFF, \min( self::MAX_BACKOFF, (int) \ceil( $retry_ms / 1000 ) ) );
+		$this->set_state( 'RECONNECTING', "scheduled reconnect in {$seconds}s" );
+		$this->detach_handle();
+		$this->current_backoff        = $seconds;
+		$this->last_attempt           = Core::$now ?: Core::right_now();
+		$this->scheduled_reconnect_at = (int) $this->last_attempt + $seconds;
+	}
+
 	private function increase_backoff(): void {
 		$this->current_backoff = \min( self::MAX_BACKOFF, \max( self::INITIAL_BACKOFF, $this->current_backoff * 2 ) );
 	}
@@ -740,19 +772,23 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Connection-state snapshot for the patron.
+	 * Connection-state snapshot for the patron. `scheduled_reconnect_at` is the
+	 * explicit "closed on purpose, back at T" reading — a null `last_error` also
+	 * means "never attempted", so idleness gets a field of its own rather than
+	 * being inferred from the absence of a failure.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int}
+	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int}
 	 */
 	public function connection(): array {
 		return [
-			'connected'          => $this->connected,
-			'last_http_code'     => $this->last_http_code,
-			'last_error'         => $this->last_error,
-			'current_backoff'    => $this->current_backoff,
-			'last_sse_heartbeat' => $this->last_sse_heartbeat,
-			'last_attempt'       => $this->last_attempt > 0.0 ? (int) $this->last_attempt : null,
+			'connected'              => $this->connected,
+			'last_http_code'         => $this->last_http_code,
+			'last_error'             => $this->last_error,
+			'current_backoff'        => $this->current_backoff,
+			'last_sse_heartbeat'     => $this->last_sse_heartbeat,
+			'last_attempt'           => $this->last_attempt > 0.0 ? (int) $this->last_attempt : null,
+			'scheduled_reconnect_at' => $this->scheduled_reconnect_at,
 		];
 	}
 

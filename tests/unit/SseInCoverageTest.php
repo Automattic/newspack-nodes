@@ -310,6 +310,123 @@ class SseInCoverageTest extends TestCase {
 		);
 	}
 
+	// ----- scheduled close: the server's `retry:` hint -----
+
+	public function test_advertised_retry_turns_a_clean_eof_into_a_scheduled_reconnect(): void {
+		[ $node ] = $this->configured_node();
+		$stderr   = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$stderr ): void {
+			$stderr[] = $line;
+		} );
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 9007 SLOT 7 OWNER 42424243' ) );
+		$this->set_http_code( $node, 200 );
+		Core::$now = 1748960100.0;
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$connection = $node->connection();
+		$this->assertNull( $connection['last_error'], 'a scheduled close is not a transport failure' );
+		$this->assertSame( 5, $connection['current_backoff'], 'the advertised delay replaces the doubling backoff' );
+		$this->assertFalse( $connection['connected'] );
+		$this->assertSame( [], $stderr, 'a scheduled close must not log an error' );
+	}
+
+	public function test_connection_publishes_when_a_scheduled_stream_is_due_back(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$this->assertNull(
+			$node->connection()['scheduled_reconnect_at'],
+			'a live stream is not waiting on a schedule'
+		);
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+		$this->set_http_code( $node, 200 );
+		Core::$now = 1748960100.0;
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$this->assertSame( 1748960105, $node->connection()['scheduled_reconnect_at'] );
+	}
+
+	public function test_a_failed_close_leaves_no_reconnect_schedule(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+
+		$this->assertNull( $node->connection()['scheduled_reconnect_at'] );
+	}
+
+	public function test_scheduled_reconnect_waits_the_advertised_delay_from_the_close(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+		$this->set_http_code( $node, 200 );
+		// The stream lived far longer than the delay before closing.
+		Core::$now = 1748960100.0;
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		Core::$now = 1748960102.0;
+		$this->assertFalse( $node->maybe_connect(), 'the reopen waits out the advertised delay' );
+		Core::$now = 1748960106.0;
+		$this->assertTrue( $node->maybe_connect() );
+	}
+
+	public function test_a_transport_error_still_backs_off_even_after_a_retry_hint(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_COULDNT_CONNECT ] );
+
+		$this->assertSame(
+			'cURL error 7 (Could not connect to server)',
+			$node->connection()['last_error']
+		);
+		$this->assertSame( 2, $node->connection()['current_backoff'] );
+	}
+
+	public function test_a_malformed_retry_hint_leaves_a_clean_eof_unexplained(): void {
+		[ $node ] = $this->configured_node();
+		$handle   = $this->connect( $node );
+		$node->process_sse_chunk( "retry: soon\n\n" );
+		$this->set_http_code( $node, 200 );
+
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		$this->assertStringContainsString(
+			'ended without a server disconnect reason',
+			(string) $node->connection()['last_error']
+		);
+	}
+
+	public function test_a_reconnect_forgets_the_previous_streams_retry_hint(): void {
+		[ $node ] = $this->configured_node();
+		Core::$now = 1748960000.0;
+		$handle    = $this->connect( $node );
+		$node->process_sse_chunk( "retry: 4500\n\n" );
+		$this->set_http_code( $node, 200 );
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $handle, 'result' => \CURLE_OK ] );
+
+		Core::$now = 1748960010.0;
+		$this->assertTrue( $node->maybe_connect() );
+		$reopened = $node->test_get_handle();
+		$this->assertInstanceOf( \CurlHandle::class, $reopened );
+		$this->set_http_code( $node, 200 );
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $reopened, 'result' => \CURLE_OK ] );
+
+		$this->assertStringContainsString(
+			'ended without a server disconnect reason',
+			(string) $node->connection()['last_error'],
+			'a server that stopped advertising a reopen schedule closed for an unknown reason'
+		);
+	}
+
 	public function test_reconnect_resets_complete_per_connection_state(): void {
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1748960000.25;

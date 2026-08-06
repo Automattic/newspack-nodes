@@ -293,6 +293,17 @@ class Settings_Schema {
 					render: [ Admin::class, 'alert_emit_interval_callback' ],
 					register_args: [ 'type' => 'integer', 'autoload' => false ],
 				),
+				// Overlay-only SSE close-at-EOF pair; read once per stream.
+				new Field(
+					key: 'sse_idle_timeout',
+					type: 'int',
+					ui: false,
+				),
+				new Field(
+					key: 'sse_retry_ms',
+					type: 'int',
+					ui: false,
+				),
 				// ui:false overlay; registering lets Save wipe the active set.
 				new Field(
 					key: 'topologies',

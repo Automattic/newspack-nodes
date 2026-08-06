@@ -18,17 +18,29 @@ namespace Newspack_Nodes\Tests\Integration;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
+use Newspack_Nodes\SSE_Slot_Pool;
+use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( SSE_Out_Node::class )]
 #[Medium]
 class SSEOutTest extends TestCase {
+
+	/** Restore the declared pool geometry; the reopen test narrows it to one slot. */
+	protected function tearDown(): void {
+		$declared                 = ( new \ReflectionClass( SSE_Slot_Pool::class ) )->getDefaultProperties();
+		SSE_Slot_Pool::$max_slots = $declared['max_slots'];
+		SSE_Slot_Pool::$ttl       = $declared['ttl'];
+		Core::$memd               = null;
+		parent::tearDown();
+	}
 
 	public function test_fill_emits_msg_event_and_increments_counter(): void {
 		// SSE_Out is double-duty: as a Node, fill() emits the Message as a
@@ -269,6 +281,333 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	// ── close-at-EOF: `retry:` + the idle timeout ────────────────────────────
+
+	public function test_stream_advertises_the_configured_reconnect_delay_before_the_connected_envelope(): void {
+		$this->set_sse_config( 900, 4500 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-retry-hint-' ) );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 1 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500 );
+		$out = (string) \ob_get_clean();
+
+		$retry_at = \strpos( $out, "retry: 4500\n" );
+		$this->assertNotFalse( $retry_at, 'the stream must advertise its reopen schedule' );
+		$connected_at = \strpos( $out, 'event: connected' );
+		$this->assertNotFalse( $connected_at );
+		$this->assertLessThan( $connected_at, $retry_at, 'the client learns when to come back before anything else' );
+	}
+
+	public function test_stream_closes_itself_after_the_configured_idle_timeout_at_eof(): void {
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-close-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		$started = \microtime( true );
+		\ob_start();
+		// Heartbeat cadence far beyond the idle window: nothing but the idle
+		// timeout itself can end this drain.
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		$out     = (string) \ob_get_clean();
+		$elapsed = \microtime( true ) - $started;
+
+		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
+		$this->assertGreaterThanOrEqual( 1.0, $elapsed, 'the stream must survive the whole idle window' );
+		$this->assertStringNotContainsString( 'event: disconnect', $out, 'an idle close is a clean EOF, not a failure' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_heartbeats_alone_do_not_keep_an_idle_stream_open(): void {
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-heartbeat-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		// Heartbeats every 200ms — five of them inside one idle window.
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 200 );
+		$out = (string) \ob_get_clean();
+
+		$events    = $this->split_sse_events( $out );
+		$heartbeat = \array_filter( $events, static fn ( $e ) => 'heartbeat' === $e['event'] );
+		$this->assertNotEmpty( $heartbeat, 'the stream must have been heartbeating throughout' );
+		$this->assertFalse( $capped, 'heartbeats are liveness, not activity — they must not defer the close' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_a_stream_that_keeps_receiving_data_never_closes(): void {
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-busy-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		$ended_by_check = false;
+		$deadline       = \microtime( true ) + 2.0;
+		// Every tick delivers a record through the egress the Consumer feeds,
+		// so the stream is never at EOF for a whole idle window.
+		SSE_Out_Node::$check_slot = static function () use ( $ctrl, $deadline, &$ended_by_check ): bool {
+			$record                   = Message::new_message();
+			$record[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$record[ Message::VALUE ] = "busy\n";
+			$ctrl->fill( $record );
+			if ( \microtime( true ) < $deadline ) {
+				return true;
+			}
+			$ended_by_check = true;
+			return false;
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		\ob_get_clean();
+
+		$this->assertTrue( $ended_by_check, 'a stream carrying data must outlive twice its idle window' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_a_non_positive_idle_timeout_leaves_the_stream_open(): void {
+		$this->set_sse_config( -5, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-disabled-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$ticks = 0;
+		SSE_Out_Node::$check_slot = static function () use ( &$ticks ): bool {
+			return ++$ticks < 4;
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		\ob_get_clean();
+
+		$this->assertSame( 4, $ticks, 'a disabled idle timeout must neither close instantly nor spin' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_an_idle_close_releases_its_slot_so_the_reopen_inside_the_ttl_is_granted(): void {
+		// One slot, and a TTL that outlives the reopen: the reopening client
+		// meets its OWN lease, and must reclaim it rather than read a full pool.
+		SSE_Slot_Pool::$max_slots = 1;
+		SSE_Slot_Pool::$ttl       = 41;
+		Core::$memd               = new InMemoryMemcached();
+		SSE_Slot_Pool::wire();
+		$this->set_sse_config( 1, 4500 );
+
+		$base = $this->make_temp_dir( 'sse-idle-slot-' );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+
+		$acquire = SSE_Out_Node::$acquire_slot;
+		$lease   = $acquire( -1 );
+		$this->assertIsArray( $lease );
+		$this->assertFalse( $acquire( -1 ), 'a second client must be refused, never handed a live slot' );
+
+		$capped                   = false;
+		$check                    = SSE_Out_Node::$check_slot;
+		$cap                      = $this->safety_cap( $capped );
+		SSE_Out_Node::$check_slot = static function ( array $held, int $partition ) use ( $cap, $check ): bool {
+			return $cap( $held, $partition ) && $check( $held, $partition );
+		};
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000, $lease, -1 );
+		\ob_get_clean();
+
+		$this->assertFalse( $capped, 'the idle timeout must have ended the stream' );
+		$reopened = $acquire( -1 );
+		$this->assertIsArray( $reopened, 'the reopen must find its own slot free' );
+		$this->assertSame( $lease['slot'], $reopened['slot'] );
+		$this->assertNotSame( $lease['owner'], $reopened['owner'] );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	// ── resume: `id:` + Last-Event-ID ────────────────────────────────────────
+
+	public function test_every_subscription_resumes_across_the_disconnected_window(): void {
+		// THE headline case, not an edge one. Idleness is what closed the
+		// stream, so the first traffic after it lands while the client is
+		// waiting out `retry:` — with nothing connected. A tail-seeking reopen
+		// would systematically drop that first burst, invisibly, on every
+		// subscription, and look healthy again from the next burst onward.
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-resume-multi-' );
+		$this->write_records( $base, 'firehose.p0', [ 'f1', 'f2' ] );
+		$this->write_records( $base, 'errors.p0', [ 'e1', 'e2' ] );
+
+		$subs  = [ 'firehose.p0', 'errors.p0' ];
+		$first = $this->drain_once(
+			$base,
+			$subs,
+			[ 'firehose.p0' => 'start', 'errors.p0' => 'start' ]
+		);
+		$this->assertSame(
+			[ 'errors.p0' => [ 'e1', 'e2' ], 'firehose.p0' => [ 'f1', 'f2' ] ],
+			$first['by_sub']
+		);
+		$this->assertNotSame( '', $first['id'], 'every message must carry a resume token' );
+
+		// The disconnected window is where the next burst lands.
+		$this->write_records( $base, 'firehose.p0', [ 'f3', 'f4' ] );
+		$this->write_records( $base, 'errors.p0', [ 'e3' ] );
+
+		$second = $this->drain_once( $base, $subs, null, $first['id'] );
+
+		// Per subscription, not a union: a regression in ONE must not hide
+		// behind its sibling's records.
+		$this->assertSame(
+			[ 'errors.p0' => [ 'e3' ], 'firehose.p0' => [ 'f3', 'f4' ] ],
+			$second['by_sub'],
+			'each subscription delivers exactly its gap — nothing repeated, nothing skipped'
+		);
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_resume_lands_on_the_next_record_not_inside_or_past_it(): void {
+		// Two adjacent records: resuming from the first's token must deliver the
+		// second exactly once. Off by -1 re-delivers the first; off by +1 seeks
+		// into the second's payload and drops it.
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-resume-framing-' );
+		$this->write_records( $base, 'firehose.p0', [ 'first-record', 'second-record' ] );
+
+		$first = $this->drain_once( $base, [ 'firehose.p0' ], [ 'firehose.p0' => 'start' ] );
+		$this->assertSame( [ 'first-record', 'second-record' ], $first['values'] );
+		// The token stamped on the FIRST record — its own resume boundary.
+		$this->assertNotSame( '', $first['ids'][0] );
+
+		$second = $this->drain_once( $base, [ 'firehose.p0' ], null, $first['ids'][0] );
+
+		$this->assertSame( [ 'second-record' ], $second['values'] );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_last_event_id_overrides_a_stale_positions_parameter(): void {
+		// A native EventSource reopens on the URL it was constructed with, so
+		// its `positions` is the ORIGINAL one and stale by definition.
+		$this->set_sse_config( 1, 4500 );
+		$base = $this->make_temp_dir( 'sse-resume-precedence-' );
+		$this->write_records( $base, 'firehose.p0', [ 'r1', 'r2' ] );
+
+		$first = $this->drain_once( $base, [ 'firehose.p0' ], [ 'firehose.p0' => 'start' ] );
+		$this->assertSame( [ 'r1', 'r2' ], $first['values'] );
+		$this->write_records( $base, 'firehose.p0', [ 'r3' ] );
+
+		$second = $this->drain_once(
+			$base,
+			[ 'firehose.p0' ],
+			[ 'firehose.p0' => 'start' ],
+			$first['id']
+		);
+
+		$this->assertSame( [ 'r3' ], $second['values'], 'the stale query parameter must not replay' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/**
+	 * Run one whole stream to its idle close, returning what the client saw:
+	 * the `msg` VALUEs in order (flat and grouped by subscription), each
+	 * message's resume token, and the last one.
+	 *
+	 * @param array<int,string>            $subs
+	 * @param array<array-key,mixed>|null  $positions
+	 * @return array{values:array<int,string>,by_sub:array<string,array<int,string>>,ids:array<int,string>,id:string}
+	 */
+	private function drain_once( string $base, array $subs, ?array $positions, string $last_event_id = '' ): array {
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop(
+			$subs,
+			$ctrl->resume_positions( $positions, $last_event_id ),
+			60000
+		);
+		$out = (string) \ob_get_clean();
+		$this->assertFalse( $capped, 'the stream must close on its idle timeout' );
+
+		$values = [];
+		$by_sub = [];
+		$ids    = [];
+		foreach ( $this->split_sse_events( $out ) as $event ) {
+			if ( 'msg' !== $event['event'] ) {
+				continue;
+			}
+			$decoded = \json_decode( $event['data'], true );
+			if ( \is_array( $decoded ) && \is_string( $decoded[ Message::VALUE ] ?? null ) ) {
+				$value                                          = \rtrim( $decoded[ Message::VALUE ], "\n" );
+				$values[]                                       = $value;
+				$by_sub[ (string) $decoded[ Message::FROM ] ][] = $value;
+				$ids[]                                          = $event['id'];
+			}
+		}
+		\ksort( $by_sub );
+		return [
+			'values' => $values,
+			'by_sub' => $by_sub,
+			'ids'    => $ids,
+			'id'     => [] === $ids ? '' : (string) \end( $ids ),
+		];
+	}
+
+	/** Append TM_BYTESTREAM records to one concrete partition dir. */
+	private function write_records( string $base, string $dir, array $values ): void {
+		$partition = new Partition_Node();
+		$partition->arguments( [ "{$base}/logs/{$dir}" ] );
+		foreach ( $values as $value ) {
+			$record                       = Message::new_message();
+			$record[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+			$record[ Message::VALUE ]     = "{$value}\n";
+			$partition->fill( $record );
+		}
+		$partition->flush();
+		$partition->remove_node();
+	}
+
+	/**
+	 * A drain predicate that gives up after four seconds and says so, so a
+	 * stream that never closes fails on its assertion instead of on the clock.
+	 *
+	 * @param bool $capped Set true when the cap, not the code under test, ended the drain.
+	 */
+	private function safety_cap( bool &$capped ): callable {
+		$deadline = \microtime( true ) + 4.0;
+		return static function () use ( $deadline, &$capped ): bool {
+			if ( \microtime( true ) < $deadline ) {
+				return true;
+			}
+			$capped = true;
+			return false;
+		};
+	}
+
+	/** Seed both SSE close-at-EOF knobs, distinct from every shipped default. */
+	private function set_sse_config( int $idle_seconds, int $retry_ms ): void {
+		$GLOBALS['_wp_options']['newspack_nodes_sse_idle_timeout'] = $idle_seconds;
+		$GLOBALS['_wp_options']['newspack_nodes_sse_retry_ms']     = $retry_ms;
+		Config::reset();
+	}
+
 	public function test_failed_lease_check_emits_one_terminal_disconnect_and_one_redacted_apcu_diagnostic(): void {
 		$lease       = [ 'slot' => 7, 'owner' => 42424243 ];
 		$checks      = 0;
@@ -476,10 +815,10 @@ class SSEOutTest extends TestCase {
 	}
 
 	/**
-	 * Parse `event: X\ndata: Y\n\n` SSE chunks from a captured stdout
+	 * Parse `id: Z\nevent: X\ndata: Y\n\n` SSE chunks from a captured stdout
 	 * buffer. Skips empty chunks and comment-only flush filler lines.
 	 *
-	 * @return array<int, array{event: string, data: string}>
+	 * @return array<int, array{event: string, data: string, id: string}>
 	 */
 	private function split_sse_events( string $raw ): array {
 		$out = [];
@@ -490,6 +829,7 @@ class SSEOutTest extends TestCase {
 			}
 			$ev   = null;
 			$data = null;
+			$id   = '';
 			foreach ( \explode( "\n", $chunk ) as $line ) {
 				if ( \str_starts_with( $line, 'event: ' ) ) {
 					$ev = \substr( $line, 7 );
@@ -497,11 +837,15 @@ class SSEOutTest extends TestCase {
 				if ( \str_starts_with( $line, 'data: ' ) ) {
 					$data = \substr( $line, 6 );
 				}
+				if ( \str_starts_with( $line, 'id: ' ) ) {
+					$id = \substr( $line, 4 );
+				}
 			}
 			if ( null !== $ev && null !== $data ) {
 				$out[] = [
 					'event' => $ev,
 					'data'  => $data,
+					'id'    => $id,
 				];
 			}
 		}

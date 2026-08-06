@@ -448,7 +448,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null ];
+			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
 		$data = [
 			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
@@ -456,6 +456,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			'last_error'              => $conn['last_error'] ?? $this->last_heartbeat_error,
 			'current_backoff'         => $conn['current_backoff'],
 			'last_sse_heartbeat'      => $conn['last_sse_heartbeat'],
+			// The dashboard's idle reading: closed on purpose, back at T.
+			'scheduled_reconnect_at'  => $conn['scheduled_reconnect_at'],
 		];
 		// Live only while connected AND the response is within slot-TTL window.
 		$hb_live = $conn['connected']

@@ -11,6 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **An SSE stream now closes when it is idle, and tells the client when to come
+  back.** `SSE_Out_Node` emits the SSE `retry:` field at stream start
+  (`sse_retry_ms`, default 15000) and ends the drain after `sse_idle_timeout`
+  seconds (default 15) carrying no `msg` event. Every open stream held a
+  PHP-FPM child around the clock — half the budget on a two-child spoke, for a
+  dashboard nobody was watching. Heartbeats deliberately do NOT count as
+  activity: an idle-but-live stream is exactly the one worth closing. The close
+  is a clean EOF with no terminal event, because a `disconnect` frame means
+  failure and this is not one; a browser `EventSource` reopens on the advertised
+  schedule, and the reopen carries `positions`, so nothing is missed. Setting
+  `sse_idle_timeout` to 0 restores the old stream-until-abandoned behavior.
+
+  `SSE_In_Node` — the server-side cURL pull, which honors no `retry:` on its
+  own — now parses the field and classifies a clean at-EOF close as a scheduled
+  reconnect: no `last_error`, no error log line, and the advertised delay
+  REPLACES the doubling backoff rather than growing it. Without that every
+  normal close read as a heartbeat failure and drove the backoff up until an
+  entirely healthy link looked dead. A transport error, a non-200, or a clean
+  EOF from a server that advertised nothing is still an error, and the hint is
+  forgotten on each reconnect so a downgraded peer cannot leave a stale one
+  behind.
+
+- **A reopened stream resumes; it never tail-seeks.** Every `msg` carries an SSE
+  `id:` holding the resume state of the WHOLE stream — `name=segment:offset` per
+  live subscription — and a reconnect presenting it as `Last-Event-ID` overrides
+  the `positions` query parameter per subscription. That override is the point:
+  an `EventSource` reopens on the URL it was constructed with, so its
+  `positions` is the ORIGINAL one and stale by definition, which is also the
+  long-standing bug behind a browser reconnect replaying from a fixed point.
+  Without this the idle close would systematically lose the first burst after
+  every quiet period — the disconnected window is precisely where that burst
+  lands, since going quiet is what closed the stream — and it would look healthy
+  again from the next burst onward. The offset is the next read boundary
+  computed server-side from the reader's own breadcrumb, so the token stays
+  opaque and the on-disk record framing never leaks into a client.
+
+- **A spoke between streams reads as Idle on the aggregator dashboard, not
+  down.** `SSE_In_Node::connection()` publishes `scheduled_reconnect_at` — an
+  explicit "closed on purpose, back at T", because a null `last_error` also
+  means "never attempted" and an inference that quietly means two things breaks
+  later. `Remote_Source_Node` carries it into the status snapshot; the
+  `aggregator` `summary` verb counts `connected` and `idle` separately; and the
+  dashboard renders three states, railing idle as healthy and showing
+  "Reconnects in Ns" where a disconnected partition shows its last attempt. The
+  header counts idle spokes as up, naming how many — otherwise it reads "3 of 5"
+  on a fleet where nothing is wrong, and an operator restarts a healthy worker.
+
 - **A `reload` lock-dir signal: "re-read your config", never "exit".**
   `Lock_Node::RELOAD_FLAG` + `request_reload_at()` sit beside the restart flag,
   and `Fleet_Node` consumes the watermark in its own lock dir by MTIME rather
