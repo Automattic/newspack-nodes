@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A stream that opens onto an already-quiet source hangs up at once.**
+  `last_data` — the idle clock's start — was seeded to the present at stream
+  start, so a source that had received nothing for ten minutes still bought a
+  full `sse_idle_timeout` window on every reconnect. A quiet stream was
+  therefore not a freed child but a 50% duty cycle, cycling connected/
+  disconnected forever. It is now seeded from the newest subscribed source's
+  mtime via the new `Consumer_Node::idle_since()` (`Tail_Node` overrides it for
+  file mode), so a stream that opens at EOF on a long-quiet source closes on its
+  first tick instead of holding a child for another window.
+
+  `idle_since()` returns null — meaning "do not treat this as idle" — whenever
+  any consumer still has bytes owed, and the seed falls back to the present if
+  ANY subscription reports that. Without that guard a source written long ago
+  and never read hangs up before delivering a byte, and since the reopen finds
+  the same stale mtime it starves permanently. The window is a floor on how long
+  a stream stays open, never a reason to drop data.
+
 - **An SSE stream now closes when it is idle, and tells the client when to come
   back.** `SSE_Out_Node` emits the SSE `retry:` field at stream start
   (`sse_retry_ms`, default 15000) and ends the drain after `sse_idle_timeout`
@@ -180,6 +197,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`lint-comment-length.{php,mjs}` is now `lint-comments.{php,mjs}`**, because
+  it no longer checks only length: the PHP gate also rejects comments that sit
+  outside a function body without documenting anything. The only comment allowed
+  at class-body level is a docblock immediately preceding the declaration it
+  describes. That catches section headers, `//` notes where a docblock belongs,
+  and — the case that prompted it — docblocks whose method was deleted, which
+  are worse than noise because they read as documentation for whatever happens
+  to sit under them. Nine such orphans were already in the tree.
+
+  Scope is the class body, found by brace depth, so file headers are out of
+  scope and closures and match arms count as function scope. An anonymous class
+  body is itself a class body, and closing one restores the enclosing class
+  rather than ending tracking. `Foo::class` is a constant, not a declaration —
+  reading it as one re-anchored the class-body depth and turned ordinary
+  in-method comments into violations. Both traps are pinned by
+  `scripts/test-lint-comments.sh`.
+
 - **Probe records carry a per-interval DELTA and the interval it covers, not a
   cumulative counter.** A worker recycles every ~595s
   (`DEFAULT_MAX_RUNTIME`), so its in-process counters reset six times an hour,
@@ -305,6 +339,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A stream that delivers nothing now still hands the client a resume point.**
+  Only a `msg` carried an SSE `id:`, and the idle close plus the mtime seed make
+  "close having emitted zero messages" the normal outcome on a quiet source — so
+  the browser echoed no `Last-Event-ID`, the reopen fell back to the original
+  `positions` (or tail-seeked), and everything written during the `retry:` gap
+  was lost, every cycle, until traffic happened to land inside a connect window.
+  The `connected` envelope now carries the whole stream's resume state, seeded
+  from each attached consumer's `cursor_position()`. The idle seed is resolved
+  BEFORE positions are advertised: the lag read behind it normalizes a cursor
+  naming a retention-deleted segment, and a position advertised before that
+  rewind names somewhere the first poll will not read from.
+
+- **`visual_length()` counted bytes, so the comment twins disagreed.**
+  `str_split` scores an em dash as 3 columns where the JS twin, iterating code
+  points, scores 1 — making the PHP gate roughly 3x stricter than its documented
+  80 columns on exactly the em-dash-heavy prose it is applied to. It counts
+  characters now.
+
+- **Attaching to a worker in the console no longer waits out a `retry:` gap.**
+  An IPC subscription's Consumer tail-seeks (`next_offset( 'end' )`), so it is
+  caught up the instant it opens; combined with the mtime seed above, a console
+  attaching to a quiet worker was hung up on in ~3ms and then saw nothing until
+  the reconnect landed 15 seconds later. A worker IPC attach is now classified
+  interactive and never reports idle-on-open. The window exists to reclaim tails
+  nobody is reading, and an attached console is someone reading.
+
+- **`_fleet` no longer draws on every worker's canvas.** Its schema said
+  `category => Hidden`, which governs only the palette; `dump_metadata` skips on
+  the separate `hidden` key, and scaffolding mounts `_fleet` unowned so
+  `patron()` couldn't hide it either. It now declares `hidden => true`, like
+  `_connect_timer`.
+
+- **The browser SSE client no longer reports every scheduled reconnect as
+  death.** `SseInNode`'s watchdog forced a reconnect after 10s of silence
+  (`STALE_AFTER_MS + GRACE_MS`), but the server now advertises a 15s reopen
+  delay — so the watchdog tripped five seconds into every gap, logging
+  `SSE silent past timeout` and doubling the backoff for a stream working
+  exactly as designed. It now stands down while the EventSource is CONNECTING,
+  which is the same distinction the `error` handler already makes: the watchdog
+  exists for HALF-OPEN sockets (readyState OPEN, no data), and a browser between
+  connections is not one. The stand-down is BOUNDED at 60s: a proxy that accepts
+  the socket but never sends headers leaves the browser in CONNECTING firing no
+  `error`, and an unbounded stand-down would remove the only recovery there is.
+
 - **An evicted lock holder destroyed its successor's lock dir.** A worker
   blocked in a long job stops heartbeating, goes stale, and a peer steals the
   dir. `should_restart()` reports the theft but deliberately leaves `is_held`
@@ -316,7 +394,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `release()` now verifies ownership against the heartbeat PID. Failing closed
   leaks a dir at worst, and a leaked dir goes stale and is stolen normally.
 
-- **`lint-comment-length.php .` checked nothing.** It iterated `argv` and
+- **`lint-comments.php .` checked nothing.** It iterated `argv` and
   skipped anything that was not a `.php` FILE, so a directory argument matched
   neither branch and the script exited 0 having read no source. `npm run
   lint:php` — the gate run by hand — was therefore green by construction, while

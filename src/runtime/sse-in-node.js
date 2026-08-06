@@ -56,6 +56,11 @@ const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
 const GRACE_MS = 4000;
 const FORCE_AFTER_MS = STALE_AFTER_MS + GRACE_MS;
 const WATCHDOG_INTERVAL_MS = 2000;
+// @longform Bound on the CONNECTING stand-down. A browser between connections
+// owns its own `retry:` gap, but one wedged in CONNECTING fires no `error`, so
+// an unbounded stand-down leaves nothing to recover it. Comfortably above any
+// advertised reopen delay, so a normal gap never trips it.
+const CONNECTING_FORCE_AFTER_MS = 60000;
 
 /**
  * Reconnect backoff, mirroring the PHP half's INITIAL_BACKOFF / MAX_BACKOFF
@@ -157,6 +162,11 @@ export class SseInNode extends TimerNode {
 	 * One watchdog tick. A half-open EventSource never fires `error`, so total
 	 * silence past the heartbeat timeout is the only evidence the stream died.
 	 *
+	 * Half-open means readyState OPEN with no data, so a browser already
+	 * reconnecting is not silence — it is the server's `retry:` gap after a
+	 * deliberate idle close, and forcing a reconnect through it only doubles
+	 * the backoff. The `error` handler makes the same distinction.
+	 *
 	 * `fireCb()` keeps the scheduling — counter, throttle, oneshot — and calls
 	 * `fire()` last; a Timer subclass REPLACES `fire()` with whatever its tick
 	 * means, as Uptime mints its command and Router runs notifyTimer. So this
@@ -166,6 +176,12 @@ export class SseInNode extends TimerNode {
 	 */
 	fire() {
 		const ref = Math.max( this.lastEventTime ?? 0, this._watchdogBase );
+		if (
+			EventSource.CONNECTING === this._es?.readyState &&
+			Date.now() - ref <= CONNECTING_FORCE_AFTER_MS
+		) {
+			return;
+		}
 		if ( Date.now() - ref > FORCE_AFTER_MS ) {
 			this._forceReconnect();
 		}

@@ -28,7 +28,7 @@ WordPress VIP Go, enforced by `phpcs.xml.dist`:
 - PHP 8.2+; constructor property promotion where it shortens; PHPDoc on public methods
 - Unused locals are an error (`VariableAnalysis`, re-raised over VIP-Go's silence — PHPStan cannot see them at any level, because it reasons about types and reachability rather than the liveness of locals)
 
-Inline comments are ONE line, 80 visual columns or fewer, gated by `scripts/lint-comment-length.{php,mjs}` inside `npm run lint:php` and `lint:js`. Exempt: docblocks, directive comments (`phpcs:`, `translators:`, `eslint-`), and a comment whose FIRST line carries the greppable `@longform` marker — how a genuinely uncondensable footgun earns its length.
+Inline comments are ONE line, 80 visual columns or fewer, gated by `scripts/lint-comments.{php,mjs}` inside `npm run lint:php` and `lint:js`. The PHP gate also rejects a comment that sits outside a function body without documenting anything: at class-body level the only comment allowed is a docblock immediately preceding its declaration, which catches section headers, `//` notes where a docblock belongs, and docblocks whose method was deleted. Comments inside a class-level initializer annotate their entry and are exempt. Exempt: docblocks, directive comments (`phpcs:`, `translators:`, `eslint-`), and a comment whose FIRST line carries the greppable `@longform` marker — how a genuinely uncondensable footgun earns its length.
 
 Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
 
@@ -56,7 +56,7 @@ Git cannot track anything under `.git/`, so a tracked directory is what puts the
 
 `pre-commit` syncs the shared tooling then runs lint-staged. `commit-msg` runs commitlint. `pre-push` always runs the JS suite and `scripts/lint-docs.sh` — a grep gate over `docs/`, `README.md`, `AGENTS.md` and `.claude/skills` catching prose that drifted from the runtime (retired config tokens, removed verbs, the wrong sibling slug) — then scopes the rest by what the push touched: PHP adds lint, a container deploy, the coverage suite and the per-class 90% gate; JS adds `lint:js` + `build`; SCSS adds `lint:scss` + `build`. A docs-only push runs the JS suite and lint-docs alone.
 
-This plugin is the AUTHORITATIVE copy of the shared tooling. Every sibling vendors `scripts/{pre-commit,commit-msg,reorder-node-methods.*,coverage-gate*,lint-comment-length.*,lint-docs.sh,test-coverage-gate.sh,lib/*.sh}` so a standalone clone works, and `scripts/sync-shared-scripts.sh` (run from each `pre-commit`) refreshes them from here whenever `../newspack-nodes` exists. **Edit the copy in this repo**; the next sibling commit picks it up and stages it. Its only path assumption is a SIBLING substrate checkout. Two files are deliberately NOT vendored: `pre-push` (per-plugin config) and `build.mjs`.
+This plugin is the AUTHORITATIVE copy of the shared tooling. Every sibling vendors `scripts/{pre-commit,commit-msg,reorder-node-methods.*,coverage-gate*,lint-comments.*,lint-docs.sh,test-coverage-gate.sh,test-lint-comments.sh,lib/*.sh}` so a standalone clone works, and `scripts/sync-shared-scripts.sh` (run from each `pre-commit`) refreshes them from here whenever `../newspack-nodes` exists. **Edit the copy in this repo**; the next sibling commit picks it up and stages it. Its only path assumption is a SIBLING substrate checkout. Two files are deliberately NOT vendored: `pre-push` (per-plugin config) and `build.mjs`.
 
 ```bash
 # Unit, integration and examples suites. Use the vendored binary, NOT the system

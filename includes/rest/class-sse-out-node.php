@@ -40,7 +40,7 @@ class SSE_Out_Node extends Node {
 	/** Flush-comment total byte size. Must stay under PIPE_BUF (4096 on Linux). */
 	public const FLUSH_SIZE = 4096;
 
-	// Idle heartbeat cadence (ms); data flushes every tick regardless. 2s.
+	/** Idle heartbeat cadence (ms); data flushes every tick regardless. 2s. */
 	public const HEARTBEAT_MS = 2000;
 
 	/** @var non-falsy-string */
@@ -116,6 +116,9 @@ class SSE_Out_Node extends Node {
 
 	/** When this stream last carried DATA; heartbeats deliberately don't count. */
 	protected float $last_data = 0.0;
+
+	/** Whether this stream attached to a worker's IPC channel (see `open_subscription`). */
+	private bool $is_interactive = false;
 
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
@@ -250,28 +253,6 @@ class SSE_Out_Node extends Node {
 		$this->cursors[ $dir ] = $m[1] . ':' . ( (int) $m[2] + (int) $m[3] );
 	}
 
-	/** The whole stream's resume state, as the SSE `id:` a client echoes back. */
-	private function cursor_token(): string {
-		$pairs = [];
-		foreach ( $this->cursors as $dir => $position ) {
-			$pairs[] = "{$dir}={$position}";
-		}
-		return \implode( ',', $pairs );
-	}
-
-	/**
-	 * The subscription dir a FROM breadcrumb names — the inverse of
-	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
-	 * one is the first path segment alone.
-	 */
-	private static function dir_from_stamp( string $from ): string {
-		$parts = \explode( '/', $from );
-		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
-			return "{$parts[0]}/{$parts[1]}";
-		}
-		return $parts[0];
-	}
-
 	/**
 	 * Decode the `positions` query parameter (JSON object keyed by
 	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
@@ -365,9 +346,6 @@ class SSE_Out_Node extends Node {
 
 			// Lead with the reopen schedule; every close relies on it.
 			$this->send_retry_hint( Core::num_int( Config::value( 'sse_retry_ms' ), 0 ) );
-			$this->send_sse_event( 'connected', $this->build_connected_msg( $active_lease, $subs, $interval ) );
-			// Padding clears proxy buffers; a bare flush does not.
-			$this->flush_if_needed();
 
 			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
@@ -397,6 +375,8 @@ class SSE_Out_Node extends Node {
 
 			$glob_subs  = [];
 			$glob_owned = [];
+			// Own it: never inherit the last stream's attach classification.
+			$this->is_interactive = false;
 			foreach ( $subs as $sub ) {
 				$is_glob = \str_contains( $sub, '*' );
 				if ( $is_glob ) {
@@ -416,12 +396,34 @@ class SSE_Out_Node extends Node {
 				}
 			}
 
+			// @longform Resolve the idle seed FIRST: the lag read behind it
+			// normalizes a cursor naming a retention-deleted segment, and a
+			// position advertised before that rewind names somewhere the first
+			// poll will not read from.
+			$idle_since = $this->opened_at_eof_since( $consumers );
+
+			// Own cursors: never advertise the last stream's subscriptions.
+			$this->cursors = [];
+			foreach ( $consumers as $name => $c ) {
+				$this->cursors[ self::dir_from_stamp( $name ) ] = $c->cursor_position();
+			}
+			// @longform The envelope carries the resume point, so a stream that
+			// closes without delivering a message still leaves the client
+			// something to echo back. Only `msg` used to carry an `id:`, and an
+			// idle close makes zero-message streams the normal case — the
+			// reopen then tail-seeks and drops whatever arrived in the gap.
+			$this->send_sse_event(
+				'connected',
+				$this->build_connected_msg( $active_lease, $subs, $interval ),
+				$this->cursor_token()
+			);
+			// Padding clears proxy buffers; a bare flush does not.
+			$this->flush_if_needed();
+
 			// Heartbeat every $interval ms so an idle-but-live stream ≠ dead.
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = Core::right_now();
-			$this->last_data    = $last_heartbeat;
-			// Own cursors: never advertise the last stream's subscriptions.
-			$this->cursors      = [];
+			$this->last_data    = $idle_since ?? $last_heartbeat;
 			$idle_timeout       = Core::num_int( Config::value( 'sse_idle_timeout' ), 0 );
 			Event_Framework::instance()->drain(
 				function () use ( &$last_heartbeat, &$consumers, &$glob_owned, &$diagnostic_written, $glob_subs, $default_route, $heartbeat_interval, $idle_timeout, $active_lease, $partition, $subs ): bool {
@@ -502,6 +504,28 @@ class SSE_Out_Node extends Node {
 				$release( $active_lease, $partition );
 			}
 		}
+	}
+
+	/** The whole stream's resume state, as the SSE `id:` a client echoes back. */
+	private function cursor_token(): string {
+		$pairs = [];
+		foreach ( $this->cursors as $dir => $position ) {
+			$pairs[] = "{$dir}={$position}";
+		}
+		return \implode( ',', $pairs );
+	}
+
+	/**
+	 * The subscription dir a FROM breadcrumb names — the inverse of
+	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
+	 * one is the first path segment alone.
+	 */
+	private static function dir_from_stamp( string $from ): string {
+		$parts = \explode( '/', $from );
+		if ( isset( $parts[1] ) && '' !== $parts[1] && \in_array( $parts[0], Log_Discovery::GROUPS, true ) ) {
+			return "{$parts[0]}/{$parts[1]}";
+		}
+		return $parts[0];
 	}
 
 	/**
@@ -621,7 +645,8 @@ class SSE_Out_Node extends Node {
 		if ( $sub === $rest && ! \str_contains( $sub, '*' ) ) {
 			$ipc_output = "{$base}/ipc/{$sub}/output";
 			if ( \is_dir( $ipc_output ) ) {
-				$consumer = new Consumer_Node();
+				$this->is_interactive = true;
+				$consumer             = new Consumer_Node();
 				$consumer->arguments( [ $ipc_output ] );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
@@ -745,6 +770,41 @@ class SSE_Out_Node extends Node {
 		);
 		$consumer->set_stamp_as( $name );
 		return $consumer;
+	}
+
+	/**
+	 * Seed for the idle clock: when the newest subscribed source last grew,
+	 * or null when any consumer still has bytes to deliver.
+	 *
+	 * A stream opening at EOF on a source that went quiet ten minutes ago has
+	 * already been idle for ten minutes, so `last_data` must say so and let the
+	 * window close it on the first tick. Seeding the present instead pins a
+	 * child for the whole window per reconnect, which is the residency this is
+	 * meant to give back.
+	 *
+	 * A worker IPC attach never reports idle. That consumer tail-seeks, so it is
+	 * caught up the instant it opens, and a console attaching to a quiet worker
+	 * would be hung up on before rendering a line — then wait out the full
+	 * `retry:` gap for a stream it just asked for. The window reclaims tails
+	 * nobody is reading; an attached console is someone reading.
+	 *
+	 * @param array<string,Consumer_Node> $consumers Attached consumers.
+	 *
+	 * @return float|null Epoch seconds, or null to fall back to the present.
+	 */
+	private function opened_at_eof_since( array $consumers ): ?float {
+		if ( $this->is_interactive ) {
+			return null;
+		}
+		$newest = null;
+		foreach ( $consumers as $c ) {
+			$since = $c->idle_since();
+			if ( null === $since ) {
+				return null;
+			}
+			$newest = null === $newest ? $since : \max( $newest, $since );
+		}
+		return $newest;
 	}
 
 	/**

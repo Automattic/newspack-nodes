@@ -279,12 +279,6 @@ class Config {
 	}
 
 	/**
-	 * Get the validated base directory path (created + realpath-checked).
-	 *
-	 * @return string
-	 * @throws \RuntimeException If directory cannot be created or realpath doesn't match.
-	 */
-	/**
 	 * Whether a path lies inside the runtime base directory.
 	 *
 	 * Lexical, not realpath: a partition directory is created lazily, so the

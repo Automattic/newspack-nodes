@@ -13,7 +13,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 
 class Consumer_Node extends Timer_Node {
 	use Schema_Reflection;
-	// Dead_Letter_Queue rides in with Durable_Reader, which drives it.
+	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
 	use Durable_Reader;
 
 	/**
@@ -177,6 +177,31 @@ class Consumer_Node extends Timer_Node {
 	 */
 	protected function resolve_args(): array {
 		return [ $this->source_dir, $this->offsetlog_dir ];
+	}
+
+	/**
+	 * When the source last grew, for a consumer that has read all of it.
+	 *
+	 * `null` means "do not treat this stream as idle": either bytes are still
+	 * waiting, or the source's age is unknown. A caller seeding an idle clock
+	 * falls back to the present rather than assuming quiet — hanging up on a
+	 * consumer with unread backlog would starve it on every reconnect.
+	 *
+	 * @return float|null Epoch seconds of the newest segment's last write.
+	 */
+	public function idle_since(): ?float {
+		if ( ! $this->compute_lag()['caught_up'] ) {
+			return null;
+		}
+		$segments = $this->source()->get_segments( true );
+		if ( empty( $segments ) ) {
+			return null;
+		}
+		$last = \end( $segments );
+		$path = $this->source()->get_segment_path( Core::as_int( $last['id'] ) );
+		\clearstatcache( true, $path );
+		$mtime = @\filemtime( $path );
+		return \is_int( $mtime ) ? (float) $mtime : null;
 	}
 
 	/**
@@ -669,12 +694,23 @@ class Consumer_Node extends Timer_Node {
 		}
 	}
 
+	/**
+	 * This reader's resume point as the SSE `id:` pair value, `segment:offset`.
+	 *
+	 * The offset is the next byte to read, which is what a resume seeks to —
+	 * the same semantic `track_cursor` derives from a delivered message, so a
+	 * stream that delivers nothing still hands the client a usable position.
+	 *
+	 * @return string `{segment}:{offset}`.
+	 */
+	public function cursor_position(): string {
+		return "{$this->cursor_segment}:{$this->cursor_offset}";
+	}
+
 	/** Requeue target: the source Partition this Consumer tails, so dl_requeue re-injects into it. */
 	protected function deadletter_requeue_target(): ?Partition_Node {
 		return $this->source;
 	}
-
-	// Time-travel transport hooks; shared machinery in the Time_Travel trait.
 
 	/**
 	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is

@@ -168,7 +168,7 @@ class Settings_Sync_Node extends Timer_Node {
 		return $node instanceof HTTP_Out_Node ? $node : null;
 	}
 
-	// Flatten to one token: arrays become JSON, scalars stringify; null if bad.
+	/** Flatten to one token: arrays become JSON, scalars stringify; null if bad. */
 	private static function scalarize( mixed $v ): ?string {
 		if ( \is_array( $v ) ) {
 			$json = \wp_json_encode( $v, \JSON_UNESCAPED_SLASHES );

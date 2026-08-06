@@ -324,6 +324,119 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	public function test_stream_at_eof_on_a_long_quiet_source_hangs_up_without_waiting(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-mtime-' );
+		$dir  = "{$base}/logs/firehose.p0";
+		\mkdir( $dir, 0755, true );
+		// A source that HAS data but stopped receiving it long ago. Opening at
+		// its EOF means the 7s window already elapsed before the connect.
+		\file_put_contents( "{$dir}/0.log", "{}\n" );
+		\touch( "{$dir}/0.log", \time() - 300 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		$started = \microtime( true );
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		$out     = (string) \ob_get_clean();
+		$elapsed = \microtime( true ) - $started;
+
+		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
+		$this->assertLessThan( 2.0, $elapsed, 'a source quiet far longer than the window must not hold the slot for another one' );
+		$this->assertStringNotContainsString( 'event: disconnect', $out, 'an idle close is a clean EOF, not a failure' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_unread_backlog_on_a_quiet_source_is_delivered_not_hung_up_on(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-idle-backlog-' );
+		$dir  = "{$base}/logs/firehose.p0";
+		\mkdir( $dir, 0755, true );
+		// Written long ago and never read: the mtime is stale, but the bytes are
+		// still owed. Hanging up on age alone would starve this every reconnect.
+		\file_put_contents( "{$dir}/0.log", "{}\n" );
+		\touch( "{$dir}/0.log", \time() - 300 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		$started = \microtime( true );
+		\ob_start();
+		// 'start' rewinds the cursor to seg 0 / offset 0, so the line is owed.
+		$ctrl->run_stream_loop( [ 'firehose.*' ], [ 'firehose.p0' => 'start' ], 60000 );
+		$elapsed = \microtime( true ) - $started;
+		$out     = (string) \ob_get_clean();
+
+		$this->assertStringContainsString( 'event: msg', $out, 'the owed line must actually be delivered' );
+		$this->assertTrue( $capped, 'the safety cap must end this stream — the idle timeout must not' );
+		$this->assertGreaterThanOrEqual( 3.5, $elapsed, 'it must stay open, not hang up on a stale mtime' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_a_worker_ipc_attach_is_interactive_and_keeps_its_window(): void {
+		$this->set_sse_config( 2, 4500 );
+		$base = $this->make_temp_dir( 'sse-ipc-attach-' );
+		$dir  = "{$base}/ipc/combined.p0/output";
+		\mkdir( $dir, 0755, true );
+		// A console attaching to a quiet worker. The IPC consumer tail-seeks, so
+		// it is caught up by construction, and the output went quiet long ago —
+		// but this stream is a conversation, not a tail: hanging up on arrival
+		// leaves the operator staring at nothing until the reconnect lands.
+		\file_put_contents( "{$dir}/0.log", "{}\n" );
+		\touch( "{$dir}/0.log", \time() - 300 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		$started = \microtime( true );
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'combined.p0' ], null, 60000 );
+		$elapsed = \microtime( true ) - $started;
+		\ob_get_clean();
+
+		$this->assertFalse( $capped, 'the idle timeout, not the safety cap, must end the stream' );
+		$this->assertGreaterThanOrEqual( 1.5, $elapsed, 'an attached console must get its window, not a closed door' );
+
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_connected_carries_a_resume_id_so_a_zero_message_stream_can_reopen(): void {
+		$this->set_sse_config( 7, 4500 );
+		$base = $this->make_temp_dir( 'sse-connected-id-' );
+		$dir  = "{$base}/logs/firehose.p0";
+		\mkdir( $dir, 0755, true );
+		// Quiet source: the stream closes on its first tick having emitted no
+		// `msg`, and only `msg` carries an `id:`. With none, the browser echoes
+		// no Last-Event-ID, the reopen tail-seeks, and everything written during
+		// the retry gap is lost — every cycle, which is what resume exists for.
+		\file_put_contents( "{$dir}/0.log", "{}\n" );
+		\touch( "{$dir}/0.log", \time() - 300 );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$capped                   = false;
+		SSE_Out_Node::$check_slot = $this->safety_cap( $capped );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 60000 );
+		$out = (string) \ob_get_clean();
+
+		$this->assertStringNotContainsString( 'event: msg', $out, 'the fixture must close without delivering a message' );
+		$this->assertMatchesRegularExpression(
+			'/id: firehose\.p0=0:\d+\nevent: connected/',
+			$out,
+			'a stream that delivers nothing must still hand the client a resume point'
+		);
+
+		$this->rmdir_recursive( $base );
+	}
+
 	public function test_heartbeats_alone_do_not_keep_an_idle_stream_open(): void {
 		$this->set_sse_config( 1, 4500 );
 		$base = $this->make_temp_dir( 'sse-idle-heartbeat-' );

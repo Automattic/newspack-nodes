@@ -12,7 +12,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Message {
-	// @ordered
+	/** @ordered */
 	public const TYPE      = 0;
 	public const TIMESTAMP = 1;
 	public const FROM      = 2;
@@ -33,7 +33,7 @@ class Message {
 	 */
 	public const LOCAL = 7;
 
-	// @ordered
+	/** @ordered */
 	public const TM_BYTESTREAM = 1;
 	public const TM_EOF        = 2;
 	public const TM_PING       = 4;

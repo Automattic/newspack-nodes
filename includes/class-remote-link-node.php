@@ -36,7 +36,7 @@ class Remote_Link_Node extends Timer_Node {
 	/** Slot-keepalive heartbeat cadence (seconds). */
 	public const HEARTBEAT_INTERVAL = 15;
 
-	// 10Hz poll; housekeeping self-latches. Protected: PLAY re-arms it.
+	/** 10Hz poll; housekeeping self-latches. Protected: PLAY re-arms it. */
 	protected const TICK_INTERVAL_MS = 100;
 
 	/** Patron HTTP_Out sibling (`<name>:http-out`); carries commands + the heartbeat. */
@@ -77,8 +77,6 @@ class Remote_Link_Node extends Timer_Node {
 
 	/** Wall-second of the last housekeeping pass; fire() latches on it. */
 	private int $last_housekeeping_s = 0;
-
-	// Status snapshot is Remote_Source-only; the base exposes no-op seams.
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
@@ -200,8 +198,6 @@ class Remote_Link_Node extends Timer_Node {
 		return true;
 	}
 
-	// --- Heartbeat: minted as a workers.heartbeat command via HTTP_Out ---
-
 	/**
 	 * Every ~HEARTBEAT_INTERVAL seconds, mint a `workers.heartbeat` TM_COMMAND
 	 * (FROM=<this node>, TO=workers, args `<slot> <owner>`) and fill it into the
@@ -286,11 +282,6 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Pop the next queued connect, or null when the queue is dry.
-	 *
-	 * @api Called by Connect_Queue_Timer_Node::fire().
-	 */
-	/**
 	 * Append a connect for the drain timer to run. The owner may be null for a
 	 * queue entry with no link to purge it (tests).
 	 *
@@ -324,25 +315,10 @@ class Remote_Link_Node extends Timer_Node {
 		$http_out->ensure_session();
 	}
 
-	/**
-	 * Ask for a command session, on a clock of its own offset half a cadence
-	 * from the heartbeat grid.
-	 *
-	 * @longform Every Remote_Source in an aggregator boots in the same tick, so
-	 * anything sent "immediately" is sent N times at once — which is what the
-	 * spoke answers with 429. Auth lands between heartbeats, never with one, and
-	 * asking never moves the heartbeat clock: that coupling is what pushed the
-	 * first heartbeat a full extra cadence out.
-	 *
-	 * @param HTTP_Out_Node $http_out The patron egress that owns the session.
-	 * @param int           $now      Current wall-second.
-	 */
 	/** This link's second within the cadence. Stable, so it survives re-auth. */
 	private function session_phase(): int {
 		return \crc32( $this->name ) % self::HEARTBEAT_INTERVAL;
 	}
-
-	// --- Dashboard status snapshot: Remote_Source-only (IPC writes dead) ---
 
 	/** Per-tick connection-state snapshot (Remote_Source overrides; base no-op). */
 	protected function publish_status(): void {}
@@ -412,8 +388,6 @@ class Remote_Link_Node extends Timer_Node {
 		$sse = $this->ensure_patrons();
 		$sse?->maybe_connect();
 	}
-
-	// --- Patron lifecycle — SSE_In + HTTP_Out siblings ---
 
 	/**
 	 * Create + register the two hidden patron siblings on first call, configuring
@@ -510,8 +484,6 @@ class Remote_Link_Node extends Timer_Node {
 		$this->sink?->fill( $message );
 	}
 
-	// --- Subclass seams ---
-
 	/**
 	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
 	 *
@@ -567,7 +539,7 @@ class Remote_Link_Node extends Timer_Node {
 		return null === $queued ? null : $queued[0];
 	}
 
-	// Composite stat delegation: report the children's tallies, not zeros.
+	/** Composite stat delegation: report the children's tallies, not zeros. */
 	public function counter(): int {
 		return null !== $this->sse_in ? $this->sse_in->counter() : parent::counter();
 	}

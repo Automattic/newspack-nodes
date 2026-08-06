@@ -380,12 +380,6 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Read the started-timestamp file for a lock dir (no instance needed).
-	 *
-	 * @param string $lock_dir The lock directory path.
-	 * @return int|null Unix timestamp when acquire() succeeded, or null if missing.
-	 */
-	/**
 	 * THE staleness rule for a worker heartbeat: no heartbeat file, or one
 	 * older than the threshold this worker declares.
 	 *

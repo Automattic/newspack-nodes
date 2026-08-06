@@ -102,14 +102,6 @@ trait Dead_Letter_Queue {
 	 */
 	protected string $deadletter_reason = '';
 
-	/**
-	 * Build + register the `:deadletter` sibling Partition once (idempotent). Empty
-	 * dir → null (log + drop). The using node asserts it's the sole writer, so the
-	 * 4 KB PIPE_BUF cap is lifted (void_warranty) — a poison message can exceed it.
-	 *
-	 * @param string $dir  Quarantine segment directory. Empty → null.
-	 * @param string $name Node name for the partition; '' leaves it unnamed (named later).
-	 */
 	/** Where the quarantine lives. Empty disables the DLQ; it is an ARGUMENT, not derived. */
 	protected function deadletter_dir(): string {
 		return $this->deadletter_dir;
@@ -482,8 +474,6 @@ trait Dead_Letter_Queue {
 		$this->first_crash_ts = null;
 		$this->poison_reason  = '';
 	}
-
-	// --- Triage verbs: dl_list / dl_requeue / dl_purge on {name}:config ---
 
 	/**
 	 * The triage verb table, merged into a using node's node_schema()['commands'] so

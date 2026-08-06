@@ -61,13 +61,6 @@ class Topology_Registry {
 
 
 	/**
-	 * True when a TSL class token resolves to a Tee-family PASS-THROUGH node.
-	 * Narrower than fan-out on purpose: this drives the `tee` layout kind, which
-	 * the dashboard contracts out of the graph. A minter is a destination.
-	 */
-
-
-	/**
 	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
 	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
 	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered

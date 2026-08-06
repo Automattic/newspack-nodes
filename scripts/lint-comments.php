@@ -2,8 +2,11 @@
 /**
  * Pre-commit gate: inline comments are ONE line, <= 80 visual columns.
  *
- * Checks `//`, `#`, and non-doc slash-star comments in the staged files
- * lint-staged passes as argv. Docblocks are exempt. A comment tagged
+ * Two rules. LENGTH: `//`, `#`, and non-doc slash-star comments in the staged
+ * files lint-staged passes as argv are one line and <= 80 columns; docblocks
+ * are exempt from length. PLACEMENT: outside a function body the only comment
+ * allowed is a docblock immediately preceding the declaration it documents, so
+ * a docblock whose declaration is gone is itself a violation. A comment tagged
  * `@longform` (first line) is exempt — the greppable marker for footgun
  * comments whose full length is strictly necessary. Directive comments
  * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split.
@@ -19,10 +22,20 @@ const TAB_WIDTH = 4;
 /** Directories never linted: unit tests are exempt by owner's rule, the rest are not ours. */
 const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'release', '.phpstan', '.git' ];
 
-/** Visual length with tabs expanded to the next TAB_WIDTH stop. */
+/**
+ * Visual length with tabs expanded to the next TAB_WIDTH stop.
+ *
+ * @longform Characters, not bytes: `str_split` counted an em dash as 3, so the
+ * PHP gate was roughly 3x stricter than the documented 80 columns on exactly
+ * the prose it is applied to — and the JS twin, iterating code points, passed
+ * the same line. The twins have to agree.
+ *
+ * @param string $line One source line.
+ * @return int Visual columns.
+ */
 function visual_length( string $line ): int {
 	$col = 0;
-	foreach ( \str_split( $line ) as $ch ) {
+	foreach ( \mb_str_split( $line ) as $ch ) {
 		$col = "\t" === $ch ? ( \intdiv( $col, TAB_WIDTH ) + 1 ) * TAB_WIDTH : $col + 1;
 	}
 	return $col;
@@ -34,6 +47,122 @@ function is_directive( string $text ): bool {
 
 function is_longform( string $text ): bool {
 	return \str_contains( $text, '@longform' );
+}
+
+/** Tokens that may legally follow a docblock inside a class body. */
+const DECLARATION_TOKENS = [
+	\T_PUBLIC, \T_PROTECTED, \T_PRIVATE, \T_STATIC, \T_ABSTRACT, \T_FINAL,
+	\T_READONLY, \T_VAR, \T_CONST, \T_FUNCTION, \T_USE, \T_ATTRIBUTE,
+	\T_VARIABLE, \T_CASE,
+];
+
+/**
+ * Comments at class-body level that document no declaration.
+ *
+ * @longform The only comment allowed outside a function body is a docblock
+ * immediately preceding the member it documents. A section header, a `//` note
+ * between methods, or a docblock whose method was deleted all describe nothing
+ * — and the orphan is worse than noise: it reads as documentation for whatever
+ * happens to sit under it. Scope is the CLASS BODY, found by brace depth, so
+ * file-level headers are out of scope and closures, anonymous classes and match
+ * arms all nest deeper and count as function scope.
+ *
+ * @param string $source PHP source.
+ * @return array<int, string> `line: message` violations.
+ */
+function stray_comments( string $source ): array {
+	$tokens      = \token_get_all( $source );
+	$count       = \count( $tokens );
+	$depth        = 0;
+	$class_depths = [];
+	$pending      = false;
+	$previous     = null;
+	$expr_depth   = 0;
+	$hits         = [];
+
+	foreach ( $tokens as $index => $token ) {
+		if ( \is_string( $token ) ) {
+			if ( '{' === $token ) {
+				++$depth;
+				if ( $pending ) {
+					$class_depths[] = $depth;
+					$pending        = false;
+				}
+			} elseif ( '[' === $token || '(' === $token ) {
+				++$expr_depth;
+			} elseif ( ']' === $token || ')' === $token ) {
+				$expr_depth = \max( 0, $expr_depth - 1 );
+			} elseif ( '}' === $token ) {
+				// A stack: a closing anon class restores the enclosing one.
+				if ( $depth === \end( $class_depths ) ) {
+					\array_pop( $class_depths );
+				}
+				--$depth;
+			}
+			$previous = $token;
+			continue;
+		}
+		if ( \T_WHITESPACE === $token[0] ) {
+			continue;
+		}
+		if ( \in_array( $token[0], [ \T_CLASS, \T_INTERFACE, \T_TRAIT, \T_ENUM ], true ) ) {
+			// `Foo::class` is a constant, not a declaration; it opens no body.
+			if ( ! ( \is_array( $previous ) && \T_DOUBLE_COLON === $previous[0] ) ) {
+				$pending = true;
+			}
+			$previous = $token;
+			continue;
+		}
+		if ( \T_CURLY_OPEN === $token[0] || \T_DOLLAR_OPEN_CURLY_BRACES === $token[0] ) {
+			++$depth;
+			$previous = $token;
+			continue;
+		}
+		if ( \in_array( $token[0], [ \T_COMMENT, \T_DOC_COMMENT ], true ) ) {
+			// In an initializer a comment annotates its entry, not the class.
+			$class_level = 0 === $expr_depth && [] !== $class_depths
+				&& $depth === \end( $class_depths );
+			if ( $class_level ) {
+				$hits[] = [ $index, $token ];
+			}
+			continue;
+		}
+		$previous = $token;
+	}
+
+	$violations = [];
+	$prev_end   = -10;
+	$prev_doc   = true;
+	foreach ( $hits as [ $index, $token ] ) {
+		$is_doc = \T_DOC_COMMENT === $token[0];
+		$line   = $token[2];
+		// One report per run of adjacent `//` lines, as the block check does.
+		$continuation = ! $is_doc && ! $prev_doc && $line === $prev_end + 1;
+		$prev_end     = $line + \substr_count( $token[1], "\n" );
+		$prev_doc     = $is_doc;
+		if ( $continuation || is_directive( $token[1] ) ) {
+			continue;
+		}
+		// @longform Skip line comments too: a `phpcs:` line between a docblock
+		// and its method does not orphan it. A DOCBLOCK is never skipped — a
+		// docblock stacked on a docblock is exactly the orphan case.
+		$next = null;
+		for ( $j = $index + 1; $j < $count; $j++ ) {
+			if ( \is_array( $tokens[ $j ] )
+				&& \in_array( $tokens[ $j ][0], [ \T_WHITESPACE, \T_COMMENT ], true ) ) {
+				continue;
+			}
+			$next = $tokens[ $j ];
+			break;
+		}
+		if ( $is_doc && \is_array( $next ) && \in_array( $next[0], DECLARATION_TOKENS, true ) ) {
+			continue;
+		}
+		$violations[] = $is_doc
+			? "{$line}: orphaned docblock (documents no declaration)"
+			: "{$line}: stray comment outside a function (only docblocks on declarations)";
+	}
+	return $violations;
 }
 
 /**
@@ -114,6 +243,8 @@ function check_file( string $file ): array {
 	}
 	$flush();
 
+	$violations = \array_merge( $violations, stray_comments( $source ) );
+
 	\sort( $violations, \SORT_NATURAL );
 	return $violations;
 }
@@ -122,7 +253,7 @@ function check_file( string $file ): array {
  * Expand a directory argument to the `.php` files under it; pass a file through.
  *
  * @longform Without this a directory argument matched neither branch of the
- * filter below and was silently skipped, so `lint-comment-length.php .` — the
+ * filter below and was silently skipped, so `lint-comments.php .` — the
  * form `npm run lint:php` uses — exited 0 having checked nothing. The gate ran
  * green by hand for everyone while lint-staged, which passes explicit paths,
  * failed at commit time on violations nobody could reproduce.

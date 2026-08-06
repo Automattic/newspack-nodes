@@ -76,8 +76,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		return $payload;
 	}
 
-	// dump_graph helpers: self-contained static builders for the payload.
-
 	/**
 	 * Build the full operator-grade envelope. Public so the substrate Alerts
 	 * evaluator reads the SAME `{workers[], consumers[], deadletter_segments}`

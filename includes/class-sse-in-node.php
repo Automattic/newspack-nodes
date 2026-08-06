@@ -36,14 +36,11 @@ class SSE_In_Node extends Node {
 	public const HEARTBEAT_TIMEOUT = 45;
 	public const INITIAL_BACKOFF   = 1;
 
-	// ----- Reconnect / liveness tuning. -----
-
 	public const MAX_BACKOFF       = 30;
 
-	// ----- Memory / size guards. -----
-
-	public const MAX_BUFFER_SIZE   = 33554432; // 32MB
-	public const MAX_EVENT_SIZE    = 33554432; // 32MB
+	/** Hard ceilings on the stream buffer and on one event: 32 MB each. */
+	public const MAX_BUFFER_SIZE   = 33554432;
+	public const MAX_EVENT_SIZE    = 33554432;
 
 	/**
 	 * libcurl dispatch seam. Lazily-defaulted to a closure that creates the easy
@@ -234,8 +231,6 @@ class SSE_In_Node extends Node {
 		return true;
 	}
 
-	// --- Event_Framework callbacks (cURL multi) ---
-
 	/**
 	 * CURLOPT_WRITEFUNCTION callback. Returns bytes-consumed or 0 to abort.
 	 *
@@ -318,8 +313,6 @@ class SSE_In_Node extends Node {
 		$this->detach_handle();
 		$this->increase_backoff();
 	}
-
-	// --- SSE parsing ---
 
 	/**
 	 * Parse a chunk of SSE bytes off the buffer. Returns false on overflow.
@@ -570,8 +563,6 @@ class SSE_In_Node extends Node {
 		return $error . ' (remote PID ' . $this->session_pid
 			. ', connected ' . \number_format( $duration, 2, '.', '' ) . 's)';
 	}
-
-	// --- Stale check ---
 
 	/**
 	 * Reconnect-on-stale check. Driven by the patron (no timer here).

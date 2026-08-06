@@ -26,8 +26,6 @@ trait Durable_Reader {
 
 	use Sidecar;
 
-	// -- Crash-recovery seal (quarantine itself stays on the DLQ trait) -----
-
 	/**
 	 * One-shot crawl-entry flag: on the first crawled drain, dead-letter the boot-cursor head —
 	 * the message the reader was on when the uncatchable death struck (the crash suspect) — with
@@ -78,8 +76,6 @@ trait Durable_Reader {
 		}
 		return $this->crawl_skip_head;
 	}
-
-	// -- Offsetlog cursor ---------------------------------------------------
 
 	/**
 	 * Offsetlog as an exact keyframe timeline for time-travel: segment_size=1 forces one
@@ -205,9 +201,6 @@ trait Durable_Reader {
 		$this->offsetlog->fill( $message );
 		$this->offsetlog->flush();
 	}
-
-	// -- Buffered pump ------------------------------------------------------
-
 
 	public const MAX_LINE_BUFFER_SIZE = 33554432;
 
@@ -609,9 +602,6 @@ trait Durable_Reader {
 	/** Durable-commit seam: write one offsetlog frame at the current cursor (unconditional; no advance-guard). */
 	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void;
 
-	// -- Time travel --------------------------------------------------------
-
-
 	/**
 	 * Last (seg,off) committed to the offsetlog (-1/-1 before the first commit). Feeds the
 	 * advance-guard (skip a redundant same-cursor write) and dump_metadata's on_frame signal.
@@ -866,8 +856,6 @@ trait Durable_Reader {
 		$this->set_state( 'POLLING', 'ACTIVE' );
 	}
 
-	// --- Shared checkpoint writer (both nodes commit the same base frame) ---
-
 	/**
 	 * True once CHECKPOINT_INTERVAL_S has elapsed since the last durable commit — the
 	 * shared throttle both nodes gate their per-tick healthy commit on (both in fire()).
@@ -934,8 +922,6 @@ trait Durable_Reader {
 	/** React to a committed frame (Consumer publishes its CHECKPOINT state). Base no-op. */
 	protected function on_checkpoint_committed(): void {}
 
-	// --- Node-specific hooks ---
-
 	/**
 	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
 	 *
@@ -956,8 +942,6 @@ trait Durable_Reader {
 
 	/** Extra halt on PAUSE beyond stopping the timer. Base no-op; override to also stop the pull. */
 	protected function time_travel_on_pause(): void {}
-
-	// --- {name}:config verb handlers + the shared verb table ---
 
 	/**
 	 * `add_snapshot_node` verb handler — append a snapshot-target node.
