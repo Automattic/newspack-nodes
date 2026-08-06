@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.2] - 2026-08-06
+
 ### Fixed
+
+- **A reopened log stream resumed from the top of the file, every time.** The
+  `connected` envelope advertises each subscription's resume point, seeded from
+  `cursor_position()`. For a file-mode `Tail` the byte offset is seated eagerly
+  by `next_offset( 'end' )`, but the INODE reaches `cursor_segment` only when
+  the handle opens on the first poll — and the idle seed returns false at the
+  top of the drain loop, so a quiet source never polls at all. The advertised id
+  was therefore `<name>=0:<offset>`: a resume against inode 0, which never
+  validates, so the reader restarted at 0 on every reconnect. Symptoms were the
+  Log Viewer jumping to the newest line each cycle and the hub re-pulling
+  records it already had.
+
+  The container is now DROPPED while the inode is unknown (`:{offset}`), which
+  reads as "this offset, in whatever generation is current". That needed the
+  absence to survive the whole path: `parse_cursor_token` accepts an empty
+  container and omits `segment` rather than defaulting it, and `next_offset` no
+  longer coerces a missing `segment` to `cursor_segment` — with the handle
+  closed that wrote inode 0 into `file_seek_candidate` and replayed anyway.
+  `validate_resume_offset` takes `?int` and treats null as the current
+  generation; the size and line-boundary checks still guard the seek.
 
 - **Test-integrity fixes from a Copilot review pass.** `useTopicProbeStream`'s
   fixture seeded `BYTES_READ_DELTA` from `msgs`, so both deltas carried the same
