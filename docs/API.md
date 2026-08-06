@@ -152,7 +152,7 @@ These are process-identity tags, not credentials. Downstream code uses them to:
 - **Tag log lines for correlation.** Audit / error log writers can include `[firehose-workers/p3]` so tail-grep tooling knows where an entry came from.
 - **Provide context to sub-actions.** The `newspack_nodes/spawn_worker` action handler and any nested `do_action`s inside the worker can introspect the env to know which worker they're inside without re-passing arguments.
 
-`Bootstrap::run_supervisor_tick()` writes the same keys (`'supervisor'` / `'0'`) so the WP-Cron cold-start pass is tagged consistently with topology workers.
+`Bootstrap::reconcile_fleet()` writes the same keys (`'supervisor'` / `'0'`) so the WP-Cron reconciliation pass is tagged consistently with topology workers. The value stays `supervisor` although no supervisor process remains: it is the label newspack-event-logger-nodes files this pass's per-URL stats row under, and renaming it only splits that row's history.
 
 ## Rate Limiting
 

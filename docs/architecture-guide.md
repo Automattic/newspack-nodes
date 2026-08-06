@@ -554,25 +554,33 @@ There is no supervisor process. Every worker revives its peers, and WP-Cron catc
 with nothing left running.
 
 `Worker_Base::build_scaffolding()` mounts `_fleet` (`Fleet_Node`, a `Timer_Node`) alongside
-`_router` and `_command_interpreter`, so the scan hitchhikes the router tick:
+`_router` and `_command_interpreter`. It hitchhikes the router heartbeat but arms at
+`SCAN_INTERVAL_MS = 15000`, so `Timer_Node` throttles it to one pass every 15 seconds:
 
 ```
-every router tick (1s):
-    every 15s: re-read config (invalidate + reset), refuse a write-conflicting set,
-               defer newly-appeared types NEW_TYPE_SPAWN_DELAY_S = 5s,
-               drain every worker if the last topology was deactivated,
-               enqueue the Fleet_Sweep housekeeping job (one winner per window)
-    for each active-fleet worker, at most MAX_SPAWNS_PER_TICK = 4 per tick:
+every 15s:
+    if a reload watermark landed in this worker's lock dir:
+        Config::reset() + notify RELOAD
+    re-read the active fleet, refuse a write-conflicting set,
+    defer newly-appeared types NEW_TYPE_SPAWN_DELAY_SCANS = 1 scan,
+    drain every worker if the last topology was deactivated
+    for each active-fleet worker, at most MAX_SPAWNS_PER_TICK = 4 per pass:
         if !lock_dir OR heartbeat > worker.stale_timeout:
             if last_spawn for this worker > 15s ago, and past any new-type deferral:
                 POST /spawn   (fire-and-forget)
 ```
 
-`Fleet_Sweep` is an ordinary `unique` job on the `job-worker` pool — it reconciles lock dirs,
-reaps leaked `*.lock.d.stealing.*` scratch, sweeps orphan log partitions and IPC dirs, then
-fires `newspack_nodes/periodic`. Housekeeping therefore requires an active
-`job-worker` topology; revival deliberately does not, because a dead fleet has no worker to
-run a job.
+A faster scan would only reach a MISSING lock dir sooner — the stale-heartbeat case is
+dominated by `stale_timeout` (60s default) either way — and a crashed worker's queue is
+durable, so that lag costs nothing. `Config::reset()` is gated on the watermark because it
+fires `Config::RESET_ACTION`, whose subscribers drop the parsed-TSL cache: unconditionally,
+every worker re-globs both topology directories and re-parses every `.tsl` each pass to reach
+the value it already had. The watermark is the signal that makes the cache stale, so with no
+watermark the cached fleet is current by definition.
+
+The scan is revival and nothing else. Housekeeping runs in the cron pass below, so it depends
+on no live worker — which is the point: retention and orphan reaping run even when the fleet
+is down.
 
 **Spawn endpoint auth**: an HMAC token rotating every `Internal_Request_Token::WINDOW_S = 10` seconds, accepted for the current AND previous window for race tolerance. `Internal_Request_Token` keeps the purposes apart — a spawn token is not a health-cache token, because the purpose string is inside the HMAC:
 
@@ -585,9 +593,9 @@ $token  = hash_hmac( 'sha256', "newspack_nodes_{$purpose}:{$window}", $salt );  
 
 **Spawn rate limit**: `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key. Prevents thundering-herd respawns when locks flap, and it is what makes N peer scanners as safe as one scanner was. The **endpoint** is the one gate every spawn path crosses — self-respawns, peer scans, and cron alike — so it both checks the window and records the accepted spawn, persisted through `Cache_Backend::shared_first()` (transient fallback) at twice the interval. A throttled request answers 429. A scanner records its own POSTs in memory only: persisting there would make the endpoint reject the very POST the record announces.
 
-**Worker-registry refresh**: plugin activation/deactivation changes which workers are registered via the `newspack_nodes/topologies` filter. Each `Fleet_Node` rebuilds worker descriptors from current filter values every 15s, so newly-registered workers get spawned and deactivated workers get their locks flagged within one window of the change. A type that has just appeared is deferred `NEW_TYPE_SPAWN_DELAY_S = 5` seconds so a still-exiting predecessor can flush; a cold start skips the deferral. The scan also refuses to spawn a set with a topology write-conflict (two fleets on one partition), and `Fleet_Sweep::reconcile_lock_dirs()` reaps lock dirs outside the active fleet plus any `*.lock.d.stealing.*` scratch a killed steal leaked.
+**Worker-registry refresh**: plugin activation/deactivation changes which workers are registered via the `newspack_nodes/topologies` filter. Each `Fleet_Node` rebuilds worker descriptors from current filter values every 15s, so newly-registered workers get spawned and deactivated workers get their locks flagged within one window of the change. A type that has just appeared is deferred `NEW_TYPE_SPAWN_DELAY_SCANS = 1` scan interval so a still-exiting predecessor can flush; a cold start skips the deferral. The scan also refuses to spawn a set with a topology write-conflict (two fleets on one partition), and the cron pass's `Spawn_Coordinator::reconcile_lock_dirs()` reaps lock dirs outside the active fleet plus any `*.lock.d.stealing.*` scratch a killed steal leaked.
 
-**WP-Cron backstop**: the `newspack_nodes/supervisor` action runs on a registered 60-second schedule (`newspack_nodes_minute`). The handler runs ONE cold-start pass — `Spawn_Coordinator::spawn_due_workers()` — and returns; it takes no lock and enters no loop. Its only job: revive the fleet when nothing is left to scan. Steady state, every live worker's peer scan keeps the fleet up and the cron pass finds nothing due. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
+**WP-Cron reconciliation pass**: the `newspack_nodes/reconcile` action runs on a registered 60-second schedule (`newspack_nodes_minute`). `Bootstrap::reconcile_fleet()` runs five steps and returns; it takes no lock and enters no loop. Spawn (`Spawn_Coordinator::spawn_due_workers()`) is FIRST — it is the revival path and the only time-critical step — then lock-dir reconcile, log retention, orphan-IPC reaping, and `do_action( 'newspack_nodes/periodic' )` (which carries alert emission and the delayed-jobs sweep). Each step is wrapped alone, so a third-party `topologies` provider or `periodic` subscriber that throws costs only its own step. Steady state, every live worker's peer scan keeps the fleet up and the spawn step finds nothing due, while the four chores get the cadence they actually need. `wp nodes doctor`'s `housekeeping` result reports whether this event is scheduled, because a missing one stops all of it silently. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
 
 **Two-tier safety net**:
 

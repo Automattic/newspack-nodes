@@ -24,9 +24,43 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   `housekeeping`.** The report is still seven results. The new one is
   load-bearing in a way the old one was not: fleet housekeeping — retention,
   orphan partition and IPC reaping, the delayed-jobs sweep, alert emission and
-  every `newspack_nodes/periodic` subscriber — now runs as a job, so an active
-  fleet with no `Job_Worker` topology loses all of it silently. If doctor
-  reports it CRITICAL, run `wp nodes activate job-worker`.
+  every `newspack_nodes/periodic` subscriber — now rides the minute cron pass
+  alongside cold-start revival, so an install whose `newspack_nodes/reconcile`
+  event was vetoed or cleared loses all of it silently. If doctor reports it
+  CRITICAL, run
+  `wp cron event schedule newspack_nodes/reconcile now newspack_nodes_minute`
+  (visiting wp-admin also re-arms it, on `admin_init`).
+
+- **The cron event, its handler and its lifecycle actions are renamed.**
+  `newspack_nodes/supervisor` → `newspack_nodes/reconcile`,
+  `Bootstrap::run_supervisor_tick()` → `Bootstrap::reconcile_fleet()`, and
+  `newspack_nodes/before_supervisor_run` / `newspack_nodes/after_supervisor_run`
+  → `newspack_nodes/before_reconcile` / `newspack_nodes/after_reconcile`. No
+  aliases: rewrite each `add_action()` — the callback, priority and argument
+  count all stay as they are. Two operator notes:
+  - Plugin activation and the `admin_init` self-heal both schedule the new
+    event, so nothing stops being revived. But nothing unschedules the OLD
+    event either, so an install that carried it keeps firing a hook no code
+    listens to, once a minute, forever. Clear it once with
+    `wp cron event delete newspack_nodes/supervisor`.
+  - `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` is deliberately UNCHANGED at
+    `supervisor`. It is the label newspack-event-logger-nodes files this pass's
+    per-URL stats row under, and renaming it would only split that row's
+    history.
+
+- **Delayed jobs are delivered on the minute, not every 15 seconds.**
+  `Job_Delay::sweep_action()` moved to the cron pass with the rest of
+  housekeeping, so a job enqueued with `not_before` / `delay` now fires within
+  60s of becoming due rather than 15s. `not_before` means *not before*: firing
+  late is correct, and firing early would be the bug. If you need tighter
+  granularity, run the work on your own `Timer_Node` instead.
+
+- **`Job_Intake::try_queue()` is removed.** It was added in this same release
+  for the fleet-sweep enqueue, and that enqueue no longer exists — housekeeping
+  runs in the cron pass, not as a job. `Job_Intake::queue()` is the one entry
+  point again. If you were calling `try_queue()` from inside a worker's drain
+  loop, do the work on a `Timer_Node` in that graph rather than writing to the
+  intake from the drain loop.
 
 - **The `TopicProbe` node type is renamed `Topic_Probe`.** The class is
   `Topic_Probe_Node`, matching its sibling `Job_Probe_Node` and ADR-10. There is

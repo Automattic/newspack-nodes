@@ -333,10 +333,10 @@ dance collapses into a normal long-lived loop.
 system — and whatever revives it can itself die.
 
 **Decision:** Two tiers. Workers self-respawn AND scan their peers: every worker mounts
-`_fleet` (`Fleet_Node`), which on each router tick spawns any fleet worker whose lock dir is
+`_fleet` (`Fleet_Node`), which every 15 seconds spawns any fleet worker whose lock dir is
 missing or whose heartbeat exceeds its `stale_timeout`. **WP-Cron** catches a fleet with
-nothing left running, at minute cadence, via a single cold-start pass
-(`Bootstrap::run_supervisor_tick()` → `Spawn_Coordinator::spawn_due_workers()`).
+nothing left running, at minute cadence, via `Bootstrap::reconcile_fleet()` — one pass that
+spawns (`Spawn_Coordinator::spawn_due_workers()`) and then keeps house.
 
 **Alternatives considered:** Self-respawn only — rejected: nothing catches a worker that dies
 before it can respawn. An OS-level process supervisor (systemd, a platform worker tier) —
@@ -355,8 +355,15 @@ they all cross; the record persists through `Cache_Backend::shared_first()`, fal
 a transient. Supervision now survives the loss of any single process instead of dying with
 one. The cost: with EVERY worker dead there is nothing left to scan, so a total fleet death
 waits up to a cron minute — which is why the cold-start pass deserves its direct tests.
-Housekeeping (retention sweeps, orphan-IPC reaping, `newspack_nodes/periodic`)
-moved to `Fleet_Sweep`, a `unique` job, and so now requires an active `job-worker` topology.
+Housekeeping (lock-dir reconcile, retention sweeps, orphan-IPC reaping,
+`newspack_nodes/periodic`) rides that same cron pass, one step each behind its own
+`try`/`catch` so a third-party subscriber cannot cost the others their window. Spawn runs
+FIRST: it is the only time-critical step. Housekeeping therefore depends on no live worker
+at all — retention and orphan reaping run even when the fleet is down, which is when disk
+most needs reclaiming — and its real cadence needs are minutes or slower (`Log_Cleaner`'s
+delete grace alone is an hour). The delayed-jobs sweep moves with it, so `not_before`
+granularity is a minute; firing late is what `not_before` means, and firing early would be
+the bug.
 
 **Revisit if:** an OS-level process supervisor becomes available — the tiered self-revival
 collapses into it.

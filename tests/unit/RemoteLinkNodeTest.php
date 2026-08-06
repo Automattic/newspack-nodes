@@ -224,7 +224,7 @@ class RemoteLinkNodeTest extends TestCase {
 	 */
 	private function signal_reload( \Newspack_Nodes\Fleet_Node $fleet ): void {
 		\Newspack_Nodes\Lock_Node::request_reload_at( $this->fleet_lock_dir );
-		$this->advance( \Newspack_Nodes\Fleet_Node::CONFIG_CHECK_INTERVAL + 1 );
+		$this->advance( ( \Newspack_Nodes\Fleet_Node::SCAN_INTERVAL_MS / 1000 ) + 1 );
 		$fleet->fire_cb();
 	}
 

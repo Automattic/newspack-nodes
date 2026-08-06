@@ -223,7 +223,7 @@ class HealthChecksTest extends TestCase {
 		);
 	}
 
-	// ── housekeeping: the active job-worker pool it now depends on ─────────
+	// ── housekeeping: the reconcile cron it now depends on ─────────────────
 
 	/** Register a stock topology dir and activate $names, with $tsl contents. */
 	private function activate_topologies( array $tsl ): void {
@@ -237,35 +237,36 @@ class HealthChecksTest extends TestCase {
 		Config::reset();
 	}
 
-	public function test_housekeeping_is_good_when_an_active_topology_runs_the_job_pool(): void {
-		$this->activate_topologies( [
-			'ledger-lab' => "make_node Echo relay\n",
-			'chore-lab'  => "make_node Job_Worker chore-runner\n",
-		] );
+	public function test_housekeeping_is_good_when_the_reconcile_cron_is_scheduled(): void {
+		// A timestamp no default shares — `false` is the missing-event value.
+		$GLOBALS['_wp_test_next_scheduled'] = 1893456789;
+		$this->activate_topologies( [ 'ledger-lab' => "make_node Echo relay\n" ] );
 
 		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
 
 		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
+		$GLOBALS['_wp_test_next_scheduled'] = false;
 	}
 
-	public function test_housekeeping_is_critical_when_no_active_topology_runs_the_job_pool(): void {
-		// `combined` + `performance` without the pool was a working config; it
-		// now loses retention, orphan reaping, alerts, delayed jobs and every
-		// `periodic` subscriber, silently. Doctor must name it.
-		$this->activate_topologies( [
-			'ledger-lab' => "make_node Echo relay\n",
-			'audit-lab'  => "make_node Tee fanout\n",
-		] );
+	public function test_housekeeping_is_critical_when_the_reconcile_cron_is_missing(): void {
+		// The cron pass is now the ONLY thing that runs retention, orphan
+		// partition/IPC reaping, alert emission, the delayed-jobs sweep and every
+		// `periodic` subscriber — and it is the cold-start revival tier besides.
+		// A vetoed or cleared event stops all of it while every other check
+		// stays green.
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+		$this->activate_topologies( [ 'ledger-lab' => "make_node Echo relay\n" ] );
 
 		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];
 
 		$this->assertSame( Health_Checks::STATUS_CRITICAL, $result['status'] );
-		$this->assertStringContainsString( 'job-worker', $result['messages'][0] );
+		$this->assertStringContainsString( 'newspack_nodes/reconcile', $result['messages'][0] );
 	}
 
 	public function test_housekeeping_is_good_when_nothing_is_active(): void {
 		// No workers means no logs growing and nothing to keep house for; the
 		// fleet checks report the empty fleet vacuously good for the same reason.
+		$GLOBALS['_wp_test_next_scheduled'] = false;
 		$this->activate_topologies( [] );
 
 		$result = $this->by_id( Health_Checks::evaluate( $this->good_cache_result() ) )['housekeeping'];

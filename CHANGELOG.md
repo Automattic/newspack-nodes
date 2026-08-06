@@ -42,45 +42,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   topology declaring no vault-consuming node is left alone, and an unparseable
   one is skipped rather than failing the Vault save.
 
-- **`Job_Intake::try_queue()` — enqueue a job or give up, never block.**
-  `queue()` waits up to `Partition_Node::DEFAULT_LOCK_WAIT_MS` (65s, now a named
-  constant rather than a literal) for the partition write lock. That is longer
-  than the 60s default `stale_timeout`, so a caller inside a worker's drain loop
-  stops heartbeating, reads as down to its peers, and gets its lock stolen while
-  it is alive. `try_queue()` try-locks and returns false instead. Use it from any
-  node; `queue()` keeps its blocking behavior for request-scope callers.
-
-- **`wp nodes doctor` now names the job-pool dependency.** Housekeeping runs as a
-  job, so an active fleet with no `Job_Worker` loses retention, orphan
-  partition/IPC reaping, alert emission, the delayed-jobs sweep and every
-  `periodic` subscriber — silently, with every other check green. The
-  seventh health result names that and the `wp nodes activate job-worker` fix.
+- **`wp nodes doctor` now names the reconciliation-cron dependency.**
+  Housekeeping rides the minute cron pass, so a missing `newspack_nodes/reconcile`
+  event loses retention, orphan partition/IPC reaping, alert emission, the
+  delayed-jobs sweep, every `periodic` subscriber AND cold-start worker
+  revival — silently, with every other check green, because a vetoed schedule
+  says nothing. The seventh health result reports whether that event is
+  scheduled and names the `wp cron event schedule` fix.
 
 - **Every worker now scans its peers and revives the ones that are down.**
   `Fleet_Node` mounts as `_fleet` in `Worker_Base::build_scaffolding()` and runs
-  the peer-spawn scan on the router tick, plus a 15s re-read of the active set.
-  This is what retires the supervisor: its whole justification for holding a
-  resident PHP-FPM child was noticing a crashed worker within a second, and any
-  live peer can notice instead. The spawn
+  the peer-spawn scan every `SCAN_INTERVAL_MS = 15000`, hitchhiking the router
+  heartbeat. This is what retires the supervisor: its whole justification for
+  holding a resident PHP-FPM child was noticing a crashed worker quickly, and any
+  live peer can notice instead. Scanning every router tick instead would only
+  reach a MISSING lock dir sooner — the stale-heartbeat path is dominated by the
+  topology's 60s `stale_timeout` — and a crashed worker's queue is durable, so
+  15s costs nothing and saves 15x the glob/stat passes per worker. The spawn
   endpoint's `MIN_SPAWN_INTERVAL_S` throttle already deduplicates three
   independent spawners, so it deduplicates N the same way. Supervision now
   survives the loss of any single process rather than dying with one.
 
   See `docs/superpowers/specs/2026-08-06-delete-the-supervisor.md` in dndocker.
 
-- **Fleet housekeeping now runs as an ordinary job, `nodes_fleet_sweep`.**
-  Retention, orphan-ipc reaping, lock-dir reconcile and the
-  `newspack_nodes/periodic` hook move out of the supervisor tick and
-  into a job that `Fleet_Node` enqueues once per 15s window. The one-per-window
-  guarantee is `Job_Intake`'s atomic `unique` claim, so N scanners produce one
-  sweep with no lock to leak, and a worker that dies mid-sweep gets the
-  Job_Worker crash lifecycle (bounded retry, then `:deadletter`) instead of
-  stranding a lock dir.
+- **Fleet housekeeping runs in the minute-cadence cron pass, beside the
+  cold-start spawn.** Lock-dir reconcile, log retention, orphan-IPC reaping and
+  the `newspack_nodes/periodic` hook (which carries alert emission and the
+  delayed-jobs sweep) all ran on the deleted supervisor's 15s tick, and none of
+  them wanted that cadence: `Log_Cleaner::DELETE_GRACE_S` is 3600, so retention
+  ran 240 times per eligible deletion. They are four unrelated chores, so they
+  are four steps of `Bootstrap::reconcile_fleet()` rather than an abstraction.
 
-  The split is load-bearing: **revival cannot be a job, housekeeping can.** The
-  peer-spawn scan stays inline because a dead fleet has no worker to run a job;
-  everything else runs where third-party code belongs. A missing claim store
-  (no memcached, no APCu) degrades housekeeping and never blocks revival.
+  Spawn stays FIRST — it is the revival path and the only time-critical step, so
+  janitorial work may never preempt it by throwing — and every step is wrapped
+  alone, so a third-party `topologies` provider or `periodic` subscriber that
+  throws costs only its own step. The payoff: housekeeping now depends on no
+  live worker at all. Retention and orphan reaping run even when the fleet is
+  down, which is exactly when you want the disk back.
+
+  `Job_Delay::sweep_action()` moves with the rest, so `not_before` granularity
+  is a minute. That degrades correctly — `not_before` means *not before*, so
+  firing late is right and firing early would be the bug.
+
+- **The cron event, its handler and its lifecycle actions are renamed for what
+  they are.** `newspack_nodes/supervisor` → `newspack_nodes/reconcile`,
+  `Bootstrap::run_supervisor_tick()` → `Bootstrap::reconcile_fleet()`, and
+  `newspack_nodes/{before,after}_supervisor_run` →
+  `newspack_nodes/{before,after}_reconcile`. There is no supervisor, and the
+  pass is a reconciliation, not a tick. The event name now lives once, as
+  `Bootstrap::CRON_EVENT`.
+
+- **`Fleet_Node` resets `Config` only when a reload watermark says to.** The
+  reset fires `Config::RESET_ACTION`, whose subscribers (`Log_Discovery::reset`,
+  `Topology_Registry::reset_basename_cache`, `Vault::reset`) drop the parsed-TSL
+  cache — so an unconditional reset made every worker re-glob both topology
+  directories and re-parse every `.tsl` each pass to arrive at the value it
+  already had. Since the reload work removed `invalidate_options_cache()` from
+  that path, the underlying WP option cache is frozen at boot in a long-running
+  worker anyway. The watermark IS the signal that makes the cached fleet stale,
+  so without one there is nothing to re-read. `Bootstrap::expand_workers()` stays
+  unconditional: it is the scan's input, not a poll.
 
 ### Removed
 
@@ -89,11 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that kept it the one process shape in the runtime that was not a worker: the
   `'supervisor' === $type` branch and `run_supervisor_sync()` in
   `Spawn_Controller`, its `validate_partition()` and `validate_worker_type()`
-  supervisor arms, `Bootstrap::run_supervisor_tick()`'s loop, and the CLI's
+  supervisor arms, the cron handler's loop, and the CLI's
   `restart supervisor` target, partition `-1` status row and separate `types`
   listing. Every behavior it had has a successor: revival in each worker's
-  `_fleet` scan, housekeeping in the `nodes_fleet_sweep` job, and cold start in
-  the cron pass below. `locks/supervisor.lock.d` no longer exists; nothing
+  `_fleet` scan, and both housekeeping and cold start in the cron
+  reconciliation pass. `locks/supervisor.lock.d` no longer exists; nothing
   reads it. Supersedes [ADR-9](docs/architecture-decisions.md#adr-9-two-tier-safety-net).
 
   Operator-visible: `wp nodes restart supervisor` is rejected as an unknown
@@ -169,10 +190,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   updated, so a topology that only ever `include topic-probe`s needs nothing.
   The node name (`topicprobe`) and the log (`topicprobe.p0`) are unchanged.
 
-- **The WP-Cron tick is now a single cold-start pass.**
-  `Bootstrap::run_supervisor_tick()` keeps its minute cadence but wires the
-  runtime, checks the enable gate, and spawns anything whose lock dir is missing
-  or whose heartbeat is stale — then returns. No 595s loop, no singleton lock.
+- **The WP-Cron tick is now a single reconciliation pass.**
+  `Bootstrap::reconcile_fleet()` keeps its minute cadence but wires the
+  runtime, checks the enable gate, spawns anything whose lock dir is missing
+  or whose heartbeat is stale, keeps house — then returns. No 595s loop, no
+  singleton lock.
   It is the ONLY revival path when zero workers are alive, so it is also the
   one that pays for total fleet death: revival then waits up to a cron minute
   rather than a second. `expand_workers()` — which fires the third-party
@@ -267,11 +289,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   says a broad catch on the drain path re-throws it first; now it does.
 
 - **The WP-Cron tick threw instead of reporting an unusable base directory.**
-  `run_supervisor_tick()` called `ensure_runtime_wired()` outside its try, and
+  The cron handler called `ensure_runtime_wired()` outside its try, and
   that reaches `Config::get_base_directory()`, which throws on a base it cannot
   use — so a misconfigured install raised out of the cron callback every minute
   instead of logging once. It now consults `runtime_base_is_available()` first,
-  as `register_rest_routes()` and `self_heal_supervisor_cron()` already did.
+  as `register_rest_routes()` and `self_heal_reconcile_cron()` already did.
 
 - **A `Timer_Node` comment was never true.** Its header claimed a
   void-returning closure "coerces to falsy and self-unregisters after one

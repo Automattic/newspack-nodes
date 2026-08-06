@@ -28,6 +28,12 @@ class Bootstrap {
 	/** Site Health test id (also the `test` field WP echoes back on the result). */
 	public const SITE_HEALTH_TEST = 'newspack_nodes_fleet';
 
+	/** The reconciliation pass's WP-Cron hook — one literal, many call sites. */
+	public const CRON_EVENT = 'newspack_nodes/reconcile';
+
+	/** Its recurrence, registered on `cron_schedules`. */
+	public const CRON_SCHEDULE = 'newspack_nodes_minute';
+
 	/** @var (\Closure(): list<HealthResult>)|null */
 	public static ?\Closure $health_report_evaluator = null;
 
@@ -71,7 +77,7 @@ class Bootstrap {
 	private static bool $diagnostics_wired = false;
 
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
-	private static bool $schedule_event_context_is_supervisor = false;
+	private static bool $schedule_event_context_is_reconcile = false;
 
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
@@ -168,8 +174,6 @@ class Bootstrap {
 		\add_action( 'newspack_nodes/periodic', [ Alerts::class, 'emit' ] );
 		// Delayed-jobs sweep: circulate jobdelay.p0, deliver due entries.
 		\add_action( 'newspack_nodes/periodic', [ Job_Delay::class, 'sweep_action' ] );
-		// Fleet housekeeping runs as an ordinary job; this is what executes it.
-		\add_filter( 'newspack_nodes/job_handlers', [ Fleet_Sweep::class, 'register' ] );
 		// A re-credentialed or removed spoke invalidates its command session.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'forget_command_session' ] );
 		// ...and the workers holding its credentials must re-read them.
@@ -241,7 +245,7 @@ class Bootstrap {
 	}
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
-	public static function self_heal_supervisor_cron(): void {
+	public static function self_heal_reconcile_cron(): void {
 		if ( ! self::is_supervisor_enabled() ) {
 			return;
 		}
@@ -251,7 +255,7 @@ class Bootstrap {
 		if ( empty( self::get_topologies() ) ) {
 			return;
 		}
-		if ( \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
+		if ( \wp_next_scheduled( self::CRON_EVENT ) ) {
 			return;
 		}
 		self::activate();
@@ -279,13 +283,13 @@ class Bootstrap {
 
 	/** Activation hook: schedule the supervisor cron at minute cadence. */
 	public static function activate(): void {
-		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
-			$result = \wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor', [], true );
+		if ( ! \wp_next_scheduled( self::CRON_EVENT ) ) {
+			$result = \wp_schedule_event( \time() + 5, self::CRON_SCHEDULE, self::CRON_EVENT, [], true );
 			if ( \is_wp_error( $result ) ) {
 				Core::print_less_often(
 					'supervisor cron schedule failed: ',
 					\sprintf(
-						'code=%s message=%s schedule=newspack_nodes_minute',
+						'code=%s message=%s schedule=' . self::CRON_SCHEDULE,
 						$result->get_error_code(),
 						$result->get_error_message()
 					)
@@ -319,6 +323,17 @@ class Bootstrap {
 		return $dirs;
 	}
 
+	/**
+	 * Canonical partition count for a topology: the catalog entry's count, else
+	 * the TSL frontmatter (`var num_partitions`), else the config default —
+	 * clamped to [1, MAX_PARTITIONS] exactly like expand_workers, so the count
+	 * the Path menu shows can never disagree with what the fleet SPAWNS.
+	 * This is the SINGLE derivation the admin localizer and the `topologies.list`
+	 * verb both call.
+	 *
+	 * @param string $name Topology name.
+	 * @return int Partition count in [1, MAX_PARTITIONS].
+	 */
 	public static function num_partitions_for( string $name ): int {
 		$default_np = self::global_num_partitions();
 		$count      = $default_np;
@@ -344,17 +359,6 @@ class Bootstrap {
 		return \min( Spawn_Coordinator::MAX_PARTITIONS, \max( 1, $count ) );
 	}
 
-	/**
-	 * Canonical partition count for a topology: the catalog entry's count, else
-	 * the TSL frontmatter (`var num_partitions`), else the config default —
-	 * clamped to [1, MAX_PARTITIONS] exactly like expand_workers, so the count
-	 * the Path menu shows can never disagree with what the fleet SPAWNS.
-	 * This is the SINGLE derivation the admin localizer and the `topologies.list`
-	 * verb both call.
-	 *
-	 * @param string $name Topology name.
-	 * @return int Partition count in [1, MAX_PARTITIONS].
-	 */
 	/**
 	 * The global `num_partitions` option, clamped to the range a worker will
 	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
@@ -440,12 +444,21 @@ class Bootstrap {
 	}
 
 	/**
-	 * Cron cold start: ONE pass that spawns every fleet worker whose lock is
-	 * missing or stale, then returns. Every live worker runs the same scan on
-	 * its router tick, so this tier only decides anything when none is left —
-	 * which is why it holds no lock and enters no loop of its own.
+	 * The minute-cadence reconciliation pass: revive whatever is down, then keep
+	 * house. Every live worker runs the same peer scan on its own timer, so the
+	 * spawn step only decides anything when none is left — which is why this
+	 * holds no lock and enters no loop of its own.
+	 *
+	 * The four housekeeping chores need minutes at best (`Log_Cleaner`'s delete
+	 * grace alone is an hour), and running them here rather than as a job on the
+	 * `job-worker` pool is the point: retention and orphan reaping now run even
+	 * when the fleet is down, which is when disk most needs reclaiming.
+	 *
+	 * `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` keeps its `supervisor` value: it
+	 * is the label newspack-event-logger-nodes files this pass's stats under,
+	 * and renaming it only splits that row's history.
 	 */
-	public static function run_supervisor_tick(): void {
+	public static function reconcile_fleet(): void {
 		if ( ! self::fleet_site() ) {
 			return; // Subsite: the fleet is network-global and runs on the main site.
 		}
@@ -458,33 +471,67 @@ class Bootstrap {
 		}
 		self::ensure_runtime_wired();
 		if ( ! self::is_supervisor_enabled() ) {
-			self::unschedule_supervisor();
+			self::unschedule_reconcile();
 			return;
 		}
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
-		\do_action( 'newspack_nodes/before_supervisor_run' );
 		try {
-			// @longform expand_workers() fires the third-party `topologies`
-			// filter: inside the try, because the tier of last resort must not
-			// fatal every cron minute because one provider threw.
-			self::supervisor()->spawn_due_workers( Core::right_now() );
+			self::run_reconcile_steps();
 		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'supervisor tick failed: ', $e->getMessage() );
+			// An escape here would be sixty a hour, straight out of cron.
+			Core::print_less_often( 'reconcile pass failed: ', $e->getMessage() );
 		} finally {
-			\do_action( 'newspack_nodes/after_supervisor_run' );
+			\do_action( 'newspack_nodes/after_reconcile' );
 		}
 	}
 
 	/** Unschedule the supervisor cron event. */
-	public static function unschedule_supervisor(): void {
+	public static function unschedule_reconcile(): void {
 		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
 			return;
 		}
-		$next = \wp_next_scheduled( 'newspack_nodes/supervisor' );
+		$next = \wp_next_scheduled( self::CRON_EVENT );
 		if ( $next ) {
-			\wp_unschedule_event( $next, 'newspack_nodes/supervisor' );
+			\wp_unschedule_event( $next, self::CRON_EVENT );
+		}
+	}
+
+	/**
+	 * Spawn FIRST — it is the revival path and the only time-critical step, so
+	 * janitorial work may never preempt it by throwing. Every step then stands
+	 * alone: all five run third-party code (`expand_workers()` fires the
+	 * `topologies` filter, `periodic` is whatever subscribed), and one bad
+	 * provider must not cost the others their window.
+	 */
+	private static function run_reconcile_steps(): void {
+		// @longform Third-party surface, so it gets its own step: fired bare it
+		// both escaped the callback and skipped the spawn behind it.
+		self::reconcile_step( 'before', static fn() => \do_action( 'newspack_nodes/before_reconcile' ) );
+		$coordinator = self::supervisor();
+		$base_dir    = self::base_dir();
+		self::reconcile_step( 'spawn', static fn() => $coordinator->spawn_due_workers( Core::right_now() ) );
+		self::reconcile_step( 'lock-dirs', static fn() => $coordinator->reconcile_lock_dirs() );
+		self::reconcile_step( 'retention', static fn() => Log_Cleaner::cleanup_orphan_partitions( $base_dir ) );
+		self::reconcile_step( 'orphan-ipc', static fn() => $coordinator->cleanup_orphan_ipc() );
+		self::reconcile_step( 'periodic', static fn() => \do_action( 'newspack_nodes/periodic' ) );
+	}
+
+	/**
+	 * Run one reconciliation step, reporting rather than propagating. No
+	 * `Worker_Should_Stop` carve-out (ADR-14): this is a cron request, not a
+	 * worker drain loop, so there is no worker for a cooperative stop to reach
+	 * and letting one escape would only fatal the callback.
+	 *
+	 * @param string   $label Step name, for the failure report.
+	 * @param callable $work  The step.
+	 */
+	private static function reconcile_step( string $label, callable $work ): void {
+		try {
+			$work();
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( "reconcile step '{$label}' failed: ", $e->getMessage() );
 		}
 	}
 
@@ -501,9 +548,9 @@ class Bootstrap {
 	 * @param mixed $event Event object (hook, timestamp, schedule, args, interval).
 	 * @return mixed $pre, unchanged.
 	 */
-	public static function log_supervisor_schedule_veto( $pre, $event ) {
+	public static function log_reconcile_schedule_veto( $pre, $event ) {
 		$hook = self::event_hook( $event );
-		if ( 'newspack_nodes/supervisor' !== $hook ) {
+		if ( self::CRON_EVENT !== $hook ) {
 			return $pre;
 		}
 		// null = nobody intervened; truthy non-error = another runner took it.
@@ -591,15 +638,15 @@ class Bootstrap {
 	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
 	 * @return mixed $event, unchanged.
 	 */
-	public static function log_supervisor_schedule_event_veto( $event ) {
+	public static function log_reconcile_schedule_event_veto( $event ) {
 		if ( $event ) {
-			self::$schedule_event_context_is_supervisor = false;
+			self::$schedule_event_context_is_reconcile = false;
 			return $event;
 		}
-		if ( ! self::$schedule_event_context_is_supervisor ) {
+		if ( ! self::$schedule_event_context_is_reconcile ) {
 			return $event;
 		}
-		self::$schedule_event_context_is_supervisor = false;
+		self::$schedule_event_context_is_reconcile = false;
 
 		$filter = (string) \current_filter();
 		Core::print_less_often(
@@ -659,7 +706,7 @@ class Bootstrap {
 	 * @return mixed $event, unchanged.
 	 */
 	public static function remember_schedule_event_context( $event ) {
-		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
+		self::$schedule_event_context_is_reconcile = self::CRON_EVENT === self::event_hook( $event );
 		return $event;
 	}
 
@@ -823,8 +870,8 @@ class Bootstrap {
 	 * @return array<string, mixed>
 	 */
 	public static function register_cron_schedules( array $schedules ): array {
-		if ( ! isset( $schedules['newspack_nodes_minute'] ) ) {
-			$schedules['newspack_nodes_minute'] = [
+		if ( ! isset( $schedules[ self::CRON_SCHEDULE ] ) ) {
+			$schedules[ self::CRON_SCHEDULE ] = [
 				'interval' => 60,
 				'display'  => 'Every Minute (Newspack Nodes)',
 			];
@@ -834,6 +881,6 @@ class Bootstrap {
 
 	/** Deactivation hook: clear the supervisor cron. */
 	public static function deactivate(): void {
-		\wp_clear_scheduled_hook( 'newspack_nodes/supervisor' );
+		\wp_clear_scheduled_hook( self::CRON_EVENT );
 	}
 }

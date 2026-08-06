@@ -95,31 +95,31 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	}
 }
 
-// Wire WP integration (REST, supervisor cron, activation); skipped in tests.
+// Wire WP integration (REST, reconcile cron, activation); skipped in tests.
 if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
-	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
+	\add_action( 'newspack_nodes/reconcile', [ '\\Newspack_Nodes\\Bootstrap', 'reconcile_fleet' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 	// Settings-sync: register option-change hooks once (init idempotent).
 	\Newspack_Nodes\Settings_Event_Writer::init();
-	// Supervisor-cron veto filters: run under ANY cron runner, not wp-cron.
-	\add_filter( 'pre_schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
-	\add_filter( 'pre_reschedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
+	// Reconcile-cron veto filters: run under ANY cron runner, not wp-cron.
+	\add_filter( 'pre_schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_reconcile_schedule_veto' ], PHP_INT_MAX - 2, 2 );
+	\add_filter( 'pre_reschedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_reconcile_schedule_veto' ], PHP_INT_MAX - 2, 2 );
 	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'remember_schedule_event_context' ], PHP_INT_MIN + 2, 1 );
-	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_event_veto' ], PHP_INT_MAX - 2, 1 );
+	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_reconcile_schedule_event_veto' ], PHP_INT_MAX - 2, 1 );
 	// Default spawn handler: spawns any active-set worker, ungated by owner.
 	\add_action( 'newspack_nodes/spawn_worker', [ '\\Newspack_Nodes\\Topology_Registry', 'spawn_worker' ], 10, 2 );
 	// On config reload: reset log view + basename cache (narrow, keeps dirs).
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Log_Discovery', 'reset' ] );
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Topology_Registry', 'reset_basename_cache' ] );
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Vault', 'reset' ] );
-	// Self-heal: re-arm the supervisor cron on admin view if it got cleared.
-	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
+	// Self-heal: re-arm the reconcile cron on admin view if it got cleared.
+	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_reconcile_cron' ] );
 }
 
 if ( \function_exists( 'add_filter' ) ) {
-	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
+	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (the substrate reconcile pass); rule can't see into array-callable targets.
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
 	// Topology catalog: every .tsl (user + stock dirs), not an allowlist.
 	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
