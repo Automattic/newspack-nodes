@@ -25,11 +25,17 @@ trait Cooperative_Stop {
 	/** Seconds a process runs before yielding to its successor. */
 	public const DEFAULT_MAX_RUNTIME = 595;
 
+	/** Seconds an on-demand process stays idle before scaling itself to zero. */
+	public const DEFAULT_ON_DEMAND_IDLE_S = 5;
+
 	/** Seconds between lock heartbeats. */
 	public const HEARTBEAT_INTERVAL_S = 10;
 
 	/** Seconds between DB liveness probes. */
 	public const DB_CHECK_INTERVAL_S = 30;
+
+	/** Seconds between idle scans; `idle_since()` stats the disk, `should_continue()` is per-tick. */
+	public const IDLE_CHECK_INTERVAL_S = 1;
 
 	/** Consecutive DB-probe failures that stop the process. */
 	public const DB_CHECK_MAX_FAILURES = 3;
@@ -55,6 +61,15 @@ trait Cooperative_Stop {
 
 	/** Last lock heartbeat (epoch seconds). */
 	protected float $last_heartbeat = 0.0;
+
+	/** Last idle scan (epoch seconds). */
+	protected float $last_idle_check = 0.0;
+
+	/** Whether this process scales itself to zero once idle. */
+	protected bool $on_demand = false;
+
+	/** Seconds every reporter must stay idle before this process exits. */
+	protected int $on_demand_idle = self::DEFAULT_ON_DEMAND_IDLE_S;
 
 	/** The held lock, or null before acquire / after release. */
 	protected ?Lock_Node $lock = null;
@@ -137,7 +152,50 @@ trait Cooperative_Stop {
 			}
 		}
 
+		// Silent like the routine recycle: `wp nodes status` says `idle`.
+		if ( $this->on_demand && $this->idle_window_elapsed( $now ) ) {
+			return $this->stop( '', 'idle' );
+		}
+
 		return true;
+	}
+
+	/**
+	 * Whether EVERY `Idle_Reporter` in the graph has been idle for the whole
+	 * `on_demand_idle` window. One busy reporter forbids the exit, so a builder
+	 * holding an open envelope keeps the process alive even while its consumer
+	 * sits at EOF — the quiet case that would otherwise abandon a started span
+	 * mid-request.
+	 *
+	 * The window runs from the LATEST reporter's idle timestamp, which is the
+	 * same fold `SSE_Out_Node::opened_at_eof_since()` applies to its consumers.
+	 * A graph with no reporter has nothing to measure and never exits.
+	 *
+	 * @longform Throttled to once a second because `Consumer_Node::idle_since()`
+	 * lists segments and stats the newest one, while `should_continue()` runs on
+	 * every drain tick — per-tick disk I/O would spend more than the residency
+	 * this is meant to give back. A skipped scan reads as "keep running", so the
+	 * exit lands at most a second past the window, which is measured in seconds.
+	 *
+	 * @param float $now Current time, shared with the rest of should_continue().
+	 */
+	private function idle_window_elapsed( float $now ): bool {
+		if ( ( $now - $this->last_idle_check ) < self::IDLE_CHECK_INTERVAL_S ) {
+			return false;
+		}
+		$this->last_idle_check = $now;
+		$newest                = null;
+		foreach ( Core::$nodes_by_name as $node ) {
+			if ( ! $node instanceof Idle_Reporter ) {
+				continue;
+			}
+			$since = $node->idle_since();
+			if ( null === $since ) {
+				return false;
+			}
+			$newest = null === $newest ? $since : \max( $newest, $since );
+		}
+		return null !== $newest && ( $now - $newest ) >= $this->on_demand_idle;
 	}
 
 	/**

@@ -119,7 +119,8 @@ class Workers_CI_Node extends Service_CI_Node {
 				$partition,
 				"{$locks_base}/{$type}.p{$partition}.lock.d",
 				$now,
-				$stale_to
+				$stale_to,
+				Bootstrap::is_on_demand( $w )
 			);
 		}
 
@@ -169,10 +170,16 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Build one worker's liveness descriptor (`status`/`live`/`stale`/`heartbeat_at`)
+	 * Build one worker's liveness descriptor (`status`/`live`/`stale`/`idle`/`heartbeat_at`)
 	 * from the lock-dir heartbeat mtime, so the dashboard renders status badges in
 	 * one round-trip.
 	 *
+	 * `idle` is the derived conjunction every consumer wants — an on-demand
+	 * worker that is cleanly absent, as opposed to one that died holding its
+	 * lock. Deriving it once here keeps alerting and the dashboards from each
+	 * re-deciding what absence means.
+	 *
+	 * @param bool $on_demand Whether the topology scales to zero when idle.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
@@ -180,7 +187,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		int $partition,
 		string $lock_dir,
 		int $now,
-		int $stale_timeout
+		int $stale_timeout,
+		bool $on_demand = false
 	): array {
 		// Pure liveness per (type, partition) from the lock-dir heartbeat.
 		$status        = 'dead';
@@ -206,6 +214,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'heartbeat_at'    => $heartbeat_at,
 			'live'            => $live,
 			'stale'           => $stale,
+			'idle'            => $on_demand && ! $live && ! $stale,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 		];
 	}

@@ -11,7 +11,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Consumer_Node extends Timer_Node {
+class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	use Schema_Reflection;
 	/** Dead_Letter_Queue rides in with Durable_Reader, which drives it. */
 	use Durable_Reader;

@@ -153,8 +153,8 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->seed_topology( $dir, 'widget' );
 
 		$captured                        = [];
-		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
-			$captured[] = [ $t, $p, $name, $stale ];
+		Topology_Registry::$spawn_runner = static function ( array $d ) use ( &$captured ): void {
+			$captured[] = [ $d['type'], $d['partition'], $d['topology'], $d['stale_timeout'] ];
 		};
 
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
@@ -173,8 +173,8 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->seed_topology( $user_dir, 'hand-rolled' );
 
 		$captured                        = [];
-		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
-			$captured[] = [ $t, $p, $name, $stale ];
+		Topology_Registry::$spawn_runner = static function ( array $d ) use ( &$captured ): void {
+			$captured[] = [ $d['type'], $d['partition'], $d['topology'], $d['stale_timeout'] ];
 		};
 
 		$this->activate( [ 'hand-rolled' ] );
@@ -189,8 +189,8 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->seed_topology( $dir, 'widget' );
 
 		$captured                        = [];
-		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
-			$captured[] = [ $t, $p, $name, $stale ];
+		Topology_Registry::$spawn_runner = static function ( array $d ) use ( &$captured ): void {
+			$captured[] = [ $d['type'], $d['partition'], $d['topology'], $d['stale_timeout'] ];
 		};
 
 		Topology_Registry::register_plugin( 'Acme\\', $dir );

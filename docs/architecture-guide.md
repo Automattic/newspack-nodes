@@ -597,6 +597,36 @@ $token  = hash_hmac( 'sha256', "newspack_nodes_{$purpose}:{$window}", $salt );  
 
 **WP-Cron reconciliation pass**: the `newspack_nodes/reconcile` action runs on a registered 60-second schedule (`newspack_nodes_minute`). `Bootstrap::reconcile_fleet()` runs five steps and returns; it takes no lock and enters no loop. Spawn (`Spawn_Coordinator::spawn_due_workers()`) is FIRST — it is the revival path and the only time-critical step — then lock-dir reconcile, log retention, orphan-IPC reaping, and `do_action( 'newspack_nodes/periodic' )` (which carries alert emission and the delayed-jobs sweep). Each step is wrapped alone, so a third-party `topologies` provider or `periodic` subscriber that throws costs only its own step. Steady state, every live worker's peer scan keeps the fleet up and the spawn step finds nothing due, while the four chores get the cadence they actually need. `wp nodes doctor`'s `housekeeping` result reports whether this event is scheduled, because a missing one stops all of it silently. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
 
+**On-demand workers**: a topology whose frontmatter declares `var on_demand = 1` scales to zero
+instead of staying resident, and `var on_demand_idle = <seconds>` (default 5) sizes the window.
+The flag rides the `stale_timeout` path — `Topology_Registry::synthesize_entry()` into the catalog
+entry, `Bootstrap::expand_workers()` onto each worker descriptor — and changes three places that
+otherwise read absence as death:
+
+- `Spawn_Coordinator::worker_needs_spawn()` returns false for a cleanly MISSING lock dir. A
+  *stale* one still spawns: staleness means a worker died holding it, which is a crash whether or
+  not the type is on-demand.
+- `Alerts::evaluate()` raises nothing for such a worker (`Workers_CI` derives the `idle` flag once,
+  so alerting and the dashboards cannot disagree about what absence means).
+- `wp nodes status` renders it `idle`, distinct from `live`, `stale` and `down`.
+
+The worker exits when EVERY `Idle_Reporter` in its graph has been idle for the whole window, timed
+from the LATEST reporter's `idle_since()` — the same fold `SSE_Out_Node::opened_at_eof_since()`
+applies to its consumers. `Consumer_Node` already implemented that method and simply opts in.
+Nodes report their own idleness so the substrate names no application class, and a graph with no
+reporter has nothing to measure and never idle-exits. EOF alone would not do: a request that logs
+its start and then goes quiet leaves a builder holding an envelope while its consumer sits at EOF,
+and exiting there abandons a started span. An idle stop sets stop category `idle`, which is the one
+category `Worker_Base::should_self_respawn()` refuses — respawning would undo the exit.
+
+Bringing it back is the producer's job, because WP-Cron at minute cadence is the fallback tier and
+a job that waits 60s for a tick is worse than the resident worker it replaced. `Job_Intake` posts a
+fire-and-forget spawn after the entry lands, and the 15s throttle makes a burst of N enqueues one
+spawn. It wakes every on-demand topology on that partition rather than the one that drains this
+log: no producer knows which topology consumes what, a spurious wake idles back out in
+`on_demand_idle` seconds, and the alternative is a registry the TSL already implies. A *delayed*
+job wakes nothing — it is not due, and `Job_Delay` circulates it when it is.
+
 **Two-tier safety net**:
 
 - Workers self-respawn, and every live worker's `_fleet` scan catches a peer whose lock is missing or stale.

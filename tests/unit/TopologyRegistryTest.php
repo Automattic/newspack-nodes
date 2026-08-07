@@ -5,6 +5,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Worker_Base;
 use Newspack_Nodes\Tests\TestCase;
 
 class TopologyRegistryTest extends TestCase {
@@ -189,6 +190,8 @@ class TopologyRegistryTest extends TestCase {
 				'topology'       => 'aggregator',
 				'num_partitions' => 3,
 				'stale_timeout'  => 120,
+				'on_demand'      => false,
+				'on_demand_idle' => Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
 			],
 			Topology_Registry::synthesize_entry( 'aggregator' )
 		);
@@ -203,6 +206,8 @@ class TopologyRegistryTest extends TestCase {
 				'topology'       => 'quiet',
 				'num_partitions' => 4,
 				'stale_timeout'  => 99,
+				'on_demand'      => false,
+				'on_demand_idle' => Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
 			],
 			Topology_Registry::synthesize_entry( 'quiet', 4, 99 )
 		);

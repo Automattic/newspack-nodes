@@ -20,7 +20,9 @@ class Topology_Registry {
 	 * to a closure that builds + executes the real Worker_Base. Tests reassign in
 	 * setUp to capture the spawn intent without forking a worker process — that
 	 * leaves the guard + expand_workers lookup running as real production code.
-	 * Signature: `function ( string $type, int $partition, string $topology_name, int $stale_timeout ): void`.
+	 * Takes the whole `expand_workers()` descriptor rather than a parameter list,
+	 * so a new frontmatter var reaches the worker without a signature change.
+	 * Signature: `function ( array $descriptor ): void`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -62,7 +64,8 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 * Build a `[topology, num_partitions, stale_timeout, on_demand, on_demand_idle]`
+	 * entry from a TSL's frontmatter; null if unknown.
 	 *
 	 * @return array<string, mixed>|null
 	 */
@@ -79,6 +82,10 @@ class Topology_Registry {
 			'topology'       => $name,
 			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
 			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
+			'on_demand'      => isset( $front['on_demand'] ) && (bool) (int) $front['on_demand'],
+			'on_demand_idle' => isset( $front['on_demand_idle'] )
+				? (int) $front['on_demand_idle']
+				: Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
 		];
 	}
 
@@ -324,18 +331,24 @@ class Topology_Registry {
 			if ( $w['type'] !== $type || $w['partition'] !== $partition ) {
 				continue;
 			}
-			$runner = self::$spawn_runner ?? static function ( string $t, int $p, string $topology_name, int $stale ): void {
-				$base_dir   = \Newspack_Nodes\Bootstrap::base_dir();
-				$coordinator = new \Newspack_Nodes\Spawn_Coordinator( $base_dir );
-				$wb         = new \Newspack_Nodes\Worker_Base( $base_dir, $t, $p, stale_timeout: $stale );
-				$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {
+			$runner = self::$spawn_runner ?? static function ( array $descriptor ): void {
+				$base_dir      = \Newspack_Nodes\Bootstrap::base_dir();
+				$coordinator   = new \Newspack_Nodes\Spawn_Coordinator( $base_dir );
+				$topology_name = Core::as_string( $descriptor['topology'] );
+				$wb            = new \Newspack_Nodes\Worker_Base(
+					$base_dir,
+					Core::as_string( $descriptor['type'] ),
+					Core::as_int( $descriptor['partition'] ),
+					stale_timeout: Lock_Node::stale_timeout_of( $descriptor ),
+					on_demand: \Newspack_Nodes\Bootstrap::is_on_demand( $descriptor ),
+					on_demand_idle: \Newspack_Nodes\Bootstrap::on_demand_idle_of( $descriptor )
+				);
+				$topology      = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {
 					\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 				};
 				$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $coordinator->generate_spawn_token( \time() ) );
 			};
-			$w_topology = Core::as_string( $w['topology'] );
-			$w_stale    = Core::as_int( $w['stale_timeout'] );
-			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
+			$runner( $w );
 			break;
 		}
 	}

@@ -197,6 +197,10 @@ class Alerts {
 		if ( 'dead' !== ( $worker['status'] ?? '' ) ) {
 			return null;
 		}
+		// An on-demand worker with nothing to do is the feature working.
+		if ( true === ( $worker['idle'] ?? false ) ) {
+			return null;
+		}
 		$type      = Core::as_string( $worker['type'] ?? '' );
 		$partition = Core::as_int( $worker['partition'] ?? 0 );
 		$label     = "{$type}.p{$partition}";
