@@ -189,6 +189,29 @@ body:has(.nodes-devtools-hub .topology-app) {
 	}
 }
 
+// A checkbox is not a 100%-wide text input: box and label share a line, hint under.
+.topology-settings-field--check {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	column-gap: 6px;
+	align-items: center;
+
+	input[type="checkbox"] {
+		width: auto;
+		margin: 0;
+		grid-area: 1 / 1;
+	}
+
+	span {
+		grid-area: 1 / 2;
+		margin-bottom: 0;
+	}
+
+	small {
+		grid-area: 2 / 2;
+	}
+}
+
 .topology-settings-vars {
 	margin-top: 8px;
 	border-top: 1px solid var(--paper-shadow);
