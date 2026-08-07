@@ -86,6 +86,8 @@ class Router_Node extends Timer_Node {
 			$this->print_less_often( 'WARNING: no secure level declared' );
 		}
 		$this->notify_timer();
+		// One flush per tick for the whole process, off Partition's lock path.
+		Partition_Node::flush_pending_wakes();
 		Core::prune_logs();
 		if ( null !== self::$profiles ) {
 			$this->trim_profiles();

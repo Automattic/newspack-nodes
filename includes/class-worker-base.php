@@ -363,7 +363,7 @@ class Worker_Base {
 		// Worker = command VERIFIER: set the process-wide HMAC authorize once.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
-		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
+		$ipc_dir = self::ipc_dir( $this->base_dir, $this->worker_type, $this->partition );
 
 		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
@@ -396,6 +396,16 @@ class Worker_Base {
 		$repl_in->sink( $interpreter );
 
 		return $interpreter;
+	}
+
+	/**
+	 * Where a worker's IPC tree lives. One definition, because the fleet's own
+	 * scaffolding and anything asking about another worker must agree — this
+	 * layout is the SUBSTRATE's, unlike a TSL path template, so constructing it
+	 * here is not the layout assumption a `.p<N>` parse would be.
+	 */
+	public static function ipc_dir( string $base_dir, string $type, int $partition ): string {
+		return \rtrim( $base_dir, '/' ) . "/ipc/{$type}.p{$partition}";
 	}
 
 	/**

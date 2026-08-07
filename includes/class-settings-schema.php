@@ -306,6 +306,13 @@ class Settings_Schema {
 					default: 5000,
 					ui: false,
 				),
+				// Worker analogue of sse_idle_timeout; frontmatter wins.
+				new Field(
+					key: 'on_demand_idle',
+					type: 'int',
+					default: Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
+					ui: false,
+				),
 				// ui:false overlay; registering lets Save wipe the active set.
 				new Field(
 					key: 'topologies',

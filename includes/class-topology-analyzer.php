@@ -576,6 +576,158 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * Raw source templates of every Consumer in `$topology`.
+	 *
+	 * The template, not a basename: a caller resolves it per partition through
+	 * `Core::resolve_partition_template()`, which is the ONE place the
+	 * `<partition>` token is substituted. Nothing here may assume the token sits
+	 * in any particular position — a `.p<partition>` suffix is one layout among
+	 * several, and matching on it is how a path that puts the token elsewhere
+	 * silently stops resolving.
+	 *
+	 * @param string $topology Topology name.
+	 * @return list<string>
+	 */
+	public static function consumer_sources( string $topology ): array {
+		$out = [];
+		foreach ( self::graph_for( $topology )['nodes'] as $node ) {
+			if ( 'consumer' !== ( $node['kind'] ?? '' ) ) {
+				continue;
+			}
+			$args   = $node['args'] ?? [];
+			$source = \is_array( $args ) ? Core::as_string( $args[0] ?? '' ) : '';
+			if ( '' !== $source ) {
+				$out[] = $source;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Raw structural graph for `$name` from its TSL (+ every topology it
+	 * `include`s, flattened via statements()): nodes with a class-derived kind,
+	 * the make_node `type` token + positional `args` list, (+ the log a
+	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
+	 * a name suffix), and edges from `connect_node` plus
+	 * `command_node <node>:config set_*_target <target>`, with `disconnect_node` applied
+	 * in evaluation order. Memoized.
+	 *
+	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
+	 */
+	public static function graph_for( string $name ): array {
+		if ( isset( self::$graph_cache[ $name ] ) ) {
+			return self::$graph_cache[ $name ];
+		}
+		if ( null === Topology_Registry::resolve( $name ) ) {
+			return self::$graph_cache[ $name ] = [
+				'nodes' => [],
+				'edges' => [],
+			];
+		}
+		$kind_of  = static function ( string $cls ): string {
+			$kind = match ( $cls ) {
+				'Consumer'  => 'consumer',
+				'Partition' => 'partition',
+				'Topic'     => 'topic',
+				'Tee'       => 'tee',
+				'Log'       => 'log',
+				default     => 'logic',
+			};
+			// Tee subclasses only: 'tee' is contracted out of the graph.
+			if ( 'logic' === $kind && self::type_is_tee( $cls ) ) {
+				return 'tee';
+			}
+			return $kind;
+		};
+		$basename = static function ( string $arg ): string {
+			$slash = \strrpos( $arg, '/' );
+			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
+		};
+		$nodes = [];
+		$types = [];
+		$edges = [];
+		try {
+			$walked = self::statements( $name );
+		} catch ( \RuntimeException $e ) {
+			// Display helper: one broken include must not take out dump_graph.
+			Core::print_less_often( 'graph_for ', $name, ': ' . $e->getMessage() );
+			return self::$graph_cache[ $name ] = [
+				'nodes' => [],
+				'edges' => [],
+			];
+		}
+		foreach ( $walked['statements'] as $statement ) {
+			$verb   = $statement['verb'];
+			$values = $statement['values'];
+			$spans  = $statement['spans'];
+			if ( 'make_node' === $verb ) {
+				$class          = $values[1] ?? '';
+				$node_name      = $values[2] ?? '';
+				$kind           = $kind_of( $class );
+				$types[ $node_name ] = $class;
+				// Spans 3.. = positional args; a CI reads the node's config.
+				$path   = $spans[3] ?? null;
+				$node   = [
+					'name' => $node_name,
+					'kind' => $kind,
+					'type' => $class,
+					'args' => \array_slice( $spans, 3 ),
+				];
+				if ( ( 'partition' === $kind || 'topic' === $kind ) && null !== $path ) {
+					$node['writes'] = $basename( $path );
+				} elseif ( 'consumer' === $kind && null !== $path ) {
+					$node['reads'] = $basename( $path );
+					// span 4 = consumer's READER id; disambiguates source.
+					if ( isset( $spans[4] ) ) {
+						$node['reader'] = $basename( $spans[4] );
+					}
+				} elseif ( 'log' === $kind && null !== $path ) {
+					// Carry raw path + sizes so dump_graph stats flat segments.
+					$node['writes']       = $basename( $path );
+					$node['path']         = $path;
+					$node['segment_size'] = isset( $spans[4] ) && \ctype_digit( $spans[4] ) ? (int) $spans[4] : 0;
+					// Count target = num_segments, span 6 of Log args.
+					$node['max_segments'] = isset( $spans[6] ) && \ctype_digit( $spans[6] ) ? (int) $spans[6] : 0;
+				}
+				$nodes[] = $node;
+				continue;
+			}
+			if ( 'disconnect_node' === $verb ) {
+				$source = $values[1] ?? '';
+				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
+				self::disconnect_edge( $edges, $source, $values[2] ?? null, $fans_out );
+				continue;
+			}
+			if ( 'connect_node' === $verb ) {
+				$source = $values[1] ?? '';
+				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
+				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $fans_out );
+				continue;
+			}
+			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
+				&& \preg_match( '/^set_\w*target$/', $values[2] ?? '' ) ) {
+				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
+				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
+			}
+		}
+		return self::$graph_cache[ $name ] = [
+			'nodes' => $nodes,
+			'edges' => \array_map(
+				static fn ( array $edge ): array => [ $edge['from'], $edge['to'] ],
+				\array_values( $edges )
+			),
+		];
+	}
+
+	private static function type_is_tee( string $type ): bool {
+		if ( 'Tee' === $type ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
+	}
+
+	/**
 	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
 	 * processes that would write the same file (data log or cursor) and corrupt
 	 * it. A partition BOTH declare with a byte-identical make_node line (the
@@ -937,130 +1089,6 @@ class Topology_Analyzer {
 	 */
 	private static function flat_lines( string $name ): array {
 		return \array_column( self::statements( $name )['statements'], 'line' );
-	}
-
-	/**
-	 * Raw structural graph for `$name` from its TSL (+ every topology it
-	 * `include`s, flattened via statements()): nodes with a class-derived kind,
-	 * the make_node `type` token + positional `args` list, (+ the log a
-	 * Partition/Topic writes or a Consumer reads, from the path/source ARG — never
-	 * a name suffix), and edges from `connect_node` plus
-	 * `command_node <node>:config set_*_target <target>`, with `disconnect_node` applied
-	 * in evaluation order. Memoized.
-	 *
-	 * @return array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}
-	 */
-	public static function graph_for( string $name ): array {
-		if ( isset( self::$graph_cache[ $name ] ) ) {
-			return self::$graph_cache[ $name ];
-		}
-		if ( null === Topology_Registry::resolve( $name ) ) {
-			return self::$graph_cache[ $name ] = [
-				'nodes' => [],
-				'edges' => [],
-			];
-		}
-		$kind_of  = static function ( string $cls ): string {
-			$kind = match ( $cls ) {
-				'Consumer'  => 'consumer',
-				'Partition' => 'partition',
-				'Topic'     => 'topic',
-				'Tee'       => 'tee',
-				'Log'       => 'log',
-				default     => 'logic',
-			};
-			// Tee subclasses only: 'tee' is contracted out of the graph.
-			if ( 'logic' === $kind && self::type_is_tee( $cls ) ) {
-				return 'tee';
-			}
-			return $kind;
-		};
-		$basename = static function ( string $arg ): string {
-			$slash = \strrpos( $arg, '/' );
-			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
-		};
-		$nodes = [];
-		$types = [];
-		$edges = [];
-		try {
-			$walked = self::statements( $name );
-		} catch ( \RuntimeException $e ) {
-			// Display helper: one broken include must not take out dump_graph.
-			Core::print_less_often( 'graph_for ', $name, ': ' . $e->getMessage() );
-			return self::$graph_cache[ $name ] = [
-				'nodes' => [],
-				'edges' => [],
-			];
-		}
-		foreach ( $walked['statements'] as $statement ) {
-			$verb   = $statement['verb'];
-			$values = $statement['values'];
-			$spans  = $statement['spans'];
-			if ( 'make_node' === $verb ) {
-				$class          = $values[1] ?? '';
-				$node_name      = $values[2] ?? '';
-				$kind           = $kind_of( $class );
-				$types[ $node_name ] = $class;
-				// Spans 3.. = positional args; a CI reads the node's config.
-				$path   = $spans[3] ?? null;
-				$node   = [
-					'name' => $node_name,
-					'kind' => $kind,
-					'type' => $class,
-					'args' => \array_slice( $spans, 3 ),
-				];
-				if ( ( 'partition' === $kind || 'topic' === $kind ) && null !== $path ) {
-					$node['writes'] = $basename( $path );
-				} elseif ( 'consumer' === $kind && null !== $path ) {
-					$node['reads'] = $basename( $path );
-					// span 4 = consumer's READER id; disambiguates source.
-					if ( isset( $spans[4] ) ) {
-						$node['reader'] = $basename( $spans[4] );
-					}
-				} elseif ( 'log' === $kind && null !== $path ) {
-					// Carry raw path + sizes so dump_graph stats flat segments.
-					$node['writes']       = $basename( $path );
-					$node['path']         = $path;
-					$node['segment_size'] = isset( $spans[4] ) && \ctype_digit( $spans[4] ) ? (int) $spans[4] : 0;
-					// Count target = num_segments, span 6 of Log args.
-					$node['max_segments'] = isset( $spans[6] ) && \ctype_digit( $spans[6] ) ? (int) $spans[6] : 0;
-				}
-				$nodes[] = $node;
-				continue;
-			}
-			if ( 'disconnect_node' === $verb ) {
-				$source = $values[1] ?? '';
-				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
-				self::disconnect_edge( $edges, $source, $values[2] ?? null, $fans_out );
-				continue;
-			}
-			if ( 'connect_node' === $verb ) {
-				$source = $values[1] ?? '';
-				$fans_out = isset( $types[ $source ] ) && self::type_fans_out( $types[ $source ] );
-				self::connect_edge( $edges, $source, $values[2] ?? '', [ $name ], $fans_out );
-				continue;
-			}
-			if ( 'command_node' === $verb && \str_ends_with( $values[1] ?? '', ':config' )
-				&& \preg_match( '/^set_\w*target$/', $values[2] ?? '' ) ) {
-				$node_name = \substr( $values[1], 0, -\strlen( ':config' ) );
-				self::set_config_edge( $edges, $node_name, Core::resolve_config_tokens( $values[3] ?? '' ), $values[2], [ $name ] );
-			}
-		}
-		return self::$graph_cache[ $name ] = [
-			'nodes' => $nodes,
-			'edges' => \array_map(
-				static fn ( array $edge ): array => [ $edge['from'], $edge['to'] ],
-				\array_values( $edges )
-			),
-		];
-	}
-
-	private static function type_is_tee( string $type ): bool {
-		if ( 'Tee' === $type ) {
-			return true;
-		}
-		$fqcn = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
 	}
 
 	/**

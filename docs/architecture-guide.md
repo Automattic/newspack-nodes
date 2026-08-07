@@ -619,13 +619,22 @@ its start and then goes quiet leaves a builder holding an envelope while its con
 and exiting there abandons a started span. An idle stop sets stop category `idle`, which is the one
 category `Worker_Base::should_self_respawn()` refuses — respawning would undo the exit.
 
-Bringing it back is the producer's job, because WP-Cron at minute cadence is the fallback tier and
-a job that waits 60s for a tick is worse than the resident worker it replaced. `Job_Intake` posts a
-fire-and-forget spawn after the entry lands, and the 15s throttle makes a burst of N enqueues one
-spawn. It wakes every on-demand topology on that partition rather than the one that drains this
-log: no producer knows which topology consumes what, a spurious wake idles back out in
-`on_demand_idle` seconds, and the alternative is a registry the TSL already implies. A *delayed*
-job wakes nothing — it is not due, and `Job_Delay` circulates it when it is.
+Bringing it back happens at the WRITE boundary. Every producer reaches disk through a
+`Partition_Node` — `Job_Intake` writes one, a `Topic` fans into them, a `Log` extends one, a
+worker's IPC is one — so `fill()` marks the resolved directory and a flush wakes whoever tails it.
+Marking is deliberate cheap (no lookup, no I/O) because it runs per message; the flush runs on the
+router tick inside a drain loop and at shutdown in request scope, so a web request never pays it on
+the way out. Putting the wake in producer helpers instead covered only the FIRST hop — a job routed
+firehose → jobs, or drained jobintake → jobs, landed where nothing woke its reader.
+
+`Bootstrap::on_demand_wake_map()` answers which on-demand workers tail a directory. It is built by
+substitution through `Core::resolve_partition_template()`, never by parsing a `.p<N>` out of a
+path, so a TSL template that puts `<partition>` elsewhere still resolves; it is cached in APCu via
+`Cache_Backend::local_first()`, keyed on the active-topology option with a 60s TTL for edited
+`.tsl` files. IPC takes the one branch it needs — its path names its own worker, and that layout is
+the substrate's rather than a user's template. A partition nothing tails is absent from the map, so
+offsetlogs, deadletter dirs and scratch need no exclusion rule; a delayed job wakes nothing because
+nothing consumes `jobdelay`.
 
 **Two-tier safety net**:
 

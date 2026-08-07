@@ -110,6 +110,32 @@ class OnDemandWorkersTest extends TestCase {
 		$this->assertSame( Worker_Base::DEFAULT_ON_DEMAND_IDLE_S, $entry['on_demand_idle'] );
 	}
 
+	/**
+	 * The operator knob, `num_partitions`-shaped: a deployment tunes how eagerly
+	 * it scales to zero without editing TSL, and a topology that knows its own
+	 * work pattern still overrides. Seeded apart from BOTH the 5s constant and
+	 * the 23s frontmatter so neither can pass this by accident.
+	 */
+	public function test_the_config_default_sizes_a_topology_that_declares_no_window(): void {
+		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
+		$this->write_tsl( 'marmot-ondemand', "var on_demand = 1\nmake_node Echo marmot-echo\n" );
+
+		$this->assertSame( 31, Topology_Registry::synthesize_entry( 'marmot-ondemand' )['on_demand_idle'] );
+	}
+
+	public function test_frontmatter_overrides_the_config_default(): void {
+		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
+		$this->write_tsl(
+			'marmot-ondemand',
+			"var on_demand = 1\nvar on_demand_idle = " . self::IDLE_SECONDS . "\nmake_node Echo marmot-echo\n"
+		);
+
+		$this->assertSame(
+			self::IDLE_SECONDS,
+			Topology_Registry::synthesize_entry( 'marmot-ondemand' )['on_demand_idle']
+		);
+	}
+
 	public function test_expand_workers_carries_on_demand_onto_every_partition(): void {
 		$this->write_tsl(
 			'marmot-ondemand',

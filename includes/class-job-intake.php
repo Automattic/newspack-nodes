@@ -112,13 +112,6 @@ class Job_Intake {
 	private ?int $pinned_partition = null;
 
 	/**
-	 * Spawn coordinator for the on-demand wake; null until first use.
-	 *
-	 * @var Spawn_Coordinator|null
-	 */
-	private ?Spawn_Coordinator $coordinator = null;
-
-	/**
 	 * Constructor.
 	 *
 	 * Both `$base_dir` and `$num_partitions` default to the substrate config
@@ -317,11 +310,8 @@ class Job_Intake {
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::VALUE ]     = $job;
+		// Partition_Node marks the on-demand wake; it sees every producer.
 		$this->partition_handle( $partition, $basename )->fill( $message );
-		// Enqueue implies spawn; a parked job waits for Job_Delay instead.
-		if ( self::DELAY_BASENAME !== $basename ) {
-			$this->coordinator()->wake_on_demand( $partition, $now );
-		}
 		return true;
 	}
 
@@ -381,19 +371,6 @@ class Job_Intake {
 		$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
 		$this->partitions[ $slot ] = $p;
 		return $p;
-	}
-
-	/**
-	 * This intake's spawn coordinator, built once.
-	 *
-	 * It memoizes the on-demand fleet, so a `queue_many()` batch resolves the
-	 * topology catalog once rather than per job.
-	 */
-	private function coordinator(): Spawn_Coordinator {
-		if ( null === $this->coordinator ) {
-			$this->coordinator = new Spawn_Coordinator( $this->base_dir );
-		}
-		return $this->coordinator;
 	}
 
 	/**
