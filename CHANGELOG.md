@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.2] - 2026-08-07
+
 ### Changed
 
 - **The job pool's stale timeout drops from 600s back to 60s.** It was lifted
