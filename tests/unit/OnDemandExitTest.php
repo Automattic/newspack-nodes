@@ -69,6 +69,28 @@ class OnDemandExitTest extends TestCase {
 		return $w;
 	}
 
+	/**
+	 * A REAL Consumer tailing a log nobody has ever written must not veto the
+	 * exit. ELN's `jobs` topology mounts `jobintake:consumer`, and a spoke that
+	 * never takes a large-ingress job has no `jobintake.p0` at all — that one
+	 * absent log kept its job worker running full lifetimes and respawning,
+	 * because an empty source reported null and null reads as busy.
+	 */
+	public function test_a_consumer_whose_source_was_never_written_does_not_hold_the_worker(): void {
+		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
+		$never = new \Newspack_Nodes\Consumer_Node();
+		$never->name( 'jobintake:consumer' );
+		$never->arguments( [ "{$this->tmp}/jobintake.p0", "{$this->tmp}/offsets.p0" ] );
+		$never->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		// Empty for longer than the window — a worker that has been up a while
+		// with the log still absent, which is the shape seen on a live spoke.
+		$this->assertNotNull( $never->idle_since(), 'an empty source is idle, not busy' );
+		$empty = new \ReflectionProperty( $never, 'empty_since' );
+		$empty->setValue( $never, \microtime( true ) - ( self::IDLE_SECONDS + 1 ) );
+
+		$this->assertFalse( $this->worker()->should_continue() );
+	}
+
 	public function test_it_stops_once_every_reporter_has_been_idle_for_the_window(): void {
 		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
 		$w = $this->worker();

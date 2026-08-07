@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.2] - 2026-08-07
+
+### Fixed
+
+- **An on-demand worker never idled if any Consumer tailed a log that had never
+  been written.** `Consumer_Node::idle_since()` returned `null` for a source
+  with no segments, and `null` means BUSY to `idle_window_elapsed()`, which
+  bails on the first one — so a single absent log vetoed the idle exit for the
+  whole worker, permanently. The class already disagreed with itself:
+  `compute_lag()` reports `caught_up => true` for exactly that source.
+
+  Live case: a spoke that never takes a large-ingress job has no
+  `jobintake.p0`, and the event-logger `jobs` topology mounts
+  `jobintake:consumer` against it — so its job worker ran full 10-minute
+  lifetimes and respawned forever instead of scaling to zero. It looked like it
+  behaved after `wp nodes stop` / `start` only because on-demand workers are
+  deliberately not respawned there (a producer wakes them), so "idle" was the
+  display for absent; the first request that woke one pinned it up for good.
+
+  An empty source is now idle FROM WHEN IT WAS FIRST SEEN EMPTY, not from the
+  epoch. `SSE_Out_Node` folds the same call, and an epoch timestamp would close
+  a stream subscribed to a quiet log on its first tick and churn reconnects at
+  the advertised `retry:` interval. `null` stays reserved for its real meaning —
+  bytes still owed — because hanging up on a consumer with unread backlog would
+  starve it on every reconnect.
+
 ## [2.14.1] - 2026-08-07
 
 ### Changed
