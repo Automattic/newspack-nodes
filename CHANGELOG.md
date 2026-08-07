@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The spawn endpoint stops sending headers before it has a response.**
+  `Spawn_Controller::spawn()` called `fastcgi_finish_request()` before returning
+  its `WP_REST_Response`, which COMPLETES the response — so WP was handed a
+  response it could no longer send. The client got an empty body and the server
+  logged "Cannot modify header information - headers already sent". It went
+  unnoticed because every caller is `Core::fire_and_forget_post()`, which
+  discards the body, and `headers_sent()` reports no file or line for a
+  programmatic completion, so nothing pointed at the culprit.
+
+  The call is deleted rather than deferred: `ignore_user_abort( true )` and
+  `set_time_limit( 0 )` beneath it already give the zombie-worker behaviour its
+  comment claimed, and releasing the FPM connection early bought nothing — the
+  process holding that connection IS the worker, and no caller waits for the
+  body.
+
 - **Dead-letter requeue asks the target for its size ceiling.** It compared the
   record against the `MAX_LINE_SIZE` constant, so it refused anything over 4 KB
   even when the partition it was about to write to had lifted its own cap —
