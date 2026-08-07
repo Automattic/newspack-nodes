@@ -72,6 +72,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 */
 	private array $snapshot_carry = [];
 
+	/** When the source was first seen with no segments at all; null once it has any. */
+	private ?float $empty_since = null;
+
 	/** Probe baseline: the counters and instant probe_stats() last drained at. */
 	private int $probe_msgs   = 0;
 	private int $probe_bytes  = 0;
@@ -182,10 +185,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * When the source last grew, for a consumer that has read all of it.
 	 *
-	 * `null` means "do not treat this stream as idle": either bytes are still
-	 * waiting, or the source's age is unknown. A caller seeding an idle clock
-	 * falls back to the present rather than assuming quiet — hanging up on a
-	 * consumer with unread backlog would starve it on every reconnect.
+	 * `null` means "do not treat this stream as idle" and is reserved for bytes
+	 * still waiting — hanging up on a consumer with unread backlog would starve
+	 * it on every reconnect. A source with NO segments is not that case: it is
+	 * idle from when it was first seen empty, so a consumer tailing a log nobody
+	 * has written cannot veto a peer's idle exit, and an SSE stream over one
+	 * still heartbeats for its timeout instead of closing on the first tick.
 	 *
 	 * @return float|null Epoch seconds of the newest segment's last write.
 	 */
@@ -195,8 +200,11 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		}
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return null;
+			// Idle since first seen empty; null here reads as BUSY.
+			$this->empty_since ??= Core::right_now();
+			return $this->empty_since;
 		}
+		$this->empty_since = null;
 		$last = \end( $segments );
 		$path = $this->source()->get_segment_path( Core::as_int( $last['id'] ) );
 		\clearstatcache( true, $path );

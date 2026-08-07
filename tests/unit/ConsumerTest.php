@@ -64,6 +64,39 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( (float) $stamp, $c->idle_since(), 'a caught-up consumer reports its newest segment mtime' );
 	}
 
+	/**
+	 * A source log nobody has written yet is the MOST idle a consumer can be, and
+	 * `compute_lag()` already says so — it returns `caught_up => true` for an
+	 * empty source. Reporting null here contradicts that and reads as BUSY to
+	 * `idle_window_elapsed()`, which bails on the first null, so one consumer
+	 * tailing a log that does not exist pins an on-demand worker awake forever.
+	 *
+	 * Live case: ELN's `jobs` topology mounts `jobintake:consumer`, and a spoke
+	 * that never takes a large-ingress job has no `jobintake.p0` at all — so its
+	 * job worker ran full 10-minute lifetimes and respawned, never idling.
+	 */
+	public function test_idle_since_treats_a_source_with_no_segments_as_idle(): void {
+		$dir = "{$this->tmp}/never-written.p0";
+		\mkdir( $dir, 0755, true );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ $dir, "{$this->tmp}/offsets.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+
+		$since = $c->idle_since();
+		$this->assertNotNull( $since, 'an empty source has no work; null reads as busy' );
+		$this->assertLessThanOrEqual( \microtime( true ), $since );
+	}
+
+	/** Same for a source directory that does not exist at all. */
+	public function test_idle_since_treats_a_missing_source_dir_as_idle(): void {
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/absent.p0", "{$this->tmp}/offsets.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+
+		$this->assertNotNull( $c->idle_since(), 'a source that was never created has no work' );
+	}
+
 	public function test_idle_since_is_null_while_bytes_are_still_owed(): void {
 		$dir = "{$this->tmp}/data.p0";
 		\mkdir( $dir, 0755, true );
