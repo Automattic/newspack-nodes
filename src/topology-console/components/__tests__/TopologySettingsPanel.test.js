@@ -236,4 +236,66 @@ describe( 'TopologySettingsPanel secure level', () => {
 		} );
 		expect( interpreter.secureLevel ).toBe( 'insecure' );
 	} );
+
+	/**
+	 * "Empty = default." names no number, while Partitions right above it shows
+	 * "(1)". An author reading one and then the other has to go find out what
+	 * the other default is.
+	 */
+	it( 'names the stale-timeout default rather than just calling it a default', () => {
+		setup( {}, { configStaleTimeout: 60 } );
+
+		const input = document.getElementById( 'ts-stale-timeout' );
+		expect( input.getAttribute( 'placeholder' ) ).toBe( '60' );
+		expect( input.parentElement.textContent ).toContain( '60' );
+	} );
+
+	it( 'writes on_demand as the 1 the runtime reads, and removes it when off', () => {
+		const { interpreter } = setup( {} );
+		const box = screen.getByLabelText( /scale to zero when idle/i );
+
+		fireEvent.click( box );
+		expect( interpreter.frontmatter ).toEqual( { on_demand: '1' } );
+
+		fireEvent.click( box );
+		expect( interpreter.frontmatter ).toEqual( {} );
+	} );
+
+	/** The idle window means nothing on a topology that stays resident. */
+	it( 'only offers the idle window once on_demand is set', () => {
+		setup( {} );
+		expect( document.getElementById( 'ts-on-demand-idle' ) ).toBe( null );
+
+		fireEvent.click( screen.getByLabelText( /scale to zero when idle/i ) );
+		expect( document.getElementById( 'ts-on-demand-idle' ) ).not.toBe(
+			null
+		);
+	} );
+
+	it( 'shows the configured idle default and floors the value at 1', () => {
+		const { interpreter } = setup(
+			{ on_demand: '1', on_demand_idle: '23' },
+			{ configOnDemandIdle: 5 }
+		);
+
+		const input = document.getElementById( 'ts-on-demand-idle' );
+		expect( input.getAttribute( 'placeholder' ) ).toBe( '5' );
+
+		fireEvent.change( input, { target: { value: '0' } } );
+		expect( interpreter.frontmatter ).toEqual( {
+			on_demand: '1',
+			on_demand_idle: '1',
+		} );
+	} );
+
+	it( 'keeps the on-demand pair out of the generic variable rows', () => {
+		setup( { on_demand: '1', on_demand_idle: '23' } );
+
+		expect( screen.queryByLabelText( /value for on_demand$/i ) ).toBe(
+			null
+		);
+		expect( screen.queryByLabelText( /value for on_demand_idle/i ) ).toBe(
+			null
+		);
+	} );
 } );

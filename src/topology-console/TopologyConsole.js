@@ -123,6 +123,8 @@ function buildPathOptions( partitions, active ) {
  * @property {Object<string, number>} [topologyWorkers]     Partition count per registered topology.
  * @property {string[]}               [activeTopologies]    Topologies the fleet spawns.
  * @property {number}                 [configNumPartitions] Partition count a topology inherits when it declares none.
+ * @property {number}                 [configStaleTimeout]  Seconds the substrate falls back to when a topology declares no `stale_timeout`.
+ * @property {number}                 [configOnDemandIdle]  Seconds the config falls back to when a topology declares no `on_demand_idle`.
  */
 
 /**
@@ -860,6 +862,14 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		( CONSOLE_WINDOW.NewspackNodesData &&
 			CONSOLE_WINDOW.NewspackNodesData.configNumPartitions ) ||
 		1;
+	const configStaleTimeout =
+		( CONSOLE_WINDOW.NewspackNodesData &&
+			CONSOLE_WINDOW.NewspackNodesData.configStaleTimeout ) ||
+		60;
+	const configOnDemandIdle =
+		( CONSOLE_WINDOW.NewspackNodesData &&
+			CONSOLE_WINDOW.NewspackNodesData.configOnDemandIdle ) ||
+		5;
 
 	// Path selection (Path menu + REPL cd): set cwd, mount the deepest worker.
 	const handlePathChange = useCallback(
@@ -2052,6 +2062,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									configDefaultPartitions={
 										configDefaultPartitions
 									}
+									configStaleTimeout={ configStaleTimeout }
+									configOnDemandIdle={ configOnDemandIdle }
 									onClose={ () => setSettingsOpen( false ) }
 								/>
 							) }

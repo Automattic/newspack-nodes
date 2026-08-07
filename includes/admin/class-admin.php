@@ -23,6 +23,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Settings_Schema;
+use Newspack_Nodes\Worker_Base;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -543,9 +544,10 @@ class Admin {
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
-		// Client fallback when a topology's list entry omits num_partitions.
+		// Client fallbacks for the settings panel's unset-frontmatter hints.
 		$config_np  = Config::value( 'num_partitions' );
 		$default_np = Core::as_int( $config_np, 1 );
+		$idle       = Core::num_int( Config::value( 'on_demand_idle' ), Worker_Base::DEFAULT_ON_DEMAND_IDLE_S );
 
 		return self::append_tab_bundle(
 			$bundles,
@@ -557,6 +559,8 @@ class Admin {
 				'topologyWorkers'     => $topology_workers,
 				'activeTopologies'    => $active_topologies,
 				'configNumPartitions' => $default_np,
+				'configStaleTimeout'  => Lock_Node::STALE_TIMEOUT,
+				'configOnDemandIdle'  => $idle,
 			],
 			true
 		);
