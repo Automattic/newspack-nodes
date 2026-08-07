@@ -199,9 +199,10 @@ class Bootstrap {
 		if ( ! \is_array( $active_names ) ) {
 			$active_names = [];
 		}
-		$np_raw     = Config::value( 'num_partitions' );
-		$default_np = Core::num_int( $np_raw, 1 );
-		$active     = [];
+		$np_raw       = Config::value( 'num_partitions' );
+		$default_np   = Core::num_int( $np_raw, 1 );
+		$default_idle = self::config_on_demand_idle();
+		$active       = [];
 		foreach ( $active_names as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
 				continue;
@@ -210,7 +211,7 @@ class Bootstrap {
 				$active[ $name ] = $catalog[ $name ];
 				continue;
 			}
-			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, $default_idle );
 			if ( null !== $synthesized ) {
 				$active[ $name ] = $synthesized;
 			}
@@ -323,6 +324,11 @@ class Bootstrap {
 	/** Configured base directory for runtime state (locks/, ipc/). */
 	public static function base_dir(): string {
 		return Config::get_base_directory();
+	}
+
+	/** The operator's fleet-wide idle window; every synthesize_entry caller injects it. */
+	public static function config_on_demand_idle(): int {
+		return \max( 0, Core::num_int( Config::value( 'on_demand_idle' ), 0 ) );
 	}
 
 	/**
@@ -439,7 +445,7 @@ class Bootstrap {
 		) {
 			$count = (int) $catalog_entry['num_partitions'];
 		} else {
-			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, self::config_on_demand_idle() );
 			if (
 				null !== $synth &&
 				isset( $synth['num_partitions'] ) &&

@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly as before. It rides the `stale_timeout` path —
   `Topology_Registry::synthesize_entry()` into the catalog entry,
   `Bootstrap::expand_workers()` onto each worker descriptor — with the operator
-  default injected by `publish_catalog()` exactly as `num_partitions`' is, so
-  the method reads no config of its own. Spec:
+  default injected by every caller through `Bootstrap::config_on_demand_idle()`,
+  exactly as `num_partitions`' is, so the method reads no config of its own.
+  That works in both directions: a config-wide window with `var on_demand_idle =
+  0` opting individual topologies back out, or 0 in config and per-topology
+  opt-in. Spec:
   `docs/superpowers/specs/2026-08-06-on-demand-workers.md` (dndocker).
 
   Three read sites stop treating absence as death. `worker_needs_spawn()`
@@ -55,8 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An idle topology reads IDLE, not ALL DEAD**, in the Topology Manager. Every
   worker of an on-demand topology being absent is the feature working; the dead
   badge sent an operator looking for a crash that never happened. The server
-  already computed the verdict — `partitionSummaries()` was dropping the `idle`
-  field on its way through. One non-idle absence still reads ALL DEAD.
+  already computed the verdict; two joins on the way to the badge were dropping
+  it. `reconstructWorkers()` rebuilds every worker row from a whitelist, so a
+  field it forgets is a verdict the dashboard cannot see, and `partitionSummaries()`
+  dropped it again. An absence that INCLUDES a crash still reads ALL DEAD — the
+  crash wins the badge.
 
 - **`wp nodes cli` wakes a sleeping on-demand worker instead of refusing.**
   `attach_to_worker()` threw on a missing lock dir, which is exactly the state
