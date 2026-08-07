@@ -41,6 +41,7 @@ class SettingsSchemaTest extends TestCase {
 		'alert_emit_interval',
 		'sse_idle_timeout',
 		'sse_retry_ms',
+		'on_demand_idle',
 		'topologies',
 		'allowed_users',
 		'spawn_verify_ssl',
@@ -232,5 +233,10 @@ class SettingsSchemaTest extends TestCase {
 
 		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
 		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
+		$this->assertSame(
+			\Newspack_Nodes\Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
+			$fields['on_demand_idle']->default ?? null,
+			'the config default and the runtime constant must not drift'
+		);
 	}
 }

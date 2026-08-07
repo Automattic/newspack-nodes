@@ -83,9 +83,10 @@ class Topology_Registry {
 			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
 			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
 			'on_demand'      => isset( $front['on_demand'] ) && (bool) (int) $front['on_demand'],
+			// Frontmatter beats the operator default, as num_partitions does.
 			'on_demand_idle' => isset( $front['on_demand_idle'] )
 				? (int) $front['on_demand_idle']
-				: Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
+				: Core::num_int( Config::value( 'on_demand_idle' ), Worker_Base::DEFAULT_ON_DEMAND_IDLE_S ),
 		];
 	}
 
@@ -167,6 +168,8 @@ class Topology_Registry {
 	public static function invalidate_config_cache(): void {
 		\Newspack_Nodes\Config::invalidate_options_cache();
 		\Newspack_Nodes\Config::reset();
+		// The reader memo is keyed off the active set this just changed.
+		\Newspack_Nodes\Bootstrap::forget_on_demand_readers();
 	}
 
 	/**

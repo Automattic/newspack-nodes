@@ -61,6 +61,12 @@ class Partition_Node extends Timer_Node {
 	 */
 	public static ?\Closure $scandir = null;
 
+	/** @var array<string, string> Resolved partition dirs written since the last flush. */
+	private static array $pending_wakes = [];
+
+	/** Guards the one shutdown-time flush registration per process. */
+	private static bool $wake_flush_registered = false;
+
 	protected bool $allow_large_writes = false;
 
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
@@ -196,6 +202,8 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
+		$this->mark_pending_wake();
+
 		if ( $size > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $size;
 		}
@@ -266,6 +274,30 @@ class Partition_Node extends Timer_Node {
 			} else {
 				$this->set_timer( $this->debounce_lock_ms, true );
 			}
+		}
+	}
+
+	/**
+	 * Note that this partition was written to, for the next flush to act on.
+	 *
+	 * @longform Every producer reaches disk through a Partition — Job_Intake
+	 * writes one, a Topic fans into them, a Log extends one, a worker's IPC is
+	 * one — so this is the single place that sees every hop. Hanging the wake
+	 * off producer helpers covered only the FIRST hop: a job routed firehose →
+	 * jobs, or drained jobintake → jobs, landed where nothing woke its reader.
+	 *
+	 * Marking is deliberately cheap — the resolved directory as its own key, no
+	 * lookup, no I/O — because this runs per message. The work happens at flush:
+	 * on the router tick inside a drain loop, and at shutdown in request scope,
+	 * so a web request never pays it on the way out. The path IS the key, so
+	 * nothing here parses a partition out of a name.
+	 */
+	private function mark_pending_wake(): void {
+		$dir                         = \rtrim( $this->segment_dir(), '/' );
+		self::$pending_wakes[ $dir ] = $dir;
+		if ( ! self::$wake_flush_registered ) {
+			self::$wake_flush_registered = true;
+			\register_shutdown_function( [ self::class, 'flush_pending_wakes' ] );
 		}
 	}
 
@@ -1221,6 +1253,37 @@ class Partition_Node extends Timer_Node {
 	public function with_index( callable $callback ): self {
 		$this->index_callback = $callback;
 		return $this;
+	}
+
+	/**
+	 * Wake every on-demand worker tailing a partition written since the last
+	 * flush. Fire-and-forget; `Bootstrap::on_demand_wake_map()` caches the
+	 * lookup and `Spawn_Coordinator` throttles the spawn, so a partition nothing
+	 * on-demand tails costs one cached array read.
+	 *
+	 * @api Registered as a shutdown function; also called from the router tick.
+	 */
+	public static function flush_pending_wakes(): void {
+		if ( [] === self::$pending_wakes ) {
+			return;
+		}
+		$pending             = self::$pending_wakes;
+		self::$pending_wakes = [];
+		try {
+			$coordinator = Bootstrap::spawn_coordinator();
+			$now         = Core::right_now();
+			foreach ( $pending as $dir ) {
+				$coordinator->wake_on_demand( $dir, $now );
+			}
+		} catch ( \Throwable $e ) {
+			// Shutdown path: a failed wake must not eat the request.
+			Core::print_less_often( 'pending wake failed: ', $e->getMessage() );
+		}
+	}
+
+	/** Drop pending wakes without posting them. Tests only. */
+	public static function forget_pending_wakes(): void {
+		self::$pending_wakes = [];
 	}
 
 	/** Sidecars (offsetlogs, quarantines) never quarantine their own writes — that recurses. */

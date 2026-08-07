@@ -78,6 +78,87 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_reconcile = false;
 
+	/** @var array<string, list<array<array-key, mixed>>>|null Request-static half of the wake map. */
+	private static ?array $on_demand_wake_map = null;
+
+	/** Cache-key prefix for the on-demand wake map. */
+	private const ON_DEMAND_WAKE_KEY = 'newspack_nodes:on_demand_wake:';
+
+	/** Seconds a wake map survives an edited `.tsl`; activation busts the key outright. */
+	private const ON_DEMAND_WAKE_TTL_S = 60;
+
+	/**
+	 * Resolved partition directory => the on-demand workers that TAIL it.
+	 *
+	 * The answer to "did this write land somewhere an absent worker is waiting
+	 * on", keyed by the concrete path so a writer needs no idea what it wrote.
+	 *
+	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
+	 * resolved through `Core::resolve_partition_template()` for that worker's
+	 * partition — the one place `<partition>` is expanded — so a template that
+	 * puts the token anywhere but a `.p<N>` suffix still resolves. A partition
+	 * nothing tails is simply absent from the map, which is why no exclusion
+	 * rule is needed for offsetlogs, deadletter dirs or scratch.
+	 *
+	 * @longform Cached in APCu (`local_first`, memcached only as its fallback)
+	 * because the derivation globs both topology dirs and parses every `.tsl`,
+	 * while the askers sit on request paths. Host-LOCAL is the correct tier: the
+	 * inputs are TSL files on disk, which differ per host. The key carries the
+	 * active set, so activation cannot serve a stale answer; the TTL is what
+	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.
+	 *
+	 * @return array<string, list<array<array-key, mixed>>>
+	 */
+	public static function on_demand_wake_map(): array {
+		if ( null !== self::$on_demand_wake_map ) {
+			return self::$on_demand_wake_map;
+		}
+		// The raw OPTION: building the key must not cost the walk it avoids.
+		$cache = Cache_Backend::local_first();
+		$key   = self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) );
+		if ( null !== $cache ) {
+			$hit = $cache->get( $key );
+			if ( \is_array( $hit ) ) {
+				return self::$on_demand_wake_map = self::sanitize_wake_map( $hit );
+			}
+		}
+		$map = [];
+		foreach ( self::expand_workers() as $worker ) {
+			if ( ! self::is_on_demand( $worker ) ) {
+				continue;
+			}
+			$partition = Core::as_int( $worker['partition'] );
+			$topology  = Core::as_string( $worker['topology'] );
+			foreach ( Topology_Analyzer::consumer_sources( $topology ) as $template ) {
+				$dir           = \rtrim( Core::resolve_partition_template( $template, $partition, $topology ), '/' );
+				$map[ $dir ][] = $worker;
+			}
+		}
+		$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
+		return self::$on_demand_wake_map = $map;
+	}
+
+	/**
+	 * A cache entry is untrusted shape; keep only `dir => list<descriptor>`.
+	 *
+	 * @param array<array-key, mixed> $raw Decoded cache value.
+	 * @return array<string, list<array<array-key, mixed>>>
+	 */
+	private static function sanitize_wake_map( array $raw ): array {
+		$map = [];
+		foreach ( $raw as $dir => $rows ) {
+			if ( ! \is_string( $dir ) || ! \is_array( $rows ) ) {
+				continue;
+			}
+			foreach ( $rows as $row ) {
+				if ( \is_array( $row ) ) {
+					$map[ $dir ][] = $row;
+				}
+			}
+		}
+		return $map;
+	}
+
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
@@ -735,6 +816,11 @@ class Bootstrap {
 	public static function remember_schedule_event_context( $event ) {
 		self::$schedule_event_context_is_reconcile = self::CRON_EVENT === self::event_hook( $event );
 		return $event;
+	}
+
+	/** Drop the request-static half of the wake map. Topology activation, and tests. */
+	public static function forget_on_demand_readers(): void {
+		self::$on_demand_wake_map = null;
 	}
 
 	/**

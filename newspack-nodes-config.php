@@ -42,10 +42,10 @@ return [
 	'alert_emit_interval' => 300,
 
 	// SSE close-at-EOF: seconds of no DATA before a stream closes (0 = never).
-	'sse_idle_timeout'    => 15,
+	'sse_idle_timeout'    => 5,
 
 	// The reopen delay that close advertises as `retry:`; match the pair.
-	'sse_retry_ms'        => 15000,
+	'sse_retry_ms'        => 5000,
 
 	// Topologies (Topology_Registry names); each = a num_partitions fleet.
 	'topologies'          => [],

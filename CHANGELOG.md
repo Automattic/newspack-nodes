@@ -42,19 +42,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newest one, `should_continue()` runs every drain tick, and per-tick disk I/O
   would spend more than the residency this is meant to give back.
 
-- **`Spawn_Coordinator::wake_on_demand()`, called from `Job_Intake`.** Once the
-  spawn scan stops resurrecting an absent on-demand worker, a producer has to,
-  because WP-Cron at minute cadence is the fallback tier and a job that waits
-  60s for a tick is worse than the resident worker it replaced. Fire-and-forget,
-  and the existing 15s throttle makes a burst of N enqueues one spawn. It wakes
-  every on-demand topology on the partition the entry landed on, not the one
-  that drains that log: no producer knows which topology consumes what, a
-  spurious wake idles back out, and the alternative is a registry the TSL
-  already implies. A delayed job wakes nothing — it is not due, and `Job_Delay`
-  circulates it when it is. The coordinator and its on-demand fleet are each
-  resolved once, because the fleet lookup walks the topology catalog — globbing
-  both topology dirs and parsing every `.tsl` — and doing that per job turned a
-  `queue_many()` batch into one directory scan per entry.
+- **A write to a Partition wakes the Consumers tailing it.** Once the spawn scan
+  stops resurrecting an absent on-demand worker, something has to bring it back,
+  and WP-Cron at minute cadence is the fallback tier — a job that waits 60s for a
+  tick is worse than the resident worker it replaced.
+
+  The wake lives at the WRITE boundary, not in producer helpers. Every producer
+  reaches disk through a `Partition_Node` — `Job_Intake` writes one, a `Topic`
+  fans into them, a `Log` extends one, a worker's IPC is one — so that is the
+  single place that sees every hop. Hanging it off `Job_Intake` and the firehose
+  writer covered only the FIRST hop: a job routed firehose → jobs, or drained
+  jobintake → jobs, landed in a partition whose reader nothing woke.
+
+  `fill()` only MARKS the resolved directory — no lookup, no I/O, because it runs
+  per message. The flush happens on the router tick inside a drain loop and at
+  shutdown in request scope, so a web request never pays it on the way out; the
+  15s spawn throttle collapses a burst to one spawn either way.
+
+  `Bootstrap::on_demand_wake_map()` answers which workers tail a directory,
+  cached in APCu (`Cache_Backend::local_first()`) because the derivation globs
+  both topology dirs and parses every `.tsl` while the askers sit on request
+  paths — host-local being the right tier, since TSL files differ per host. It is
+  built by SUBSTITUTION through `Core::resolve_partition_template()`, never by
+  parsing a `.p<N>` out of a path, so a template that puts `<partition>`
+  elsewhere still resolves. IPC takes the one branch it needs: its path names its
+  own worker, and that layout is the substrate's, not a user's TSL.
+
+  Two things follow for free rather than by special case. A partition nothing
+  tails — an offsetlog, a deadletter dir, scratch — is simply absent from the
+  map, so no exclusion rule exists to get stale. And a delayed job wakes nothing
+  because nothing CONSUMES `jobdelay`; `Job_Delay` circulates it on the cron
+  pass, so "is it due" collapses into "does anything read that log".
 
 - **`scripts/fix-blank-lines.php` collapses runs of blank lines to one**, wired
   into `lint-staged` for `*.php` after the comment gate, so a commit can't carry

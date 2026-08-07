@@ -50,9 +50,6 @@ class Spawn_Coordinator {
 	/** HMAC key for the spawn token. Never a node argument — `dump_config` serializes those. */
 	private string $nonce_salt;
 
-	/** @var list<array<string, mixed>>|null Memoized on-demand fleet; null until first wake. */
-	private ?array $on_demand_fleet = null;
-
 	/**
 	 * @param string      $base_dir   Runtime state root holding locks/ and ipc/.
 	 * @param string|null $nonce_salt Spawn-HMAC key; omitted resolves the one production key.
@@ -371,31 +368,32 @@ class Spawn_Coordinator {
 	 * minute cadence is the fallback tier rather than the mechanism. A producer
 	 * that just wrote work calls this.
 	 *
-	 * @longform It wakes EVERY on-demand topology on that partition, not the one
-	 * that consumes this log — no producer knows which topology drains what, and
-	 * building that map would be a registry the TSL already implies. A topology
-	 * woken with nothing to do idles back out after `on_demand_idle`, and the 15s
-	 * throttle means a burst of N producers costs one spawn.
+	 * Only workers that TAIL `$dir` are woken — `Bootstrap::on_demand_wake_map()`
+	 * resolves that off the TSL and caches it — so queueing a job cannot boot a
+	 * firehose reader. The 15s throttle means a burst costs one spawn.
 	 *
 	 * A STALE lock is left alone: that worker crashed, and the ordinary spawn
 	 * scan already owns crash recovery.
 	 *
-	 * @param int   $partition Partition the work landed on.
-	 * @param float $now       Clock, so one enqueue judges every worker alike.
+	 * @param string $dir Resolved partition directory just written to.
+	 * @param float  $now Clock, so one enqueue judges every worker alike.
 	 * @return int Spawns posted.
 	 */
-	public function wake_on_demand( int $partition, float $now ): int {
+	public function wake_on_demand( string $dir, float $now ): int {
+		$dir     = \rtrim( $dir, '/' );
+		$readers = $this->ipc_reader_of( $dir ) ?? ( Bootstrap::on_demand_wake_map()[ $dir ] ?? [] );
+		if ( [] === $readers ) {
+			return 0;
+		}
 		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
 		if ( '' === $spawn_url ) {
 			return 0;
 		}
 		$token = $this->generate_spawn_token( (int) $now );
 		$woken = 0;
-		foreach ( $this->on_demand_fleet() as $worker ) {
-			$type = Core::as_string( $worker['type'] );
-			if ( Core::as_int( $worker['partition'] ) !== $partition ) {
-				continue;
-			}
+		foreach ( $readers as $worker ) {
+			$type      = Core::as_string( $worker['type'] );
+			$partition = Core::as_int( $worker['partition'] );
 			if ( \is_dir( $this->lock_path( $type, $partition ) ) ) {
 				continue;
 			}
@@ -414,22 +412,33 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * The on-demand slice of the active fleet, resolved once per coordinator.
+	 * The on-demand worker whose IPC tree `$dir` sits in, or null when it isn't
+	 * one — the same rule as any other partition, resolved a shorter way.
 	 *
-	 * `expand_workers()` walks the topology catalog, which globs both topology
-	 * dirs and parses every `.tsl`. A producer writing a batch calls the wake
-	 * per entry, and this class is request-scope — where the fleet cannot change
-	 * under it — so the walk happens once instead of once per job.
+	 * IPC needs no map entry because the PATH names its worker: this layout is
+	 * the substrate's own (`Spawn_Coordinator::lock_path()` and
+	 * `Cli::attach_to_worker()` already build and read it), not a user-authored
+	 * template, so reading an identity out of it assumes nothing about where a
+	 * `<partition>` token sits in someone's TSL.
 	 *
-	 * @return list<array<string, mixed>>
+	 * @param string $dir Resolved partition directory.
+	 * @return list<array<array-key, mixed>>|null Null when $dir is not under ipc/.
 	 */
-	private function on_demand_fleet(): array {
-		if ( null === $this->on_demand_fleet ) {
-			$this->on_demand_fleet = \array_values(
-				\array_filter( Bootstrap::expand_workers(), [ Bootstrap::class, 'is_on_demand' ] )
-			);
+	private function ipc_reader_of( string $dir ): ?array {
+		$prefix = $this->base_dir . '/ipc/';
+		if ( ! \str_starts_with( $dir, $prefix ) ) {
+			return null;
 		}
-		return $this->on_demand_fleet;
+		$worker_id = \explode( '/', \substr( $dir, \strlen( $prefix ) ) )[0];
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			if ( ! Bootstrap::is_on_demand( $worker ) ) {
+				continue;
+			}
+			if ( $worker_id === Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] ) ) {
+				return [ $worker ];
+			}
+		}
+		return [];
 	}
 
 	/**
