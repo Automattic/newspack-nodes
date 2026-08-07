@@ -5,15 +5,15 @@
             "var",
             "stale_timeout",
             "=",
-            "600"
+            "60"
         ],
         "spans": [
             "var",
             "stale_timeout",
             "=",
-            "600"
+            "60"
         ],
-        "raw": "var stale_timeout = 600",
+        "raw": "var stale_timeout = 60",
         "line": 8
     },
     {

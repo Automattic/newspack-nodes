@@ -3,9 +3,9 @@
 #   Consumer (jobs.log) ─→ JobWorker
 
 # Frontmatter — the runtime reads these via Topology_Registry::frontmatter().
-# Job handlers run user code that can be slow; lift the lock-stale timeout so
-# in-flight jobs aren't killed mid-execution.
-var stale_timeout = 600;
+# Handlers that block on serial HTTP pump() the continue-predicate at their
+# fetch point, so the heartbeat rides along and the default window holds.
+var stale_timeout = 60;
 
 include topic-probe
 

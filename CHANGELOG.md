@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The job pool's stale timeout drops from 600s back to 60s.** It was lifted
+  because a handler blocking on serial HTTP touches no heartbeat, so a peer
+  would steal its lock mid-sync. Nuclear Gyrobase's importers now pump the
+  continue-predicate at their shared fetch point (and its Perl renders keep the
+  lease warm from the child), so the heartbeat rides along and the default
+  window holds. A 600s window also set the floor on how long `wp nodes stop`
+  would have to wait for a clean shutdown.
+
 ### Fixed
 
 - **Dead-letter requeue asks the target for its size ceiling.** It compared the
