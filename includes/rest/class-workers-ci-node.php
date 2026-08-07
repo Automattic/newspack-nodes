@@ -120,7 +120,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				"{$locks_base}/{$type}.p{$partition}.lock.d",
 				$now,
 				$stale_to,
-				Bootstrap::is_on_demand( $w )
+				Bootstrap::on_demand_idle_of( $w )
 			);
 		}
 
@@ -179,7 +179,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * lock. Deriving it once here keeps alerting and the dashboards from each
 	 * re-deciding what absence means.
 	 *
-	 * @param bool $on_demand Whether the topology scales to zero when idle.
+	 * @param int $on_demand_idle Whether the topology scales to zero when idle.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
@@ -188,7 +188,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		string $lock_dir,
 		int $now,
 		int $stale_timeout,
-		bool $on_demand = false
+		int $on_demand_idle = 0
 	): array {
 		// Pure liveness per (type, partition) from the lock-dir heartbeat.
 		$status        = 'dead';
@@ -214,7 +214,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'heartbeat_at'    => $heartbeat_at,
 			'live'            => $live,
 			'stale'           => $stale,
-			'idle'            => $on_demand && ! $live && ! $stale,
+			'idle'            => $on_demand_idle > 0 && ! $live && ! $stale,
 			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 		];
 	}

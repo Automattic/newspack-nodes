@@ -57,13 +57,12 @@ class OnDemandExitTest extends TestCase {
 		( new IdleProbe( null ) )->name( $name );
 	}
 
-	private function worker( bool $on_demand = true ): OnDemandWorker {
+	private function worker( int $on_demand_idle = self::IDLE_SECONDS ): OnDemandWorker {
 		$w = new OnDemandWorker(
 			$this->tmp,
 			'quokka-workers',
 			0,
-			on_demand: $on_demand,
-			on_demand_idle: self::IDLE_SECONDS
+			on_demand_idle: $on_demand_idle
 		);
 		$w->acquire();
 		return $w;
@@ -111,7 +110,7 @@ class OnDemandExitTest extends TestCase {
 
 	public function test_a_resident_worker_never_idle_exits(): void {
 		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS * 10 );
-		$w = $this->worker( on_demand: false );
+		$w = $this->worker( on_demand_idle: 0 );
 
 		$this->assertTrue( $w->should_continue() );
 	}

@@ -124,7 +124,7 @@ class Bootstrap {
 		}
 		$map = [];
 		foreach ( self::expand_workers() as $worker ) {
-			if ( ! self::is_on_demand( $worker ) ) {
+			if ( 0 === self::on_demand_idle_of( $worker ) ) {
 				continue;
 			}
 			$partition = Core::as_int( $worker['partition'] );
@@ -162,7 +162,7 @@ class Bootstrap {
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand: bool, on_demand_idle: int}>
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}>
 	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
@@ -178,7 +178,6 @@ class Bootstrap {
 					'partition'      => $p,
 					'topology'       => $config['topology'] ?? '',
 					'stale_timeout'  => Lock_Node::stale_timeout_of( $config ),
-					'on_demand'      => self::is_on_demand( $config ),
 					'on_demand_idle' => self::on_demand_idle_of( $config ),
 				];
 			}
@@ -327,29 +326,15 @@ class Bootstrap {
 	}
 
 	/**
-	 * Whether a topology entry or worker descriptor scales to zero when idle.
+	 * Seconds a worker stays idle before exiting; 0 means it stays resident.
 	 *
-	 * Every caller reads it through here so absence — of the key, of the whole
-	 * entry — resolves to `false` in one place: an unflagged topology is
-	 * resident, which is what every deployment predating the flag expects.
-	 *
-	 * @param array<array-key, mixed> $descriptor Topology entry or worker descriptor.
-	 */
-	public static function is_on_demand( array $descriptor ): bool {
-		return (bool) ( $descriptor['on_demand'] ?? false );
-	}
-
-	/**
-	 * Seconds an on-demand worker stays idle before exiting.
+	 * The window IS the flag — declaring one opts a topology in — so absence
+	 * has to read as 0, or every deployment predating it would scale to zero.
 	 *
 	 * @param array<array-key, mixed> $descriptor Topology entry or worker descriptor.
 	 */
 	public static function on_demand_idle_of( array $descriptor ): int {
-		$idle = Core::num_int(
-			$descriptor['on_demand_idle'] ?? Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
-			Worker_Base::DEFAULT_ON_DEMAND_IDLE_S
-		);
-		return \max( 1, $idle );
+		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? 0, 0 ) );
 	}
 
 	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */

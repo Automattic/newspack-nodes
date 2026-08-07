@@ -597,11 +597,10 @@ $token  = hash_hmac( 'sha256', "newspack_nodes_{$purpose}:{$window}", $salt );  
 
 **WP-Cron reconciliation pass**: the `newspack_nodes/reconcile` action runs on a registered 60-second schedule (`newspack_nodes_minute`). `Bootstrap::reconcile_fleet()` runs five steps and returns; it takes no lock and enters no loop. Spawn (`Spawn_Coordinator::spawn_due_workers()`) is FIRST — it is the revival path and the only time-critical step — then lock-dir reconcile, log retention, orphan-IPC reaping, and `do_action( 'newspack_nodes/periodic' )` (which carries alert emission and the delayed-jobs sweep). Each step is wrapped alone, so a third-party `topologies` provider or `periodic` subscriber that throws costs only its own step. Steady state, every live worker's peer scan keeps the fleet up and the spawn step finds nothing due, while the four chores get the cadence they actually need. `wp nodes doctor`'s `housekeeping` result reports whether this event is scheduled, because a missing one stops all of it silently. Because a vetoed schedule is silent, `Bootstrap` logs any short-circuit of this event on `pre_schedule_event` / `pre_reschedule_event` / `schedule_event` with the callback chain that swallowed it, and `admin_init` re-arms the event if it went missing. On multisite only the main site runs the fleet: locks, IPC, and logs carry no blog namespace.
 
-**On-demand workers**: a topology whose frontmatter declares `var on_demand = 1` scales to zero
-instead of staying resident, and `var on_demand_idle = <seconds>` (default 5) sizes the window.
-The flag rides the `stale_timeout` path — `Topology_Registry::synthesize_entry()` into the catalog
-entry, `Bootstrap::expand_workers()` onto each worker descriptor — and changes three places that
-otherwise read absence as death:
+**On-demand workers**: a topology can scale to zero instead of staying resident, and
+`var on_demand_idle = <seconds>` (default 5) sizes the window. The value rides the `stale_timeout`
+path — `Topology_Registry::synthesize_entry()` into the catalog entry, `Bootstrap::expand_workers()`
+onto each worker descriptor — and changes three places that otherwise read absence as death:
 
 - `Spawn_Coordinator::worker_needs_spawn()` returns false for a cleanly MISSING lock dir. A
   *stale* one still spawns: staleness means a worker died holding it, which is a crash whether or

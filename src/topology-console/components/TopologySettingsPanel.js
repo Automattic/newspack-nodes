@@ -12,7 +12,6 @@ import { __, sprintf } from '@wordpress/i18n';
 export const RECOGNIZED_KEYS = [
 	'num_partitions',
 	'stale_timeout',
-	'on_demand',
 	'on_demand_idle',
 ];
 const NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -60,14 +59,14 @@ function getPortalTarget() {
  * @param {Object}     props
  * @param {number}     [props.configDefaultPartitions] Partition count the config falls back to when `num_partitions` is unset; shown as the input's placeholder. Default 1.
  * @param {number}     [props.configStaleTimeout]      Seconds the substrate falls back to when `stale_timeout` is unset. Default 60.
- * @param {number}     [props.configOnDemandIdle]      Seconds the config falls back to when `on_demand_idle` is unset. Default 5.
+ * @param {number}     [props.configOnDemandIdle]      Idle window the config falls back to when `on_demand_idle` is unset; 0 = resident.
  * @param {() => void} props.onClose                   Dismiss the panel; fired by the close button.
  * @return {import('react').ReactElement} The panel, portaled when a target exists.
  */
 export default function TopologySettingsPanel( {
 	configDefaultPartitions = 1,
 	configStaleTimeout = 60,
-	configOnDemandIdle = 5,
+	configOnDemandIdle = 0,
 	onClose,
 } ) {
 	const { graph: draft, run, replaceFrontmatter, clearSecure } = useDraft();
@@ -158,9 +157,6 @@ export default function TopologySettingsPanel( {
 		setAddError( '' );
 	};
 
-	const isOnDemand =
-		'' !== valueOf( 'on_demand' ) && '0' !== valueOf( 'on_demand' );
-
 	const genericRows = entries.filter(
 		( [ n ] ) => ! RECOGNIZED_KEYS.includes( n )
 	);
@@ -249,61 +245,30 @@ export default function TopologySettingsPanel( {
 			</label>
 
 			<label
-				className="topology-settings-field topology-settings-field--check"
-				htmlFor="ts-on-demand"
+				className="topology-settings-field"
+				htmlFor="ts-on-demand-idle"
 			>
-				<span>
-					{ __( 'Scale to zero when idle', 'newspack-nodes' ) }
-				</span>
+				<span>{ __( 'Idle window (s)', 'newspack-nodes' ) }</span>
 				<input
-					id="ts-on-demand"
-					type="checkbox"
-					checked={ isOnDemand }
+					id="ts-on-demand-idle"
+					type="number"
+					min={ 0 }
+					value={ valueOf( 'on_demand_idle' ) }
+					placeholder={ String( configOnDemandIdle ) }
 					onChange={ ( e ) =>
-						e.target.checked
-							? setValue( 'on_demand', '1' )
-							: removeKey( 'on_demand' )
+						setValue(
+							'on_demand_idle',
+							clampInt( e.target.value, 0 )
+						)
 					}
 				/>
 				<small>
 					{ __(
-						'The worker exits once every reporter is idle, and a write to a partition it tails brings it back.',
+						'0 = resident. Above 0, the worker exits after that long with every reporter idle, and a write to a partition it tails brings it back.',
 						'newspack-nodes'
 					) }
 				</small>
 			</label>
-
-			{ isOnDemand && (
-				<label
-					className="topology-settings-field"
-					htmlFor="ts-on-demand-idle"
-				>
-					<span>{ __( 'Idle window (s)', 'newspack-nodes' ) }</span>
-					<input
-						id="ts-on-demand-idle"
-						type="number"
-						min={ 1 }
-						value={ valueOf( 'on_demand_idle' ) }
-						placeholder={ String( configOnDemandIdle ) }
-						onChange={ ( e ) =>
-							setValue(
-								'on_demand_idle',
-								clampInt( e.target.value, 1 )
-							)
-						}
-					/>
-					<small>
-						{ sprintf(
-							// translators: %d: configured default idle window in seconds.
-							__(
-								'Empty = config default (%d).',
-								'newspack-nodes'
-							),
-							configOnDemandIdle
-						) }
-					</small>
-				</label>
-			) }
 
 			<label
 				className="topology-settings-field"

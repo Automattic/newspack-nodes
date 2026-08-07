@@ -310,7 +310,7 @@ class Settings_Schema {
 				new Field(
 					key: 'on_demand_idle',
 					type: 'int',
-					default: Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
+					default: 0,
 					ui: false,
 				),
 				// ui:false overlay; registering lets Save wipe the active set.
