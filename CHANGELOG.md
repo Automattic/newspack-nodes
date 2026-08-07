@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.12.1] - 2026-08-06
+
 ### Changed
 
 - **`Partition::DEFAULT_LOCK_WAIT_MS` is 15s, was 65s.** The old value was sized
