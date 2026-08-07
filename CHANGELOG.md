@@ -64,13 +64,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dropped it again. An absence that INCLUDES a crash still reads ALL DEAD — the
   crash wins the badge.
 
-- **`wp nodes cli` wakes a sleeping on-demand worker instead of refusing.**
+- **An attached REPL keeps its worker awake.** The IPC-input Consumer is
+  ANONYMOUS on purpose — a pure source, never a routed TO — so it lives outside
+  `Core::$nodes_by_name` and the reporter scan could not see it. A worker would
+  exit under an operator mid-session. `Worker_Base` now hands it to the scan
+  directly, so typing holds the worker open and the window starts from the last
+  command rather than from whatever the graph's other consumers were doing.
+
+- **Both IPC writers wake a sleeping on-demand worker instead of refusing.**
   `attach_to_worker()` threw on a missing lock dir, which is exactly the state
   an on-demand worker is SUPPOSED to be in when it has nothing to do — and the
   cli is the only writer of that worker's IPC input, so the refusal was what
   kept an attach from ever waking one. It now posts the wake and proceeds. A
   RESIDENT worker with no lock dir is still a typo or a dead fleet, and is
   still refused with the same message.
+
+  `Bootstrap::register_worker_partition()` carried the identical refusal, and
+  that one is the mount the BROWSER writes commands through — so a topology that
+  went idle could not be woken from the console at all, only by something else
+  happening to spawn it. It wakes and mounts too; a sleeping worker has no IPC
+  tree yet, so the existing input-dir check is skipped for that case and the
+  Partition creates it on first write.
 
 - **A write to a Partition wakes the Consumers tailing it.** Once the spawn scan
   stops resurrecting an absent on-demand worker, something has to bring it back,

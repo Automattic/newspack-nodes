@@ -12,8 +12,12 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Bootstrap::class )]
 class BootstrapTest extends TestCase {
 
+	/** @var \Closure|null Bootstrap-installed curl seam, restored so a capturer cannot leak. */
+	private $saved_curl_exec;
+
 	protected function setUp(): void {
 		parent::setUp();
+		$this->saved_curl_exec                 = \Newspack_Nodes\Core::$curl_exec;
 		$GLOBALS['_wp_actions']                = [];
 		$GLOBALS['_wp_test_scheduled_events']  = [];
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
@@ -32,6 +36,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		\Newspack_Nodes\Core::$curl_exec = $this->saved_curl_exec;
 		$GLOBALS['_wp_actions'] = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
@@ -351,6 +356,43 @@ class BootstrapTest extends TestCase {
 
 		$parts = \Newspack_Nodes\Core::node( 'demo.p0' )->arguments();
 		$this->assertSame( (string) ( 1024 * 1024 ), $parts[1], 'mounted IPC input Partition segment_size must be 1 MiB' );
+	}
+
+	/**
+	 * A sleeping on-demand worker has neither a lock dir nor an IPC tree, and
+	 * this mount is what the BROWSER writes commands through — so refusing here
+	 * meant a topology that went idle could never be woken from the console
+	 * again, only by something else happening to spawn it.
+	 */
+	public function test_register_worker_partition_mounts_and_wakes_a_sleeping_on_demand_worker(): void {
+		$base = $this->make_temp_dir();
+		$this->use_base_dir( $base );
+		$posts = [];
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$posts ) {
+			$posts[] = $body;
+			return '';
+		};
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'demo' => [ 'topology' => 'demo', 'num_partitions' => 1, 'on_demand_idle' => 23 ],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'demo' ];
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
+		$this->assertSame(
+			[ 'demo.p0' ],
+			\array_map( static fn ( array $b ): string => $b['type'] . '.p' . $b['partition'], $posts )
+		);
+	}
+
+	/** A RESIDENT worker with no lock dir is a dead fleet, and still refused. */
+	public function test_register_worker_partition_still_refuses_a_resident_worker(): void {
+		$base = $this->make_temp_dir();
+		$this->use_base_dir( $base );
+
+		$this->assertFalse( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
 	}
 
 	public function test_register_worker_partition_sets_patron_to_interpreter_when_present(): void {
