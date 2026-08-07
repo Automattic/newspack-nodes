@@ -108,13 +108,15 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		for ( const name of ALL_GRAPH_NAMES ) {
 			expect( Core.node( name ) ).toBeTruthy();
 		}
-		// The table edge sinks into the interpreter; a Request node routes
-		// through `_shell` so `connect _shell` sees it.
+		// Everything sinks into the interpreter; a Request node reaches
+		// `_shell` as a TARGET hop so `connect _shell` still sees it.
 		expect( Core.node( LIST_RECV ).sink ).toBe( interpreter );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( interpreter );
 		for ( const name of REQUEST_NAMES ) {
-			expect( Core.node( name ).sink ).toBe( Core.node( CONSOLE_TAP ) );
-			expect( Core.node( name ).target ).toBe( `${ HTTP }/vault` );
+			expect( Core.node( name ).sink ).toBe( interpreter );
+			expect( Core.node( name ).target ).toBe(
+				`${ CONSOLE_TAP }/${ HTTP }/vault`
+			);
 		}
 	} );
 

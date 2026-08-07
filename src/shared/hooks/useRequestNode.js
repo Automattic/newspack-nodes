@@ -35,7 +35,11 @@ import {
  * @return {string} The `target` path.
  */
 function targetFor( ci ) {
-	return ci ? `${ names.HTTP }/${ ci }` : names.HTTP;
+	// Through `_shell` as a TARGET hop, like the Fetchers; absent off-console.
+	const egress = Core.node( names.CONSOLE_TAP )
+		? `${ names.CONSOLE_TAP }/${ names.HTTP }`
+		: names.HTTP;
+	return ci ? `${ egress }/${ ci }` : egress;
 }
 
 /**
@@ -60,7 +64,6 @@ export function ensureRequestNode( node, ci ) {
 	}
 	const request = interpreter.makeNode( 'Request', node );
 	request.target = targetFor( ci );
-	request.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
 	return request;
 }
 
@@ -100,13 +103,13 @@ export default function useRequestNode( node, ci, enabled = true ) {
 			const interpreter = Core.node( names.COMMAND_INTERPRETER );
 			const existing = Core.node( node );
 			if ( existing ) {
-				existing.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
+				// A new backbone means a new Tap; re-derive the path.
+				existing.sink = interpreter;
+				existing.target = targetFor( ci );
 				return;
 			}
 			const request = interpreter.makeNode( 'Request', node );
 			request.target = targetFor( ci );
-			// Through `_shell`, the Tap every command routes through.
-			request.sink = Core.node( names.CONSOLE_TAP ) ?? interpreter;
 		};
 		attach();
 		// The count lives ON the node, so Core.reset() discards both.

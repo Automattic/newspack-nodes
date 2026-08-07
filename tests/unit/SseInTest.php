@@ -79,6 +79,46 @@ class SseInTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Buffer consumption, pinned before the parse loop was rewritten to scan by
+	 * offset instead of rewriting the whole buffer per line (O(n^2)). A complete
+	 * line must be consumed and an incomplete tail must remain.
+	 */
+	public function test_a_partial_trailing_line_stays_buffered_until_completed(): void {
+		[ $node ] = $this->configured_node();
+		$frame    = $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] );
+		// Split BEFORE the first newline, so nothing is parseable yet.
+		$head     = \substr( $frame, 0, 8 );
+		$tail     = \substr( $frame, 8 );
+
+		$node->process_sse_chunk( $head );
+		$this->assertSame( $head, $this->read_private( $node, 'buffer' ), 'no newline yet: all held' );
+
+		$node->process_sse_chunk( $tail );
+		$this->assertSame( '', $this->read_private( $node, 'buffer' ), 'complete frame fully consumed' );
+		$this->assertSame( 1, $node->counter() );
+	}
+
+	/**
+	 * A terminal frame stops the parse mid-chunk. Whatever followed it must
+	 * still have been consumed off the buffer — the early return runs before
+	 * the loop finishes, so the consume has to happen on the way out.
+	 */
+	public function test_a_terminal_frame_still_consumes_what_it_parsed(): void {
+		[ $node ] = $this->configured_node();
+		$trailing = $this->msg_frame( '9:0', 'k', [ 'z' => 1 ] );
+		// An unparseable disconnect envelope is a terminal parse failure.
+		$chunk    = "event: disconnect\ndata: {not json}\n\n" . $trailing;
+
+		$this->assertFalse( $node->process_sse_chunk( $chunk ) );
+
+		$this->assertSame(
+			$trailing,
+			$this->read_private( $node, 'buffer' ),
+			'consumed through the terminal frame, the rest left for the caller'
+		);
+	}
+
 	public function test_largest_msg_sent_tracks_the_biggest_forwarded_msg(): void {
 		[ $node ] = $this->configured_node();
 		$node->process_sse_chunk( $this->msg_frame( '1:0', 'k', [ 'a' => 1 ] ) );

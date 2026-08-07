@@ -51,7 +51,7 @@ it( 'mints get FROM the get node, with no ID and no KEY', () => {
 
 	expect( sent ).toHaveLength( 1 );
 	expect( sent[ 0 ][ FROM ] ).toBe( 'layouts:get' );
-	expect( sent[ 0 ][ TO ] ).toBe( '_http/layouts' );
+	expect( sent[ 0 ][ TO ] ).toBe( '_shell/_http/layouts' );
 	expect( sent[ 0 ][ VALUE ].name ).toBe( 'get' );
 	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'combined' ] );
 	expect( sent[ 0 ][ ID ] ).toBe( '' );

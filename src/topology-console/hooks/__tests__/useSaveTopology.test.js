@@ -68,7 +68,7 @@ it( 'mints save FROM its own node, with no ID and no KEY', () => {
 
 	expect( sent ).toHaveLength( 1 );
 	expect( sent[ 0 ][ FROM ] ).toBe( 'topologies:save' );
-	expect( sent[ 0 ][ TO ] ).toBe( '_http/topologies' );
+	expect( sent[ 0 ][ TO ] ).toBe( '_shell/_http/topologies' );
 	expect( sent[ 0 ][ VALUE ].name ).toBe( 'save' );
 	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [
 		'demo',

@@ -82,6 +82,108 @@ class RouterTest extends TestCase {
 		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
 	}
 
+	/**
+	 * A non-scalar TO is NOT_AVAILABLE, not "unaddressed". The empty-TO guard
+	 * compares the RAW value, so an array TO falls through it, coerces to '',
+	 * and finds no node. Coercing BEFORE that guard — the tempting shape when
+	 * the coercion was inlined for speed — silently reclassifies it as a drop,
+	 * and the producer stops being told its destination did not resolve.
+	 */
+	public function test_a_non_scalar_to_is_unavailable_not_unaddressed(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$producer = new Capture_Sink_Node();
+		$producer->name( 'producer' );
+
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = [ 'not', 'a', 'path' ];
+		$message[ Message::FROM ] = 'producer';
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $producer->captured );
+		$this->assertSame( Message::TM_ERROR, $producer->captured[0][ Message::TYPE ] );
+		$this->assertSame( "NOT_AVAILABLE\n", $producer->captured[0][ Message::VALUE ] );
+	}
+
+	/** A multi-segment TO peels exactly one head and keeps the rest intact. */
+	public function test_routing_peels_one_segment_and_preserves_the_remainder(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$hop = new Capture_Sink_Node();
+		$hop->name( 'first' );
+
+		$message                = Message::new_message();
+		$message[ Message::TO ] = 'first/second/third';
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $hop->captured );
+		$this->assertSame( 'second/third', $hop->captured[0][ Message::TO ] );
+	}
+
+	/**
+	 * A SCALAR FROM coerces for the MAX_FROM_SIZE check — the case the fast
+	 * path's fallback exists for. (An array FROM is a contract violation, not
+	 * a coercion case; see the note on Core::as_string in fill().)
+	 */
+	public function test_a_scalar_from_is_coerced_for_the_length_guard(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$dst = new Capture_Sink_Node();
+		$dst->name( 'dst' );
+
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'dst';
+		$message[ Message::FROM ] = 4;
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $dst->captured );
+	}
+
+	/**
+	 * TO = int 0 is a real address, not "unaddressed". `'' === 0` is false under
+	 * strict comparison, so it survives the empty guard, coerces to '0', and
+	 * routes to a node named '0'. Any guard here written as `empty()` or `! $to`
+	 * would swallow it — `'0'` is PHP-falsy.
+	 */
+	public function test_integer_zero_TO_routes_to_the_node_named_zero(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$zero = new Capture_Sink_Node();
+		$zero->name( '0' );
+
+		$message                = Message::new_message();
+		$message[ Message::TO ] = 0;
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $zero->captured );
+	}
+
+	/**
+	 * FROM = int 0 survives the MAX_FROM_SIZE guard and still counts as a
+	 * reply-able origin, so an unroutable message bounces NOT_AVAILABLE back to
+	 * it. `Core::has_value()` is strict for exactly this reason; `empty('0')` is
+	 * true and would silently swallow the error.
+	 */
+	public function test_integer_zero_FROM_still_receives_the_error_bounce(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$origin = new Capture_Sink_Node();
+		$origin->name( '0' );
+
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'nonexistent';
+		$message[ Message::FROM ] = 0;
+
+		$router->fill( $message );
+
+		$this->assertCount( 1, $origin->captured );
+		$this->assertSame( Message::TM_ERROR, $origin->captured[0][ Message::TYPE ] );
+	}
+
 	public function test_send_error_caches_unreachable_node_name_in_NOT_AVAILABLE_state(): void {
 		// send_error() caches a NOT_AVAILABLE state whose `node` field is the
 		// unreachable destination peeled off TO. The name lives in fill(); a
