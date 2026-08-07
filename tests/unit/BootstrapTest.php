@@ -1666,6 +1666,54 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	/**
+	 * The partition count may come from TSL FRONTMATTER alone, with no catalog
+	 * entry carrying it — a hub declaring `var num_partitions = 4` so its
+	 * dashboards fan out four ways without touching the global option, which
+	 * settings-sync would push to every spoke. The existing coverage injects a
+	 * catalog count, so this path was unproven end to end.
+	 *
+	 * It also declares its nodes through an `include`, the way a real
+	 * `complete-*` topology does — the count is useless if the declaration is
+	 * invisible to `declares_node()`.
+	 */
+	public function test_node_dirs_honours_a_frontmatter_partition_count_through_an_include(): void {
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		// 4 is distinct from the config default (1) and from any clamp bound.
+		\file_put_contents(
+			"{$stock}/parts.tsl",
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n"
+		);
+		\file_put_contents(
+			"{$stock}/complete-hub.tsl",
+			"var num_partitions = 4\ninclude parts\n"
+		);
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		// The REAL catalog publisher: no hand-injected num_partitions.
+		\add_filter(
+			'newspack_nodes/topologies',
+			[ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'complete-hub' ];
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$this->assertSame( 4, Bootstrap::num_partitions_for( 'complete-hub' ) );
+			$this->assertTrue(
+				\Newspack_Nodes\Topology_Analyzer::declares_node( 'complete-hub', 'requests:partition' ),
+				'an included declaration must still count as declared'
+			);
+			$this->assertSame(
+				[ 0, 1, 2, 3 ],
+				\array_keys( Bootstrap::node_dirs( 'requests:partition' ) )
+			);
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_node_dirs_of_a_node_no_active_topology_declares_is_empty(): void {
 		$stock = $this->activate_topologies(
 			[ 'combined' => "make_node Partition requests:partition <config:logs_dir>/requests.p<partition>\n" ],

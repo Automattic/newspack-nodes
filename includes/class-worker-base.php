@@ -307,6 +307,8 @@ class Worker_Base {
 	}
 
 	public function release(): void {
+		// While the lock still reads HELD, or we wake ourselves.
+		Partition_Node::flush_pending_wakes();
 		if ( null !== $this->lock ) {
 			$this->lock->release();
 			$this->lock = null;
