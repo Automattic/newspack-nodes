@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.0] - 2026-08-07
+
+### Added
+
+- **`wp nodes stop` / `wp nodes start` — quiesce the fleet for a deploy.** A
+  plugin update replaces `includes/` under a live worker; its autoloader then
+  fails on its own classes, the consumer reads that as poison, and good records
+  land in the dead-letter queue. `stop` sets a persisted hold, asks every worker
+  to exit, and BLOCKS until each lock dir is gone, exiting non-zero and naming
+  the stragglers if the wait expires — a deploy script that reads "stopped"
+  while a worker still runs is how this would cause the corruption it prevents.
+  `start` releases the hold and spawns the fleet.
+
+  The hold is enforced at `Spawn_Controller`, the one endpoint every spawn path
+  posts to. Gating the four callers instead (cron reconcile, peer scan,
+  partition wake, self-respawn) would be four places to forget, and
+  `self_respawn()` never touches the coordinator at all. It lives in an OPTION
+  rather than under `base_dir`, because the point is to survive
+  deactivate/remove/reinstall and a reinstall may wipe that directory.
+
+  Worker-side it is a `stop` flag beside `restart`: the two want opposite
+  successor behaviour, so a stop stamps its own category and suppresses the
+  self-respawn. The hold itself cannot be polled from inside a worker — a worker
+  is one long-lived request, so `get_option` would return the value cached at
+  first read and never see it.
+
+  A held fleet is reported, not silently empty: `wp nodes status` reads `held`
+  rather than `down`, `Alerts` raises nothing (a deliberate stop is not a
+  fault), and a `fleet-hold` check reports the hold with its age. That check is
+  declared once in `Health_Checks::evaluate()`, which both Site Health and
+  `wp nodes doctor` render, so the two cannot drift apart.
+
+  The wait is deliberately pessimistic in three ways, because every one of them
+  fails toward "do not deploy yet":
+
+  - It waits on the lock dirs actually present on DISK, not on the active
+    topology set. A worker whose topology was deactivated, or whose partition
+    index is above the current `num_partitions`, still holds a real lock and
+    still runs until `reconcile_lock_dirs()` retires it a lifetime later.
+  - It refuses to call the fleet stopped while the coordinator's spawn throttle
+    shows a spawn in flight. A worker that released its lock and POSTed its own
+    respawn just before the hold landed has NO lock dir while it bootstraps, and
+    reporting "stopped" into that gap is exactly the corruption this prevents.
+  - It re-flags every pass, so a worker that acquires mid-wait is still told to
+    stop rather than silently outlasting the timeout.
+
+  Known edge: a worker killed hard (OOM/SIGKILL) leaves a lock dir behind, and
+  `stop` reports it still up until the dir is reaped. Deliberate — presence, not
+  staleness, is the test, because a worker mid-job stops heartbeating long
+  before it exits and calling it gone is the one lie this command must never
+  tell.
+
+  `start` reports spawns REQUESTED, not spawned: `spawn_due_workers()` counts
+  attempts, and a fire-and-forget POST reports no outcome. Claiming the fleet is
+  back when every POST failed would be the worst error available here, since the
+  hold that would otherwise explain an empty fleet is already gone. It also
+  clears any `stop` flag a timed-out `stop` left behind — a straggler still
+  carrying one would exit whenever its handler finally returned and, being a
+  stop, decline to respawn, emptying that slot minutes after the operator was
+  told the fleet was back.
+
+  Two honesty guards, because a safety command that overstates its guarantee is
+  worse than none: a refused stop-flag write (the documented root-vs-`bend`
+  ownership footgun) is reported rather than spinning the timeout and blaming
+  the workers, and without Memcached `stop` warns that its in-flight-spawn check
+  is blind — APCu does not span SAPIs, so timestamps written by PHP-FPM are
+  invisible to WP-CLI.
+
+  Alerts suppress only what the stop CAUSED — worker liveness and consumer lag.
+  Dead letters are left alone: the quarantined segments predate the stop and are
+  still on disk. `Alerts::emit()` journals nothing at all while held, since a
+  deliberately partial evaluation would write a false `resolved:` row for every
+  suppressed condition and clear the stored state.
+
+### Fixed
+
+- **`dl_requeue` delivers the record to the node's sink instead of appending it
+  back into the source log.** A reader is never its source's writer, so the old
+  path put a second writer on a partition whose real one may have asserted
+  sole-writership (`void_warranty`) and skipped the write lock. Once any writer
+  exceeds PIPE_BUF the kernel may split its record, and a foreign append of
+  *any* size can land inside that gap — so the hazard was never about the
+  requeued record's own size. Delivering removes the foreign write entirely,
+  spares the log's other tailers a record only this node failed, and gives
+  `Remote_Source` a working requeue for the first time (it has no local log to
+  append to, but it has a sink). The quarantined copy stays in the queue, so a
+  redelivery that dies costs nothing.
+
+  This also retires the size guard added in 2.13.2: it asked the requeuing
+  node's own handle for a ceiling, and a Consumer tailing a log whose writer
+  lifted the cap elsewhere reported 4096 and refused. `Partition_Node::max_record_size()`
+  and the `deadletter_requeue_target()` seam are removed with it.
+
 ## [2.13.2] - 2026-08-07
 
 ### Changed

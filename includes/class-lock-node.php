@@ -28,6 +28,15 @@ class Lock_Node extends Node {
 	public const RELOAD_FLAG    = 'reload';
 	public const RESTART_FLAG   = 'restart';
 
+	/**
+	 * Operator stop. Distinct from RESTART_FLAG because the two want opposite
+	 * successor behaviour — a restart hands the slot straight to a fresh
+	 * process, a stop must leave it empty for the length of a deploy. The flag
+	 * only has to outlive the exiting worker; keeping the slot empty afterwards
+	 * is the hold option's job, since both acquire paths build a fresh dir.
+	 */
+	public const STOP_FLAG      = 'stop';
+
 	public const STALE_TIMEOUT  = 60;
 	public const STARTED_FILE   = 'started';
 
@@ -284,6 +293,9 @@ class Lock_Node extends Node {
 		@\unlink( $lock_dir . '/' . self::STARTED_FILE );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $lock_dir . '/' . self::RESTART_FLAG );
+		// The dir goes with it, so the stop survives in the hold option alone.
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+		@\unlink( $lock_dir . '/' . self::STOP_FLAG );
 		// @longform The reload watermark is never unlinked by its CONSUMER, but
 		// it must go here: rmdir() only removes an empty dir, so a survivor
 		// turns every clean release into an orphan peers steal through the
@@ -317,6 +329,41 @@ class Lock_Node extends Node {
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
 		return false !== @\file_put_contents( $lock_dir . '/' . self::RESTART_FLAG, (string) \time() );
+	}
+
+	/**
+	 * Static politely request STOP: exit and leave the slot empty.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 * @return bool True if the flag file was created.
+	 */
+	public static function request_stop_at( string $lock_dir ): bool {
+		$lock_dir = \rtrim( $lock_dir, '/' );
+		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'stop flag' ) ) {
+			return false;
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+		return false !== @\file_put_contents( $lock_dir . '/' . self::STOP_FLAG, (string) \time() );
+	}
+
+	/**
+	 * Clear a stop flag without disturbing the lock. `wp nodes start` calls this
+	 * for every dir before spawning: a straggler that outlasted `stop`'s wait
+	 * still carries the flag, and would read it whenever its handler returns,
+	 * exit, and — being a stop — decline to respawn, emptying the slot long
+	 * after the operator was told the fleet was back.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 */
+	public static function clear_stop_at( string $lock_dir ): void {
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+		@\unlink( \rtrim( $lock_dir, '/' ) . '/' . self::STOP_FLAG );
+	}
+
+	/** Whether an operator asked this worker to stop rather than recycle. */
+	public function stop_requested(): bool {
+		\clearstatcache( true, $this->lock_path . '/' . self::STOP_FLAG );
+		return \is_file( $this->lock_path . '/' . self::STOP_FLAG );
 	}
 
 	/**

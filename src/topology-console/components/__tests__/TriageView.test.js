@@ -139,9 +139,9 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 		replyTo: expect.any( String ),
 	} );
 	// The ok/error line surfaces, and the view refetches (a fresh dl_list).
-	reply( 'dl_requeue', 'ok: requeued 2:40:96 (97 bytes) into the source' );
+	reply( 'dl_requeue', 'ok: redelivered 2:40:96 (97 bytes) to the sink' );
 	expect(
-		getByText( 'ok: requeued 2:40:96 (97 bytes) into the source' )
+		getByText( 'ok: redelivered 2:40:96 (97 bytes) to the sink' )
 	).not.toBeNull();
 	expect( onAction ).toHaveBeenCalledWith(
 		'invoke',
@@ -346,7 +346,7 @@ test( 'a verb reply that lands after unmount fires no stray refetch', () => {
 	unmount();
 	// The dl_requeue reply lands after unmount; its callback would refresh()
 	// (a stray dl_list) — the mounted guard must drop it.
-	reply( 'dl_requeue', 'ok: requeued 2:40:96 into the source' );
+	reply( 'dl_requeue', 'ok: redelivered 2:40:96 to the sink' );
 	expect( onAction ).not.toHaveBeenCalled();
 } );
 

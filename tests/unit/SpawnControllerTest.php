@@ -35,6 +35,7 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']  = [];
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		Spawn_Coordinator::clear_hold();
 		\Newspack_Nodes\Config::reset();
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
@@ -90,6 +91,55 @@ class SpawnControllerTest extends TestCase {
 		$this->assertInstanceOf( \WP_Error::class, $second, 'a respawn 0s later must be throttled' );
 		$this->assertSame( 'spawn_throttled', $second->get_error_code() );
 		$this->assertSame( 1, $fired, 'the throttled spawn must not reach spawn_worker' );
+	}
+
+	/**
+	 * The endpoint is the ONE gate every spawn path crosses — cron reconcile,
+	 * peer scan, partition wake and self-respawn alike — so a deploy hold is one
+	 * refusal here rather than four gates to keep in sync. Refusing anywhere
+	 * else would miss self_respawn(), which never touches the coordinator.
+	 */
+	public function test_spawn_is_refused_while_the_fleet_is_held(): void {
+		$this->with_topology( [
+			'held-fleet' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$fired = 0;
+		\add_action( 'newspack_nodes/spawn_worker', function () use ( &$fired ): void {
+			++$fired;
+		} );
+		Spawn_Coordinator::set_hold( 1754500000 );
+
+		$result = $this->controller->spawn( $this->make_request( [
+			'type'      => 'held-fleet',
+			'partition' => 1,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] ) );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'fleet_held', $result->get_error_code() );
+		$this->assertSame( 0, $fired, 'a held fleet must not reach spawn_worker' );
+	}
+
+	/** Clearing the hold makes the same request spawn again. */
+	public function test_spawn_resumes_once_the_hold_is_cleared(): void {
+		$this->with_topology( [
+			'held-fleet' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$fired = 0;
+		\add_action( 'newspack_nodes/spawn_worker', function () use ( &$fired ): void {
+			++$fired;
+		} );
+		Spawn_Coordinator::set_hold( 1754500000 );
+		Spawn_Coordinator::clear_hold();
+
+		$result = $this->controller->spawn( $this->make_request( [
+			'type'      => 'held-fleet',
+			'partition' => 1,
+			'nonce'     => $this->fleet->generate_spawn_token( \time() ),
+		] ) );
+
+		$this->assertInstanceOf( \WP_REST_Response::class, $result );
+		$this->assertSame( 1, $fired );
 	}
 
 	// ── register_routes ────────────────────────────────────────────────────

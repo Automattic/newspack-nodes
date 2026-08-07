@@ -9,14 +9,26 @@ use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Worker_Should_Stop;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
+
+/** Sink that rejects everything — the poison a redelivery usually rediscovers. */
+class Throwing_Sink_Node extends Node {
+	public function fill( array $message ): void {
+		throw new \RuntimeException( 'sink refused' );
+	}
+}
+
+/** Sink that raises a cooperative stop mid-delivery. */
+class Stopping_Sink_Node extends Node {
+	public function fill( array $message ): void {
+		throw new Worker_Should_Stop();
+	}
+}
 
 /** Minimal node that exercises the Dead_Letter_Queue trait in isolation. */
 class Dead_Letter_Queue_Double extends Node {
 	use Dead_Letter_Queue;
-
-	/** Requeue seam: the log dl_requeue re-injects into. Null (default) exercises the "no local source" path. */
-	public ?Partition_Node $requeue_target = null;
 
 	public function fill( array $message ): void {}
 
@@ -54,10 +66,6 @@ class Dead_Letter_Queue_Double extends Node {
 
 	public function leave_crawl(): void {
 		$this->exit_crawl();
-	}
-
-	protected function deadletter_requeue_target(): ?Partition_Node {
-		return $this->requeue_target;
 	}
 }
 
@@ -362,82 +370,121 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( '2:0:10', $page['rows'][1]['source'] );
 	}
 
-	public function test_requeue_reads_the_sidecar_and_writes_to_the_target(): void {
-		$d = new Dead_Letter_Queue_Double();
+	public function test_requeue_reads_the_sidecar_and_delivers_to_the_sink(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$d->quarantine( $this->dl_message( 'reinject-me', '2:64:40' ), 'throw' );
+		$d->quarantine( $this->dl_message( 'redeliver-me', '2:64:40' ), 'throw' );
 
-		$row = $d->list_deadletter( 50 )['rows'][0];
-		$loc = $row['locator'];
+		$result = $d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
 
-		$target = new Partition_Node();
-		$target->arguments( [ "{$this->tmp}/source.p0" ] );
-		$d->requeue_target = $target;
-
-		$result = $d->requeue_deadletter( $loc );
 		$this->assertStringStartsWith( 'ok', $result );
-
-		$target->flush();
-		$log    = (string) \file_get_contents( "{$this->tmp}/source.p0/0.log" );
-		$values = \array_map(
-			static fn ( string $l ) => Message::unpacked( $l )[ Message::VALUE ],
-			\array_filter( \explode( "\n", $log ), static fn ( string $l ) => '' !== $l )
-		);
-		$this->assertSame( [ 'reinject-me' ], \array_values( $values ) );
+		$this->assertSame( [ 'redeliver-me' ], \array_column( $sink->captured, Message::VALUE ) );
 	}
 
 	/**
-	 * The guard asked a CONSTANT instead of the target. A partition that lifted
-	 * its own cap — `requests:partition` carries `void_warranty` — would have
-	 * taken the record, so refusing sent an operator to `wp nodes ingest` for
-	 * something the button could do. A torn deploy strands exactly these.
+	 * A redelivery must be addressed exactly as a normal emit is. In production a
+	 * node's `sink` is `_command_interpreter` (make_node wires it) and its real
+	 * downstream comes from `connect_node`, which sets TARGET — so Router, not the
+	 * sink, does the delivering. Filling the sink with the record verbatim sends a
+	 * `crash`/`unparseable` quarantine (whose TO is empty) to Router, which drops
+	 * it as unaddressed while requeue still replies `ok`.
 	 */
-	public function test_requeue_honours_a_target_that_lifted_its_cap(): void {
-		$big = \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE * 2 );
-		$d   = new Dead_Letter_Queue_Double();
+	public function test_requeue_addresses_the_record_to_the_nodes_target(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
+		$d->target( 'flame-builder' );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'unaddressed';
+		$message[ Message::TO ]    = '';
+		$d->quarantine( $message, 'crash' );
+
+		$d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
+
+		$this->assertSame( 'flame-builder', $sink->captured[0][ Message::TO ] );
+	}
+
+	/** The DLQ copy survives a redelivery, so a failed retry can simply be retried. */
+	public function test_requeue_leaves_the_record_in_the_queue(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Capture_Sink_Node() );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'still-quarantined', '2:64:40' ), 'throw' );
+
+		$d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
+
+		$this->assertSame( 1, $d->list_deadletter( 50 )['total'] );
+	}
+
+	/**
+	 * Poison usually throws again, so that outcome must RAISE: `interpret()` only
+	 * stamps TM_ERROR on a throw, and the Triage modal colours off that flag. A
+	 * returned `error:` string comes back TM_RESPONSE and renders the common
+	 * failure identically to a success.
+	 */
+	public function test_requeue_raises_when_the_sink_throws_again(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Throwing_Sink_Node() );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'still-poison', '2:64:40' ), 'throw' );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'sink refused' );
+		$d->requeue_deadletter( $loc );
+	}
+
+	/** A cooperative stop is control flow and must escape, not read as a verdict. */
+	public function test_requeue_propagates_a_cooperative_stop(): void {
+		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Stopping_Sink_Node() );
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( 'stop-me', '2:64:40' ), 'throw' );
+		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$this->expectException( Worker_Should_Stop::class );
+		$d->requeue_deadletter( $loc );
+	}
+
+	/**
+	 * Requeue delivers to the SINK, so the PIPE_BUF cap never applies. Writing
+	 * back into the source made the cap a property of the requeuing node's own
+	 * handle: a Consumer tailing a log whose writer lifted the cap elsewhere
+	 * (`requests:partition` carries `void_warranty` in request-builder.tsl)
+	 * reported 4096 and refused. Lifting it there would have been worse — a
+	 * second writer appending > PIPE_BUF beside a lockless sole-writer tears.
+	 */
+	public function test_requeue_delivers_an_oversized_record_to_the_sink(): void {
+		$big  = \str_repeat( 'x', 12333 );
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( $big, '2:64:40' ), 'throw' );
-
-		$target = new Partition_Node();
-		$target->arguments( [ "{$this->tmp}/big-source.p0" ] );
-		$target->void_warranty();
-		$d->requeue_target = $target;
 
 		$result = $d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
 
 		$this->assertStringStartsWith( 'ok', $result );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( $big, $sink->captured[0][ Message::VALUE ] );
 	}
 
-	/** A target that did NOT lift its cap still refuses, with the ingest hint. */
-	public function test_requeue_still_refuses_when_the_target_caps_at_pipe_buf(): void {
-		$big = \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE * 2 );
-		$d   = new Dead_Letter_Queue_Double();
-		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$d->quarantine( $this->dl_message( $big, '2:64:40' ), 'throw' );
-
-		$target = new Partition_Node();
-		$target->arguments( [ "{$this->tmp}/small-source.p0" ] );
-		$d->requeue_target = $target;
-
-		$result = $d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
-
-		$this->assertStringContainsString( 'PIPE_BUF cap', $result );
-		$this->assertStringContainsString( '--void_warranty', $result );
-	}
-
-	public function test_requeue_without_a_target_reports_unavailable(): void {
+	public function test_requeue_without_a_sink_reports_unavailable(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		// No requeue_target → the "no local source" branch, before any read.
+		// No sink → nowhere to deliver, refused before any read.
 		$result = $d->requeue_deadletter( '0:0:10' );
 		$this->assertStringContainsString( 'unavailable', $result );
 	}
 
 	public function test_requeue_rejects_a_malformed_locator(): void {
 		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$d->requeue_target = ( new Partition_Node() );
-		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
 		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( 'not-a-locator' ) );
 	}
 
@@ -445,9 +492,8 @@ class DeadLetterQueueTest extends TestCase {
 		// Three colon-separated parts (passes the count check), but the
 		// middle isn't ctype_digit — exercises the per-part validation loop.
 		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$d->requeue_target = ( new Partition_Node() );
-		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
 		$this->assertStringContainsString( 'malformed', $d->requeue_deadletter( '0:abc:10' ) );
 	}
 
@@ -459,24 +505,9 @@ class DeadLetterQueueTest extends TestCase {
 
 	public function test_requeue_reports_a_missing_record(): void {
 		$d = new Dead_Letter_Queue_Double();
+		$d->sink( new Capture_Sink_Node() );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		$d->requeue_target = ( new Partition_Node() );
-		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
 		$this->assertStringContainsString( 'no dead-letter record', $d->requeue_deadletter( '9:0:10' ) );
-	}
-
-	public function test_requeue_rejects_an_oversized_record(): void {
-		$d = new Dead_Letter_Queue_Double();
-		$d->build_dlq( "{$this->tmp}/dlq.p0" );
-		// Larger than Partition_Node::MAX_LINE_SIZE (4096) once packed.
-		$d->quarantine( $this->dl_message( \str_repeat( 'x', 5000 ), '1:0:5010' ), 'throw' );
-		$loc = $d->list_deadletter( 50 )['rows'][0]['locator'];
-
-		$d->requeue_target = ( new Partition_Node() );
-		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
-
-		$result = $d->requeue_deadletter( $loc );
-		$this->assertStringContainsString( 'over the 4096-byte PIPE_BUF cap', $result );
 	}
 
 	public function test_purge_errors_without_a_configured_queue(): void {
@@ -646,19 +677,20 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( "error: not a dead-letter node\n", $result );
 	}
 
-	public function test_cmd_dl_requeue_writes_to_the_target(): void {
-		$d = new Dead_Letter_Queue_Double();
+	public function test_cmd_dl_requeue_delivers_to_the_sink(): void {
+		$sink = new Capture_Sink_Node();
+		$d    = new Dead_Letter_Queue_Double();
+		$d->sink( $sink );
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$d->quarantine( $this->dl_message( 'requeued-via-cmd', '1:0:10' ), 'throw' );
-		$loc                = $d->list_deadletter( 50 )['rows'][0]['locator'];
-		$d->requeue_target  = new Partition_Node();
-		$d->requeue_target->arguments( [ "{$this->tmp}/source.p0" ] );
+		$loc         = $d->list_deadletter( 50 )['rows'][0]['locator'];
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->patron( $d );
 
 		$result = Dead_Letter_Queue_Double::cmd_dl_requeue( $interpreter, [ $loc ] );
 
 		$this->assertStringStartsWith( 'ok', $result );
+		$this->assertSame( [ 'requeued-via-cmd' ], \array_column( $sink->captured, Message::VALUE ) );
 	}
 
 	public function test_cmd_dl_purge_errors_when_no_patron_is_set(): void {

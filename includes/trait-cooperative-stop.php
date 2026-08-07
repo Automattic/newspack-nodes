@@ -108,6 +108,11 @@ trait Cooperative_Stop {
 			return $this->stop( 'lock dir gone' );
 		}
 
+		// Before restart: a stop leaves the slot empty, a restart refills it.
+		if ( $this->lock->stop_requested() ) {
+			return $this->stop( 'stop requested', 'stop' );
+		}
+
 		// A flag, a gone heartbeat, or a stolen lock — each names itself.
 		$restart_reason = $this->lock->restart_reason();
 		if ( '' !== $restart_reason ) {

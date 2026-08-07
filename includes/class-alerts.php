@@ -74,6 +74,10 @@ class Alerts {
 	 * timeout or unwritable dir must never unwind the sweep.
 	 */
 	public static function emit(): void {
+		// Held: a partial evaluate() would journal false `resolved:` rows.
+		if ( self::fleet_is_held() ) {
+			return;
+		}
 		if ( \function_exists( 'get_transient' ) && \function_exists( 'set_transient' ) ) {
 			// Best-effort throttle window, not content dedup (TOCTOU OK).
 			if ( false !== \get_transient( self::EMIT_GATE ) ) {
@@ -128,6 +132,11 @@ class Alerts {
 		}
 	}
 
+	/** Whether an operator is holding the fleet down for a deploy. */
+	private static function fleet_is_held(): bool {
+		return Spawn_Coordinator::hold() > 0;
+	}
+
 	/**
 	 * Compute the current alerts (pure — no side effects). Each alert is
 	 * `{ key, severity, message, ... }`; `key` is stable per condition so a
@@ -136,10 +145,12 @@ class Alerts {
 	 * @return array<int,array<string,mixed>>
 	 */
 	public static function evaluate(): array {
+		// Held suppresses only what the STOP caused; dead letters predate it.
+		$held   = self::fleet_is_held();
 		$meta   = Workers_CI_Node::collect_dump_metadata();
 		$alerts = [];
 
-		foreach ( Core::arr( $meta['workers'] ?? [] ) as $worker ) {
+		foreach ( $held ? [] : Core::arr( $meta['workers'] ?? [] ) as $worker ) {
 			$alert = self::worker_alert( Core::arr( $worker ) );
 			if ( null !== $alert ) {
 				$alerts[] = $alert;
@@ -147,7 +158,7 @@ class Alerts {
 		}
 
 		$lag_threshold = Core::num_int( Config::value( 'alert_lag_threshold' ) );
-		foreach ( Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
+		foreach ( $held ? [] : Core::arr( $meta['consumers'] ?? [] ) as $consumer ) {
 			$consumer = Core::arr( $consumer );
 			$distance = Core::num_int( $consumer['distance'] ?? 0 );
 			if ( $distance <= $lag_threshold ) {

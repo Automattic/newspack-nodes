@@ -43,6 +43,17 @@ class Spawn_Coordinator {
 
 	public const SPAWN_TS_CACHE_KEY = 'newspack_nodes:last_spawn:';
 
+	/**
+	 * Deploy hold: while set, every spawn path is refused so a plugin update can
+	 * swap `includes/` with no worker running against the half-old directory.
+	 *
+	 * An OPTION, not a file under base_dir: the point of the hold is to survive
+	 * deactivate/remove/reinstall, and base_dir is operator storage a reinstall
+	 * may well wipe (`/tmp/newspack-nodes` by default). A hold that evaporates
+	 * halfway through the thing it protects is worse than no hold.
+	 */
+	public const HOLD_OPTION = 'newspack_nodes_hold';
+
 	protected string $base_dir;
 	/** @var array<string,float> Key: "{type}|{partition}", value: timestamp. */
 	protected array $last_spawn_time = [];
@@ -527,6 +538,20 @@ class Spawn_Coordinator {
 		if ( \function_exists( 'set_transient' ) ) {
 			\set_transient( $cache_key, (int) $when, $ttl );
 		}
+	}
+
+	/** Unix time the deploy hold was placed, or 0 when the fleet is free to spawn. */
+	public static function hold(): int {
+		return \function_exists( 'get_option' ) ? Core::as_int( \get_option( self::HOLD_OPTION, 0 ) ) : 0;
+	}
+
+	/** Place the deploy hold, stamped so `doctor` can report how long it has stood. */
+	public static function set_hold( int $when ): void {
+		\update_option( self::HOLD_OPTION, $when, false );
+	}
+
+	public static function clear_hold(): void {
+		\delete_option( self::HOLD_OPTION );
 	}
 
 	/** Validate against the current AND previous window — don't tighten, that straddle is deliberate. */

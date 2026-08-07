@@ -1728,10 +1728,22 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 0, $node->list_deadletter( 50 )['total'] );
 	}
 
-	public function test_requeue_is_unavailable_for_a_remote_source(): void {
-		// A remote SSE pull has no local source log, so requeue reports unavailable.
-		[ $node ] = $this->make_remote();
+	/**
+	 * Delivering rather than re-injecting gives a remote SSE pull a working
+	 * requeue: it has no local source log to append to, but it has a sink.
+	 */
+	public function test_requeue_redelivers_for_a_remote_source(): void {
+		[ $node, $sink ] = $this->make_remote();
 		( new \ReflectionMethod( Remote_Source_Node::class, 'ensure_deadletter' ) )->invoke( $node );
-		$this->assertStringContainsString( 'unavailable', $node->requeue_deadletter( '0:0:10' ) );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'remote-retry';
+		$message[ Message::ID ]    = '7:12:30';
+		( new \ReflectionMethod( Remote_Source_Node::class, 'dead_letter' ) )->invoke( $node, $message, 'timeout', null );
+
+		$loc = $node->list_deadletter( 50 )['rows'][0]['locator'];
+
+		$this->assertStringStartsWith( 'ok', $node->requeue_deadletter( $loc ) );
+		$this->assertSame( [ 'remote-retry' ], \array_column( $sink->captured, Message::VALUE ) );
 	}
 }

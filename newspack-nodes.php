@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: WordPress-internal node-graph runtime for composable services.
- * Version: 2.13.2
+ * Version: 2.14.0
  * Author: Automattic
  * License: GPL-2.0-or-later
  * Requires PHP: 8.2
@@ -15,7 +15,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '2.13.2' );
+	\define( 'NEWSPACK_NODES_VERSION', '2.14.0' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
@@ -42,6 +42,8 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes types',      [ $nodes_worker_cli, 'types' ]      );
 	\WP_CLI::add_command( 'nodes run',        [ $nodes_worker_cli, 'run' ]        );
 	\WP_CLI::add_command( 'nodes restart',    [ $nodes_worker_cli, 'restart' ]    );
+	\WP_CLI::add_command( 'nodes stop',       [ $nodes_worker_cli, 'stop' ]       );
+	\WP_CLI::add_command( 'nodes start',      [ $nodes_worker_cli, 'start' ]      );
 	\WP_CLI::add_command( 'nodes status',     [ $nodes_worker_cli, 'status' ]     );
 	\WP_CLI::add_command( 'nodes activate',   [ $nodes_worker_cli, 'activate' ]   );
 	\WP_CLI::add_command( 'nodes deactivate', [ $nodes_worker_cli, 'deactivate' ] );

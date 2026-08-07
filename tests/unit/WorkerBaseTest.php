@@ -152,6 +152,29 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'memory', $this->read_private( $w, 'stop_reason' ) );
 	}
 
+	/**
+	 * An operator stop must be a category of its own, not another anonymous
+	 * operational stop: the shutdown is identical, but the slot has to stay
+	 * empty afterwards, which only `should_self_respawn()` can enforce.
+	 */
+	public function test_should_continue_stamps_a_stop_reason_for_an_operator_stop(): void {
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		\Newspack_Nodes\Lock_Node::request_stop_at( "{$this->tmp}/locks/test-worker.p0.lock.d" );
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+
+		$this->assertFalse( $w->should_continue() );
+		$this->assertSame( 'stop', $this->read_private( $w, 'stop_reason' ) );
+	}
+
+	/** The whole point of the hold: an operator stop must not hand the slot back. */
+	public function test_an_operator_stop_does_not_self_respawn(): void {
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->set_stop_reason_for_test( 'stop' );
+
+		$this->assertFalse( $w->should_self_respawn() );
+	}
+
 	public function test_operational_stop_leaves_stop_reason_empty(): void {
 		// Lock-lost / restart / db-fail are operational, NOT message poison — they must
 		// NOT stamp a cooperative reason, so the shutdown hands off cleanly (no strike).

@@ -205,6 +205,22 @@ class PartitionTest extends TestCase {
 		$this->assertTrue( $this->read_node_prop( $dl_solo, 'allow_large_writes' ) );
 	}
 
+	/**
+	 * Partition shares the DLQ trait for its WRITE-stall quarantine, but the
+	 * trait's requeue is a reader affordance: redelivering to the sink would push
+	 * an unwritten data record into `_command_interpreter` (make_node's default
+	 * sink) instead of retrying the write, silently losing it.
+	 */
+	public function test_requeue_is_refused_for_a_write_stall_quarantine(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'stalled' );
+		$p->arguments( [ "{$this->tmp}/logs/stalled.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+
+		$this->assertStringContainsString( 'unavailable', $p->requeue_deadletter( '0:0:10' ) );
+	}
+
 	public function test_sidecar_partitions_do_not_derive_a_write_deadletter(): void {
 		// A sidecar quarantining into its own sidecar would recurse forever.
 		$this->use_base_dir( $this->tmp );

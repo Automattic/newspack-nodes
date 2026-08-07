@@ -1301,21 +1301,21 @@ class Partition_Node extends Timer_Node {
 		return $this->allow_large_writes;
 	}
 
+	/**
+	 * Refuse the trait's requeue: it redelivers to the node's SINK, which is a
+	 * reader's downstream. This quarantine holds records whose WRITE stalled, and
+	 * a Partition's sink is `_command_interpreter` — redelivering there would
+	 * hand an unwritten data record to the interpreter and lose it. Retrying the
+	 * write is a different operation, and nothing asks for it yet.
+	 */
+	public function requeue_deadletter( string $locator ): string {
+		unset( $locator );
+		return "error: requeue unavailable — this is a write-stall quarantine, not a reader's\n";
+	}
+
 	public static function hash_to_partition( string $key, int $num_partitions ): int {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
-	}
-
-	/**
-	 * The largest record this partition will accept, in bytes.
-	 *
-	 * `fill()` picks its ceiling from the same flag; a caller that needs to know
-	 * BEFORE writing — the dead-letter requeue, deciding whether the button can
-	 * do the job — must ask the partition rather than the constant, or it
-	 * refuses records a `void_warranty` target would have taken.
-	 */
-	public function max_record_size(): int {
-		return $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 	}
 
 	/**

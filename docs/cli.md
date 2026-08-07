@@ -10,6 +10,8 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 | `wp nodes gc [--force]` | Sweep orphan log and offsetlog dirs now, instead of waiting for the next reconciliation pass. A dir is orphaned when no active topology declares it. Spares a dir written in the last hour unless `--force` drops the grace to zero. |
 | `wp nodes run <type> [--partition=<N>]` | Run one worker in the foreground (no spawn endpoint) and block until it exits; prints the worker's own exit reason. The debugging tool for "spawns but immediately exits". |
 | `wp nodes restart <type\|all> [--partition=<N>]` | Drop worker restart flags; the holders exit cleanly and their self-respawn starts them fresh. Every partition of the matched type(s) restarts unless `--partition` narrows it. |
+| `wp nodes stop [--timeout=<s>]` | Hold the fleet down for a deploy: refuse every spawn path, ask each worker to exit, then block until every lock dir is gone. Exits non-zero naming the workers still holding locks if the wait expires. The hold persists until `wp nodes start`. |
+| `wp nodes start` | Release the hold and spawn the fleet. |
 | `wp nodes activate <topology>` / `deactivate <topology>` | Add/remove a catalog topology from the active set and spawn/drain its fleet now. Same primitive as the Topologies settings UI. |
 | `wp nodes cli [<reader>.p<N>]` | The REPL. Bare (no arg) runs a local interpreter; with a worker id it pivots into that live worker over IPC. Refuses root. See [troubleshooting.md](troubleshooting.md) for the in-REPL verb table. |
 | `wp nodes scaffold <plugin\|node\|topology> <name>` | Generate a working starting point: a whole consumer plugin directory, a single Node class, or a `.tsl` topology — the shapes from [writing-a-plugin.md](writing-a-plugin.md). Never overwrites. |
@@ -29,6 +31,20 @@ wp nodes status        # detailed fleet and consumer tables
 ```bash
 wp nodes restart all   # all worker topologies, every partition
 ```
+
+**Replacing plugin files** — `restart` is not enough. Swapping `includes/`
+under a running worker makes its autoloader fail on its own classes, and the
+consumer quarantines whatever was in flight as poison. Take the fleet down
+first and branch on the exit status:
+
+```bash
+wp nodes stop && ./deploy.sh && wp nodes start
+```
+
+`stop` exits non-zero if any worker still holds its lock, so the deploy never
+runs against a live process. While held, `wp nodes status` reads `held`, and
+`doctor` (and Site Health) carry a `fleet-hold` warning with its age — a hold
+hours old is almost certainly a forgotten `wp nodes start`.
 
 Each restarted worker gets a fresh WordPress bootstrap. Run that command after
 all topology-provider plugins have been installed and activated, so each

@@ -129,6 +129,16 @@ class Spawn_Controller {
 			);
 		}
 
+		// Held here: self_respawn() never touches the coordinator.
+		$held = Spawn_Coordinator::hold();
+		if ( $held > 0 ) {
+			return new \WP_Error(
+				'fleet_held',
+				\sprintf( 'fleet held since %s; run `wp nodes start` to resume', \gmdate( 'c', $held ) ),
+				[ 'status' => 409 ]
+			);
+		}
+
 		// The one throttle every spawn path crosses (Tachikoma-style).
 		$now = Core::right_now();
 		if ( $this->coordinator->is_recently_spawned( $type, $partition, $now ) ) {

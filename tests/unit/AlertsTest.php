@@ -138,6 +138,60 @@ class AlertsTest extends TestCase {
 		$this->assertSame( Alerts::SEVERITY_CRITICAL, $by_key['worker_down:stale-workers.p0']['severity'] );
 	}
 
+	/**
+	 * A deliberately-stopped fleet is not a fault. Paging on it would train
+	 * operators to ignore worker_down for the one window they most need it —
+	 * the same reasoning that exempts an idle on-demand worker.
+	 */
+	public function test_a_held_fleet_raises_no_worker_alerts(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500000 );
+
+		$this->assertSame( [], Alerts::evaluate() );
+
+		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+	}
+
+	/**
+	 * A hold is not evidence that anything RESOLVED. `emit()` rides the minute
+	 * cron pass regardless of the fleet, so an evaluate() that returns nothing
+	 * makes every standing alert look cleared — a `deadletter:` row, which the
+	 * stop did not touch and whose segments are still on disk, is journaled as
+	 * resolved within a minute of `wp nodes stop` and re-raised after `start`.
+	 */
+	public function test_emit_journals_nothing_while_the_fleet_is_held(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+		\update_option( 'newspack_nodes_alerts_state', [ 'deadletter:some-reader' => 'warning' ], false );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500000 );
+
+		Alerts::emit();
+
+		$this->assertSame( [], $this->journal_messages( $base ), 'a held fleet journals no transitions' );
+		$this->assertSame(
+			[ 'deadletter:some-reader' => 'warning' ],
+			\get_option( 'newspack_nodes_alerts_state' ),
+			'the last known state must stand'
+		);
+
+		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+	}
+
+	/** A dead-letter backlog is unchanged by a stop, so a hold must not hide it. */
+	public function test_a_held_fleet_still_reports_dead_letters(): void {
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_deadletter( $base, 'some-reader', 3 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500000 );
+
+		$keys = \array_column( Alerts::evaluate(), 'key' );
+
+		$this->assertContains( 'deadletter:some-reader', $keys );
+		$this->assertSame( [], \array_filter( $keys, static fn ( $k ) => \str_starts_with( (string) $k, 'worker_down:' ) ) );
+
+		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+	}
+
 	public function test_never_started_worker_yields_a_warning_alert(): void {
 		$base = $this->arrange( [ 'missing-workers' ] );
 		// No heartbeat file at all → never-seen dead worker.

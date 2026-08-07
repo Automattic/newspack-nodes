@@ -95,7 +95,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   no longer valid; there is nothing to spawn. Cold start is WP-Cron's single
   pass, not a spawn request.
 - **`wp nodes doctor` replaces the `supervisor-liveness` check with
-  `housekeeping`.** The report is still seven results. The new one is
+  `housekeeping`.** The report was still seven results at that version. The new one is
   load-bearing in a way the old one was not: fleet housekeeping — retention,
   orphan partition and IPC reaping, the delayed-jobs sweep, alert emission and
   every `newspack_nodes/periodic` subscriber — now rides the minute cron pass
