@@ -1307,6 +1307,18 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * The largest record this partition will accept, in bytes.
+	 *
+	 * `fill()` picks its ceiling from the same flag; a caller that needs to know
+	 * BEFORE writing — the dead-letter requeue, deciding whether the button can
+	 * do the job — must ask the partition rather than the constant, or it
+	 * refuses records a `void_warranty` target would have taken.
+	 */
+	public function max_record_size(): int {
+		return $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
+	}
+
+	/**
 	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
 	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
 	 * partition's sole writer (e.g. a worker that already holds its topology lock,

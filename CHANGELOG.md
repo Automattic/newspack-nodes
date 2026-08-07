@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dead-letter requeue asks the target for its size ceiling.** It compared the
+  record against the `MAX_LINE_SIZE` constant, so it refused anything over 4 KB
+  even when the partition it was about to write to had lifted its own cap —
+  `requests:partition` carries `void_warranty`, and `Partition_Node::fill()`
+  would have taken the record without complaint. The REQUEUE button sent an
+  operator to `wp nodes ingest --void_warranty` for a job it could do itself.
+  New `Partition_Node::max_record_size()` reports the effective ceiling from the
+  same flag `fill()` reads, and the guard asks the target. A target that has NOT
+  lifted its cap still refuses, with the same hint.
+
+  This is the rescue path for records a torn plugin deploy strands: a live
+  worker whose `includes/` is swapped underneath it throws `Class "…" not
+  found`, and the consumer quarantines whatever was in flight.
+
 ## [2.13.1] - 2026-08-07
 
 ### Fixed

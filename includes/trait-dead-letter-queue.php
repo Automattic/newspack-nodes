@@ -305,9 +305,11 @@ trait Dead_Letter_Queue {
 		if ( null === $message ) {
 			return "error: no dead-letter record at {$locator}\n";
 		}
+		// Ask the TARGET, not the constant: a lifted cap takes it.
 		$size = Message::packed_size( $message ) + 1;
-		if ( $size > Partition_Node::MAX_LINE_SIZE ) {
-			return "error: record is {$size} bytes (over the " . Partition_Node::MAX_LINE_SIZE
+		$max  = $target->max_record_size();
+		if ( $size > $max ) {
+			return "error: record is {$size} bytes (over the {$max}"
 				. "-byte PIPE_BUF cap); replay it via 'wp nodes ingest --void_warranty' instead";
 		}
 		$target->fill( $message );
