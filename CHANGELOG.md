@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newest one, `should_continue()` runs every drain tick, and per-tick disk I/O
   would spend more than the residency this is meant to give back.
 
+- **The topology console edits the on-demand pair as first-class fields.**
+  `var on_demand` is a checkbox and `var on_demand_idle` a number that appears
+  only once it is ticked — an idle window means nothing on a topology that stays
+  resident. Both leave the generic "Other variables" rows, where an author would
+  otherwise have had to hand-type a var the runtime acts on. Stale timeout now
+  names its default (60) the way Partitions already named its own, instead of
+  saying "Empty = default." and leaving the reader to go find the number. All
+  three defaults are localized from PHP — `Lock_Node::STALE_TIMEOUT` and the
+  `on_demand_idle` config value — rather than duplicated as JS literals.
+
 - **A write to a Partition wakes the Consumers tailing it.** Once the spawn scan
   stops resurrecting an absent on-demand worker, something has to bring it back,
   and WP-Cron at minute cadence is the fallback tier — a job that waits 60s for a
