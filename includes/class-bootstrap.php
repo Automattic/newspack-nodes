@@ -938,7 +938,7 @@ class Bootstrap {
 	}
 
 	/**
-	 * Run the canonical seven-result health report once and render every result.
+	 * Run the canonical health report once and render every result.
 	 *
 	 * @return array<string,mixed> WP Site Health result.
 	 */

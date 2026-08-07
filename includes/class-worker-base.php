@@ -316,12 +316,14 @@ class Worker_Base {
 	/**
 	 * Whether this stop hands the slot straight back to a successor.
 	 *
-	 * Every other stop reason means the work outlived one process; an idle stop
-	 * means there was no work, so respawning would undo the exit that just
-	 * happened and pin the child forever. A producer wakes it instead.
+	 * Every other stop reason means the work outlived one process, so the slot is
+	 * handed straight on. Two say otherwise: an idle stop means there was no work
+	 * and respawning would undo the exit that just happened (a producer wakes it
+	 * instead), and an operator stop must leave the slot empty for the length of
+	 * a deploy.
 	 */
 	public function should_self_respawn(): bool {
-		return 'idle' !== $this->stop_reason;
+		return ! \in_array( $this->stop_reason, [ 'idle', 'stop' ], true );
 	}
 
 	/**

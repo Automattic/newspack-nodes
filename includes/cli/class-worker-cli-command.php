@@ -15,6 +15,218 @@ namespace Newspack_Nodes;
 
 class Worker_CLI_Command {
 
+	/** Default seconds `stop` waits for the fleet to go quiet. */
+	public const STOP_TIMEOUT_S = 90;
+
+	/** Seconds between lock-dir polls while `stop` waits. */
+	private const STOP_POLL_S = 1;
+
+	/**
+	 * Poll-sleep seam. Lazily defaulted to a real `sleep()`; tests reassign it to
+	 * drive the wait deterministically (and to simulate workers exiting) without
+	 * short-circuiting the surrounding poll/report logic.
+	 *
+	 * Signature: `function ( int $seconds ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $sleep = null;
+
+	/**
+	 * Slots whose stop-flag write was refused; kept so the warning is not
+	 * repeated on every poll.
+	 *
+	 * @var array<int, string>
+	 */
+	private array $refused_flags = [];
+
+	/**
+	 * Stop the fleet and HOLD it down, so a deploy can replace `includes/` with
+	 * no worker running against the half-swapped directory.
+	 *
+	 * Sets the persisted hold every spawn path checks, flags each live worker to
+	 * exit, then BLOCKS until every lock dir is gone. Exits non-zero naming the
+	 * stragglers if the wait expires, so a deploy script can branch on it.
+	 *
+	 * The fleet stays down until `wp nodes start`.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--timeout=<seconds>]
+	 * : How long to wait for a clean shutdown. Default 90 — long enough for a
+	 * job worker to finish the handler it is inside.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes stop && ./deploy.sh && wp nodes start
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments (unused).
+	 * @param array<string, mixed> $assoc_args --timeout.
+	 */
+	public function stop( array $args, array $assoc_args ): void {
+		unset( $args );
+		$timeout = self::entry_int( $assoc_args, 'timeout', self::STOP_TIMEOUT_S );
+
+		// Hold FIRST, or a worker flagged before it respawns itself.
+		Spawn_Coordinator::set_hold( \time() );
+		\WP_CLI::log( 'Held the fleet; waiting for workers to exit.' );
+
+		if ( null === Core::$memd ) {
+			\WP_CLI::warning(
+				'No Memcached: the in-flight-spawn check cannot see timestamps written by '
+				. 'PHP-FPM (APCu does not span SAPIs), so a worker mid-boot may go unnoticed.'
+			);
+		}
+
+		$sleep    = self::$sleep ?? static fn ( int $seconds ) => \sleep( $seconds );
+		$deadline = \time() + $timeout;
+		do {
+			$this->flag_held_workers();
+			$blockers = $this->stop_blockers();
+			if ( empty( $blockers ) ) {
+				\WP_CLI::success( 'Fleet stopped. Run `wp nodes start` when the deploy is done.' );
+				return;
+			}
+			$sleep( self::STOP_POLL_S );
+		} while ( \time() < $deadline );
+
+		// Re-read after the last sleep; the verdict predated it.
+		$blockers = $this->stop_blockers();
+		if ( empty( $blockers ) ) {
+			\WP_CLI::success( 'Fleet stopped. Run `wp nodes start` when the deploy is done.' );
+			return;
+		}
+		\WP_CLI::error(
+			'Timed out after ' . $timeout . 's; still up: ' . \implode( ', ', $blockers )
+			. '. The fleet stays HELD — run `wp nodes start` to release it.'
+		);
+	}
+
+	/**
+	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
+	 *
+	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key      Key to read.
+	 * @param int    $fallback Default when missing/non-scalar.
+	 */
+	private static function entry_int( $entry, string $key, int $fallback ): int {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
+		return Core::as_int( $value, $fallback );
+	}
+
+	/**
+	 * Flag every held lock to stop, warning about any write that was REFUSED.
+	 *
+	 * Re-run each pass so a worker that acquired mid-wait is told too. A refusal
+	 * is the documented ownership footgun (worker dirs owned by `bend`, the
+	 * command run as root); silently flagging nothing spins the whole timeout and
+	 * then blames the workers for not exiting.
+	 */
+	private function flag_held_workers(): void {
+		$refused = [];
+		foreach ( $this->held_lock_dirs() as $slot => $dir ) {
+			if ( ! Lock_Node::request_stop_at( $dir ) ) {
+				$refused[] = $slot;
+			}
+		}
+		if ( ! empty( $refused ) && $refused !== $this->refused_flags ) {
+			$this->refused_flags = $refused;
+			\WP_CLI::warning( 'could not write the stop flag for: ' . \implode( ', ', $refused ) );
+		}
+	}
+
+	/**
+	 * Every `.lock.d` under the locks dir, keyed by its `type.pN` slot.
+	 *
+	 * Read from DISK rather than derived from the active topology set: a worker
+	 * whose topology was deactivated, or whose partition index is above the
+	 * current `num_partitions`, still holds a real lock and still runs until
+	 * `reconcile_lock_dirs()` retires it a full lifetime later.
+	 *
+	 * @return array<string, string> slot => directory path.
+	 */
+	private function held_lock_dirs(): array {
+		$dirs = [];
+		foreach ( (array) \glob( $this->base_dir() . '/locks/*.lock.d', \GLOB_ONLYDIR ) as $path ) {
+			$dirs[ \basename( Core::as_string( $path ), '.lock.d' ) ] = Core::as_string( $path );
+		}
+		return $dirs;
+	}
+
+	private function base_dir(): string {
+		return Config::get_base_directory();
+	}
+
+	/**
+	 * What still stands between us and a quiet fleet: held lock dirs, plus any
+	 * slot with a spawn already in flight.
+	 *
+	 * The in-flight check is what stops `stop` reporting success into a gap. A
+	 * worker that released its lock and POSTed its own respawn microseconds
+	 * before the hold landed has no lock dir while it bootstraps — so a naive
+	 * "no dirs" test says stopped, the deploy swaps `includes/`, and the
+	 * successor acquires and runs against a half-swapped directory. The
+	 * coordinator's own spawn throttle already records exactly that window.
+	 *
+	 * Presence, not staleness, decides a dir: a worker mid-job stops
+	 * heartbeating long before it exits, and calling it gone is the one lie this
+	 * command must never tell.
+	 *
+	 * @return array<int, string>
+	 */
+	private function stop_blockers(): array {
+		$blockers = \array_keys( $this->held_lock_dirs() );
+		$fleet    = Bootstrap::spawn_coordinator();
+		$now      = Core::right_now();
+		foreach ( $this->workers() as $w ) {
+			$type = $w['type'];
+			$p    = $w['partition'];
+			if ( $fleet->is_recently_spawned( $type, $p, $now ) ) {
+				$blockers[] = "{$type}.p{$p} (spawn in flight)";
+			}
+		}
+		return $blockers;
+	}
+
+	/**
+	 * Expand topologies registered via the `newspack_nodes/topologies` filter
+	 * into a flat list of `{type, partition, stale_timeout}` rows.
+	 *
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 */
+	private function workers(): array {
+		return Bootstrap::expand_workers();
+	}
+
+	/**
+	 * Release the deploy hold and spawn the fleet.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes start
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments (unused).
+	 * @param array<string, mixed> $assoc_args Associative arguments (unused).
+	 */
+	public function start( array $args, array $assoc_args ): void {
+		unset( $args, $assoc_args );
+		Spawn_Coordinator::clear_hold();
+		// A straggler that outlasted `stop` still carries its flag.
+		foreach ( $this->held_lock_dirs() as $dir ) {
+			Lock_Node::clear_stop_at( $dir );
+		}
+		// Counts ATTEMPTS: a fire-and-forget POST reports no outcome.
+		$requested = Bootstrap::spawn_coordinator()->spawn_due_workers( Core::right_now() );
+		\WP_CLI::success(
+			"Hold released; requested {$requested} worker spawn(s). "
+			. 'Run `wp nodes status` to confirm the fleet came back.'
+		);
+	}
+
 	/**
 	 * Request a worker restart by writing a `restart` flag into its lock dir.
 	 *
@@ -65,37 +277,11 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Expand topologies registered via the `newspack_nodes/topologies` filter
-	 * into a flat list of `{type, partition, stale_timeout}` rows.
-	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
-	 */
-	private function workers(): array {
-		return Bootstrap::expand_workers();
-	}
-
-	/**
-	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
-	 *
-	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key      Key to read.
-	 * @param int    $fallback Default when missing/non-scalar.
-	 */
-	private static function entry_int( $entry, string $key, int $fallback ): int {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
-		return Core::as_int( $value, $fallback );
-	}
-
-	/**
 	 * Helper for command implementations to reach the same Cli helper without
 	 * recreating it every time.
 	 */
 	private function cli(): CLI {
 		return new CLI( $this->base_dir() );
-	}
-
-	private function base_dir(): string {
-		return Config::get_base_directory();
 	}
 
 	/**
@@ -211,8 +397,12 @@ class Worker_CLI_Command {
 		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
 		$started_at   = null === $w ? 0 : Core::as_int( $w['started_at'] );
 		if ( null === $w ) {
-			// An on-demand slot with no lock is waiting, not broken.
-			$state = $on_demand_idle > 0 ? 'idle' : 'down';
+			// A held or on-demand slot with no lock is waiting, not broken.
+			if ( Spawn_Coordinator::hold() > 0 ) {
+				$state = 'held';
+			} else {
+				$state = $on_demand_idle > 0 ? 'idle' : 'down';
+			}
 		} else {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
@@ -539,7 +729,7 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Render the canonical seven-check Nodes health report. The cache result
+	 * Render the canonical Nodes health report. The cache result
 	 * comes from a bounded web-runtime probe; environment and fleet results are
 	 * evaluated locally. Recommendations warn; critical results exit non-zero.
 	 *

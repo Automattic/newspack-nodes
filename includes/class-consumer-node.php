@@ -707,11 +707,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return "{$this->cursor_segment}:{$this->cursor_offset}";
 	}
 
-	/** Requeue target: the source Partition this Consumer tails, so dl_requeue re-injects into it. */
-	protected function deadletter_requeue_target(): ?Partition_Node {
-		return $this->source;
-	}
-
 	/**
 	 * STEP's advance: drive ticks until exactly one message is emitted or EOF is
 	 * reached. poll_init's first tick only loads the buffer (emits nothing in line

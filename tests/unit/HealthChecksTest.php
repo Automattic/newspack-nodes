@@ -274,6 +274,32 @@ class HealthChecksTest extends TestCase {
 		$this->assertSame( Health_Checks::STATUS_GOOD, $result['status'] );
 	}
 
+	/**
+	 * A held fleet is indistinguishable from a broken one, and the failure mode
+	 * is a forgotten `wp nodes start` — so the hold reports itself, with its age.
+	 * Site Health and `wp nodes doctor` both render `evaluate()`, so declaring it
+	 * once here keeps the two in sync by construction.
+	 */
+	public function test_a_held_fleet_reports_itself_with_its_age(): void {
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( \time() - 7200 );
+
+		$results = Health_Checks::evaluate();
+
+		$by_id = \array_column( $results, null, 'id' );
+		$this->assertArrayHasKey( 'fleet-hold', $by_id );
+		$this->assertSame( Health_Checks::STATUS_RECOMMENDED, $by_id['fleet-hold']['status'] );
+		$this->assertStringContainsString( '2h', $by_id['fleet-hold']['messages'][0] );
+		$this->assertStringContainsString( 'wp nodes start', $by_id['fleet-hold']['messages'][0] );
+
+		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
+	}
+
+	/** No hold, no row — the check is a reminder, not a permanent status line. */
+	public function test_an_unheld_fleet_reports_no_hold_row(): void {
+		$results = Health_Checks::evaluate();
+		$this->assertNotContains( 'fleet-hold', \array_column( $results, 'id' ) );
+	}
+
 	public function test_evaluate_returns_exactly_the_seven_results_in_canonical_order(): void {
 		$results = Health_Checks::evaluate(
 			[

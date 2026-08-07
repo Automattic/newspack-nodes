@@ -165,6 +165,43 @@ class LockTest extends TestCase {
 		$this->assertSame( '', $lock->restart_reason() );
 	}
 
+	/**
+	 * A stop must be distinguishable from a restart at the lock, because the two
+	 * want opposite successor behaviour: a restart hands the slot to a fresh
+	 * process, a stop must leave it empty for the length of a deploy.
+	 */
+	public function test_request_stop_at_is_seen_as_a_stop_not_a_restart(): void {
+		$holder = new Lock_Node( "{$this->tmp}/test.lock.d" );
+		$this->assertTrue( $holder->acquire() );
+
+		$this->assertTrue( Lock_Node::request_stop_at( "{$this->tmp}/test.lock.d" ) );
+
+		$this->assertTrue( $holder->stop_requested() );
+		$this->assertFileExists( "{$this->tmp}/test.lock.d/" . Lock_Node::STOP_FLAG );
+	}
+
+	public function test_stop_requested_is_false_by_default(): void {
+		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
+		$lock->acquire();
+		$this->assertFalse( $lock->stop_requested() );
+	}
+
+	public function test_request_stop_at_returns_false_when_lock_dir_missing(): void {
+		$this->assertFalse( Lock_Node::request_stop_at( "{$this->tmp}/nonexistent.lock.d" ) );
+	}
+
+	/** rmdir() needs an empty dir, so a clean release must take the stop flag with it. */
+	public function test_force_release_at_clears_the_stop_flag(): void {
+		$dir = "{$this->tmp}/test.lock.d";
+		\mkdir( $dir, 0755, true );
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+		\file_put_contents( "{$dir}/" . Lock_Node::STOP_FLAG, (string) \time() );
+
+		Lock_Node::force_release_at( $dir );
+
+		$this->assertDirectoryDoesNotExist( $dir );
+	}
+
 	public function test_request_restart_at_creates_flag_seen_by_restart_reason(): void {
 		$holder = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $holder->acquire() );

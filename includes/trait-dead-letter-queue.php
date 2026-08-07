@@ -227,15 +227,6 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * The log a requeued dead-letter record is re-injected into — the source this node
-	 * tails. Null (the default) means no local source: a remote SSE pull cannot requeue.
-	 * Consumer overrides to return its source Partition.
-	 */
-	protected function deadletter_requeue_target(): ?Partition_Node {
-		return null;
-	}
-
-	/**
 	 * List quarantined records newest-first, capped at $limit. Each row is the .idx
 	 * triage metadata (reason, attempts, first_crash_ts, quarantine ts, source
 	 * breadcrumb, sidecar locator). `total` counts ALL indexed records (the badge
@@ -279,22 +270,25 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * Re-inject the dead-letter record at $locator (the `locator` field from
-	 * list_deadletter, its SIDECAR position) back into the source this node tails.
-	 * Reads the byte-verbatim record via read_message_at, applies the same PIPE_BUF
-	 * size guard `wp nodes ingest` uses, then appends it to the source's tail so the
-	 * reader reaches it again. On a SHARED source log every tailer re-receives the
-	 * record — including consumers that already processed it. Returns an ok/error
-	 * line for the verb reply.
+	 * Redeliver the dead-letter record at $locator (the `locator` field from
+	 * list_deadletter, its SIDECAR position) to this node's sink, byte-verbatim as
+	 * quarantined. The DLQ copy is left in place, so a redelivery that dies mid-flight
+	 * costs nothing — press the button again.
+	 *
+	 * It delivers rather than re-injecting into the source log because a reader is
+	 * never that log's writer. Appending from here would put a SECOND writer on a
+	 * partition whose real one may have asserted sole-writership (`void_warranty`)
+	 * and skipped the write lock; once any writer exceeds PIPE_BUF the kernel may
+	 * split its record, and a foreign append of ANY size can land inside the gap.
+	 * Delivering also spares the log's other tailers a record only this node failed.
 	 */
 	public function requeue_deadletter( string $locator ): string {
 		$deadletter = $this->ensure_deadletter();
 		if ( null === $deadletter ) {
 			return "error: no dead-letter queue configured\n";
 		}
-		$target = $this->deadletter_requeue_target();
-		if ( null === $target ) {
-			return "error: requeue unavailable — this node has no local source log to re-inject into\n";
+		if ( null === $this->sink ) {
+			return "error: requeue unavailable — this node has no sink to deliver into\n";
 		}
 		$loc = $this->parse_deadletter_locator( $locator );
 		if ( null === $loc ) {
@@ -305,16 +299,14 @@ trait Dead_Letter_Queue {
 		if ( null === $message ) {
 			return "error: no dead-letter record at {$locator}\n";
 		}
-		// Ask the TARGET, not the constant: a lifted cap takes it.
-		$size = Message::packed_size( $message ) + 1;
-		$max  = $target->max_record_size();
-		if ( $size > $max ) {
-			return "error: record is {$size} bytes (over the {$max}"
-				. "-byte PIPE_BUF cap); replay it via 'wp nodes ingest --void_warranty' instead";
+		// Address it as forward_line does; Router, not the sink, delivers.
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
 		}
-		$target->fill( $message );
-		$target->flush();
-		return "ok: requeued {$locator} ({$size} bytes) into the source\n";
+		// Let a re-throw escape: only a raise stamps TM_ERROR for the UI.
+		$size = Message::packed_size( $message );
+		$this->sink->fill( $message );
+		return "ok: redelivered {$locator} ({$size} bytes) to the sink\n";
 	}
 
 	/**
@@ -508,7 +500,7 @@ trait Dead_Letter_Queue {
 			],
 			[
 				'name'        => 'dl_requeue',
-				'description' => 'Re-inject the dead-letter record at <locator> (segment:offset:length from dl_list) back into the source log this node tails.',
+				'description' => 'Redeliver the dead-letter record at <locator> (segment:offset:length from dl_list) to this node\'s sink; the queued copy stays put.',
 				// Driven by the Inspector's Triage modal; hide the verb button.
 				'hidden'      => true,
 				'args'        => [
@@ -562,7 +554,7 @@ trait Dead_Letter_Queue {
 	}
 
 	/**
-	 * `dl_requeue` verb handler — re-inject one record; reply the ok/error line.
+	 * `dl_requeue` verb handler — redeliver one record; reply the ok/error line.
 	 *
 	 * @param array<array-key, mixed> $args The sidecar locator from dl_list.
 	 */

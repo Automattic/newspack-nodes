@@ -108,9 +108,11 @@ class ConsumerTest extends TestCase {
 		$this->assertContains( 'dl_purge', $verbs );
 	}
 
-	public function test_requeue_reinjects_a_dead_letter_record_into_the_source(): void {
-		$c = new Consumer_Node();
+	public function test_requeue_redelivers_a_dead_letter_record_to_the_sink(): void {
+		$sink = new Capture_Sink_Node();
+		$c    = new Consumer_Node();
 		$c->name( 'reader' );
+		$c->sink( $sink );
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
 
 		$message                   = Message::new_message();
@@ -122,9 +124,9 @@ class ConsumerTest extends TestCase {
 		$row = $c->list_deadletter( 50 )['rows'][0];
 		$this->assertStringStartsWith( 'ok', $c->requeue_deadletter( $row['locator'] ) );
 
-		// The record landed back in the source Partition the Consumer tails.
-		$source = $this->read_private( $c, 'source' );
-		$this->assertSame( [ 'requeue-me' ], $this->read_partition_values( $source ) );
+		// Redelivered downstream; the source log the Consumer tails is untouched.
+		$this->assertSame( [ 'requeue-me' ], \array_column( $sink->captured, Message::VALUE ) );
+		$this->assertSame( [], $this->read_partition_values( $this->read_private( $c, 'source' ) ) );
 	}
 
 	public function test_dump_metadata_reports_the_deadletter_segment_count(): void {

@@ -26,6 +26,9 @@ require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 class CliWorkerCommandTest extends TestCase {
 	private string $tmp;
 
+	/** The harness installs ONE recording curl seam for the whole run; restore it, never null it. */
+	private ?\Closure $curl_exec_before = null;
+
 	protected function setUp(): void {
 		parent::setUp();
 		// /tmp/... directly so realpath() matches input on hosts where
@@ -41,6 +44,7 @@ class CliWorkerCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_errors']        = [];
 		$GLOBALS['_test_wp_cli_success']       = [];
 
+		$this->curl_exec_before = \Newspack_Nodes\Core::$curl_exec;
 		$this->use_base_dir( $this->tmp );
 		Topology_Registry::reset();
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
@@ -49,6 +53,10 @@ class CliWorkerCommandTest extends TestCase {
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
+		Worker_CLI_Command::$sleep = null;
+		\Newspack_Nodes\Core::$curl_exec = $this->curl_exec_before;
+		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = null;
+		\Newspack_Nodes\Spawn_Coordinator::clear_hold();
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
 		$this->rmdir_recursive( $this->tmp );
@@ -141,6 +149,233 @@ class CliWorkerCommandTest extends TestCase {
 				$GLOBALS['_test_wp_cli_errors']
 			);
 		}
+	}
+
+	// ── stop / start: the deploy hold ──────────────────────────────────────
+
+	/**
+	 * `stop` is `restart` plus a hold: without the persisted refusal, cron, the
+	 * peer scan, a partition wake and every self-respawn each bring the fleet
+	 * back inside the deploy window.
+	 */
+	public function test_stop_sets_the_hold_and_flags_every_worker(): void {
+		$this->register_topology( 'firehose-workers', 3 );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
+		}
+		// Every lock dir vanishes on the first poll: the workers exited.
+		Worker_CLI_Command::$sleep = function (): void {
+			$this->rmdir_recursive( "{$this->tmp}/locks" );
+		};
+
+		( new Worker_CLI_Command() )->stop( [], [] );
+
+		$this->assertGreaterThan( 0, \Newspack_Nodes\Spawn_Coordinator::hold() );
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	/**
+	 * A worker that released its lock and POSTed its own respawn just before the
+	 * hold landed has NO lock dir while it bootstraps. Reporting the fleet
+	 * stopped into that gap lets the deploy swap `includes/` under a successor
+	 * that is about to acquire — the exact corruption this command prevents.
+	 */
+	public function test_stop_does_not_report_success_while_a_spawn_is_in_flight(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		// No lock dirs at all: the predecessor is gone, the successor booting.
+		// Pin ONE coordinator so the in-flight mark stays instance-local: a
+		// persisted record_spawn would outlive the test in a shared cache tier.
+		$fleet = new \Newspack_Nodes\Spawn_Coordinator( $this->tmp, 'TEST_SALT' );
+		$fleet->record_spawn_local( 'firehose-workers', 0, \Newspack_Nodes\Core::right_now() );
+		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static fn () => $fleet;
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		try {
+			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+			$this->fail( 'an in-flight spawn must not read as a stopped fleet' );
+		} catch ( \RuntimeException ) {
+			$this->assertStringContainsString(
+				'spawn in flight',
+				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+			);
+		}
+	}
+
+	/**
+	 * A worker whose topology was deactivated still holds a real lock and still
+	 * runs; deriving the wait set from the ACTIVE fleet would miss it entirely
+	 * and report the fleet stopped.
+	 */
+	public function test_stop_waits_for_a_lock_held_by_a_deactivated_topology(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		\mkdir( "{$this->tmp}/locks/retired-workers.p0.lock.d", 0755, true );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		try {
+			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+			$this->fail( 'a lock held outside the active fleet must still block' );
+		} catch ( \RuntimeException ) {
+			$this->assertStringContainsString(
+				'retired-workers.p0',
+				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+			);
+		}
+	}
+
+	/**
+	 * A worker that acquires mid-wait must still be told to stop — flagging only
+	 * once, before the wait, leaves it running and spins out the full timeout.
+	 */
+	public function test_stop_flags_a_worker_that_appears_during_the_wait(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		$first = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		$late  = "{$this->tmp}/locks/late-workers.p0.lock.d";
+		\mkdir( $first, 0755, true );
+
+		$calls        = 0;
+		$flagged_late = false;
+		Worker_CLI_Command::$sleep = function () use ( &$calls, &$flagged_late, $first, $late ): void {
+			++$calls;
+			if ( 1 === $calls ) {
+				\mkdir( $late, 0755, true );
+				return;
+			}
+			// Observed before teardown: the dirs go, and the flags with them.
+			$flagged_late = \is_file( $late . '/' . Lock_Node::STOP_FLAG );
+			$this->rmdir_recursive( $first );
+			$this->rmdir_recursive( $late );
+		};
+
+		( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 30 ] );
+
+		$this->assertTrue( $flagged_late, 'a worker that appeared mid-wait must be flagged' );
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	/**
+	 * A deploy script that reads "stopped" while a worker still holds its lock is
+	 * how this feature would cause the corruption it exists to prevent — so a
+	 * timeout must fail loudly and NAME the stragglers.
+	 */
+	public function test_stop_fails_and_names_workers_still_up_on_timeout(): void {
+		$this->register_topology( 'firehose-workers', 2 );
+		\mkdir( "{$this->tmp}/locks/firehose-workers.p1.lock.d", 0755, true );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		try {
+			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+			$this->fail( 'a fleet still up must exit non-zero' );
+		} catch ( \RuntimeException ) {
+			$this->assertStringContainsString(
+				'firehose-workers.p1',
+				\implode( ' ', $GLOBALS['_test_wp_cli_errors'] )
+			);
+		}
+	}
+
+	/**
+	 * A held fleet is indistinguishable from a broken one unless the surface
+	 * says so — the same reasoning that made an absent on-demand worker read
+	 * `idle` rather than `down`.
+	 */
+	public function test_status_reads_held_not_down_while_the_fleet_is_held(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500000 );
+
+		( new Worker_CLI_Command() )->status( [], [ 'format' => 'json' ] );
+
+		$this->assertStringContainsString( 'held', \implode( ' ', $GLOBALS['_test_wp_cli_logs'] ) );
+	}
+
+	/**
+	 * `spawn_due_workers()` counts an attempt, not a success. Reporting that
+	 * number as "spawned" after releasing the hold is the worst possible lie:
+	 * the fleet is down, the hold that explained it is gone, and the operator
+	 * has been told it came back.
+	 */
+	public function test_start_does_not_report_failed_spawns_as_spawned(): void {
+		$this->register_topology( 'firehose-workers', 2 );
+		\Newspack_Nodes\Core::$curl_exec = static fn () => false;
+
+		( new Worker_CLI_Command() )->start( [], [] );
+
+		$said = \implode( ' ', \array_merge(
+			$GLOBALS['_test_wp_cli_success'],
+			$GLOBALS['_test_wp_cli_warns']
+		) );
+		$this->assertStringNotContainsString( 'spawned 2 worker', $said );
+	}
+
+	/**
+	 * A timed-out `stop` leaves a straggler holding its lock WITH a stop flag.
+	 * `start` skips that slot (its lock is present and fresh), so if the flag
+	 * survives, the worker reads it whenever its handler finally returns, exits,
+	 * and — being a `stop` — does not respawn. The slot empties minutes AFTER
+	 * the operator was told the fleet came back.
+	 */
+	public function test_start_clears_stop_flags_left_by_a_timed_out_stop(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		$straggler = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $straggler, 0755, true );
+		Lock_Node::request_stop_at( $straggler );
+
+		( new Worker_CLI_Command() )->start( [], [] );
+
+		$this->assertFileDoesNotExist( $straggler . '/' . Lock_Node::STOP_FLAG );
+	}
+
+	/**
+	 * A fleet that goes quiet during the FINAL poll interval must not abort the
+	 * deploy: the verdict was computed before the last sleep, so it named workers
+	 * that were already gone.
+	 */
+	public function test_stop_rechecks_after_the_last_sleep_before_failing(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+		// Exits during the final sleep, after the pre-sleep verdict was taken.
+		Worker_CLI_Command::$sleep = function (): void {
+			$this->rmdir_recursive( "{$this->tmp}/locks" );
+		};
+
+		( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	/**
+	 * A refused flag write (unwritable dir — the documented root-vs-bend
+	 * ownership footgun) must say so. Silently flagging nothing spins the full
+	 * timeout and blames the workers for not exiting.
+	 */
+	public function test_stop_reports_flag_writes_it_could_not_make(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		$dir = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $dir, 0755, true );
+		\chmod( $dir, 0555 );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		try {
+			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => 0 ] );
+		} catch ( \RuntimeException ) {
+			// Expected: the worker never exits.
+		} finally {
+			\chmod( $dir, 0755 );
+		}
+
+		$this->assertStringContainsString(
+			'could not write',
+			\implode( ' ', \array_merge( $GLOBALS['_test_wp_cli_warns'], $GLOBALS['_test_wp_cli_errors'] ) )
+		);
+	}
+
+	/** The hold stays put until `start` lifts it — that is the whole feature. */
+	public function test_start_clears_the_hold(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		\Newspack_Nodes\Spawn_Coordinator::set_hold( 1754500000 );
+
+		( new Worker_CLI_Command() )->start( [], [] );
+
+		$this->assertSame( 0, \Newspack_Nodes\Spawn_Coordinator::hold() );
 	}
 
 	/**

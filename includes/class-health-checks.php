@@ -32,7 +32,8 @@ final class Health_Checks {
 	private function __construct() {}
 
 	/**
-	 * Evaluate the ordered seven-result report.
+	 * Evaluate the ordered health report: seven results, plus `fleet-hold`
+	 * while a deploy hold stands.
 	 *
 	 * @param HealthResult|null $cache_result Validated remote cache result, or null for a local probe.
 	 * @return list<HealthResult>
@@ -56,6 +57,7 @@ final class Health_Checks {
 			self::filesystem( $base_dir, $refused ),
 			self::ownership( $base_dir, $configured, $refused ),
 			self::housekeeping(),
+			...self::fleet_hold(),
 			...$fleet,
 		];
 	}
@@ -321,6 +323,30 @@ final class Health_Checks {
 			);
 		}
 		return self::result( 'housekeeping', 'Housekeeping', self::STATUS_GOOD, 'The reconciliation pass is scheduled; next run ' . \gmdate( 'Y-m-d H:i:s', $next ) . ' UTC.' );
+	}
+
+	/**
+	 * The deploy hold, when one is standing. Absent otherwise: this is a
+	 * reminder, not a permanent status line — and the failure mode it guards is
+	 * a forgotten `wp nodes start`, which the age makes obvious.
+	 *
+	 * @return list<HealthResult>
+	 */
+	private static function fleet_hold(): array {
+		$since = Spawn_Coordinator::hold();
+		if ( $since <= 0 ) {
+			return [];
+		}
+		$age = CLI::format_duration( \max( 0, \time() - $since ) );
+		return [
+			self::result(
+				'fleet-hold',
+				'Fleet hold',
+				self::STATUS_RECOMMENDED,
+				"The fleet has been held for {$age} and no workers will spawn. "
+					. 'Run `wp nodes start` to release it.'
+			),
+		];
 	}
 
 	/**
