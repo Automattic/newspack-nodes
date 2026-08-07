@@ -386,6 +386,45 @@ class DeadLetterQueueTest extends TestCase {
 		$this->assertSame( [ 'reinject-me' ], \array_values( $values ) );
 	}
 
+	/**
+	 * The guard asked a CONSTANT instead of the target. A partition that lifted
+	 * its own cap — `requests:partition` carries `void_warranty` — would have
+	 * taken the record, so refusing sent an operator to `wp nodes ingest` for
+	 * something the button could do. A torn deploy strands exactly these.
+	 */
+	public function test_requeue_honours_a_target_that_lifted_its_cap(): void {
+		$big = \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE * 2 );
+		$d   = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( $big, '2:64:40' ), 'throw' );
+
+		$target = new Partition_Node();
+		$target->arguments( [ "{$this->tmp}/big-source.p0" ] );
+		$target->void_warranty();
+		$d->requeue_target = $target;
+
+		$result = $d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
+
+		$this->assertStringStartsWith( 'ok', $result );
+	}
+
+	/** A target that did NOT lift its cap still refuses, with the ingest hint. */
+	public function test_requeue_still_refuses_when_the_target_caps_at_pipe_buf(): void {
+		$big = \str_repeat( 'x', Partition_Node::MAX_LINE_SIZE * 2 );
+		$d   = new Dead_Letter_Queue_Double();
+		$d->build_dlq( "{$this->tmp}/dlq.p0" );
+		$d->quarantine( $this->dl_message( $big, '2:64:40' ), 'throw' );
+
+		$target = new Partition_Node();
+		$target->arguments( [ "{$this->tmp}/small-source.p0" ] );
+		$d->requeue_target = $target;
+
+		$result = $d->requeue_deadletter( $d->list_deadletter( 50 )['rows'][0]['locator'] );
+
+		$this->assertStringContainsString( 'PIPE_BUF cap', $result );
+		$this->assertStringContainsString( '--void_warranty', $result );
+	}
+
 	public function test_requeue_without_a_target_reports_unavailable(): void {
 		$d = new Dead_Letter_Queue_Double();
 		$d->build_dlq( "{$this->tmp}/dlq.p0" );

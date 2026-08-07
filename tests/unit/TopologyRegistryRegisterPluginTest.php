@@ -214,7 +214,9 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 
 		// Held by a live peer: acquire() refuses and execute() returns at once.
 		$base = \Newspack_Nodes\Bootstrap::base_dir();
-		\mkdir( "{$base}/locks/widget.p0.lock.d", 0755, true );
+		if ( ! \is_dir( "{$base}/locks/widget.p0.lock.d" ) ) {
+			\mkdir( "{$base}/locks/widget.p0.lock.d", 0755, true );
+		}
 		\file_put_contents( "{$base}/locks/widget.p0.lock.d/heartbeat", (string) \getmypid() );
 
 		Topology_Registry::$spawn_runner = null;
