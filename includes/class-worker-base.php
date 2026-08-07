@@ -73,13 +73,17 @@ class Worker_Base {
 		string $worker_type,
 		int $partition,
 		int $max_runtime = self::DEFAULT_MAX_RUNTIME,
-		int $stale_timeout = 60
+		int $stale_timeout = 60,
+		bool $on_demand = false,
+		int $on_demand_idle = self::DEFAULT_ON_DEMAND_IDLE_S
 	) {
-		$this->base_dir      = \rtrim( $base_dir, '/' );
-		$this->worker_type   = $worker_type;
-		$this->partition     = $partition;
-		$this->max_runtime   = $max_runtime;
-		$this->stale_timeout = $stale_timeout;
+		$this->base_dir       = \rtrim( $base_dir, '/' );
+		$this->worker_type    = $worker_type;
+		$this->partition      = $partition;
+		$this->max_runtime    = $max_runtime;
+		$this->stale_timeout  = $stale_timeout;
+		$this->on_demand      = $on_demand;
+		$this->on_demand_idle = $on_demand_idle;
 	}
 
 	/**
@@ -109,7 +113,9 @@ class Worker_Base {
 				// Tear down nodes first so Partitions unlock before respawn.
 				Core::cleanup_all_nodes();
 				$this->release();
-				$this->self_respawn( $spawn_url, $token );
+				if ( $this->should_self_respawn() ) {
+					$this->self_respawn( $spawn_url, $token );
+				}
 			}
 		} );
 
@@ -151,7 +157,9 @@ class Worker_Base {
 				$this->shutdown_handoff();
 				Core::cleanup_all_nodes();
 				$this->release();
-				$this->self_respawn( $spawn_url, $token );
+				if ( $this->should_self_respawn() ) {
+					$this->self_respawn( $spawn_url, $token );
+				}
 			}
 		}
 
@@ -305,6 +313,17 @@ class Worker_Base {
 			$this->lock->release();
 			$this->lock = null;
 		}
+	}
+
+	/**
+	 * Whether this stop hands the slot straight back to a successor.
+	 *
+	 * Every other stop reason means the work outlived one process; an idle stop
+	 * means there was no work, so respawning would undo the exit that just
+	 * happened and pin the child forever. A producer wakes it instead.
+	 */
+	public function should_self_respawn(): bool {
+		return 'idle' !== $this->stop_reason;
 	}
 
 	/**

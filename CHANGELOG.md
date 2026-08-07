@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **On-demand workers: `var on_demand = 1`.** A topology can now scale to zero
+  instead of holding a permanently resident PHP-FPM child per partition, with
+  `var on_demand_idle = <seconds>` (default 5) sizing the window. The flag rides
+  the `stale_timeout` path — `Topology_Registry::synthesize_entry()` into the
+  catalog entry, `Bootstrap::expand_workers()` onto each worker descriptor — and
+  is inert until a topology sets it: without it every deployment behaves exactly
+  as before. Spec:
+  `docs/superpowers/specs/2026-08-06-on-demand-workers.md` (dndocker).
+
+  Three read sites stop treating absence as death. `worker_needs_spawn()`
+  returns false for a cleanly MISSING lock dir, `Alerts::evaluate()` raises
+  nothing, and `wp nodes status` renders `idle` rather than `down` — which an
+  operator would otherwise restart by hand and conclude the feature was broken.
+  A *stale* lock is unchanged in all three: staleness means a worker died
+  holding it, which is a crash whether or not the type is on-demand.
+  `Workers_CI` derives the `idle` flag once so alerting and the dashboards
+  cannot disagree about what absence means.
+
+- **`Idle_Reporter`: a node says when it is holding work.** The exit condition
+  is not "no messages arrived". A request that logs its start and then goes
+  quiet — a slow external call, a long query — leaves a builder holding an
+  envelope while its consumer sits at EOF, and exiting there abandons a started
+  span for a successor to reconstruct. So a worker stops only once EVERY
+  reporter has been idle for the whole window, timed from the LATEST reporter's
+  `idle_since()`. That is the method `Consumer_Node` already had and
+  `SSE_Out_Node::opened_at_eof_since()` already folded the same way, so the
+  consumer opts in without a line of new logic and the worker needs no streak
+  state. Opting in is the point — `Worker_Base` names no application class, and
+  a graph with no reporter has nothing to measure and never idle-exits. The scan
+  is throttled to once a second: `idle_since()` lists segments and stats the
+  newest one, `should_continue()` runs every drain tick, and per-tick disk I/O
+  would spend more than the residency this is meant to give back.
+
+- **`Spawn_Coordinator::wake_on_demand()`, called from `Job_Intake`.** Once the
+  spawn scan stops resurrecting an absent on-demand worker, a producer has to,
+  because WP-Cron at minute cadence is the fallback tier and a job that waits
+  60s for a tick is worse than the resident worker it replaced. Fire-and-forget,
+  and the existing 15s throttle makes a burst of N enqueues one spawn. It wakes
+  every on-demand topology on the partition the entry landed on, not the one
+  that drains that log: no producer knows which topology consumes what, a
+  spurious wake idles back out, and the alternative is a registry the TSL
+  already implies. A delayed job wakes nothing — it is not due, and `Job_Delay`
+  circulates it when it is. The coordinator and its on-demand fleet are each
+  resolved once, because the fleet lookup walks the topology catalog — globbing
+  both topology dirs and parsing every `.tsl` — and doing that per job turned a
+  `queue_many()` batch into one directory scan per entry.
+
 - **`scripts/fix-blank-lines.php` collapses runs of blank lines to one**, wired
   into `lint-staged` for `*.php` after the comment gate, so a commit can't carry
   a hole. Holes are what's left where something used to be:
@@ -20,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change what the program prints. `scripts/test-fix-blank-lines.sh` pins that,
   plus the subtler trap — a whitespace token runs to the first code on the next
   line, so the next line's indentation sits at its tail and must be put back.
+
+### Changed
+
+- **`Topology_Registry::$spawn_runner` takes the whole worker descriptor.** It
+  was a four-parameter list (`type`, `partition`, `topology_name`,
+  `stale_timeout`), so every frontmatter variable the spawn path has to honour
+  meant another signature change and another call site that could quietly stop
+  one parameter short. It is now `function ( array $descriptor ): void` and
+  `on_demand` reached the worker for free. Only tests override this seam.
 
 ## [2.12.1] - 2026-08-06
 

@@ -50,6 +50,9 @@ class Spawn_Coordinator {
 	/** HMAC key for the spawn token. Never a node argument — `dump_config` serializes those. */
 	private string $nonce_salt;
 
+	/** @var list<array<string, mixed>>|null Memoized on-demand fleet; null until first wake. */
+	private ?array $on_demand_fleet = null;
+
 	/**
 	 * @param string      $base_dir   Runtime state root holding locks/ and ipc/.
 	 * @param string|null $nonce_salt Spawn-HMAC key; omitted resolves the one production key.
@@ -294,8 +297,10 @@ class Spawn_Coordinator {
 
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
-			return true;
+			// Clean absence is normal on-demand; a producer wakes it, not us.
+			return ! Bootstrap::is_on_demand( $worker );
 		}
+		// A stale lock is a worker that died holding it — a crash either way.
 		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
 	}
 
@@ -356,6 +361,84 @@ class Spawn_Coordinator {
 			'partition' => $partition,
 			'nonce'     => $token,
 		] );
+	}
+
+	/**
+	 * Wake every absent on-demand worker owning $partition. Fire-and-forget.
+	 *
+	 * The counterpart to `worker_needs_spawn()` refusing to resurrect a cleanly
+	 * absent on-demand worker: something has to bring it back, and WP-Cron at
+	 * minute cadence is the fallback tier rather than the mechanism. A producer
+	 * that just wrote work calls this.
+	 *
+	 * @longform It wakes EVERY on-demand topology on that partition, not the one
+	 * that consumes this log — no producer knows which topology drains what, and
+	 * building that map would be a registry the TSL already implies. A topology
+	 * woken with nothing to do idles back out after `on_demand_idle`, and the 15s
+	 * throttle means a burst of N producers costs one spawn.
+	 *
+	 * A STALE lock is left alone: that worker crashed, and the ordinary spawn
+	 * scan already owns crash recovery.
+	 *
+	 * @param int   $partition Partition the work landed on.
+	 * @param float $now       Clock, so one enqueue judges every worker alike.
+	 * @return int Spawns posted.
+	 */
+	public function wake_on_demand( int $partition, float $now ): int {
+		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
+		if ( '' === $spawn_url ) {
+			return 0;
+		}
+		$token = $this->generate_spawn_token( (int) $now );
+		$woken = 0;
+		foreach ( $this->on_demand_fleet() as $worker ) {
+			$type = Core::as_string( $worker['type'] );
+			if ( Core::as_int( $worker['partition'] ) !== $partition ) {
+				continue;
+			}
+			if ( \is_dir( $this->lock_path( $type, $partition ) ) ) {
+				continue;
+			}
+			if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
+				continue;
+			}
+			$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
+			if ( null !== $err ) {
+				Core::print_less_often( "wake failed for {$type}.p{$partition}: ", $err );
+			}
+			// In-process dedupe: the controller's record is a round-trip away.
+			$this->record_spawn_local( $type, $partition, $now );
+			++$woken;
+		}
+		return $woken;
+	}
+
+	/**
+	 * The on-demand slice of the active fleet, resolved once per coordinator.
+	 *
+	 * `expand_workers()` walks the topology catalog, which globs both topology
+	 * dirs and parses every `.tsl`. A producer writing a batch calls the wake
+	 * per entry, and this class is request-scope — where the fleet cannot change
+	 * under it — so the walk happens once instead of once per job.
+	 *
+	 * @return list<array<string, mixed>>
+	 */
+	private function on_demand_fleet(): array {
+		if ( null === $this->on_demand_fleet ) {
+			$this->on_demand_fleet = \array_values(
+				\array_filter( Bootstrap::expand_workers(), [ Bootstrap::class, 'is_on_demand' ] )
+			);
+		}
+		return $this->on_demand_fleet;
+	}
+
+	/**
+	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
+	 * here would make the endpoint (which records on accept) reject the very
+	 * POST this record announces.
+	 */
+	public function record_spawn_local( string $type, int $partition, float $when ): void {
+		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
 	}
 
 	/**
@@ -464,14 +547,5 @@ class Spawn_Coordinator {
 				}
 			}
 		}
-	}
-
-	/**
-	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
-	 * here would make the endpoint (which records on accept) reject the very
-	 * POST this record announces.
-	 */
-	public function record_spawn_local( string $type, int $partition, float $when ): void {
-		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
 	}
 }

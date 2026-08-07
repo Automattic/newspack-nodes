@@ -81,7 +81,7 @@ class Bootstrap {
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand: bool, on_demand_idle: int}>
 	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
@@ -93,10 +93,12 @@ class Bootstrap {
 			$count    = \min( Spawn_Coordinator::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
-					'type'          => $type,
-					'partition'     => $p,
-					'topology'      => $config['topology'] ?? '',
-					'stale_timeout' => Lock_Node::stale_timeout_of( $config ),
+					'type'           => $type,
+					'partition'      => $p,
+					'topology'       => $config['topology'] ?? '',
+					'stale_timeout'  => Lock_Node::stale_timeout_of( $config ),
+					'on_demand'      => self::is_on_demand( $config ),
+					'on_demand_idle' => self::on_demand_idle_of( $config ),
 				];
 			}
 		}
@@ -241,6 +243,32 @@ class Bootstrap {
 	/** Configured base directory for runtime state (locks/, ipc/). */
 	public static function base_dir(): string {
 		return Config::get_base_directory();
+	}
+
+	/**
+	 * Whether a topology entry or worker descriptor scales to zero when idle.
+	 *
+	 * Every caller reads it through here so absence — of the key, of the whole
+	 * entry — resolves to `false` in one place: an unflagged topology is
+	 * resident, which is what every deployment predating the flag expects.
+	 *
+	 * @param array<array-key, mixed> $descriptor Topology entry or worker descriptor.
+	 */
+	public static function is_on_demand( array $descriptor ): bool {
+		return (bool) ( $descriptor['on_demand'] ?? false );
+	}
+
+	/**
+	 * Seconds an on-demand worker stays idle before exiting.
+	 *
+	 * @param array<array-key, mixed> $descriptor Topology entry or worker descriptor.
+	 */
+	public static function on_demand_idle_of( array $descriptor ): int {
+		$idle = Core::num_int(
+			$descriptor['on_demand_idle'] ?? Worker_Base::DEFAULT_ON_DEMAND_IDLE_S,
+			Worker_Base::DEFAULT_ON_DEMAND_IDLE_S
+		);
+		return \max( 1, $idle );
 	}
 
 	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */
