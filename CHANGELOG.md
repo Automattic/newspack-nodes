@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.13.1] - 2026-08-07
+
+### Fixed
+
+- **The shared log-browser header lines up with its rows.** `LogRowList`'s
+  header and rows are separate boxes and only the rows scroll, so the list's
+  scrollbar made every column sit off its own label. The header now clears it
+  by the width the browser actually reserves. The `::-webkit-scrollbar` rule
+  that claimed 8px never won — devtools reports the classic width — so it is
+  gone rather than left to contradict the number beside it. Every consumer of
+  `@newspack-nodes/shared` inlines this, so they need a re-pin to pick it up.
+
 ## [2.13.0] - 2026-08-07
 
 ### Added
