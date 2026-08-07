@@ -208,10 +208,9 @@ class CLI {
 	 * The stale threshold a topology declares, or the default.
 	 *
 	 * The respawn decision and the Workers dashboard both honour this;
-	 * `wp nodes status` did not, so a job-worker mid-job read DOWN here
-	 * (`job-worker.tsl` lifts it to 600 exactly because job handlers run user
-	 * code that can be slow) while the peer scan correctly left it running.
-	 * One heartbeat, one threshold.
+	 * `wp nodes status` did not, so a topology that raised its own threshold
+	 * read DOWN here while the peer scan correctly left it running. One
+	 * heartbeat, one threshold.
 	 *
 	 * @param string $type The topology name.
 	 * @return int Seconds.
