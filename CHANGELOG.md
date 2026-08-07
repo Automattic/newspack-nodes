@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.3] - 2026-08-07
+
+### Fixed
+
+- **An on-demand worker respawned itself on its own final writes, on an exact
+  `on_demand_idle` metronome.** `Partition_Node` flushes pending wakes from a
+  PHP shutdown function, which runs after `execute()`'s `finally` — so after
+  `release()`. `wake_on_demand()` suppresses a worker whose lock dir exists, so
+  once released the worker looked absent and its own pending wakes spawned it.
+
+  A worker that both writes and tails a partition marks a wake for itself every
+  run: the event-logger jobs worker writes `jobs.p0` through `job-router` and
+  tails it through `jobs:consumer`, and its IPC-input checkpoint writes an
+  offsetlog under its own `ipc/{type}.p{N}/` tree, which `ipc_reader_of()`
+  resolves straight back to it. So it idled out at 30s, released, woke itself,
+  and repeated — forever, while anything at all was flowing. Quiet installs
+  looked fine, because with nothing written there was no wake to flush.
+
+  The flush now happens in `release()`, which every exit path goes through —
+  the `finally`, the fatal shutdown handler, and the `load_failed` branch —
+  rather than being restated at each of them. `wake_on_demand()`'s existing
+  `is_dir()` check then suppresses only the self-wake; wakes owed to peers
+  still go out. Stated per-site it had already been added to two of the three.
+
 ## [2.14.2] - 2026-08-07
 
 ### Fixed

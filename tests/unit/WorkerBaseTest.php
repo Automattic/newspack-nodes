@@ -578,6 +578,63 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 1, $worker->ipc_checkpoint_calls, 'execute shutdown must checkpoint the IPC input' );
 	}
 
+	/**
+	 * A worker must not wake ITSELF on the way out. Pending wakes flushed from
+	 * PHP's shutdown function run after `execute()`'s finally — so after
+	 * `release()` — and `wake_on_demand()` skips a worker only while its lock
+	 * dir exists. A worker that both writes and tails a partition (the jobs
+	 * worker writes `jobs.p0` via job-router and tails it via jobs:consumer)
+	 * therefore marked a wake for itself, released, and got respawned: an exact
+	 * `on_demand_idle` metronome for as long as anything was flowing.
+	 *
+	 * Flushing while the lock is still HELD keeps genuine peer wakes working —
+	 * only the self-wake is skipped, by the check that already exists.
+	 */
+	public function test_execute_flushes_pending_wakes_before_releasing_its_lock(): void {
+		$worker = new TestableWorker( $this->tmp, 'selfwake', 0 );
+		$lock   = "{$this->tmp}/locks/selfwake.p0.lock.d";
+		$topology = function ( $interpreter, $partition ) use ( $lock ): void {
+			// A write during the run marks a wake for a dir this worker tails.
+			$part = new \Newspack_Nodes\Partition_Node();
+			$part->name( 'selfwake:partition' );
+			$part->arguments( [ "{$this->tmp}/logs/jobs.p0" ] );
+			$mark = new \ReflectionMethod( $part, 'mark_pending_wake' );
+			$mark->invoke( $part );
+			\Newspack_Nodes\Lock_Node::request_restart_at( $lock );
+		};
+
+		$worker->execute( $topology, 'http://example/spawn', 'tok' );
+
+		// Empty on return means execute() flushed it — while it still held the
+		// lock, so wake_on_demand's is_dir() check skipped self. Left pending,
+		// PHP's shutdown function flushes it after release() and revives it.
+		$pending = new \ReflectionProperty( \Newspack_Nodes\Partition_Node::class, 'pending_wakes' );
+		$this->assertSame(
+			[],
+			$pending->getValue(),
+			'pending wakes must be flushed inside execute(), not left to shutdown'
+		);
+	}
+
+	/**
+	 * The invariant lives in release() because every exit path goes through it —
+	 * the finally, the shutdown handler, and the load_failed branch. Stated in
+	 * each of those instead, it was added to two and missed the third.
+	 */
+	public function test_release_flushes_pending_wakes_before_dropping_the_lock(): void {
+		$worker = new TestableWorker( $this->tmp, 'relflush', 0 );
+		$worker->acquire();
+		$part = new \Newspack_Nodes\Partition_Node();
+		$part->name( 'relflush:partition' );
+		$part->arguments( [ "{$this->tmp}/logs/jobs.p0" ] );
+		( new \ReflectionMethod( $part, 'mark_pending_wake' ) )->invoke( $part );
+
+		$worker->release();
+
+		$pending = new \ReflectionProperty( \Newspack_Nodes\Partition_Node::class, 'pending_wakes' );
+		$this->assertSame( [], $pending->getValue(), 'release() owes its peers their wakes' );
+	}
+
 	public function test_ipc_partition_args_declare_all_five_retention_axes(): void {
 		// An IPC partition is scratch plumbing: bounded by COUNT, never age-pruned.
 		// Passing a bare count would land it on min_segments and inherit <config:*>
