@@ -27,6 +27,7 @@ use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 
 #[CoversClass( Worker_Base::class )]
+#[CoversClass( Idle_Reporter::class )]
 class OnDemandExitTest extends TestCase {
 
 	/** Seeded apart from the 5s default so a dropped override cannot pass. */
