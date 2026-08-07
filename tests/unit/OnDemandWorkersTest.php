@@ -137,6 +137,34 @@ class OnDemandWorkersTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The fleet-wide opt-in: config sets the window, a TSL declaring 0 opts back
+	 * out. An ACTIVE topology the catalog filter didn't publish is synthesized
+	 * on the spot, and that path has to inject the same operator default — or
+	 * the same topology is on-demand or not depending on who asked.
+	 */
+	public function test_a_synthesized_active_topology_still_gets_the_config_default(): void {
+		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
+		$this->write_tsl( 'marmot-ondemand', "make_node Echo marmot-echo\n" );
+		// A catalog that publishes nothing: get_topologies() must synthesize.
+		\add_filter( 'newspack_nodes/topologies', static fn (): array => [] );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'marmot-ondemand' ];
+
+		$workers = Bootstrap::expand_workers();
+
+		$this->assertSame( 31, $workers[0]['on_demand_idle'] );
+	}
+
+	/** And a TSL that declares 0 opts back out of a fleet-wide default. */
+	public function test_frontmatter_zero_opts_out_of_the_config_default(): void {
+		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
+		$this->write_tsl( 'marmot-resident', "var on_demand_idle = 0\nmake_node Echo marmot-echo\n" );
+
+		$catalog = Topology_Registry::publish_catalog( [] );
+
+		$this->assertSame( 0, $catalog['marmot-resident']['on_demand_idle'] );
+	}
+
 	public function test_expand_workers_carries_on_demand_onto_every_partition(): void {
 		$this->write_tsl(
 			'marmot-ondemand',

@@ -948,3 +948,56 @@ describe( 'reconstructWorkers — the <topology> token in a reader template', ()
 		expect( w.inputs_status[ 0 ].cursor_offset ).toBe( 128 );
 	} );
 } );
+
+/**
+ * The server decides what "idle" means (on-demand AND cleanly absent, not
+ * stale). This join REBUILDS each worker row from a whitelist, so a field it
+ * forgets is a verdict the dashboard silently cannot see — which is how an
+ * idle topology kept rendering ALL DEAD.
+ */
+describe( 'reconstructWorkers — carries the server idle verdict', () => {
+	it( 'keeps idle on a row joined to a consumer', () => {
+		const data = {
+			...FANOUT_DATA,
+			workers: [
+				{
+					type: 'combined',
+					partition: 0,
+					status: 'dead',
+					live: false,
+					stale: false,
+					idle: true,
+					restart_pending: false,
+					heartbeat_age: null,
+					started_at: null,
+				},
+			],
+		};
+
+		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
+
+		expect( workers.length ).toBeGreaterThan( 0 );
+		workers.forEach( ( w ) => expect( w.idle ).toBe( true ) );
+	} );
+
+	it( 'keeps idle on a liveness row with no consumer of its own', () => {
+		const data = {
+			graph: { lonely: { nodes: [], edges: [] } },
+			workers: [
+				{
+					type: 'lonely',
+					partition: 0,
+					status: 'dead',
+					live: false,
+					stale: false,
+					idle: true,
+				},
+			],
+			consumers: [],
+		};
+
+		const { workers } = reconstructWorkers( data, EMPTY_PRIOR );
+
+		expect( workers[ 0 ].idle ).toBe( true );
+	} );
+} );

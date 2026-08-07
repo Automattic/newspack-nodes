@@ -51,7 +51,7 @@ class Topology_Registry {
 	public static function publish_catalog( array $topologies ): array {
 		$cfg_np       = \Newspack_Nodes\Config::value( 'num_partitions' );
 		$default_np   = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
-		$default_idle = \max( 0, Core::num_int( \Newspack_Nodes\Config::value( 'on_demand_idle' ), 0 ) );
+		$default_idle = \Newspack_Nodes\Bootstrap::config_on_demand_idle();
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {
 				continue;
