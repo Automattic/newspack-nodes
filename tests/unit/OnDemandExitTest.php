@@ -132,6 +132,31 @@ class OnDemandExitTest extends TestCase {
 		$this->assertSame( 1, $probe->calls, 'one scan per second, not one per tick' );
 	}
 
+	/**
+	 * An attached REPL is someone using the worker. Its IPC-input Consumer is
+	 * ANONYMOUS — checkpointed by Worker_Base directly, never registered in
+	 * Core::$nodes_by_name — so the reporter scan could not see it, and a worker
+	 * would exit under an operator mid-session.
+	 */
+	public function test_the_ipc_input_consumer_holds_the_worker_open(): void {
+		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
+		$w = $this->worker();
+		$w->set_ipc_consumer_for_test( new IdleProbe( null ) );
+
+		$this->assertTrue( $w->should_continue(), 'a live REPL forbids the exit' );
+	}
+
+	/** And once the REPL goes quiet it stops holding it. */
+	public function test_a_quiet_ipc_consumer_stops_holding_the_worker_open(): void {
+		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
+		$w = $this->worker();
+		$w->set_ipc_consumer_for_test(
+			new IdleProbe( \microtime( true ) - ( self::IDLE_SECONDS + 1 ) )
+		);
+
+		$this->assertFalse( $w->should_continue() );
+	}
+
 	/** The whole point: an idle exit must NOT hand the slot straight back. */
 	public function test_an_idle_stop_does_not_self_respawn(): void {
 		$w = $this->worker();
@@ -172,5 +197,9 @@ class OnDemandWorker extends Worker_Base {
 
 	public function stop_reason_for_test(): string {
 		return $this->stop_reason;
+	}
+
+	public function set_ipc_consumer_for_test( Idle_Reporter $reporter ): void {
+		$this->ipc_reporter = $reporter;
 	}
 }

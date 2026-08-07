@@ -88,75 +88,64 @@ class Bootstrap {
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
 	/**
-	 * Resolved partition directory => the on-demand workers that TAIL it.
+	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
 	 *
-	 * The answer to "did this write land somewhere an absent worker is waiting
-	 * on", keyed by the concrete path so a writer needs no idea what it wrote.
-	 *
-	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
-	 * resolved through `Core::resolve_partition_template()` for that worker's
-	 * partition — the one place `<partition>` is expanded — so a template that
-	 * puts the token anywhere but a `.p<N>` suffix still resolves. A partition
-	 * nothing tails is simply absent from the map, which is why no exclusion
-	 * rule is needed for offsetlogs, deadletter dirs or scratch.
-	 *
-	 * @longform Cached in APCu (`local_first`, memcached only as its fallback)
-	 * because the derivation globs both topology dirs and parses every `.tsl`,
-	 * while the askers sit on request paths. Host-LOCAL is the correct tier: the
-	 * inputs are TSL files on disk, which differ per host. The key carries the
-	 * active set, so activation cannot serve a stale answer; the TTL is what
-	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.
-	 *
-	 * @return array<string, list<array<array-key, mixed>>>
+	 * @return bool True iff the partition is now mounted.
 	 */
-	public static function on_demand_wake_map(): array {
-		if ( null !== self::$on_demand_wake_map ) {
-			return self::$on_demand_wake_map;
+	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
+			return false;
 		}
-		// The raw OPTION: building the key must not cost the walk it avoids.
-		$cache = Cache_Backend::local_first();
-		$key   = self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) );
-		if ( null !== $cache ) {
-			$hit = $cache->get( $key );
-			if ( \is_array( $hit ) ) {
-				return self::$on_demand_wake_map = self::sanitize_wake_map( $hit );
+		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
+			return true;
+		}
+		// A live worker holds a lock dir; a sleeping on-demand one holds none.
+		$sleeping = false;
+		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
+			$sleeping = self::wake_sleeping_worker( $worker_id, $base_dir );
+			if ( ! $sleeping ) {
+				return false;
 			}
 		}
-		$map = [];
-		foreach ( self::expand_workers() as $worker ) {
-			if ( 0 === self::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			$partition = Core::as_int( $worker['partition'] );
-			$topology  = Core::as_string( $worker['topology'] );
-			foreach ( Topology_Analyzer::consumer_sources( $topology ) as $template ) {
-				$dir           = \rtrim( Core::resolve_partition_template( $template, $partition, $topology ), '/' );
-				$map[ $dir ][] = $worker;
-			}
+		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
+		if ( ! $sleeping && ! \is_dir( $input_dir ) ) {
+			return false;
 		}
-		$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
-		return self::$on_demand_wake_map = $map;
+		$part = new Partition_Node();
+		$part->name( $worker_id );
+		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $ci ) {
+			$part->patron( $ci );
+			$part->sink( $ci );
+		}
+		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
+		return true;
 	}
 
 	/**
-	 * A cache entry is untrusted shape; keep only `dir => list<descriptor>`.
+	 * Wake the on-demand worker behind `$worker_id`, or false when it is not one.
 	 *
-	 * @param array<array-key, mixed> $raw Decoded cache value.
-	 * @return array<string, list<array<array-key, mixed>>>
+	 * Shares CLI::attach_to_worker()'s rule: a cleanly absent on-demand worker
+	 * is asleep by design, while a resident one with no lock dir is a dead
+	 * fleet and stays refused.
+	 *
+	 * @param string $worker_id `{type}.p{N}`.
+	 * @param string $base_dir  Runtime state root.
 	 */
-	private static function sanitize_wake_map( array $raw ): array {
-		$map = [];
-		foreach ( $raw as $dir => $rows ) {
-			if ( ! \is_string( $dir ) || ! \is_array( $rows ) ) {
+	private static function wake_sleeping_worker( string $worker_id, string $base_dir ): bool {
+		foreach ( self::expand_workers() as $worker ) {
+			$id = Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] );
+			if ( $id !== $worker_id || 0 === self::on_demand_idle_of( $worker ) ) {
 				continue;
 			}
-			foreach ( $rows as $row ) {
-				if ( \is_array( $row ) ) {
-					$map[ $dir ][] = $row;
-				}
-			}
+			( new Spawn_Coordinator( $base_dir ) )->wake_on_demand(
+				"{$base_dir}/ipc/{$worker_id}/input",
+				Core::right_now()
+			);
+			return true;
 		}
-		return $map;
+		return false;
 	}
 
 	/**
@@ -341,6 +330,78 @@ class Bootstrap {
 	 */
 	public static function on_demand_idle_of( array $descriptor ): int {
 		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? 0, 0 ) );
+	}
+
+	/**
+	 * Resolved partition directory => the on-demand workers that TAIL it.
+	 *
+	 * The answer to "did this write land somewhere an absent worker is waiting
+	 * on", keyed by the concrete path so a writer needs no idea what it wrote.
+	 *
+	 * Built by SUBSTITUTION, never by parsing: each Consumer source template is
+	 * resolved through `Core::resolve_partition_template()` for that worker's
+	 * partition — the one place `<partition>` is expanded — so a template that
+	 * puts the token anywhere but a `.p<N>` suffix still resolves. A partition
+	 * nothing tails is simply absent from the map, which is why no exclusion
+	 * rule is needed for offsetlogs, deadletter dirs or scratch.
+	 *
+	 * @longform Cached in APCu (`local_first`, memcached only as its fallback)
+	 * because the derivation globs both topology dirs and parses every `.tsl`,
+	 * while the askers sit on request paths. Host-LOCAL is the correct tier: the
+	 * inputs are TSL files on disk, which differ per host. The key carries the
+	 * active set, so activation cannot serve a stale answer; the TTL is what
+	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.
+	 *
+	 * @return array<string, list<array<array-key, mixed>>>
+	 */
+	public static function on_demand_wake_map(): array {
+		if ( null !== self::$on_demand_wake_map ) {
+			return self::$on_demand_wake_map;
+		}
+		// The raw OPTION: building the key must not cost the walk it avoids.
+		$cache = Cache_Backend::local_first();
+		$key   = self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) );
+		if ( null !== $cache ) {
+			$hit = $cache->get( $key );
+			if ( \is_array( $hit ) ) {
+				return self::$on_demand_wake_map = self::sanitize_wake_map( $hit );
+			}
+		}
+		$map = [];
+		foreach ( self::expand_workers() as $worker ) {
+			if ( 0 === self::on_demand_idle_of( $worker ) ) {
+				continue;
+			}
+			$partition = Core::as_int( $worker['partition'] );
+			$topology  = Core::as_string( $worker['topology'] );
+			foreach ( Topology_Analyzer::consumer_sources( $topology ) as $template ) {
+				$dir           = \rtrim( Core::resolve_partition_template( $template, $partition, $topology ), '/' );
+				$map[ $dir ][] = $worker;
+			}
+		}
+		$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
+		return self::$on_demand_wake_map = $map;
+	}
+
+	/**
+	 * A cache entry is untrusted shape; keep only `dir => list<descriptor>`.
+	 *
+	 * @param array<array-key, mixed> $raw Decoded cache value.
+	 * @return array<string, list<array<array-key, mixed>>>
+	 */
+	private static function sanitize_wake_map( array $raw ): array {
+		$map = [];
+		foreach ( $raw as $dir => $rows ) {
+			if ( ! \is_string( $dir ) || ! \is_array( $rows ) ) {
+				continue;
+			}
+			foreach ( $rows as $row ) {
+				if ( \is_array( $row ) ) {
+					$map[ $dir ][] = $row;
+				}
+			}
+		}
+		return $map;
 	}
 
 	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */
@@ -932,38 +993,6 @@ class Bootstrap {
 	 */
 	public static function register_log_producers( array $producers ): array {
 		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Job_Intake::DELAY_BASENAME, Alerts::LOG_BASENAME ] ) ) );
-	}
-
-	/**
-	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
-	 *
-	 * @return bool True iff the partition is now mounted.
-	 */
-	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
-			return false;
-		}
-		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
-			return true;
-		}
-		// A live worker holds a lock dir; its input dir is what we mount.
-		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
-			return false;
-		}
-		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
-		if ( ! \is_dir( $input_dir ) ) {
-			return false;
-		}
-		$part = new Partition_Node();
-		$part->name( $worker_id );
-		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $ci ) {
-			$part->patron( $ci );
-			$part->sink( $ci );
-		}
-		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
-		return true;
 	}
 
 	/**

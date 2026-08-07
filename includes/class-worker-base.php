@@ -452,6 +452,7 @@ class Worker_Base {
 		$consumer->next_offset( 'end' );
 		$consumer->set_stamp_as( Node_Names::REPL );
 		$this->ipc_input_consumer = $consumer;
+		$this->ipc_reporter       = $consumer;
 		return $consumer;
 	}
 
