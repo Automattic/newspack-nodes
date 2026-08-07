@@ -156,7 +156,6 @@ trait Cooperative_Stop {
 		return false;
 	}
 
-
 	protected function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
 		if ( '-1' === $ini ) {

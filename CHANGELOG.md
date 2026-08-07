@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/fix-blank-lines.php` collapses runs of blank lines to one**, wired
+  into `lint-staged` for `*.php` after the comment gate, so a commit can't carry
+  a hole. Holes are what's left where something used to be:
+  `reorder-node-methods.php` moves method spans under a whole-file byte
+  histogram, which by design preserves every newline, so a method moved out of a
+  class leaves its blank lines behind — `class-topology-registry.php` had a
+  22-line gap. It rewrites only `T_WHITESPACE` tokens, never raw text: blank
+  lines inside a heredoc or a quoted string are data, and collapsing them would
+  change what the program prints. `scripts/test-fix-blank-lines.sh` pins that,
+  plus the subtler trap — a whitespace token runs to the first code on the next
+  line, so the next line's indentation sits at its tail and must be put back.
+
 ## [2.12.1] - 2026-08-06
 
 ### Changed

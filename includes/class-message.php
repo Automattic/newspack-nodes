@@ -55,7 +55,6 @@ class Message {
 	 */
 	public const TM_UNTYPED = 1024;
 
-
 	/** Bound a logged/exception excerpt so a huge payload can't flood the log. */
 	private const EXCERPT_LENGTH = 200;
 

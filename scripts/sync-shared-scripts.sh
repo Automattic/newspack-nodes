@@ -28,8 +28,9 @@ SELF="sync-shared-scripts.sh"
 
 # Everything except this script, which phase 1 owns.
 SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
-	coverage-gate.py lint-comments.mjs lint-comments.php
+	coverage-gate.py lint-comments.mjs lint-comments.php fix-blank-lines.php
 	test-coverage-gate.sh test-reorder-node-methods.sh test-lint-comments.sh
+	test-fix-blank-lines.sh
 	pre-commit commit-msg lint-docs.sh"
 
 [ -d "$SUBSTRATE_DIR/scripts" ] || exit 0

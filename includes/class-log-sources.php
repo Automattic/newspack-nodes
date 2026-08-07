@@ -46,7 +46,6 @@ class Log_Sources {
 	private const TAILLOG_DEFAULT_KB = 16;
 	private const TAILLOG_MAX_KB     = 64;
 
-
 	/**
 	 * `taillog [<source>] [max_kb]` builtin — tail a durable aggregated log FILE by
 	 * fixed registry NAME (the shared registry: built-ins + config `log_sources` +

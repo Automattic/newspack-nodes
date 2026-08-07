@@ -430,7 +430,6 @@ class Lock_Node extends Node {
 		return false !== $content ? (int) $content : null;
 	}
 
-
 	public static function node_schema(): array {
 		// Hidden: internal primitive, not a standalone graph node.
 		return [

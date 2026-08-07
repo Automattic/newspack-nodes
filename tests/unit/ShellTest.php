@@ -106,7 +106,6 @@ class ShellTest extends TestCase {
 		$this->assertSame( [ 'a', 'b', 'c' ], $shell->tokenize( "a   b\tc" ) );
 	}
 
-
 	public function test_tokenize_double_quoted_string_is_one_token(): void {
 		$shell = new Shell_Node();
 		$this->assertSame( [ 'send', 'node', 'hello world' ], $shell->tokenize( 'send node "hello world"' ) );

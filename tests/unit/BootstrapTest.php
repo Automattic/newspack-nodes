@@ -840,7 +840,6 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( '', $log );
 	}
 
-
 	// ── self_heal_reconcile_cron ─────────────────────────────────────────
 
 	public function test_self_heal_schedules_when_logging_on_topologies_present_cron_missing(): void {

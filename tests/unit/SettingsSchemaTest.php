@@ -217,7 +217,6 @@ class SettingsSchemaTest extends TestCase {
 		}
 	}
 
-
 	public function test_the_sse_stream_knobs_declare_their_defaults_on_the_field(): void {
 		// @longform A default that lives only in the shipped
 		// newspack-nodes-config.php is null on every EXISTING deployment,

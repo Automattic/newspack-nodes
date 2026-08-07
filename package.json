@@ -81,7 +81,8 @@
 			"./vendor/bin/phpcs",
 			"php scripts/reorder-node-methods.php --check",
 			"sh -c 'npm run lint:phpstan --silent'",
-			"php scripts/lint-comments.php"
+			"php scripts/lint-comments.php",
+			"php scripts/fix-blank-lines.php"
 		],
 		"*.sh": "shellcheck",
 		"scripts/pre-push": "shellcheck"
