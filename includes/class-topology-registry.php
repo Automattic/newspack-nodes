@@ -72,7 +72,8 @@ class Topology_Registry {
 	public static function synthesize_entry(
 		string $name,
 		int $default_num_partitions = 1,
-		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
+		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT,
+		?int $default_on_demand_idle = null
 	): ?array {
 		if ( null === self::resolve( $name ) ) {
 			return null;
@@ -83,10 +84,13 @@ class Topology_Registry {
 			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
 			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
 			'on_demand'      => isset( $front['on_demand'] ) && (bool) (int) $front['on_demand'],
-			// Frontmatter beats the operator default, as num_partitions does.
+			// Lazy: an entry declaring its own must not read Config at all.
 			'on_demand_idle' => isset( $front['on_demand_idle'] )
 				? (int) $front['on_demand_idle']
-				: Core::num_int( Config::value( 'on_demand_idle' ), Worker_Base::DEFAULT_ON_DEMAND_IDLE_S ),
+				: $default_on_demand_idle ?? Core::num_int(
+					Config::value( 'on_demand_idle' ),
+					Worker_Base::DEFAULT_ON_DEMAND_IDLE_S
+				),
 		];
 	}
 

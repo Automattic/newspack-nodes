@@ -248,7 +248,10 @@ export default function TopologySettingsPanel( {
 				</small>
 			</label>
 
-			<label className="topology-settings-field" htmlFor="ts-on-demand">
+			<label
+				className="topology-settings-field topology-settings-field--check"
+				htmlFor="ts-on-demand"
+			>
 				<span>
 					{ __( 'Scale to zero when idle', 'newspack-nodes' ) }
 				</span>
