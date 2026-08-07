@@ -25,9 +25,6 @@ trait Cooperative_Stop {
 	/** Seconds a process runs before yielding to its successor. */
 	public const DEFAULT_MAX_RUNTIME = 595;
 
-	/** Seconds an on-demand process stays idle before scaling itself to zero. */
-	public const DEFAULT_ON_DEMAND_IDLE_S = 5;
-
 	/** Seconds between lock heartbeats. */
 	public const HEARTBEAT_INTERVAL_S = 10;
 
@@ -65,11 +62,8 @@ trait Cooperative_Stop {
 	/** Last idle scan (epoch seconds). */
 	protected float $last_idle_check = 0.0;
 
-	/** Whether this process scales itself to zero once idle. */
-	protected bool $on_demand = false;
-
-	/** Seconds every reporter must stay idle before this process exits. */
-	protected int $on_demand_idle = self::DEFAULT_ON_DEMAND_IDLE_S;
+	/** Seconds every reporter must stay idle before this process exits; 0 = resident. */
+	protected int $on_demand_idle = 0;
 
 	/** The held lock, or null before acquire / after release. */
 	protected ?Lock_Node $lock = null;
@@ -153,7 +147,7 @@ trait Cooperative_Stop {
 		}
 
 		// Silent like the routine recycle: `wp nodes status` says `idle`.
-		if ( $this->on_demand && $this->idle_window_elapsed( $now ) ) {
+		if ( $this->on_demand_idle > 0 && $this->idle_window_elapsed( $now ) ) {
 			return $this->stop( '', 'idle' );
 		}
 

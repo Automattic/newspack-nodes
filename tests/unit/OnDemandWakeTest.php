@@ -80,11 +80,11 @@ class OnDemandWakeTest extends TestCase {
 	 * Activate a two-partition topology whose Consumer tails $reads, on-demand
 	 * or not. A real `.tsl`, because the wake resolves readers from the graph.
 	 */
-	private function activate( string $name, bool $on_demand, string $reads = 'jobintake' ): void {
+	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake' ): void {
 		\file_put_contents(
 			"{$this->stock}/{$name}.tsl",
 			"var num_partitions = 2\n"
-			. ( $on_demand ? "var on_demand = 1\nvar on_demand_idle = 23\n" : '' )
+			. ( $on_demand_idle > 0 ? "var on_demand_idle = {$on_demand_idle}\n" : '' )
 			. "make_node Consumer {$name}:in <config:logs_dir>/{$reads}.p<partition> "
 			. "<config:offsets_dir>/{$reads}.p<partition>\n"
 			. "make_node Echo {$name}:sink\n"
@@ -94,8 +94,7 @@ class OnDemandWakeTest extends TestCase {
 			'topology'       => $name,
 			'num_partitions' => 2,
 			'stale_timeout'  => 47,
-			'on_demand'      => $on_demand,
-			'on_demand_idle' => 23,
+			'on_demand_idle' => $on_demand_idle,
 		];
 		\add_filter(
 			'newspack_nodes/topologies',
@@ -121,7 +120,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_it_wakes_an_absent_on_demand_worker_on_that_partition(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
@@ -129,7 +128,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_it_leaves_a_resident_topology_to_the_ordinary_spawn_scan(): void {
-		$this->activate( 'marmot-resident', false );
+		$this->activate( 'marmot-resident', 0 );
 
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
@@ -137,7 +136,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_it_does_not_wake_a_worker_that_is_already_running(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 		\mkdir( "{$this->tmp}/locks/marmot-ondemand.p1.lock.d", 0755, true );
 		\touch( "{$this->tmp}/locks/marmot-ondemand.p1.lock.d/heartbeat" );
 
@@ -148,7 +147,7 @@ class OnDemandWakeTest extends TestCase {
 
 	/** N producers in a burst, one spawn: the 15s throttle is the dedupe. */
 	public function test_a_burst_of_enqueues_wakes_the_worker_once(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 		$coordinator = $this->coordinator();
 		$now         = (float) \time();
 
@@ -161,7 +160,7 @@ class OnDemandWakeTest extends TestCase {
 
 	/** Job_Intake writes through a Partition, so it needs no wake call of its own. */
 	public function test_writing_a_job_wakes_the_partition_it_landed_on(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 
 		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', [] );
 		Partition_Node::flush_pending_wakes();
@@ -175,7 +174,7 @@ class OnDemandWakeTest extends TestCase {
 	 * before any of that runs, so the walk cannot happen per job.
 	 */
 	public function test_a_batch_resolves_the_fleet_once_not_once_per_job(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 		$scans = 0;
 		\add_filter(
 			'newspack_nodes/topologies',
@@ -202,7 +201,7 @@ class OnDemandWakeTest extends TestCase {
 	 * answers it. "Is it due" collapses into "does anything read that log".
 	 */
 	public function test_a_delayed_job_wakes_nothing_yet(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 
 		( new Job_Intake( $this->tmp, 2 ) )
 			->partition( 0 )
@@ -213,7 +212,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_writing_a_job_wakes_nothing_when_no_topology_is_on_demand(): void {
-		$this->activate( 'marmot-resident', false );
+		$this->activate( 'marmot-resident', 0 );
 
 		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', [] );
 		Partition_Node::flush_pending_wakes();
@@ -231,7 +230,7 @@ class OnDemandWakeTest extends TestCase {
 	 * whose reader nothing woke.
 	 */
 	public function test_a_partition_write_wakes_the_topology_that_reads_that_log(): void {
-		$this->activate( 'marmot-ondemand', true, 'quokka' );
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
 
 		$this->write_partition( 'quokka.p1' );
 		Partition_Node::flush_pending_wakes();
@@ -241,7 +240,7 @@ class OnDemandWakeTest extends TestCase {
 
 	/** Deferred by design: a web request must not pay the wake on its way out. */
 	public function test_the_write_itself_posts_nothing(): void {
-		$this->activate( 'marmot-ondemand', true, 'quokka' );
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
 
 		$this->write_partition( 'quokka.p1' );
 
@@ -249,7 +248,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_a_burst_of_writes_flushes_as_one_wake(): void {
-		$this->activate( 'marmot-ondemand', true, 'quokka' );
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
 
 		$this->write_partition( 'quokka.p1' );
 		$this->write_partition( 'quokka.p1' );
@@ -266,7 +265,7 @@ class OnDemandWakeTest extends TestCase {
 	 * same reason and by the same path as a job written to its jobs log.
 	 */
 	public function test_an_ipc_write_wakes_the_worker_it_is_addressed_to(): void {
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 
 		\mkdir( "{$this->tmp}/ipc/marmot-ondemand.p1", 0755, true );
 		$this->write_partition_at( "{$this->tmp}/ipc/marmot-ondemand.p1/input" );
@@ -280,7 +279,7 @@ class OnDemandWakeTest extends TestCase {
 	 * they fall out of the map on their own — no exclusion rule, no path shapes.
 	 */
 	public function test_a_log_nothing_on_demand_reads_flushes_nothing(): void {
-		$this->activate( 'marmot-ondemand', true, 'quokka' );
+		$this->activate( 'marmot-ondemand', 23, 'quokka' );
 
 		$this->write_partition( 'giraffe-scratch.p1' );
 		Partition_Node::flush_pending_wakes();
@@ -312,8 +311,8 @@ class OnDemandWakeTest extends TestCase {
 	 * on the partition would boot a firehose reader because a job was queued.
 	 */
 	public function test_it_wakes_only_the_topology_that_reads_that_log(): void {
-		$this->activate( 'marmot-jobs', true, 'jobintake' );
-		$this->activate( 'marmot-firehose', true, 'firehose' );
+		$this->activate( 'marmot-jobs', 23, 'jobintake' );
+		$this->activate( 'marmot-firehose', 23, 'firehose' );
 
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
@@ -321,7 +320,7 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	public function test_a_log_no_on_demand_topology_reads_wakes_nothing(): void {
-		$this->activate( 'marmot-firehose', true, 'firehose' );
+		$this->activate( 'marmot-firehose', 23, 'firehose' );
 
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
@@ -338,7 +337,7 @@ class OnDemandWakeTest extends TestCase {
 	 */
 	public function test_the_reader_lookup_is_cached_across_coordinators(): void {
 		$this->with_apcu();
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 		Bootstrap::on_demand_wake_map();
 
 		$scans = 0;
@@ -363,10 +362,10 @@ class OnDemandWakeTest extends TestCase {
 	/** Activating a topology changes the key, so the answer cannot go stale. */
 	public function test_activating_a_topology_does_not_serve_the_old_answer(): void {
 		$this->with_apcu();
-		$this->activate( 'marmot-firehose', true, 'firehose' );
+		$this->activate( 'marmot-firehose', 23, 'firehose' );
 		$this->assertArrayNotHasKey( "{$this->tmp}/logs/jobintake.p1", Bootstrap::on_demand_wake_map() );
 
-		$this->activate( 'marmot-jobs', true, 'jobintake' );
+		$this->activate( 'marmot-jobs', 23, 'jobintake' );
 		Bootstrap::forget_on_demand_readers();
 
 		$this->assertSame(
@@ -379,7 +378,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_it_answers_with_no_cache_backend_available(): void {
 		\Newspack_Nodes\Cache_Backend::$apcu_usable = static fn (): bool => false;
 		Core::$memd                                 = null;
-		$this->activate( 'marmot-ondemand', true );
+		$this->activate( 'marmot-ondemand', 23 );
 
 		$this->assertSame(
 			[ 'marmot-ondemand' ],

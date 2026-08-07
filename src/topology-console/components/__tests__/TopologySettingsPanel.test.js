@@ -250,50 +250,23 @@ describe( 'TopologySettingsPanel secure level', () => {
 		expect( input.parentElement.textContent ).toContain( '60' );
 	} );
 
-	it( 'writes on_demand as the 1 the runtime reads, and removes it when off', () => {
-		const { interpreter } = setup( {} );
-		const box = screen.getByLabelText( /scale to zero when idle/i );
-
-		fireEvent.click( box );
-		expect( interpreter.frontmatter ).toEqual( { on_demand: '1' } );
-
-		fireEvent.click( box );
-		expect( interpreter.frontmatter ).toEqual( {} );
-	} );
-
-	/** The idle window means nothing on a topology that stays resident. */
-	it( 'only offers the idle window once on_demand is set', () => {
-		setup( {} );
-		expect( document.getElementById( 'ts-on-demand-idle' ) ).toBe( null );
-
-		fireEvent.click( screen.getByLabelText( /scale to zero when idle/i ) );
-		expect( document.getElementById( 'ts-on-demand-idle' ) ).not.toBe(
-			null
-		);
-	} );
-
-	it( 'shows the configured idle default and floors the value at 1', () => {
+	/** The window IS the flag: 0 means the topology stays resident. */
+	it( 'shows the configured idle default and keeps 0 as resident', () => {
 		const { interpreter } = setup(
-			{ on_demand: '1', on_demand_idle: '23' },
-			{ configOnDemandIdle: 5 }
+			{ on_demand_idle: '23' },
+			{ configOnDemandIdle: 0 }
 		);
 
 		const input = document.getElementById( 'ts-on-demand-idle' );
-		expect( input.getAttribute( 'placeholder' ) ).toBe( '5' );
+		expect( input.getAttribute( 'placeholder' ) ).toBe( '0' );
 
 		fireEvent.change( input, { target: { value: '0' } } );
-		expect( interpreter.frontmatter ).toEqual( {
-			on_demand: '1',
-			on_demand_idle: '1',
-		} );
+		expect( interpreter.frontmatter ).toEqual( { on_demand_idle: '0' } );
 	} );
 
 	it( 'keeps the on-demand pair out of the generic variable rows', () => {
-		setup( { on_demand: '1', on_demand_idle: '23' } );
+		setup( { on_demand_idle: '23' } );
 
-		expect( screen.queryByLabelText( /value for on_demand$/i ) ).toBe(
-			null
-		);
 		expect( screen.queryByLabelText( /value for on_demand_idle/i ) ).toBe(
 			null
 		);

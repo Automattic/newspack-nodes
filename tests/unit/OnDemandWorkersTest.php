@@ -1,7 +1,7 @@
 <?php
 /**
- * OnDemandWorkersTest: `var on_demand = 1` from TSL frontmatter to the three
- * places that currently read a worker's absence as death.
+ * OnDemandWorkersTest: `var on_demand_idle = <seconds>` from TSL frontmatter
+ * to the three places that currently read a worker's absence as death.
  *
  * A resident worker is absent only because something went wrong. An on-demand
  * worker is absent because it had nothing to do, and the spawn scan, the alert
@@ -68,14 +68,13 @@ class OnDemandWorkersTest extends TestCase {
 	}
 
 	/** A descriptor of the shape expand_workers() emits. */
-	private function descriptor( bool $on_demand ): array {
+	private function descriptor( int $on_demand_idle = self::IDLE_SECONDS ): array {
 		return [
 			'type'           => 'marmot-ondemand',
 			'partition'      => 0,
 			'topology'       => 'marmot-ondemand',
 			'stale_timeout'  => self::STALE_SECONDS,
-			'on_demand'      => $on_demand,
-			'on_demand_idle' => self::IDLE_SECONDS,
+			'on_demand_idle' => $on_demand_idle,
 		];
 	}
 
@@ -92,12 +91,11 @@ class OnDemandWorkersTest extends TestCase {
 	public function test_synthesize_entry_carries_the_on_demand_frontmatter(): void {
 		$this->write_tsl(
 			'marmot-ondemand',
-			"var on_demand = 1\nvar on_demand_idle = " . self::IDLE_SECONDS . "\nmake_node Echo marmot-echo\n"
+			"var on_demand_idle = " . self::IDLE_SECONDS . "\nmake_node Echo marmot-echo\n"
 		);
 
 		$entry = Topology_Registry::synthesize_entry( 'marmot-ondemand' );
 
-		$this->assertTrue( $entry['on_demand'] );
 		$this->assertSame( self::IDLE_SECONDS, $entry['on_demand_idle'] );
 	}
 
@@ -106,8 +104,7 @@ class OnDemandWorkersTest extends TestCase {
 
 		$entry = Topology_Registry::synthesize_entry( 'marmot-resident' );
 
-		$this->assertFalse( $entry['on_demand'] );
-		$this->assertSame( Worker_Base::DEFAULT_ON_DEMAND_IDLE_S, $entry['on_demand_idle'] );
+		$this->assertSame( 0, $entry['on_demand_idle'], 'no window declared means resident' );
 	}
 
 	/**
@@ -118,16 +115,20 @@ class OnDemandWorkersTest extends TestCase {
 	 */
 	public function test_the_config_default_sizes_a_topology_that_declares_no_window(): void {
 		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
-		$this->write_tsl( 'marmot-ondemand', "var on_demand = 1\nmake_node Echo marmot-echo\n" );
+		$this->write_tsl( 'marmot-ondemand', "make_node Echo marmot-echo\n" );
 
-		$this->assertSame( 31, Topology_Registry::synthesize_entry( 'marmot-ondemand' )['on_demand_idle'] );
+		// The catalog filter is what injects the operator default, exactly as
+		// it injects num_partitions'; synthesize_entry never reads Config.
+		$catalog = Topology_Registry::publish_catalog( [] );
+
+		$this->assertSame( 31, $catalog['marmot-ondemand']['on_demand_idle'] );
 	}
 
 	public function test_frontmatter_overrides_the_config_default(): void {
 		$this->use_base_dir( $this->tmp, [ 'on_demand_idle' => 31 ] );
 		$this->write_tsl(
 			'marmot-ondemand',
-			"var on_demand = 1\nvar on_demand_idle = " . self::IDLE_SECONDS . "\nmake_node Echo marmot-echo\n"
+			"var on_demand_idle = " . self::IDLE_SECONDS . "\nmake_node Echo marmot-echo\n"
 		);
 
 		$this->assertSame(
@@ -139,7 +140,7 @@ class OnDemandWorkersTest extends TestCase {
 	public function test_expand_workers_carries_on_demand_onto_every_partition(): void {
 		$this->write_tsl(
 			'marmot-ondemand',
-			"var num_partitions = 2\nvar on_demand = 1\nvar on_demand_idle = " . self::IDLE_SECONDS
+			"var num_partitions = 2\nvar on_demand_idle = " . self::IDLE_SECONDS
 			. "\nmake_node Echo marmot-echo\n"
 		);
 		$entry = Topology_Registry::synthesize_entry( 'marmot-ondemand' );
@@ -153,7 +154,6 @@ class OnDemandWorkersTest extends TestCase {
 
 		$this->assertCount( 2, $workers );
 		foreach ( $workers as $worker ) {
-			$this->assertTrue( $worker['on_demand'] );
 			$this->assertSame( self::IDLE_SECONDS, $worker['on_demand_idle'] );
 		}
 	}
@@ -163,14 +163,14 @@ class OnDemandWorkersTest extends TestCase {
 	public function test_an_absent_on_demand_worker_does_not_need_a_spawn(): void {
 		$this->assertFalse(
 			( new Spawn_Coordinator( $this->tmp ) )
-				->worker_needs_spawn( $this->descriptor( true ), (float) \time() )
+				->worker_needs_spawn( $this->descriptor( self::IDLE_SECONDS ), (float) \time() )
 		);
 	}
 
 	public function test_an_absent_resident_worker_still_needs_a_spawn(): void {
 		$this->assertTrue(
 			( new Spawn_Coordinator( $this->tmp ) )
-				->worker_needs_spawn( $this->descriptor( false ), (float) \time() )
+				->worker_needs_spawn( $this->descriptor( 0 ), (float) \time() )
 		);
 	}
 
@@ -180,7 +180,7 @@ class OnDemandWorkersTest extends TestCase {
 
 		$this->assertTrue(
 			( new Spawn_Coordinator( $this->tmp ) )
-				->worker_needs_spawn( $this->descriptor( true ), (float) \time() )
+				->worker_needs_spawn( $this->descriptor( self::IDLE_SECONDS ), (float) \time() )
 		);
 	}
 
@@ -189,20 +189,20 @@ class OnDemandWorkersTest extends TestCase {
 
 		$this->assertFalse(
 			( new Spawn_Coordinator( $this->tmp ) )
-				->worker_needs_spawn( $this->descriptor( true ), (float) \time() )
+				->worker_needs_spawn( $this->descriptor( self::IDLE_SECONDS ), (float) \time() )
 		);
 	}
 
 	// ── read site 2: the alert evaluator ────────────────────────────────────
 
 	public function test_an_absent_on_demand_worker_raises_no_alert(): void {
-		$this->activate( true );
+		$this->activate( self::IDLE_SECONDS );
 
 		$this->assertSame( [], $this->liveness_alerts() );
 	}
 
 	public function test_an_absent_resident_worker_still_raises_an_alert(): void {
-		$this->activate( false );
+		$this->activate( 0 );
 
 		$keys = \array_column( $this->liveness_alerts(), 'key' );
 
@@ -211,7 +211,7 @@ class OnDemandWorkersTest extends TestCase {
 
 	/** A crashed on-demand worker is still a crash: stale keeps its alert. */
 	public function test_a_stale_on_demand_worker_still_raises_an_alert(): void {
-		$this->activate( true );
+		$this->activate( self::IDLE_SECONDS );
 		$this->make_lock( 'marmot-ondemand.p0', self::STALE_SECONDS + 1 );
 
 		$keys = \array_column( $this->liveness_alerts(), 'key' );
@@ -223,7 +223,7 @@ class OnDemandWorkersTest extends TestCase {
 
 	/** `down` invites an operator to restart by hand and call the feature broken. */
 	public function test_status_renders_an_absent_on_demand_worker_as_idle(): void {
-		$this->activate( true );
+		$this->activate( self::IDLE_SECONDS );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
@@ -232,7 +232,7 @@ class OnDemandWorkersTest extends TestCase {
 	}
 
 	public function test_status_still_renders_an_absent_resident_worker_as_down(): void {
-		$this->activate( false );
+		$this->activate( 0 );
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
@@ -240,7 +240,7 @@ class OnDemandWorkersTest extends TestCase {
 	}
 
 	public function test_status_still_renders_a_stale_on_demand_worker_as_stale(): void {
-		$this->activate( true );
+		$this->activate( self::IDLE_SECONDS );
 		$this->make_lock( 'marmot-ondemand.p0', self::STALE_SECONDS + 1 );
 
 		( new Worker_CLI_Command() )->status( [], [] );
@@ -256,7 +256,7 @@ class OnDemandWorkersTest extends TestCase {
 	 * them can be the one a call site quietly stopped short of passing.
 	 */
 	public function test_spawn_worker_hands_the_runner_the_whole_descriptor(): void {
-		$this->activate( true );
+		$this->activate( self::IDLE_SECONDS );
 		$captured                        = [];
 		Topology_Registry::$spawn_runner = static function ( array $descriptor ) use ( &$captured ): void {
 			$captured = $descriptor;
@@ -264,7 +264,6 @@ class OnDemandWorkersTest extends TestCase {
 
 		Topology_Registry::spawn_worker( 'marmot-ondemand', 0 );
 
-		$this->assertTrue( $captured['on_demand'] );
 		$this->assertSame( self::IDLE_SECONDS, $captured['on_demand_idle'] );
 		$this->assertSame( self::STALE_SECONDS, $captured['stale_timeout'] );
 		$this->assertSame( 'marmot-ondemand', $captured['topology'] );
@@ -275,13 +274,12 @@ class OnDemandWorkersTest extends TestCase {
 	}
 
 	/** Activate one single-partition topology, on-demand or not. */
-	private function activate( bool $on_demand ): void {
+	private function activate( int $on_demand_idle = self::IDLE_SECONDS ): void {
 		$entry = [
 			'topology'       => 'marmot-ondemand',
 			'num_partitions' => 1,
 			'stale_timeout'  => self::STALE_SECONDS,
-			'on_demand'      => $on_demand,
-			'on_demand_idle' => self::IDLE_SECONDS,
+			'on_demand_idle' => $on_demand_idle,
 		];
 		\add_filter(
 			'newspack_nodes/topologies',

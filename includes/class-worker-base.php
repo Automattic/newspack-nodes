@@ -74,15 +74,13 @@ class Worker_Base {
 		int $partition,
 		int $max_runtime = self::DEFAULT_MAX_RUNTIME,
 		int $stale_timeout = 60,
-		bool $on_demand = false,
-		int $on_demand_idle = self::DEFAULT_ON_DEMAND_IDLE_S
+		int $on_demand_idle = 0
 	) {
 		$this->base_dir       = \rtrim( $base_dir, '/' );
 		$this->worker_type    = $worker_type;
 		$this->partition      = $partition;
 		$this->max_runtime    = $max_runtime;
 		$this->stale_timeout  = $stale_timeout;
-		$this->on_demand      = $on_demand;
 		$this->on_demand_idle = $on_demand_idle;
 	}
 

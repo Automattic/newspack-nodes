@@ -295,7 +295,7 @@ class Spawn_Coordinator {
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
 			// Clean absence is normal on-demand; a producer wakes it, not us.
-			return ! Bootstrap::is_on_demand( $worker );
+			return 0 === Bootstrap::on_demand_idle_of( $worker );
 		}
 		// A stale lock is a worker that died holding it — a crash either way.
 		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
@@ -431,7 +431,7 @@ class Spawn_Coordinator {
 		}
 		$worker_id = \explode( '/', \substr( $dir, \strlen( $prefix ) ) )[0];
 		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( ! Bootstrap::is_on_demand( $worker ) ) {
+			if ( 0 === Bootstrap::on_demand_idle_of( $worker ) ) {
 				continue;
 			}
 			if ( $worker_id === Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] ) ) {

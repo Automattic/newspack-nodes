@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **On-demand workers: `var on_demand = 1`.** A topology can now scale to zero
-  instead of holding a permanently resident PHP-FPM child per partition, with
-  `var on_demand_idle = <seconds>` (default 5) sizing the window. The flag rides
-  the `stale_timeout` path — `Topology_Registry::synthesize_entry()` into the
-  catalog entry, `Bootstrap::expand_workers()` onto each worker descriptor — and
-  is inert until a topology sets it: without it every deployment behaves exactly
-  as before. Spec:
+- **On-demand workers: `var on_demand_idle = <seconds>`.** A topology can now
+  scale to zero instead of holding a permanently resident PHP-FPM child per
+  partition. The window IS the flag — declaring one opts in, and 0 or no
+  declaration at all stays resident, so every deployment predating this behaves
+  exactly as before. It rides the `stale_timeout` path —
+  `Topology_Registry::synthesize_entry()` into the catalog entry,
+  `Bootstrap::expand_workers()` onto each worker descriptor — with the operator
+  default injected by `publish_catalog()` exactly as `num_partitions`' is, so
+  the method reads no config of its own. Spec:
   `docs/superpowers/specs/2026-08-06-on-demand-workers.md` (dndocker).
 
   Three read sites stop treating absence as death. `worker_needs_spawn()`
@@ -42,15 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   newest one, `should_continue()` runs every drain tick, and per-tick disk I/O
   would spend more than the residency this is meant to give back.
 
-- **The topology console edits the on-demand pair as first-class fields.**
-  `var on_demand` is a checkbox and `var on_demand_idle` a number that appears
-  only once it is ticked — an idle window means nothing on a topology that stays
-  resident. Both leave the generic "Other variables" rows, where an author would
-  otherwise have had to hand-type a var the runtime acts on. Stale timeout now
-  names its default (60) the way Partitions already named its own, instead of
-  saying "Empty = default." and leaving the reader to go find the number. All
-  three defaults are localized from PHP — `Lock_Node::STALE_TIMEOUT` and the
-  `on_demand_idle` config value — rather than duplicated as JS literals.
+- **The topology console edits the idle window as a first-class field**, beside
+  Partitions and Stale timeout, rather than leaving an author to hand-type a var
+  the runtime acts on in "Other variables". Stale timeout now names its default
+  (60) the way Partitions already named its own, instead of saying "Empty =
+  default." and leaving the reader to go find the number. Both defaults are
+  localized from PHP — `Lock_Node::STALE_TIMEOUT` and the `on_demand_idle`
+  config value — rather than duplicated as JS literals.
 
 - **A write to a Partition wakes the Consumers tailing it.** Once the spawn scan
   stops resurrecting an absent on-demand worker, something has to bring it back,
@@ -103,7 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stale_timeout`), so every frontmatter variable the spawn path has to honour
   meant another signature change and another call site that could quietly stop
   one parameter short. It is now `function ( array $descriptor ): void` and
-  `on_demand` reached the worker for free. Only tests override this seam.
+  `on_demand_idle` reached the worker for free. Only tests override this seam.
 
 ## [2.12.1] - 2026-08-06
 

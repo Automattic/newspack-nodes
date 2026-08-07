@@ -49,13 +49,14 @@ class Topology_Registry {
 	 * @return array<string, array<string, mixed>>
 	 */
 	public static function publish_catalog( array $topologies ): array {
-		$cfg_np     = \Newspack_Nodes\Config::value( 'num_partitions' );
-		$default_np = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
+		$cfg_np       = \Newspack_Nodes\Config::value( 'num_partitions' );
+		$default_np   = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
+		$default_idle = \max( 0, Core::num_int( \Newspack_Nodes\Config::value( 'on_demand_idle' ), 0 ) );
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {
 				continue;
 			}
-			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, $default_idle );
 			if ( null !== $entry ) {
 				$topologies[ $name ] = $entry;
 			}
@@ -64,7 +65,7 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Build a `[topology, num_partitions, stale_timeout, on_demand, on_demand_idle]`
+	 * Build a `[topology, num_partitions, stale_timeout, on_demand_idle]`
 	 * entry from a TSL's frontmatter; null if unknown.
 	 *
 	 * @return array<string, mixed>|null
@@ -73,7 +74,7 @@ class Topology_Registry {
 		string $name,
 		int $default_num_partitions = 1,
 		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT,
-		?int $default_on_demand_idle = null
+		int $default_on_demand_idle = 0
 	): ?array {
 		if ( null === self::resolve( $name ) ) {
 			return null;
@@ -82,15 +83,8 @@ class Topology_Registry {
 		return [
 			'topology'       => $name,
 			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
-			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
-			'on_demand'      => isset( $front['on_demand'] ) && (bool) (int) $front['on_demand'],
-			// Lazy: an entry declaring its own must not read Config at all.
-			'on_demand_idle' => isset( $front['on_demand_idle'] )
-				? (int) $front['on_demand_idle']
-				: $default_on_demand_idle ?? Core::num_int(
-					Config::value( 'on_demand_idle' ),
-					Worker_Base::DEFAULT_ON_DEMAND_IDLE_S
-				),
+			'stale_timeout'  => isset( $front['stale_timeout'] )  ? (int) $front['stale_timeout']  : $default_stale_timeout,
+			'on_demand_idle' => isset( $front['on_demand_idle'] ) ? (int) $front['on_demand_idle'] : $default_on_demand_idle
 		];
 	}
 
@@ -347,7 +341,6 @@ class Topology_Registry {
 					Core::as_string( $descriptor['type'] ),
 					Core::as_int( $descriptor['partition'] ),
 					stale_timeout: Lock_Node::stale_timeout_of( $descriptor ),
-					on_demand: \Newspack_Nodes\Bootstrap::is_on_demand( $descriptor ),
 					on_demand_idle: \Newspack_Nodes\Bootstrap::on_demand_idle_of( $descriptor )
 				);
 				$topology      = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {

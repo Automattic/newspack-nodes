@@ -138,10 +138,10 @@ class Worker_CLI_Command {
 		$rows   = [];
 		foreach ( $active as $name => $config ) {
 			// The count the fleet spawns against; floors at 1.
-			$partitions = Bootstrap::num_partitions_for( $name );
-			$on_demand  = Bootstrap::is_on_demand( Core::arr( $config ) );
+			$partitions     = Bootstrap::num_partitions_for( $name );
+			$on_demand_idle = Bootstrap::on_demand_idle_of( Core::arr( $config ) );
 			for ( $p = 0; $p < $partitions; $p++ ) {
-				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now, $on_demand );
+				$rows[] = self::fleet_row( $name, $p, $locks[ "{$name}.p{$p}" ] ?? null, $now, $on_demand_idle );
 				unset( $locks[ "{$name}.p{$p}" ] );
 			}
 		}
@@ -200,19 +200,19 @@ class Worker_CLI_Command {
 	/**
 	 * One fleet-table row for a {topology, partition} slot.
 	 *
-	 * @param string                    $name      Topology name.
-	 * @param int                       $p         Partition.
-	 * @param array<string, mixed>|null $w         Matching liveness row, if any.
-	 * @param int                       $now       Clock.
-	 * @param bool                      $on_demand Whether the topology scales to zero when idle.
+	 * @param string                    $name           Topology name.
+	 * @param int                       $p              Partition.
+	 * @param array<string, mixed>|null $w              Matching liveness row, if any.
+	 * @param int                       $now            Clock.
+	 * @param int                       $on_demand_idle Whether the topology scales to zero when idle.
 	 * @return array<string, int|string>
 	 */
-	private static function fleet_row( string $name, int $p, ?array $w, int $now, bool $on_demand = false ): array {
+	private static function fleet_row( string $name, int $p, ?array $w, int $now, int $on_demand_idle = 0 ): array {
 		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
 		$started_at   = null === $w ? 0 : Core::as_int( $w['started_at'] );
 		if ( null === $w ) {
 			// An on-demand slot with no lock is waiting, not broken.
-			$state = $on_demand ? 'idle' : 'down';
+			$state = $on_demand_idle > 0 ? 'idle' : 'down';
 		} else {
 			$state = $w['stale'] ? 'stale' : 'live';
 		}
@@ -473,7 +473,6 @@ class Worker_CLI_Command {
 			$type,
 			$partition,
 			stale_timeout: self::entry_int( $descriptor, 'stale_timeout', Lock_Node::STALE_TIMEOUT ),
-			on_demand: Bootstrap::is_on_demand( $entry ),
 			on_demand_idle: Bootstrap::on_demand_idle_of( $entry )
 		);
 

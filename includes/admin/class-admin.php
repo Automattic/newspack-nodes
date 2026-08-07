@@ -547,7 +547,7 @@ class Admin {
 		// Client fallbacks for the settings panel's unset-frontmatter hints.
 		$config_np  = Config::value( 'num_partitions' );
 		$default_np = Core::as_int( $config_np, 1 );
-		$idle       = Core::num_int( Config::value( 'on_demand_idle' ), Worker_Base::DEFAULT_ON_DEMAND_IDLE_S );
+		$idle       = \max( 0, Core::num_int( Config::value( 'on_demand_idle' ), 0 ) );
 
 		return self::append_tab_bundle(
 			$bundles,
