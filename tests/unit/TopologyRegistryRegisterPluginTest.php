@@ -199,4 +199,27 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 
 		$this->assertSame( [], $captured, 'a type with no resolvable topology is a no-op' );
 	}
+
+	/**
+	 * The REAL runner, not the seam: every other test overrides `$spawn_runner`,
+	 * so the descriptor -> Worker_Base mapping it performs was never executed.
+	 * A lock dir with a fresh heartbeat makes `acquire()` refuse, so `execute()`
+	 * returns `skipped` immediately — the mapping runs, no worker is drained.
+	 */
+	public function test_the_default_runner_maps_a_descriptor_onto_a_worker(): void {
+		$dir = $this->make_temp_dir();
+		$this->seed_topology( $dir, 'widget' );
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+		$this->activate( [ 'widget' ] );
+
+		// Held by a live peer: acquire() refuses and execute() returns at once.
+		$base = \Newspack_Nodes\Bootstrap::base_dir();
+		\mkdir( "{$base}/locks/widget.p0.lock.d", 0755, true );
+		\file_put_contents( "{$base}/locks/widget.p0.lock.d/heartbeat", (string) \getmypid() );
+
+		Topology_Registry::$spawn_runner = null;
+		Topology_Registry::spawn_worker( 'widget', 0 );
+
+		$this->assertTrue( \is_dir( "{$base}/locks/widget.p0.lock.d" ), 'the peer keeps its lock' );
+	}
 }

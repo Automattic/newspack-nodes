@@ -27,6 +27,8 @@ use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
+#[CoversClass( Bootstrap::class )]
+#[CoversClass( Partition_Node::class )]
 #[CoversClass( Spawn_Coordinator::class )]
 #[CoversClass( Job_Intake::class )]
 class OnDemandWakeTest extends TestCase {
@@ -54,6 +56,9 @@ class OnDemandWakeTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		$this->use_base_dir( $this->tmp );
 		Topology_Registry::reset();
+		// An earlier file's empty map memo would otherwise leak into this one.
+		Bootstrap::forget_on_demand_readers();
+		Partition_Node::forget_pending_wakes();
 		$this->stock = $this->make_temp_dir( 'on-demand-wake-tsl-' );
 		Topology_Registry::register_stock_dir( $this->stock );
 		$posts           = &$this->posts;
@@ -327,6 +332,13 @@ class OnDemandWakeTest extends TestCase {
 		$this->assertSame( [], $this->woken() );
 	}
 
+	/** A resident topology never enters the map, so it can never be woken. */
+	public function test_a_resident_topology_is_absent_from_the_wake_map(): void {
+		$this->activate( 'marmot-resident', 0 );
+
+		$this->assertSame( [], Bootstrap::on_demand_wake_map() );
+	}
+
 	// ── the gate ────────────────────────────────────────────────────────────
 
 	/**
@@ -372,6 +384,33 @@ class OnDemandWakeTest extends TestCase {
 			[ 'marmot-jobs' ],
 			\array_column( Bootstrap::on_demand_wake_map()[ "{$this->tmp}/logs/jobintake.p1" ] ?? [], 'type' )
 		);
+	}
+
+	/**
+	 * A cache entry is data someone else wrote: a foreign or corrupted value
+	 * must not put non-descriptor rows on the spawn path.
+	 */
+	public function test_a_poisoned_cache_entry_is_filtered_to_descriptor_rows(): void {
+		$this->with_apcu();
+		$this->activate( 'marmot-ondemand', 23 );
+		$key = 'newspack_nodes:on_demand_wake:' . \md5(
+			(string) \wp_json_encode( \Newspack_Nodes\Config::value( 'topologies' ) )
+		);
+		\Newspack_Nodes\Cache_Backend::local_first()->set(
+			$key,
+			[
+				"{$this->tmp}/logs/jobintake.p1" => [ [ 'type' => 'marmot-ondemand', 'partition' => 1 ], 'junk' ],
+				7                                => [ [ 'type' => 'numeric-key' ] ],
+				"{$this->tmp}/logs/other.p0"     => 'not-a-list',
+			],
+			60
+		);
+		Bootstrap::forget_on_demand_readers();
+
+		$map = Bootstrap::on_demand_wake_map();
+
+		$this->assertSame( [ "{$this->tmp}/logs/jobintake.p1" ], \array_keys( $map ) );
+		$this->assertSame( [ 'marmot-ondemand' ], \array_column( $map[ "{$this->tmp}/logs/jobintake.p1" ], 'type' ) );
 	}
 
 	/** No cache tier at all still answers, just without the shortcut. */
