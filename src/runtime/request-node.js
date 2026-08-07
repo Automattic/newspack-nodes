@@ -12,12 +12,12 @@
  * the queued one is not minted until the outstanding reply lands, so there is
  * still exactly one command in flight and still nothing to tell apart.
  *
- * Emits through `_http` (via its sink), so a request minted during the Router's
- * TIMER notify rides the same lock/flush bracket as everything else that tick —
- * batching stays free.
+ * Reaches `_http` through its TARGET path, so a request minted during the
+ * Router's TIMER notify rides the same lock/flush bracket as everything else
+ * that tick — batching stays free.
  *
  *   const n = interpreter.makeNode( 'Request', 'topologies:save' );
- *   n.target = `${ names.HTTP }/topologies`;
+ *   n.target = `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`;
  *   await n.request( 'save', [ name, tsl ] );
  */
 

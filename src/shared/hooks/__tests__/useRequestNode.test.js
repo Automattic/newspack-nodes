@@ -1,9 +1,12 @@
 /**
  * useRequestNode — mounts one `Request` node per concern on the backbone.
  *
- * The node sinks into `_shell`, the permanent observe-only Tap every command
- * routes through, so a `connect _shell` in the REPL sees a save or a delete the
- * same way it sees a typed one.
+ * It routes THROUGH `_shell` — the permanent observe-only Tap every command
+ * passes — so a `connect _shell` in the REPL sees a save or a delete the same
+ * way it sees a typed one. That hop is a TARGET path rather than a bespoke
+ * sink, because `target` already reaches it exactly as the Fetchers do
+ * (`_shell/_http/topologies`); re-pointing the sink bought nothing the routing
+ * did not already give.
  */
 
 import { renderHook } from '@testing-library/react';
@@ -16,13 +19,28 @@ beforeEach( () => {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
-it( 'sinks into the _shell Tap, not past it into the interpreter', () => {
+it( 'sinks into the interpreter and routes through _shell by target', () => {
 	renderHook( () => useRequestNode( 'topologies:save', 'topologies' ) );
 
 	const node = Core.node( 'topologies:save' );
 	expect( node ).not.toBeNull();
-	expect( node.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
-	expect( node.target ).toBe( `${ names.HTTP }/topologies` );
+	expect( node.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+	expect( node.target ).toBe(
+		`${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`
+	);
+} );
+
+it( 'addresses the bare egress when no console Tap is mounted', () => {
+	// Off the console the Tap does not exist; a target naming it would not
+	// resolve, so the path drops the hop rather than pointing at nothing.
+	renderHook( () => useRequestNode( 'topologies:save', 'topologies' ) );
+	Core.node( names.CONSOLE_TAP )?.removeNode();
+	const { ensureRequestNode } = require( '../useRequestNode' );
+	Core.node( 'topologies:save' )?.removeNode();
+
+	const node = ensureRequestNode( 'vault:probe', 'vault' );
+
+	expect( node.target ).toBe( `${ names.HTTP }/vault` );
 } );
 
 it( 'raises a backbone when there is none, and puts it away again', () => {

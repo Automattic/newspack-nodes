@@ -47,19 +47,28 @@ class Router_Node extends Timer_Node {
 	public function fill( array $message ): void {
 		++$this->counter;
 
-		// Drop unaddressed (empty TO), then FROM > MAX_FROM_SIZE (cycle).
 		if ( '' === $message[ Message::TO ] ) {
 			$this->drop_message( $message, 'message not addressed' );
 			return;
 		}
-		$from = Core::as_string( $message[ Message::FROM ] ?? '' );
+
+		$from = $message[ Message::FROM ] ?? '';
+		if ( ! \is_string( $from ) ) {
+			$from = Core::as_string( $from );
+		}
 		if ( \strlen( $from ) > self::MAX_FROM_SIZE ) {
 			$this->drop_message( $message, 'path exceeded ' . self::MAX_FROM_SIZE . ' bytes' );
 			return;
 		}
 
-		[ $node_name, $remaining ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
-		$target = Core::node( $node_name );
+		$to = $message[ Message::TO ];
+		if ( ! \is_string( $to ) ) {
+			$to = Core::as_string( $to );
+		}
+		$parts     = \explode( '/', $to, 2 );
+		$node_name = $parts[0];
+		$remaining = $parts[1] ?? '';
+		$target    = Core::$nodes_by_name[ $node_name ] ?? null;
 		if ( null === $target ) {
 			$this->send_error( $message, 'NOT_AVAILABLE' );
 			return;

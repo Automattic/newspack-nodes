@@ -335,15 +335,22 @@ class SSE_In_Node extends Node {
 			return false;
 		}
 
-		while ( false !== ( $newline_pos = \strpos( $this->buffer, "\n" ) ) ) {
-			$line         = \substr( $this->buffer, 0, $newline_pos );
-			$this->buffer = \substr( $this->buffer, $newline_pos + 1 );
-			$line         = \rtrim( $line, "\r" );
-			if ( ! $this->parse_sse_line( $line ) ) {
-				return false;
+		// Consume ONCE; a rewrite per line is quadratic in the line count.
+		$pos = 0;
+		try {
+			while ( false !== ( $newline_pos = \strpos( $this->buffer, "\n", $pos ) ) ) {
+				$line = \rtrim( \substr( $this->buffer, $pos, $newline_pos - $pos ), "\r" );
+				$pos  = $newline_pos + 1;
+				if ( ! $this->parse_sse_line( $line ) ) {
+					return false;
+				}
+			}
+			return true;
+		} finally {
+			if ( $pos > 0 ) {
+				$this->buffer = \substr( $this->buffer, $pos );
 			}
 		}
-		return true;
 	}
 
 	private function parse_sse_line( string $line ): bool {

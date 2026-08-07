@@ -59,7 +59,7 @@ it( 'mints delete FROM its own node, with no ID and no KEY', () => {
 
 	expect( sent ).toHaveLength( 1 );
 	expect( sent[ 0 ][ FROM ] ).toBe( 'topologies:delete' );
-	expect( sent[ 0 ][ TO ] ).toBe( '_http/topologies' );
+	expect( sent[ 0 ][ TO ] ).toBe( '_shell/_http/topologies' );
 	expect( sent[ 0 ][ VALUE ].name ).toBe( 'delete' );
 	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'scratch' ] );
 	expect( sent[ 0 ][ ID ] ).toBe( '' );

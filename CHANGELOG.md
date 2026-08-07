@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.1] - 2026-08-07
+
+### Changed
+
+- **`Router_Node::fill()` inlines its helper calls: ~1427ns → ~1020ns per
+  message, 700k → 980k msg/s.** Every routed message crosses this one method,
+  and a PHP userland static call costs ~120ns against ~5ns of actual work —
+  `Core::node()` alone spent 118ns wrapping a single array read. Neither JIT
+  (`opcache.jit=tracing`) nor 8M messages of warmup moved the number, so the
+  cost was call overhead, not the interpreter or cold caches.
+
+  `Core::node()` becomes a direct `Core::$nodes_by_name` read, and
+  `Message::split_first()` is spelled out inline. The splitter stays `explode`:
+  a `strpos`/`substr` pair is faster only on a path with NO slash (135ns vs
+  160ns) and much slower on any path with one (372ns vs 170ns), because each
+  `substr` allocates where `explode` makes one pass — and a peeled multi-hop
+  path is mostly slashed. Routing cost is now flat in path depth. The helpers
+  stay canonical for every other caller; only the hot path spells them out.
+
+- **`SSE_In_Node` parses a read by scanning at an offset instead of rewriting
+  the whole buffer per line.** The old loop did `$this->buffer = substr(
+  $this->buffer, $nl + 1 )` on every line, which is quadratic in the line
+  count: measured on 150-byte frames it degraded from 596ns/line at 300 lines
+  to 4452ns/line at 6000, while the offset scan holds flat at ~385ns (1.5x to
+  11.6x, and the multiplier grows with read size). The consume now happens once
+  in a `finally`, so a terminal frame that stops the parse mid-chunk still
+  consumes exactly what it read — pinned by tests, along with an incomplete
+  trailing line staying buffered. `Durable_Reader::drain_buffer()` already had
+  this shape; this brings the SSE reader in line with it.
+
+- **`Message::packed()` calls `json_encode()` directly, falling back to
+  `wp_json_encode()`: ~754ns → ~593ns.** `wp_json_encode()` IS `json_encode()`
+  plus a recursion/depth retry it only reaches when the first call returns
+  false, so the wrapper was a ~153ns call tax on every Partition write and
+  every wire send. `?:` is safe here because a 7-element array never encodes to
+  a falsy string, and the wrapper still handles the case it exists for.
+
+  `JSON_INVALID_UTF8_SUBSTITUTE` stays and costs nothing (313ns with, 303ns
+  without — `json_encode` walks every string to escape it either way). It is
+  load-bearing: without it one bad byte returns false and the whole message
+  fails to pack, so a firehose record carrying a mis-encoded URL or user agent
+  would be replaced by an error record.
+
+  Three behaviours the inlining could silently have changed, now pinned by
+  tests: the empty-TO guard compares the RAW value, so a non-scalar TO is
+  `NOT_AVAILABLE` rather than "unaddressed"; `TO = 0` routes to a node named
+  `0` (`'' === 0` is false, and `'0'` is PHP-falsy, so any `empty()` guard here
+  would swallow it); and `FROM = 0` still receives the error bounce, which is
+  why `Core::has_value()` is strict rather than `! empty()`.
+
+- **The console's `Request` nodes route through `_shell` by TARGET rather than
+  sinking into it**, matching the `Fetcher` nodes beside them
+  (`_command_interpreter` sink, `_shell/_http/<ci>` target). The Tap still sees
+  every command, so `connect _shell` is unchanged; it is reached by routing
+  now. A bespoke sink is not wrong in itself — but this one bought nothing the
+  target path did not already give, and a second path segment costs ~25ns.
+
 ## [2.14.0] - 2026-08-07
 
 ### Added

@@ -72,13 +72,15 @@ class Message {
 		// Canonical 7 fields; slicing drops LOCAL, never crosses processes.
 		$fields = \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 );
 		// Substitute a bad byte rather than fail the whole encode.
-		$json = \wp_json_encode( $fields, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
+		$flags = \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- hot path; the wrapper is the ?: fallback.
+		$json = \json_encode( $fields, $flags ) ?: \wp_json_encode( $fields, $flags );
 		if ( false !== $json ) {
 			return $json;
 		}
 		// Residual failure: log loudly, never emit '' (see class docblock).
 		$reason = \json_last_error_msg();
-		Core::stderr( 'Message::packed(): wp_json_encode failed: ' . $reason );
+		Core::stderr( 'Message::packed(): encode failed: ' . $reason );
 		$error_message                 = self::new_message();
 		$error_message[ self::TYPE ]   = self::TM_ERROR;
 		$error_message[ self::VALUE ]  = 'Message::packed(): ' . $reason;
