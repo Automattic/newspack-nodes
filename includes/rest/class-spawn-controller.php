@@ -140,10 +140,6 @@ class Spawn_Controller {
 		}
 		$this->coordinator->record_spawn( $type, $partition, $now );
 
-		// Ack synchronously; work zombie-style (FPM detach no-op in CLI/test).
-		if ( \function_exists( 'fastcgi_finish_request' ) ) {
-			\fastcgi_finish_request();
-		}
 		\ignore_user_abort( true );
 		\set_time_limit( 0 );
 
