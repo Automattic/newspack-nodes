@@ -47,6 +47,9 @@ return [
 	// The reopen delay that close advertises as `retry:`; match the pair.
 	'sse_retry_ms'        => 5000,
 
+	// Worker analogue; `var on_demand_idle` in a TSL overrides it.
+	'on_demand_idle'      => 5,
+
 	// Topologies (Topology_Registry names); each = a num_partitions fleet.
 	'topologies'          => [],
 
