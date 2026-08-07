@@ -16,8 +16,9 @@ export function partitionSummaries( workers ) {
 				status: wk.status,
 				started_at: wk.started_at,
 				heartbeat_age: wk.heartbeat_age,
-				// The server's verdict, never re-derived from a hardcoded age.
+				// The server's verdicts, never re-derived from a hardcoded age.
 				stale: !! wk.stale,
+				idle: !! wk.idle,
 				restart_pending: !! wk.restart_pending,
 			} );
 		} else if ( wk.restart_pending ) {

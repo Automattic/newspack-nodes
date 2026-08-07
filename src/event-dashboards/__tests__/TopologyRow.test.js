@@ -248,6 +248,82 @@ describe( 'TopologyRow — folded mode', () => {
 		expect( badges ).not.toContain( 'ALL RUN' );
 	} );
 
+	/**
+	 * An on-demand topology with nothing to do is the feature working. Reading
+	 * ALL DEAD sends an operator looking for the crash that never happened.
+	 */
+	it( 'reads IDLE, not ALL DEAD, when every absent worker is on-demand', () => {
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			topology: {
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				health: 'ok',
+				num_partitions: 2,
+				status: {
+					graph: { nodes: [], edges: [] },
+					workers: [
+						{
+							type: 'alpha',
+							partition: 0,
+							status: 'dead',
+							idle: true,
+						},
+						{
+							type: 'alpha',
+							partition: 1,
+							status: 'dead',
+							idle: true,
+						},
+					],
+					currentTime: 2000,
+				},
+			},
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const badges = [
+			...container.querySelectorAll( '.worker-status-badge' ),
+		].map( ( b ) => b.textContent );
+		expect( badges ).toContain( 'IDLE' );
+		expect( badges ).not.toContain( 'ALL DEAD' );
+	} );
+
+	/** A crash is still a crash: one non-idle corpse keeps the dead badge. */
+	it( 'still reads ALL DEAD when any absent worker is not idle', () => {
+		const props = rowProps( {
+			folded: true,
+			onExpand: jest.fn(),
+			topology: {
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				health: 'ok',
+				num_partitions: 2,
+				status: {
+					graph: { nodes: [], edges: [] },
+					workers: [
+						{
+							type: 'alpha',
+							partition: 0,
+							status: 'dead',
+							idle: true,
+						},
+						{ type: 'alpha', partition: 1, status: 'dead' },
+					],
+					currentTime: 2000,
+				},
+			},
+		} );
+		const { container } = render( <TopologyRow { ...props } /> );
+		const badges = [
+			...container.querySelectorAll( '.worker-status-badge' ),
+		].map( ( b ) => b.textContent );
+		expect( badges ).toContain( 'ALL DEAD' );
+		expect( badges ).not.toContain( 'IDLE' );
+	} );
+
 	it( 'shows a k/n up badge for a partially-up topology (not ALL RUN / ALL DEAD)', () => {
 		const props = rowProps( {
 			folded: true,

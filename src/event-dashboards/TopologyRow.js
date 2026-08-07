@@ -160,6 +160,8 @@ const TopologyRow = memo( function TopologyRow( {
 	const allRunning = expected > 0 && up === expected;
 	const allDead =
 		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
+	// Nothing to do is the feature working, not the crash ALL DEAD implies.
+	const allIdle = allDead && parts.every( ( p ) => p.idle );
 	// ETA to catch up — shown only when behind/stalled (sub-minute reads ok).
 	const eta = 'ok' !== health ? formatEtaSeconds( etaSeconds ) : '';
 
@@ -263,7 +265,12 @@ const TopologyRow = memo( function TopologyRow( {
 							{ __( 'ALL RUN', 'newspack-nodes' ) }
 						</span>
 					) }
-					{ allDead && (
+					{ allIdle && (
+						<span className="newspack-nodes-status-badge worker-status-badge small">
+							{ __( 'IDLE', 'newspack-nodes' ) }
+						</span>
+					) }
+					{ allDead && ! allIdle && (
 						<span className="newspack-nodes-status-badge worker-status-badge dead small">
 							{ __( 'ALL DEAD', 'newspack-nodes' ) }
 						</span>

@@ -14,12 +14,18 @@ use Newspack_Nodes\Tests\TestCase;
 class CliTest extends TestCase {
 	private string $tmp;
 
+	/** @var \Closure|null Bootstrap-installed curl seam, restored so a capturer cannot leak. */
+	private $saved_curl_exec;
+
 	protected function setUp(): void {
 		parent::setUp();
+		$this->saved_curl_exec = \Newspack_Nodes\Core::$curl_exec;
 		$this->tmp = $this->make_temp_dir();
 	}
 
 	protected function tearDown(): void {
+		\Newspack_Nodes\Core::$curl_exec = $this->saved_curl_exec;
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -219,6 +225,38 @@ class CliTest extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		$this->expectExceptionMessageMatches( '/no worker.*typo-bad-name\.p0/' );
 		$cli->attach_to_worker( 'typo-bad-name.p0' );
+	}
+
+	/**
+	 * A sleeping on-demand worker has no lock dir BY DESIGN, and the cli is the
+	 * only thing that writes its IPC input — so refusing here is what stopped
+	 * an attach from ever waking it. Attaching wakes it and proceeds.
+	 */
+	public function test_attach_wakes_a_sleeping_on_demand_worker_instead_of_refusing(): void {
+		$posts = [];
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$posts ) {
+			$posts[] = $body;
+			return '';
+		};
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'marmot-ondemand' => [
+					'topology'       => 'marmot-ondemand',
+					'num_partitions' => 1,
+					'on_demand_idle' => 23,
+				],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'marmot-ondemand' ];
+
+		$ipc = ( new CLI( $this->tmp ) )->attach_to_worker( 'marmot-ondemand.p0' );
+
+		$this->assertSame( "{$this->tmp}/ipc/marmot-ondemand.p0/input", $ipc['input'] );
+		$this->assertSame(
+			[ 'marmot-ondemand.p0' ],
+			\array_map( static fn ( array $b ): string => $b['type'] . '.p' . $b['partition'], $posts )
+		);
 	}
 
 	public function test_no_worker_message_uses_literal_quotes_not_html_entities(): void {

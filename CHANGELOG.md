@@ -52,6 +52,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   localized from PHP — `Lock_Node::STALE_TIMEOUT` and the `on_demand_idle`
   config value — rather than duplicated as JS literals.
 
+- **An idle topology reads IDLE, not ALL DEAD**, in the Topology Manager. Every
+  worker of an on-demand topology being absent is the feature working; the dead
+  badge sent an operator looking for a crash that never happened. The server
+  already computed the verdict — `partitionSummaries()` was dropping the `idle`
+  field on its way through. One non-idle absence still reads ALL DEAD.
+
+- **`wp nodes cli` wakes a sleeping on-demand worker instead of refusing.**
+  `attach_to_worker()` threw on a missing lock dir, which is exactly the state
+  an on-demand worker is SUPPOSED to be in when it has nothing to do — and the
+  cli is the only writer of that worker's IPC input, so the refusal was what
+  kept an attach from ever waking one. It now posts the wake and proceeds. A
+  RESIDENT worker with no lock dir is still a typo or a dead fleet, and is
+  still refused with the same message.
+
 - **A write to a Partition wakes the Consumers tailing it.** Once the spawn scan
   stops resurrecting an absent on-demand worker, something has to bring it back,
   and WP-Cron at minute cadence is the fallback tier — a job that waits 60s for a

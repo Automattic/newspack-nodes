@@ -6,6 +6,7 @@ const w = ( partition, o = {} ) => ( {
 	started_at: o.started_at ?? 1000,
 	heartbeat_age: o.heartbeat_age ?? 2,
 	restart_pending: o.restart_pending ?? false,
+	idle: o.idle ?? false,
 } );
 
 it( 'one summary per partition, sorted, from any row of that partition', () => {
@@ -32,6 +33,13 @@ it( 'reflects per-partition status (all dead)', () => {
 		w( 1, { status: 'dead' } ),
 	] );
 	expect( out.every( ( s ) => s.status === 'dead' ) ).toBe( true );
+} );
+
+it( 'carries the server idle verdict, never re-derived here', () => {
+	const [ p0 ] = partitionSummaries( [
+		w( 0, { status: 'dead', idle: true } ),
+	] );
+	expect( p0.idle ).toBe( true );
 } );
 
 it( 'handles empty input', () => {
