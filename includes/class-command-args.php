@@ -51,7 +51,6 @@ class Command_Args {
 		];
 	}
 
-
 	/**
 	 * Inverse of parse(): build the token list. Boolean true renders as a bare
 	 * `--key`; false as `--key=false`; arrays comma-joined; scalars stringified.

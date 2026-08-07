@@ -111,7 +111,6 @@ class CLI {
 		return $rows;
 	}
 
-
 	/**
 	 * Index of every active Consumer's latest stats record from the shared
 	 * topicprobe log, keyed by `offsetlog_dir` — the durable per-reader identity.

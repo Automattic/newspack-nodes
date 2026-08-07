@@ -35,7 +35,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	/** Preferred log-key prefix when the operator's `log` arg is missing or unknown. */
 	private const PREFERRED_LOG_PREFIX = 'firehose';
 
-
 	/**
 	 * Probe-wiring observation seam. Lazily-defaulted to null; the log_status
 	 * handler invokes it (when set) with the single inspection Partition right

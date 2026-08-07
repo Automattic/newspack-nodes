@@ -173,7 +173,6 @@ class CliTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ], $ordered );
 	}
 
-
 	// ── parse_worker_id() / attach_to_worker() ─────────────────────────────────
 
 	public function test_parse_worker_id_returns_type_and_partition(): void {

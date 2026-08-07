@@ -70,7 +70,6 @@ class Remote_Link_Node extends Timer_Node {
 	/** Wall-second of the last session request; its own retry clock. */
 	protected int $last_session_request = 0;
 
-
 	protected string $remote_partition = '';
 
 	/** Patron SSE_In sibling (`<name>:sse-in`); null until first connect / Vault-resolved. */

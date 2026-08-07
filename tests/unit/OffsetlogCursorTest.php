@@ -200,5 +200,4 @@ class OffsetlogCursorTest extends TestCase {
 		$this->assertSame( 'crash', $d->disposition(), 'the disposition stays at its default when unarmed' );
 	}
 
-
 }

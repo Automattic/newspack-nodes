@@ -26,39 +26,14 @@ class Topology_Registry {
 	 */
 	public static ?\Closure $spawn_runner = null;
 
-
-
 	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
 	private static array $registered_plugins = [];
-
-
 
 	/** @var array<int,string> Plugin-registered stock dirs (first wins). */
 	private static array $stock_dirs = [];
 
 	/** @var string Writable per-deployment user dir. */
 	private static string $user_dir = '';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 	/**
 	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
@@ -127,10 +102,6 @@ class Topology_Registry {
 		return null;
 	}
 
-
-
-
-
 	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
 	 *
@@ -178,15 +149,11 @@ class Topology_Registry {
 		];
 	}
 
-
-
-
-
-
 	/**
 	 * Drop the per-process option snapshot then the config snapshot so the next
 	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Fleet_Node::check_config(). Public so the
+	 * set. Same pair, same order, as Fleet_Node::refresh_active_set() reaches
+	 * them — the purge via take_reload_watermark(), the reset just after. Public so the
 	 * Topologies_CI delete verb (which mutates the active set on its own path)
 	 * shares this one definition instead of carrying a parallel copy.
 	 */
@@ -194,7 +161,6 @@ class Topology_Registry {
 		\Newspack_Nodes\Config::invalidate_options_cache();
 		\Newspack_Nodes\Config::reset();
 	}
-
 
 	/**
 	 * Register a plugin's topologies: a node-namespace prefix + a stock dir.

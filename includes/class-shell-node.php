@@ -816,7 +816,6 @@ class Shell_Node extends Node {
 		return \array_column( self::scan_tokens( $line ), 'value' );
 	}
 
-
 	/**
 	 * The one tokenizer state machine ('/"/` + backslash escapes): splits on
 	 * unquoted whitespace; an empty quoted string still counts as a token.

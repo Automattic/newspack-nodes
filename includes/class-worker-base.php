@@ -31,7 +31,6 @@ class Worker_Base {
 	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 
-
 	/**
 	 * last-PHP-error seam. Lazily-defaulted to the real `error_get_last()`;
 	 * tests reassign to classify fatal shutdowns without raising one.
@@ -274,7 +273,6 @@ class Worker_Base {
 		}
 		return $this->baseline_memory >= (int) ( $limit * self::BASELINE_WATERMARK_PCT );
 	}
-
 
 	/**
 	 * Shutdown handoff for one Remote_Source. Mirrors handoff_consumer: a cooperative stop

@@ -284,7 +284,6 @@ class SettingsEventWriterTest extends TestCase {
 		$this->assertTrue( true, 'the throw is swallowed; reaching here is the assertion' );
 	}
 
-
 	/**
 	 * The writer arms its option hooks at plugin load, but `<config:*>` was only
 	 * registered by the lazy `ensure_runtime_wired()`. An option change before
