@@ -7,6 +7,8 @@ use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 
 #[CoversClass( Worker_Base::class )]
+// The alarm test sleeps through a blocking call; 1s default is too tight.
+#[\PHPUnit\Framework\Attributes\Medium]
 class WorkerBaseTest extends TestCase {
 	private string $tmp;
 
@@ -44,6 +46,36 @@ class WorkerBaseTest extends TestCase {
 			];
 			return false;
 		};
+	}
+
+	/**
+	 * The heartbeat has to keep beating through work that yields nothing.
+	 *
+	 * It otherwise only advances inside `should_continue()`, which a long job
+	 * reaches only through `Event_Framework::pump()` — and pump() has a single
+	 * caller, the Partition write path. A job that writes nothing for longer
+	 * than `stale_timeout` (one long query, a proc_open) stops its own
+	 * heartbeat while working perfectly well; a peer then steals the lock and
+	 * the job is killed mid-flight, replayed, and killed again forever.
+	 */
+	public function test_the_alarm_beats_the_lock_through_a_blocking_call(): void {
+		if ( ! \function_exists( 'pcntl_alarm' ) ) {
+			$this->markTestSkipped( 'pcntl unavailable' );
+		}
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$this->assertTrue( $w->acquire() );
+
+		$hb = "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat";
+		\touch( $hb, \time() - 300 );
+		\clearstatcache( true, $hb );
+		$before = \filemtime( $hb );
+
+		$w->arm_heartbeat_alarm_for_test( 1 );
+		\sleep( 2 ); // Blocking, writes nothing — exactly the starving case.
+		$w->disarm_heartbeat_alarm_for_test();
+
+		\clearstatcache( true, $hb );
+		$this->assertGreaterThan( $before, \filemtime( $hb ), 'the alarm must beat while the process is blocked' );
 	}
 
 	public function test_acquire_creates_worker_lock(): void {
@@ -299,23 +331,42 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( $w->should_continue() );
 	}
 
-	public function test_should_continue_heartbeats_at_interval(): void {
-		// heartbeat() bumps the lock-dir mtime — verify heartbeat fires when the
-		// interval elapses.
+	public function test_should_continue_beats_when_no_alarm_is_armed(): void {
+		// The quiet fallback: pcntl is CLI-only on some builds and workers run
+		// in the web SAPI, so the between-messages beat still has to exist.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
 		$hb_path = "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat";
 
-		$first_mtime = \filemtime( $hb_path );
-		// Backdate last_heartbeat past the heartbeat interval.
 		$w->set_last_heartbeat_for_test( \microtime( true ) - Worker_Base::HEARTBEAT_INTERVAL_S - 1 );
-		// Backdate the heartbeat file mtime so we can detect a refresh.
 		\touch( $hb_path, \time() - 60 );
 
 		$this->assertTrue( $w->should_continue() );
+
 		\clearstatcache();
-		$new_mtime = \filemtime( $hb_path );
-		$this->assertGreaterThan( \time() - 5, $new_mtime, 'heartbeat must be touched recently' );
+		$this->assertGreaterThan( \time() - 5, \filemtime( $hb_path ), 'the fallback beats' );
+	}
+
+	public function test_should_continue_leaves_the_beat_to_an_armed_alarm(): void {
+		if ( ! \function_exists( 'pcntl_alarm' ) ) {
+			$this->markTestSkipped( 'pcntl unavailable' );
+		}
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$hb_path = "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat";
+
+		// Long enough that the alarm cannot fire inside the test.
+		$w->arm_heartbeat_alarm_for_test( 300 );
+		$w->set_last_heartbeat_for_test( \microtime( true ) - Worker_Base::HEARTBEAT_INTERVAL_S - 1 );
+		\touch( $hb_path, \time() - 60 );
+		\clearstatcache( true, $hb_path );
+		$before = \filemtime( $hb_path );
+
+		$this->assertTrue( $w->should_continue() );
+		$w->disarm_heartbeat_alarm_for_test();
+
+		\clearstatcache( true, $hb_path );
+		$this->assertSame( $before, \filemtime( $hb_path ), 'one beat source at a time' );
 	}
 
 	public function test_self_respawn_posts_to_spawn_url(): void {
@@ -652,6 +703,12 @@ class WorkerBaseTest extends TestCase {
 
 class TestableWorker extends Worker_Base {
 	public int $ipc_checkpoint_calls = 0;
+	public function arm_heartbeat_alarm_for_test( int $seconds ): void {
+		$this->arm_heartbeat_alarm( $seconds );
+	}
+	public function disarm_heartbeat_alarm_for_test(): void {
+		$this->disarm_heartbeat_alarm();
+	}
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
