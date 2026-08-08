@@ -101,36 +101,6 @@ final class Health_Probe_Client {
 		return self::unknown( 'Could not verify the web cache backend because the health route returned a malformed result.' );
 	}
 
-	/**
-	 * Classify a transport failure without surfacing its untrusted detail.
-	 *
-	 * @return HealthResult
-	 */
-	private static function transport_error( \WP_Error $error ): array {
-		$detail = \strtolower( $error->get_error_message() );
-		if ( \preg_match( '/curl error 28\b|timed out|timeout/', $detail ) ) {
-			return self::unknown( 'Could not verify the web cache backend because the health request timed out.' );
-		}
-		if ( \preg_match( '/curl error (6|7|35|51|58|60|77)\b|could not resolve host|failed to connect|ssl certificate/', $detail ) ) {
-			return self::unknown( 'Could not verify the web cache backend because loopback DNS, connection, or TLS failed; normal worker respawn may also be impaired.' );
-		}
-		return self::unknown( 'Could not verify the web cache backend because the loopback request failed.' );
-	}
-
-	/**
-	 * Build a locally authored unknown-cache result.
-	 *
-	 * @return HealthResult
-	 */
-	private static function unknown( string $message ): array {
-		return [
-			'id'       => Health_Checks::CACHE_ID,
-			'label'    => Health_Checks::CACHE_LABEL,
-			'status'   => Health_Checks::STATUS_RECOMMENDED,
-			'messages' => [ $message ],
-		];
-	}
-
 	private static function valid_result( mixed $result ): bool {
 		if ( ! \is_array( $result ) || \array_is_list( $result ) ) {
 			return false;
@@ -170,5 +140,35 @@ final class Health_Probe_Client {
 			&& 512 >= \strlen( $message )
 			&& 1 === \preg_match( '//u', $message )
 			&& 0 === \preg_match( '/[\p{Cc}\p{Zl}\p{Zp}]/u', $message );
+	}
+
+	/**
+	 * Classify a transport failure without surfacing its untrusted detail.
+	 *
+	 * @return HealthResult
+	 */
+	private static function transport_error( \WP_Error $error ): array {
+		$detail = \strtolower( $error->get_error_message() );
+		if ( \preg_match( '/curl error 28\b|timed out|timeout/', $detail ) ) {
+			return self::unknown( 'Could not verify the web cache backend because the health request timed out.' );
+		}
+		if ( \preg_match( '/curl error (6|7|35|51|58|60|77)\b|could not resolve host|failed to connect|ssl certificate/', $detail ) ) {
+			return self::unknown( 'Could not verify the web cache backend because loopback DNS, connection, or TLS failed; normal worker respawn may also be impaired.' );
+		}
+		return self::unknown( 'Could not verify the web cache backend because the loopback request failed.' );
+	}
+
+	/**
+	 * Build a locally authored unknown-cache result.
+	 *
+	 * @return HealthResult
+	 */
+	private static function unknown( string $message ): array {
+		return [
+			'id'       => Health_Checks::CACHE_ID,
+			'label'    => Health_Checks::CACHE_LABEL,
+			'status'   => Health_Checks::STATUS_RECOMMENDED,
+			'messages' => [ $message ],
+		];
 	}
 }

@@ -114,6 +114,30 @@ class Settings_Renderer {
 	}
 
 	/**
+	 * Human-readable restart impact for a Field's restart classification.
+	 *
+	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
+	 */
+	private static function restart_impact( array|string $restart ): string {
+		if ( [] === $restart ) {
+			return \sprintf(
+				/* translators: %d: seconds between a worker's config-reload windows. */
+				\__( 'No restart (workers re-read within ~%ds)', 'newspack-nodes' ),
+				\intdiv( Fleet_Node::SCAN_INTERVAL_MS, 1000 )
+			);
+		}
+		$topologies = Restart_Planner::topologies_for( $restart );
+		if ( [] === $topologies ) {
+			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
+		}
+		return \sprintf(
+			/* translators: %s: comma-separated topology names. */
+			\__( 'Restarts: %s', 'newspack-nodes' ),
+			\implode( ', ', $topologies )
+		);
+	}
+
+	/**
 	 * Display a config value: empty array → "(none)", small array joined with ', ',
 	 * large array summarized as "<n> values: <first 6>, … (+<rest> more)", scalars
 	 * cast, everything else ''.
@@ -139,30 +163,6 @@ class Settings_Renderer {
 			);
 		}
 		return Core::as_string( $value );
-	}
-
-	/**
-	 * Human-readable restart impact for a Field's restart classification.
-	 *
-	 * @param array<int,string>|string $restart Restart classification (see Restart_Planner).
-	 */
-	private static function restart_impact( array|string $restart ): string {
-		if ( [] === $restart ) {
-			return \sprintf(
-				/* translators: %d: seconds between a worker's config-reload windows. */
-				\__( 'No restart (workers re-read within ~%ds)', 'newspack-nodes' ),
-				\intdiv( Fleet_Node::SCAN_INTERVAL_MS, 1000 )
-			);
-		}
-		$topologies = Restart_Planner::topologies_for( $restart );
-		if ( [] === $topologies ) {
-			return \__( 'Restarts: (no active consumer)', 'newspack-nodes' );
-		}
-		return \sprintf(
-			/* translators: %s: comma-separated topology names. */
-			\__( 'Restarts: %s', 'newspack-nodes' ),
-			\implode( ', ', $topologies )
-		);
 	}
 
 	/**
@@ -194,19 +194,6 @@ class Settings_Renderer {
 			. ' placeholder="' . \esc_attr( (string) $default ) . '" />'
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
-	}
-	/** Flex row: the control(s) on the left, the reset toggle on the right. */
-	public static function reset_wrapper( string $mark_name, string $inner ): string {
-		return '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $mark_name ) . '">'
-			. '<div style="flex: 1;">' . $inner . '</div>'
-			. self::reset_toggle()
-			. '</div>';
-	}
-
-	/** The `↺` reset-toggle button (paired with a reset_wrapper). */
-	public static function reset_toggle(): string {
-		return '<button type="button" class="button button-secondary" data-nn-reset-toggle'
-			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
 	}
 
 	/** A directory/text field whose placeholder advertises the file default. */
@@ -310,5 +297,18 @@ class Settings_Renderer {
 			. ' class="' . \esc_attr( $mount_class ) . '"></div>'
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
+	}
+	/** Flex row: the control(s) on the left, the reset toggle on the right. */
+	public static function reset_wrapper( string $mark_name, string $inner ): string {
+		return '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $mark_name ) . '">'
+			. '<div style="flex: 1;">' . $inner . '</div>'
+			. self::reset_toggle()
+			. '</div>';
+	}
+
+	/** The `↺` reset-toggle button (paired with a reset_wrapper). */
+	public static function reset_toggle(): string {
+		return '<button type="button" class="button button-secondary" data-nn-reset-toggle'
+			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
 	}
 }

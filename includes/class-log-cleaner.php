@@ -58,6 +58,77 @@ class Log_Cleaner {
 	}
 
 	/**
+	 * Delete every first-level dir under `$dir` whose basename is not in `$declared`.
+	 *
+	 * Layout-agnostic: keep is by set-membership against the resolver's concrete
+	 * dir names — no `.p{N}` regex. `GLOB_ONLYDIR` skips files (a Log's flat
+	 * `{file}.{seg}` segments sit at the first level as files, not dirs).
+	 *
+	 * @param string             $dir      Directory to sweep (e.g. `{base}/logs`).
+	 * @param array<string,int>  $declared `name => partition` map; membership is by KEY.
+	 * @param string             $base_dir Jail root for delete_directory_recursive.
+	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
+	 * @param int                $grace    Required seconds of quiet; 0 disables the wait.
+	 */
+	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted, int $grace ): void {
+		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+			if ( isset( $declared[ \basename( $path ) ] ) ) {
+				continue;
+			}
+			// Grace: a recently-written dir is never a true orphan (deploys).
+			if ( $grace > 0 && \time() - self::newest_mtime( $path ) < $grace ) {
+				continue;
+			}
+			Spawn_Coordinator::delete_directory_recursive( $path, $base_dir );
+			if ( ! \is_dir( $path ) ) {
+				$deleted[] = $path;
+			}
+		}
+	}
+
+	/**
+	 * Newest mtime across a dir and its first-level entries. Appends touch
+	 * segment FILES (not the dir), so the dir mtime alone under-reports life.
+	 */
+	private static function newest_mtime( string $path ): int {
+		$newest = (int) @\filemtime( $path );
+		foreach ( @\glob( "{$path}/*" ) ?: [] as $entry ) {
+			$newest = \max( $newest, (int) @\filemtime( $entry ) );
+		}
+		return $newest;
+	}
+
+	/**
+	 * Declared LOG dir names: every on-disk topology's resolved first-level log
+	 * dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic — the
+	 * `<partition>` token may sit anywhere in the path), expanded over its
+	 * SPAWN-aligned partition count (`Bootstrap::num_partitions_for`), unioned
+	 * with each PHP-registered producer (`newspack_nodes/registered_log_producers`)
+	 * expanded over the global config num_partitions in ELN's fixed `{producer}.p{N}`
+	 * writer layout. An unresolvable `<config:logs_dir>` root yields `[]` (the GC
+	 * fail-closes; the diagnostic verb shows nothing declared).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function declared_log_dirs(): array {
+		return \array_keys( self::declared_dirs()['logs'] ?? [] );
+	}
+
+	/**
+	 * Same declared LOG set as `declared_log_dirs()`, but as the
+	 * `concrete dir name => enumerated partition index` map (the partition comes
+	 * from the resolver's enumeration loop, never parsed out of a name). The
+	 * dashboard catalog stamps each log entry with this real partition so it
+	 * joins logs[] to consumers[] on `${name}#${partition}`. An unresolvable
+	 * `<config:logs_dir>` root yields `[]` (same fail-closed behavior).
+	 *
+	 * @return array<string,int>
+	 */
+	public static function declared_log_partitions(): array {
+		return self::declared_dirs()['logs'] ?? [];
+	}
+
+	/**
 	 * Single-pass declared-set collector. Resolves each config ROOT once and loops
 	 * the operator's ACTIVE topology set (`Bootstrap::get_topologies()` — the same
 	 * source the fleet spawns from) once, filling both buckets UNIFORMLY. Driving
@@ -154,11 +225,6 @@ class Log_Cleaner {
 		return $dirs;
 	}
 
-	/** Global config num_partitions — THE accessor, so the declared set and every producer agree. */
-	private static function config_num_partitions(): int {
-		return Bootstrap::global_num_partitions();
-	}
-
 	/**
 	 * Non-empty string producer basenames from the registration filter.
 	 *
@@ -178,74 +244,8 @@ class Log_Cleaner {
 		return \array_keys( $out );
 	}
 
-	/**
-	 * Delete every first-level dir under `$dir` whose basename is not in `$declared`.
-	 *
-	 * Layout-agnostic: keep is by set-membership against the resolver's concrete
-	 * dir names — no `.p{N}` regex. `GLOB_ONLYDIR` skips files (a Log's flat
-	 * `{file}.{seg}` segments sit at the first level as files, not dirs).
-	 *
-	 * @param string             $dir      Directory to sweep (e.g. `{base}/logs`).
-	 * @param array<string,int>  $declared `name => partition` map; membership is by KEY.
-	 * @param string             $base_dir Jail root for delete_directory_recursive.
-	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
-	 * @param int                $grace    Required seconds of quiet; 0 disables the wait.
-	 */
-	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted, int $grace ): void {
-		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
-			if ( isset( $declared[ \basename( $path ) ] ) ) {
-				continue;
-			}
-			// Grace: a recently-written dir is never a true orphan (deploys).
-			if ( $grace > 0 && \time() - self::newest_mtime( $path ) < $grace ) {
-				continue;
-			}
-			Spawn_Coordinator::delete_directory_recursive( $path, $base_dir );
-			if ( ! \is_dir( $path ) ) {
-				$deleted[] = $path;
-			}
-		}
-	}
-
-	/**
-	 * Newest mtime across a dir and its first-level entries. Appends touch
-	 * segment FILES (not the dir), so the dir mtime alone under-reports life.
-	 */
-	private static function newest_mtime( string $path ): int {
-		$newest = (int) @\filemtime( $path );
-		foreach ( @\glob( "{$path}/*" ) ?: [] as $entry ) {
-			$newest = \max( $newest, (int) @\filemtime( $entry ) );
-		}
-		return $newest;
-	}
-
-	/**
-	 * Declared LOG dir names: every on-disk topology's resolved first-level log
-	 * dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic — the
-	 * `<partition>` token may sit anywhere in the path), expanded over its
-	 * SPAWN-aligned partition count (`Bootstrap::num_partitions_for`), unioned
-	 * with each PHP-registered producer (`newspack_nodes/registered_log_producers`)
-	 * expanded over the global config num_partitions in ELN's fixed `{producer}.p{N}`
-	 * writer layout. An unresolvable `<config:logs_dir>` root yields `[]` (the GC
-	 * fail-closes; the diagnostic verb shows nothing declared).
-	 *
-	 * @return array<int,string>
-	 */
-	public static function declared_log_dirs(): array {
-		return \array_keys( self::declared_dirs()['logs'] ?? [] );
-	}
-
-	/**
-	 * Same declared LOG set as `declared_log_dirs()`, but as the
-	 * `concrete dir name => enumerated partition index` map (the partition comes
-	 * from the resolver's enumeration loop, never parsed out of a name). The
-	 * dashboard catalog stamps each log entry with this real partition so it
-	 * joins logs[] to consumers[] on `${name}#${partition}`. An unresolvable
-	 * `<config:logs_dir>` root yields `[]` (same fail-closed behavior).
-	 *
-	 * @return array<string,int>
-	 */
-	public static function declared_log_partitions(): array {
-		return self::declared_dirs()['logs'] ?? [];
+	/** Global config num_partitions — THE accessor, so the declared set and every producer agree. */
+	private static function config_num_partitions(): int {
+		return Bootstrap::global_num_partitions();
 	}
 }

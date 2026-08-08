@@ -37,16 +37,6 @@ export class RateSmoother {
 	}
 
 	/**
-	 * Return to a cold start: empty window, zero total, zero smoothed rate.
-	 */
-	reset() {
-		// Per-second `{ sec, count }` buckets, a running total, the EMA rate.
-		this.buckets = [];
-		this.windowTotal = 0;
-		this.smoothed = 0;
-	}
-
-	/**
 	 * Fold a count into the window and advance the smoothed rate.
 	 *
 	 * @param {number} count Events observed since the last call. A negative
@@ -71,19 +61,6 @@ export class RateSmoother {
 	}
 
 	/**
-	 * Drop buckets older than the window from the running total.
-	 *
-	 * @param {number} sec Current time, floored to whole seconds.
-	 */
-	_expire( sec ) {
-		const oldest = sec - this.windowSec;
-		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
-			this.windowTotal -= this.buckets[ 0 ].count;
-			this.buckets.shift();
-		}
-	}
-
-	/**
 	 * Read the current rate without folding anything into the window.
 	 *
 	 * Add-on-arrival feeders (the viewers' lps) freeze when the stream goes
@@ -102,5 +79,28 @@ export class RateSmoother {
 			this.smoothed = rate;
 		}
 		return this.smoothed;
+	}
+
+	/**
+	 * Drop buckets older than the window from the running total.
+	 *
+	 * @param {number} sec Current time, floored to whole seconds.
+	 */
+	_expire( sec ) {
+		const oldest = sec - this.windowSec;
+		while ( this.buckets.length > 0 && this.buckets[ 0 ].sec <= oldest ) {
+			this.windowTotal -= this.buckets[ 0 ].count;
+			this.buckets.shift();
+		}
+	}
+
+	/**
+	 * Return to a cold start: empty window, zero total, zero smoothed rate.
+	 */
+	reset() {
+		// Per-second `{ sec, count }` buckets, a running total, the EMA rate.
+		this.buckets = [];
+		this.windowTotal = 0;
+		this.smoothed = 0;
 	}
 }

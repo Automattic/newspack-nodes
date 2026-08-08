@@ -53,32 +53,6 @@ class CLI {
 	}
 
 	/**
-	 * Parse `{type}.p{N}` into [type, partition].
-	 *
-	 * @param string $worker_id Worker id.
-	 * @return array{0:string,1:int}
-	 * @throws \InvalidArgumentException If worker_id can't be parsed.
-	 */
-	public static function parse_worker_id( string $worker_id ): array {
-		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would mangle the text.
-			throw new \InvalidArgumentException( 'invalid reader id: ' . self::cli_safe( $worker_id ) . ' (expected {type}.p{N})' );
-		}
-		return [ $m[1], (int) $m[2] ];
-	}
-
-	/**
-	 * Make an untrusted worker id safe to echo in a TERMINAL error message:
-	 * strip C0 control characters + DEL so a crafted id can't inject an ANSI /
-	 * escape sequence, while keeping the printable text and the message's literal
-	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
-	 * wrong tool here (it renders `'` as `&#039;` in the shell).
-	 */
-	private static function cli_safe( string $worker_id ): string {
-		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
-	}
-
-	/**
 	 * Wake an on-demand worker that is cleanly absent, so an attach can proceed.
 	 *
 	 * A sleeping on-demand worker has no lock dir BY DESIGN, and the cli is the
@@ -105,6 +79,32 @@ class CLI {
 			return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Parse `{type}.p{N}` into [type, partition].
+	 *
+	 * @param string $worker_id Worker id.
+	 * @return array{0:string,1:int}
+	 * @throws \InvalidArgumentException If worker_id can't be parsed.
+	 */
+	public static function parse_worker_id( string $worker_id ): array {
+		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would mangle the text.
+			throw new \InvalidArgumentException( 'invalid reader id: ' . self::cli_safe( $worker_id ) . ' (expected {type}.p{N})' );
+		}
+		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
+	 * Make an untrusted worker id safe to echo in a TERMINAL error message:
+	 * strip C0 control characters + DEL so a crafted id can't inject an ANSI /
+	 * escape sequence, while keeping the printable text and the message's literal
+	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
+	 * wrong tool here (it renders `'` as `&#039;` in the shell).
+	 */
+	private static function cli_safe( string $worker_id ): string {
+		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
 	}
 
 	/**
@@ -188,23 +188,6 @@ class CLI {
 	}
 
 	/**
-	 * Heartbeat/started/staleness triple for one worker lock dir.
-	 *
-	 * @param string $dir           The `.lock.d` directory.
-	 * @param int    $now           Clock, so one scan judges every worker alike.
-	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
-	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
-	 */
-	private static function lock_liveness( string $dir, int $now, int $stale_timeout = Lock_Node::STALE_TIMEOUT ): array {
-		$mtime = @\filemtime( "{$dir}/heartbeat" );
-		return [
-			'heartbeat_at' => $mtime ?: 0,
-			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
-			'stale'        => Lock_Node::heartbeat_is_stale( $dir, $now, $stale_timeout ),
-		];
-	}
-
-	/**
 	 * The stale threshold a topology declares, or the default.
 	 *
 	 * The respawn decision and the Workers dashboard both honour this;
@@ -222,6 +205,23 @@ class CLI {
 			}
 		}
 		return Lock_Node::STALE_TIMEOUT;
+	}
+
+	/**
+	 * Heartbeat/started/staleness triple for one worker lock dir.
+	 *
+	 * @param string $dir           The `.lock.d` directory.
+	 * @param int    $now           Clock, so one scan judges every worker alike.
+	 * @param int    $stale_timeout Seconds without a heartbeat before stale.
+	 * @return array{heartbeat_at:int,started_at:int,stale:bool}
+	 */
+	private static function lock_liveness( string $dir, int $now, int $stale_timeout = Lock_Node::STALE_TIMEOUT ): array {
+		$mtime = @\filemtime( "{$dir}/heartbeat" );
+		return [
+			'heartbeat_at' => $mtime ?: 0,
+			'started_at'   => Lock_Node::get_started_time( $dir ) ?? 0,
+			'stale'        => Lock_Node::heartbeat_is_stale( $dir, $now, $stale_timeout ),
+		];
 	}
 
 	/** WP_CLI::error (exits) as root — root-owned IPC/lock dirs lock out the web-user fleet. */

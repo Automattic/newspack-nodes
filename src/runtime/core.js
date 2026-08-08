@@ -33,10 +33,6 @@ class CoreImpl {
 		this._backboneListeners = new Set();
 	}
 
-	now() {
-		return Date.now() / 1000;
-	}
-
 	// At most one print per identical message per 60s window.
 	printLessOften( msg ) {
 		const now = Date.now();
@@ -61,25 +57,6 @@ class CoreImpl {
 			this.recentLog.shift();
 		}
 		this._stderr( line );
-	}
-
-	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
-	log_prefix( msg = null ) {
-		const ts = new Date( this.now() * 1000 )
-			.toISOString()
-			.slice( 0, 19 )
-			.replace( 'T', ' ' );
-		const prefix = `${ ts } UTC ${ this.argv0() }: `;
-		if ( null === msg || undefined === msg ) {
-			return prefix;
-		}
-		const chomped = msg.replace( /\n+$/, '' );
-		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
-	}
-
-	// Per-process identity for log_prefix (Perl $0 / PHP SAPI); fixed label.
-	argv0() {
-		return 'browser';
 	}
 
 	/**
@@ -124,6 +101,29 @@ class CoreImpl {
 
 	node( name ) {
 		return this._registry.node( name );
+	}
+
+	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
+	log_prefix( msg = null ) {
+		const ts = new Date( this.now() * 1000 )
+			.toISOString()
+			.slice( 0, 19 )
+			.replace( 'T', ' ' );
+		const prefix = `${ ts } UTC ${ this.argv0() }: `;
+		if ( null === msg || undefined === msg ) {
+			return prefix;
+		}
+		const chomped = msg.replace( /\n+$/, '' );
+		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
+	}
+
+	// Per-process identity for log_prefix (Perl $0 / PHP SAPI); fixed label.
+	argv0() {
+		return 'browser';
+	}
+
+	now() {
+		return Date.now() / 1000;
 	}
 
 	// Callers iterate this Map directly; keep it reachable.

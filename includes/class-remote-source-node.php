@@ -501,19 +501,19 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$this->at_eof = '' === $this->buffer;
 	}
 
-	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
-	private function pump_maybe_disarm(): void {
-		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
-			$this->sse_in?->disarm();
-			$this->pump_armed = false;
-		}
-	}
-
 	/** Re-open the valve once the buffer has drained back below the low-water mark (from get_batch). */
 	private function pump_maybe_arm(): void {
 		if ( ! $this->pump_armed && \strlen( $this->buffer ) <= self::PUMP_ARM_BYTES ) {
 			$this->sse_in?->arm();
 			$this->pump_armed = true;
+		}
+	}
+
+	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
+	private function pump_maybe_disarm(): void {
+		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
+			$this->sse_in?->disarm();
+			$this->pump_armed = false;
 		}
 	}
 

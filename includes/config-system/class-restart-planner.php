@@ -75,21 +75,6 @@ class Restart_Planner {
 	}
 
 	/**
-	 * @param array<int,string> $types Node-type tokens to resolve.
-	 * @return array<int,string> FQCNs (unknowns dropped).
-	 */
-	private static function resolve_types( array $types ): array {
-		$out = [];
-		foreach ( $types as $type ) {
-			$fqcn = Command_Interpreter_Node::resolve_class( $type );
-			if ( null !== $fqcn ) {
-				$out[] = $fqcn;
-			}
-		}
-		return $out;
-	}
-
-	/**
 	 * The match is ancestry-DIRECTIONAL: a graph node matches when it IS-A a
 	 * declared type (so a declared `Partition` catches a `Log` node), NOT the
 	 * reverse — declaring a subclass will not catch a parent node.
@@ -114,6 +99,21 @@ class Restart_Planner {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * @param array<int,string> $types Node-type tokens to resolve.
+	 * @return array<int,string> FQCNs (unknowns dropped).
+	 */
+	private static function resolve_types( array $types ): array {
+		$out = [];
+		foreach ( $types as $type ) {
+			$fqcn = Command_Interpreter_Node::resolve_class( $type );
+			if ( null !== $fqcn ) {
+				$out[] = $fqcn;
+			}
+		}
+		return $out;
 	}
 
 	/**

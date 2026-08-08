@@ -105,61 +105,6 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
-	 *
-	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key      Key to read.
-	 * @param int    $fallback Default when missing/non-scalar.
-	 */
-	private static function entry_int( $entry, string $key, int $fallback ): int {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
-		return Core::as_int( $value, $fallback );
-	}
-
-	/**
-	 * Flag every held lock to stop, warning about any write that was REFUSED.
-	 *
-	 * Re-run each pass so a worker that acquired mid-wait is told too. A refusal
-	 * is the documented ownership footgun (worker dirs owned by `bend`, the
-	 * command run as root); silently flagging nothing spins the whole timeout and
-	 * then blames the workers for not exiting.
-	 */
-	private function flag_held_workers(): void {
-		$refused = [];
-		foreach ( $this->held_lock_dirs() as $slot => $dir ) {
-			if ( ! Lock_Node::request_stop_at( $dir ) ) {
-				$refused[] = $slot;
-			}
-		}
-		if ( ! empty( $refused ) && $refused !== $this->refused_flags ) {
-			$this->refused_flags = $refused;
-			\WP_CLI::warning( 'could not write the stop flag for: ' . \implode( ', ', $refused ) );
-		}
-	}
-
-	/**
-	 * Every `.lock.d` under the locks dir, keyed by its `type.pN` slot.
-	 *
-	 * Read from DISK rather than derived from the active topology set: a worker
-	 * whose topology was deactivated, or whose partition index is above the
-	 * current `num_partitions`, still holds a real lock and still runs until
-	 * `reconcile_lock_dirs()` retires it a full lifetime later.
-	 *
-	 * @return array<string, string> slot => directory path.
-	 */
-	private function held_lock_dirs(): array {
-		$dirs = [];
-		foreach ( (array) \glob( $this->base_dir() . '/locks/*.lock.d', \GLOB_ONLYDIR ) as $path ) {
-			$dirs[ \basename( Core::as_string( $path ), '.lock.d' ) ] = Core::as_string( $path );
-		}
-		return $dirs;
-	}
-
-	private function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
-	/**
 	 * What still stands between us and a quiet fleet: held lock dirs, plus any
 	 * slot with a spawn already in flight.
 	 *
@@ -191,13 +136,24 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Expand topologies registered via the `newspack_nodes/topologies` filter
-	 * into a flat list of `{type, partition, stale_timeout}` rows.
+	 * Flag every held lock to stop, warning about any write that was REFUSED.
 	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 * Re-run each pass so a worker that acquired mid-wait is told too. A refusal
+	 * is the documented ownership footgun (worker dirs owned by `bend`, the
+	 * command run as root); silently flagging nothing spins the whole timeout and
+	 * then blames the workers for not exiting.
 	 */
-	private function workers(): array {
-		return Bootstrap::expand_workers();
+	private function flag_held_workers(): void {
+		$refused = [];
+		foreach ( $this->held_lock_dirs() as $slot => $dir ) {
+			if ( ! Lock_Node::request_stop_at( $dir ) ) {
+				$refused[] = $slot;
+			}
+		}
+		if ( ! empty( $refused ) && $refused !== $this->refused_flags ) {
+			$this->refused_flags = $refused;
+			\WP_CLI::warning( 'could not write the stop flag for: ' . \implode( ', ', $refused ) );
+		}
 	}
 
 	/**
@@ -225,6 +181,24 @@ class Worker_CLI_Command {
 			"Hold released; requested {$requested} worker spawn(s). "
 			. 'Run `wp nodes status` to confirm the fleet came back.'
 		);
+	}
+
+	/**
+	 * Every `.lock.d` under the locks dir, keyed by its `type.pN` slot.
+	 *
+	 * Read from DISK rather than derived from the active topology set: a worker
+	 * whose topology was deactivated, or whose partition index is above the
+	 * current `num_partitions`, still holds a real lock and still runs until
+	 * `reconcile_lock_dirs()` retires it a full lifetime later.
+	 *
+	 * @return array<string, string> slot => directory path.
+	 */
+	private function held_lock_dirs(): array {
+		$dirs = [];
+		foreach ( (array) \glob( $this->base_dir() . '/locks/*.lock.d', \GLOB_ONLYDIR ) as $path ) {
+			$dirs[ \basename( Core::as_string( $path ), '.lock.d' ) ] = Core::as_string( $path );
+		}
+		return $dirs;
 	}
 
 	/**
@@ -274,14 +248,6 @@ class Worker_CLI_Command {
 		$restarted = $cli->restart_workers( $workers, $filter, $partition );
 
 		\WP_CLI::success( "Requested restart for {$restarted} worker(s)." );
-	}
-
-	/**
-	 * Helper for command implementations to reach the same Cli helper without
-	 * recreating it every time.
-	 */
-	private function cli(): CLI {
-		return new CLI( $this->base_dir() );
 	}
 
 	/**
@@ -384,6 +350,28 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
+	 *
+	 * @param string                            $format  table|json|csv|yaml ('' = table).
+	 * @param array<int, array<string, mixed>>  $rows    Table rows.
+	 * @param array<int, string>                $columns Column order.
+	 */
+	private static function render( string $format, array $rows, array $columns ): void {
+		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
+			\WP_CLI\Utils\format_items( '' === $format ? 'table' : $format, $rows, $columns );
+			return;
+		}
+		// Test fallback: stable plain-text lines.
+		\WP_CLI::log( \implode( '  ', $columns ) );
+		foreach ( $rows as $row ) {
+			\WP_CLI::log( \implode( '  ', \array_map(
+				static fn ( string $c ): string => Core::as_string( $row[ $c ] ?? '' ),
+				$columns
+			) ) );
+		}
+	}
+
+	/**
 	 * One fleet-table row for a {topology, partition} slot.
 	 *
 	 * @param string                    $name           Topology name.
@@ -415,36 +403,11 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
-	 *
-	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key   Key to read.
+	 * Helper for command implementations to reach the same Cli helper without
+	 * recreating it every time.
 	 */
-	private static function entry_string( $entry, string $key ): string {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
-		return Core::as_string( $value );
-	}
-
-	/**
-	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
-	 *
-	 * @param string                            $format  table|json|csv|yaml ('' = table).
-	 * @param array<int, array<string, mixed>>  $rows    Table rows.
-	 * @param array<int, string>                $columns Column order.
-	 */
-	private static function render( string $format, array $rows, array $columns ): void {
-		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
-			\WP_CLI\Utils\format_items( '' === $format ? 'table' : $format, $rows, $columns );
-			return;
-		}
-		// Test fallback: stable plain-text lines.
-		\WP_CLI::log( \implode( '  ', $columns ) );
-		foreach ( $rows as $row ) {
-			\WP_CLI::log( \implode( '  ', \array_map(
-				static fn ( string $c ): string => Core::as_string( $row[ $c ] ?? '' ),
-				$columns
-			) ) );
-		}
+	private function cli(): CLI {
+		return new CLI( $this->base_dir() );
 	}
 
 	/**
@@ -486,36 +449,6 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Validate the positional `<topology>` arg against the catalog
-	 * (`Topology_Registry::describe()`) — shared by `activate` and `deactivate`.
-	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
-	 * listing the available catalog names so the operator can pick a real one.
-	 *
-	 * @param array<int, string> $args Positional arguments.
-	 * @param string             $verb Verb name, for the usage message.
-	 * @return string The validated topology name.
-	 */
-	private function require_catalog_topology( array $args, string $verb ): string {
-		$name = $args[0] ?? '';
-		if ( '' === $name ) {
-			\WP_CLI::error( "Topology required. Use: wp nodes {$verb} <topology>" );
-		}
-
-		$catalog = \array_keys( Topology_Registry::describe() );
-		if ( ! \in_array( $name, $catalog, true ) ) {
-			\WP_CLI::error(
-				\sprintf(
-					'Unknown topology: %s. Available: %s',
-					$name,
-					empty( $catalog ) ? '(none in catalog)' : \implode( ', ', $catalog )
-				)
-			);
-		}
-
-		return $name;
-	}
-
-	/**
 	 * Deactivate a topology: remove it from the active set and drain its fleet now.
 	 *
 	 * Symmetric with `activate`. Delegates to the shared
@@ -544,6 +477,36 @@ class Worker_CLI_Command {
 		Topology_Registry::deactivate( $name );
 
 		\WP_CLI::success( \sprintf( "Deactivated '%s' and drained its fleet.", $name ) );
+	}
+
+	/**
+	 * Validate the positional `<topology>` arg against the catalog
+	 * (`Topology_Registry::describe()`) — shared by `activate` and `deactivate`.
+	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
+	 * listing the available catalog names so the operator can pick a real one.
+	 *
+	 * @param array<int, string> $args Positional arguments.
+	 * @param string             $verb Verb name, for the usage message.
+	 * @return string The validated topology name.
+	 */
+	private function require_catalog_topology( array $args, string $verb ): string {
+		$name = $args[0] ?? '';
+		if ( '' === $name ) {
+			\WP_CLI::error( "Topology required. Use: wp nodes {$verb} <topology>" );
+		}
+
+		$catalog = \array_keys( Topology_Registry::describe() );
+		if ( ! \in_array( $name, $catalog, true ) ) {
+			\WP_CLI::error(
+				\sprintf(
+					'Unknown topology: %s. Available: %s',
+					$name,
+					empty( $catalog ) ? '(none in catalog)' : \implode( ', ', $catalog )
+				)
+			);
+		}
+
+		return $name;
 	}
 
 	/**
@@ -675,6 +638,43 @@ class Worker_CLI_Command {
 		// The debugging verb: the skip reason IS the diagnosis — print it.
 		$detail = Core::as_string( $result['reason'] ?? $result['error'] ?? '' );
 		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
+	}
+
+	private function base_dir(): string {
+		return Config::get_base_directory();
+	}
+
+	/**
+	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
+	 *
+	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key   Key to read.
+	 */
+	private static function entry_string( $entry, string $key ): string {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
+		return Core::as_string( $value );
+	}
+
+	/**
+	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
+	 *
+	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key      Key to read.
+	 * @param int    $fallback Default when missing/non-scalar.
+	 */
+	private static function entry_int( $entry, string $key, int $fallback ): int {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
+		return Core::as_int( $value, $fallback );
+	}
+
+	/**
+	 * Expand topologies registered via the `newspack_nodes/topologies` filter
+	 * into a flat list of `{type, partition, stale_timeout}` rows.
+	 *
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 */
+	private function workers(): array {
+		return Bootstrap::expand_workers();
 	}
 
 	/**

@@ -60,12 +60,96 @@ class Config {
 	}
 
 	/**
+	 * Refuse a storage path outside the runtime tree. `/command` is full graph
+	 * construction at manage_options, so on a stock install this crosses no
+	 * boundary — but where administrator file writes are deliberately disabled
+	 * (DISALLOW_FILE_MODS, VIP-style installs) an unconstrained partition path
+	 * restores an arbitrary write. Empty is unconfigured, not an escape. Tail is
+	 * deliberately NOT constrained: reading /var/log/... is its whole job.
+	 *
+	 * @throws \RuntimeException When the path escapes the base directory.
+	 */
+	public static function assert_within_base( string $path ): void {
+		if ( '' === $path || self::within_base( $path ) ) {
+			return;
+		}
+		throw new \RuntimeException(
+			\esc_html( \sprintf( 'storage path %s is outside the runtime base directory', $path ) )
+		);
+	}
+
+	/**
+	 * Whether a path lies inside the runtime base directory.
+	 *
+	 * Lexical, not realpath: a partition directory is created lazily, so the
+	 * path usually does not exist yet at validation time. `..` and `.` are
+	 * resolved first so traversal cannot walk out.
+	 */
+	public static function within_base( string $path ): bool {
+		$base = \rtrim( self::get_base_directory(), '/' );
+		$norm = self::lexical_path( $path );
+		return $norm === $base || \str_starts_with( $norm, $base . '/' );
+	}
+
+	/** Collapse `.`/`..` segments without touching the filesystem. */
+	private static function lexical_path( string $path ): string {
+		$out = [];
+		foreach ( \explode( '/', $path ) as $seg ) {
+			if ( '' === $seg || '.' === $seg ) {
+				continue;
+			}
+			if ( '..' === $seg ) {
+				\array_pop( $out );
+				continue;
+			}
+			$out[] = $seg;
+		}
+		$prefix = \str_starts_with( $path, '/' ) ? '/' : '';
+		return $prefix . \implode( '/', $out );
+	}
+
+	/**
+	 * Get the locks directory path ({base}/locks).
+	 *
+	 * @return string
+	 * @throws \RuntimeException If base or locks directory cannot be created or realpath doesn't match.
+	 */
+	public static function get_locks_directory(): string {
+		return self::validated_subdir( 'locks' );
+	}
+
+	/**
+	 * Get the offsets directory path ({base}/offsets).
+	 *
+	 * @return string
+	 * @throws \RuntimeException If base or offsets directory cannot be created or realpath doesn't match.
+	 */
+	public static function get_offsets_directory(): string {
+		return self::validated_subdir( 'offsets' );
+	}
+
+	/**
 	 * Memoized `{base}/{sub}` path (created + realpath-checked via ensure_path).
 	 *
 	 * @throws \RuntimeException If base or the subdir cannot be created or realpath doesn't match.
 	 */
 	private static function validated_subdir( string $sub ): string {
 		return self::$validated_subdirs[ $sub ] ??= self::ensure_path( self::get_base_directory() . '/' . $sub );
+	}
+
+	public static function get_base_directory(): string {
+		if ( null !== self::$validated_base_directory ) {
+			return self::$validated_base_directory;
+		}
+
+		$config   = self::load_config();
+		$base_dir = $config['base_directory'] ?? null;
+		if ( empty( $base_dir ) || ! \is_scalar( $base_dir ) ) {
+			throw new \RuntimeException( 'base_directory not configured' );
+		}
+
+		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
+		return self::$validated_base_directory;
 	}
 
 	/**
@@ -181,179 +265,6 @@ class Config {
 		);
 	}
 
-	public static function get_base_directory(): string {
-		if ( null !== self::$validated_base_directory ) {
-			return self::$validated_base_directory;
-		}
-
-		$config   = self::load_config();
-		$base_dir = $config['base_directory'] ?? null;
-		if ( empty( $base_dir ) || ! \is_scalar( $base_dir ) ) {
-			throw new \RuntimeException( 'base_directory not configured' );
-		}
-
-		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
-		return self::$validated_base_directory;
-	}
-
-	/**
-	 * Load configuration from disk + WordPress options.
-	 *
-	 * @return array<string, mixed>
-	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
-	 */
-	public static function load_config(): array {
-		if ( null !== self::$config ) {
-			return self::$config;
-		}
-
-		// Presence overlay: any stored option wins; only absent falls back.
-		$schema = Settings_Schema::get();
-		$config = Config_System\Options_Overlay::apply(
-			self::load_config_defaults(),
-			$schema->overlay_keys(),
-			$schema->prefix()
-		);
-
-		self::$config = $config;
-		return $config;
-	}
-
-	/**
-	 * Load configuration defaults from file only (no WordPress options).
-	 *
-	 * @return array<string, mixed>
-	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
-	 */
-	public static function load_config_defaults(): array {
-		if ( null !== self::$config_defaults ) {
-			return self::$config_defaults;
-		}
-
-		$config = Config_Utils::load_config_file(
-			[],
-			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
-			'Newspack_Nodes\\Config'
-		);
-		// Operator-controlled local override (CLI/testing).
-		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
-		if ( false !== $local_config_file && '' !== $local_config_file ) {
-			$validated_path = Config_Utils::validate_config_path(
-				$local_config_file,
-				'Newspack_Nodes\\Config'
-			);
-			if ( null === $validated_path ) {
-				throw new \RuntimeException(
-					'LOCAL_NEWSPACK_NODES_CONF does not name a canonical readable PHP config file'
-				);
-			}
-			$config = Config_Utils::load_config_file(
-				$config,
-				$validated_path,
-				'Newspack_Nodes\\Config'
-			);
-		}
-
-		self::$config_defaults = $config;
-
-		return self::$config_defaults;
-	}
-
-	/**
-	 * Refuse a storage path outside the runtime tree. `/command` is full graph
-	 * construction at manage_options, so on a stock install this crosses no
-	 * boundary — but where administrator file writes are deliberately disabled
-	 * (DISALLOW_FILE_MODS, VIP-style installs) an unconstrained partition path
-	 * restores an arbitrary write. Empty is unconfigured, not an escape. Tail is
-	 * deliberately NOT constrained: reading /var/log/... is its whole job.
-	 *
-	 * @throws \RuntimeException When the path escapes the base directory.
-	 */
-	public static function assert_within_base( string $path ): void {
-		if ( '' === $path || self::within_base( $path ) ) {
-			return;
-		}
-		throw new \RuntimeException(
-			\esc_html( \sprintf( 'storage path %s is outside the runtime base directory', $path ) )
-		);
-	}
-
-	/**
-	 * Whether a path lies inside the runtime base directory.
-	 *
-	 * Lexical, not realpath: a partition directory is created lazily, so the
-	 * path usually does not exist yet at validation time. `..` and `.` are
-	 * resolved first so traversal cannot walk out.
-	 */
-	public static function within_base( string $path ): bool {
-		$base = \rtrim( self::get_base_directory(), '/' );
-		$norm = self::lexical_path( $path );
-		return $norm === $base || \str_starts_with( $norm, $base . '/' );
-	}
-
-	/** Collapse `.`/`..` segments without touching the filesystem. */
-	private static function lexical_path( string $path ): string {
-		$out = [];
-		foreach ( \explode( '/', $path ) as $seg ) {
-			if ( '' === $seg || '.' === $seg ) {
-				continue;
-			}
-			if ( '..' === $seg ) {
-				\array_pop( $out );
-				continue;
-			}
-			$out[] = $seg;
-		}
-		$prefix = \str_starts_with( $path, '/' ) ? '/' : '';
-		return $prefix . \implode( '/', $out );
-	}
-
-	/**
-	 * Get the locks directory path ({base}/locks).
-	 *
-	 * @return string
-	 * @throws \RuntimeException If base or locks directory cannot be created or realpath doesn't match.
-	 */
-	public static function get_locks_directory(): string {
-		return self::validated_subdir( 'locks' );
-	}
-
-	/**
-	 * Get the offsets directory path ({base}/offsets).
-	 *
-	 * @return string
-	 * @throws \RuntimeException If base or offsets directory cannot be created or realpath doesn't match.
-	 */
-	public static function get_offsets_directory(): string {
-		return self::validated_subdir( 'offsets' );
-	}
-
-	/**
-	 * Register the substrate's `config` topology-token namespace.
-	 *
-	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
-	 * base directory) and every other key straight off load_config(). Called
-	 * once at boot; the app registers its own namespaces for its own keys.
-	 */
-	public static function register_token_namespace(): void {
-		Core::register_config_namespace(
-			'config',
-			static function ( string $key ) {
-				// Dirs derived from base dir; every other key reads config.
-				$derived = [
-					'logs_dir'       => 'logs',
-					'offsets_dir'    => 'offsets',
-					'deadletter_dir' => 'deadletter',
-				];
-				if ( isset( $derived[ $key ] ) ) {
-					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
-				}
-				$cfg = self::load_config();
-				return $cfg[ $key ] ?? null;
-			}
-		);
-	}
-
 	/**
 	 * Fail-loud single-key config read: an undeclared key throws instead of
 	 * limping on a `?? default` — that's the guard that catches a renamed or
@@ -461,6 +372,95 @@ class Config {
 	public static function configured_base_directory(): string {
 		$base_dir = self::load_config()['base_directory'] ?? null;
 		return \is_scalar( $base_dir ) ? (string) $base_dir : '';
+	}
+
+	/**
+	 * Load configuration from disk + WordPress options.
+	 *
+	 * @return array<string, mixed>
+	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
+	 */
+	public static function load_config(): array {
+		if ( null !== self::$config ) {
+			return self::$config;
+		}
+
+		// Presence overlay: any stored option wins; only absent falls back.
+		$schema = Settings_Schema::get();
+		$config = Config_System\Options_Overlay::apply(
+			self::load_config_defaults(),
+			$schema->overlay_keys(),
+			$schema->prefix()
+		);
+
+		self::$config = $config;
+		return $config;
+	}
+
+	/**
+	 * Load configuration defaults from file only (no WordPress options).
+	 *
+	 * @return array<string, mixed>
+	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
+	 */
+	public static function load_config_defaults(): array {
+		if ( null !== self::$config_defaults ) {
+			return self::$config_defaults;
+		}
+
+		$config = Config_Utils::load_config_file(
+			[],
+			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
+			'Newspack_Nodes\\Config'
+		);
+		// Operator-controlled local override (CLI/testing).
+		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		if ( false !== $local_config_file && '' !== $local_config_file ) {
+			$validated_path = Config_Utils::validate_config_path(
+				$local_config_file,
+				'Newspack_Nodes\\Config'
+			);
+			if ( null === $validated_path ) {
+				throw new \RuntimeException(
+					'LOCAL_NEWSPACK_NODES_CONF does not name a canonical readable PHP config file'
+				);
+			}
+			$config = Config_Utils::load_config_file(
+				$config,
+				$validated_path,
+				'Newspack_Nodes\\Config'
+			);
+		}
+
+		self::$config_defaults = $config;
+
+		return self::$config_defaults;
+	}
+
+	/**
+	 * Register the substrate's `config` topology-token namespace.
+	 *
+	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
+	 * base directory) and every other key straight off load_config(). Called
+	 * once at boot; the app registers its own namespaces for its own keys.
+	 */
+	public static function register_token_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static function ( string $key ) {
+				// Dirs derived from base dir; every other key reads config.
+				$derived = [
+					'logs_dir'       => 'logs',
+					'offsets_dir'    => 'offsets',
+					'deadletter_dir' => 'deadletter',
+				];
+				if ( isset( $derived[ $key ] ) ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
+				}
+				$cfg = self::load_config();
+				return $cfg[ $key ] ?? null;
+			}
+		);
 	}
 
 	/**

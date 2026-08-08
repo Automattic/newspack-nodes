@@ -81,6 +81,27 @@ class Command_Auth {
 	}
 
 	/**
+	 * Sign for a specific remote, under the session key established with it.
+	 * Choosing the key IS the destination binding — a signature under one
+	 * remote's key verifies only there — which is how a command is pinned to its
+	 * destination without signing TO, a field Router peels in transit.
+	 *
+	 * No session means no signature. An unsigned command is refused downstream,
+	 * which is the correct failure: minters must wait for the session rather
+	 * than emit something that will rot before it can be believed.
+	 *
+	 * @param array<int,mixed> $message Message (mutated in place).
+	 */
+	public static function sign_for( string $destination, array &$message ): void {
+		$session = self::$sessions[ $destination ] ?? null;
+		if ( null === $session ) {
+			Core::print_less_often( 'Command_Auth: no session for ', $destination, '; refusing to sign' );
+			return;
+		}
+		self::stamp( $message, $session['key'], $session['handle'] );
+	}
+
+	/**
 	 * Stamp an `auth` envelope under $key. No-op unless TYPE is a request command
 	 * — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY rides along fine).
 	 *
@@ -117,85 +138,6 @@ class Command_Auth {
 		}
 		$value['auth']             = $envelope;
 		$message[ Message::VALUE ] = $value;
-	}
-
-	/**
-	 * True when a Message is a signable request command: TM_COMMAND without
-	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
-	 * VALUE. sign() and verify() share this ONE predicate so the signer and the
-	 * verifier agree on what is signable at all. TYPE gates that decision but is
-	 * not itself signed.
-	 *
-	 * @param mixed $type  Raw Message TYPE.
-	 * @param mixed $ts    Raw Message TIMESTAMP.
-	 * @param mixed $value Raw Message VALUE.
-	 *
-	 * @phpstan-assert-if-true int $type
-	 * @phpstan-assert-if-true int|float|numeric-string $ts
-	 * @phpstan-assert-if-true array<array-key, mixed> $value
-	 */
-	private static function is_request_command( $type, $ts, $value ): bool {
-		return \is_integer( $type )
-			&& ( $type & Message::TM_COMMAND )
-			&& ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
-			&& \is_numeric( $ts )
-			&& \is_array( $value );
-	}
-
-	/**
-	 * Canonical signing string: command semantics + ts + nonce. Never TYPE and
-	 * never TO/FROM — the SEMANTICS are signed, not the envelope. Tachikoma's
-	 * Command::sign covers `id:timestamp:name:arguments:payload` for the same
-	 * reason, and excluding TYPE is what lets the mint sign at build time
-	 * instead of after every flag has been OR'd in.
-	 *
-	 * The encoding is byte-for-byte what `JSON.stringify` produces, because the
-	 * browser signs the same string with its session key. Returns
-	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
-	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
-	 *
-	 * @param array<array-key, mixed> $value Command struct (name/arguments).
-	 */
-	private static function canonical( int $ts, array $value, string $nonce ): ?string {
-		$name      = $value['name']      ?? '';
-		$arguments = $value['arguments'] ?? [];
-		// Flags match JSON.stringify (PHP would escape / and non-ASCII).
-		$encoded   = \wp_json_encode(
-			[
-				$ts,
-				Core::as_string( $name ),
-				\is_array( $arguments ) ? \array_values( $arguments ) : [],
-				$nonce,
-			],
-			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
-		);
-		return false === $encoded ? null : $encoded;
-	}
-
-	/** Per-site HMAC secret, domain-separated from the spawn token. */
-	private static function secret(): string {
-		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
-	}
-
-	/**
-	 * Sign for a specific remote, under the session key established with it.
-	 * Choosing the key IS the destination binding — a signature under one
-	 * remote's key verifies only there — which is how a command is pinned to its
-	 * destination without signing TO, a field Router peels in transit.
-	 *
-	 * No session means no signature. An unsigned command is refused downstream,
-	 * which is the correct failure: minters must wait for the session rather
-	 * than emit something that will rot before it can be believed.
-	 *
-	 * @param array<int,mixed> $message Message (mutated in place).
-	 */
-	public static function sign_for( string $destination, array &$message ): void {
-		$session = self::$sessions[ $destination ] ?? null;
-		if ( null === $session ) {
-			Core::print_less_often( 'Command_Auth: no session for ', $destination, '; refusing to sign' );
-			return;
-		}
-		self::stamp( $message, $session['key'], $session['handle'] );
 	}
 
 	/**
@@ -242,14 +184,64 @@ class Command_Auth {
 	}
 
 	/**
-	 * Cache address for a session key. Namespaced per site: the cache is shared
-	 * infrastructure, not a trusted store, so a handle minted by another install
-	 * — or planted directly by anything that can write memcached — must not
-	 * resolve here. Deriving the namespace from the site secret costs nothing;
-	 * anyone who can compute it already holds the salt and can sign outright.
+	 * Drop the session with a remote, so the next command to it re-auths. Fired
+	 * when a Vault entry is re-credentialed or removed: the far side has
+	 * forgotten the key, or the credentials that bought it no longer apply.
 	 */
-	private static function session_address( string $handle ): string {
-		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle;
+	public static function forget_session( string $destination ): void {
+		unset( self::$sessions[ $destination ] );
+	}
+
+	/** Whether a session with this remote is already established in this process. */
+	public static function has_session( string $destination ): bool {
+		return isset( self::$sessions[ $destination ] );
+	}
+
+	/**
+	 * Record the session established with a remote, for `sign_for()` to use.
+	 * All three are required: an empty one means a malformed `/auth` response was
+	 * read through a `??`, and the resulting signature would be refused at the far
+	 * end under a misleading diagnosis. Fail here, where the cause is visible.
+	 *
+	 * @throws \InvalidArgumentException When any argument is empty.
+	 */
+	public static function remember_session( string $destination, string $handle, string $key ): void {
+		if ( '' === $destination || '' === $handle || '' === $key ) {
+			throw new \InvalidArgumentException( 'Command_Auth::remember_session() requires a destination, handle, and key' );
+		}
+		self::$sessions[ $destination ] = [
+			'handle' => $handle,
+			'key'    => $key,
+		];
+	}
+
+	/**
+	 * Authorize closure for verifier processes (worker, /command request scope).
+	 *
+	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
+	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() strips index 7
+	 * and unpacked() rejects 8-field lines — so a command arriving over IPC/the wire
+	 * never has it; trusting LOCAL therefore only admits the process's own commands
+	 * (e.g. a worker loading its topology via Shell::eval_script), while every
+	 * wire command still requires a signature.
+	 *
+	 * @return \Closure(Command_Interpreter_Node, array<int, mixed>): bool
+	 */
+	public static function verifier(): \Closure {
+		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
+	}
+
+	/**
+	 * The verifier policy: accept an in-process (LOCAL) command, else require a
+	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
+	 * honored end-to-end.
+	 *
+	 * @param Command_Interpreter_Node $interpreter Node handling the command.
+	 * @param array<int, mixed>        $message
+	 */
+	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
+		return isset( $message[ Message::LOCAL ] )
+			|| self::verify( $message, null, $interpreter );
 	}
 
 	/**
@@ -325,6 +317,36 @@ class Command_Auth {
 		return $claim( $nonce, self::NONCE_TTL_S );
 	}
 
+	/**
+	 * Canonical signing string: command semantics + ts + nonce. Never TYPE and
+	 * never TO/FROM — the SEMANTICS are signed, not the envelope. Tachikoma's
+	 * Command::sign covers `id:timestamp:name:arguments:payload` for the same
+	 * reason, and excluding TYPE is what lets the mint sign at build time
+	 * instead of after every flag has been OR'd in.
+	 *
+	 * The encoding is byte-for-byte what `JSON.stringify` produces, because the
+	 * browser signs the same string with its session key. Returns
+	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
+	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
+	 *
+	 * @param array<array-key, mixed> $value Command struct (name/arguments).
+	 */
+	private static function canonical( int $ts, array $value, string $nonce ): ?string {
+		$name      = $value['name']      ?? '';
+		$arguments = $value['arguments'] ?? [];
+		// Flags match JSON.stringify (PHP would escape / and non-ASCII).
+		$encoded   = \wp_json_encode(
+			[
+				$ts,
+				Core::as_string( $name ),
+				\is_array( $arguments ) ? \array_values( $arguments ) : [],
+				$nonce,
+			],
+			\JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE
+		);
+		return false === $encoded ? null : $encoded;
+	}
+
 	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
 	public static function load_session( string $handle ): ?string {
 		$backend = Cache_Backend::shared_first();
@@ -336,63 +358,41 @@ class Command_Auth {
 	}
 
 	/**
-	 * Drop the session with a remote, so the next command to it re-auths. Fired
-	 * when a Vault entry is re-credentialed or removed: the far side has
-	 * forgotten the key, or the credentials that bought it no longer apply.
+	 * Cache address for a session key. Namespaced per site: the cache is shared
+	 * infrastructure, not a trusted store, so a handle minted by another install
+	 * — or planted directly by anything that can write memcached — must not
+	 * resolve here. Deriving the namespace from the site secret costs nothing;
+	 * anyone who can compute it already holds the salt and can sign outright.
 	 */
-	public static function forget_session( string $destination ): void {
-		unset( self::$sessions[ $destination ] );
+	private static function session_address( string $handle ): string {
+		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle;
 	}
 
-	/** Whether a session with this remote is already established in this process. */
-	public static function has_session( string $destination ): bool {
-		return isset( self::$sessions[ $destination ] );
-	}
-
-	/**
-	 * Record the session established with a remote, for `sign_for()` to use.
-	 * All three are required: an empty one means a malformed `/auth` response was
-	 * read through a `??`, and the resulting signature would be refused at the far
-	 * end under a misleading diagnosis. Fail here, where the cause is visible.
-	 *
-	 * @throws \InvalidArgumentException When any argument is empty.
-	 */
-	public static function remember_session( string $destination, string $handle, string $key ): void {
-		if ( '' === $destination || '' === $handle || '' === $key ) {
-			throw new \InvalidArgumentException( 'Command_Auth::remember_session() requires a destination, handle, and key' );
-		}
-		self::$sessions[ $destination ] = [
-			'handle' => $handle,
-			'key'    => $key,
-		];
+	/** Per-site HMAC secret, domain-separated from the spawn token. */
+	private static function secret(): string {
+		return \hash_hmac( 'sha256', 'nodes-command-v1', \wp_salt( 'nonce' ) );
 	}
 
 	/**
-	 * Authorize closure for verifier processes (worker, /command request scope).
+	 * True when a Message is a signable request command: TM_COMMAND without
+	 * TM_RESPONSE/TM_ERROR, an integer TYPE, a numeric TIMESTAMP, and an array
+	 * VALUE. sign() and verify() share this ONE predicate so the signer and the
+	 * verifier agree on what is signable at all. TYPE gates that decision but is
+	 * not itself signed.
 	 *
-	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
-	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() strips index 7
-	 * and unpacked() rejects 8-field lines — so a command arriving over IPC/the wire
-	 * never has it; trusting LOCAL therefore only admits the process's own commands
-	 * (e.g. a worker loading its topology via Shell::eval_script), while every
-	 * wire command still requires a signature.
+	 * @param mixed $type  Raw Message TYPE.
+	 * @param mixed $ts    Raw Message TIMESTAMP.
+	 * @param mixed $value Raw Message VALUE.
 	 *
-	 * @return \Closure(Command_Interpreter_Node, array<int, mixed>): bool
+	 * @phpstan-assert-if-true int $type
+	 * @phpstan-assert-if-true int|float|numeric-string $ts
+	 * @phpstan-assert-if-true array<array-key, mixed> $value
 	 */
-	public static function verifier(): \Closure {
-		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
-	}
-
-	/**
-	 * The verifier policy: accept an in-process (LOCAL) command, else require a
-	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
-	 * honored end-to-end.
-	 *
-	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int, mixed>        $message
-	 */
-	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
-		return isset( $message[ Message::LOCAL ] )
-			|| self::verify( $message, null, $interpreter );
+	private static function is_request_command( $type, $ts, $value ): bool {
+		return \is_integer( $type )
+			&& ( $type & Message::TM_COMMAND )
+			&& ! ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+			&& \is_numeric( $ts )
+			&& \is_array( $value );
 	}
 }

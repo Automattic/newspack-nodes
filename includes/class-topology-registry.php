@@ -89,26 +89,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
-	 */
-	public static function resolve( string $name ): ?string {
-		// Stock owns its names: shadowing made a writable dir code execution.
-		foreach ( self::$stock_dirs as $dir ) {
-			$path = $dir . '/' . $name . '.tsl';
-			if ( \is_file( $path ) ) {
-				return $path;
-			}
-		}
-		if ( '' !== self::$user_dir ) {
-			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \is_file( $user_path ) ) {
-				return $user_path;
-			}
-		}
-		return null;
-	}
-
-	/**
 	 * Add a topology to the persisted active set and spawn its fleet now.
 	 *
 	 * The shared activation primitive both the `topologies activate` CI verb and
@@ -156,18 +136,23 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Drop the per-process option snapshot then the config snapshot so the next
-	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
-	 * set. Same pair, same order, as Fleet_Node::refresh_active_set() reaches
-	 * them — the purge via take_reload_watermark(), the reset just after. Public so the
-	 * Topologies_CI delete verb (which mutates the active set on its own path)
-	 * shares this one definition instead of carrying a parallel copy.
+	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
 	 */
-	public static function invalidate_config_cache(): void {
-		\Newspack_Nodes\Config::invalidate_options_cache();
-		\Newspack_Nodes\Config::reset();
-		// The reader memo is keyed off the active set this just changed.
-		\Newspack_Nodes\Bootstrap::forget_on_demand_readers();
+	public static function resolve( string $name ): ?string {
+		// Stock owns its names: shadowing made a writable dir code execution.
+		foreach ( self::$stock_dirs as $dir ) {
+			$path = $dir . '/' . $name . '.tsl';
+			if ( \is_file( $path ) ) {
+				return $path;
+			}
+		}
+		if ( '' !== self::$user_dir ) {
+			$user_path = self::$user_dir . '/' . $name . '.tsl';
+			if ( \is_file( $user_path ) ) {
+				return $user_path;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -237,6 +222,21 @@ class Topology_Registry {
 			'name'   => $name,
 			'active' => false,
 		];
+	}
+
+	/**
+	 * Drop the per-process option snapshot then the config snapshot so the next
+	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
+	 * set. Same pair, same order, as Fleet_Node::refresh_active_set() reaches
+	 * them — the purge via take_reload_watermark(), the reset just after. Public so the
+	 * Topologies_CI delete verb (which mutates the active set on its own path)
+	 * shares this one definition instead of carrying a parallel copy.
+	 */
+	public static function invalidate_config_cache(): void {
+		\Newspack_Nodes\Config::invalidate_options_cache();
+		\Newspack_Nodes\Config::reset();
+		// The reader memo is keyed off the active set this just changed.
+		\Newspack_Nodes\Bootstrap::forget_on_demand_readers();
 	}
 
 	/**

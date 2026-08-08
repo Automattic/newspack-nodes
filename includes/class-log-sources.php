@@ -87,284 +87,75 @@ class Log_Sources {
 	}
 
 	/**
-	 * The merged registry: built-ins → config → topologies, first name wins,
-	 * realpath-deduped (insertion order is priority).
+	 * Read the last $max_bytes of $path from the end via a kernel-seek offset read,
+	 * dropping the (likely partial) first line when the window starts past byte 0.
+	 * Plain text out.
 	 *
-	 * @return array<string, array{path: string, mode: string}>
+	 * @param string       $path      Registry-resolved log path.
+	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
 	 */
-	public static function registry(): array {
-		$entries = [];
-		foreach ( self::builtin_entries() as $name => $path ) {
-			$entries[ $name ] = [
-				'path' => $path,
-				'mode' => Tail_Node::MODE_FILE,
-			];
+	private static function tail_file( string $path, int $max_bytes ): string {
+		$size = \filesize( $path );
+		if ( false === $size ) {
+			return "log unavailable: $path (cannot read)";
 		}
-		foreach ( self::config_entries() as $name => $path ) {
-			$entries[ $name ] ??= [
-				'path' => $path,
-				'mode' => Tail_Node::MODE_FILE,
-			];
+		// Read only the last window via the built-in's offset (kernel seek).
+		$start = $size > $max_bytes ? $size - $max_bytes : 0;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
+		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
+		if ( false === $data ) {
+			return "log unavailable: $path (cannot read)";
 		}
-		foreach ( self::topology_entries() as $name => $entry ) {
-			$entries[ $name ] ??= $entry;
+		// Dropped the partial first line (the window started mid-line).
+		if ( $start > 0 ) {
+			$nl   = \strpos( $data, "\n" );
+			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
 		}
-		return self::dedupe_by_realpath( $entries );
-	}
-
-	/** @return array<string, string> Builtin name → absolute path, via the seam. */
-	private static function builtin_entries(): array {
-		$resolve = self::$builtin_sources ?? static function (): array {
-			$sources = [];
-			$php     = \ini_get( 'error_log' );
-			// Only a real file — 'syslog' / relative / '' aren't tailable.
-			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
-				$sources['php'] = $php;
-			}
-			// Constant may be undefined in tests — then debug is unavailable.
-			if ( \defined( 'WP_CONTENT_DIR' ) ) {
-				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
-			}
-			return $sources;
-		};
-		return $resolve();
-	}
-
-	/** @return array<string, string> Config `log_sources` name → path (invalid lines skipped). */
-	private static function config_entries(): array {
-		$entries = [];
-		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
-			$parsed = self::parse_entry( Core::as_string( $line ) );
-			if ( null !== $parsed ) {
-				$entries[ $parsed['name'] ] ??= $parsed['path'];
-			}
-		}
-		return $entries;
+		return $data;
 	}
 
 	/**
-	 * Parse one config `log_sources` line (`name=/absolute/path`). The Admin
-	 * sanitizer and the registry share this ONE rule.
-	 *
-	 * @return array{name: string, path: string}|null Null when the line is invalid.
-	 */
-	public static function parse_entry( string $line ): ?array {
-		$eq = \strpos( $line, '=' );
-		if ( false === $eq ) {
-			return null;
-		}
-		$name = \substr( $line, 0, $eq );
-		$path = \substr( $line, $eq + 1 );
-		if ( ! self::is_valid_name( $name ) ) {
-			return null;
-		}
-		if ( '' === $path || '/' !== $path[0] || \str_contains( $path, '..' ) || \str_contains( $path, "\0" ) ) {
-			return null;
-		}
-		return [
-			'name' => $name,
-			'path' => \rtrim( $path, '/' ),
-		];
-	}
-
-	/**
-	 * Whether $name is a legal registry name: the SSE-subscription charset,
-	 * no `..`, and not the `sources` word `taillog` reserves for its struct verb.
-	 */
-	public static function is_valid_name( string $name ): bool {
-		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
-			return false;
-		}
-		return 1 === \preg_match( self::NAME_PATTERN, $name );
-	}
-
-	/**
-	 * Segmented sources inferred from every `Log` node in the active topologies,
-	 * one per partition where the path template carries a partition token. Named
-	 * by lowercased writes-basename (+ `.p{N}` when the template is per-partition
-	 * but the basename isn't). The graph scan is display-grade: a broken topology
-	 * degrades to skipping that topology, never a thrown stream.
-	 *
-	 * @return array<string, array{path: string, mode: string}>
-	 */
-	private static function topology_entries(): array {
-		$partitions_by_type = [];
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			$partitions_by_type[ Core::as_string( $worker['type'] ) ][] = Core::num_int( $worker['partition'] );
-		}
-		$entries = [];
-		foreach ( $partitions_by_type as $type => $partitions ) {
-			try {
-				$graph = Topology_Analyzer::graph_for( $type );
-				foreach ( $graph['nodes'] as $node ) {
-					if ( 'log' !== ( $node['kind'] ?? '' ) ) {
-						continue;
-					}
-					$template = Core::as_string( $node['path'] ?? '' );
-					$writes   = \strtolower( Core::as_string( $node['writes'] ?? '' ) );
-					if ( '' === $template || '' === $writes ) {
-						continue;
-					}
-					// An unresolvable <ns:key> throws → topology skipped.
-					Core::resolve_config_tokens( $template, true );
-					$per_partition = self::has_partition_token( $template );
-					foreach ( $partitions as $p ) {
-						$name = Core::resolve_partition_template( $writes, $p, $type );
-						if ( $per_partition && ! self::has_partition_token( $writes ) ) {
-							$name .= ".p{$p}";
-						}
-						if ( ! self::is_valid_name( $name ) ) {
-							continue;
-						}
-						$path = Core::resolve_partition_template( $template, $p, $type );
-						if ( '' === $path || '/' !== $path[0] ) {
-							continue;
-						}
-						$entries[ $name ] ??= [
-							'path' => $path,
-							'mode' => Tail_Node::MODE_SEGMENTED,
-						];
-					}
-				}
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // ADR-14: cooperative stop is never a skippable error.
-			} catch ( \Throwable $e ) {
-				Core::print_less_often( 'log_sources: skipping topology ', $type . ': ' . $e->getMessage() );
-			}
-		}
-		return $entries;
-	}
-
-	/** Both the `<partition>` and `{partition}` spellings `resolve_partition_template` accepts. */
-	private static function has_partition_token( string $template ): bool {
-		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
-	}
-
-	/**
-	 * Collapse registry entries that resolve to the SAME real file — on this host
-	 * php `error_log` IS `wp-content/debug.log`, so `php` and `debug` would tail
-	 * identical content. Insertion order is priority: `php` precedes `debug` in the
-	 * resolver, so the ini-configured aggregation point is the survivor. A path that
-	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
-	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry (insertion order = priority).
-	 * @return array<string, array{path: string, mode: string}>
-	 */
-	private static function dedupe_by_realpath( array $registry ): array {
-		$deduped = [];
-		$seen    = [];
-		foreach ( $registry as $name => $entry ) {
-			$real = \realpath( $entry['path'] );
-			if ( false !== $real && isset( $seen[ $real ] ) ) {
-				continue;
-			}
-			if ( false !== $real ) {
-				$seen[ $real ] = true;
-			}
-			$deduped[ $name ] = $entry;
-		}
-		return $deduped;
-	}
-
-	/**
-	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes,
-	 * segments } row per (deduped) registry entry, as a plain array a GUI reads to
-	 * build its source picker — mirrors the dump_metadata array-reply precedent.
-	 * `bytes` is the byte size a tail would read (the Log Viewer's replay-catch-up
-	 * boundary); null when the source has no readable file. `segments` is the
-	 * `{id, size}` list a segment browser renders — [] in file mode.
-	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
-	 */
-	private static function taillog_sources_struct( array $registry ): array {
-		$rows = [];
-		foreach ( $registry as $name => $entry ) {
-			$segments = self::source_segments( $entry );
-			$rows[]   = [
-				'name'      => $name,
-				'path'      => $entry['path'],
-				'mode'      => $entry['mode'],
-				'available' => self::is_available( $entry['path'], $entry['mode'] ),
-				'bytes'     => self::tail_bytes( $entry, $segments ),
-				'segments'  => $segments,
-			];
-		}
-		return $rows;
-	}
-
-	/**
-	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
-	 * list sorted by id — the shape the Log Viewer's segment browser renders,
-	 * matching `log_status.segments`. Companion files (`.idx`) whose suffix is
-	 * not purely numeric are excluded — the same rule as
-	 * `Workers_CI_Node::build_log_sink_entry()` (which also stats mtime, hence
-	 * its own loop); keep the two in step. File mode has no segments: [].
+	 * The single FILE a bounded tail read (`cmd_taillog`) opens for an entry:
+	 * the path itself in file mode, the NEWEST `{path}.{seg}` segment (numeric
+	 * order, not lexical) in segmented mode — null when no segment exists yet.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
-	 * @return list<array{id: int, size: int}>
 	 */
-	private static function source_segments( array $entry ): array {
+	public static function tail_path( array $entry ): ?string {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
-			return [];
+			return $entry['path'];
 		}
-		$segments = [];
-		foreach ( self::segment_files( $entry['path'] ) as $file ) {
-			$suffix = \substr( $file, \strlen( $entry['path'] ) + 1 );
-			if ( ! \ctype_digit( $suffix ) ) {
-				continue;
-			}
-			$size       = \filesize( $file );
-			$segments[] = [
-				'id'   => (int) $suffix,
-				'size' => false === $size ? 0 : $size,
-			];
-		}
-		\usort( $segments, static fn ( array $a, array $b ): int => $a['id'] <=> $b['id'] );
-		return $segments;
-	}
-
-	/** @return array<int, string> The on-disk `{path}.{seg}` segment files. */
-	private static function segment_files( string $path ): array {
-		$segments = \glob( $path . '.[0-9]*' );
-		return \is_array( $segments ) ? $segments : [];
-	}
-
-	/**
-	 * Whether a source currently has bytes to offer: file mode checks the file
-	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
-	 * may have pruned the early ones).
-	 */
-	public static function is_available( string $path, string $mode ): bool {
-		if ( Tail_Node::MODE_SEGMENTED === $mode ) {
-			return [] !== self::segment_files( $path );
-		}
-		return \is_file( $path ) && \is_readable( $path );
-	}
-
-	/**
-	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
-	 * else the file. Null when there is no readable file (missing, or a segmented
-	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
-	 * Pass a pre-listed $segments to skip re-globbing (the struct builder has one).
-	 *
-	 * @param array{path: string, mode: string} $entry
-	 * @param list<array{id: int, size: int}>|null $segments A source_segments() list, or null to list here.
-	 */
-	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
-		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
-			$segments ??= self::source_segments( $entry );
-			if ( [] === $segments ) {
-				return null;
-			}
-			$newest = \end( $segments );
-			return $newest['size'];
-		}
-		if ( ! \is_file( $entry['path'] ) ) {
+		$segments = self::source_segments( $entry );
+		if ( [] === $segments ) {
 			return null;
 		}
-		$size = \filesize( $entry['path'] );
-		return false === $size ? null : $size;
+		$newest = \end( $segments );
+		return "{$entry['path']}.{$newest['id']}";
+	}
+
+	/**
+	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
+	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 */
+	private static function taillog_list( array $registry ): string {
+		$rows = [];
+		foreach ( $registry as $name => $entry ) {
+			// BYTES sizes what a tail reads: newest segment if segmented.
+			$size   = self::tail_bytes( $entry );
+			$rows[] = [
+				$name,
+				self::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
+				null === $size ? '-' : (string) $size,
+				$entry['path'],
+			];
+		}
+		return Command_Interpreter_Node::tabulate(
+			[ 'left', 'left', 'right', 'left' ],
+			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
+			$rows
+		);
 	}
 
 	/**
@@ -429,74 +220,283 @@ class Log_Sources {
 	}
 
 	/**
-	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
-	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
+	 * The reserved `taillog sources` reply: one { name, path, mode, available, bytes,
+	 * segments } row per (deduped) registry entry, as a plain array a GUI reads to
+	 * build its source picker — mirrors the dump_metadata array-reply precedent.
+	 * `bytes` is the byte size a tail would read (the Log Viewer's replay-catch-up
+	 * boundary); null when the source has no readable file. `segments` is the
+	 * `{id, size}` list a segment browser renders — [] in file mode.
 	 *
 	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
 	 */
-	private static function taillog_list( array $registry ): string {
+	private static function taillog_sources_struct( array $registry ): array {
 		$rows = [];
 		foreach ( $registry as $name => $entry ) {
-			// BYTES sizes what a tail reads: newest segment if segmented.
-			$size   = self::tail_bytes( $entry );
-			$rows[] = [
-				$name,
-				self::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
-				null === $size ? '-' : (string) $size,
-				$entry['path'],
+			$segments = self::source_segments( $entry );
+			$rows[]   = [
+				'name'      => $name,
+				'path'      => $entry['path'],
+				'mode'      => $entry['mode'],
+				'available' => self::is_available( $entry['path'], $entry['mode'] ),
+				'bytes'     => self::tail_bytes( $entry, $segments ),
+				'segments'  => $segments,
 			];
 		}
-		return Command_Interpreter_Node::tabulate(
-			[ 'left', 'left', 'right', 'left' ],
-			[ 'SOURCE', 'AVAILABLE', 'BYTES', 'PATH' ],
-			$rows
-		);
+		return $rows;
 	}
 
 	/**
-	 * The single FILE a bounded tail read (`cmd_taillog`) opens for an entry:
-	 * the path itself in file mode, the NEWEST `{path}.{seg}` segment (numeric
-	 * order, not lexical) in segmented mode — null when no segment exists yet.
+	 * The byte size a tail would read from $entry — its NEWEST segment if segmented,
+	 * else the file. Null when there is no readable file (missing, or a segmented
+	 * source with no segment yet). Sizes what a Log Viewer replay must catch up to.
+	 * Pass a pre-listed $segments to skip re-globbing (the struct builder has one).
 	 *
-	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @param array{path: string, mode: string} $entry
+	 * @param list<array{id: int, size: int}>|null $segments A source_segments() list, or null to list here.
 	 */
-	public static function tail_path( array $entry ): ?string {
-		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
-			return $entry['path'];
+	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
+		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
+			$segments ??= self::source_segments( $entry );
+			if ( [] === $segments ) {
+				return null;
+			}
+			$newest = \end( $segments );
+			return $newest['size'];
 		}
-		$segments = self::source_segments( $entry );
-		if ( [] === $segments ) {
+		if ( ! \is_file( $entry['path'] ) ) {
 			return null;
 		}
-		$newest = \end( $segments );
-		return "{$entry['path']}.{$newest['id']}";
+		$size = \filesize( $entry['path'] );
+		return false === $size ? null : $size;
 	}
 
 	/**
-	 * Read the last $max_bytes of $path from the end via a kernel-seek offset read,
-	 * dropping the (likely partial) first line when the window starts past byte 0.
-	 * Plain text out.
+	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
+	 * list sorted by id — the shape the Log Viewer's segment browser renders,
+	 * matching `log_status.segments`. Companion files (`.idx`) whose suffix is
+	 * not purely numeric are excluded — the same rule as
+	 * `Workers_CI_Node::build_log_sink_entry()` (which also stats mtime, hence
+	 * its own loop); keep the two in step. File mode has no segments: [].
 	 *
-	 * @param string       $path      Registry-resolved log path.
-	 * @param positive-int $max_bytes Tail window (callers clamp to >= 1024).
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 * @return list<array{id: int, size: int}>
 	 */
-	private static function tail_file( string $path, int $max_bytes ): string {
-		$size = \filesize( $path );
-		if ( false === $size ) {
-			return "log unavailable: $path (cannot read)";
+	private static function source_segments( array $entry ): array {
+		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
+			return [];
 		}
-		// Read only the last window via the built-in's offset (kernel seek).
-		$start = $size > $max_bytes ? $size - $max_bytes : 0;
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents, WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Bounded diagnostic read of a fixed-registry log path, never a URL.
-		$data = \file_get_contents( $path, false, null, $start, $max_bytes );
-		if ( false === $data ) {
-			return "log unavailable: $path (cannot read)";
+		$segments = [];
+		foreach ( self::segment_files( $entry['path'] ) as $file ) {
+			$suffix = \substr( $file, \strlen( $entry['path'] ) + 1 );
+			if ( ! \ctype_digit( $suffix ) ) {
+				continue;
+			}
+			$size       = \filesize( $file );
+			$segments[] = [
+				'id'   => (int) $suffix,
+				'size' => false === $size ? 0 : $size,
+			];
 		}
-		// Dropped the partial first line (the window started mid-line).
-		if ( $start > 0 ) {
-			$nl   = \strpos( $data, "\n" );
-			$data = false === $nl ? '' : \substr( $data, $nl + 1 );
+		\usort( $segments, static fn ( array $a, array $b ): int => $a['id'] <=> $b['id'] );
+		return $segments;
+	}
+
+	/**
+	 * Whether a source currently has bytes to offer: file mode checks the file
+	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
+	 * may have pruned the early ones).
+	 */
+	public static function is_available( string $path, string $mode ): bool {
+		if ( Tail_Node::MODE_SEGMENTED === $mode ) {
+			return [] !== self::segment_files( $path );
 		}
-		return $data;
+		return \is_file( $path ) && \is_readable( $path );
+	}
+
+	/** @return array<int, string> The on-disk `{path}.{seg}` segment files. */
+	private static function segment_files( string $path ): array {
+		$segments = \glob( $path . '.[0-9]*' );
+		return \is_array( $segments ) ? $segments : [];
+	}
+
+	/**
+	 * The merged registry: built-ins → config → topologies, first name wins,
+	 * realpath-deduped (insertion order is priority).
+	 *
+	 * @return array<string, array{path: string, mode: string}>
+	 */
+	public static function registry(): array {
+		$entries = [];
+		foreach ( self::builtin_entries() as $name => $path ) {
+			$entries[ $name ] = [
+				'path' => $path,
+				'mode' => Tail_Node::MODE_FILE,
+			];
+		}
+		foreach ( self::config_entries() as $name => $path ) {
+			$entries[ $name ] ??= [
+				'path' => $path,
+				'mode' => Tail_Node::MODE_FILE,
+			];
+		}
+		foreach ( self::topology_entries() as $name => $entry ) {
+			$entries[ $name ] ??= $entry;
+		}
+		return self::dedupe_by_realpath( $entries );
+	}
+
+	/**
+	 * Collapse registry entries that resolve to the SAME real file — on this host
+	 * php `error_log` IS `wp-content/debug.log`, so `php` and `debug` would tail
+	 * identical content. Insertion order is priority: `php` precedes `debug` in the
+	 * resolver, so the ini-configured aggregation point is the survivor. A path that
+	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
+	 *
+	 * @param array<string, array{path: string, mode: string}> $registry Name → entry (insertion order = priority).
+	 * @return array<string, array{path: string, mode: string}>
+	 */
+	private static function dedupe_by_realpath( array $registry ): array {
+		$deduped = [];
+		$seen    = [];
+		foreach ( $registry as $name => $entry ) {
+			$real = \realpath( $entry['path'] );
+			if ( false !== $real && isset( $seen[ $real ] ) ) {
+				continue;
+			}
+			if ( false !== $real ) {
+				$seen[ $real ] = true;
+			}
+			$deduped[ $name ] = $entry;
+		}
+		return $deduped;
+	}
+
+	/**
+	 * Segmented sources inferred from every `Log` node in the active topologies,
+	 * one per partition where the path template carries a partition token. Named
+	 * by lowercased writes-basename (+ `.p{N}` when the template is per-partition
+	 * but the basename isn't). The graph scan is display-grade: a broken topology
+	 * degrades to skipping that topology, never a thrown stream.
+	 *
+	 * @return array<string, array{path: string, mode: string}>
+	 */
+	private static function topology_entries(): array {
+		$partitions_by_type = [];
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			$partitions_by_type[ Core::as_string( $worker['type'] ) ][] = Core::num_int( $worker['partition'] );
+		}
+		$entries = [];
+		foreach ( $partitions_by_type as $type => $partitions ) {
+			try {
+				$graph = Topology_Analyzer::graph_for( $type );
+				foreach ( $graph['nodes'] as $node ) {
+					if ( 'log' !== ( $node['kind'] ?? '' ) ) {
+						continue;
+					}
+					$template = Core::as_string( $node['path'] ?? '' );
+					$writes   = \strtolower( Core::as_string( $node['writes'] ?? '' ) );
+					if ( '' === $template || '' === $writes ) {
+						continue;
+					}
+					// An unresolvable <ns:key> throws → topology skipped.
+					Core::resolve_config_tokens( $template, true );
+					$per_partition = self::has_partition_token( $template );
+					foreach ( $partitions as $p ) {
+						$name = Core::resolve_partition_template( $writes, $p, $type );
+						if ( $per_partition && ! self::has_partition_token( $writes ) ) {
+							$name .= ".p{$p}";
+						}
+						if ( ! self::is_valid_name( $name ) ) {
+							continue;
+						}
+						$path = Core::resolve_partition_template( $template, $p, $type );
+						if ( '' === $path || '/' !== $path[0] ) {
+							continue;
+						}
+						$entries[ $name ] ??= [
+							'path' => $path,
+							'mode' => Tail_Node::MODE_SEGMENTED,
+						];
+					}
+				}
+			} catch ( Worker_Should_Stop $e ) {
+				throw $e; // ADR-14: cooperative stop is never a skippable error.
+			} catch ( \Throwable $e ) {
+				Core::print_less_often( 'log_sources: skipping topology ', $type . ': ' . $e->getMessage() );
+			}
+		}
+		return $entries;
+	}
+
+	/** Both the `<partition>` and `{partition}` spellings `resolve_partition_template` accepts. */
+	private static function has_partition_token( string $template ): bool {
+		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
+	}
+
+	/** @return array<string, string> Config `log_sources` name → path (invalid lines skipped). */
+	private static function config_entries(): array {
+		$entries = [];
+		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
+			$parsed = self::parse_entry( Core::as_string( $line ) );
+			if ( null !== $parsed ) {
+				$entries[ $parsed['name'] ] ??= $parsed['path'];
+			}
+		}
+		return $entries;
+	}
+
+	/**
+	 * Parse one config `log_sources` line (`name=/absolute/path`). The Admin
+	 * sanitizer and the registry share this ONE rule.
+	 *
+	 * @return array{name: string, path: string}|null Null when the line is invalid.
+	 */
+	public static function parse_entry( string $line ): ?array {
+		$eq = \strpos( $line, '=' );
+		if ( false === $eq ) {
+			return null;
+		}
+		$name = \substr( $line, 0, $eq );
+		$path = \substr( $line, $eq + 1 );
+		if ( ! self::is_valid_name( $name ) ) {
+			return null;
+		}
+		if ( '' === $path || '/' !== $path[0] || \str_contains( $path, '..' ) || \str_contains( $path, "\0" ) ) {
+			return null;
+		}
+		return [
+			'name' => $name,
+			'path' => \rtrim( $path, '/' ),
+		];
+	}
+
+	/**
+	 * Whether $name is a legal registry name: the SSE-subscription charset,
+	 * no `..`, and not the `sources` word `taillog` reserves for its struct verb.
+	 */
+	public static function is_valid_name( string $name ): bool {
+		if ( \in_array( $name, [ 'sources', 'read' ], true ) || \str_contains( $name, '..' ) ) {
+			return false;
+		}
+		return 1 === \preg_match( self::NAME_PATTERN, $name );
+	}
+
+	/** @return array<string, string> Builtin name → absolute path, via the seam. */
+	private static function builtin_entries(): array {
+		$resolve = self::$builtin_sources ?? static function (): array {
+			$sources = [];
+			$php     = \ini_get( 'error_log' );
+			// Only a real file — 'syslog' / relative / '' aren't tailable.
+			if ( \is_string( $php ) && '' !== $php && \is_file( $php ) ) {
+				$sources['php'] = $php;
+			}
+			// Constant may be undefined in tests — then debug is unavailable.
+			if ( \defined( 'WP_CONTENT_DIR' ) ) {
+				$sources['debug'] = \WP_CONTENT_DIR . '/debug.log';
+			}
+			return $sources;
+		};
+		return $resolve();
 	}
 }

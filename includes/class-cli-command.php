@@ -70,6 +70,48 @@ class CLI_Command {
 	}
 
 	/**
+	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
+	 */
+	private function run_repl( Shell_Node $shell, Dumper_Node $dumper, TTY_Out_Node $stdout ): void {
+		// readline only on a real TTY; pipes fall to fgets (EOF-terminating).
+		$stdin        = ( self::$stdin ?? static fn () => \STDIN )();
+		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
+		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
+
+		// Skip prompts when stdin is piped; they break `... | grep` consumers.
+		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, $stdin, $is_tty );
+
+		// Sink needed: Timer_Node::fire_cb() skips fire()/stdin-drain if none.
+		$reader->sink( $shell );
+
+		// Completion replies (KEY='completion') feed the cache, not printed.
+		if ( $has_readline ) {
+			$dumper->set_completion_sink(
+				fn ( array $message ): bool => $reader->ingest_completion_reply( $message )
+			);
+			// Seed cache once intercept is wired, so first Tab has candidates.
+			$reader->send_completion_queries();
+		}
+
+		// On worker's TM_EOF echo, flip exit so scripts don't orphan replies.
+		$dumper->on_eof( static function () use ( $reader ): void {
+			$reader->exit = true;
+		} );
+
+		// Schedule the first fire; subsequent fires self-schedule.
+		$reader->set_timer( 0, true );
+		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
+
+		if ( $has_readline ) {
+			\readline_callback_handler_remove();
+		}
+		// Trailing newline on a TTY; skipped when piped (breaks consumers).
+		if ( $is_tty ) {
+			\WP_CLI::log( '' );
+		}
+	}
+
+	/**
 	 * Build the REPL graph + log the mode line, returning [$shell, $dumper, $stdout] for run_repl.
 	 *
 	 * @param array<int, string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
@@ -109,10 +151,6 @@ class CLI_Command {
 		}
 
 		return [ $shell, $dumper, $stdout ];
-	}
-
-	private function base_dir(): string {
-		return Config::get_base_directory();
 	}
 
 	/**
@@ -190,46 +228,8 @@ class CLI_Command {
 		return [ $shell, $dumper, $stdout ];
 	}
 
-	/**
-	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
-	 */
-	private function run_repl( Shell_Node $shell, Dumper_Node $dumper, TTY_Out_Node $stdout ): void {
-		// readline only on a real TTY; pipes fall to fgets (EOF-terminating).
-		$stdin        = ( self::$stdin ?? static fn () => \STDIN )();
-		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
-		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
-
-		// Skip prompts when stdin is piped; they break `... | grep` consumers.
-		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, $stdin, $is_tty );
-
-		// Sink needed: Timer_Node::fire_cb() skips fire()/stdin-drain if none.
-		$reader->sink( $shell );
-
-		// Completion replies (KEY='completion') feed the cache, not printed.
-		if ( $has_readline ) {
-			$dumper->set_completion_sink(
-				fn ( array $message ): bool => $reader->ingest_completion_reply( $message )
-			);
-			// Seed cache once intercept is wired, so first Tab has candidates.
-			$reader->send_completion_queries();
-		}
-
-		// On worker's TM_EOF echo, flip exit so scripts don't orphan replies.
-		$dumper->on_eof( static function () use ( $reader ): void {
-			$reader->exit = true;
-		} );
-
-		// Schedule the first fire; subsequent fires self-schedule.
-		$reader->set_timer( 0, true );
-		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
-
-		if ( $has_readline ) {
-			\readline_callback_handler_remove();
-		}
-		// Trailing newline on a TTY; skipped when piped (breaks consumers).
-		if ( $is_tty ) {
-			\WP_CLI::log( '' );
-		}
+	private function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 }

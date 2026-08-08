@@ -64,6 +64,18 @@ class Schema {
 	}
 
 	/**
+	 * Prefixed names of the blank-deletable subset (a blank save deletes the row
+	 * so the file default resurfaces).
+	 *
+	 * @return array<int,string>
+	 */
+	public function delete_on_blank_options(): array {
+		return $this->prefixed(
+			static fn ( Field $f ): bool => $f->is_setting() && $f->delete_on_blank
+		);
+	}
+
+	/**
 	 * @param callable(Field):bool $predicate
 	 * @return array<int,string>
 	 */
@@ -75,18 +87,6 @@ class Schema {
 			}
 		}
 		return $out;
-	}
-
-	/**
-	 * Prefixed names of the blank-deletable subset (a blank save deletes the row
-	 * so the file default resurfaces).
-	 *
-	 * @return array<int,string>
-	 */
-	public function delete_on_blank_options(): array {
-		return $this->prefixed(
-			static fn ( Field $f ): bool => $f->is_setting() && $f->delete_on_blank
-		);
 	}
 
 	/**

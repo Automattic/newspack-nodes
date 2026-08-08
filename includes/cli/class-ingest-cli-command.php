@@ -180,80 +180,6 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Resolve the <topic> argument to [dir_template, num_partitions].
-	 *
-	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
-	 * resolve config tokens, default count to 1. Shortname form: expand to
-	 * <config:logs_dir>/<name>.p{partition} with the count from --num_partitions, or
-	 * the global config num_partitions when not given.
-	 *
-	 * @return array{0:string,1:int}
-	 */
-	private function resolve_destination( string $topic_arg, ?int $requested ): array {
-		$has_token = \str_contains( $topic_arg, '{partition}' ) || \str_contains( $topic_arg, '<partition>' );
-
-		if ( $has_token ) {
-			$tpl = \str_replace( '<partition>', '{partition}', Core::resolve_config_tokens( $topic_arg ) );
-			return [ $tpl, \max( 1, $requested ?? 1 ) ];
-		}
-
-		$count = \max( 1, $requested ?? self::config_num_partitions() );
-		$logs  = Core::resolve_config_tokens( '<config:logs_dir>' );
-		return [ "{$logs}/{$topic_arg}.p{partition}", $count ];
-	}
-
-	/** Global config num_partitions (the operator default), clamped to >= 1. */
-	private static function config_num_partitions(): int {
-		$raw = Config::value( 'num_partitions' );
-		return \max( 1, Core::as_int( $raw, 1 ) );
-	}
-
-	/**
-	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
-	 *
-	 * @param array<string, mixed> $assoc_args
-	 */
-	private function int_flag( array $assoc_args, string $key, int $default ): int {
-		$raw = $assoc_args[ $key ] ?? null;
-		if ( null === $raw ) {
-			return $default;
-		}
-		if ( ! \is_numeric( $raw ) ) {
-			\WP_CLI::error( "--{$key} must be an integer." );
-		}
-		// is_scalar narrows the cast; is_numeric already rejected non-nums.
-		return Core::as_int( $raw );
-	}
-
-	/**
-	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
-	 *
-	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
-	 */
-	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
-		$line = \rtrim( $line, "\n" );
-		if ( '' === $line ) {
-			return;
-		}
-		try {
-			$message = Message::unpacked( $line );
-		} catch ( \InvalidArgumentException $e ) {
-			++$stats['unparseable'];
-			return;
-		}
-		$size              = \strlen( Message::packed( $message ) ) + 1;
-		$stats['max_size'] = \max( $stats['max_size'], $size );
-		if ( $size > $cap ) {
-			++$stats['oversize'];
-			return;
-		}
-		if ( null !== $topic ) {
-			$topic->fill( $message );
-		}
-		++$stats['ingested'];
-	}
-
-	/**
 	 * Emit the run summary: a dry run advises on large-write flags; a real run
 	 * reports what landed and what was skipped.
 	 *
@@ -297,5 +223,79 @@ class Ingest_CLI_Command {
 			\WP_CLI::warning( "Skipped {$stats['oversize']} oversize record(s) (> {$cap} bytes); {$advice}" );
 		}
 		\WP_CLI::success( "Ingested {$stats['ingested']} record(s)." );
+	}
+
+	/**
+	 * Unpack, size-check, and (unless dry-run) fill one packed line into the destination topic.
+	 *
+	 * @param array{ingested:int,unparseable:int,oversize:int,max_size:int} $stats Accumulated per-record counts, updated in place.
+	 */
+	private function ingest_record( string $line, ?Topic_Node $topic, int $cap, array &$stats ): void {
+		$line = \rtrim( $line, "\n" );
+		if ( '' === $line ) {
+			return;
+		}
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			++$stats['unparseable'];
+			return;
+		}
+		$size              = \strlen( Message::packed( $message ) ) + 1;
+		$stats['max_size'] = \max( $stats['max_size'], $size );
+		if ( $size > $cap ) {
+			++$stats['oversize'];
+			return;
+		}
+		if ( null !== $topic ) {
+			$topic->fill( $message );
+		}
+		++$stats['ingested'];
+	}
+
+	/**
+	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
+	 *
+	 * @param array<string, mixed> $assoc_args
+	 */
+	private function int_flag( array $assoc_args, string $key, int $default ): int {
+		$raw = $assoc_args[ $key ] ?? null;
+		if ( null === $raw ) {
+			return $default;
+		}
+		if ( ! \is_numeric( $raw ) ) {
+			\WP_CLI::error( "--{$key} must be an integer." );
+		}
+		// is_scalar narrows the cast; is_numeric already rejected non-nums.
+		return Core::as_int( $raw );
+	}
+
+	/**
+	 * Resolve the <topic> argument to [dir_template, num_partitions].
+	 *
+	 * Explicit form (carries a {partition}/<partition> token): trust the operator —
+	 * resolve config tokens, default count to 1. Shortname form: expand to
+	 * <config:logs_dir>/<name>.p{partition} with the count from --num_partitions, or
+	 * the global config num_partitions when not given.
+	 *
+	 * @return array{0:string,1:int}
+	 */
+	private function resolve_destination( string $topic_arg, ?int $requested ): array {
+		$has_token = \str_contains( $topic_arg, '{partition}' ) || \str_contains( $topic_arg, '<partition>' );
+
+		if ( $has_token ) {
+			$tpl = \str_replace( '<partition>', '{partition}', Core::resolve_config_tokens( $topic_arg ) );
+			return [ $tpl, \max( 1, $requested ?? 1 ) ];
+		}
+
+		$count = \max( 1, $requested ?? self::config_num_partitions() );
+		$logs  = Core::resolve_config_tokens( '<config:logs_dir>' );
+		return [ "{$logs}/{$topic_arg}.p{partition}", $count ];
+	}
+
+	/** Global config num_partitions (the operator default), clamped to >= 1. */
+	private static function config_num_partitions(): int {
+		$raw = Config::value( 'num_partitions' );
+		return \max( 1, Core::as_int( $raw, 1 ) );
 	}
 }
