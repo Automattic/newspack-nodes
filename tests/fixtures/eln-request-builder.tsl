@@ -1,6 +1,6 @@
 # Request_Builder topology
 #
-#   Tail (firehose.log) → Request_Builder ─→ Partition (requests:partition)
+#   Tail (firehose.p0) → Request_Builder ─→ Partition (requests:partition)
 #                                         ├→ Partition (alerts:partition, fleet alerts)
 #                                         ├→ Partition (errors:partition)
 #                                         ├→ Partition (gyroscope:partition, requests that are still running)

@@ -6,13 +6,13 @@ const section = {
 	tree: [
 		{
 			kind: 'log',
-			name: 'firehose.log',
-			key: 'log:firehose.log',
+			name: 'firehose',
+			key: 'log:firehose',
 			hasCursor: true,
 			partitions: [
 				{
 					partition: 0,
-					name: 'firehose.log.p0',
+					name: 'firehose.p0',
 					segments: [],
 					cursor_segment: 0,
 					cursor_offset: 0,
@@ -62,5 +62,5 @@ it( 'renders no header — the manager card heading is the sole head', () => {
 it( 'renders the section tree', () => {
 	const { container } = render( <TopologySection { ...props } /> );
 	expect( container.querySelector( '.tree-branch' ) ).not.toBeNull();
-	expect( container.textContent ).toMatch( /firehose\.log/ );
+	expect( container.textContent ).toMatch( /firehose/ );
 } );

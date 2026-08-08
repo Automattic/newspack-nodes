@@ -55,7 +55,7 @@ it( 'collapses a consumer to its reads log and a partition to its writes log (by
 		{
 			t: {
 				nodes: [
-					gn( 'alpha', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'alpha', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'request-builder', 'logic' ),
 					gn( 'beta', 'partition', { writes: 'requests.log' } ),
 				],
@@ -69,7 +69,7 @@ it( 'collapses a consumer to its reads log and a partition to its writes log (by
 		[]
 	);
 	// Neither consumer 'alpha' nor partition 'beta' appears; their logs do.
-	expect( names( section.tree ) ).toEqual( [ 'firehose.log' ] );
+	expect( names( section.tree ) ).toEqual( [ 'firehose.p0' ] );
 	const rb = section.tree[ 0 ].children.find(
 		( e ) => e.name === 'request-builder'
 	);
@@ -82,7 +82,7 @@ it( 'contracts tees, including a tee feeding a tee', () => {
 		{
 			t: {
 				nodes: [
-					gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'in', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'tee1', 'tee' ),
 					gn( 'tee2', 'tee' ),
 					gn( 'left', 'logic' ),
@@ -99,7 +99,7 @@ it( 'contracts tees, including a tee feeding a tee', () => {
 		[],
 		[]
 	);
-	const firehose = section.tree.find( ( e ) => e.name === 'firehose.log' );
+	const firehose = section.tree.find( ( e ) => e.name === 'firehose.p0' );
 	expect( names( firehose.children ) ).toEqual( [ 'left', 'right' ] );
 } );
 
@@ -110,7 +110,7 @@ it( 'roots = in-degree-0 vertices, alpha-sorted', () => {
 				nodes: [
 					gn( 'cache_cozy_tick', 'logic' ),
 					gn( 'jobsout', 'partition', { writes: 'jobs.log' } ),
-					gn( 'fh', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'fh', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'job-router', 'logic' ),
 				],
 				edges: [
@@ -125,7 +125,7 @@ it( 'roots = in-degree-0 vertices, alpha-sorted', () => {
 	);
 	expect( names( section.tree ) ).toEqual( [
 		'cache_cozy_tick',
-		'firehose.log',
+		'firehose.p0',
 	] );
 } );
 
@@ -134,7 +134,7 @@ it( 'orders siblings alpha and repeats a multi-writer log under each writer', ()
 		{
 			combined: {
 				nodes: [
-					gn( 'fh', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'fh', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'job-router', 'logic' ),
 					gn( 'cache_cozy_tick', 'logic' ),
 					gn( 'jobsout', 'partition', { writes: 'jobs.log' } ),
@@ -152,7 +152,7 @@ it( 'orders siblings alpha and repeats a multi-writer log under each writer', ()
 	const cacheTick = section.tree.find(
 		( e ) => e.name === 'cache_cozy_tick'
 	);
-	const firehose = section.tree.find( ( e ) => e.name === 'firehose.log' );
+	const firehose = section.tree.find( ( e ) => e.name === 'firehose.p0' );
 	const jobRouter = firehose.children.find(
 		( e ) => e.name === 'job-router'
 	);
@@ -959,7 +959,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 	const READER_GRAPH = {
 		t: {
 			nodes: [
-				gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+				gn( 'in', 'consumer', { reads: 'firehose.p0' } ),
 				gn( 'proc', 'logic' ),
 			],
 			edges: [ [ 'in', 'proc' ] ],
@@ -967,7 +967,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 	};
 	const CATALOG = [
 		{
-			name: 'firehose.log',
+			name: 'firehose.p0',
 			partitions: [
 				{
 					partition: 0,
@@ -983,11 +983,11 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 			w( {
 				type: 't',
 				handler: 'proc',
-				source: 'firehose.log',
-				inputs: [ 'firehose.log' ],
+				source: 'firehose.p0',
+				inputs: [ 'firehose.p0' ],
 				inputs_status: [
 					{
-						name: 'firehose.log',
+						name: 'firehose.p0',
 						partition: 0,
 						segments: [ { id: 0, size: 100 } ],
 						total_size: 100,
@@ -1005,7 +1005,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 			CATALOG
 		);
 		const firehose = section.tree.find(
-			( e ) => 'log' === e.kind && 'firehose.log' === e.name
+			( e ) => 'log' === e.kind && 'firehose.p0' === e.name
 		);
 		const part = firehose.partitions[ 0 ];
 		expect( part.cursor_segment ).toBe( 0 );
@@ -1015,12 +1015,12 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 	} );
 
 	it( 'a topology with NO consumer of the log gets a slot with segments but no cursor/end', () => {
-		// agg WRITES firehose.log but never reads it: all-gray bar.
+		// agg WRITES firehose.p0 but never reads it: all-gray bar.
 		const NO_CONSUMER_GRAPH = {
 			agg: {
 				nodes: [
 					gn( 'src', 'logic' ),
-					gn( 'fh', 'partition', { writes: 'firehose.log' } ),
+					gn( 'fh', 'partition', { writes: 'firehose.p0' } ),
 				],
 				edges: [ [ 'src', 'fh' ] ],
 			},
@@ -1030,7 +1030,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 				type: 'agg',
 				handler: 'src',
 				source: '',
-				outputs: [ 'firehose.log' ],
+				outputs: [ 'firehose.p0' ],
 				outputs_status: [],
 			} ),
 		];
@@ -1041,7 +1041,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		);
 		const firehose = findEntity(
 			section.tree,
-			( e ) => 'log' === e.kind && 'firehose.log' === e.name
+			( e ) => 'log' === e.kind && 'firehose.p0' === e.name
 		);
 		const part = firehose.partitions[ 0 ];
 		expect( part.segments.map( ( s ) => s.id ) ).toEqual( [ 0 ] );
@@ -1054,14 +1054,14 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		const TWO_READERS_GRAPH = {
 			rb: {
 				nodes: [
-					gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'in', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'request-builder', 'logic' ),
 				],
 				edges: [ [ 'in', 'request-builder' ] ],
 			},
 			jr: {
 				nodes: [
-					gn( 'in', 'consumer', { reads: 'firehose.log' } ),
+					gn( 'in', 'consumer', { reads: 'firehose.p0' } ),
 					gn( 'job-router', 'logic' ),
 				],
 				edges: [ [ 'in', 'job-router' ] ],
@@ -1071,11 +1071,11 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 			w( {
 				type,
 				handler,
-				source: 'firehose.log',
-				inputs: [ 'firehose.log' ],
+				source: 'firehose.p0',
+				inputs: [ 'firehose.p0' ],
 				inputs_status: [
 					{
-						name: 'firehose.log',
+						name: 'firehose.p0',
 						partition: 0,
 						segments: [ { id: 0, size: 100 } ],
 						total_size: 100,
@@ -1097,7 +1097,7 @@ describe( 'collectLogPartitions — per-topology cursor + recorded end merge', (
 		const slotIn = ( topo ) => {
 			const section = sections.find( ( s ) => s.topology === topo );
 			const firehose = section.tree.find(
-				( e ) => 'log' === e.kind && 'firehose.log' === e.name
+				( e ) => 'log' === e.kind && 'firehose.p0' === e.name
 			);
 			return firehose.partitions[ 0 ];
 		};

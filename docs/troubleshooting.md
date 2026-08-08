@@ -105,8 +105,8 @@ Substrate-side layout under `{base_directory}/`:
 
 Application-side log dirs (created by whatever Partition/Log a topology constructs), e.g. from the event-logger application:
 
-- `logs/firehose.log/p{N}/{seg}.log` — packed Message envelopes
-- `logs/jobintake.log/p{N}/{seg}.log` — large jobs that bypass the firehose
+- `logs/firehose.p{N}/{seg}.log` — packed Message envelopes
+- `logs/jobintake.p{N}/{seg}.log` — large jobs that bypass the firehose
 
 `base_directory` is `/tmp/newspack-nodes` by default; override via the substrate settings (`Newspack_Nodes\Config`).
 
@@ -132,5 +132,5 @@ The on-disk format is a 7-element positional JSON list per line: `[TYPE, TIMESTA
 
 ```bash
 # First entry of partition 0's segment 0 of the firehose.
-head -c 500 {base_dir}/logs/firehose.log/p0/0.log
+head -c 500 {base_dir}/logs/firehose.p0/0.log
 ```

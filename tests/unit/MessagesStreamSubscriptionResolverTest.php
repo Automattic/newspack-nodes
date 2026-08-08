@@ -239,7 +239,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 	public function test_ipc_subscription_falls_back_to_log_partition_when_no_worker(): void {
 		// Aggregator hub path: RemoteSource subscribes as `firehose.p0` to
-		// tail the spoke's firehose.log partition 0. There's NO worker
+		// tail the spoke's firehose.p0 partition 0. There's NO worker
 		// named `firehose.p0` on the spoke (workers live at e.g.
 		// `demo-workers.p0`), so the IPC-attach throws.
 		// Resolver must catch and fall through to the flat concrete partition dir.

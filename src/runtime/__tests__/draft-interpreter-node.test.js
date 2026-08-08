@@ -34,7 +34,7 @@ describe( 'graph verbs', () => {
 	it( 'stubs a class the browser cannot build, and keeps its name', () => {
 		const d = draft();
 
-		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'make_node Partition firehose firehose.p0' );
 
 		const node = d.childRegistry.node( 'firehose' );
 		expect( node ).toBeInstanceOf( StubNode );
@@ -92,7 +92,7 @@ describe( 'command_node — one statement, two readings', () => {
 		// `cmd` and `command` are not separate verbs: parseStatements rewrites
 		// both to `command_node`, so there is one handler and one grammar.
 		const d = draft();
-		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'make_node Partition firehose firehose.p0' );
 
 		d.run( 'cmd firehose void_warranty' );
 
@@ -127,13 +127,13 @@ describe( 'command_node — one statement, two readings', () => {
 
 	it( 'emits each back after its make_node, sidecar suffix preserved', () => {
 		const d = draft();
-		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'make_node Partition firehose firehose.p0' );
 		d.run( 'cmd firehose void_warranty' );
 		d.run( 'command_node firehose:config set_target fan' );
 
 		expect( d.dumpDocument() ).toBe(
 			[
-				'make_node Partition firehose firehose.log',
+				'make_node Partition firehose firehose.p0',
 				'command_node firehose void_warranty',
 				'command_node firehose:config set_target fan',
 				'',
@@ -143,7 +143,7 @@ describe( 'command_node — one statement, two readings', () => {
 
 	it( "drops a node's declarations when the node goes", () => {
 		const d = draft();
-		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'make_node Partition firehose firehose.p0' );
 		d.run( 'cmd firehose void_warranty' );
 
 		d.run( 'remove_node firehose' );
@@ -193,7 +193,7 @@ describe( 'the two verbs an editor needs and TSL only appends', () => {
 		// "forget the previous cmd lines" — so replacement is an EDITOR
 		// operation with no TSL spelling, and it is a method, not a verb.
 		const d = draft();
-		d.run( 'make_node Partition firehose firehose.log' );
+		d.run( 'make_node Partition firehose firehose.p0' );
 		d.run( 'cmd firehose void_warranty' );
 
 		d.replaceInvocations( 'firehose', [
@@ -206,7 +206,7 @@ describe( 'the two verbs an editor needs and TSL only appends', () => {
 
 		expect( d.dumpDocument() ).toBe(
 			[
-				'make_node Partition firehose firehose.log',
+				'make_node Partition firehose firehose.p0',
 				'command_node firehose:config set_stats_partition stats.p0',
 				'',
 			].join( '\n' )
@@ -219,7 +219,7 @@ describe( 'dumpDocument', () => {
 		const d = draft();
 		d.run( 'var num_partitions = 4' );
 		d.run( 'include topic-probe' );
-		d.run( 'make_node Topic firehose firehose.log' );
+		d.run( 'make_node Topic firehose firehose.p0' );
 		d.run( 'make_node Tee fan' );
 		d.run( 'connect_node firehose fan' );
 		d.run( 'secure 2' );
@@ -228,7 +228,7 @@ describe( 'dumpDocument', () => {
 			[
 				'var num_partitions = 4',
 				'include topic-probe',
-				'make_node Topic firehose firehose.log',
+				'make_node Topic firehose firehose.p0',
 				'make_node Tee fan',
 				'connect_node firehose fan',
 				'secure 2',
@@ -241,7 +241,7 @@ describe( 'dumpDocument', () => {
 		const d = draft();
 		d.run( 'var num_partitions = 4' );
 		d.run( 'include topic-probe' );
-		d.run( 'make_node Topic firehose firehose.log' );
+		d.run( 'make_node Topic firehose firehose.p0' );
 		d.run( 'make_node Consumer reader firehose' );
 		d.run( 'connect_node reader firehose' );
 		d.run( 'secure 2' );

@@ -95,8 +95,8 @@ describe( 'formatCommandArgs', () => {
 
 	it( 'joins an array value with commas', () => {
 		expect(
-			formatCommandArgs( [], { logs: [ 'firehose.log', 'jobs.log' ] } )
-		).toEqual( [ '--logs=firehose.log,jobs.log' ] );
+			formatCommandArgs( [], { logs: [ 'firehose.p0', 'jobs.log' ] } )
+		).toEqual( [ '--logs=firehose.p0,jobs.log' ] );
 	} );
 
 	it( 'keeps a spaced value in one token', () => {

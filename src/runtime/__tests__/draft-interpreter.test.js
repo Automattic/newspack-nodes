@@ -98,7 +98,7 @@ function evalTsl( interpreter, tsl ) {
 // Deliberately PHP-only classes plus one the browser really has (Tee), so a
 // pass cannot come from every class taking the same path.
 const TSL = [
-	'make_node Topic firehose firehose.log',
+	'make_node Topic firehose firehose.p0',
 	'make_node Consumer firehose-in firehose',
 	'make_node Tee firehose-fanout',
 	'make_node Flame_Builder flames',
@@ -129,7 +129,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 
 		expect( dumpAll( reloaded ) ).toBe( first );
 		// And it really did carry the server classes, not a Stub placeholder.
-		expect( first ).toContain( 'make_node Topic firehose firehose.log' );
+		expect( first ).toContain( 'make_node Topic firehose firehose.p0' );
 		expect( first ).toContain( 'make_node Flame_Builder flames' );
 		expect( first ).not.toContain( 'Stub' );
 	} );

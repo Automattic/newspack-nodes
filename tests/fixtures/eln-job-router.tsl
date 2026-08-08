@@ -1,6 +1,6 @@
 # Job_Router topology
 #
-#   Tail (firehose.log)  ────┐
+#   Tail (firehose.p0)  ────┐
 #                            ├──→ Job_Router ──→ Age_Sieve ──→ Partition (jobs:partition)
 #   Tail (jobintake.log) ────┘
 

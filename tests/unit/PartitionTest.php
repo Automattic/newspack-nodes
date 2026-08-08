@@ -773,7 +773,7 @@ class PartitionTest extends TestCase {
 
 	public function test_rotation_does_not_create_sibling_locks_dir(): void {
 		// base_dir nested under logs/ so dirname() is the logs root, matching production.
-		$base = "{$this->tmp}/logs/firehose.log";
+		$base = "{$this->tmp}/logs/firehose.p0";
 		\mkdir( $base, 0755, true );
 		$p = new Partition_Node();
 		$p->arguments( [ "{$base}.p0", "1024", "2", "4", "0", "86400", "0" ] );
@@ -975,7 +975,7 @@ class PartitionTest extends TestCase {
 		// Control messages (TM_REQUEST for introspection requests, TM_ERROR
 		// for failed verb responses, TM_EOF for stdin-close drain markers)
 		// must round-trip through these IPC partitions, so Partition::fill
-		// packs them like any other type. Data partitions like firehose.log
+		// packs them like any other type. Data partitions like firehose.p0
 		// don't see these types in practice — producers only emit
 		// TM_BYTESTREAM / TM_STRUCT — so allowing them through is a no-op
 		// for production paths and makes IPC work.
