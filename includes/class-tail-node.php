@@ -405,7 +405,7 @@ class Tail_Node extends Consumer_Node {
 	/** @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int} */
 	private function file_lag(): array {
 		$size         = $this->file_current_size();
-		$bytes_behind = \max( 0, $size - ( $this->cursor_offset + \strlen( $this->buffer ) ) );
+		$bytes_behind = \max( 0, $size - $this->cursor_offset );
 		return [
 			'bytes_behind'    => $bytes_behind,
 			'segments_behind' => 0,

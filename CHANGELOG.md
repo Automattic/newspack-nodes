@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.14.5] - 2026-08-08
+
+### Fixed
+
+- **A Consumer voted itself idle while still holding an undispatched line**, so
+  an on-demand worker stopped mid-job and killed the same job every generation.
+  `compute_lag()` discounted the WHOLE read-ahead buffer from `bytes_behind`,
+  but the cursor only advances in `drain_buffer()`'s `finally`, after `fill()`
+  returns — so for the entire downstream dispatch (a job handler, a request
+  assembly) the consumer reported `caught_up`, and `idle_since()` answered with
+  the source's mtime. With `on_demand_idle` at 30s, a job outlasting the window
+  took a `Worker_Should_Stop` from `Event_Framework::pump()`, which re-runs the
+  continue-predicate from inside a long job. The entry was not lost — the cursor
+  does not commit past a plain stop — so it replayed and was killed again next
+  generation: a job reliably running past the window could never finish.
+
+  Lag is now measured from the cursor, full stop — the discount is gone rather
+  than narrowed. Bytes in the buffer are read, not done. `Tail_Node::file_lag()`
+  carried the same subtraction and gets the same treatment, so a file-mode Tail
+  (which inherits `Idle_Reporter`) does not keep the old meaning. Fixing it at
+  the reader covers every node downstream, not just `Job_Worker_Node`, which
+  needs no idle reporting of its own.
+
+  **Behavior change:** `GET_LAG`, the `Behind` column and consumer-lag alerts now
+  count read-ahead bytes as behind, so a busy reader reports up to one
+  `READ_BLOCK_BYTES` (64 KB) more than before. Immaterial against the 64 MB
+  default threshold, but `alert_lag_threshold = 0` ("warn on any lag") now fires
+  for any reader with a poll in flight rather than only a genuinely stalled one.
+  `test_handle_request_GET_LAG_…` was re-pinned to the new contract.
+
 ## [2.14.4] - 2026-08-07
 
 ### Fixed

@@ -306,8 +306,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				++$segments_behind;
 			}
 		}
-		// Count buffered bytes as consumed so lag reflects bytes-to-emit.
-		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
 		// Partition END from SAME read as cursor; topologies tab trims here.
 		$last = \end( $segments );
 		return [
