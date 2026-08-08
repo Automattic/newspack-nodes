@@ -114,6 +114,34 @@ class ConsumerTest extends TestCase {
 		$this->assertNull( $c->idle_since(), 'unread bytes must never read as idle, however stale the mtime' );
 	}
 
+	/**
+	 * A line READ into the buffer but not yet dispatched is still owed work.
+	 *
+	 * Lag is measured from the cursor, which only advances in drain_buffer()'s
+	 * `finally`, after `fill()` returns. Discounting the buffer had the consumer
+	 * voting itself caught up — and so idle — for the whole downstream call, a
+	 * job handler or a request assembly, which stopped on-demand workers mid-job.
+	 */
+	public function test_idle_since_is_null_while_a_buffered_line_is_being_dispatched(): void {
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), '4', '86400' ] );
+		$this->produce_line( $source, 'in-flight' );
+		\touch( "{$this->tmp}/data.p0/0.log", \time() - 617 );
+
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+
+		// Ask mid-dispatch — exactly where pump() re-runs the predicate.
+		$during = 'unset';
+		$c->sink( new \Newspack_Nodes\Callback_Node( function () use ( $c, &$during ) {
+			$during = $c->idle_since();
+		} ) );
+		$this->pump_consumer( $c );
+
+		$this->assertNull( $during, 'a consumer holding an undispatched line is not idle' );
+		$this->assertNotNull( $c->idle_since(), 'and is idle again once the line is drained' );
+	}
+
 	public function test_arguments_builds_deadletter_sibling_when_dir_given(): void {
 		// A third positional arg names the quarantine dir for poison messages
 		// (dead-letter [42]); the Consumer auto-builds a `:deadletter` sibling
@@ -3084,11 +3112,12 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $data['bytes_behind'] );
 	}
 
-	public function test_handle_request_GET_LAG_subtracts_buffer_from_bytes_behind(): void {
-		// Buffered bytes have been READ but not yet emitted — they must subtract
-		// from bytes_behind so the report reflects bytes-still-to-fetch, not
-		// bytes-still-to-emit. (Without the subtraction, the read-ahead buffer
-		// would double-count.)
+	public function test_handle_request_GET_LAG_measures_bytes_behind_from_the_cursor(): void {
+		// Lag is measured from the CURSOR: bytes that have been read into the
+		// buffer are not yet emitted, and the cursor only advances in
+		// drain_buffer()'s finally, after fill() returns. Discounting the buffer
+		// reported a consumer as caught up (and so idle) for the whole of a long
+		// downstream dispatch, which stopped on-demand workers mid-job.
 		$source = new Partition_Node();
 		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
 		$this->produce_line( $source, 'hello' );
@@ -3096,7 +3125,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
 
-		// Pretend we already have 3 bytes buffered (already read).
+		// Read-ahead bytes, not yet emitted — still owed, so still behind.
 		$ref = new \ReflectionClass( $c );
 		$rem = $ref->getProperty( 'buffer' );
 		$rem->setValue( $c, 'xyz' ); // 3 bytes
@@ -3113,8 +3142,7 @@ class ConsumerTest extends TestCase {
 		$data           = $cap->captured[0][ Message::VALUE ]['data'];
 		$segments       = $source->get_segments( true );
 		$total_bytes    = (int) $segments[0]['size'];
-		// line_remainder len = 3, so bytes_behind = total - 3.
-		$this->assertSame( $total_bytes - 3, $data['bytes_behind'] );
+		$this->assertSame( $total_bytes, $data['bytes_behind'], 'buffered bytes are read, not done' );
 	}
 
 	public function test_handle_request_unknown_verb_returns_error_payload(): void {

@@ -115,6 +115,136 @@ class OnDemandExitTest extends TestCase {
 		$this->assertTrue( $w->should_continue() );
 	}
 
+	// --- A running job holds the worker open ---------------------------------
+
+	/**
+	 * A jobs.p0 → Consumer → Job_Worker graph whose log stopped growing before
+	 * the window opened — the shape that let the consumer vote itself idle while
+	 * it was still holding the line.
+	 *
+	 * @param callable $handler The `slow` job handler under test.
+	 * @param bool     $seed    False writes an empty log (a worker handed nothing).
+	 */
+	private function job_graph( callable $handler, bool $seed = true ): \Newspack_Nodes\Consumer_Node {
+		$dir = "{$this->tmp}/jobs.p0";
+		\mkdir( $dir, 0755, true );
+		$body = '';
+		if ( $seed ) {
+			$entry                                   = \Newspack_Nodes\Message::new_message();
+			$entry[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_STRUCT;
+			$entry[ \Newspack_Nodes\Message::VALUE ] = [ 'k' => 'job', 'handler' => 'slow', 'parameters' => [] ];
+			$body                                    = \Newspack_Nodes\Message::packed( $entry ) . "\n";
+		}
+		\file_put_contents( "{$dir}/0.log", $body );
+		\touch( "{$dir}/0.log", \time() - ( self::IDLE_SECONDS + 1 ) );
+
+		$jw = new \Newspack_Nodes\Job_Worker_Node();
+		$jw->name( 'job-worker' );
+		\add_filter( 'newspack_nodes/job_handlers', static fn ( $h ) => \array_merge( (array) $h, [ 'slow' => $handler ] ) );
+		$jw->load_handlers_from_filters();
+
+		$consumer = new \Newspack_Nodes\Consumer_Node();
+		$consumer->name( 'jobs:consumer' );
+		$consumer->arguments( [ $dir, "{$this->tmp}/offsets.p0", "{$this->tmp}/deadletter.p0" ] );
+		$consumer->sink( $jw );
+		return $consumer;
+	}
+
+	/**
+	 * Drain the graph. Exactly one `worker()` per test: the lock is per-dir, so
+	 * a second acquire fails and `should_continue()` then answers false for the
+	 * wrong reason — and the idle scan is throttled to once a second, so asking
+	 * the SAME worker twice answers true for the wrong reason.
+	 */
+	private function drain( \Newspack_Nodes\Consumer_Node $consumer ): void {
+		$consumer->poll();
+		$consumer->poll();
+	}
+
+	/** should_continue() sampled from INSIDE the handler, where pump() runs it. */
+	private function continued_mid_job( \Newspack_Nodes\Consumer_Node $consumer ): ?bool {
+		$during = null;
+		\add_action( 'newspack_nodes/job_worker/before_job', function () use ( &$during ) {
+			$during = $this->worker()->should_continue();
+		} );
+		$this->drain( $consumer );
+		return $during;
+	}
+
+	/**
+	 * The jobs Consumer is what speaks for a running job — `Job_Worker_Node` is
+	 * a plain Node and reports nothing of its own. That works because the
+	 * consumer holds the line for the whole dispatch, which is the whole job.
+	 */
+	public function test_the_consumer_is_the_reporter_a_job_worker_has_none(): void {
+		$consumer = $this->job_graph( static fn () => null );
+
+		$this->assertNotInstanceOf( Idle_Reporter::class, Core::node( 'job-worker' ) );
+		$this->assertInstanceOf( Idle_Reporter::class, $consumer );
+	}
+
+	/**
+	 * The reported bug. The consumer's lag discounted the buffered line as
+	 * consumed while the cursor only advances in drain_buffer()'s finally, so a
+	 * job outlasting the window took a `Worker_Should_Stop` from `pump()`
+	 * mid-work, replayed, and was killed again every generation.
+	 */
+	public function test_a_running_job_holds_the_worker_open(): void {
+		$during = $this->continued_mid_job( $this->job_graph( static fn () => null ) );
+
+		$this->assertTrue( $during, 'a job in flight must veto the idle exit' );
+	}
+
+	public function test_the_worker_may_exit_once_the_handler_returns(): void {
+		$this->drain( $this->job_graph( static fn () => null ) );
+
+		$this->assertFalse( $this->worker()->should_continue(), 'a finished job releases the hold' );
+	}
+
+	/** The hold must stand for a doomed job too, or its poison never lands. */
+	public function test_a_job_that_will_throw_still_holds_the_worker_open(): void {
+		$during = $this->continued_mid_job( $this->job_graph( static function () {
+			throw new \RuntimeException( 'nope' );
+		} ) );
+
+		$this->assertTrue( $during );
+	}
+
+	/** A poison job is quarantined and the cursor moves on — no wedged hold. */
+	public function test_the_worker_may_exit_after_a_handler_throws(): void {
+		$this->drain( $this->job_graph( static function () {
+			throw new \RuntimeException( 'nope' );
+		} ) );
+
+		$this->assertFalse( $this->worker()->should_continue(), 'the hold lifts once it is dead-lettered' );
+	}
+
+	/**
+	 * A cooperative stop leaves the line UNCOMMITTED so it replays — so a
+	 * successor must not read it as idle either, or the replay is skipped.
+	 */
+	public function test_a_cooperative_stop_leaves_the_job_still_owed(): void {
+		$consumer = $this->job_graph( static function () {
+			throw new \Newspack_Nodes\Worker_Should_Stop();
+		} );
+
+		try {
+			$this->drain( $consumer );
+			$this->fail( 'expected the cooperative stop to propagate' );
+		} catch ( \Newspack_Nodes\Worker_Should_Stop $e ) {
+			unset( $e );
+		}
+
+		$this->assertTrue( $this->worker()->should_continue(), 'an uncommitted line is still work owed' );
+	}
+
+	/** A worker handed nothing is idle, not busy — on-demand exit still works. */
+	public function test_a_worker_that_has_run_nothing_is_idle(): void {
+		$this->job_graph( static fn () => null, seed: false );
+
+		$this->assertFalse( $this->worker()->should_continue() );
+	}
+
 	/** The window runs from the LATEST reporter, not the earliest. */
 	public function test_the_most_recently_busy_reporter_sets_the_window(): void {
 		$this->quiet_for( 'quokka-stale', self::IDLE_SECONDS * 10 );
