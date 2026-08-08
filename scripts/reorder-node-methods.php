@@ -578,7 +578,8 @@ $failed = false;
 // every staged *.php, so tests reach it unless excluded here.
 function is_test_path( string $f ): bool {
 	$norm = str_replace( '\\', '/', $f );
-	return str_contains( $norm, '/tests/' ) || str_starts_with( $norm, 'tests/' );
+	return str_contains( $norm, '/tests/' ) || str_contains( $norm, '/__tests__/' )
+		|| str_starts_with( $norm, 'tests/' );
 }
 
 foreach ( $files as $f ) {
