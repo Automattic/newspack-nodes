@@ -85,8 +85,8 @@ class CommandArgsTest extends TestCase {
 
 	public function test_format_joins_array_value_with_commas(): void {
 		$this->assertSame(
-			[ '--logs=firehose.log,jobs.log' ],
-			Command_Args::format( [], [ 'logs' => [ 'firehose.log', 'jobs.log' ] ] )
+			[ '--logs=firehose.p0,jobs.log' ],
+			Command_Args::format( [], [ 'logs' => [ 'firehose.p0', 'jobs.log' ] ] )
 		);
 	}
 

@@ -39,7 +39,7 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_kinds_from_class_logs_from_args_edges_from_connect_and_targets(): void {
 		$this->write_tsl(
 			'combined',
-			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.log <partition> <config:offsets_dir>/firehose.p<partition>\n"
+			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p0 <partition> <config:offsets_dir>/firehose.p<partition>\n"
 			. "make_node Request_Builder request-builder\n"
 			. "make_node Partition requests:partition <config:logs_dir>/requests.log <partition> 1 2 0\n"
 			. "make_node Partition errors:partition <config:logs_dir>/errors.log <partition> 1 2 0\n"
@@ -58,7 +58,7 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'logic', $byName['request-builder']['kind'] );
 		$this->assertSame( 'partition', $byName['requests:partition']['kind'] );
 		$this->assertSame( 'tee', $byName['completed:tee']['kind'] );
-		$this->assertSame( 'firehose.log', $byName['firehose:consumer']['reads'] );
+		$this->assertSame( 'firehose.p0', $byName['firehose:consumer']['reads'] );
 		$this->assertSame( 'requests.log', $byName['requests:partition']['writes'] );
 		$this->assertContains( [ 'firehose:consumer', 'request-builder' ], $g['edges'] );
 		$this->assertContains( [ 'request-builder', 'requests:partition' ], $g['edges'] );

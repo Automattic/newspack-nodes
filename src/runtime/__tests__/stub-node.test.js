@@ -24,10 +24,10 @@ describe( 'StubNode', () => {
 		const node = new StubNode();
 		node.shellName = 'Partition';
 		node.name = 'firehose';
-		node.arguments = [ 'firehose.log', '10485760' ];
+		node.arguments = [ 'firehose.p0', '10485760' ];
 
 		expect( node.dumpConfig() ).toBe(
-			'make_node Partition firehose firehose.log 10485760\n'
+			'make_node Partition firehose firehose.p0 10485760\n'
 		);
 	} );
 

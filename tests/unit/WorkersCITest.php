@@ -222,7 +222,7 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/demo-workers.tsl",
-			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.log\n"
+			"make_node Consumer firehose:consumer <config:logs_dir>/firehose.p0\n"
 			. "make_node Callback request-builder\n"
 			. "connect_node firehose:consumer request-builder\n"
 		);
