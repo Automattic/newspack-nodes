@@ -235,7 +235,8 @@ class Event_Framework {
 			return;
 		}
 		$this->last_pump = $now;
-		if ( ! ( $this->continue_predicate )() ) {
+		// mid_work: the idle question is meaningless with a job in flight.
+		if ( ! ( $this->continue_predicate )( true ) ) {
 			throw new Worker_Should_Stop();
 		}
 	}

@@ -9,6 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A job that wrote nothing stopped its own heartbeat and had its lock stolen
+  out from under it.** The heartbeat advances only inside `should_continue()`,
+  which a long job reaches only through `Event_Framework::pump()` — and pump()
+  has exactly one caller, the Partition write path. A job whose work yields no
+  writes (one long query, a `proc_open`) therefore went quiet for longer than
+  `stale_timeout` while running perfectly well; `try_steal_orphan_or_stale()`
+  judges on heartbeat age alone, so a peer took the lock, the holder found out
+  at its next pump and died mid-job, and the replayed job met the same end on
+  every successor. Observed on staging as a ~137s loop of `lock stolen by pid
+  N` / `stopped mid-job (pump)` at worker ages of 205–219s, against a
+  `stale_timeout` of 60s and a `max_runtime` of 595s.
+
+  `Worker_Base` now arms a SIGALRM that beats the lock regardless of what the
+  job is doing. The handler does the minimum — touch, re-arm, return; it never
+  calls `should_continue()`, because that scans the disk and can raise
+  `Worker_Should_Stop`, and unwinding from a signal at an arbitrary instruction
+  is not something the drain path survives.
+
+  `should_continue()` keeps its own beat as a quiet fallback, gated so an armed
+  alarm owns the beat alone; both go through one `beat()`. pcntl is CLI-only on
+  some builds and workers run in the web SAPI, so the alarm cannot be the sole
+  source — dndocker's pyrobase image now builds `pcntl.so` from the
+  distribution source so the local containers match.
+
+  The gyrobase engine's `check_lease()` no longer `utime`s the heartbeat: the
+  file's content is the parent's ownership token, so the child only watches it
+  and quits its render when the lease is stolen, vanishes, or a restart is
+  requested.
+
+  Note this does not help a blocking call that never returns control to the PHP
+  VM; an extension that retries an interrupted syscall internally (mysqlnd on a
+  long query) can still starve the alarm.
+
+- **`should_continue()` no longer asks the idle question from inside a job.**
+  `Event_Framework::pump()` re-runs the continue-predicate mid-work so a long
+  job still heartbeats and still honors the real stops — lock lost, restart,
+  `max_runtime`, memory watermark. The idle branch had no business running
+  there: work is in flight by construction, so "has everything been quiet for
+  the whole window?" can only answer wrongly, and it is the expensive question
+  (`Consumer_Node::idle_since()` lists segments and stats the newest, which is
+  why it carries its own throttle). Idleness is a between-messages question and
+  the drain loop asks it. `should_continue( bool $mid_work = false )`; `pump()`
+  passes true.
+
 - **A verb that ACTS could be saved as configuration.** The topology editor
   renders every non-hidden `commands` entry as a checkbox, and ticking it
   serializes `cmd <node>:config <verb>` into the `.tsl` — so the verb runs on

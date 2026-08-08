@@ -245,6 +245,32 @@ class OnDemandExitTest extends TestCase {
 		$this->assertFalse( $this->worker()->should_continue() );
 	}
 
+	/**
+	 * Asked from INSIDE a long job, the idle question is meaningless: work is in
+	 * flight by construction, so "has everything been quiet for the window?"
+	 * can only answer wrongly. `Event_Framework::pump()` re-runs the predicate
+	 * mid-job to keep the heartbeat and the real stops (lock, timeout, memory)
+	 * alive — the idle branch has no business running there, and it is the
+	 * expensive one: `Consumer_Node::idle_since()` lists segments and stats the
+	 * newest, which is why it carries its own throttle.
+	 */
+	public function test_the_idle_check_is_skipped_when_asked_from_inside_a_job(): void {
+		$this->quiet_for( 'quokka-probe', self::IDLE_SECONDS + 1 );
+		$w = $this->worker();
+
+		$this->assertFalse( $w->should_continue(), 'the drain loop still idle-exits' );
+		$this->assertTrue( $w->should_continue( mid_work: true ), 'mid-job never does' );
+	}
+
+	/** Mid-work still honors the stops that are real while work is in flight. */
+	public function test_mid_work_still_stops_on_a_lost_lock(): void {
+		$this->quiet_for( 'quokka-probe', 1 );
+		$w = $this->worker();
+		$this->rmdir_recursive( "{$this->tmp}/locks" );
+
+		$this->assertFalse( $w->should_continue( mid_work: true ) );
+	}
+
 	/** The window runs from the LATEST reporter, not the earliest. */
 	public function test_the_most_recently_busy_reporter_sets_the_window(): void {
 		$this->quiet_for( 'quokka-stale', self::IDLE_SECONDS * 10 );
