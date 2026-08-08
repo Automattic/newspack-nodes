@@ -30,6 +30,20 @@ class Job_Intake {
 	public const LOG_BASENAME = 'jobintake';
 
 	/**
+	 * Log basename for the small-job ingress. The PIPE_BUF-atomic counterpart to
+	 * LOG_BASENAME: no write lock, so a job-router can tail jobs alone instead of
+	 * the whole firehose. Bootstrap registers it as a GC-protected producer.
+	 */
+	public const FEED_BASENAME = 'jobfeed';
+
+	/**
+	 * Segment rotation threshold for FEED_BASENAME, against Partition's 64 MiB
+	 * default. Every logged request can write here and a job-router only reads
+	 * the recent tail, so small segments keep retention cheap.
+	 */
+	public const FEED_SEGMENT_SIZE = 1048576;
+
+	/**
 	 * Basename of the single delayed-jobs partition (hardwired `.p0`, the
 	 * alerts.p0 precedent). Entries whose `not_before` is still in the future
 	 * land here; `Job_Delay::sweep()` circulates them until due.
@@ -224,6 +238,24 @@ class Job_Intake {
 	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
 	 */
 	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null, array $options = [] ): bool {
+		return $this->write_entry( $handler, $parameters, $key, $id, $options, self::LOG_BASENAME, true );
+	}
+
+	/**
+	 * Shared write path for both ingress logs.
+	 *
+	 * @param string               $handler    Handler name.
+	 * @param array<string, mixed> $parameters Job parameters.
+	 * @param string|null          $key        Optional partition key.
+	 * @param string|null          $id         Optional per-job identity.
+	 * @param array<string, mixed> $options    write_job() options; empty for the feed path.
+	 * @param string               $basename   Target log basename.
+	 * @param bool                 $large      Lift the PIPE_BUF cap and take the write lock.
+	 *                                         The delay branch below assumes it: jobdelay is written locked.
+	 * @return bool True when the entry was handed to its Partition.
+	 * @throws \InvalidArgumentException On an unknown option key or not_before+delay together.
+	 */
+	private function write_entry( string $handler, array $parameters, ?string $key, ?string $id, array $options, string $basename, bool $large ): bool {
 		$unknown = \array_diff( \array_keys( $options ), self::OPTION_KEYS );
 		if ( [] !== $unknown ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
@@ -292,7 +324,6 @@ class Job_Intake {
 		}
 
 		// Still-future job: park it in jobdelay.p0 instead of the live intake.
-		$basename = self::LOG_BASENAME;
 		if ( $not_before > $now ) {
 			$job['not_before'] = $not_before;
 			$basename          = self::DELAY_BASENAME;
@@ -310,8 +341,13 @@ class Job_Intake {
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::VALUE ]     = $job;
+		// serialize_record appends a newline; unlocked writes clear that too.
+		if ( ! $large && Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
+			Core::stderr( '[Nodes] JobIntake: job exceeds PIPE_BUF for handler: ' . $handler . ' (use queue())' );
+			return false;
+		}
 		// Partition_Node marks the on-demand wake; it sees every producer.
-		$this->partition_handle( $partition, $basename )->fill( $message );
+		$this->partition_handle( $partition, $basename, $large )->fill( $message );
 		return true;
 	}
 
@@ -350,7 +386,7 @@ class Job_Intake {
 	 * `allow_large_writes()` call acquires the partition's write lock — blocks
 	 * up to ~65s on a respawn race, throws on a genuine concurrent writer.
 	 */
-	private function partition_handle( int $partition, string $basename = self::LOG_BASENAME ): Partition_Node {
+	private function partition_handle( int $partition, string $basename = self::LOG_BASENAME, bool $large = true ): Partition_Node {
 		$slot = "{$basename}.p{$partition}";
 		if ( isset( $this->partitions[ $slot ] ) ) {
 			return $this->partitions[ $slot ];
@@ -367,10 +403,33 @@ class Job_Intake {
 		if ( null === $p->sink() && null !== $ci ) {
 			$p->sink( $ci );
 		}
-		$p->arguments( [ "{$log_base}.p{$partition}" ] );
-		$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
+		$args = [ "{$log_base}.p{$partition}" ];
+		if ( self::FEED_BASENAME === $basename ) {
+			$args[] = (string) self::FEED_SEGMENT_SIZE;
+		}
+		$p->arguments( $args );
+		if ( $large ) {
+			$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS );
+		}
 		$this->partitions[ $slot ] = $p;
 		return $p;
+	}
+
+	/**
+	 * Queue a small job on the feed log, unlocked.
+	 *
+	 * The same envelope write_job() produces, on FEED_BASENAME. Taking no write
+	 * lock means PIPE_BUF binds it, so an entry that only fits under the lifted
+	 * cap is refused here — route that one through queue() instead of losing it.
+	 *
+	 * @param string               $handler    Handler name.
+	 * @param array<string, mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
+	 * @param string|null          $key        Optional partition key for consistent routing.
+	 * @param string|null          $id         Optional per-job identity for jobstats keying.
+	 * @return bool False on validation failure or an entry over the atomic cap.
+	 */
+	public function write_feed( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
+		return $this->write_entry( $handler, $parameters, $key, $id, [], self::FEED_BASENAME, false );
 	}
 
 	/**
@@ -433,6 +492,44 @@ class Job_Intake {
 		$intake = new self( $base_dir, $num_partitions );
 		try {
 			$result = $intake->write_job( $handler, $parameters, $key, null, $options );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // ADR-14: a cooperative stop is not a write failure.
+		} catch ( \RuntimeException $e ) {
+			$result = false;
+		} finally {
+			$intake->close();
+		}
+		return $result;
+	}
+
+	/**
+	 * Queue a small job on the feed log — the static counterpart to queue().
+	 *
+	 * @api Small-job ingress. Paired with a firehose `job` write by every producer.
+	 * @param string               $handler        Handler name.
+	 * @param array<string, mixed> $parameters     Job parameters (must fit PIPE_BUF once packed).
+	 * @param string|null          $key            Optional partition key for consistent routing.
+	 * @param string|null          $id             Optional per-job identity for jobstats keying.
+	 * @param string|null          $base_dir       Override the configured base dir.
+	 * @param int|null             $num_partitions Override the configured partition count.
+	 * @return bool False on validation failure or an entry over the atomic cap.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
+	 */
+	public static function feed(
+		string $handler,
+		array $parameters,
+		?string $key = null,
+		?string $id = null,
+		?string $base_dir = null,
+		?int $num_partitions = null
+	): bool {
+		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
+			return false;
+		}
+
+		$intake = new self( $base_dir, $num_partitions );
+		try {
+			$result = $intake->write_feed( $handler, $parameters, $key, $id );
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e; // ADR-14: a cooperative stop is not a write failure.
 		} catch ( \RuntimeException $e ) {
