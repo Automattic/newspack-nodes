@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Submit buttons were styled as text fields.** `<input type="submit">` is an
+  `<input>`, and the control skin's `:not()` chain excluded only checkboxes,
+  radios and two component classes — so every WP `submit_button()` matched the
+  text-field rule. Its `color` lost to the button role on specificity, but
+  `-webkit-text-fill-color` had no competitor and paints over `color`, so "Save
+  Settings" rendered in field ink on the primary fill: measured 1.25:1, against
+  the 13.6:1 the rule intends. The same rule also won `border-radius`, the field
+  border and the field padding, which is why a submit button sat square-cornered
+  beside an identically-classed `<button>`. Buttons are now excluded from both
+  the control skin and the focus ring, and `<input type=submit|button|reset>`
+  joins the keyboard-focus branch the `@longform` note in `_focus.scss` already
+  described. The exclusion lives once in `_field-scope.scss`; two blocklists
+  that must agree are how this drifted.
+
 ## [2.14.3] - 2026-08-07
 
 ### Fixed

@@ -1,0 +1,4 @@
+// An <input type=submit|button|reset|image> is a BUTTON, not a text field.
+// The control skin and the focus ring must agree on that, so the exclusion
+// lives here once instead of drifting between two blocklists.
+$not-a-field: '[type="submit"], [type="button"], [type="reset"], [type="image"], .button';
