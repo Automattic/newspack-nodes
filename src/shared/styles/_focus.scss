@@ -2,10 +2,9 @@
 @use "field-scope" as scope;
 
 .newspack-nodes-ui.newspack-nodes-ui {
-	input:not(
-			.components-input-control__input,
-			.topology-repl__input
-		):not(#{scope.$not-a-field}),
+	input:not(.components-input-control__input, .topology-repl__input):not(
+			#{scope.$not-a-field}
+		),
 	select:not(.components-input-control__input),
 	textarea {
 		&:focus {

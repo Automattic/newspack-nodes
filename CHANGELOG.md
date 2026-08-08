@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A verb that ACTS could be saved as configuration.** The topology editor
+  renders every non-hidden `commands` entry as a checkbox, and ticking it
+  serializes `cmd <node>:config <verb>` into the `.tsl` — so the verb runs on
+  every worker boot, forever. Right for a setting, wrong for an action:
+  `Table_Node`'s `rm` would have deleted an entry on each restart, and
+  event-logger-nodes' new `purge` would have discarded every in-flight request.
+  `docs/writing-a-plugin.md` already said a runtime trigger is never a `cmd_*`
+  verb; the editor just had no way to tell the two apart.
+
+  A `commands` entry may now declare `'action' => true`. `isConfigurableVerb()`
+  gates the editor's two config lists on it, while the runtime invoke panel,
+  `help` and the REPL are untouched — the verb stays a verb, it just cannot be
+  persisted as a setting. `Table_Node`'s `get` and `rm` are marked; an audit of
+  every declared verb across the substrate and its consumers found no others
+  (`configure_stats` looks action-shaped but is genuinely declared in a stock
+  topology).
+
 ## [2.14.5] - 2026-08-08
 
 ### Fixed

@@ -9,6 +9,7 @@ import {
 	setArgumentsLine,
 	verbInvocationArgs,
 	verbUsesConfig,
+	isConfigurableVerb,
 } from '../editorLines';
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
 
@@ -144,5 +145,32 @@ describe( 'verbInvocationArgs', () => {
 			'a',
 			'b',
 		] );
+	} );
+} );
+
+/**
+ * A verb that DOES something — purge a cache, delete an entry — is not
+ * configuration. The topology editor renders each config verb as a checkbox
+ * whose toggle serializes `cmd <node>:config <verb>` into the .tsl, so an
+ * action offered there runs on EVERY worker boot. It stays a verb, invocable
+ * at runtime; it just must not be offered as a persisted setting.
+ */
+describe( 'isConfigurableVerb', () => {
+	it( 'offers a plain setter', () => {
+		expect( isConfigurableVerb( { name: 'set_errors_target' } ) ).toBe(
+			true
+		);
+	} );
+
+	it( 'withholds a verb marked as an action', () => {
+		expect( isConfigurableVerb( { name: 'purge', action: true } ) ).toBe(
+			false
+		);
+	} );
+
+	it( 'still withholds schema-plumbing verbs marked hidden', () => {
+		expect( isConfigurableVerb( { name: 'x', hidden: true } ) ).toBe(
+			false
+		);
 	} );
 } );
