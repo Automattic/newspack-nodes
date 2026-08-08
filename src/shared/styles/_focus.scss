@@ -1,7 +1,11 @@
 @use "focus-mixins" as focus;
+@use "field-scope" as scope;
 
 .newspack-nodes-ui.newspack-nodes-ui {
-	input:not(.components-input-control__input, .topology-repl__input),
+	input:not(
+			.components-input-control__input,
+			.topology-repl__input
+		):not(#{scope.$not-a-field}),
 	select:not(.components-input-control__input),
 	textarea {
 		&:focus {
@@ -16,6 +20,9 @@
 	// a control whose whole job is to show one. Text controls above keep plain
 	// `:focus`: a click there IS where you are about to type.
 	button,
+	input[type="submit"],
+	input[type="button"],
+	input[type="reset"],
 	a[href],
 	summary,
 	[tabindex]:not(input, select, textarea, button) {
