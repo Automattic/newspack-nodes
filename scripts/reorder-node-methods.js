@@ -19,22 +19,11 @@
  *       <call-graph DFS seeded from the entrypoints fill/fire_cb/fire>,
  *     node_schema
  *
- *   GENERIC (--all-classes, for non-node classes) — constructor first, then the
- *     public "API roots" (public methods not called by any other public method,
- *     that themselves call something), ordered by call-tree depth (deepest
- *     first — the method orchestrating the deepest chain leads), each followed
- *     by its callee tree; then anything unreached in source order.
+ *   GENERIC (every other class) — constructor first, then a topological order
+ *     of the call graph: a unit is emitted only once EVERY caller of it
+ *     already is, so no caller ever prints below something it calls. Public
+ *     units that call something lead each wave; a cycle falls to source order.
  *
- * Parsing is done with @babel/parser, so strings / comments / regex / template
- * literals never confuse brace matching. get/set accessor pairs stay grouped.
- * "public" follows the codebase convention: a name NOT starting with `_`.
- *
- * Usage:
- *   node reorder-node-methods.js --check             src/runtime/*.js   # gate: fail if out of order
- *   node reorder-node-methods.js                    src/runtime/*.js   # dry-run, node classes
- *   node reorder-node-methods.js --write             src/runtime/*.js   # apply, node classes
- *   node reorder-node-methods.js --all-classes       src/admin/*.js     # dry-run, EVERY class
- *   node reorder-node-methods.js --all-classes --write src/admin/*.js   # apply, every class
  *
  * After --write, run `eslint --fix` on the changed files to normalize the blank
  * lines between methods, then the test suite. Sibling tool: the PHP twin
@@ -49,11 +38,10 @@ const argv = process.argv.slice( 2 );
 const write = argv.includes( '--write' );
 // --check: dry-run that FAILS when a file is out of order, for the hook.
 const check = argv.includes( '--check' );
-const allClasses = argv.includes( '--all-classes' );
 const files = argv.filter( ( a ) => ! a.startsWith( '--' ) );
 if ( ! files.length ) {
 	console.error(
-		'usage: node reorder-node-methods.js [--check|--write] [--all-classes] <file.js> [...]'
+		'usage: node reorder-node-methods.js [--check|--write] <file.js> [...]'
 	);
 	process.exit( 1 );
 }
@@ -98,8 +86,8 @@ function isNodeClass( cls ) {
 	return names.some( ( n ) => !! n && ( n === 'Node' || /Node$/.test( n ) ) );
 }
 
-// Every top-level class: node mode takes Node subclasses, everyClass takes all.
-function walkClasses( ast, cb, everyClass ) {
+// Every top-level class, each tagged isNode so the policy can be picked.
+function walkClasses( ast, cb ) {
 	for ( const node of ast.program.body ) {
 		let cls = null;
 		if ( node.type === 'ClassDeclaration' ) {
@@ -115,7 +103,7 @@ function walkClasses( ast, cb, everyClass ) {
 			continue;
 		}
 		const isNode = isNodeClass( cls );
-		if ( isNode || everyClass ) {
+		{
 			cb( cls, isNode );
 		}
 	}
@@ -183,17 +171,25 @@ function thisCallName( callee ) {
  * Collect self-dispatched calls under an AST node, in source-position order.
  * AST-based so strings / comments / template literals never forge a call edge.
  */
-function collectThisCalls( node, hits ) {
+// @longform A nested function body is a scope of its own: the call runs later,
+// under whoever invokes it, so blaming the enclosing method invents an
+// edge. Descend anyway, marking those hits soft — they gate nothing and
+// only nudge the tie-break toward keeping related methods together.
+function collectThisCalls( node, hits, soft = false ) {
 	if ( ! node || typeof node.type !== 'string' ) {
 		return;
 	}
+	const nested =
+		node.type === 'FunctionExpression' ||
+		node.type === 'ArrowFunctionExpression' ||
+		node.type === 'FunctionDeclaration';
 	if (
 		node.type === 'CallExpression' ||
 		node.type === 'OptionalCallExpression'
 	) {
 		const nm = thisCallName( node.callee );
 		if ( nm ) {
-			hits.push( { name: nm, pos: node.start } );
+			hits.push( { name: nm, pos: node.start, soft } );
 		}
 	}
 	for ( const k in node ) {
@@ -207,9 +203,9 @@ function collectThisCalls( node, hits ) {
 		}
 		const v = node[ k ];
 		if ( Array.isArray( v ) ) {
-			v.forEach( ( c ) => collectThisCalls( c, hits ) );
+			v.forEach( ( c ) => collectThisCalls( c, hits, soft || nested ) );
 		} else if ( v && typeof v.type === 'string' ) {
-			collectThisCalls( v, hits );
+			collectThisCalls( v, hits, soft || nested );
 		}
 	}
 }
@@ -219,17 +215,13 @@ function collectThisCalls( node, hits ) {
  * across all processed classes. Reordering is a permutation, so this multiset is
  * unchanged unless a member's own text was corrupted — which aborts the write.
  */
-function memberTexts( src, ast, everyClass ) {
+function memberTexts( src, ast ) {
 	const out = [];
-	walkClasses(
-		ast,
-		( cls ) => {
-			for ( const m of cls.body.body ) {
-				out.push( src.slice( m.start, m.end ) );
-			}
-		},
-		everyClass
-	);
+	walkClasses( ast, ( cls ) => {
+		for ( const m of cls.body.body ) {
+			out.push( src.slice( m.start, m.end ) );
+		}
+	} );
 	return out.sort();
 }
 
@@ -350,7 +342,8 @@ function reorderClass( src, cls, isNode ) {
 			}
 		} )
 	);
-	const calleesOf = ( u ) => {
+	// wantSoft picks the closure-body calls instead of the direct ones.
+	const calleesOf = ( u, wantSoft = false ) => {
 		const self = new Set( u.members.map( mname ).filter( Boolean ) );
 		const hits = [];
 		u.members.forEach( ( m ) => collectThisCalls( m, hits ) );
@@ -359,6 +352,7 @@ function reorderClass( src, cls, isNode ) {
 		const out = [];
 		for ( const h of hits ) {
 			if (
+				!! h.soft !== wantSoft ||
 				! allNames.has( h.name ) ||
 				self.has( h.name ) ||
 				seen.has( h.name )
@@ -453,76 +447,78 @@ function reorderClass( src, cls, isNode ) {
 		const standalone = middle.filter( ( u ) => ! connected.has( u ) );
 		ordered = [ ...top, ...placed, ...standalone, ...last ];
 	} else {
-		// GENERIC: constructor, then public roots deepest-first + trees.
-		const visited = new Set();
-		const placed = [];
-		const expand = ( u ) => {
-			for ( const cn of calleesOf( u ) ) {
-				const cu = byName[ cn ];
-				if ( cu && ! visited.has( cu.name ) ) {
-					visited.add( cu.name );
-					cu.members.forEach( ( m ) => visited.add( mname( m ) ) );
-					placed.push( cu );
-					expand( cu );
-				}
-			}
-		};
+		// @longform GENERIC: constructor, then a topological order of the call
+		// graph — a unit is emitted only once EVERY caller of it already is,
+		// so no caller ever prints below something it calls.
 		const ctor = units.filter( isConstructor );
-		ctor.forEach( ( u ) =>
-			u.members.forEach( ( m ) => visited.add( mname( m ) ) )
-		);
-		ctor.forEach( expand ); // constructor's helpers below it
-
-		const publics = units.filter( isPublic );
-		const calledByPublic = new Set( publics.flatMap( calleesOf ) );
-		const depthOf = ( u, stack ) => {
-			if ( stack.has( u ) ) {
-				return 0;
-			} // cycle back-edge
-			let d = 1;
+		const rest = units.filter( ( u ) => ! ctor.includes( u ) );
+		const restSet = new Set( rest );
+		// Pre-placed ctor gates nothing; its callees can still sink below.
+		const indeg = new Map( rest.map( ( u ) => [ u, 0 ] ) );
+		const calleeUnits = new Map();
+		for ( const u of units ) {
+			const cs = [];
 			for ( const cn of calleesOf( u ) ) {
 				const cu = byName[ cn ];
-				if ( cu ) {
-					d = Math.max(
-						d,
-						1 + depthOf( cu, new Set( stack ).add( u ) )
-					);
+				if ( ! cu || ! restSet.has( cu ) ) {
+					continue;
+				}
+				cs.push( cu );
+				if ( restSet.has( u ) ) {
+					indeg.set( cu, indeg.get( cu ) + 1 );
 				}
 			}
-			return d;
-		};
+			calleeUnits.set( u, cs );
+		}
 		const srcIdx = ( u ) => units.indexOf( u );
-		const roots = publics
-			.filter(
-				( u ) =>
-					! calledByPublic.has( u.name ) && calleesOf( u ).length > 0
-			)
-			.sort(
-				( a, b ) =>
-					depthOf( b, new Set() ) - depthOf( a, new Set() ) ||
-					srcIdx( a ) - srcIdx( b )
-			);
-		for ( const r of roots ) {
-			if ( ! visited.has( r.name ) ) {
-				visited.add( r.name );
-				placed.push( r );
-				expand( r );
+		// Public callers lead each wave, so their own chain reads top-down.
+		const rank = ( u ) => {
+			if ( ! isPublic( u ) ) {
+				return 2;
+			}
+			return calleeUnits.get( u ).length ? 0 : 1;
+		};
+		// @longform Freed order is the primary tie-break, most recent first:
+		// emitting a caller pulls in the callees it just released, so a chain
+		// stays together instead of yielding to an unrelated root that merely
+		// sorts earlier. Roots free from the start share 0 and fall to rank.
+		const placed = [];
+		const visited = new Set();
+		const freed = new Map( rest.map( ( u ) => [ u, 0 ] ) );
+		let tick = 0;
+		for (;;) {
+			const avail = rest
+				.filter( ( u ) => ! visited.has( u ) && indeg.get( u ) === 0 )
+				.sort(
+					( a, b ) =>
+						freed.get( b ) - freed.get( a ) ||
+						rank( a ) - rank( b ) ||
+						srcIdx( a ) - srcIdx( b )
+				);
+			if ( ! avail.length ) {
+				break;
+			}
+			const u = avail[ 0 ];
+			visited.add( u );
+			placed.push( u );
+			for ( const cu of calleeUnits.get( u ) ) {
+				indeg.set( cu, indeg.get( cu ) - 1 );
+				if ( indeg.get( cu ) === 0 ) {
+					freed.set( cu, ++tick );
+				}
+			}
+			// Closure-body calls gate nothing, but say these belong together.
+			for ( const cn of calleesOf( u, true ) ) {
+				const cu = byName[ cn ];
+				if ( cu && ! visited.has( cu ) && indeg.get( cu ) === 0 ) {
+					freed.set( cu, ++tick );
+				}
 			}
 		}
-		// Remaining publics (private-only reach, recursion), then privates.
-		for ( const u of units ) {
-			if (
-				isPublic( u ) &&
-				! placed.includes( u ) &&
-				! ctor.includes( u )
-			) {
-				placed.push( u );
-				expand( u );
-			}
-		}
-		for ( const u of units ) {
-			if ( ! placed.includes( u ) && ! ctor.includes( u ) ) {
-				placed.push( u );
+		for ( const u of rest ) {
+			if ( ! visited.has( u ) ) {
+				visited.add( u );
+				placed.push( u ); // cycle
 			}
 		}
 		ordered = [ ...ctor, ...placed ];
@@ -544,7 +540,7 @@ function reorderClass( src, cls, isNode ) {
 	};
 }
 
-function reorderFile( file, doWrite, everyClass ) {
+function reorderFile( file, doWrite ) {
 	const src = fs.readFileSync( file, 'utf8' );
 	let ast;
 	try {
@@ -554,13 +550,9 @@ function reorderFile( file, doWrite, everyClass ) {
 	}
 	// The fingerprint has to predate every mutation, so it cannot move down.
 	// eslint-disable-next-line @wordpress/no-unused-vars-before-return
-	const before = memberTexts( src, ast, everyClass );
+	const before = memberTexts( src, ast );
 	const classes = [];
-	walkClasses(
-		ast,
-		( c, isNode ) => classes.push( { cls: c, isNode } ),
-		everyClass
-	);
+	walkClasses( ast, ( c, isNode ) => classes.push( { cls: c, isNode } ) );
 	let out = src;
 	const notes = [];
 	// Right-to-left so earlier classes' offsets stay valid after a splice.
@@ -591,7 +583,7 @@ function reorderFile( file, doWrite, everyClass ) {
 	} catch ( e ) {
 		return { file, err: 'POST-PARSE ' + e.message };
 	}
-	const after = memberTexts( out, ast2, everyClass );
+	const after = memberTexts( out, ast2 );
 	if (
 		before.length !== after.length ||
 		before.some( ( t, i ) => t !== after[ i ] )
@@ -659,7 +651,7 @@ function atomicWrite( file, out ) {
 }
 
 for ( const f of files ) {
-	const r = reorderFile( f, write, allClasses );
+	const r = reorderFile( f, write );
 	if ( r.err ) {
 		console.log( `✗ ${ f }: ${ r.err }` );
 		process.exitCode = 1;
