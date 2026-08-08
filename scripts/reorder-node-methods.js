@@ -547,6 +547,7 @@ function isTestPath( file ) {
 	const norm = file.split( path.sep ).join( '/' );
 	return (
 		norm.includes( '/tests/' ) ||
+		norm.includes( '/__tests__/' ) ||
 		norm.startsWith( 'tests/' ) ||
 		/\.test\.[cm]?jsx?$/.test( norm )
 	);
