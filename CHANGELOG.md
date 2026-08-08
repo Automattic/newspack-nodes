@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Job_Intake::feed()` — the small-job ingress, on its own log.** A spoke's
+  job-router had to tail the firehose to find jobs, so every worker woke for
+  every logged web request. `feed()` writes the same envelope `write_job()`
+  produces to `jobfeed.p<N>`, letting a router consume jobs alone. Producers
+  write BOTH legs: the firehose copy is what an aggregator hub pulls and
+  rewrites to `remote_job`, the jobfeed copy is what the local router reads.
+  Instance `write_job` / `write_feed` and static `queue` / `feed` now pair off,
+  and both instance methods share one `write_entry()`, so the envelope,
+  partition routing and `DISPATCH_FIELDS` cannot drift between the two paths.
+- Taking no write lock means PIPE_BUF binds `feed()`. It measures the real
+  boundary — `serialize_record()` is `packed() . "\n"`, so the cap is
+  `packed_size + 1` — and refuses an oversized entry with a stderr naming
+  `queue()`, rather than letting the Partition drop it silently.
+- `jobfeed` rotates at `FEED_SEGMENT_SIZE` (1 MiB) against Partition's 64 MiB
+  default: every logged request can write to it and a router only reads the
+  recent tail. `jobintake` and `jobdelay` keep `<config:segment_size>`.
+- `Bootstrap::register_log_producers()` declares `jobfeed`, so `Log_Cleaner`
+  leaves it alone on substrate-only installs.
+
 ## [2.15.0] - 2026-08-08
 
 ### Fixed

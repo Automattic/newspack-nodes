@@ -110,6 +110,73 @@ class JobIntakeTest extends TestCase {
 		$this->assertArrayHasKey( 'ts', $lines[0] );
 	}
 
+	/**
+	 * feed() is the small-job ingress: the same envelope write_job() produces,
+	 * on its own log, so a spoke's job-router can tail jobs alone instead of
+	 * the whole firehose.
+	 */
+	public function test_feed_writes_the_job_envelope_to_the_jobfeed_log(): void {
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+
+		$this->assertTrue( $intake->write_feed( 'zarquon', [ 'site' => 7391 ] ) );
+		$intake->close();
+
+		$lines = $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' );
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 'job', $lines[0]['k'] );
+		$this->assertSame( 'zarquon', $lines[0]['handler'] );
+		$this->assertSame( [ 'site' => 7391 ], $lines[0]['parameters'] );
+		$this->assertSame( [], $this->read_all_jobintake_lines(), 'jobintake is the large-write log; feed() must not touch it' );
+	}
+
+	/**
+	 * feed() takes no write lock, so it is bound by PIPE_BUF. An entry that
+	 * only fits under the lifted cap has to be refused — loudly, so the caller
+	 * routes it to queue() instead of losing it.
+	 */
+	public function test_feed_refuses_an_entry_that_needs_the_lifted_cap(): void {
+		$oversized = [ 'blob' => str_repeat( 'z', Partition_Node::MAX_LINE_SIZE ) ];
+
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		$this->assertFalse( $intake->write_feed( 'zarquon', $oversized ), 'over PIPE_BUF: refused' );
+		$this->assertTrue( $intake->write_job( 'zarquon', $oversized ), 'the locked path still takes it' );
+		$intake->close();
+
+		$this->assertSame( [], $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' ) );
+		$this->assertCount( 1, $this->read_all_jobintake_lines() );
+	}
+
+	/**
+	 * jobfeed rotates at 1 MiB, not the 64 MiB Partition default: it is a
+	 * high-rate log every logged request can write to, and a job-router only
+	 * ever wants the recent tail of it.
+	 */
+	public function test_feed_rotates_segments_at_its_own_threshold(): void {
+		$entry = [ 'blob' => str_repeat( 'z', 3000 ) ];
+		$writes = (int) ceil( ( Job_Intake::FEED_SEGMENT_SIZE * 1.2 ) / 3000 );
+
+		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
+		$intake->partition( 0 );
+		for ( $i = 0; $i < $writes; $i++ ) {
+			$this->assertTrue( $intake->write_feed( 'zarquon', $entry ) );
+		}
+		$intake->close();
+
+		$segments = glob( "{$this->tmp}/logs/jobfeed.p0/*.log" ) ?: [];
+		sort( $segments );
+		$this->assertGreaterThan( 1, count( $segments ), 'past 1 MiB, jobfeed has rotated' );
+		// A closed segment lands within one record of the threshold. Pins the
+		// size itself, not merely that it rotated at some point.
+		$closed = filesize( $segments[0] );
+		$this->assertLessThan(
+			3200,
+			abs( $closed - Job_Intake::FEED_SEGMENT_SIZE ),
+			"closed segment {$closed} should sit within one record of the threshold"
+		);
+	}
+
 	public function test_pinned_partition_routes_all_writes_to_one_dir(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$intake->partition( 2 );
