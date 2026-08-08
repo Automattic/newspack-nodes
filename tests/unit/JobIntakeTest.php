@@ -177,6 +177,23 @@ class JobIntakeTest extends TestCase {
 		);
 	}
 
+	/**
+	 * The static entry point, mirroring queue(): it validates before touching
+	 * the filesystem, and a valid call writes the envelope and closes up.
+	 */
+	public function test_static_feed_validates_then_writes_the_jobfeed_envelope(): void {
+		$this->assertFalse( Job_Intake::feed( '!bad', [], null, null, $this->tmp, 1 ) );
+		$this->assertSame( [], glob( "{$this->tmp}/logs/jobfeed.p*" ) ?: [] );
+
+		$this->assertTrue( Job_Intake::feed( 'zarquon', [ 'site' => 7391 ], null, 'run-8812', $this->tmp, 1 ) );
+
+		$lines = $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' );
+		$this->assertCount( 1, $lines );
+		$this->assertSame( 'zarquon', $lines[0]['handler'] );
+		$this->assertSame( [ 'site' => 7391 ], $lines[0]['parameters'] );
+		$this->assertSame( 'run-8812', $lines[0]['id'] );
+	}
+
 	public function test_pinned_partition_routes_all_writes_to_one_dir(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$intake->partition( 2 );
