@@ -174,6 +174,157 @@ assert_before "php dual-homed: set_mode before apply_mode" "$php_dh" set_mode ap
 assert_before "php dual-homed: mode_b before apply_mode"   "$php_dh" mode_b apply_mode
 assert_before "php dual-homed: roots grouped (mode_b before set_mode)" "$php_dh" mode_b set_mode
 
+# ---- (C) dual-homed, GENERIC policy: the same invariant off the node path ----
+# A plain class gets the generic policy. `shared` is reached from write_a and
+# from write_b; whichever caller the walk reaches first must not claim it, or
+# the other caller ends up printed BELOW the helper it calls.
+cat > "$tmp/class-dualhomed-plain.php" <<'PHP'
+<?php
+class Dualhomed_Plain {
+	private function shared(): void {
+	}
+
+	private function only_b(): void {
+	}
+
+	public function write_a(): void {
+		$this->shared();
+	}
+
+	public function write_b(): void {
+		$this->shared();
+		$this->only_b();
+	}
+}
+PHP
+php_gdh="$( php reorder-node-methods.php "$tmp/class-dualhomed-plain.php" 2>&1 )"
+assert_before "php generic dual-homed: write_a before shared" "$php_gdh" write_a shared
+assert_before "php generic dual-homed: write_b before shared" "$php_gdh" write_b shared
+
+cat > "$tmp/dualhomed-plain.js" <<'JS'
+class DualhomedPlain {
+	shared() {
+	}
+
+	onlyB() {
+	}
+
+	writeA() {
+		this.shared();
+	}
+
+	writeB() {
+		this.shared();
+		this.onlyB();
+	}
+}
+JS
+js_gdh="$( node reorder-node-methods.js "$tmp/dualhomed-plain.js" 2>&1 )"
+assert_before "js generic dual-homed: writeA before shared" "$js_gdh" writeA shared
+assert_before "js generic dual-homed: writeB before shared" "$js_gdh" writeB shared
+
+# ---- (D) a call inside a closure body is NOT an edge of the enclosing method ----
+# zboot() only REGISTERS a closure; the call inside it runs later, under whoever
+# invokes the closure. Counting it as zboot -> decorate pins decorate below an
+# unrelated method and opens a hole in emit()'s chain.
+cat > "$tmp/class-closure-edge.php" <<'PHP'
+<?php
+class Closure_Edge {
+	public function emit(): void {
+		self::decorate();
+	}
+
+	public function zboot(): void {
+		self::install( static function (): void {
+			self::decorate();
+		} );
+	}
+
+	private static function install( callable $cb ): void {
+	}
+
+	private static function decorate(): void {
+	}
+}
+PHP
+php_ce="$( php reorder-node-methods.php "$tmp/class-closure-edge.php" 2>&1 )"
+assert_before "php closure-edge: decorate stays with emit, above zboot" "$php_ce" decorate zboot
+
+cat > "$tmp/closure-edge.js" <<'JS'
+class ClosureEdge {
+	emit() {
+		this.decorate();
+	}
+
+	zboot() {
+		this.install( () => {
+			this.decorate();
+		} );
+	}
+
+	install( cb ) {
+	}
+
+	decorate() {
+	}
+}
+JS
+js_ce="$( node reorder-node-methods.js "$tmp/closure-edge.js" 2>&1 )"
+assert_before "js closure-edge: decorate stays with emit, above zboot" "$js_ce" decorate zboot
+
+# ---- (E) locality: an unrelated root must not wedge into a chain ----
+# loner has no callers, so it is available from the first wave. Emitting
+# chain_top frees chain_mid; the chain must continue rather than yield to
+# whatever merely sorts earlier in source order.
+cat > "$tmp/class-locality.php" <<'PHP'
+<?php
+class Locality {
+	private static function chain_leaf(): void {
+	}
+
+	public function chain_top(): void {
+		self::chain_mid();
+	}
+
+	public function loner(): void {
+		self::loner_help();
+	}
+
+	private static function chain_mid(): void {
+		self::chain_leaf();
+	}
+
+	private static function loner_help(): void {
+	}
+}
+PHP
+php_loc="$( php reorder-node-methods.php "$tmp/class-locality.php" 2>&1 )"
+assert_before "php locality: chain_mid follows chain_top, before loner" "$php_loc" chain_mid loner
+
+cat > "$tmp/locality.js" <<'JS'
+class Locality {
+	chainLeaf() {
+	}
+
+	chainTop() {
+		this.chainMid();
+	}
+
+	loner() {
+		this.lonerHelp();
+	}
+
+	chainMid() {
+		this.chainLeaf();
+	}
+
+	lonerHelp() {
+	}
+}
+JS
+js_loc="$( node reorder-node-methods.js "$tmp/locality.js" 2>&1 )"
+assert_before "js locality: chainMid follows chainTop, before loner" "$js_loc" chainMid loner
+
 cat > "$tmp/dualhomed-node.js" <<'JS'
 class DualhomedNode extends Node {
 	fill( message ) {
@@ -441,7 +592,7 @@ assert_valid_php() {
 	if php -l "$2" >/dev/null 2>&1; then echo "✓ $1: valid PHP"; else echo "✗ $1: INVALID PHP output"; fail=1; fi
 }
 
-# ---- (F) `Foo::class` must NOT seed a phantom class under --all-classes ----
+# ---- (F) `Foo::class` must NOT seed a phantom class ----
 cat > "$tmp/class-ccls-node.php" <<'PHP'
 <?php
 $types = [ Foo::class, Bar::class ];
@@ -454,7 +605,7 @@ class Ccls_Node extends Node {
 	}
 }
 PHP
-php reorder-node-methods.php --all-classes --write "$tmp/class-ccls-node.php" >/dev/null 2>&1
+php reorder-node-methods.php --write "$tmp/class-ccls-node.php" >/dev/null 2>&1
 assert_valid_php "php ::class" "$tmp/class-ccls-node.php"
 assert_before "php ::class: real class still reorders (fill before helper)" "$( cat "$tmp/class-ccls-node.php" )" "function fill" "function helper"
 

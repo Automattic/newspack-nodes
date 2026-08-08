@@ -25,20 +25,18 @@
  *       <call-graph DFS seeded from the entrypoints fill/fire_cb/fire>,
  *     node_schema
  *
- *   GENERIC (--all-classes, for non-node classes) — __construct first, then the
- *     public "API roots" (public methods not called by any other public method,
- *     that themselves call something), ordered by call-tree depth (deepest
- *     first — the method orchestrating the deepest chain leads), each followed
- *     by its callee tree; then anything unreached in source order.
+ *   GENERIC (every other class) — __construct first, then a topological order
+ *     of the call graph: a method is emitted only once EVERY caller of it
+ *     already is, so no caller ever prints below something it calls. Public
+ *     methods that call something lead each wave; a cycle falls to source
+ *     order.
  *
  * Member boundaries come from token_get_all, so strings / comments / heredocs /
  * closures never confuse brace matching.
  *
  * Usage (host php works; the container mount is read-only):
- *   php reorder-node-methods.php                 includes/class-*.php   # dry-run, node classes
- *   php reorder-node-methods.php --write          includes/class-*.php   # apply, node classes
- *   php reorder-node-methods.php --all-classes     src/*.php              # dry-run, EVERY class
- *   php reorder-node-methods.php --all-classes --write src/*.php          # apply, every class
+ *   php reorder-node-methods.php                 includes/class-*.php   # dry-run
+ *   php reorder-node-methods.php --write          includes/class-*.php   # apply
  *   php reorder-node-methods.php --write --sort-fields class-*.php        # also sort field block
  *
  * Declared field order is observable, so fields keep source order unless
@@ -82,9 +80,9 @@ function tokens_with_offsets( string $src ): array {
  *
  * @return list<string>
  */
-function member_fingerprint( string $src, bool $all_classes ): array {
+function member_fingerprint( string $src ): array {
 	$fp = [];
-	foreach ( find_classes( $src, $all_classes ) as $cls ) {
+	foreach ( find_classes( $src ) as $cls ) {
 		foreach ( $cls['members'] as $m ) {
 			$fp[] = substr( $src, $m['start_fn'], $m['end'] - $m['start_fn'] );
 		}
@@ -153,11 +151,11 @@ function is_name_token( ?int $id ): bool {
 
 /**
  * Find classes and their depth-1 members with offsets. In node mode only Node
- * subclasses; with $all_classes, every class (each tagged is_node).
+ * Every class in the file, each tagged is_node so the policy can be picked.
  *
  * @return list<ClassRec>
  */
-function find_classes( string $src, bool $all_classes ): array {
+function find_classes( string $src ): array {
 	$toks    = tokens_with_offsets( $src );
 	$n       = count( $toks );
 	$classes = [];
@@ -188,7 +186,6 @@ function find_classes( string $src, bool $all_classes ): array {
 		// no exclusion.
 		$is_node = ( $className === 'Node' || str_ends_with( $className, '_Node' )
 			|| $extends === 'Node' || str_ends_with( $extends, '_Node' ) );
-		if ( ! $is_node && ! $all_classes ) continue;
 
 		// $j is the class body '{'. Walk depth-1 members.
 		$contentStart = $toks[ $j ][2] + 1; // offset just after '{'
@@ -264,15 +261,34 @@ function callees_factory( array $toks, array $methods, array $names ): callable 
 		return $k;
 	};
 	/** @return list<string> */
-	return function ( int $i ) use ( $toks, $nt, $methods, $names, $adv ) {
+	return function ( int $i, bool $soft = false ) use ( $toks, $nt, $methods, $names, $adv ) {
 		$start = $methods[ $i ]['start_fn'];
 		$end   = $methods[ $i ]['end'];
 		$first = [];
+		// @longform A closure body is a scope of its own: the call runs later,
+		// under whoever invokes the closure, so attributing it to the enclosing
+		// method invents an edge. Skip from `function`/`fn` to the end of its
+		// body. $depth counts braces once inside one; -1 means we are not.
+		$depth = -1;
 		for ( $k = 0; $k < $nt; $k++ ) {
 			$off = $toks[ $k ][2];
 			if ( $off < $start ) continue;
 			if ( $off >= $end ) break;
 			$id  = $toks[ $k ][0];
+			$own = ( $off === $start ); // own declaration, not a closure
+			if ( ! $own && $depth < 0 && ( T_FUNCTION === $id || T_FN === $id ) ) {
+				$depth = 0;
+				continue;
+			}
+			if ( $depth >= 0 ) {
+				$t = $toks[ $k ][1];
+				if ( '{' === $t ) $depth++;
+				elseif ( '}' === $t ) { $depth--; if ( 0 === $depth ) $depth = -1; }
+				elseif ( 0 === $depth && ( ';' === $t || ',' === $t ) ) $depth = -1; // arrow fn ends
+				if ( ! $soft ) continue;
+			} elseif ( $soft ) {
+				continue; // soft pass wants ONLY what the closures call
+			}
 			$txt = $toks[ $k ][1];
 			$is_this   = ( T_VARIABLE === $id && '$this' === $txt );
 			$is_self   = ( T_STRING === $id && 'self' === $txt );
@@ -369,44 +385,58 @@ function order_methods_generic( array $toks, array $methods ): array {
 	$names = [];
 	foreach ( $methods as $i => $m ) $names[ $m['name'] ] = $i;
 	$callees_of = callees_factory( $toks, $methods, $names );
-	$depth_of = function ( int $i, array $stack ) use ( &$depth_of, $callees_of, $names ): int {
-		if ( isset( $stack[ $i ] ) ) return 0; // cycle back-edge
-		$stack[ $i ] = 1;
-		$d = 1;
-		foreach ( $callees_of( $i ) as $cn ) {
-			$j = $names[ $cn ] ?? null;
-			if ( $j !== null ) $d = max( $d, 1 + $depth_of( $j, $stack ) );
-		}
-		return $d;
-	};
 
 	$ctor = []; $rest = [];
 	foreach ( $methods as $i => $m ) { if ( $m['name'] === '__construct' ) $ctor[] = $i; else $rest[] = $i; }
-	$visited = array_flip( $ctor );
-	$placed  = [];
-	$expand = function ( int $i ) use ( &$expand, $callees_of, $names, &$visited, &$placed ) {
+	$restSet = array_flip( $rest );
+
+	// @longform In-degree counts callers among $rest. The constructor is
+	// pre-placed and gates nothing, so its callees stay free to sink below
+	// whichever other callers they have.
+	$callees = []; $indeg = array_fill_keys( $rest, 0 );
+	foreach ( array_merge( $ctor, $rest ) as $i ) {
+		$cs = [];
 		foreach ( $callees_of( $i ) as $cn ) {
 			$j = $names[ $cn ] ?? null;
-			if ( $j !== null && ! isset( $visited[ $j ] ) ) { $visited[ $j ] = 1; $placed[] = $j; $expand( $j ); }
+			if ( $j === null || ! isset( $restSet[ $j ] ) ) continue;
+			$cs[] = $j;
+			if ( isset( $restSet[ $i ] ) ) $indeg[ $j ]++;
 		}
-	};
-	foreach ( $ctor as $i ) $expand( $i ); // constructor's helpers below it
+		$callees[ $i ] = $cs;
+	}
 
-	$public_idx     = array_values( array_filter( $rest, fn( $i ) => $methods[ $i ]['public'] ) );
-	$called_by_pub  = [];
-	foreach ( $public_idx as $i ) foreach ( $callees_of( $i ) as $cn ) $called_by_pub[ $cn ] = 1;
-	$roots = array_values( array_filter(
-		$public_idx,
-		fn( $i ) => ! isset( $called_by_pub[ $methods[ $i ]['name'] ] ) && count( $callees_of( $i ) ) > 0
-	) );
-	usort( $roots, function ( $a, $b ) use ( $depth_of ) {
-		$d = $depth_of( $b, [] ) <=> $depth_of( $a, [] ); // deepest first
-		return $d !== 0 ? $d : ( $a <=> $b );              // tie: source order
-	} );
-	foreach ( $roots as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; $expand( $i ); }
-	// Remaining publics (private-only reach, recursion), then privates.
-	foreach ( $rest as $i ) if ( $methods[ $i ]['public'] && ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; $expand( $i ); }
-	foreach ( $rest as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; }
+	// @longform Kahn: a method is emitted only once EVERY caller of it already
+	// is, so no caller can ever print below a method it calls. Ties prefer a
+	// public method that calls something, so its own chain reads top-down,
+	// then source order. A cycle stalls the sort and falls through below.
+	// @longform Freed order is the primary tie-break, most recent first: emitting
+	// a caller pulls in the callees it just released, so a chain stays together
+	// instead of yielding to an unrelated root that merely sorts earlier. Roots
+	// free from the start share order 0 and fall to rank, then source.
+	$placed = []; $visited = []; $freed = array_fill_keys( $rest, 0 ); $tick = 0;
+	$rank = fn( $i ) => ( $methods[ $i ]['public'] && $callees[ $i ] ) ? 0 : ( $methods[ $i ]['public'] ? 1 : 2 );
+	while ( true ) {
+		$avail = array_values( array_filter( $rest, fn( $i ) => ! isset( $visited[ $i ] ) && 0 === $indeg[ $i ] ) );
+		if ( ! $avail ) break;
+		usort( $avail, function ( $a, $b ) use ( $rank, $freed ) {
+			return ( $freed[ $b ] <=> $freed[ $a ] ) ?: ( $rank( $a ) <=> $rank( $b ) ) ?: ( $a <=> $b );
+		} );
+		$i = $avail[0];
+		$visited[ $i ] = 1; $placed[] = $i;
+		foreach ( $callees[ $i ] as $j ) {
+			if ( 0 === --$indeg[ $j ] ) $freed[ $j ] = ++$tick;
+		}
+		// @longform A closure body's calls gate nothing — they run later, under
+		// whoever invokes the closure — but they still say "these two belong
+		// together", so they nudge an already-free method up the tie-break.
+		foreach ( $callees_of( $i, true ) as $cn ) {
+			$j = $names[ $cn ] ?? null;
+			if ( null !== $j && isset( $indeg[ $j ] ) && ! isset( $visited[ $j ] ) && 0 === $indeg[ $j ] ) {
+				$freed[ $j ] = ++$tick;
+			}
+		}
+	}
+	foreach ( $rest as $i ) if ( ! isset( $visited[ $i ] ) ) { $visited[ $i ] = 1; $placed[] = $i; } // cycle
 	return array_merge( $ctor, $placed );
 }
 
@@ -453,8 +483,8 @@ function pinned_field_positions( string $src, array $slice, int $region_start, a
 }
 
 /** @return array{0: string, 1: list<string>} */
-function reorder( string $src, bool $all_classes, bool $sort_fields = false ): array {
-	$classes = find_classes( $src, $all_classes );
+function reorder( string $src, bool $sort_fields = false ): array {
+	$classes = find_classes( $src );
 	$toks    = tokens_with_offsets( $src );
 	usort( $classes, fn( $a, $b ) => $b['contentStart'] <=> $a['contentStart'] ); // right-to-left: offsets stay valid
 	$out   = $src;
@@ -538,19 +568,18 @@ $argv_rest   = array_slice( $argv, 1 );
 $write       = in_array( '--write', $argv_rest, true );
 // --check: dry-run that FAILS when a file is out of order, for the hook.
 $check       = in_array( '--check', $argv_rest, true );
-$all_classes = in_array( '--all-classes', $argv_rest, true );
 $sort_fields = in_array( '--sort-fields', $argv_rest, true );
 $files       = array_values( array_filter( $argv_rest, fn( $a ) => ! str_starts_with( $a, '--' ) ) );
-if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--check|--write] [--all-classes] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
+if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--check|--write] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
 $failed = false;
 foreach ( $files as $f ) {
 	$src = file_get_contents( $f );
 	if ( false === $src ) { fwrite( STDERR, "✗ $f: cannot read\n" ); $failed = true; continue; }
-	$before = member_fingerprint( $src, $all_classes );
-	[ $out, $notes ] = reorder( $src, $all_classes, $sort_fields );
+	$before = member_fingerprint( $src );
+	[ $out, $notes ] = reorder( $src, $sort_fields );
 	if ( $out === $src ) continue;
 	// Invariants: member texts unchanged, whole-file byte multiset unchanged.
-	if ( $before !== member_fingerprint( $out, $all_classes ) || count_chars( $src, 1 ) !== count_chars( $out, 1 ) ) {
+	if ( $before !== member_fingerprint( $out ) || count_chars( $src, 1 ) !== count_chars( $out, 1 ) ) {
 		fwrite( STDERR, "✗ $f: INVARIANT VIOLATION — aborted\n" );
 		$failed = true;
 		continue;
