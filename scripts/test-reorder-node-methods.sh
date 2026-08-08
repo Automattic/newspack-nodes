@@ -325,6 +325,40 @@ JS
 js_loc="$( node reorder-node-methods.js "$tmp/locality.js" 2>&1 )"
 assert_before "js locality: chainMid follows chainTop, before loner" "$js_loc" chainMid loner
 
+# ---- (F) code under tests/ is NOT reordered ----
+# Test methods have no call graph worth ordering, setUp/tearDown are a fixture
+# contract rather than a chain, and a mock mirrors the class it doubles. The
+# gate runs on every staged *.php, so tests reach it unless excluded.
+mkdir -p "$tmp/tests"
+cat > "$tmp/tests/class-somethingTest.php" <<'PHP'
+<?php
+use PHPUnit\Framework\TestCase;
+
+class Something_Test extends TestCase {
+	protected function setUp(): void {
+		$this->seed();
+	}
+
+	public function test_zeta(): void {
+		$this->seed();
+	}
+
+	private function seed(): void {
+	}
+
+	protected function tearDown(): void {
+	}
+}
+PHP
+out_t="$( php reorder-node-methods.php --check "$tmp/tests/class-somethingTest.php" 2>&1 )"
+if [[ -n "$out_t" ]]; then
+	echo "✗ php tests-skip: code under tests/ must not be reordered; got:"
+	echo "$out_t"
+	fail=1
+else
+	echo "✓ php tests-skip: code under tests/ left alone"
+fi
+
 cat > "$tmp/dualhomed-node.js" <<'JS'
 class DualhomedNode extends Node {
 	fill( message ) {

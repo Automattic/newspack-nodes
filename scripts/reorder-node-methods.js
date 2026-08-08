@@ -540,7 +540,22 @@ function reorderClass( src, cls, isNode ) {
 	};
 }
 
+// @longform Test code is left alone. Its methods have no call graph worth
+// ordering, and a double deliberately mirrors the order of what it doubles. The
+// gate runs on every staged file, so tests reach it unless excluded here.
+function isTestPath( file ) {
+	const norm = file.split( path.sep ).join( '/' );
+	return (
+		norm.includes( '/tests/' ) ||
+		norm.startsWith( 'tests/' ) ||
+		/\.test\.[cm]?jsx?$/.test( norm )
+	);
+}
+
 function reorderFile( file, doWrite ) {
+	if ( isTestPath( file ) ) {
+		return { file, changed: false, notes: [] };
+	}
 	const src = fs.readFileSync( file, 'utf8' );
 	let ast;
 	try {
