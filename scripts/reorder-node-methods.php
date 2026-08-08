@@ -572,7 +572,17 @@ $sort_fields = in_array( '--sort-fields', $argv_rest, true );
 $files       = array_values( array_filter( $argv_rest, fn( $a ) => ! str_starts_with( $a, '--' ) ) );
 if ( ! $files ) { fwrite( STDERR, "usage: php reorder-node-methods.php [--check|--write] [--sort-fields] <file.php> [...]\n" ); exit( 1 ); }
 $failed = false;
+// @longform Test code is left alone. Its methods have no call graph worth
+// ordering, setUp/tearDown are a fixture contract rather than a chain, and a
+// mock deliberately mirrors the order of the class it doubles. The gate runs on
+// every staged *.php, so tests reach it unless excluded here.
+function is_test_path( string $f ): bool {
+	$norm = str_replace( '\\', '/', $f );
+	return str_contains( $norm, '/tests/' ) || str_starts_with( $norm, 'tests/' );
+}
+
 foreach ( $files as $f ) {
+	if ( is_test_path( $f ) ) continue;
 	$src = file_get_contents( $f );
 	if ( false === $src ) { fwrite( STDERR, "✗ $f: cannot read\n" ); $failed = true; continue; }
 	$before = member_fingerprint( $src );
