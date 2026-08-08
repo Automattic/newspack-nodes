@@ -117,20 +117,6 @@ export class RequestNode extends Node {
 	}
 
 	/**
-	 * Mint the command and wait for the reply addressed back here.
-	 *
-	 * @param {string}   verb Verb name.
-	 * @param {string[]} args Token array.
-	 * @return {Promise<*>} The reply payload; rejects on TM_ERROR or timeout.
-	 */
-	request( verb, args = [] ) {
-		return new Promise( ( resolve, reject ) => {
-			this._queue.push( { verb, args, resolve, reject } );
-			this._next();
-		} );
-	}
-
-	/**
 	 * Reject the outstanding continuation and every queued one before tearing
 	 * down: a removed node will never see a reply, so a caller holding one of
 	 * those Promises would otherwise wait out the full timeout, or forever.
@@ -141,6 +127,46 @@ export class RequestNode extends Node {
 		this._settle( ( p ) => p.reject( gone ) );
 		queued.forEach( ( p ) => p.reject( gone ) );
 		super.removeNode();
+	}
+
+	/**
+	 * Mint `head` once the session has landed, unless it went in the meantime.
+	 *
+	 * @param {Object} head The queued continuation this wait belongs to.
+	 */
+	_mintAfterSession( head ) {
+		if ( this._queue[ 0 ] !== head ) {
+			return; // settled or dropped while we waited
+		}
+		this._queue.shift();
+		this._pending = head;
+		const m = this.command( head.verb, head.args );
+		if ( null === m ) {
+			this._settle( ( p ) =>
+				p.reject( new Error( 'not authenticated' ) )
+			);
+			return;
+		}
+		this._send( m, head );
+	}
+
+	/**
+	 * Clear the continuation, then hand it to `run` — cleared first so a
+	 * handler that requests again from its own `.then` is not refused.
+	 *
+	 * @param {Function} run Receives the settled `{ resolve, reject }`.
+	 */
+	_settle( run ) {
+		const pending = this._pending;
+		this._pending = null;
+		if ( this._timer ) {
+			clearTimeout( this._timer );
+			this._timer = null;
+		}
+		if ( pending ) {
+			run( pending );
+		}
+		this._next();
 	}
 
 	/**
@@ -169,27 +195,6 @@ export class RequestNode extends Node {
 	}
 
 	/**
-	 * Mint `head` once the session has landed, unless it went in the meantime.
-	 *
-	 * @param {Object} head The queued continuation this wait belongs to.
-	 */
-	_mintAfterSession( head ) {
-		if ( this._queue[ 0 ] !== head ) {
-			return; // settled or dropped while we waited
-		}
-		this._queue.shift();
-		this._pending = head;
-		const m = this.command( head.verb, head.args );
-		if ( null === m ) {
-			this._settle( ( p ) =>
-				p.reject( new Error( 'not authenticated' ) )
-			);
-			return;
-		}
-		this._send( m, head );
-	}
-
-	/**
 	 * Arm the reply deadline and put the command on the wire.
 	 *
 	 * @param {Array}  m    The minted command Message.
@@ -206,22 +211,17 @@ export class RequestNode extends Node {
 	}
 
 	/**
-	 * Clear the continuation, then hand it to `run` — cleared first so a
-	 * handler that requests again from its own `.then` is not refused.
+	 * Mint the command and wait for the reply addressed back here.
 	 *
-	 * @param {Function} run Receives the settled `{ resolve, reject }`.
+	 * @param {string}   verb Verb name.
+	 * @param {string[]} args Token array.
+	 * @return {Promise<*>} The reply payload; rejects on TM_ERROR or timeout.
 	 */
-	_settle( run ) {
-		const pending = this._pending;
-		this._pending = null;
-		if ( this._timer ) {
-			clearTimeout( this._timer );
-			this._timer = null;
-		}
-		if ( pending ) {
-			run( pending );
-		}
-		this._next();
+	request( verb, args = [] ) {
+		return new Promise( ( resolve, reject ) => {
+			this._queue.push( { verb, args, resolve, reject } );
+			this._next();
+		} );
 	}
 
 	/**

@@ -195,6 +195,19 @@ class Core {
 		}
 	}
 
+	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
+	public static function cleanup_all_nodes(): void {
+		$nodes = self::$nodes_by_name;
+		foreach ( $nodes as $node ) {
+			try {
+				$node->remove_node();
+			} catch ( \Throwable $e ) {
+				// Best-effort: one node's failure shouldn't block the rest.
+				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
+			}
+		}
+	}
+
 	public static function stderr( string $text ): void {
 		if ( '' === $text ) {
 			return;
@@ -206,75 +219,6 @@ class Core {
 			\array_shift( self::$recent_log );
 		}
 		self::_stderr( $line );
-	}
-
-	/**
-	 * Per-line process-identity midfix.
-	 *
-	 * With no text, returns the bare midfix. With text, chomps a
-	 * trailing newline, prepends the midfix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_midfix( ?string $text = null ): string {
-		$uptime = (int) ( Core::$now - Core::$init_time );
-		$midfix = self::log_host() . ' '
-			. self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ';
-		if ( null === $text ) {
-			return $midfix;
-		}
-		$text = \rtrim( $text, "\n" );
-		// Prepend the midfix to the start of every line (Perl m///mg).
-		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
-		return $text . "\n";
-	}
-
-	/**
-	 * Site identity for the log midfix — the host of `home_url()`.
-	 *
-	 * @longform `gethostname()` names the MACHINE, and on shared hosting that is
-	 * a pool box every site on it reports identically
-	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
-	 * whose worker wrote a line. The site's own host can. Memoized because
-	 * `home_url()` reads an option and runs filters, and this is on every logged
-	 * line; falls back to the machine name before WordPress is loaded.
-	 */
-	private static function log_host(): string {
-		if ( '' !== self::$log_host ) {
-			return self::$log_host;
-		}
-		$host = '';
-		if ( \function_exists( 'home_url' ) && \function_exists( 'wp_parse_url' ) ) {
-			$host = Core::as_string( \wp_parse_url( \home_url(), \PHP_URL_HOST ) );
-		}
-		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
-		return self::$log_host;
-	}
-
-	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
-	public static function argv0(): string {
-		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
-		}
-		return \PHP_SAPI;
-	}
-
-	/**
-	 * Per-line timestamp prefix.
-	 *
-	 * With no text, returns the bare prefix. With text, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline.
-	 */
-	public static function log_prefix( ?string $text = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
-		if ( null === $text ) {
-			return $prefix;
-		}
-		$text = \rtrim( $text, "\n" );
-		// Prepend the prefix to the start of every line (Perl m///mg).
-		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
-		return $text . "\n";
 	}
 
 	/**
@@ -311,17 +255,55 @@ class Core {
 		}
 	}
 
-	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
-	public static function cleanup_all_nodes(): void {
-		$nodes = self::$nodes_by_name;
-		foreach ( $nodes as $node ) {
-			try {
-				$node->remove_node();
-			} catch ( \Throwable $e ) {
-				// Best-effort: one node's failure shouldn't block the rest.
-				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
-			}
+	/**
+	 * Per-line process-identity midfix.
+	 *
+	 * With no text, returns the bare midfix. With text, chomps a
+	 * trailing newline, prepends the midfix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_midfix( ?string $text = null ): string {
+		$uptime = (int) ( Core::$now - Core::$init_time );
+		$midfix = self::log_host() . ' '
+			. self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ';
+		if ( null === $text ) {
+			return $midfix;
 		}
+		$text = \rtrim( $text, "\n" );
+		// Prepend the midfix to the start of every line (Perl m///mg).
+		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
+		return $text . "\n";
+	}
+
+	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
+	public static function argv0(): string {
+		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
+		}
+		return \PHP_SAPI;
+	}
+
+	/**
+	 * Site identity for the log midfix — the host of `home_url()`.
+	 *
+	 * @longform `gethostname()` names the MACHINE, and on shared hosting that is
+	 * a pool box every site on it reports identically
+	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
+	 * whose worker wrote a line. The site's own host can. Memoized because
+	 * `home_url()` reads an option and runs filters, and this is on every logged
+	 * line; falls back to the machine name before WordPress is loaded.
+	 */
+	private static function log_host(): string {
+		if ( '' !== self::$log_host ) {
+			return self::$log_host;
+		}
+		$host = '';
+		if ( \function_exists( 'home_url' ) && \function_exists( 'wp_parse_url' ) ) {
+			$host = Core::as_string( \wp_parse_url( \home_url(), \PHP_URL_HOST ) );
+		}
+		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
+		return self::$log_host;
 	}
 
 	public static function reset(): void {
@@ -355,10 +337,6 @@ class Core {
 		Event_Framework::reset();
 	}
 
-	public static function set_stderr_handler( callable $h ): void {
-		self::$stderr_handler = $h;
-	}
-
 	/**
 	 * The one fresh-clock call site (Tachikoma's $Tachikoma::Right_Now). Reads the
 	 * live hi-res clock, refreshes the cached per-tick clock as a side benefit, and
@@ -369,6 +347,28 @@ class Core {
 	public static function right_now(): float {
 		self::$now = \microtime( true );
 		return self::$now;
+	}
+
+	/**
+	 * Per-line timestamp prefix.
+	 *
+	 * With no text, returns the bare prefix. With text, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline.
+	 */
+	public static function log_prefix( ?string $text = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC ';
+		if ( null === $text ) {
+			return $prefix;
+		}
+		$text = \rtrim( $text, "\n" );
+		// Prepend the prefix to the start of every line (Perl m///mg).
+		$text = $prefix . \str_replace( "\n", "\n" . $prefix, $text );
+		return $text . "\n";
+	}
+
+	public static function set_stderr_handler( callable $h ): void {
+		self::$stderr_handler = $h;
 	}
 
 	/**
@@ -406,29 +406,6 @@ class Core {
 	}
 
 	/**
-	 * Options for the fire-and-forget spawn POST. Split out so the option set is
-	 * assertable without a transport seam.
-	 *
-	 * @param string $url    Target URL.
-	 * @param string $fields Already query-encoded body.
-	 * @return array<int, mixed>
-	 */
-	private static function post_curl_options( string $url, string $fields ): array {
-		return [
-			\CURLOPT_URL               => $url,
-			\CURLOPT_POST              => true,
-			\CURLOPT_POSTFIELDS        => $fields,
-			\CURLOPT_NOSIGNAL          => true,
-			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
-			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
-			\CURLOPT_RETURNTRANSFER    => false,
-			\CURLOPT_HEADER            => false,
-			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
-			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
-		];
-	}
-
-	/**
 	 * Classify a fire-and-forget result. Split out so the rule is assertable
 	 * without a transport seam, as post_curl_options is for the option set.
 	 *
@@ -457,6 +434,29 @@ class Core {
 				: \sprintf( 'timed out after %d of %d bytes were sent: %s', $uploaded, $expected, $error );
 		}
 		return $error;
+	}
+
+	/**
+	 * Options for the fire-and-forget spawn POST. Split out so the option set is
+	 * assertable without a transport seam.
+	 *
+	 * @param string $url    Target URL.
+	 * @param string $fields Already query-encoded body.
+	 * @return array<int, mixed>
+	 */
+	private static function post_curl_options( string $url, string $fields ): array {
+		return [
+			\CURLOPT_URL               => $url,
+			\CURLOPT_POST              => true,
+			\CURLOPT_POSTFIELDS        => $fields,
+			\CURLOPT_NOSIGNAL          => true,
+			\CURLOPT_TIMEOUT_MS        => self::SPAWN_POST_TIMEOUT_MS,
+			\CURLOPT_CONNECTTIMEOUT_MS => self::SPAWN_POST_TIMEOUT_MS,
+			\CURLOPT_RETURNTRANSFER    => false,
+			\CURLOPT_HEADER            => false,
+			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
+			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
+		];
 	}
 
 	/** True while the stderr handler is on the stack; pump() reads it to skip a log-write stop. */

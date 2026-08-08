@@ -128,22 +128,6 @@ export class SeekTracker {
 	}
 
 	/**
-	 * Return to the live tail, dropping the catch-up boundary. The last received
-	 * segment survives, so the rail highlight stays where the records are.
-	 *
-	 * The ONE cleared shape: `select()` is this plus forgetting the breadcrumb,
-	 * the constructor is `select()`, and the replay→live flip is this. Four
-	 * hand-maintained copies meant a new field would reach three of them.
-	 */
-	follow() {
-		this.mode = LIVE;
-		this.endSegment = null;
-		this.endOffset = 0;
-		this.fileMode = false;
-		this.referenceSegment = null;
-	}
-
-	/**
 	 * Track a record's `segment:offset:length` ID breadcrumb.
 	 *
 	 * @param {*} id The record's Message ID (a breadcrumb string, else ignored).
@@ -174,6 +158,22 @@ export class SeekTracker {
 			modeChanged = true;
 		}
 		return segmentChanged || modeChanged;
+	}
+
+	/**
+	 * Return to the live tail, dropping the catch-up boundary. The last received
+	 * segment survives, so the rail highlight stays where the records are.
+	 *
+	 * The ONE cleared shape: `select()` is this plus forgetting the breadcrumb,
+	 * the constructor is `select()`, and the replay→live flip is this. Four
+	 * hand-maintained copies meant a new field would reach three of them.
+	 */
+	follow() {
+		this.mode = LIVE;
+		this.endSegment = null;
+		this.endOffset = 0;
+		this.fileMode = false;
+		this.referenceSegment = null;
 	}
 
 	/**

@@ -152,21 +152,6 @@ class TTY_In_Node extends Stdin_Node {
 		$this->out->mark_prompt_displayed();
 	}
 
-	/**
-	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
-	 */
-	public function handle_readline_line( ?string $line ): void {
-		if ( null === $line ) {
-			$this->readline_eof = true;
-			return;
-		}
-		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
-			\readline_add_history( $line );
-		}
-		$this->queue[]              = $line;
-		$this->out->prompt_displayed = false;
-	}
-
 	private function show_prompt_fallback(): void {
 		if ( $this->prompt_displayed ) {
 			return;
@@ -250,6 +235,21 @@ class TTY_In_Node extends Stdin_Node {
 		return \array_values(
 			\array_filter( $pool, static fn ( string $c ): bool => \str_starts_with( $c, $word ) )
 		);
+	}
+
+	/**
+	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
+	 */
+	public function handle_readline_line( ?string $line ): void {
+		if ( null === $line ) {
+			$this->readline_eof = true;
+			return;
+		}
+		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
+			\readline_add_history( $line );
+		}
+		$this->queue[]              = $line;
+		$this->out->prompt_displayed = false;
 	}
 
 	/**

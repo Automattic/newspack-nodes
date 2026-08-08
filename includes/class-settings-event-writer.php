@@ -73,6 +73,34 @@ class Settings_Event_Writer {
 	}
 
 	/**
+	 * `add_option` hook callback. A brand-new option carries a NEW value only.
+	 *
+	 * @api Registered dynamically via add_action by init().
+	 * @param string $option Option name.
+	 * @param mixed  $value  New value (excerpted only for allowlisted options).
+	 */
+	public static function on_add( string $option, $value ): void {
+		self::maybe_emit( $option, [ 'new' => $value ] );
+	}
+
+	/**
+	 * `delete_option` hook callback. Resetting a setting to its default deletes
+	 * the option row (Reset_Gate short-circuits update_option), so without this
+	 * the reset-to-default never propagates to spokes — the downstream push then
+	 * reads the now-absent option and the value-resolver ships the file default.
+	 *
+	 * @api Registered dynamically via add_action by init().
+	 * @param string $option Option name.
+	 */
+	public static function on_delete( string $option ): void {
+		// @longform delete_option fires pre-delete, so get_option still
+		// returns the OLD value — but only fetch it for allowlisted names;
+		// the common name-only path pays no extra get_option.
+		$values = self::is_allowlisted( $option ) ? [ 'old' => \get_option( $option ) ] : [];
+		self::maybe_emit( $option, $values );
+	}
+
+	/**
 	 * Emit a TM_STRUCT settings-change event: name always, old/new only when the
 	 * option is allowlisted, and only after the packed record fits under PIPE_BUF.
 	 *
@@ -95,101 +123,6 @@ class Settings_Event_Writer {
 			return;
 		}
 		self::default_append( $message );
-	}
-
-	/**
-	 * The record for an event: `[ 'option' => name ]` always, plus bounded 'old'/'new'
-	 * excerpts when the option is allowlisted (each side present only if supplied).
-	 *
-	 * @param string               $option Option name.
-	 * @param array<string, mixed> $values Raw old/new values keyed 'old'/'new'.
-	 * @return array<string, string>
-	 */
-	private static function build_record( string $option, array $values ): array {
-		$record = [ 'option' => $option ];
-		if ( ! self::is_allowlisted( $option ) ) {
-			return $record;
-		}
-		foreach ( [ 'old', 'new' ] as $side ) {
-			if ( \array_key_exists( $side, $values ) ) {
-				$record[ $side ] = self::excerpt( $values[ $side ] );
-			}
-		}
-		return $record;
-	}
-
-	/**
-	 * Whether an option may carry value excerpts: on the Settings_Schema-derived
-	 * allowlist (filter-overridable), minus the vault option (hard security exclude).
-	 *
-	 * @param string $option Option name.
-	 */
-	private static function is_allowlisted( string $option ): bool {
-		if ( Vault::OPTION_KEY === $option ) {
-			return false;
-		}
-		$defaults = Settings_Schema::get()->setting_option_names();
-		$list     = \apply_filters( self::ALLOWLIST_FILTER, $defaults );
-		return \is_array( $list ) && \in_array( $option, $list, true );
-	}
-
-	/**
-	 * A bounded, human-readable excerpt of a value: its JSON encoding (unicode kept
-	 * legible) truncated to EXCERPT_MAX_CHARS characters. Multibyte chars re-escape
-	 * larger when the whole record is packed — fit_to_line enforces the byte cap.
-	 *
-	 * A numeric string normalizes to its number first: `update_option()`'s $old
-	 * always comes back from the options table as a string (WP options are text
-	 * columns; every scalar round-trips as one), while an int-typed
-	 * Settings_Schema field's sanitizer hands $new a genuine PHP int — so an
-	 * unchanged value would otherwise excerpt as `"900"` on one side and `900`
-	 * on the other, a type artifact with no bearing on the setting's actual value.
-	 *
-	 * @param mixed $value Raw option value.
-	 */
-	private static function excerpt( $value ): string {
-		if ( \is_string( $value ) && \is_numeric( $value ) ) {
-			$value += 0;
-		}
-		$json = \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE );
-		if ( ! \is_string( $json ) ) {
-			return '';
-		}
-		return \mb_substr( $json, 0, self::EXCERPT_MAX_CHARS );
-	}
-
-	/**
-	 * Fit the packed record under the settings log's PIPE_BUF line. Mirrors
-	 * Job_Probe_Node::fit_to_line — the char cap is a proxy (a multibyte char JSON-
-	 * packs to up to 12 bytes), so measure packed_size and halve the old/new excerpts
-	 * until the line fits. When nothing's left to trim, drop to name-only (always
-	 * emits): the change still records, only its values are dropped.
-	 *
-	 * @param array<int, mixed> $message The minted record message.
-	 * @param string            $option  Option name, for the name-only fallback.
-	 * @return array<int, mixed>
-	 */
-	private static function fit_to_line( array $message, string $option ): array {
-		while ( Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
-			$value = $message[ Message::VALUE ];
-			if ( ! \is_array( $value ) ) {
-				return $message; // VALUE is always our record; guard narrows the type.
-			}
-			$trimmed = false;
-			foreach ( [ 'old', 'new' ] as $side ) {
-				$excerpt = Core::as_string( $value[ $side ] ?? '' );
-				if ( '' !== $excerpt ) {
-					$value[ $side ] = \mb_substr( $excerpt, 0, \intdiv( \mb_strlen( $excerpt ), 2 ) );
-					$trimmed        = true;
-				}
-			}
-			if ( ! $trimmed ) {
-				$message[ Message::VALUE ] = [ 'option' => $option ];
-				return $message;
-			}
-			$message[ Message::VALUE ] = $value;
-		}
-		return $message;
 	}
 
 	/**
@@ -240,31 +173,98 @@ class Settings_Event_Writer {
 	}
 
 	/**
-	 * `add_option` hook callback. A brand-new option carries a NEW value only.
+	 * Fit the packed record under the settings log's PIPE_BUF line. Mirrors
+	 * Job_Probe_Node::fit_to_line — the char cap is a proxy (a multibyte char JSON-
+	 * packs to up to 12 bytes), so measure packed_size and halve the old/new excerpts
+	 * until the line fits. When nothing's left to trim, drop to name-only (always
+	 * emits): the change still records, only its values are dropped.
 	 *
-	 * @api Registered dynamically via add_action by init().
-	 * @param string $option Option name.
-	 * @param mixed  $value  New value (excerpted only for allowlisted options).
+	 * @param array<int, mixed> $message The minted record message.
+	 * @param string            $option  Option name, for the name-only fallback.
+	 * @return array<int, mixed>
 	 */
-	public static function on_add( string $option, $value ): void {
-		self::maybe_emit( $option, [ 'new' => $value ] );
+	private static function fit_to_line( array $message, string $option ): array {
+		while ( Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
+			$value = $message[ Message::VALUE ];
+			if ( ! \is_array( $value ) ) {
+				return $message; // VALUE is always our record; guard narrows the type.
+			}
+			$trimmed = false;
+			foreach ( [ 'old', 'new' ] as $side ) {
+				$excerpt = Core::as_string( $value[ $side ] ?? '' );
+				if ( '' !== $excerpt ) {
+					$value[ $side ] = \mb_substr( $excerpt, 0, \intdiv( \mb_strlen( $excerpt ), 2 ) );
+					$trimmed        = true;
+				}
+			}
+			if ( ! $trimmed ) {
+				$message[ Message::VALUE ] = [ 'option' => $option ];
+				return $message;
+			}
+			$message[ Message::VALUE ] = $value;
+		}
+		return $message;
 	}
 
 	/**
-	 * `delete_option` hook callback. Resetting a setting to its default deletes
-	 * the option row (Reset_Gate short-circuits update_option), so without this
-	 * the reset-to-default never propagates to spokes — the downstream push then
-	 * reads the now-absent option and the value-resolver ships the file default.
+	 * The record for an event: `[ 'option' => name ]` always, plus bounded 'old'/'new'
+	 * excerpts when the option is allowlisted (each side present only if supplied).
 	 *
-	 * @api Registered dynamically via add_action by init().
+	 * @param string               $option Option name.
+	 * @param array<string, mixed> $values Raw old/new values keyed 'old'/'new'.
+	 * @return array<string, string>
+	 */
+	private static function build_record( string $option, array $values ): array {
+		$record = [ 'option' => $option ];
+		if ( ! self::is_allowlisted( $option ) ) {
+			return $record;
+		}
+		foreach ( [ 'old', 'new' ] as $side ) {
+			if ( \array_key_exists( $side, $values ) ) {
+				$record[ $side ] = self::excerpt( $values[ $side ] );
+			}
+		}
+		return $record;
+	}
+
+	/**
+	 * A bounded, human-readable excerpt of a value: its JSON encoding (unicode kept
+	 * legible) truncated to EXCERPT_MAX_CHARS characters. Multibyte chars re-escape
+	 * larger when the whole record is packed — fit_to_line enforces the byte cap.
+	 *
+	 * A numeric string normalizes to its number first: `update_option()`'s $old
+	 * always comes back from the options table as a string (WP options are text
+	 * columns; every scalar round-trips as one), while an int-typed
+	 * Settings_Schema field's sanitizer hands $new a genuine PHP int — so an
+	 * unchanged value would otherwise excerpt as `"900"` on one side and `900`
+	 * on the other, a type artifact with no bearing on the setting's actual value.
+	 *
+	 * @param mixed $value Raw option value.
+	 */
+	private static function excerpt( $value ): string {
+		if ( \is_string( $value ) && \is_numeric( $value ) ) {
+			$value += 0;
+		}
+		$json = \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE );
+		if ( ! \is_string( $json ) ) {
+			return '';
+		}
+		return \mb_substr( $json, 0, self::EXCERPT_MAX_CHARS );
+	}
+
+	/**
+	 * Whether an option may carry value excerpts: on the Settings_Schema-derived
+	 * allowlist (filter-overridable), minus the vault option (hard security exclude).
+	 *
 	 * @param string $option Option name.
 	 */
-	public static function on_delete( string $option ): void {
-		// @longform delete_option fires pre-delete, so get_option still
-		// returns the OLD value — but only fetch it for allowlisted names;
-		// the common name-only path pays no extra get_option.
-		$values = self::is_allowlisted( $option ) ? [ 'old' => \get_option( $option ) ] : [];
-		self::maybe_emit( $option, $values );
+	private static function is_allowlisted( string $option ): bool {
+		if ( Vault::OPTION_KEY === $option ) {
+			return false;
+		}
+		$defaults = Settings_Schema::get()->setting_option_names();
+		$list     = \apply_filters( self::ALLOWLIST_FILTER, $defaults );
+		return \is_array( $list ) && \in_array( $option, $list, true );
 	}
 
 	/**

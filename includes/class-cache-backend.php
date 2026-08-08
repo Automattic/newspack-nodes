@@ -73,17 +73,17 @@ final class Cache_Backend {
 		return null !== Core::$memd ? new self( Core::$memd ) : null;
 	}
 
-	private static function apcu(): bool {
-		$check = self::$apcu_usable ?? static fn (): bool => \function_exists( 'apcu_enabled' ) && \apcu_enabled();
-		return (bool) $check();
-	}
-
 	/** Memcached → APCu → null. */
 	public static function shared_first(): ?self {
 		if ( null !== Core::$memd ) {
 			return new self( Core::$memd );
 		}
 		return self::apcu() ? new self( null ) : null;
+	}
+
+	private static function apcu(): bool {
+		$check = self::$apcu_usable ?? static fn (): bool => \function_exists( 'apcu_enabled' ) && \apcu_enabled();
+		return (bool) $check();
 	}
 
 	/**
@@ -137,24 +137,6 @@ final class Cache_Backend {
 		return \apcu_inc( $key );
 	}
 
-	/**
-	 * Whether APCu currently holds the key.
-	 *
-	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
-	 * parameter is for — while `Memcached::increment`/`decrement` return false
-	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
-	 * and the disagreement was load-bearing: a decrement of an evicted batch
-	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
-	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
-	 *
-	 * @param string $key The cache key.
-	 * @return bool True when the key exists.
-	 */
-	private function apcu_has( string $key ): bool {
-		\apcu_fetch( $key, $hit );
-		return (bool) $hit;
-	}
-
 	/** Memcached clamps at zero; mirror that on the APCu arm (apcu_dec goes negative). */
 	public function decrement( string $key ): int|false {
 		if ( null !== $this->memd ) {
@@ -172,6 +154,24 @@ final class Cache_Backend {
 			return 0;
 		}
 		return $value;
+	}
+
+	/**
+	 * Whether APCu currently holds the key.
+	 *
+	 * `apcu_inc`/`apcu_dec` CREATE a missing key — that is what their `$ttl`
+	 * parameter is for — while `Memcached::increment`/`decrement` return false
+	 * and set RES_NOTFOUND. Counters are the one place the two arms disagreed,
+	 * and the disagreement was load-bearing: a decrement of an evicted batch
+	 * counter clamped to a stored 0, which `Job_Worker_Node::settle_batch()`
+	 * reads as a completed fan-in. Gate both on existence so a miss is a miss.
+	 *
+	 * @param string $key The cache key.
+	 * @return bool True when the key exists.
+	 */
+	private function apcu_has( string $key ): bool {
+		\apcu_fetch( $key, $hit );
+		return (bool) $hit;
 	}
 
 	/** Atomic claim: false when the key already exists. */

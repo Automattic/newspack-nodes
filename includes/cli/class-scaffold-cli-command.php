@@ -78,6 +78,70 @@ class Scaffold_CLI_Command {
 	}
 
 	/**
+	 * Write one TSL topology (stock nodes only) into the cwd.
+	 *
+	 * @param string $name Topology name.
+	 * @return array<int, string> Paths written, relative to cwd.
+	 */
+	private function scaffold_topology( string $name ): array {
+		self::require_slug( $name );
+		$path = "{$name}.tsl";
+
+		self::refuse_existing( [ $path ] );
+		self::write_file( $path, $this->stock_topology_template( $name ) );
+		return [ $path ];
+	}
+
+	/**
+	 * A stock-nodes-only topology so it runs before any custom class exists.
+	 *
+	 * @param string $name Topology name.
+	 */
+	private function stock_topology_template( string $name ): string {
+		return <<<TSL
+# {$name} — scaffolded starter graph (stock nodes only): echo → log.
+# Replace Echo with your own node once `composer dump-autoload -o` knows it.
+var num_partitions = 1
+make_node Echo {$name}
+make_node Log  log <config:logs_dir>/{$name}-out 1 2 7
+connect_node {$name} log
+
+TSL;
+	}
+
+	/**
+	 * Write one node class into the plugin's `includes/`, namespaced to the
+	 * plugin — the only combination that both autoloads and resolves.
+	 *
+	 * `scaffold plugin` classmaps exactly `includes/` and registers the plugin
+	 * prefix, so a class must be under that dir AND under that namespace.
+	 * Deriving the namespace from the cwd basename satisfied neither door: from
+	 * the plugin root the file fell outside the classmap; from `includes/` the
+	 * namespace came out `Includes`, which `make_node` never resolves. Run from
+	 * either, the answer is the same file.
+	 *
+	 * @param string $class Class name (with or without the `_Node` suffix).
+	 * @return array<int, string> Paths written, relative to cwd.
+	 */
+	private function scaffold_node( string $class ): array {
+		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
+			\WP_CLI::error( "Invalid class name: {$class}. Use letters and underscores only, e.g. My_Filter." );
+		}
+		$class = (string) \preg_replace( '/_Node$/', '', $class );
+		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
+
+		$cwd       = (string) \getcwd();
+		$in_incs   = 'includes' === \basename( $cwd );
+		$plugin    = $in_incs ? \dirname( $cwd ) : $cwd;
+		$path      = $in_incs ? "class-{$kebab}-node.php" : "includes/class-{$kebab}-node.php";
+		$namespace = self::prefix_from_slug( \basename( $plugin ) );
+
+		self::refuse_existing( [ $path ] );
+		self::write_file( $path, $this->node_template( $namespace, $class, $kebab ) );
+		return [ $path ];
+	}
+
+	/**
 	 * Create `./<slug>/` with the five canonical starter files.
 	 *
 	 * @param string $slug Plugin slug.
@@ -102,83 +166,79 @@ class Scaffold_CLI_Command {
 		return \array_keys( $files );
 	}
 
-	/** `WP_CLI::error` (exits) unless $slug matches `[a-z0-9-]+`. */
-	private static function require_slug( string $slug ): void {
-		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
-			\WP_CLI::error( "Invalid slug: {$slug}. Use lowercase letters, digits, and dashes only, e.g. my-pipeline." );
+	/** Write $content to $path (relative to cwd), creating parent dirs; fail loud. */
+	private static function write_file( string $path, string $content ): void {
+		$dir = \dirname( $path );
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir -- CLI scaffolder writing into the operator's cwd.
+			if ( ! @\mkdir( $dir, 0755, true ) && ! \is_dir( $dir ) ) {
+				\WP_CLI::error( "Cannot create directory: {$dir}" );
+			}
 		}
-	}
-
-	/** Derive the PHP namespace/class prefix from a slug: `my-pipeline` → `My_Pipeline`. */
-	private static function prefix_from_slug( string $slug ): string {
-		$slug  = (string) \preg_replace( '/[^a-z0-9-]+/', '-', \strtolower( $slug ) );
-		$parts = \array_filter( \explode( '-', $slug ), static fn ( string $p ): bool => '' !== $p );
-		return \implode( '_', \array_map( 'ucfirst', $parts ) );
-	}
-
-	/** The plugin bootstrap: header + deferred `register_plugin()` call (tutorial §1/§8). */
-	private function plugin_bootstrap_template( string $slug, string $prefix ): string {
-		$title   = \str_replace( '_', ' ', $prefix );
-		$version = self::STARTER_VERSION;
-		return <<<PHP
-<?php
-/**
- * Plugin Name: {$title}
- * Description: A Newspack Nodes plugin (scaffolded by `wp nodes scaffold`).
- * Version: {$version}
- * Requires PHP: 8.2
- * Requires Plugins: newspack-nodes
- *
- * @package {$prefix}
- */
-
-namespace {$prefix};
-
-\\defined( 'ABSPATH' ) || exit;
-
-// Defer to plugins_loaded: the substrate may load after us; no-op without it.
-\\add_action(
-	'plugins_loaded',
-	static function (): void {
-		if ( ! \\class_exists( '\\Newspack_Nodes\\Topology_Registry' ) ) {
-			return;
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- CLI scaffolder writing into the operator's cwd.
+		if ( false === \file_put_contents( $path, $content ) ) {
+			\WP_CLI::error( "Cannot write file: {$path}" );
 		}
-		require_once __DIR__ . '/vendor/autoload.php';
-
-		// One call: the namespace (make_node resolves your *_Node classes)
-		// and the topologies/ dir, whose *.tsl become catalog entries.
-		\\Newspack_Nodes\\Topology_Registry::register_plugin(
-			'{$prefix}\\\\',
-			__DIR__ . '/topologies'
-		);
-	},
-	12
-);
-
-PHP;
 	}
 
 	/**
-	 * composer.json with the classmap autoload `make_node` reads (tutorial §1).
+	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
+	 *
+	 * @param array<int, string> $paths Paths relative to cwd.
+	 */
+	private static function refuse_existing( array $paths ): void {
+		foreach ( $paths as $path ) {
+			if ( \file_exists( $path ) ) {
+				\WP_CLI::error( "Refusing to overwrite existing file: {$path}" );
+			}
+		}
+	}
+
+	/**
+	 * README pointing back at the substrate docs.
 	 *
 	 * @param string $slug Plugin slug.
 	 */
-	private function composer_template( string $slug ): string {
-		return <<<JSON
-{
-	"name": "{$slug}/{$slug}",
-	"description": "A Newspack Nodes plugin.",
-	"require": {
-		"php": ">=8.2"
-	},
-	"autoload": {
-		"classmap": [
-			"includes/"
-		]
-	}
-}
+	private function readme_template( string $slug ): string {
+		return <<<MD
+# {$slug}
 
-JSON;
+A [Newspack Nodes](https://github.com/Automattic/newspack-nodes) plugin,
+scaffolded by `wp nodes scaffold plugin {$slug}`.
+
+## Setup
+
+```bash
+composer dump-autoload -o    # rerun after adding or renaming a node class
+wp plugin activate {$slug}
+wp nodes activate {$slug}
+wp nodes status
+```
+
+## Learn the substrate
+
+Start with the newspack-nodes docs: `docs/getting-started.md`, then
+`docs/writing-a-plugin.md` — this scaffold matches that walkthrough's shapes.
+
+MD;
+	}
+
+	/**
+	 * The plugin topology: wire the scaffolded node into a stock Log (tutorial §5).
+	 *
+	 * @param string $slug   Plugin slug (node instance + file names).
+	 * @param string $prefix Node type as `make_node` resolves it.
+	 */
+	private function plugin_topology_template( string $slug, string $prefix ): string {
+		return <<<TSL
+# {$slug} — scaffolded starter graph: {$slug} → log.
+# Drive it by hand: wp nodes cli {$slug}.p0
+var num_partitions = 1
+make_node {$prefix} {$slug}
+make_node Log       log <config:logs_dir>/{$slug}-out 1 2 7
+connect_node {$slug} log
+
+TSL;
 	}
 
 	/**
@@ -252,141 +312,81 @@ PHP;
 	}
 
 	/**
-	 * The plugin topology: wire the scaffolded node into a stock Log (tutorial §5).
-	 *
-	 * @param string $slug   Plugin slug (node instance + file names).
-	 * @param string $prefix Node type as `make_node` resolves it.
-	 */
-	private function plugin_topology_template( string $slug, string $prefix ): string {
-		return <<<TSL
-# {$slug} — scaffolded starter graph: {$slug} → log.
-# Drive it by hand: wp nodes cli {$slug}.p0
-var num_partitions = 1
-make_node {$prefix} {$slug}
-make_node Log       log <config:logs_dir>/{$slug}-out 1 2 7
-connect_node {$slug} log
-
-TSL;
-	}
-
-	/**
-	 * README pointing back at the substrate docs.
+	 * composer.json with the classmap autoload `make_node` reads (tutorial §1).
 	 *
 	 * @param string $slug Plugin slug.
 	 */
-	private function readme_template( string $slug ): string {
-		return <<<MD
-# {$slug}
+	private function composer_template( string $slug ): string {
+		return <<<JSON
+{
+	"name": "{$slug}/{$slug}",
+	"description": "A Newspack Nodes plugin.",
+	"require": {
+		"php": ">=8.2"
+	},
+	"autoload": {
+		"classmap": [
+			"includes/"
+		]
+	}
+}
 
-A [Newspack Nodes](https://github.com/Automattic/newspack-nodes) plugin,
-scaffolded by `wp nodes scaffold plugin {$slug}`.
-
-## Setup
-
-```bash
-composer dump-autoload -o    # rerun after adding or renaming a node class
-wp plugin activate {$slug}
-wp nodes activate {$slug}
-wp nodes status
-```
-
-## Learn the substrate
-
-Start with the newspack-nodes docs: `docs/getting-started.md`, then
-`docs/writing-a-plugin.md` — this scaffold matches that walkthrough's shapes.
-
-MD;
+JSON;
 	}
 
-	/**
-	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
-	 *
-	 * @param array<int, string> $paths Paths relative to cwd.
-	 */
-	private static function refuse_existing( array $paths ): void {
-		foreach ( $paths as $path ) {
-			if ( \file_exists( $path ) ) {
-				\WP_CLI::error( "Refusing to overwrite existing file: {$path}" );
-			}
+	/** The plugin bootstrap: header + deferred `register_plugin()` call (tutorial §1/§8). */
+	private function plugin_bootstrap_template( string $slug, string $prefix ): string {
+		$title   = \str_replace( '_', ' ', $prefix );
+		$version = self::STARTER_VERSION;
+		return <<<PHP
+<?php
+/**
+ * Plugin Name: {$title}
+ * Description: A Newspack Nodes plugin (scaffolded by `wp nodes scaffold`).
+ * Version: {$version}
+ * Requires PHP: 8.2
+ * Requires Plugins: newspack-nodes
+ *
+ * @package {$prefix}
+ */
+
+namespace {$prefix};
+
+\\defined( 'ABSPATH' ) || exit;
+
+// Defer to plugins_loaded: the substrate may load after us; no-op without it.
+\\add_action(
+	'plugins_loaded',
+	static function (): void {
+		if ( ! \\class_exists( '\\Newspack_Nodes\\Topology_Registry' ) ) {
+			return;
 		}
+		require_once __DIR__ . '/vendor/autoload.php';
+
+		// One call: the namespace (make_node resolves your *_Node classes)
+		// and the topologies/ dir, whose *.tsl become catalog entries.
+		\\Newspack_Nodes\\Topology_Registry::register_plugin(
+			'{$prefix}\\\\',
+			__DIR__ . '/topologies'
+		);
+	},
+	12
+);
+
+PHP;
 	}
 
-	/** Write $content to $path (relative to cwd), creating parent dirs; fail loud. */
-	private static function write_file( string $path, string $content ): void {
-		$dir = \dirname( $path );
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir -- CLI scaffolder writing into the operator's cwd.
-			if ( ! @\mkdir( $dir, 0755, true ) && ! \is_dir( $dir ) ) {
-				\WP_CLI::error( "Cannot create directory: {$dir}" );
-			}
+	/** Derive the PHP namespace/class prefix from a slug: `my-pipeline` → `My_Pipeline`. */
+	private static function prefix_from_slug( string $slug ): string {
+		$slug  = (string) \preg_replace( '/[^a-z0-9-]+/', '-', \strtolower( $slug ) );
+		$parts = \array_filter( \explode( '-', $slug ), static fn ( string $p ): bool => '' !== $p );
+		return \implode( '_', \array_map( 'ucfirst', $parts ) );
+	}
+
+	/** `WP_CLI::error` (exits) unless $slug matches `[a-z0-9-]+`. */
+	private static function require_slug( string $slug ): void {
+		if ( 1 !== \preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
+			\WP_CLI::error( "Invalid slug: {$slug}. Use lowercase letters, digits, and dashes only, e.g. my-pipeline." );
 		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents -- CLI scaffolder writing into the operator's cwd.
-		if ( false === \file_put_contents( $path, $content ) ) {
-			\WP_CLI::error( "Cannot write file: {$path}" );
-		}
-	}
-
-	/**
-	 * Write one node class into the plugin's `includes/`, namespaced to the
-	 * plugin — the only combination that both autoloads and resolves.
-	 *
-	 * `scaffold plugin` classmaps exactly `includes/` and registers the plugin
-	 * prefix, so a class must be under that dir AND under that namespace.
-	 * Deriving the namespace from the cwd basename satisfied neither door: from
-	 * the plugin root the file fell outside the classmap; from `includes/` the
-	 * namespace came out `Includes`, which `make_node` never resolves. Run from
-	 * either, the answer is the same file.
-	 *
-	 * @param string $class Class name (with or without the `_Node` suffix).
-	 * @return array<int, string> Paths written, relative to cwd.
-	 */
-	private function scaffold_node( string $class ): array {
-		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
-			\WP_CLI::error( "Invalid class name: {$class}. Use letters and underscores only, e.g. My_Filter." );
-		}
-		$class = (string) \preg_replace( '/_Node$/', '', $class );
-		$kebab = \strtolower( \str_replace( '_', '-', $class ) );
-
-		$cwd       = (string) \getcwd();
-		$in_incs   = 'includes' === \basename( $cwd );
-		$plugin    = $in_incs ? \dirname( $cwd ) : $cwd;
-		$path      = $in_incs ? "class-{$kebab}-node.php" : "includes/class-{$kebab}-node.php";
-		$namespace = self::prefix_from_slug( \basename( $plugin ) );
-
-		self::refuse_existing( [ $path ] );
-		self::write_file( $path, $this->node_template( $namespace, $class, $kebab ) );
-		return [ $path ];
-	}
-
-	/**
-	 * Write one TSL topology (stock nodes only) into the cwd.
-	 *
-	 * @param string $name Topology name.
-	 * @return array<int, string> Paths written, relative to cwd.
-	 */
-	private function scaffold_topology( string $name ): array {
-		self::require_slug( $name );
-		$path = "{$name}.tsl";
-
-		self::refuse_existing( [ $path ] );
-		self::write_file( $path, $this->stock_topology_template( $name ) );
-		return [ $path ];
-	}
-
-	/**
-	 * A stock-nodes-only topology so it runs before any custom class exists.
-	 *
-	 * @param string $name Topology name.
-	 */
-	private function stock_topology_template( string $name ): string {
-		return <<<TSL
-# {$name} — scaffolded starter graph (stock nodes only): echo → log.
-# Replace Echo with your own node once `composer dump-autoload -o` knows it.
-var num_partitions = 1
-make_node Echo {$name}
-make_node Log  log <config:logs_dir>/{$name}-out 1 2 7
-connect_node {$name} log
-
-TSL;
 	}
 }

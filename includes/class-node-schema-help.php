@@ -76,6 +76,17 @@ class Node_Schema_Help {
 		return \implode( "\n", $out ) . "\n";
 	}
 
+	/** Render an argument's default for the help table: bools as true/false, arrays as [], else the scalar. */
+	private static function render_default( mixed $default ): string {
+		if ( \is_bool( $default ) ) {
+			return $default ? 'true' : 'false';
+		}
+		if ( \is_array( $default ) ) {
+			return '[]';
+		}
+		return Core::as_string( $default );
+	}
+
 	/**
 	 * Extract a node_schema() section (a `mixed` value) as a plain list; a
 	 * non-array section yields []. Callers guard each entry's own shape.
@@ -86,16 +97,5 @@ class Node_Schema_Help {
 	private static function schema_list( array $schema, string $key ): array {
 		$list = $schema[ $key ] ?? null;
 		return \is_array( $list ) ? \array_values( $list ) : [];
-	}
-
-	/** Render an argument's default for the help table: bools as true/false, arrays as [], else the scalar. */
-	private static function render_default( mixed $default ): string {
-		if ( \is_bool( $default ) ) {
-			return $default ? 'true' : 'false';
-		}
-		if ( \is_array( $default ) ) {
-			return '[]';
-		}
-		return Core::as_string( $default );
 	}
 }

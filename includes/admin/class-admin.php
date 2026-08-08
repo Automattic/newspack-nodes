@@ -106,133 +106,6 @@ class Admin {
 	}
 
 	/**
-	 * Shared React-dashboard enqueue registrar.
-	 *
-	 * Performs ONLY the mechanics every dashboard enqueue site duplicated:
-	 * page-gate, index.js existence gate, manifest-vs-fallback deps/version,
-	 * CSS sidecar (+ RTL activation), and the NewspackNodesData localize.
-	 * Returns the script handle so callers can layer per-tree extras
-	 * (inline scripts, secondary bundles) on top, or null if it did not enqueue.
-	 *
-	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
-	 *   localize?:array<string,mixed>, version_fallback?:string, style_deps?:array<int,string>} $args
-	 * @return string|null Enqueued script handle, or null if nothing was enqueued.
-	 */
-	public static function enqueue_react_page( array $args ): ?string {
-		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-			return null;
-		}
-
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page  = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		$pages = (array) $args['page'];
-		if ( ! \in_array( $page, $pages, true ) ) {
-			return null;
-		}
-
-		$dir     = \rtrim( $args['dir'], '/' );
-		$url     = \rtrim( $args['url'], '/' );
-		$js_path = "{$dir}/index.js";
-		if ( ! \file_exists( $js_path ) ) {
-			return null;
-		}
-
-		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
-		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
-
-		$handle = $args['handle'];
-		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
-
-		if ( \file_exists( "{$dir}/index.css" ) ) {
-				// Canonical appearance also provides the token sheet.
-			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-ui' ];
-			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
-			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
-			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
-				\wp_style_add_data( $handle, 'rtl', 'replace' );
-			}
-		}
-
-		\wp_localize_script( $handle, 'NewspackNodesData', self::localize_data( $args['localize'] ?? [] ) );
-
-		return $handle;
-	}
-
-	/**
-	 * Deps + version for a built bundle — wp-scripts manifest first, else static
-	 * deps + filemtime, else the fallback. The ONE resolver the eager enqueue
-	 * and the lazy tab recipe both use (they must never drift).
-	 *
-	 * @param string $dir      Filesystem path to the build subdir.
-	 * @param string $js_path  Path to the bundle's index.js.
-	 * @param string $fallback Version when neither manifest nor mtime resolve.
-	 * @return array{0: list<string>, 1: string} [deps, version].
-	 */
-	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
-		$asset_path = "{$dir}/index.asset.php";
-		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
-		if ( \is_array( $asset ) ) {
-			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
-			return [
-				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
-				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
-			];
-		}
-		return [
-			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
-			(string) ( \filemtime( $js_path ) ?: $fallback ),
-		];
-	}
-
-	/**
-	 * Cache-bust a stylesheet on its OWN content hash, not the JS bundle hash or
-	 * plugin version: a SCSS-only rebuild leaves the JS hash / version unchanged,
-	 * so reusing those would serve the stylesheet from cache behind a stale ?ver=
-	 * (a CSS-only change would need a hard-refresh to land). Returns the fallback
-	 * (the prior version value) when the file isn't readable — gated so we never
-	 * call md5_file on a non-readable path and emit a warning.
-	 *
-	 * @param string $css_path Filesystem path to the stylesheet.
-	 * @param string $fallback Version to use when the file isn't readable.
-	 * @return string Content hash, or the fallback.
-	 */
-	public static function css_cache_version( string $css_path, string $fallback ): string {
-		if ( ! \is_readable( $css_path ) ) {
-			return $fallback;
-		}
-		return \md5_file( $css_path ) ?: $fallback;
-	}
-
-	/**
-	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
-	 * extras — one shape for enqueued and lazily-injected bundles alike.
-	 *
-	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string, mixed>
-	 */
-	private static function localize_data( array $localize ): array {
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		return \array_merge(
-			[
-				'restUrl' => \esc_url_raw( $rest_url ),
-				'nonce'   => $nonce,
-			],
-			$localize
-		);
-	}
-
-	/** Filesystem path to a build subdir (e.g. 'vault' → '{plugin}/build/vault'). */
-	private static function build_dir( string $subdir ): string {
-		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
-	}
-
-	/** Public URL of a build subdir; the URL constant may be absent in CLI/test contexts. */
-	private static function build_url( string $subdir ): string {
-		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
-	}
-
-	/**
 	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page.
 	 */
 	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
@@ -308,6 +181,59 @@ class Admin {
 	}
 
 	/**
+	 * Shared React-dashboard enqueue registrar.
+	 *
+	 * Performs ONLY the mechanics every dashboard enqueue site duplicated:
+	 * page-gate, index.js existence gate, manifest-vs-fallback deps/version,
+	 * CSS sidecar (+ RTL activation), and the NewspackNodesData localize.
+	 * Returns the script handle so callers can layer per-tree extras
+	 * (inline scripts, secondary bundles) on top, or null if it did not enqueue.
+	 *
+	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
+	 *   localize?:array<string,mixed>, version_fallback?:string, style_deps?:array<int,string>} $args
+	 * @return string|null Enqueued script handle, or null if nothing was enqueued.
+	 */
+	public static function enqueue_react_page( array $args ): ?string {
+		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page  = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		$pages = (array) $args['page'];
+		if ( ! \in_array( $page, $pages, true ) ) {
+			return null;
+		}
+
+		$dir     = \rtrim( $args['dir'], '/' );
+		$url     = \rtrim( $args['url'], '/' );
+		$js_path = "{$dir}/index.js";
+		if ( ! \file_exists( $js_path ) ) {
+			return null;
+		}
+
+		$fallback           = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
+		[ $deps, $version ] = self::bundle_manifest( $dir, $js_path, $fallback );
+
+		$handle = $args['handle'];
+		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
+
+		if ( \file_exists( "{$dir}/index.css" ) ) {
+				// Canonical appearance also provides the token sheet.
+			$style_deps    = $args['style_deps'] ?? [ 'wp-components', 'newspack-nodes-ui' ];
+			$style_version = self::css_cache_version( "{$dir}/index.css", $version );
+			\wp_enqueue_style( $handle, "{$url}/index.css", $style_deps, $style_version );
+			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
+				\wp_style_add_data( $handle, 'rtl', 'replace' );
+			}
+		}
+
+		\wp_localize_script( $handle, 'NewspackNodesData', self::localize_data( $args['localize'] ?? [] ) );
+
+		return $handle;
+	}
+
+	/**
 	 * Build the on-demand load recipe for one lazy DevTools tab bundle: the
 	 * versioned script URL, the optional style URL, and the localize payload the
 	 * bundle reads (the same `NewspackNodesData` — restUrl/nonce + per-tab extras —
@@ -342,55 +268,53 @@ class Admin {
 		return $entry;
 	}
 
-	public static function num_partitions_callback(): void {
-		self::render_number( 'num_partitions', \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
-	}
-
-	/** Echo a number field: default from the config file, value from the stored option. */
-	private static function render_number( string $field, string $description ): void {
-		$bounds = Settings_Schema::get()->field_for_short( $field );
-		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
-			// Unbounded rendered number = schema bug; don't paper over it.
-			throw new \RuntimeException(
-				\esc_html( "settings field declares no bounds: {$field}" )
-			);
-		}
-		$min     = $bounds->min;
-		$max     = $bounds->max;
-		$default = self::default_int(
-			Config::load_config_defaults(),
-			$field,
-			$bounds->default ?? 0
+	/**
+	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
+	 * extras — one shape for enqueued and lazily-injected bundles alike.
+	 *
+	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string, mixed>
+	 */
+	private static function localize_data( array $localize ): array {
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		return \array_merge(
+			[
+				'restUrl' => \esc_url_raw( $rest_url ),
+				'nonce'   => $nonce,
+			],
+			$localize
 		);
-		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
-		$html    = Settings_Renderer::number(
-			$field,
-			self::OPTION_PREFIX . $field,
-			Core::as_string( $value ),
-			$default,
-			$min,
-			$max,
-			$description,
-			self::reset_mark_name( $field )
-		);
-		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
 	/**
-	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.
+	 * Deps + version for a built bundle — wp-scripts manifest first, else static
+	 * deps + filemtime, else the fallback. The ONE resolver the eager enqueue
+	 * and the lazy tab recipe both use (they must never drift).
 	 *
-	 * @param array<string, mixed> $defaults Config defaults.
-	 * @param string               $key      Key to read.
-	 * @param int                  $fallback Default when missing/non-scalar.
+	 * @param string $dir      Filesystem path to the build subdir.
+	 * @param string $js_path  Path to the bundle's index.js.
+	 * @param string $fallback Version when neither manifest nor mtime resolve.
+	 * @return array{0: list<string>, 1: string} [deps, version].
 	 */
-	private static function default_int( array $defaults, string $key, int $fallback ): int {
-		$value = $defaults[ $key ] ?? $fallback;
-		return Core::as_int( $value, $fallback );
+	private static function bundle_manifest( string $dir, string $js_path, string $fallback ): array {
+		$asset_path = "{$dir}/index.asset.php";
+		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
+		if ( \is_array( $asset ) ) {
+			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
+			return [
+				\array_values( \array_filter( $manifest_deps, '\is_string' ) ),
+				\is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback,
+			];
+		}
+		return [
+			[ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ],
+			(string) ( \filemtime( $js_path ) ?: $fallback ),
+		];
 	}
 
-	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
-	private static function reset_mark_name( string $field ): string {
-		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
+	public static function num_partitions_callback(): void {
+		self::render_number( 'num_partitions', \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
 
 	public static function min_segments_callback(): void {
@@ -453,6 +377,36 @@ class Admin {
 		self::render_number( 'alert_emit_interval', \__( 'Minimum seconds between alert-action emission bursts (rate limit).', 'newspack-nodes' ) );
 	}
 
+	/** Echo a number field: default from the config file, value from the stored option. */
+	private static function render_number( string $field, string $description ): void {
+		$bounds = Settings_Schema::get()->field_for_short( $field );
+		if ( null === $bounds || null === $bounds->min || null === $bounds->max ) {
+			// Unbounded rendered number = schema bug; don't paper over it.
+			throw new \RuntimeException(
+				\esc_html( "settings field declares no bounds: {$field}" )
+			);
+		}
+		$min     = $bounds->min;
+		$max     = $bounds->max;
+		$default = self::default_int(
+			Config::load_config_defaults(),
+			$field,
+			$bounds->default ?? 0
+		);
+		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
+		$html    = Settings_Renderer::number(
+			$field,
+			self::OPTION_PREFIX . $field,
+			Core::as_string( $value ),
+			$default,
+			$min,
+			$max,
+			$description,
+			self::reset_mark_name( $field )
+		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
+	}
+
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
 	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
@@ -465,34 +419,6 @@ class Admin {
 	 */
 	public function register_event_dashboards_tab_bundle( array $bundles ): array {
 		return self::append_tab_bundle( $bundles, 'newspack-nodes-event-dashboards', 'event-dashboards' );
-	}
-
-	/**
-	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
-	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
-	 * delegates the append here; topology-console also builds a localize payload.
-	 *
-	 * @param array<int,mixed>     $bundles  Existing tab bundles.
-	 * @param string               $handle   Script handle.
-	 * @param string               $subdir   Build subdir under `build/`.
-	 * @param array<string,mixed>  $localize Optional localize payload.
-	 * @param bool                 $lazy     Load on first tab activation instead of up front.
-	 * @return array<int,mixed>
-	 */
-	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [], bool $lazy = false ): array {
-		$bundle = [
-			'handle' => $handle,
-			'dir'    => self::build_dir( $subdir ),
-			'url'    => self::build_url( $subdir ),
-		];
-		if ( [] !== $localize ) {
-			$bundle['localize'] = $localize;
-		}
-		if ( $lazy ) {
-			$bundle['lazy'] = true;
-		}
-		$bundles[] = $bundle;
-		return $bundles;
 	}
 
 	/**
@@ -567,10 +493,60 @@ class Admin {
 	}
 
 	/**
+	 * Append one DevTools tab bundle (the shared `{handle, dir, url[, localize]}`
+	 * shape) to the running list. Each `register_*_tab_bundle` filter callback
+	 * delegates the append here; topology-console also builds a localize payload.
+	 *
+	 * @param array<int,mixed>     $bundles  Existing tab bundles.
+	 * @param string               $handle   Script handle.
+	 * @param string               $subdir   Build subdir under `build/`.
+	 * @param array<string,mixed>  $localize Optional localize payload.
+	 * @param bool                 $lazy     Load on first tab activation instead of up front.
+	 * @return array<int,mixed>
+	 */
+	private static function append_tab_bundle( array $bundles, string $handle, string $subdir, array $localize = [], bool $lazy = false ): array {
+		$bundle = [
+			'handle' => $handle,
+			'dir'    => self::build_dir( $subdir ),
+			'url'    => self::build_url( $subdir ),
+		];
+		if ( [] !== $localize ) {
+			$bundle['localize'] = $localize;
+		}
+		if ( $lazy ) {
+			$bundle['lazy'] = true;
+		}
+		$bundles[] = $bundle;
+		return $bundles;
+	}
+
+	/**
 	 * Register the public product-token stylesheet.
 	 */
 	public function register_theme_style(): void {
 		$this->register_built_style( 'newspack-nodes-theme', 'theme', [] );
+	}
+
+	/**
+	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
+	 */
+	public function register_ui_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-ui',
+			'ui',
+			[ 'newspack-nodes-theme' ]
+		);
+	}
+
+	/**
+	 * Register graph-only artwork and layout after canonical UI appearance.
+	 */
+	public function register_graph_style(): void {
+		$this->register_built_style(
+			'newspack-nodes-graph',
+			'graph',
+			[ 'newspack-nodes-ui' ]
+		);
 	}
 
 	/**
@@ -607,25 +583,32 @@ class Admin {
 	}
 
 	/**
-	 * Register the opt-in Nodes and Event Logger appearance stylesheet.
+	 * Cache-bust a stylesheet on its OWN content hash, not the JS bundle hash or
+	 * plugin version: a SCSS-only rebuild leaves the JS hash / version unchanged,
+	 * so reusing those would serve the stylesheet from cache behind a stale ?ver=
+	 * (a CSS-only change would need a hard-refresh to land). Returns the fallback
+	 * (the prior version value) when the file isn't readable — gated so we never
+	 * call md5_file on a non-readable path and emit a warning.
+	 *
+	 * @param string $css_path Filesystem path to the stylesheet.
+	 * @param string $fallback Version to use when the file isn't readable.
+	 * @return string Content hash, or the fallback.
 	 */
-	public function register_ui_style(): void {
-		$this->register_built_style(
-			'newspack-nodes-ui',
-			'ui',
-			[ 'newspack-nodes-theme' ]
-		);
+	public static function css_cache_version( string $css_path, string $fallback ): string {
+		if ( ! \is_readable( $css_path ) ) {
+			return $fallback;
+		}
+		return \md5_file( $css_path ) ?: $fallback;
 	}
 
-	/**
-	 * Register graph-only artwork and layout after canonical UI appearance.
-	 */
-	public function register_graph_style(): void {
-		$this->register_built_style(
-			'newspack-nodes-graph',
-			'graph',
-			[ 'newspack-nodes-ui' ]
-		);
+	/** Public URL of a build subdir; the URL constant may be absent in CLI/test contexts. */
+	private static function build_url( string $subdir ): string {
+		return ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/' . $subdir;
+	}
+
+	/** Filesystem path to a build subdir (e.g. 'vault' → '{plugin}/build/vault'). */
+	private static function build_dir( string $subdir ): string {
+		return \NEWSPACK_NODES_DIR . 'build/' . $subdir;
 	}
 
 	/**
@@ -661,37 +644,6 @@ class Admin {
 			\esc_url( \admin_url( 'site-health.php' ) ),
 			\esc_html__( 'View fleet health', 'newspack-nodes' )
 		);
-	}
-
-	/**
-	 * Permission gate: `manage_options` baseline + optional `allowed_users`
-	 * whitelist from Config.
-	 *
-	 * Empty `allowed_users` means "all users with manage_options". When the
-	 * whitelist is populated, the current user's `user_login` must be a member —
-	 * manage_options is still required, so a demoted account loses access
-	 * immediately without editing the whitelist.
-	 *
-	 * @return bool True if user is allowed.
-	 */
-	public static function current_user_allowed(): bool {
-		if ( ! \function_exists( 'current_user_can' ) ) {
-			return true; // CLI / no user context — don't lock out CLI tools.
-		}
-		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
-			return false;
-		}
-
-		$allowed_users = Config::value( 'allowed_users' );
-		if ( empty( $allowed_users ) || ! \is_array( $allowed_users ) ) {
-			return true;
-		}
-
-		if ( ! \function_exists( 'wp_get_current_user' ) ) {
-			return true; // No user context — don't lock out CLI tools.
-		}
-		$current_user = \wp_get_current_user();
-		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
 	/**
@@ -866,6 +818,11 @@ class Admin {
 		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
+	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
+	private static function reset_mark_name( string $field ): string {
+		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
+	}
+
 	/**
 	 * Total-storage field: the TRUE disk ceiling — segment_size × the effective
 	 * hard cap (max_segments, or 2 × num_segments when auto) × on-disk log-partition
@@ -915,6 +872,18 @@ class Admin {
 	}
 
 	/**
+	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.
+	 *
+	 * @param array<string, mixed> $defaults Config defaults.
+	 * @param string               $key      Key to read.
+	 * @param int                  $fallback Default when missing/non-scalar.
+	 */
+	private static function default_int( array $defaults, string $key, int $fallback ): int {
+		$value = $defaults[ $key ] ?? $fallback;
+		return Core::as_int( $value, $fallback );
+	}
+
+	/**
 	 * Reset-to-defaults admin-post handler (nonce + permission checked before deleting options).
 	 */
 	public function handle_reset_settings(): void {
@@ -948,6 +917,37 @@ class Admin {
 			exit;
 		}
 		exit;
+	}
+
+	/**
+	 * Permission gate: `manage_options` baseline + optional `allowed_users`
+	 * whitelist from Config.
+	 *
+	 * Empty `allowed_users` means "all users with manage_options". When the
+	 * whitelist is populated, the current user's `user_login` must be a member —
+	 * manage_options is still required, so a demoted account loses access
+	 * immediately without editing the whitelist.
+	 *
+	 * @return bool True if user is allowed.
+	 */
+	public static function current_user_allowed(): bool {
+		if ( ! \function_exists( 'current_user_can' ) ) {
+			return true; // CLI / no user context — don't lock out CLI tools.
+		}
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+			return false;
+		}
+
+		$allowed_users = Config::value( 'allowed_users' );
+		if ( empty( $allowed_users ) || ! \is_array( $allowed_users ) ) {
+			return true;
+		}
+
+		if ( ! \function_exists( 'wp_get_current_user' ) ) {
+			return true; // No user context — don't lock out CLI tools.
+		}
+		$current_user = \wp_get_current_user();
+		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
 	/**

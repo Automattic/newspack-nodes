@@ -242,6 +242,23 @@ class Job_Intake {
 	}
 
 	/**
+	 * Queue a small job on the feed log, unlocked.
+	 *
+	 * The same envelope write_job() produces, on FEED_BASENAME. Taking no write
+	 * lock means PIPE_BUF binds it, so an entry that only fits under the lifted
+	 * cap is refused here — route that one through queue() instead of losing it.
+	 *
+	 * @param string               $handler    Handler name.
+	 * @param array<string, mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
+	 * @param string|null          $key        Optional partition key for consistent routing.
+	 * @param string|null          $id         Optional per-job identity for jobstats keying.
+	 * @return bool False on validation failure or an entry over the atomic cap.
+	 */
+	public function write_feed( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
+		return $this->write_entry( $handler, $parameters, $key, $id, [], self::FEED_BASENAME, false );
+	}
+
+	/**
 	 * Shared write path for both ingress logs.
 	 *
 	 * @param string               $handler    Handler name.
@@ -352,36 +369,6 @@ class Job_Intake {
 	}
 
 	/**
-	 * Atomically claim the unique-enqueue slot for this window. The selected cache
-	 * backend's atomic `add()` is the same claim idiom the command nonce and SSE
-	 * slot pool use. Exactly one successful add wins the ttl; false means either a
-	 * duplicate claim or a backend failure, and the caller fails closed on either.
-	 *
-	 * LogicException family throughout: static queue() swallows RuntimeException
-	 * (its lock-contention boolean contract) and misuse must stay loud through it.
-	 * The claim store resolves shared-first: memcached scope when configured,
-	 * APCu keeping a memcached-less host functional.
-	 *
-	 * @param string               $handler Handler name (namespaces the slot).
-	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
-	 * @return bool True when this enqueue won the slot.
-	 * @throws \InvalidArgumentException Without a positive unique_ttl.
-	 * @throws \LogicException When no selected cache backend is available.
-	 */
-	private function claim_unique( string $handler, array $options ): bool {
-		$ttl = Core::as_int( $options['unique_ttl'] ?? 0, 0 );
-		if ( $ttl < 1 ) {
-			throw new \InvalidArgumentException( 'unique jobs require a positive unique_ttl' );
-		}
-		$backend = Cache_Backend::shared_first();
-		if ( null === $backend ) {
-			throw new \LogicException( 'unique jobs require memcached or APCu' );
-		}
-		$slot = self::UNIQUE_KEY_PREFIX . $handler . ':' . Core::as_string( $options['unique'], '' );
-		return $backend->add( $slot, 1, $ttl );
-	}
-
-	/**
 	 * Lazily materialize the Partition for a given index. The per-Partition
 	 * `allow_large_writes()` call acquires the partition's write lock — blocks
 	 * up to ~65s on a respawn race, throws on a genuine concurrent writer.
@@ -416,20 +403,33 @@ class Job_Intake {
 	}
 
 	/**
-	 * Queue a small job on the feed log, unlocked.
+	 * Atomically claim the unique-enqueue slot for this window. The selected cache
+	 * backend's atomic `add()` is the same claim idiom the command nonce and SSE
+	 * slot pool use. Exactly one successful add wins the ttl; false means either a
+	 * duplicate claim or a backend failure, and the caller fails closed on either.
 	 *
-	 * The same envelope write_job() produces, on FEED_BASENAME. Taking no write
-	 * lock means PIPE_BUF binds it, so an entry that only fits under the lifted
-	 * cap is refused here — route that one through queue() instead of losing it.
+	 * LogicException family throughout: static queue() swallows RuntimeException
+	 * (its lock-contention boolean contract) and misuse must stay loud through it.
+	 * The claim store resolves shared-first: memcached scope when configured,
+	 * APCu keeping a memcached-less host functional.
 	 *
-	 * @param string               $handler    Handler name.
-	 * @param array<string, mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
-	 * @param string|null          $key        Optional partition key for consistent routing.
-	 * @param string|null          $id         Optional per-job identity for jobstats keying.
-	 * @return bool False on validation failure or an entry over the atomic cap.
+	 * @param string               $handler Handler name (namespaces the slot).
+	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
+	 * @return bool True when this enqueue won the slot.
+	 * @throws \InvalidArgumentException Without a positive unique_ttl.
+	 * @throws \LogicException When no selected cache backend is available.
 	 */
-	public function write_feed( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
-		return $this->write_entry( $handler, $parameters, $key, $id, [], self::FEED_BASENAME, false );
+	private function claim_unique( string $handler, array $options ): bool {
+		$ttl = Core::as_int( $options['unique_ttl'] ?? 0, 0 );
+		if ( $ttl < 1 ) {
+			throw new \InvalidArgumentException( 'unique jobs require a positive unique_ttl' );
+		}
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend ) {
+			throw new \LogicException( 'unique jobs require memcached or APCu' );
+		}
+		$slot = self::UNIQUE_KEY_PREFIX . $handler . ':' . Core::as_string( $options['unique'], '' );
+		return $backend->add( $slot, 1, $ttl );
 	}
 
 	/**

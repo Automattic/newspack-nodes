@@ -197,6 +197,133 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
+	 * Parse the flat `KEY VALUE` connected envelope into plain session fields.
+	 * PID, SLOT and OWNER must all arrive well-formed; anything else rejects
+	 * the handshake rather than leaving a half-known session behind.
+	 *
+	 * @param {*} value The envelope's VALUE — space-separated `KEY VALUE` pairs.
+	 */
+	_applyConnected( value ) {
+		// A live handshake clears the backoff, like PHP's dispatch_event.
+		this._backoffMs = INITIAL_BACKOFF_MS;
+		const raw = String( value ?? '' );
+		const parts = raw.split( ' ' );
+		const info = {};
+		for ( let i = 0; i + 1 < parts.length; i += 2 ) {
+			info[ parts[ i ] ] = parts[ i + 1 ];
+		}
+		const pid = Number( info.PID );
+		if ( ! Number.isFinite( pid ) ) {
+			this._rejectConnected( 'missing PID' );
+			return;
+		}
+		const slot = Number( info.SLOT );
+		if ( ! Number.isInteger( slot ) || slot < 0 ) {
+			this._rejectConnected( 'missing or invalid SLOT' );
+			return;
+		}
+		const leaseOwner = info.OWNER;
+		if (
+			'string' !== typeof leaseOwner ||
+			! LEASE_OWNER_RE.test( leaseOwner )
+		) {
+			this._rejectConnected( 'missing or invalid OWNER' );
+			return;
+		}
+		this.terminalDisconnect = null;
+		this.sessionPid = pid;
+		this.sessionSlot = slot;
+		this.sessionLeaseOwner = leaseOwner;
+		this.setState( 'CONNECTED', raw );
+		this._mayRenewNonce = true;
+		// Stamp the live-stream connect time for the Overview SSE Uptime card.
+		IoTelemetry.markSseConnected();
+	}
+
+	/**
+	 * Abandon a malformed handshake: forget every session field, publish ERROR
+	 * and DISCONNECTED, and log at the rate limit.
+	 *
+	 * @param {string} reason What was wrong with the envelope, e.g. 'missing PID'.
+	 */
+	_rejectConnected( reason ) {
+		this.sessionPid = null;
+		this.sessionSlot = null;
+		this.sessionLeaseOwner = null;
+		const message = `connected envelope ${ reason }`;
+		this.setState( 'ERROR', message );
+		this.setState( 'DISCONNECTED', message );
+		Core.printLessOften( `ERROR: SseInNode: ${ message }` );
+	}
+
+	/**
+	 * Reopen immediately, resuming from the exact next record after the last
+	 * frame seen — no gap, no replay.
+	 *
+	 * @param {string}  reason        Why the stream is restarting; published as the RECONNECTING payload.
+	 * @param {boolean} mayRenewNonce Whether the reopened stream may renew the REST nonce; defaults to the current setting.
+	 */
+	_restart( reason, mayRenewNonce = this._mayRenewNonce ) {
+		this.setState( 'RECONNECTING', reason );
+		this.positions = this.resumePositions();
+		this.start( mayRenewNonce );
+	}
+
+	/**
+	 * Recover from a stream the browser gave up on. A stale nonce is the usual
+	 * cause, so global credentials are renewed and the stream restarted;
+	 * explicit remote credentials cannot be renewed, leaving a reconnect as
+	 * the only move.
+	 */
+	_recoverConnection() {
+		const stream = this._es;
+		if ( ! stream ) {
+			return;
+		}
+		if ( this._nonce || ! this._mayRenewNonce ) {
+			this._forceReconnect();
+			return;
+		}
+		refreshNodesNonce()
+			.then( () => {
+				if ( this._es === stream ) {
+					this._restart( 'closed', false );
+				}
+			} )
+			.catch( ( error ) => {
+				if ( this._es !== stream ) {
+					return;
+				}
+				const message = error?.message ?? String( error );
+				this.setState( 'ERROR', message );
+				Core.printLessOften(
+					`ERROR: SseInNode: REST nonce renewal failed - ${ message }`
+				);
+			} );
+	}
+
+	/**
+	 * Reopen the stream from the last seen offset, throttled to the current
+	 * backoff so a dead endpoint is not hammered.
+	 */
+	_forceReconnect() {
+		const now = Date.now();
+		if ( now - this._lastForce < this._backoffMs ) {
+			return;
+		}
+		this._backoffMs = Math.min( MAX_BACKOFF_MS, this._backoffMs * 2 );
+		this.setState( 'RECONNECTING', 'watchdog' );
+		IoTelemetry.markSseDisconnected();
+		Core.printLessOften(
+			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
+		);
+		this._lastForce = now;
+		// Resume from the last seen offset (no gap/replay); null → tail.
+		this.positions = this.resumePositions();
+		this.start( this._mayRenewNonce );
+	}
+
+	/**
 	 * Open a fresh EventSource for the current subscription and arm the
 	 * watchdog. Any previous stream is closed first, and every listener
 	 * registered here ignores frames from a stream this node has replaced.
@@ -358,63 +485,38 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * Parse the flat `KEY VALUE` connected envelope into plain session fields.
-	 * PID, SLOT and OWNER must all arrive well-formed; anything else rejects
-	 * the handshake rather than leaving a half-known session behind.
-	 *
-	 * @param {*} value The envelope's VALUE — space-separated `KEY VALUE` pairs.
+	 * @return {Object<string,{segment:number,offset:number}>|null} Seek seed for every partition directory seen so far, or null when none has been (tail-seek).
 	 */
-	_applyConnected( value ) {
-		// A live handshake clears the backoff, like PHP's dispatch_event.
-		this._backoffMs = INITIAL_BACKOFF_MS;
-		const raw = String( value ?? '' );
-		const parts = raw.split( ' ' );
-		const info = {};
-		for ( let i = 0; i + 1 < parts.length; i += 2 ) {
-			info[ parts[ i ] ] = parts[ i + 1 ];
-		}
-		const pid = Number( info.PID );
-		if ( ! Number.isFinite( pid ) ) {
-			this._rejectConnected( 'missing PID' );
-			return;
-		}
-		const slot = Number( info.SLOT );
-		if ( ! Number.isInteger( slot ) || slot < 0 ) {
-			this._rejectConnected( 'missing or invalid SLOT' );
-			return;
-		}
-		const leaseOwner = info.OWNER;
-		if (
-			'string' !== typeof leaseOwner ||
-			! LEASE_OWNER_RE.test( leaseOwner )
-		) {
-			this._rejectConnected( 'missing or invalid OWNER' );
-			return;
-		}
-		this.terminalDisconnect = null;
-		this.sessionPid = pid;
-		this.sessionSlot = slot;
-		this.sessionLeaseOwner = leaseOwner;
-		this.setState( 'CONNECTED', raw );
-		this._mayRenewNonce = true;
-		// Stamp the live-stream connect time for the Overview SSE Uptime card.
-		IoTelemetry.markSseConnected();
+	resumePositions() {
+		return Object.keys( this.lastPositions ).length > 0
+			? { ...this.lastPositions }
+			: null;
 	}
 
 	/**
-	 * Abandon a malformed handshake: forget every session field, publish ERROR
-	 * and DISCONNECTED, and log at the rate limit.
-	 *
-	 * @param {string} reason What was wrong with the envelope, e.g. 'missing PID'.
+	 * Close the stream and forget everything tied to this connection: the
+	 * visibility listener, the watchdog, the frame clock, the session lease,
+	 * and any terminal disconnect. Safe when nothing is open.
 	 */
-	_rejectConnected( reason ) {
+	close() {
+		if ( 'undefined' !== typeof document ) {
+			document.removeEventListener(
+				'visibilitychange',
+				this._handleVisibilityChange
+			);
+		}
+		this.stopTimer();
+		if ( this._es ) {
+			this._es.close();
+		}
+		this._es = null;
+		// A later stream starts with no frame timestamp from this connection.
+		this.lastEventTime = null;
+		// Forget this connection's complete session lease and terminal event.
 		this.sessionPid = null;
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
-		const message = `connected envelope ${ reason }`;
-		this.setState( 'ERROR', message );
-		this.setState( 'DISCONNECTED', message );
-		Core.printLessOften( `ERROR: SseInNode: ${ message }` );
+		this.terminalDisconnect = null;
 	}
 
 	/**
@@ -460,108 +562,6 @@ export class SseInNode extends TimerNode {
 			segment: Number( idMatch[ 1 ] ),
 			offset: Number( idMatch[ 2 ] ) + Number( idMatch[ 3 ] ),
 		};
-	}
-
-	/**
-	 * @return {Object<string,{segment:number,offset:number}>|null} Seek seed for every partition directory seen so far, or null when none has been (tail-seek).
-	 */
-	resumePositions() {
-		return Object.keys( this.lastPositions ).length > 0
-			? { ...this.lastPositions }
-			: null;
-	}
-
-	/**
-	 * Reopen immediately, resuming from the exact next record after the last
-	 * frame seen — no gap, no replay.
-	 *
-	 * @param {string}  reason        Why the stream is restarting; published as the RECONNECTING payload.
-	 * @param {boolean} mayRenewNonce Whether the reopened stream may renew the REST nonce; defaults to the current setting.
-	 */
-	_restart( reason, mayRenewNonce = this._mayRenewNonce ) {
-		this.setState( 'RECONNECTING', reason );
-		this.positions = this.resumePositions();
-		this.start( mayRenewNonce );
-	}
-
-	/**
-	 * Recover from a stream the browser gave up on. A stale nonce is the usual
-	 * cause, so global credentials are renewed and the stream restarted;
-	 * explicit remote credentials cannot be renewed, leaving a reconnect as
-	 * the only move.
-	 */
-	_recoverConnection() {
-		const stream = this._es;
-		if ( ! stream ) {
-			return;
-		}
-		if ( this._nonce || ! this._mayRenewNonce ) {
-			this._forceReconnect();
-			return;
-		}
-		refreshNodesNonce()
-			.then( () => {
-				if ( this._es === stream ) {
-					this._restart( 'closed', false );
-				}
-			} )
-			.catch( ( error ) => {
-				if ( this._es !== stream ) {
-					return;
-				}
-				const message = error?.message ?? String( error );
-				this.setState( 'ERROR', message );
-				Core.printLessOften(
-					`ERROR: SseInNode: REST nonce renewal failed - ${ message }`
-				);
-			} );
-	}
-
-	/**
-	 * Reopen the stream from the last seen offset, throttled to the current
-	 * backoff so a dead endpoint is not hammered.
-	 */
-	_forceReconnect() {
-		const now = Date.now();
-		if ( now - this._lastForce < this._backoffMs ) {
-			return;
-		}
-		this._backoffMs = Math.min( MAX_BACKOFF_MS, this._backoffMs * 2 );
-		this.setState( 'RECONNECTING', 'watchdog' );
-		IoTelemetry.markSseDisconnected();
-		Core.printLessOften(
-			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
-		);
-		this._lastForce = now;
-		// Resume from the last seen offset (no gap/replay); null → tail.
-		this.positions = this.resumePositions();
-		this.start( this._mayRenewNonce );
-	}
-
-	/**
-	 * Close the stream and forget everything tied to this connection: the
-	 * visibility listener, the watchdog, the frame clock, the session lease,
-	 * and any terminal disconnect. Safe when nothing is open.
-	 */
-	close() {
-		if ( 'undefined' !== typeof document ) {
-			document.removeEventListener(
-				'visibilitychange',
-				this._handleVisibilityChange
-			);
-		}
-		this.stopTimer();
-		if ( this._es ) {
-			this._es.close();
-		}
-		this._es = null;
-		// A later stream starts with no frame timestamp from this connection.
-		this.lastEventTime = null;
-		// Forget this connection's complete session lease and terminal event.
-		this.sessionPid = null;
-		this.sessionSlot = null;
-		this.sessionLeaseOwner = null;
-		this.terminalDisconnect = null;
 	}
 
 	/**

@@ -120,20 +120,6 @@ class Event_Framework {
 		}
 	}
 
-	private function next_timer_timeout_us(): int {
-		if ( empty( $this->timers ) ) {
-			return self::IDLE_TIMEOUT_US;
-		}
-		$soonest = PHP_INT_MAX;
-		foreach ( $this->timers as $t ) {
-			$delta_us = (int) ( ( $t->next_fire - Core::$now ) * 1_000_000 );
-			if ( $delta_us < $soonest ) {
-				$soonest = $delta_us;
-			}
-		}
-		return \max( 0, $soonest );
-	}
-
 	private function drain_curl_multi(): void {
 		if ( null === $this->curl_multi ) {
 			return;
@@ -177,6 +163,20 @@ class Event_Framework {
 		}
 		++$this->curl_counts[ \spl_object_id( $node ) ]; // on_curl_message may unregister the handle after
 		$node->on_curl_message( $info );
+	}
+
+	private function next_timer_timeout_us(): int {
+		if ( empty( $this->timers ) ) {
+			return self::IDLE_TIMEOUT_US;
+		}
+		$soonest = PHP_INT_MAX;
+		foreach ( $this->timers as $t ) {
+			$delta_us = (int) ( ( $t->next_fire - Core::$now ) * 1_000_000 );
+			if ( $delta_us < $soonest ) {
+				$soonest = $delta_us;
+			}
+		}
+		return \max( 0, $soonest );
 	}
 
 	/**

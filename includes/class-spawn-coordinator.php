@@ -105,100 +105,6 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
-	 * steal. A normal steal removes its scratch in two syscalls; a process killed
-	 * in that window leaks one and nothing else reaps it. Only sweep dirs older
-	 * than STALE_TIMEOUT — far beyond any in-flight steal — so a live takeover is
-	 * never reaped out from under itself.
-	 *
-	 * @param string $locks_dir Absolute path to locks/.
-	 */
-	private function reap_steal_scratch_dirs( string $locks_dir ): void {
-		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$locks_dir}/*.lock.d.stealing.*", \GLOB_ONLYDIR ) ?: [] as $path ) {
-			\clearstatcache( true, $path );
-			$mtime = @\filemtime( $path );
-			if ( false === $mtime || $mtime > $cutoff ) {
-				continue; // Unreadable or an in-flight steal — leave it.
-			}
-			self::delete_directory_recursive( $path, $this->base_dir );
-		}
-	}
-
-	/**
-	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
-	 *
-	 * @param string $path      Directory to delete.
-	 * @param string $base_path Containment root (top-level call only).
-	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
-	 */
-	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
-		if ( ! self::is_within( $path, $base_path ) ) {
-			return;
-		}
-		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe base.
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base
-			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
-			return;
-		}
-		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
-	}
-
-	/**
-	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
-	 *
-	 * @param string $path      Candidate path.
-	 * @param string $base_path Containment root.
-	 * @return bool True if $path is within $base_path.
-	 */
-	public static function is_within( string $path, string $base_path ): bool {
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base ) {
-			return false;
-		}
-		// Accept equality: containment predicate; callers reject it if needed.
-		$real_base_trim = \rtrim( $real_base, '/' );
-		if ( $real_path === $real_base_trim ) {
-			return true;
-		}
-		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
-	}
-
-	/**
-	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
-	 */
-	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
-		if ( $depth > $max_depth ) {
-			return;
-		}
-		if ( \is_link( $path ) ) {
-			return;
-		}
-		if ( ! \is_dir( $path ) ) {
-			return;
-		}
-		$items = @\scandir( $path ) ?: [];
-		foreach ( $items as $item ) {
-			if ( '.' === $item || '..' === $item ) {
-				continue;
-			}
-			$child = $path . '/' . $item;
-			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
-				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
-			} else {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $child );
-			}
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		@\rmdir( $path );
-	}
-
-	/**
 	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
 	 *
 	 * @param string $dir          Candidate stale directory.
@@ -235,6 +141,28 @@ class Spawn_Coordinator {
 
 		if ( $newest_mtime > 0 && ( \time() - $newest_mtime ) > $stale_age_s ) {
 			self::delete_directory_recursive( $dir, $this->base_dir );
+		}
+	}
+
+	/**
+	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
+	 * steal. A normal steal removes its scratch in two syscalls; a process killed
+	 * in that window leaks one and nothing else reaps it. Only sweep dirs older
+	 * than STALE_TIMEOUT — far beyond any in-flight steal — so a live takeover is
+	 * never reaped out from under itself.
+	 *
+	 * @param string $locks_dir Absolute path to locks/.
+	 */
+	private function reap_steal_scratch_dirs( string $locks_dir ): void {
+		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( \glob( "{$locks_dir}/*.lock.d.stealing.*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+			\clearstatcache( true, $path );
+			$mtime = @\filemtime( $path );
+			if ( false === $mtime || $mtime > $cutoff ) {
+				continue; // Unreadable or an in-flight steal — leave it.
+			}
+			self::delete_directory_recursive( $path, $this->base_dir );
 		}
 	}
 
@@ -276,25 +204,6 @@ class Spawn_Coordinator {
 		return $spawned;
 	}
 
-	/**
-	 * Describe the write-conflicts in a topology set, or '' when it is safe to
-	 * spawn. Two topologies writing one partition log corrupt it, so every
-	 * spawner refuses the whole set — better no workers than two fleets. Each
-	 * caller logs the description in its own voice.
-	 *
-	 * @param list<string> $types Topology names.
-	 * @return string Human-readable conflict list, or '' when there is none.
-	 */
-	public static function conflict_description( array $types ): string {
-		$conflicts = Topology_Analyzer::find_conflicts( $types );
-		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
-	}
-
-	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */
-	public function generate_spawn_token( int $now ): string {
-		return Internal_Request_Token::generate( Internal_Request_Token::PURPOSE_SPAWN, $now, $this->nonce_salt );
-	}
-
 	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$raw_type      = $worker['type'];
@@ -310,65 +219,6 @@ class Spawn_Coordinator {
 		}
 		// A stale lock is a worker that died holding it — a crash either way.
 		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
-	}
-
-	public function lock_path( string $type, int $partition ): string {
-		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
-	}
-
-	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
-		$key  = "{$type}|{$partition}";
-		// In-memory has priority (current process owns the truth).
-		if ( isset( $this->last_spawn_time[ $key ] ) ) {
-			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		// Else consult cross-process state: cron-backstop + self-respawn.
-		$persisted = $this->load_spawn_ts( $key );
-		if ( null !== $persisted ) {
-			$this->last_spawn_time[ $key ] = $persisted;
-			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		return false;
-	}
-
-	/**
-	 * Load a persisted spawn timestamp; null if absent. Reads the same single
-	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
-	 */
-	protected function load_spawn_ts( string $key ): ?float {
-		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
-
-		$backend = Cache_Backend::shared_first();
-		if ( null !== $backend ) {
-			$value = $backend->get( $cache_key );
-			return \is_scalar( $value ) && false !== $value ? (float) $value : null;
-		}
-		if ( \function_exists( 'get_transient' ) ) {
-			$value = \get_transient( $cache_key );
-			if ( false !== $value && \is_scalar( $value ) ) {
-				return (float) $value;
-			}
-		}
-		return null;
-	}
-
-	/**
-	 * Fire-and-forget spawn POST. Returns the transport error so each caller
-	 * reports in its own voice — a node through `print_less_often`, a cron pass
-	 * through `Core`.
-	 *
-	 * @param string $spawn_url Fully-qualified spawn endpoint URL.
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 * @param string $token     Current HMAC spawn token.
-	 * @return string|null Error description, or null on success.
-	 */
-	public function post_spawn( string $spawn_url, string $type, int $partition, string $token ): ?string {
-		return Core::fire_and_forget_post( $spawn_url, [
-			'type'      => $type,
-			'partition' => $partition,
-			'nonce'     => $token,
-		] );
 	}
 
 	/**
@@ -423,6 +273,55 @@ class Spawn_Coordinator {
 	}
 
 	/**
+	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
+	 * here would make the endpoint (which records on accept) reject the very
+	 * POST this record announces.
+	 */
+	public function record_spawn_local( string $type, int $partition, float $when ): void {
+		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
+	}
+
+	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
+		$key  = "{$type}|{$partition}";
+		// In-memory has priority (current process owns the truth).
+		if ( isset( $this->last_spawn_time[ $key ] ) ) {
+			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		// Else consult cross-process state: cron-backstop + self-respawn.
+		$persisted = $this->load_spawn_ts( $key );
+		if ( null !== $persisted ) {
+			$this->last_spawn_time[ $key ] = $persisted;
+			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		return false;
+	}
+
+	/**
+	 * Load a persisted spawn timestamp; null if absent. Reads the same single
+	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
+	 */
+	protected function load_spawn_ts( string $key ): ?float {
+		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
+
+		$backend = Cache_Backend::shared_first();
+		if ( null !== $backend ) {
+			$value = $backend->get( $cache_key );
+			return \is_scalar( $value ) && false !== $value ? (float) $value : null;
+		}
+		if ( \function_exists( 'get_transient' ) ) {
+			$value = \get_transient( $cache_key );
+			if ( false !== $value && \is_scalar( $value ) ) {
+				return (float) $value;
+			}
+		}
+		return null;
+	}
+
+	public function lock_path( string $type, int $partition ): string {
+		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
+	}
+
+	/**
 	 * The on-demand worker whose IPC tree `$dir` sits in, or null when it isn't
 	 * one — the same rule as any other partition, resolved a shorter way.
 	 *
@@ -453,15 +352,6 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
-	 * here would make the endpoint (which records on accept) reject the very
-	 * POST this record announces.
-	 */
-	public function record_spawn_local( string $type, int $partition, float $when ): void {
-		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
-	}
-
-	/**
 	 * Reap ipc dirs for workers no longer in the fleet. A live worker's lock dir
 	 * defers its own removal, so a worker mid-recycle keeps its IPC.
 	 */
@@ -481,6 +371,78 @@ class Spawn_Coordinator {
 			}
 			self::delete_directory_recursive( $dir, $this->base_dir );
 		}
+	}
+
+	/**
+	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
+	 *
+	 * @param string $path      Directory to delete.
+	 * @param string $base_path Containment root (top-level call only).
+	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
+	 */
+	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
+		if ( ! self::is_within( $path, $base_path ) ) {
+			return;
+		}
+		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe base.
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base
+			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
+			return;
+		}
+		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
+	}
+
+	/**
+	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
+	 */
+	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
+		if ( $depth > $max_depth ) {
+			return;
+		}
+		if ( \is_link( $path ) ) {
+			return;
+		}
+		if ( ! \is_dir( $path ) ) {
+			return;
+		}
+		$items = @\scandir( $path ) ?: [];
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$child = $path . '/' . $item;
+			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
+				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
+			} else {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				@\unlink( $child );
+			}
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
+		@\rmdir( $path );
+	}
+
+	/**
+	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
+	 *
+	 * @param string $path      Candidate path.
+	 * @param string $base_path Containment root.
+	 * @return bool True if $path is within $base_path.
+	 */
+	public static function is_within( string $path, string $base_path ): bool {
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+		// Accept equality: containment predicate; callers reject it if needed.
+		$real_base_trim = \rtrim( $real_base, '/' );
+		if ( $real_path === $real_base_trim ) {
+			return true;
+		}
+		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
 	}
 
 	/**
@@ -510,6 +472,44 @@ class Spawn_Coordinator {
 			++$count;
 		}
 		return $count;
+	}
+
+	/**
+	 * Fire-and-forget spawn POST. Returns the transport error so each caller
+	 * reports in its own voice — a node through `print_less_often`, a cron pass
+	 * through `Core`.
+	 *
+	 * @param string $spawn_url Fully-qualified spawn endpoint URL.
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @param string $token     Current HMAC spawn token.
+	 * @return string|null Error description, or null on success.
+	 */
+	public function post_spawn( string $spawn_url, string $type, int $partition, string $token ): ?string {
+		return Core::fire_and_forget_post( $spawn_url, [
+			'type'      => $type,
+			'partition' => $partition,
+			'nonce'     => $token,
+		] );
+	}
+
+	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */
+	public function generate_spawn_token( int $now ): string {
+		return Internal_Request_Token::generate( Internal_Request_Token::PURPOSE_SPAWN, $now, $this->nonce_salt );
+	}
+
+	/**
+	 * Describe the write-conflicts in a topology set, or '' when it is safe to
+	 * spawn. Two topologies writing one partition log corrupt it, so every
+	 * spawner refuses the whole set — better no workers than two fleets. Each
+	 * caller logs the description in its own voice.
+	 *
+	 * @param list<string> $types Topology names.
+	 * @return string Human-readable conflict list, or '' when there is none.
+	 */
+	public static function conflict_description( array $types ): string {
+		$conflicts = Topology_Analyzer::find_conflicts( $types );
+		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
 	}
 
 	/**

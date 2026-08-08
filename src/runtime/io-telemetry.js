@@ -49,6 +49,118 @@ class IoTelemetryImpl {
 		this.load( nowSeconds() );
 	}
 
+	// Operator "reset stats": zero counters/series/messages, KEEP subscribers.
+	clear() {
+		this.bytesIn = 0;
+		this.bytesOut = 0;
+		this.msgsIn = 0;
+		this.msgsOut = 0;
+		this.warnings = 0;
+		this.errors = 0;
+		this.debug = 0;
+		this.messages = [];
+		this.series = [];
+		this.revision++;
+		this._last = null;
+		try {
+			window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
+		} catch ( _e ) {
+			// localStorage disabled — the in-memory clear is enough.
+		}
+		this._notify();
+	}
+
+	recordWarning( text = '' ) {
+		this.warnings++;
+		this._pushMessage( 'warning', text );
+	}
+
+	recordError( n = 1, text = '' ) {
+		this.errors += n;
+		this._pushMessage( 'error', text );
+	}
+
+	recordDebug( text = '' ) {
+		this.debug++;
+		this._pushMessage( 'debug', text );
+	}
+
+	// Append a classified line to the bounded ring; textless adds no row.
+	_pushMessage( level, text ) {
+		if ( '' === text ) {
+			return;
+		}
+		// Monotonic per-push seq: a stable memo key even for same-ms bursts.
+		this.messageSeq = ( this.messageSeq ?? 0 ) + 1;
+		this.messages.push( { level, text, ts: nowSeconds() } );
+		while ( this.messages.length > MAX_MESSAGES ) {
+			this.messages.shift();
+		}
+	}
+
+	/**
+	 * Append a rate sample for `now` (seconds). The first call only seeds the
+	 * baseline; subsequent calls emit `Δcumulative / Δt`, trim the ring, persist,
+	 * and notify. A non-positive dt (clock skew) is skipped.
+	 *
+	 * @param {number} [now] Wall clock in seconds (default Core.now()).
+	 */
+	sample( now = nowSeconds() ) {
+		const cur = {
+			t: now,
+			bytesIn: this.bytesIn,
+			bytesOut: this.bytesOut,
+			msgsIn: this.msgsIn,
+			msgsOut: this.msgsOut,
+		};
+		if ( this._last ) {
+			const dt = cur.t - this._last.t;
+			if ( dt > 0 ) {
+				const rate = ( a, b ) => Math.max( 0, ( a - b ) / dt );
+				this.series.push( [
+					Math.round( cur.t ),
+					rate( cur.msgsIn, this._last.msgsIn ),
+					rate( cur.msgsOut, this._last.msgsOut ),
+					rate( cur.bytesIn, this._last.bytesIn ),
+					rate( cur.bytesOut, this._last.bytesOut ),
+				] );
+				this.revision++;
+				this._trim( cur.t );
+				this._persist();
+				this._notify();
+			}
+		}
+		this._last = cur;
+	}
+
+	_notify() {
+		for ( const fn of this._listeners ) {
+			fn();
+		}
+	}
+
+	_persist() {
+		try {
+			window.localStorage.setItem(
+				OVERVIEW_STORAGE_KEY,
+				JSON.stringify( this.series )
+			);
+		} catch ( _e ) {
+			// localStorage disabled / quota — in-session only.
+		}
+	}
+
+	// Drop rows older than the 1h window, then cap to MAX_SAMPLES.
+	_trim( now ) {
+		const cutoff = now - RING_SECONDS;
+		while ( this.series.length && this.series[ 0 ][ 0 ] < cutoff ) {
+			this.series.shift();
+		}
+		while ( this.series.length > MAX_SAMPLES ) {
+			this.series.shift();
+		}
+	}
+
 	// Clear counters + series + subscribers; does NOT touch localStorage.
 	reset() {
 		this.bytesIn = 0;
@@ -88,118 +200,6 @@ class IoTelemetryImpl {
 		this.series = stored.filter(
 			( row ) => Array.isArray( row ) && row[ 0 ] >= cutoff
 		);
-	}
-
-	// Operator "reset stats": zero counters/series/messages, KEEP subscribers.
-	clear() {
-		this.bytesIn = 0;
-		this.bytesOut = 0;
-		this.msgsIn = 0;
-		this.msgsOut = 0;
-		this.warnings = 0;
-		this.errors = 0;
-		this.debug = 0;
-		this.messages = [];
-		this.series = [];
-		this.revision++;
-		this._last = null;
-		try {
-			window.localStorage.removeItem( OVERVIEW_STORAGE_KEY );
-		} catch ( _e ) {
-			// localStorage disabled — the in-memory clear is enough.
-		}
-		this._notify();
-	}
-
-	_notify() {
-		for ( const fn of this._listeners ) {
-			fn();
-		}
-	}
-
-	recordWarning( text = '' ) {
-		this.warnings++;
-		this._pushMessage( 'warning', text );
-	}
-
-	// Append a classified line to the bounded ring; textless adds no row.
-	_pushMessage( level, text ) {
-		if ( '' === text ) {
-			return;
-		}
-		// Monotonic per-push seq: a stable memo key even for same-ms bursts.
-		this.messageSeq = ( this.messageSeq ?? 0 ) + 1;
-		this.messages.push( { level, text, ts: nowSeconds() } );
-		while ( this.messages.length > MAX_MESSAGES ) {
-			this.messages.shift();
-		}
-	}
-
-	recordError( n = 1, text = '' ) {
-		this.errors += n;
-		this._pushMessage( 'error', text );
-	}
-
-	recordDebug( text = '' ) {
-		this.debug++;
-		this._pushMessage( 'debug', text );
-	}
-
-	/**
-	 * Append a rate sample for `now` (seconds). The first call only seeds the
-	 * baseline; subsequent calls emit `Δcumulative / Δt`, trim the ring, persist,
-	 * and notify. A non-positive dt (clock skew) is skipped.
-	 *
-	 * @param {number} [now] Wall clock in seconds (default Core.now()).
-	 */
-	sample( now = nowSeconds() ) {
-		const cur = {
-			t: now,
-			bytesIn: this.bytesIn,
-			bytesOut: this.bytesOut,
-			msgsIn: this.msgsIn,
-			msgsOut: this.msgsOut,
-		};
-		if ( this._last ) {
-			const dt = cur.t - this._last.t;
-			if ( dt > 0 ) {
-				const rate = ( a, b ) => Math.max( 0, ( a - b ) / dt );
-				this.series.push( [
-					Math.round( cur.t ),
-					rate( cur.msgsIn, this._last.msgsIn ),
-					rate( cur.msgsOut, this._last.msgsOut ),
-					rate( cur.bytesIn, this._last.bytesIn ),
-					rate( cur.bytesOut, this._last.bytesOut ),
-				] );
-				this.revision++;
-				this._trim( cur.t );
-				this._persist();
-				this._notify();
-			}
-		}
-		this._last = cur;
-	}
-
-	// Drop rows older than the 1h window, then cap to MAX_SAMPLES.
-	_trim( now ) {
-		const cutoff = now - RING_SECONDS;
-		while ( this.series.length && this.series[ 0 ][ 0 ] < cutoff ) {
-			this.series.shift();
-		}
-		while ( this.series.length > MAX_SAMPLES ) {
-			this.series.shift();
-		}
-	}
-
-	_persist() {
-		try {
-			window.localStorage.setItem(
-				OVERVIEW_STORAGE_KEY,
-				JSON.stringify( this.series )
-			);
-		} catch ( _e ) {
-			// localStorage disabled / quota — in-session only.
-		}
 	}
 
 	recordIn( bytes, count = 1 ) {

@@ -461,33 +461,6 @@ class Remote_Link_Node extends Timer_Node {
 	}
 
 	/**
-	 * Unpack one raw `msg` payload and forward it straight downstream. Honors an empty
-	 * target (an attached worker reply carries its own
-	 * TO — the TO=FROM breadcrumb — so don't overwrite it). A false FROM stamp (over
-	 * MAX_FROM_SIZE) or an unparseable frame is dropped, never forwarded. Remote_Source
-	 * overrides the delivery seam entirely (it buffers), so this is the channel path only.
-	 */
-	protected function deliver_downstream( string $raw ): void {
-		try {
-			$message = Message::unpacked( $raw );
-		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( 'dropping unparseable SSE frame' );
-			return;
-		}
-		if ( \is_string( $this->target ) && '' !== $this->target ) {
-			$message[ Message::TO ] = $this->target;
-		}
-		// Stamp SSE_In sibling's name, not link's, to keep reply breadcrumb.
-		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
-		if ( ! $this->stamp_message( $message, $stamp ) ) {
-			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
-			return;
-		}
-		++$this->counter;
-		$this->sink?->fill( $message );
-	}
-
-	/**
 	 * Initial SSE_In cursor. Base seeds none; Remote_Source restores its offsetlog.
 	 *
 	 * @return array{segment?:int,offset?:int}
@@ -530,6 +503,33 @@ class Remote_Link_Node extends Timer_Node {
 		$this->http_out = null;
 		$this->null_sink?->remove_node();
 		$this->null_sink = null;
+	}
+
+	/**
+	 * Unpack one raw `msg` payload and forward it straight downstream. Honors an empty
+	 * target (an attached worker reply carries its own
+	 * TO — the TO=FROM breadcrumb — so don't overwrite it). A false FROM stamp (over
+	 * MAX_FROM_SIZE) or an unparseable frame is dropped, never forwarded. Remote_Source
+	 * overrides the delivery seam entirely (it buffers), so this is the channel path only.
+	 */
+	protected function deliver_downstream( string $raw ): void {
+		try {
+			$message = Message::unpacked( $raw );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->print_less_often( 'dropping unparseable SSE frame' );
+			return;
+		}
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
+		// Stamp SSE_In sibling's name, not link's, to keep reply breadcrumb.
+		$stamp = null !== $this->sse_in ? $this->sse_in->name() : $this->name;
+		if ( ! $this->stamp_message( $message, $stamp ) ) {
+			$this->print_less_often( 'dropping stream message: FROM exceeded MAX_FROM_SIZE' );
+			return;
+		}
+		++$this->counter;
+		$this->sink?->fill( $message );
 	}
 
 	/** Drop every pending connect. Teardown only; a live graph purges per link. */

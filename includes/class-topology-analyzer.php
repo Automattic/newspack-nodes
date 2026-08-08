@@ -95,157 +95,65 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Flatten a topology and everything it includes into one statement list.
+	 * Node set of EVERY topology in the tree, nested ones included.
 	 *
-	 * Mirrors the Shell's include rules statically: registry name resolution,
-	 * `#pragma once` per resolved path, an ancestor-stack cycle guard, and
-	 * make_node dedup-or-conflict. Statement ORDER is the eval order.
+	 * The canvas draws a hull per include at any depth, so it needs each one's
+	 * membership. `origin` (top-level) and `via` (first path) can't answer it —
+	 * a node two levels down belongs to both hulls. Depth-first, so the outer
+	 * topology precedes what it brings; the canvas paints in that order and the
+	 * nested hull lands on top of its parent.
 	 *
-	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
-	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
-	 *
-	 * @return array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
-	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 * @param array<array-key,mixed> $tree Include tree from statements().
+	 * @return array<string, list<string>> Topology name => node names it provides.
 	 */
-	public static function statements( string $name, array $extra_includes = [] ): array {
-		// Every static reader walks this tree; a re-walk re-reads every file.
-		$memo_key = $name . "\0" . \implode( ' ', $extra_includes );
-		if ( isset( self::$statements_cache[ $memo_key ] ) ) {
-			return self::$statements_cache[ $memo_key ];
-		}
-		$state = [
-			'statements' => [],
-			'expanded'   => [],
-			'subtrees'   => [],
-			'defs'       => [],
-		];
-		/** @var array<string,mixed> $tree */
-		$tree = [];
-		if ( '' !== $name ) {
-			$path = Topology_Registry::resolve( $name );
-			if ( null === $path ) {
-				throw new \RuntimeException( \esc_html( "unknown topology: $name" ) );
+	private static function hulls_for_tree( array $tree ): array {
+		$out = [];
+		foreach ( $tree as $name => $subtree ) {
+			$out[ (string) $name ] = self::declared_node_names( (string) $name );
+			if ( \is_array( $subtree ) ) {
+				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
+					$out[ $child ] = $names;
+				}
 			}
-			$tree = self::walk( $path, $name, null, [], [], $state );
 		}
-		foreach ( $extra_includes as $include ) {
-			$path = Topology_Registry::resolve( $include );
-			if ( null === $path ) {
-				throw new \RuntimeException( \esc_html( "unknown topology in include: $include" ) );
-			}
-			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
-		}
-		$out = [
-			'statements' => $state['statements'],
-			'tree'       => $tree,
-		];
-		return self::$statements_cache[ $memo_key ] = $out;
+		return $out;
 	}
 
 	/**
-	 * Walk one resolved topology file, appending its statements to $state.
+	 * Export active edge state for the topology-console baseline contract.
 	 *
-	 * @param string       $path   Resolved .tsl path.
-	 * @param string       $name   Topology name (for errors + the tree).
-	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
-	 * @param list<string> $via    Include path from the top level down to this file.
-	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
-	 * @param array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
-	 * @param-out array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
-	 *
-	 * @return array<string, mixed> This file's include subtree.
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map.
+	 * @param list<string> $origin_order Top-level include declaration order.
+	 * @return list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>
 	 */
-	private static function walk( string $path, string $name, ?string $origin, array $via, array $stack, array &$state ): array {
-		if ( \in_array( $path, $stack, true ) ) {
-			throw new \RuntimeException( \esc_html( 'topology include cycle: ' . \implode( ' -> ', [ ...$via, $name ] ) ) );
-		}
-		if ( isset( $state['expanded'][ $path ] ) ) {
-			if ( null !== $origin ) {
-				foreach ( $state['expanded'][ $path ] as $index ) {
-					$statement = $state['statements'][ $index ];
-					if ( ! \in_array( $origin, $statement['origins'], true ) ) {
-						$state['statements'][ $index ] = [
-							...$statement,
-							'origins' => [ ...$statement['origins'], $origin ],
-						];
-					}
+	private static function export_edges( array $edges, array $origin_order ): array {
+		$out          = [];
+		$origin_order = \array_values( \array_unique( $origin_order ) );
+		foreach ( $edges as $edge ) {
+			$roles          = [];
+			$config_origins = [];
+			if ( [] !== $edge['origins']['connect'] ) {
+				$roles[] = 'connect';
+			}
+			if ( [] !== $edge['origins']['config'] ) {
+				$roles[] = 'config';
+				foreach ( $edge['origins']['config'] as $origins ) {
+					$config_origins = [ ...$config_origins, ...$origins ];
 				}
 			}
-			return $state['subtrees'][ $path ];
-		}
-		$members = [];
-		$stack[] = $path;
-		$subtree = [];
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		foreach ( Shell_Node::parse_statements( (string) \file_get_contents( $path ) ) as $statement ) {
-			$line   = $statement['raw'];
-			$verb   = $statement['verb'];
-			$values = $statement['values'];
-			if ( 'include' === $verb ) {
-				$child_name = $values[1] ?? '';
-				$child_path = Topology_Registry::resolve( $child_name );
-				if ( null === $child_path ) {
-					throw new \RuntimeException( \esc_html( "unknown topology in include: $child_name" ) );
-				}
-				$child_origin = $origin ?? $child_name;
-				// Memoized subtree: the tree shows what each file DECLARES.
-				$subtree[ $child_name ] = self::walk(
-					$child_path,
-					$child_name,
-					$child_origin,
-					[ ...$via, $child_name ],
-					$stack,
-					$state
-				);
-				$members = [ ...$members, ...$state['expanded'][ $child_path ] ];
-				continue;
-			}
-			// Only the TOP-LEVEL file's frontmatter is honored.
-			if ( null !== $origin && 'var' === $verb ) {
-				continue;
-			}
-			if ( 'make_node' === $verb ) {
-				$node_name = $values[2] ?? '';
-				$def       = [
-					'type' => $values[1] ?? '',
-					'args' => \implode( ' ', \array_slice( $statement['spans'], 3 ) ),
-				];
-				$prior     = $state['defs'][ $node_name ] ?? null;
-				if ( null !== $prior ) {
-					if ( $prior['type'] === $def['type'] && $prior['args'] === $def['args'] ) {
-						$statement = $state['statements'][ $prior['index'] ];
-						if ( null !== $origin && ! \in_array( $origin, $statement['origins'], true ) ) {
-							$state['statements'][ $prior['index'] ] = [
-								...$statement,
-								'origins' => [ ...$statement['origins'], $origin ],
-							];
-						}
-						$members[] = $prior['index'];
-						continue;
-					}
-					throw new \RuntimeException(
-						\esc_html( "make_node conflict: '$node_name' declared as {$prior['type']} '{$prior['args']}' and as {$def['type']} '{$def['args']}'" )
-					);
-				}
-				$state['defs'][ $node_name ] = [
-					...$def,
-					'index' => \count( $state['statements'] ),
-				];
-			}
-			$members[]             = \count( $state['statements'] );
-			$state['statements'][] = [
-				'line'    => $line,
-				'verb'    => $statement['verb'],
-				'values'  => $statement['values'],
-				'spans'   => $statement['spans'],
-				'origin'  => $origin,
-				'origins' => null === $origin ? [] : [ $origin ],
-				'via'     => $via,
+			$active_origins = \array_unique( [ ...$edge['origins']['connect'], ...$config_origins ] );
+			$exported       = [
+				'from'   => $edge['from'],
+				'to'     => $edge['to'],
+				'origin' => \array_values( \array_filter( $origin_order, static fn ( string $origin ): bool => \in_array( $origin, $active_origins, true ) ) ),
+				'roles'  => $roles,
 			];
+			if ( [] !== $edge['origins']['config'] ) {
+				$exported['config_slots'] = \array_keys( $edge['origins']['config'] );
+			}
+			$out[] = $exported;
 		}
-		$state['expanded'][ $path ] = \array_values( \array_unique( $members ) );
-		$state['subtrees'][ $path ] = $subtree;
-		return $subtree;
+		return $out;
 	}
 
 	/**
@@ -314,265 +222,6 @@ class Topology_Analyzer {
 				];
 			}
 		}
-	}
-
-	/**
-	 * True when a TSL class token resolves to a class that keeps a target LIST.
-	 */
-	private static function type_fans_out( string $type ): bool {
-		if ( 'Tee' === $type ) {
-			return true;
-		}
-		$fqcn = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $fqcn && Core::class_fans_out( $fqcn );
-	}
-
-	/**
-	 * Mirror runtime disconnect: regular Nodes clear their connect target;
-	 * Tees remove an explicit target, while an omitted target defaults to the
-	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
-	 * Configuration-target roles are independent and never removed here.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
-		if ( $fans_out && null === $target ) {
-			return;
-		}
-		foreach ( \array_keys( $edges ) as $key ) {
-			$edge = $edges[ $key ];
-			if ( $edge['from'] !== $source || ( $fans_out && $edge['to'] !== $target ) ) {
-				continue;
-			}
-			$remaining = self::without_connect_role( $edge );
-			if ( null === $remaining ) {
-				unset( $edges[ $key ] );
-				continue;
-			}
-			$edges[ $key ] = $remaining;
-		}
-	}
-
-	/**
-	 * Remove the runtime connect role while preserving independent config roles.
-	 *
-	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
-	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
-	 */
-	private static function without_connect_role( array $edge ): ?array {
-		if ( [] === $edge['origins']['config'] ) {
-			return null;
-		}
-		return [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => [],
-				'config'  => $edge['origins']['config'],
-			],
-		];
-	}
-
-	/**
-	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
-		if ( ! $fans_out ) {
-			$current_key = $source . "\0" . $target;
-			foreach ( \array_keys( $edges ) as $key ) {
-				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
-					continue;
-				}
-				$remaining = self::without_connect_role( $edges[ $key ] );
-				if ( null === $remaining ) {
-					unset( $edges[ $key ] );
-					continue;
-				}
-				$edges[ $key ] = $remaining;
-			}
-		}
-		self::add_connect_origins( $edges, $source, $target, $origins );
-	}
-
-	/**
-	 * Add one connect relationship origin.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function add_connect_origins( array &$edges, string $source, string $target, array $origins ): void {
-		$key             = self::ensure_edge( $edges, $source, $target );
-		$edge            = $edges[ $key ];
-		$connect_origins = $edge['origins']['connect'];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $connect_origins, true ) ) {
-				$connect_origins[] = $origin;
-			}
-		}
-		$edges[ $key ] = [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => $connect_origins,
-				'config'  => $edge['origins']['config'],
-			],
-		];
-	}
-
-	/**
-	 * Ensure one insertion-ordered edge-state record and return its key.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function ensure_edge( array &$edges, string $source, string $target ): string {
-		$key = $source . "\0" . $target;
-		if ( ! isset( $edges[ $key ] ) ) {
-			$edges[ $key ] = [
-				'from'    => $source,
-				'to'      => $target,
-				'origins' => [
-					'connect' => [],
-					'config'  => [],
-				],
-			];
-		}
-		return $key;
-	}
-
-	/**
-	 * Replace one named config-target slot without disturbing other setters.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param list<string> $origins Top-level includes providing the configuration.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
-	 */
-	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
-		$current_key = $source . "\0" . $target;
-		foreach ( \array_keys( $edges ) as $key ) {
-			if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
-				continue;
-			}
-			$edge   = $edges[ $key ];
-			$config = $edge['origins']['config'];
-			unset( $config[ $slot ] );
-			if ( [] === $edge['origins']['connect'] && [] === $config ) {
-				unset( $edges[ $key ] );
-				continue;
-			}
-			$edges[ $key ] = [
-				'from'    => $edge['from'],
-				'to'      => $edge['to'],
-				'origins' => [
-					'connect' => $edge['origins']['connect'],
-					'config'  => $config,
-				],
-			];
-		}
-		if ( '' === $target ) {
-			return;
-		}
-		$key          = self::ensure_edge( $edges, $source, $target );
-		$edge         = $edges[ $key ];
-		$config       = $edge['origins']['config'];
-		$slot_origins = $config[ $slot ] ?? [];
-		foreach ( $origins as $origin ) {
-			if ( ! \in_array( $origin, $slot_origins, true ) ) {
-				$slot_origins[] = $origin;
-			}
-		}
-		$config[ $slot ] = $slot_origins;
-		$edges[ $key ]    = [
-			'from'    => $edge['from'],
-			'to'      => $edge['to'],
-			'origins' => [
-				'connect' => $edge['origins']['connect'],
-				'config'  => $config,
-			],
-		];
-	}
-
-	/**
-	 * Export active edge state for the topology-console baseline contract.
-	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map.
-	 * @param list<string> $origin_order Top-level include declaration order.
-	 * @return list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>
-	 */
-	private static function export_edges( array $edges, array $origin_order ): array {
-		$out          = [];
-		$origin_order = \array_values( \array_unique( $origin_order ) );
-		foreach ( $edges as $edge ) {
-			$roles          = [];
-			$config_origins = [];
-			if ( [] !== $edge['origins']['connect'] ) {
-				$roles[] = 'connect';
-			}
-			if ( [] !== $edge['origins']['config'] ) {
-				$roles[] = 'config';
-				foreach ( $edge['origins']['config'] as $origins ) {
-					$config_origins = [ ...$config_origins, ...$origins ];
-				}
-			}
-			$active_origins = \array_unique( [ ...$edge['origins']['connect'], ...$config_origins ] );
-			$exported       = [
-				'from'   => $edge['from'],
-				'to'     => $edge['to'],
-				'origin' => \array_values( \array_filter( $origin_order, static fn ( string $origin ): bool => \in_array( $origin, $active_origins, true ) ) ),
-				'roles'  => $roles,
-			];
-			if ( [] !== $edge['origins']['config'] ) {
-				$exported['config_slots'] = \array_keys( $edge['origins']['config'] );
-			}
-			$out[] = $exported;
-		}
-		return $out;
-	}
-
-	/**
-	 * Node set of EVERY topology in the tree, nested ones included.
-	 *
-	 * The canvas draws a hull per include at any depth, so it needs each one's
-	 * membership. `origin` (top-level) and `via` (first path) can't answer it —
-	 * a node two levels down belongs to both hulls. Depth-first, so the outer
-	 * topology precedes what it brings; the canvas paints in that order and the
-	 * nested hull lands on top of its parent.
-	 *
-	 * @param array<array-key,mixed> $tree Include tree from statements().
-	 * @return array<string, list<string>> Topology name => node names it provides.
-	 */
-	private static function hulls_for_tree( array $tree ): array {
-		$out = [];
-		foreach ( $tree as $name => $subtree ) {
-			$out[ (string) $name ] = self::declared_node_names( (string) $name );
-			if ( \is_array( $subtree ) ) {
-				foreach ( self::hulls_for_tree( $subtree ) as $child => $names ) {
-					$out[ $child ] = $names;
-				}
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Every node a topology declares, its own includes flattened in.
-	 *
-	 * @return list<string>
-	 */
-	private static function declared_node_names( string $name ): array {
-		$names = [];
-		foreach ( self::statements( $name )['statements'] as $statement ) {
-			if ( 'make_node' === $statement['verb'] ) {
-				$names[ $statement['values'][2] ?? '' ] = true;
-			}
-		}
-		return \array_keys( $names );
 	}
 
 	/**
@@ -728,6 +377,188 @@ class Topology_Analyzer {
 	}
 
 	/**
+	 * Replace one named config-target slot without disturbing other setters.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the configuration.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
+		$current_key = $source . "\0" . $target;
+		foreach ( \array_keys( $edges ) as $key ) {
+			if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
+				continue;
+			}
+			$edge   = $edges[ $key ];
+			$config = $edge['origins']['config'];
+			unset( $config[ $slot ] );
+			if ( [] === $edge['origins']['connect'] && [] === $config ) {
+				unset( $edges[ $key ] );
+				continue;
+			}
+			$edges[ $key ] = [
+				'from'    => $edge['from'],
+				'to'      => $edge['to'],
+				'origins' => [
+					'connect' => $edge['origins']['connect'],
+					'config'  => $config,
+				],
+			];
+		}
+		if ( '' === $target ) {
+			return;
+		}
+		$key          = self::ensure_edge( $edges, $source, $target );
+		$edge         = $edges[ $key ];
+		$config       = $edge['origins']['config'];
+		$slot_origins = $config[ $slot ] ?? [];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $slot_origins, true ) ) {
+				$slot_origins[] = $origin;
+			}
+		}
+		$config[ $slot ] = $slot_origins;
+		$edges[ $key ]    = [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => $edge['origins']['connect'],
+				'config'  => $config,
+			],
+		];
+	}
+
+	/**
+	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
+		if ( ! $fans_out ) {
+			$current_key = $source . "\0" . $target;
+			foreach ( \array_keys( $edges ) as $key ) {
+				if ( $current_key === $key || $edges[ $key ]['from'] !== $source ) {
+					continue;
+				}
+				$remaining = self::without_connect_role( $edges[ $key ] );
+				if ( null === $remaining ) {
+					unset( $edges[ $key ] );
+					continue;
+				}
+				$edges[ $key ] = $remaining;
+			}
+		}
+		self::add_connect_origins( $edges, $source, $target, $origins );
+	}
+
+	/**
+	 * Add one connect relationship origin.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param list<string> $origins Top-level includes providing the connection.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function add_connect_origins( array &$edges, string $source, string $target, array $origins ): void {
+		$key             = self::ensure_edge( $edges, $source, $target );
+		$edge            = $edges[ $key ];
+		$connect_origins = $edge['origins']['connect'];
+		foreach ( $origins as $origin ) {
+			if ( ! \in_array( $origin, $connect_origins, true ) ) {
+				$connect_origins[] = $origin;
+			}
+		}
+		$edges[ $key ] = [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => $connect_origins,
+				'config'  => $edge['origins']['config'],
+			],
+		];
+	}
+
+	/**
+	 * Ensure one insertion-ordered edge-state record and return its key.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function ensure_edge( array &$edges, string $source, string $target ): string {
+		$key = $source . "\0" . $target;
+		if ( ! isset( $edges[ $key ] ) ) {
+			$edges[ $key ] = [
+				'from'    => $source,
+				'to'      => $target,
+				'origins' => [
+					'connect' => [],
+					'config'  => [],
+				],
+			];
+		}
+		return $key;
+	}
+
+	/**
+	 * Mirror runtime disconnect: regular Nodes clear their connect target;
+	 * Tees remove an explicit target, while an omitted target defaults to the
+	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
+	 * Configuration-target roles are independent and never removed here.
+	 *
+	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 */
+	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
+		if ( $fans_out && null === $target ) {
+			return;
+		}
+		foreach ( \array_keys( $edges ) as $key ) {
+			$edge = $edges[ $key ];
+			if ( $edge['from'] !== $source || ( $fans_out && $edge['to'] !== $target ) ) {
+				continue;
+			}
+			$remaining = self::without_connect_role( $edge );
+			if ( null === $remaining ) {
+				unset( $edges[ $key ] );
+				continue;
+			}
+			$edges[ $key ] = $remaining;
+		}
+	}
+
+	/**
+	 * Remove the runtime connect role while preserving independent config roles.
+	 *
+	 * @param array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}} $edge Edge state.
+	 * @return array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}|null
+	 */
+	private static function without_connect_role( array $edge ): ?array {
+		if ( [] === $edge['origins']['config'] ) {
+			return null;
+		}
+		return [
+			'from'    => $edge['from'],
+			'to'      => $edge['to'],
+			'origins' => [
+				'connect' => [],
+				'config'  => $edge['origins']['config'],
+			],
+		];
+	}
+
+	/**
+	 * True when a TSL class token resolves to a class that keeps a target LIST.
+	 */
+	private static function type_fans_out( string $type ): bool {
+		if ( 'Tee' === $type ) {
+			return true;
+		}
+		$fqcn = Command_Interpreter_Node::resolve_class( $type );
+		return null !== $fqcn && Core::class_fans_out( $fqcn );
+	}
+
+	/**
 	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
 	 * processes that would write the same file (data log or cursor) and corrupt
 	 * it. A partition BOTH declare with a byte-identical make_node line (the
@@ -778,6 +609,145 @@ class Topology_Analyzer {
 			}
 		}
 		return $conflicts;
+	}
+
+	/**
+	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
+	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
+	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
+	 * `<config:…>` tokens resolved, then the first path segment under the
+	 * respective root is taken — wherever the partition token sits in the path.
+	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
+	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
+	 *
+	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
+	 * partition number comes FROM the enumeration loop, never parsed back out of a
+	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
+	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
+	 * first level) several partitions collapse to one first-level dir — the FIRST
+	 * seen is kept; nested layouts aren't represented per-partition here.
+	 *
+	 * @return array{logs: array<string,int>, offsets: array<string,int>}
+	 */
+	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
+		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
+		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
+		$logs         = [];
+		$offsets      = [];
+		// write_set() populates the meta cache; read it AFTER.
+		$entries = self::write_set( $name );
+		$meta    = self::$write_meta_cache[ $name ] ?? [];
+		foreach ( $entries as $entry ) {
+			[ $kind, $token ] = \explode( ':', $entry, 2 );
+			// @longform A Topic's declared count wins: it re-partitions
+			// above the worker count (aggregator fan-in) or below it
+			// (deliberate narrowing). An unresolvable token falls back
+			// rather than declaring nothing — the GC deletes undeclared.
+			$declared = self::declared_partition_count( $meta[ $entry ]['partitions'] ?? '' );
+			$count    = $declared > 0 ? $declared : $num_partitions;
+			// Explicit kind→root map; a new entry can't hit offsets.
+			$root = match ( $kind ) {
+				'partition' => $logs_root,
+				'offsetlog' => $offsets_root,
+				default     => '',
+			};
+			if ( '' === $root ) {
+				continue;
+			}
+			$produced = [];
+			for ( $p = 0; $p < $count; $p++ ) {
+				$concrete = Core::resolve_partition_template( $token, $p, $name );
+				// @longform Distinct CONCRETE paths, before the root filter:
+				// a nested layout collapses to one first-level dir while
+				// still expanding, and a path outside the root produces
+				// none. Neither is a failed expansion.
+				$produced[ $concrete ] = true;
+				$prefix   = $root . '/';
+				if ( 0 !== \strpos( $concrete, $prefix ) ) {
+					continue;
+				}
+				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
+				if ( '' === $first ) {
+					continue;
+				}
+				// Keep FIRST partition seen (nested layout → one dir).
+				if ( 'partition' === $kind ) {
+					$logs[ $first ] ??= $p;
+				} else {
+					$offsets[ $first ] ??= $p;
+				}
+			}
+			// @longform Declared N but no partition token to expand: every
+			// partition writes ONE dir. Silent data concentration.
+			if ( $declared > 1 && \count( $produced ) < $declared ) {
+				// @longform print_less_often keys on the FIRST argument, so
+				// the token must be in it or a second bad Topic is swallowed.
+				Core::print_less_often(
+					'ERROR: ' . $name . ': dir_template cannot expand to num_partitions: ' . $token
+				);
+			}
+		}
+		return [
+			'logs'    => $logs,
+			'offsets' => $offsets,
+		];
+	}
+
+	/**
+	 * Concrete dirs the Partition/Topic node `$node` writes in `$topology`,
+	 * indexed by partition — the per-node counterpart of resolved_resource_dirs,
+	 * for a reader that wants ONE resource's paths rather than the GC's whole
+	 * first-level set. Same rules: a Topic's declared count wins over
+	 * `$num_partitions`, the token is substituted wherever it sits, and a
+	 * template carrying no partition token collapses to one dir at index 0 —
+	 * `alerts.p0` is pinned across every worker on purpose. `[]` when
+	 * `$topology` declares no such node.
+	 *
+	 * `$num_partitions` is the caller's worker count; pass
+	 * `Bootstrap::num_partitions_for($topology)`.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function resolved_node_dirs( string $topology, string $node, int $num_partitions ): array {
+		// write_set() populates both caches; read them AFTER.
+		self::write_set( $topology );
+		$entry = self::$write_nodes_cache[ $topology ][ $node ] ?? '';
+		if ( '' === $entry ) {
+			return [];
+		}
+		$meta     = self::$write_meta_cache[ $topology ][ $entry ] ?? [];
+		$declared = self::declared_partition_count( Core::as_string( $meta['partitions'] ?? '' ) );
+		$count    = $declared > 0 ? $declared : \max( 1, $num_partitions );
+		$dirs     = [];
+		[ , $template ] = \explode( ':', $entry, 2 );
+		for ( $p = 0; $p < $count; $p++ ) {
+			$concrete = Core::resolve_partition_template( $template, $p, $topology );
+			// Tokenless (or nested) template: keep the FIRST partition seen.
+			if ( \in_array( $concrete, $dirs, true ) ) {
+				continue;
+			}
+			$dirs[ $p ] = $concrete;
+		}
+		return $dirs;
+	}
+
+	/**
+	 * A Topic's declared partition count: a literal, or a `<config:…>` token
+	 * resolved the same way the runtime resolves it. 0 means "not declared, or
+	 * unresolvable" — the caller falls back to the worker count.
+	 */
+	private static function declared_partition_count( string $raw ): int {
+		if ( '' === $raw ) {
+			return 0;
+		}
+		$resolved = Core::resolve_config_tokens( $raw );
+		if ( ! \is_numeric( $resolved ) || (int) $resolved <= 0 ) {
+			return 0;
+		}
+		// @longform Bounded like Bootstrap::num_partitions_for and
+		// Log_Cleaner: a typo'd count would otherwise loop that many times
+		// per sweep and return a declared set that size.
+		return \min( (int) $resolved, Spawn_Coordinator::MAX_PARTITIONS );
 	}
 
 	/**
@@ -888,148 +858,24 @@ class Topology_Analyzer {
 		return null !== $resolved && \is_a( $resolved, $fqcn, true );
 	}
 
-	/**
-	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
-	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
-	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
-	 * `<config:…>` tokens resolved, then the first path segment under the
-	 * respective root is taken — wherever the partition token sits in the path.
-	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
-	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
-	 *
-	 * Each bucket is a `concrete dir name => enumerated partition index` map; the
-	 * partition number comes FROM the enumeration loop, never parsed back out of a
-	 * name. In the flat layout (`firehose.p<partition>`) every partition yields a
-	 * unique first-level name (1:1). In a nested layout (`<partition>` below the
-	 * first level) several partitions collapse to one first-level dir — the FIRST
-	 * seen is kept; nested layouts aren't represented per-partition here.
-	 *
-	 * @return array{logs: array<string,int>, offsets: array<string,int>}
-	 */
-	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
-		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
-		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
-		$logs         = [];
-		$offsets      = [];
-		// write_set() populates the meta cache; read it AFTER.
-		$entries = self::write_set( $name );
-		$meta    = self::$write_meta_cache[ $name ] ?? [];
-		foreach ( $entries as $entry ) {
-			[ $kind, $token ] = \explode( ':', $entry, 2 );
-			// @longform A Topic's declared count wins: it re-partitions
-			// above the worker count (aggregator fan-in) or below it
-			// (deliberate narrowing). An unresolvable token falls back
-			// rather than declaring nothing — the GC deletes undeclared.
-			$declared = self::declared_partition_count( $meta[ $entry ]['partitions'] ?? '' );
-			$count    = $declared > 0 ? $declared : $num_partitions;
-			// Explicit kind→root map; a new entry can't hit offsets.
-			$root = match ( $kind ) {
-				'partition' => $logs_root,
-				'offsetlog' => $offsets_root,
-				default     => '',
-			};
-			if ( '' === $root ) {
-				continue;
-			}
-			$produced = [];
-			for ( $p = 0; $p < $count; $p++ ) {
-				$concrete = Core::resolve_partition_template( $token, $p, $name );
-				// @longform Distinct CONCRETE paths, before the root filter:
-				// a nested layout collapses to one first-level dir while
-				// still expanding, and a path outside the root produces
-				// none. Neither is a failed expansion.
-				$produced[ $concrete ] = true;
-				$prefix   = $root . '/';
-				if ( 0 !== \strpos( $concrete, $prefix ) ) {
-					continue;
-				}
-				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
-				if ( '' === $first ) {
-					continue;
-				}
-				// Keep FIRST partition seen (nested layout → one dir).
-				if ( 'partition' === $kind ) {
-					$logs[ $first ] ??= $p;
-				} else {
-					$offsets[ $first ] ??= $p;
-				}
-			}
-			// @longform Declared N but no partition token to expand: every
-			// partition writes ONE dir. Silent data concentration.
-			if ( $declared > 1 && \count( $produced ) < $declared ) {
-				// @longform print_less_often keys on the FIRST argument, so
-				// the token must be in it or a second bad Topic is swallowed.
-				Core::print_less_often(
-					'ERROR: ' . $name . ': dir_template cannot expand to num_partitions: ' . $token
-				);
-			}
-		}
-		return [
-			'logs'    => $logs,
-			'offsets' => $offsets,
-		];
-	}
-
-	/**
-	 * A Topic's declared partition count: a literal, or a `<config:…>` token
-	 * resolved the same way the runtime resolves it. 0 means "not declared, or
-	 * unresolvable" — the caller falls back to the worker count.
-	 */
-	private static function declared_partition_count( string $raw ): int {
-		if ( '' === $raw ) {
-			return 0;
-		}
-		$resolved = Core::resolve_config_tokens( $raw );
-		if ( ! \is_numeric( $resolved ) || (int) $resolved <= 0 ) {
-			return 0;
-		}
-		// @longform Bounded like Bootstrap::num_partitions_for and
-		// Log_Cleaner: a typo'd count would otherwise loop that many times
-		// per sweep and return a declared set that size.
-		return \min( (int) $resolved, Spawn_Coordinator::MAX_PARTITIONS );
-	}
-
-	/**
-	 * Concrete dirs the Partition/Topic node `$node` writes in `$topology`,
-	 * indexed by partition — the per-node counterpart of resolved_resource_dirs,
-	 * for a reader that wants ONE resource's paths rather than the GC's whole
-	 * first-level set. Same rules: a Topic's declared count wins over
-	 * `$num_partitions`, the token is substituted wherever it sits, and a
-	 * template carrying no partition token collapses to one dir at index 0 —
-	 * `alerts.p0` is pinned across every worker on purpose. `[]` when
-	 * `$topology` declares no such node.
-	 *
-	 * `$num_partitions` is the caller's worker count; pass
-	 * `Bootstrap::num_partitions_for($topology)`.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function resolved_node_dirs( string $topology, string $node, int $num_partitions ): array {
-		// write_set() populates both caches; read them AFTER.
-		self::write_set( $topology );
-		$entry = self::$write_nodes_cache[ $topology ][ $node ] ?? '';
-		if ( '' === $entry ) {
-			return [];
-		}
-		$meta     = self::$write_meta_cache[ $topology ][ $entry ] ?? [];
-		$declared = self::declared_partition_count( Core::as_string( $meta['partitions'] ?? '' ) );
-		$count    = $declared > 0 ? $declared : \max( 1, $num_partitions );
-		$dirs     = [];
-		[ , $template ] = \explode( ':', $entry, 2 );
-		for ( $p = 0; $p < $count; $p++ ) {
-			$concrete = Core::resolve_partition_template( $template, $p, $topology );
-			// Tokenless (or nested) template: keep the FIRST partition seen.
-			if ( \in_array( $concrete, $dirs, true ) ) {
-				continue;
-			}
-			$dirs[ $p ] = $concrete;
-		}
-		return $dirs;
-	}
-
 	/** Whether `$topology` declares a node named `$node` — including nodes that write nothing. */
 	public static function declares_node( string $topology, string $node ): bool {
 		return \in_array( $node, self::declared_node_names( $topology ), true );
+	}
+
+	/**
+	 * Every node a topology declares, its own includes flattened in.
+	 *
+	 * @return list<string>
+	 */
+	private static function declared_node_names( string $name ): array {
+		$names = [];
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			if ( 'make_node' === $statement['verb'] ) {
+				$names[ $statement['values'][2] ?? '' ] = true;
+			}
+		}
+		return \array_keys( $names );
 	}
 
 	/**
@@ -1128,6 +974,160 @@ class Topology_Analyzer {
 			}
 		}
 		return \array_values( \array_unique( $out ) );
+	}
+
+	/**
+	 * Flatten a topology and everything it includes into one statement list.
+	 *
+	 * Mirrors the Shell's include rules statically: registry name resolution,
+	 * `#pragma once` per resolved path, an ancestor-stack cycle guard, and
+	 * make_node dedup-or-conflict. Statement ORDER is the eval order.
+	 *
+	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
+	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
+	 *
+	 * @return array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
+	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
+	 */
+	public static function statements( string $name, array $extra_includes = [] ): array {
+		// Every static reader walks this tree; a re-walk re-reads every file.
+		$memo_key = $name . "\0" . \implode( ' ', $extra_includes );
+		if ( isset( self::$statements_cache[ $memo_key ] ) ) {
+			return self::$statements_cache[ $memo_key ];
+		}
+		$state = [
+			'statements' => [],
+			'expanded'   => [],
+			'subtrees'   => [],
+			'defs'       => [],
+		];
+		/** @var array<string,mixed> $tree */
+		$tree = [];
+		if ( '' !== $name ) {
+			$path = Topology_Registry::resolve( $name );
+			if ( null === $path ) {
+				throw new \RuntimeException( \esc_html( "unknown topology: $name" ) );
+			}
+			$tree = self::walk( $path, $name, null, [], [], $state );
+		}
+		foreach ( $extra_includes as $include ) {
+			$path = Topology_Registry::resolve( $include );
+			if ( null === $path ) {
+				throw new \RuntimeException( \esc_html( "unknown topology in include: $include" ) );
+			}
+			$tree[ $include ] = self::walk( $path, $include, $include, [ $include ], [], $state );
+		}
+		$out = [
+			'statements' => $state['statements'],
+			'tree'       => $tree,
+		];
+		return self::$statements_cache[ $memo_key ] = $out;
+	}
+
+	/**
+	 * Walk one resolved topology file, appending its statements to $state.
+	 *
+	 * @param string       $path   Resolved .tsl path.
+	 * @param string       $name   Topology name (for errors + the tree).
+	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
+	 * @param list<string> $via    Include path from the top level down to this file.
+	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
+	 * @param array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
+	 * @param-out array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
+	 *
+	 * @return array<string, mixed> This file's include subtree.
+	 */
+	private static function walk( string $path, string $name, ?string $origin, array $via, array $stack, array &$state ): array {
+		if ( \in_array( $path, $stack, true ) ) {
+			throw new \RuntimeException( \esc_html( 'topology include cycle: ' . \implode( ' -> ', [ ...$via, $name ] ) ) );
+		}
+		if ( isset( $state['expanded'][ $path ] ) ) {
+			if ( null !== $origin ) {
+				foreach ( $state['expanded'][ $path ] as $index ) {
+					$statement = $state['statements'][ $index ];
+					if ( ! \in_array( $origin, $statement['origins'], true ) ) {
+						$state['statements'][ $index ] = [
+							...$statement,
+							'origins' => [ ...$statement['origins'], $origin ],
+						];
+					}
+				}
+			}
+			return $state['subtrees'][ $path ];
+		}
+		$members = [];
+		$stack[] = $path;
+		$subtree = [];
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		foreach ( Shell_Node::parse_statements( (string) \file_get_contents( $path ) ) as $statement ) {
+			$line   = $statement['raw'];
+			$verb   = $statement['verb'];
+			$values = $statement['values'];
+			if ( 'include' === $verb ) {
+				$child_name = $values[1] ?? '';
+				$child_path = Topology_Registry::resolve( $child_name );
+				if ( null === $child_path ) {
+					throw new \RuntimeException( \esc_html( "unknown topology in include: $child_name" ) );
+				}
+				$child_origin = $origin ?? $child_name;
+				// Memoized subtree: the tree shows what each file DECLARES.
+				$subtree[ $child_name ] = self::walk(
+					$child_path,
+					$child_name,
+					$child_origin,
+					[ ...$via, $child_name ],
+					$stack,
+					$state
+				);
+				$members = [ ...$members, ...$state['expanded'][ $child_path ] ];
+				continue;
+			}
+			// Only the TOP-LEVEL file's frontmatter is honored.
+			if ( null !== $origin && 'var' === $verb ) {
+				continue;
+			}
+			if ( 'make_node' === $verb ) {
+				$node_name = $values[2] ?? '';
+				$def       = [
+					'type' => $values[1] ?? '',
+					'args' => \implode( ' ', \array_slice( $statement['spans'], 3 ) ),
+				];
+				$prior     = $state['defs'][ $node_name ] ?? null;
+				if ( null !== $prior ) {
+					if ( $prior['type'] === $def['type'] && $prior['args'] === $def['args'] ) {
+						$statement = $state['statements'][ $prior['index'] ];
+						if ( null !== $origin && ! \in_array( $origin, $statement['origins'], true ) ) {
+							$state['statements'][ $prior['index'] ] = [
+								...$statement,
+								'origins' => [ ...$statement['origins'], $origin ],
+							];
+						}
+						$members[] = $prior['index'];
+						continue;
+					}
+					throw new \RuntimeException(
+						\esc_html( "make_node conflict: '$node_name' declared as {$prior['type']} '{$prior['args']}' and as {$def['type']} '{$def['args']}'" )
+					);
+				}
+				$state['defs'][ $node_name ] = [
+					...$def,
+					'index' => \count( $state['statements'] ),
+				];
+			}
+			$members[]             = \count( $state['statements'] );
+			$state['statements'][] = [
+				'line'    => $line,
+				'verb'    => $statement['verb'],
+				'values'  => $statement['values'],
+				'spans'   => $statement['spans'],
+				'origin'  => $origin,
+				'origins' => null === $origin ? [] : [ $origin ],
+				'via'     => $via,
+			];
+		}
+		$state['expanded'][ $path ] = \array_values( \array_unique( $members ) );
+		$state['subtrees'][ $path ] = $subtree;
+		return $subtree;
 	}
 
 	/** Drop every parsed cache; the source dirs are Topology_Registry's. */

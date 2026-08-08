@@ -132,9 +132,52 @@ class Alerts {
 		}
 	}
 
-	/** Whether an operator is holding the fleet down for a deploy. */
-	private static function fleet_is_held(): bool {
-		return Spawn_Coordinator::hold() > 0;
+	/**
+	 * Journal one row into alerts.p0 — the errors-family entry shape plus
+	 * `severity`, KEY = a stable per-condition key so consumers can dedupe.
+	 * Used by emit()'s transition rows and by non-fleet event producers
+	 * (Job_Worker batch completion). Throws on write failure; callers own
+	 * the swallow-or-not decision.
+	 *
+	 * @api Cross-class journal entry point.
+	 * @param string $key      Stable condition key (e.g. `batch:{id}`).
+	 * @param string $text     Human-readable one-liner (short by construction; PIPE_BUF-safe).
+	 * @param string $severity One of the SEVERITY_* constants.
+	 */
+	public static function journal_event( string $key, string $text, string $severity ): void {
+		// Fresh read: a caller outside the drain may hold a frozen Core::$now.
+		$ts                            = Core::right_now();
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::FROM ]      = 'alerts';
+		$message[ Message::TIMESTAMP ] = $ts;
+		$message[ Message::KEY ]       = $key;
+		$message[ Message::VALUE ]     = [
+			'n'        => 1,
+			'k'        => 'alert',
+			'm'        => $text,
+			'ts'       => $ts,
+			'severity' => $severity,
+		];
+		$journal                       = self::journal();
+		$journal->fill( $message );
+		$journal->flush();
+	}
+
+	/**
+	 * Build (once) the anonymous `alerts.p0` Partition. Path argument ONLY:
+	 * geometry comes from the schema's `<config:*>` defaults — the same source
+	 * ELN's `alerts:partition` TSL line resolves, so both writers on this dir
+	 * agree by construction. Never pass geometry literals here or in TSL.
+	 */
+	private static function journal(): Partition_Node {
+		if ( null !== self::$journal ) {
+			return self::$journal;
+		}
+		$partition = new Partition_Node();
+		$partition->arguments( [ Config::get_logs_directory() . '/' . self::LOG_BASENAME . '.p0' ] );
+		self::$journal = $partition;
+		return $partition;
 	}
 
 	/**
@@ -236,52 +279,9 @@ class Alerts {
 		];
 	}
 
-	/**
-	 * Journal one row into alerts.p0 — the errors-family entry shape plus
-	 * `severity`, KEY = a stable per-condition key so consumers can dedupe.
-	 * Used by emit()'s transition rows and by non-fleet event producers
-	 * (Job_Worker batch completion). Throws on write failure; callers own
-	 * the swallow-or-not decision.
-	 *
-	 * @api Cross-class journal entry point.
-	 * @param string $key      Stable condition key (e.g. `batch:{id}`).
-	 * @param string $text     Human-readable one-liner (short by construction; PIPE_BUF-safe).
-	 * @param string $severity One of the SEVERITY_* constants.
-	 */
-	public static function journal_event( string $key, string $text, string $severity ): void {
-		// Fresh read: a caller outside the drain may hold a frozen Core::$now.
-		$ts                            = Core::right_now();
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::FROM ]      = 'alerts';
-		$message[ Message::TIMESTAMP ] = $ts;
-		$message[ Message::KEY ]       = $key;
-		$message[ Message::VALUE ]     = [
-			'n'        => 1,
-			'k'        => 'alert',
-			'm'        => $text,
-			'ts'       => $ts,
-			'severity' => $severity,
-		];
-		$journal                       = self::journal();
-		$journal->fill( $message );
-		$journal->flush();
-	}
-
-	/**
-	 * Build (once) the anonymous `alerts.p0` Partition. Path argument ONLY:
-	 * geometry comes from the schema's `<config:*>` defaults — the same source
-	 * ELN's `alerts:partition` TSL line resolves, so both writers on this dir
-	 * agree by construction. Never pass geometry literals here or in TSL.
-	 */
-	private static function journal(): Partition_Node {
-		if ( null !== self::$journal ) {
-			return self::$journal;
-		}
-		$partition = new Partition_Node();
-		$partition->arguments( [ Config::get_logs_directory() . '/' . self::LOG_BASENAME . '.p0' ] );
-		self::$journal = $partition;
-		return $partition;
+	/** Whether an operator is holding the fleet down for a deploy. */
+	private static function fleet_is_held(): bool {
+		return Spawn_Coordinator::hold() > 0;
 	}
 
 	/**
