@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-08-08
+
 ### Added
 
 - **`Job_Intake::feed()` — the small-job ingress, on its own log.** A spoke's
