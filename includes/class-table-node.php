@@ -166,6 +166,7 @@ class Table_Node extends Node {
 			'commands'    => [
 				[
 					'name'        => 'get',
+					'action'      => true,
 					'description' => 'Read one entry (JSON-encoded), or "null" when absent.',
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {
@@ -178,6 +179,7 @@ class Table_Node extends Node {
 				],
 				[
 					'name'        => 'rm',
+					'action'      => true,
 					'description' => 'Delete one entry.',
 					'args'        => [ [ 'name' => 'key', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, array $args ): string {

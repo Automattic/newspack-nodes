@@ -23,6 +23,7 @@ import {
 	formatRate,
 } from './ProcessStats';
 import { processStats } from '../utils/processStats';
+import { isConfigurableVerb } from '../utils/editorLines';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 import { useNodeState } from '../../runtime/react';
 import reservedNames from '../../runtime/reserved-node-names.json';
@@ -712,9 +713,9 @@ function LockedForm( { node, catalog } ) {
 		node.ctorArgs || [],
 		argumentSpecs.length
 	);
-	// Read-only mirror of the edit Verbs list: same hidden filter, no editing.
+	// Read-only mirror of the edit Verbs list: same filter, no editing.
 	const commandSpecs = ( schema?.commands || [] ).filter(
-		( spec ) => ! spec.hidden
+		isConfigurableVerb
 	);
 	const verbInvocations = ( node.verbInvocations || [] ).map( ( inv ) => {
 		const cspec = ( schema?.commands || [] ).find(
@@ -804,9 +805,9 @@ function EditForm( {
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
-	// Drop hidden verbs (schema plumbing) from editor, matching the buttons.
+	// Actions and schema plumbing are not settings; see isConfigurableVerb.
 	const commandSpecs = ( schema?.commands || [] ).filter(
-		( spec ) => ! spec.hidden
+		isConfigurableVerb
 	);
 	// Absorb each free-text trailing arg into its declared slot (normalized).
 	const ctorArgs = absorbTrailingArgs(

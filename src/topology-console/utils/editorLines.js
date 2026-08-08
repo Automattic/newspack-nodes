@@ -47,6 +47,24 @@ export function setArgumentsLine( id, args, current = [], spec = null ) {
 }
 
 /**
+ * Whether a verb may be offered as CONFIGURATION in the topology editor.
+ *
+ * The editor renders each configurable verb as a checkbox, and ticking it
+ * serializes `cmd <node>:config <verb>` into the .tsl — so the verb runs on
+ * every worker boot, forever. That is right for a setting and wrong for an
+ * action: `purge` would discard every in-flight request on each restart.
+ * A verb declaring `action` stays a verb, invocable on a live node from the
+ * runtime panel and the REPL; it is only withheld from the persisted set.
+ * `hidden` is the older, stronger flag — schema plumbing, shown nowhere.
+ *
+ * @param {Object} spec A node_schema `commands[]` entry.
+ * @return {boolean} True when the verb belongs in the config editor.
+ */
+export function isConfigurableVerb( spec ) {
+	return ! spec.hidden && ! spec.action;
+}
+
+/**
  * Whether a verb on this class is written bare or through `:config`.
  *
  * What the FILE said wins — that is what the operator wrote. A verb the
