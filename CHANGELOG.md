@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.17.1] - 2026-08-09
+
+### Changed
+
+- One spelling for a generic type in docblocks: `array<string,mixed>`, no
+  space after the comma. Both parse identically; only that one highlights as a
+  single type in the editor. `lint-comments.php` gains the rule and a `--fix`,
+  so it holds from here rather than drifting per-repo again.
+
 ## [2.17.0] - 2026-08-08
 
 ### Changed
