@@ -1,8 +1,8 @@
 /**
  * RemoteLinkNode tests — the full-duplex "be the browser" SSE+HTTP channel base.
  *
- * One node that composes an UNNAMED per-link SseIn (an internal stream — not
- * registered in Core, so it never churns the canvas layout) and SHARES the
+ * One node that composes a per-link `<name>:sse-in` (registered so `trace` can
+ * reach it, patron-owned so the canvas skips it) and SHARES the
  * reserved-name `_http` (HttpOut) + `_heartbeat` (Heartbeat) singletons, plus the
  * `connected → slot` bridge. A dashboard makes ONE RemoteLink; RemoteIpc extends
  * it with the worker-relay send + single-connection steal. Mirrors the PHP
@@ -15,6 +15,9 @@ import { SseInNode } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
+import { dumpMetadataPayload } from '../metadata-node';
+import { NodeRegistry } from '../node-registry';
+import { RouterNode } from '../router-node';
 import { Core } from '../core';
 import { mountExospine } from '../exospine';
 import {
@@ -85,16 +88,40 @@ function dispatchConnected( link, opts ) {
 }
 
 describe( 'RemoteLinkNode', () => {
-	it( 'composes an UNNAMED SseIn + the shared `_http`/`_heartbeat` singletons on connect', () => {
+	it( 'composes a patron-owned `<name>:sse-in` + the shared `_http`/`_heartbeat` singletons on connect', () => {
 		const { link } = makeLink();
 		link.connect();
-		// SseIn is internal — held, but NOT registered (no canvas churn).
+		// Registered so `trace` can reach it; patron keeps it off the canvas.
 		expect( link.sseIn ).toBeInstanceOf( SseInNode );
-		expect( Core.node( 'dash:link:sse-in' ) ).toBe( null );
+		expect( Core.node( 'dash:link:sse-in' ) ).toBe( link.sseIn );
+		expect( link.sseIn.patron ).toBe( link );
+		expect( dumpMetadataPayload() ).not.toHaveProperty(
+			'dash:link:sse-in'
+		);
 		// HttpOut + Heartbeat are shared reserved-name singletons.
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
 		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
 		expect( link.heartbeat ).toBe( Core.node( names.HEARTBEAT ) );
+	} );
+
+	it( 'names the child in the PATRON’s table, so a draft graph keeps it out of Core', () => {
+		const { interpreter } = mountExospine();
+		const drafts = new NodeRegistry();
+		// Every real graph has a backbone; the child hitchhikes its router.
+		const router = new RouterNode();
+		router.registry = drafts;
+		router.name = names.ROUTER;
+		const link = new RemoteLinkNode();
+		link.registry = drafts; // Before the name — the setter enforces it.
+		link.name = 'draft:link';
+		link.sink = interpreter;
+		link.arguments = [ 'raw-logs' ];
+
+		link.connect();
+
+		// Named into Core instead, a second graph collides on the same name.
+		expect( drafts.node( 'draft:link:sse-in' ) ).toBe( link.sseIn );
+		expect( Core.registry.node( 'draft:link:sse-in' ) ).toBe( null );
 	} );
 
 	it( 'never arms the shared heartbeat itself: the slot lifecycle does (setSlot arms, close stops)', () => {
@@ -110,13 +137,13 @@ describe( 'RemoteLinkNode', () => {
 		expect( hb.mode ).toBe( 'inactive' );
 	} );
 
-	it( 'surfaces its anonymous SseIn read tally but NOT the shared HttpOut writes (avoids double-count)', () => {
+	it( 'surfaces its own SseIn read tally but NOT the shared HttpOut writes (avoids double-count)', () => {
 		const { link } = makeLink();
 		link.connect();
 		link.sseIn.bytesRead = 500;
 		link.sseIn.largestMsgSent = 120;
 		Core.node( names.HTTP ).bytesWritten = 80;
-		// SseIn is unlisted, so the link surfaces its reads (else uncounted).
+		// SseIn is off the canvas, so the link surfaces its reads.
 		expect( link.bytesRead ).toBe( 500 );
 		expect( link.largestMsgSent ).toBe( 120 );
 		// _http is already listed; the link must NOT re-surface its writes.

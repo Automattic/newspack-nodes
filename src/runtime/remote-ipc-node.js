@@ -161,14 +161,14 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	}
 
 	/**
-	 * Console teardown: close THIS link's own (unnamed) stream and unregister the
+	 * Console teardown: tear down THIS link's own `:sse-in` and unregister the
 	 * RemoteIpc, but leave the SHARED `_http`/`_heartbeat` for the graph to tear
 	 * down. Clear the shared slot only when we were the active stream (so removing
 	 * a cd'd-away link can't drop the live worker's keepalive).
 	 */
 	removeNode() {
-		this.sseIn?.unregister( 'CONNECTED', this.name );
-		this.sseIn?.close();
+		// removeNode, not close: the named child must leave the table too.
+		this.sseIn?.removeNode();
 		if ( RemoteIpcNode.active === this ) {
 			this.heartbeat?.clearSlot( this );
 			RemoteIpcNode.active = null;

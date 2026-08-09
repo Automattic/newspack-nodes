@@ -4,8 +4,8 @@
  * used to wire by hand:
  *
  *   an SseIn        — inbound EventSource stream (frames → link sink/target).
- *                     THIS link's own, and deliberately unnamed: it is reached
- *                     through `this.sseIn`, never `Core.node()`.
+ *                     THIS link's own `<name>:sse-in`: registered so `trace`
+ *                     can reach it, patron-owned so the canvas skips it.
  *   `_http`         — the process-wide HttpOut singleton, the outbound /command
  *                     POST boundary. Configured here, never aliased per link.
  *   `_heartbeat`    — the process-wide Heartbeat singleton, slot keepalive.
@@ -126,9 +126,7 @@ export class RemoteLinkNode extends Node {
 	 */
 	removeNode() {
 		this.close();
-		this.sseIn?.unregister( 'CONNECTING', this.name );
-		this.sseIn?.unregister( 'CONNECTED', this.name );
-		this.sseIn?.unregister( 'DISCONNECTED', this.name );
+		// removeNode clears the child's registrations; unregistering is moot.
 		this.sseIn?.removeNode();
 		this.sseIn = null;
 		this.heartbeat = null;
@@ -175,6 +173,13 @@ export class RemoteLinkNode extends Node {
 
 		/** @type {SseInNode & import('./sse-in-node').PatronConfigured} */
 		const sse = new SseInNode();
+		// Pin a NON-default table before naming, exactly as makeNode does.
+		if ( this.registry !== Core.registry ) {
+			sse.registry = this.registry;
+		}
+		// Named so `trace` reaches it; patron keeps it off the canvas.
+		sse.name = `${ this.name }:sse-in`;
+		sse.patron = this;
 		sse.arguments = this.arguments; // `{subscribe}`; baseUrl/nonce from global
 		if ( this.endpoint ) {
 			sse.endpoint = this.endpoint;
