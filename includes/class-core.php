@@ -64,7 +64,7 @@ class Core {
 	 *
 	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
 	 *
-	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
+	 * @var \Closure(\CurlHandle, array<string,mixed>): mixed|null
 	 */
 	public static ?\Closure $curl_exec = null;
 
@@ -375,7 +375,7 @@ class Core {
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
 	 * CURLOPT_NOSIGNAL + a sub-second TIMEOUT_MS means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
 	 *
-	 * @param array<string, mixed> $body POST body.
+	 * @param array<string,mixed> $body POST body.
 	 * @return string|null Error string on failure, null on success.
 	 */
 	public static function fire_and_forget_post( string $url, array $body ): ?string {
@@ -442,7 +442,7 @@ class Core {
 	 *
 	 * @param string $url    Target URL.
 	 * @param string $fields Already query-encoded body.
-	 * @return array<int, mixed>
+	 * @return array<int,mixed>
 	 */
 	private static function post_curl_options( string $url, string $fields ): array {
 		return [
@@ -514,8 +514,8 @@ class Core {
 	 *
 	 * @api Consumed by sibling plugins (event-logger-nodes, ai-newsletter).
 	 *
-	 * @param array<array-key, mixed> $default
-	 * @return array<array-key, mixed>
+	 * @param array<array-key,mixed> $default
+	 * @return array<array-key,mixed>
 	 */
 	public static function arr( mixed $value, array $default = [] ): array {
 		return \is_array( $value ) ? $value : $default;

@@ -23,7 +23,7 @@ class Digest_Builder_Demo_Node extends Node {
 	 * TM_COMMAND verb — that flag is for startup/admin). A TM_STRUCT message is
 	 * data to accumulate; everything else is ignored.
 	 *
-	 * @param array<int, mixed> $message Message reference.
+	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function fill( array $message ): void {
 		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
@@ -46,7 +46,7 @@ class Digest_Builder_Demo_Node extends Node {
 	/**
 	 * FLUSH handler: render accumulated summaries to markdown, emit, clear, then reply with the count.
 	 *
-	 * @param array<int, mixed> $message Incoming request Message.
+	 * @param array<int,mixed> $message Incoming request Message.
 	 */
 	private function handle_request( array $message ): void {
 		$lines = [ '# Newsletter draft', '' ];

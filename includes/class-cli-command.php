@@ -60,8 +60,8 @@ class CLI_Command {
 	 *     wp nodes cli firehose-workers.p0
 	 *
 	 * @api WP-CLI subcommand `wp nodes cli` — invoked by WP-CLI via reflection, not called in PHP.
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function cli( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -114,7 +114,7 @@ class CLI_Command {
 	/**
 	 * Build the REPL graph + log the mode line, returning [$shell, $dumper, $stdout] for run_repl.
 	 *
-	 * @param array<int, string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
+	 * @param array<int,string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
 	 * @return array{0:Shell_Node,1:Dumper_Node,2:TTY_Out_Node}
 	 */
 	private function prepare_repl( array $args ): array {

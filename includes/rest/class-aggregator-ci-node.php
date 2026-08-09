@@ -95,8 +95,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * A worker that is neither live nor stale is a never-started `dead`.
 	 *
 	 * @param string                 $id      Spoke id.
-	 * @param array<array-key, mixed> $payload The spoke's dump_graph payload.
-	 * @return array<string, mixed> Compact roll-up.
+	 * @param array<array-key,mixed> $payload The spoke's dump_graph payload.
+	 * @return array<string,mixed> Compact roll-up.
 	 */
 	private static function fleet_rollup( string $id, array $payload ): array {
 		$workers = Core::arr( $payload['workers'] ?? [] );
@@ -145,7 +145,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 * status snapshot from memcache under `np:remote:<node-name>:<remote_partition>`
 	 * (the exact key Remote_Link writes). Cache misses default to an empty array.
 	 *
-	 * @return array<string, array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
+	 * @return array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
 	 */
 	private static function build_snapshot(): array {
 		$registry = Vault::fresh();

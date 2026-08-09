@@ -166,7 +166,7 @@ class Dumper_Node extends Node {
 	/**
 	 * Level-2 dump: full envelope as a structural multi-line render.
 	 *
-	 * @param array<int, mixed> $message The Message to render.
+	 * @param array<int,mixed> $message The Message to render.
 	 */
 	private function format_envelope_dump( array $message ): string {
 		$type     = self::coerce_int( $message[ Message::TYPE ] ?? 0 );
@@ -219,7 +219,7 @@ class Dumper_Node extends Node {
 	 * Public: the dead-letter `dl_show` verb reuses it as the ONE flags-to-names map.
 	 */
 	public static function format_type_flags( int $type ): string {
-		/** @var array<int, string> $map */
+		/** @var array<int,string> $map */
 		static $map = [
 			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
 			Message::TM_EOF        => 'TM_EOF',
@@ -310,7 +310,7 @@ class Dumper_Node extends Node {
 	 * the HEAD and everything after it is whatever the worker wrote, so only the
 	 * head is ours to trust. Bare mode has no remote peer feeding this Dumper.
 	 *
-	 * @param array<int, mixed> $message The response Message.
+	 * @param array<int,mixed> $message The response Message.
 	 */
 	private function prompt_is_trusted( array $message ): bool {
 		if ( null === $this->shell ) {

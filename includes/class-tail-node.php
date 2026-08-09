@@ -98,7 +98,7 @@ class Tail_Node extends Consumer_Node {
 	 * from the live file size here; segmented mode defers to Consumer's handler. The reply
 	 * envelope mirrors Consumer::handle_request (which is private, hence the small repeat).
 	 *
-	 * @param array<int, mixed> $message
+	 * @param array<int,mixed> $message
 	 */
 	public function fill( array $message ): void {
 		if ( self::MODE_FILE !== $this->source_mode ) {
@@ -173,7 +173,7 @@ class Tail_Node extends Consumer_Node {
 	 * boundary → 0). A runtime seek (handle already open) validates now; a build-time one defers to the
 	 * first poll. Segmented defers to Consumer.
 	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit {segment,offset}.
+	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
 	 */
 	public function next_offset( $position ): void {
 		if ( self::MODE_FILE !== $this->source_mode ) {
@@ -550,7 +550,7 @@ class Tail_Node extends Consumer_Node {
 	 * label the frame by the followed filename instead so dashboards aren't blank. The inode is
 	 * NOT added here: it already rides the frame's `segment` container slot.
 	 *
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 */
 	protected function checkpoint_frame_extra(): array {
 		$extra = parent::checkpoint_frame_extra();

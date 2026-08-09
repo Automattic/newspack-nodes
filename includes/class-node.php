@@ -22,7 +22,7 @@ class Node {
 	/**
 	 * Human-readable message-type labels.
 	 *
-	 * @var array<int, string>
+	 * @var array<int,string>
 	 */
 	private static array $type_names = [
 		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
@@ -68,7 +68,7 @@ class Node {
 	/** @var array<string,string> */
 	protected array $set_state = [];
 	protected ?Node  $sink = null;
-	/** @var string|array<int, string> */
+	/** @var string|array<int,string> */
 	protected $target = '';
 
 	/**
@@ -103,7 +103,7 @@ class Node {
 	/**
 	 * Default: stamp TO from target if empty, then forward to sink.
 	 *
-	 * @param array<int, mixed> $message Message reference.
+	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
@@ -157,7 +157,7 @@ class Node {
 	/**
 	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
 	 *
-	 * @param array<int, mixed> $message Message reference.
+	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function stamp_message( array &$message, string $name ): bool {
 		if ( '' === $name ) {
@@ -246,7 +246,7 @@ class Node {
 	/**
 	 * Drop a message with an audit trail.
 	 *
-	 * @param array<int, mixed> $message Message reference.
+	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
@@ -470,8 +470,8 @@ class Node {
 	/**
 	 * Get/set target. String or array (Tee uses array form for fan-out).
 	 *
-	 * @param string|array<int, string>|null $value New target (null = getter).
-	 * @return string|array<int, string>
+	 * @param string|array<int,string>|null $value New target (null = getter).
+	 * @return string|array<int,string>
 	 */
 	public function target( $value = null ) {
 		if ( null !== $value ) {
@@ -512,7 +512,7 @@ class Node {
 	/**
 	 * Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. For dump_metadata registration edges.
 	 *
-	 * @return array<string, list<string>> Event name => listener Node names.
+	 * @return array<string,list<string>> Event name => listener Node names.
 	 */
 	public function registered_listeners(): array {
 		$out = [];
@@ -561,7 +561,7 @@ class Node {
 	 * Snapshot of this node's state for the REPL `dump_node` verb. Secret-named
 	 * properties are redacted for every node (see SECRET_NAME_PATTERNS).
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 */
 	public function dump_node(): array {
 		$ref      = new \ReflectionObject( $this );
@@ -600,7 +600,7 @@ class Node {
 	 * interpreter merges the return with `+=`, so the fixed dump_metadata keys win
 	 * and the hook can only add. Base returns nothing.
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 */
 	public function dump_metadata(): array {
 		return [];
@@ -609,7 +609,7 @@ class Node {
 	/**
 	 * Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description.
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 */
 	public static function node_schema(): array {
 		return [

@@ -28,7 +28,7 @@ class Log_Node extends Partition_Node {
 	 * record written via the parent's batched segment path using this class's
 	 * VALUE serialize_record seam.
 	 *
-	 * @param array<int, mixed> $message
+	 * @param array<int,mixed> $message
 	 */
 	public function fill( array $message ): void {
 		$type_raw = $message[ Message::TYPE ];

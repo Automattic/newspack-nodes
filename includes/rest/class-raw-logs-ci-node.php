@@ -195,13 +195,13 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * `list_logs` verb handler — every on-disk partition dir as {key,label}:
 	 * bare logs keys, then `offsets/…` and `deadletter/…`.
 	 *
-	 * @return array<int, mixed>
+	 * @return array<int,mixed>
 	 */
 	public static function cmd_list_logs(): array {
 		return self::catalog_keys();
 	}
 
-	/** @return list<array{key: string, label: string}> The full grouped catalog. */
+	/** @return list<array{key: string,label: string}> The full grouped catalog. */
 	private static function catalog_keys(): array {
 		$result = [];
 		foreach ( Log_Discovery::groups() as $group => $names ) {

@@ -27,10 +27,10 @@ class Config {
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
-	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
+	/** @var array<string,mixed>|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
 
-	/** @var array<string, mixed>|null Cached config defaults from files. */
+	/** @var array<string,mixed>|null Cached config defaults from files. */
 	private static $config_defaults = null;
 
 	/** @var bool Inside declare_keys(): a DECLARE_ACTION callback that reads config can't re-enter. */
@@ -39,7 +39,7 @@ class Config {
 	/** @var bool declare_keys() ran; reset() clears it so a reload re-derives. */
 	private static bool $keys_declared = false;
 
-	/** @var array<string, bool> Declared config keys; only these may be read via value(). */
+	/** @var array<string,bool> Declared config keys; only these may be read via value(). */
 	private static array $registered_keys = [];
 
 	/** @var string|null */
@@ -377,7 +377,7 @@ class Config {
 	/**
 	 * Load configuration from disk + WordPress options.
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
 	 */
 	public static function load_config(): array {
@@ -400,7 +400,7 @@ class Config {
 	/**
 	 * Load configuration defaults from file only (no WordPress options).
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
 	 */
 	public static function load_config_defaults(): array {

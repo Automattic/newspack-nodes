@@ -412,7 +412,7 @@ class Shell_Node extends Node {
 	/**
 	 * Parse one line into a Message; null on empty/comment or held continuation.
 	 *
-	 * @return array<int, mixed>|null The 7-field positional Message, or null.
+	 * @return array<int,mixed>|null The 7-field positional Message, or null.
 	 */
 	public function parse( string $line ): ?array {
 		// Backslash splice: the \<newline> vanishes (bash: hi\+bye = hibye).
@@ -824,7 +824,7 @@ class Shell_Node extends Node {
 	 * quotes interpolate `<…>`, single quotes/backticks defer — see
 	 * interpolate()). Mirrors src/runtime/shell-node.js scanTokens.
 	 *
-	 * @return list<array{value: string, raw: string}>
+	 * @return list<array{value: string,raw: string}>
 	 */
 	private static function scan_tokens( string $line, ?string &$open_quote = null ): array {
 		$tokens   = [];
@@ -1058,7 +1058,7 @@ class Shell_Node extends Node {
 	/**
 	 * When want_reply is off, mark a command TM_NOREPLY (no-op on non-commands).
 	 *
-	 * @param array<int, mixed> $message Message to stamp in place.
+	 * @param array<int,mixed> $message Message to stamp in place.
 	 */
 	private function stamp_noreply( array &$message ): void {
 		$type = $message[ Message::TYPE ] ?? 0;

@@ -61,7 +61,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	public static ?\Closure $scandir = null;
 
-	/** @var array<string, string> Resolved partition dirs written since the last flush. */
+	/** @var array<string,string> Resolved partition dirs written since the last flush. */
 	private static array $pending_wakes = [];
 
 	/** Guards the one shutdown-time flush registration per process. */
@@ -72,7 +72,7 @@ class Partition_Node extends Timer_Node {
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
-	/** @var list<array{message:array<int, mixed>,size:int}> Flushed in lockstep with $batch. */
+	/** @var list<array{message:array<int,mixed>,size:int}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 	protected ?string $current_idx_path = null;
 	protected ?string $current_log_path = null;
@@ -96,7 +96,7 @@ class Partition_Node extends Timer_Node {
 	/** @var resource|null */
 	protected $idx_fh = null;
 
-	/** @var (callable(array<int, mixed>, array<string, int>): (string|null))|null fn(array $message, array $position) => string|null */
+	/** @var (callable(array<int,mixed>, array<string,int>): (string|null))|null fn(array $message, array $position) => string|null */
 	protected $index_callback = null;
 	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
 	protected ?string $index_formatter_name = null;
@@ -120,7 +120,7 @@ class Partition_Node extends Timer_Node {
 
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 
-	/** @var array<int, array{id:int, size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
+	/** @var array<int,array{id:int,size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
 	protected ?array $segments_cache = null;
 	protected float $segments_cache_time = 0.0;
 	protected ?Lock_Node $write_lock = null;
@@ -161,7 +161,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Node entry point: pack the message and append to the current segment.
 	 *
-	 * @param array<int, mixed> $message Reference; not mutated.
+	 * @param array<int,mixed> $message Reference; not mutated.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -357,7 +357,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
 	 *
-	 * @param array<int, mixed> $message
+	 * @param array<int,mixed> $message
 	 */
 	protected function serialize_record( array $message ): string {
 		return Message::packed( $message ) . "\n";
@@ -615,7 +615,7 @@ class Partition_Node extends Timer_Node {
 	 *
 	 * @param resource                                                  $fh           Segment handle.
 	 * @param int                                                       $start_offset Segment size before this batch.
-	 * @param array<int, array{message: array<int, mixed>, size: int}>  $batch_args   Batched messages, in write order.
+	 * @param array<int,array{message: array<int,mixed>,size: int}>  $batch_args   Batched messages, in write order.
 	 * @param int                                                       $wrote        Bytes write_all() landed.
 	 * @return int Leading messages fully on disk.
 	 */
@@ -643,7 +643,7 @@ class Partition_Node extends Timer_Node {
 	 * Route messages [$from..] through the DLQ ([159]) — loud + replayable via
 	 * `wp nodes ingest`; with no quarantine dir the trait logs-and-drops loudly.
 	 *
-	 * @param array<int, array{message: array<int, mixed>, size: int}> $batch_args Batched messages.
+	 * @param array<int,array{message: array<int,mixed>,size: int}> $batch_args Batched messages.
 	 * @param int                                                      $from       First unwritten index.
 	 */
 	protected function quarantine_unwritten( array $batch_args, int $from, string $reason ): void {
@@ -899,7 +899,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Write one companion-index entry for the message at $offset. Caller guards on $index_callback.
 	 *
-	 * @param array<int, mixed> $message The unpacked message array handed to the index callback.
+	 * @param array<int,mixed> $message The unpacked message array handed to the index callback.
 	 */
 	private function write_index_entry( array $message, int $offset, int $length ): void {
 		$callback   = $this->index_callback;
@@ -966,7 +966,7 @@ class Partition_Node extends Timer_Node {
 	 * bytes don't unpack to a 7-field envelope) rather than throwing.
 	 *
 	 * @api Cross-plugin entrypoint — Performance_CI (event-logger-nodes) reads via this.
-	 * @return array<int, mixed>|null
+	 * @return array<int,mixed>|null
 	 */
 	public function read_message_at( int $segment, int $offset, int $length ): ?array {
 		$bytes = $this->read_at( $segment, $offset, $length );
@@ -1247,7 +1247,7 @@ class Partition_Node extends Timer_Node {
 	 * Message) plus the on-disk position — never the serialized JSONL line — so
 	 * it reads `$message[ Message::VALUE ]` directly instead of json_decode-ing.
 	 *
-	 * @param callable(array<int, mixed>, array<string, int>): (string|null) $callback fn(array $message, array $position) => string|null. Return null/'' to skip.
+	 * @param callable(array<int,mixed>, array<string,int>): (string|null) $callback fn(array $message, array $position) => string|null. Return null/'' to skip.
 	 * @return self
 	 */
 	public function with_index( callable $callback ): self {
@@ -1426,7 +1426,7 @@ class Partition_Node extends Timer_Node {
 	 * released after that many ms of idle) instead of acquire-and-hold ([65]).
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key, mixed>  $args        Optional debounce_ms (default 0 = hold mode).
+	 * @param array<array-key,mixed>  $args        Optional debounce_ms (default 0 = hold mode).
 	 *
 	 * @return string
 	 */
@@ -1456,7 +1456,7 @@ class Partition_Node extends Timer_Node {
 	 * `with_index` verb handler — set the patron's companion-index line-formatter by name.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key, mixed>  $args        Verb argument.
+	 * @param array<array-key,mixed>  $args        Verb argument.
 	 *
 	 * @return string
 	 */

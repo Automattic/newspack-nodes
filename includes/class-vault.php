@@ -49,7 +49,7 @@ class Vault {
 	/**
 	 * Cached merged servers (config-file defaults + WP option overlay).
 	 *
-	 * @var array<string,array<string, mixed>>|null
+	 * @var array<string,array<string,mixed>>|null
 	 */
 	private ?array $servers = null;
 
@@ -68,7 +68,7 @@ class Vault {
 	 * callers that express the "enabled spokes" intent stay readable.
 	 *
 	 * @api
-	 * @return array<array-key, array<string, mixed>> Keys are array-key (not string): PHP coerces numeric server-id keys to int.
+	 * @return array<array-key,array<string,mixed>> Keys are array-key (not string): PHP coerces numeric server-id keys to int.
 	 */
 	public function get_enabled(): array {
 		return $this->get_all();
@@ -79,7 +79,7 @@ class Vault {
 	 *
 	 * @api
 	 * @param string $id Server ID.
-	 * @return array<string, mixed>|null Server config or null if not found.
+	 * @return array<string,mixed>|null Server config or null if not found.
 	 */
 	public function get( string $id ): ?array {
 		$servers = $this->get_all();
@@ -97,7 +97,7 @@ class Vault {
 	 *
 	 * @api
 	 * @param string $id     Server ID (alphanumeric, hyphen, underscore; 1-64 chars).
-	 * @param array<string, mixed>  $config Server configuration.
+	 * @param array<string,mixed>  $config Server configuration.
 	 */
 	public function add( string $id, array $config ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
@@ -140,7 +140,7 @@ class Vault {
 	 *
 	 * @api
 	 * @param string $id      Server ID.
-	 * @param array<string, mixed>  $partial Partial configuration to merge.
+	 * @param array<string,mixed>  $partial Partial configuration to merge.
 	 */
 	public function update( string $id, array $partial ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
@@ -183,8 +183,8 @@ class Vault {
 	/**
 	 * Validate and sanitize a full server configuration.
 	 *
-	 * @param array<string, mixed> $config Raw configuration.
-	 * @return array<string, mixed>|null Validated configuration or null if invalid.
+	 * @param array<string,mixed> $config Raw configuration.
+	 * @return array<string,mixed>|null Validated configuration or null if invalid.
 	 */
 	private function validate_config( array $config ): ?array {
 		// URL is required, must be string, must be HTTPS.
@@ -328,7 +328,7 @@ class Vault {
 	 * marks the option as non-autoloaded so it doesn't bloat every request's
 	 * option cache); falls back to 2-arg for stripped-down test stubs.
 	 *
-	 * @param array<array-key, mixed> $wp_servers Map of id => validated config.
+	 * @param array<array-key,mixed> $wp_servers Map of id => validated config.
 	 */
 	private static function write_option( array $wp_servers ): void {
 		$arity = self::update_option_arity();
@@ -364,7 +364,7 @@ class Vault {
 	 * Write paths use this so we never accidentally persist a config-file
 	 * default into the WP option (would shadow file changes forever).
 	 *
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 */
 	private function get_wp_servers(): array {
 		$option = \get_option( self::OPTION_KEY, [] );
@@ -395,7 +395,7 @@ class Vault {
 	 * WordPress option values override config file defaults.
 	 *
 	 * @api
-	 * @return array<array-key, array<string, mixed>> Associative array of vault id => config. Keys are
+	 * @return array<array-key,array<string,mixed>> Associative array of vault id => config. Keys are
 	 *                                                 array-key (not string) because PHP coerces numeric
 	 *                                                 server-id keys to int — callers must not assume string.
 	 */
@@ -424,7 +424,7 @@ class Vault {
 				if ( ! \is_array( $server ) ) {
 					continue;
 				}
-				/** @var array<string, mixed> $server — config map is string-keyed by design. */
+				/** @var array<string,mixed> $server — config map is string-keyed by design. */
 				$server += [
 					'url'           => '',
 					'auth_username' => '',
@@ -486,7 +486,7 @@ class Vault {
 	/**
 	 * `credential_header()` for a decrypted server config entry.
 	 *
-	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param array<array-key,mixed> $server Decrypted vault server config.
 	 * @return string The header value, or ''.
 	 */
 	public static function credential_header_for( array $server ): string {

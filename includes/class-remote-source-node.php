@@ -345,7 +345,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
 	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
 	 *
-	 * @param array<array-key, mixed> $extra Per-call frame additions (the quarantine marker).
+	 * @param array<array-key,mixed> $extra Per-call frame additions (the quarantine marker).
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		if ( null === $this->ensure_offsetlog() ) {
@@ -358,7 +358,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the current
 	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to PLAY's tick.
 	 *
-	 * @param string|array<array-key, mixed> $position Explicit {segment,offset} from seek_frame().
+	 * @param string|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame().
 	 */
 	public function next_offset( $position ): void {
 		if ( ! \is_array( $position ) ) {
@@ -537,7 +537,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on
 	 * every frame so an idle-vs-fresh cursor is distinguishable in the durable record.
 	 *
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 */
 	protected function checkpoint_frame_extra(): array {
 		return [ '_ts' => (int) Core::$now ];
@@ -549,7 +549,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * no SSE_In sync is needed.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
+	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
 	 */
 	public function dump_metadata(): array {
 		return $this->time_travel_metadata() + $this->deadletter_metadata();

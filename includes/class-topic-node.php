@@ -72,7 +72,7 @@ class Topic_Node extends Node {
 	/**
 	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or round-robin) and delegate.
 	 *
-	 * @param array<int, mixed> $message Reference; not mutated.
+	 * @param array<int,mixed> $message Reference; not mutated.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -179,7 +179,7 @@ class Topic_Node extends Node {
 	 * `allow_large_writes` verb — lift the cap on every partition, with the lock.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
-	 * @param array<array-key, mixed>  $args        Optional debounce_ms.
+	 * @param array<array-key,mixed>  $args        Optional debounce_ms.
 	 */
 	public static function cmd_allow_large_writes( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -204,7 +204,7 @@ class Topic_Node extends Node {
 	 * `with_index` verb — name the companion-index formatter for every partition.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Owning interpreter.
-	 * @param array<array-key, mixed>  $args        Formatter name.
+	 * @param array<array-key,mixed>  $args        Formatter name.
 	 */
 	public static function cmd_with_index( Command_Interpreter_Node $interpreter, array $args ): string {
 		$args = Core::as_string( $args[0] ?? '' );

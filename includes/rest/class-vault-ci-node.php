@@ -38,12 +38,12 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * `list` verb handler — registered servers (public shape).
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_list(): array {
 		$registry = Vault::fresh();
 		$out = [];
-		/** @var array<string, mixed> $config */
+		/** @var array<string,mixed> $config */
 		foreach ( $registry->get_all() as $id => $config ) {
 			$out[ $id ] = self::public_shape( (string) $id, $config, $registry );
 		}
@@ -55,7 +55,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_get( array $args ): array {
 		$registry = Vault::fresh();
@@ -72,9 +72,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * credentials and adds computed `has_credentials` + `is_config` flags.
 	 *
 	 * @param string               $id     Server id.
-	 * @param array<string, mixed> $config Stored server config.
+	 * @param array<string,mixed> $config Stored server config.
 	 * @param Vault                $registry Backing vault.
-	 * @return array<string, mixed> Public server record.
+	 * @return array<string,mixed> Public server record.
 	 */
 	private static function public_shape( string $id, array $config, Vault $registry ): array {
 		/** @var int|float|string|bool|null $raw_url */
@@ -119,7 +119,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * defaulting missing fields to the same shape validate_config expects.
 	 *
 	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Server-config blob ready for registry->add().
+	 * @return array<string,mixed> Server-config blob ready for registry->add().
 	 */
 	private static function extract_server_config( array $opts ): array {
 		return [
@@ -162,7 +162,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * stored field untouched.
 	 *
 	 * @param array<string,string|true> $opts Parsed `--key=value` options.
-	 * @return array<string, mixed> Partial config for registry->update().
+	 * @return array<string,mixed> Partial config for registry->update().
 	 */
 	private static function partial_config( array $opts ): array {
 		$partial = [];
@@ -213,7 +213,7 @@ class Vault_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_test( array $args ): array {
 		$registry = Vault::fresh();
@@ -233,8 +233,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * whitelists the discovery payload so we never proxy arbitrary remote JSON.
 	 *
 	 * @param string               $id     Server id.
-	 * @param array<string, mixed> $server Decrypted server config from the registry.
-	 * @return array<string, mixed> Sanitised probe response.
+	 * @param array<string,mixed> $server Decrypted server config from the registry.
+	 * @return array<string,mixed> Sanitised probe response.
 	 */
 	private static function probe_remote( string $id, array $server ): array {
 		$body = HTTP_Out_Node::probe_command( $id, $server, 'discovery', 'get' );

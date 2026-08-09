@@ -37,7 +37,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 
 	private string $prefix = 'hosts';
 
-	/** @var array<string, array{record: array<int, int|string>, ts: float}> Latest record per reader. */
+	/** @var array<string,array{record: array<int,int|string>,ts: float}> Latest record per reader. */
 	private array $readers = [];
 
 	/**
@@ -68,7 +68,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		if ( ! \is_array( $record ) ) {
 			return;
 		}
-		/** @var array<int, int|string> $record */
+		/** @var array<int,int|string> $record */
 		$reader = Core::str( $record[ Probe_Record::READER ] ?? null, '' );
 		if ( '' === $reader ) {
 			return;

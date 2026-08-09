@@ -225,7 +225,7 @@ class Command_Auth {
 	 * (e.g. a worker loading its topology via Shell::eval_script), while every
 	 * wire command still requires a signature.
 	 *
-	 * @return \Closure(Command_Interpreter_Node, array<int, mixed>): bool
+	 * @return \Closure(Command_Interpreter_Node, array<int,mixed>): bool
 	 */
 	public static function verifier(): \Closure {
 		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
@@ -237,7 +237,7 @@ class Command_Auth {
 	 * honored end-to-end.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int, mixed>        $message
+	 * @param array<int,mixed>        $message
 	 */
 	private static function authorize_command( Command_Interpreter_Node $interpreter, array $message ): bool {
 		return isset( $message[ Message::LOCAL ] )
@@ -253,7 +253,7 @@ class Command_Auth {
 	 * a different interpreter than the one refusing also defeats its
 	 * generic-"unauthorized" suppression, so each refusal logs twice.
 	 *
-	 * @param array<int, mixed>            $message     Message to verify.
+	 * @param array<int,mixed>            $message     Message to verify.
 	 * @param int|null                     $now         Verification time; defaults to time().
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 */
@@ -329,7 +329,7 @@ class Command_Auth {
 	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
 	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
 	 *
-	 * @param array<array-key, mixed> $value Command struct (name/arguments).
+	 * @param array<array-key,mixed> $value Command struct (name/arguments).
 	 */
 	private static function canonical( int $ts, array $value, string $nonce ): ?string {
 		$name      = $value['name']      ?? '';
@@ -386,7 +386,7 @@ class Command_Auth {
 	 *
 	 * @phpstan-assert-if-true int $type
 	 * @phpstan-assert-if-true int|float|numeric-string $ts
-	 * @phpstan-assert-if-true array<array-key, mixed> $value
+	 * @phpstan-assert-if-true array<array-key,mixed> $value
 	 */
 	private static function is_request_command( $type, $ts, $value ): bool {
 		return \is_integer( $type )

@@ -63,7 +63,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	 * `save` verb handler — persist node positions for a layout (1 MiB cap).
 	 *
 	 * @param list<string> $args Verb argument.
-	 * @param array<int|string, mixed> $envelope Verb argument.
+	 * @param array<int|string,mixed> $envelope Verb argument.
 	 *
 	 * @return array<string,mixed>
 	 */

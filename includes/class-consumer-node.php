@@ -59,7 +59,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * snapshot nodes usually don't exist yet when load_offsetlog() runs, so we
 	 * stash the map and restore on the first poll, after the topology is built.
 	 *
-	 * @var array<array-key, mixed>|null
+	 * @var array<array-key,mixed>|null
 	 */
 	private ?array $loaded_cache = null;
 
@@ -68,7 +68,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * boot). Folded back into every recommitted frame so an unresolvable
 	 * node's durable state survives until a live save_state() replaces it.
 	 *
-	 * @var array<string, array<array-key, mixed>>
+	 * @var array<string,array<array-key,mixed>>
 	 */
 	private array $snapshot_carry = [];
 
@@ -143,7 +143,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		parent::fill( $message );
 	}
 
-	/** @param array<int, mixed> $message Incoming request Message. */
+	/** @param array<int,mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'fill requires a wired sink' );
@@ -419,7 +419,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * Set next read position: 'start' | 'recent' | 'end' | array{segment,offset}.
 	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'segment'/'offset').
+	 * @param string|array<array-key,mixed> $position Magic value or explicit position (reads 'segment'/'offset').
 	 */
 	public function next_offset( $position ): void {
 		$this->offset_set = true;
@@ -498,7 +498,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * @param bool                    $with_state Co-commit the snapshot node's save_state(). False for the
 	 *                                            stateless boot frame written BEFORE restore — reading the
 	 *                                            un-restored node there would clobber the good cache.
-	 * @param array<array-key, mixed> $extra      Per-call frame additions (the quarantine marker).
+	 * @param array<array-key,mixed> $extra      Per-call frame additions (the quarantine marker).
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit snapshots with offset as ONE record for lockstep respawn.
@@ -523,7 +523,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * tail the same log under distinct offset-dir names (firehose vs firehose.job-router);
 	 * the dashboard labels by this, not the disambiguated offset dir.
 	 *
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 */
 	protected function checkpoint_frame_extra(): array {
 		return [
@@ -641,7 +641,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	/**
 	 * Smallest live segment id greater than $after, or null when $after is the newest.
 	 *
-	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
+	 * @param array<int,array{id: int,size: int}> $segments Live segment list.
 	 */
 	private function next_segment_id( array $segments, int $after ): ?int {
 		$next = null;
@@ -686,7 +686,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * the segment start instead of waiting forever for the file to grow back).
 	 * Shared by poll() and compute_lag() so reads and lag agree on position.
 	 *
-	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
+	 * @param array<int,array{id: int,size: int}> $segments Live segment list.
 	 */
 	protected function normalize_cursor( array $segments ): void {
 		$sizes = \array_column( $segments, 'size', 'id' );
@@ -798,7 +798,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * payload the inspector round-trips. Delegates to the Time_Travel trait, which
 	 * reads the cursor/checkpoint fields directly.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
+	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool, deadletter_segments: int}
 	 */
 	public function dump_metadata(): array {
 		return $this->time_travel_metadata() + $this->deadletter_metadata();

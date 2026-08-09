@@ -274,7 +274,7 @@ class HTTP_In_Node extends Node {
 		}
 	}
 
-	/** @param array<int, mixed> $message The Message that triggered the error. */
+	/** @param array<int,mixed> $message The Message that triggered the error. */
 	private function emit_error( array $message, string $err ): void {
 		\status_header( 500 );
 		\header( 'Content-Type: application/json' );
@@ -295,7 +295,7 @@ class HTTP_In_Node extends Node {
 	 * int-keyed Message type is honored end-to-end.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Node handling the command.
-	 * @param array<int, mixed>        $message
+	 * @param array<int,mixed>        $message
 	 */
 	public function authorize_and_latch( Command_Interpreter_Node $interpreter, array $message ): bool {
 		$refused_before = $this->refused_a_command;

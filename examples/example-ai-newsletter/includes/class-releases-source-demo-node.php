@@ -19,7 +19,7 @@ class Releases_Source_Demo_Node extends Node {
 	 * TM_COMMAND verb — that flag is for startup/admin). Any other type is
 	 * ignored; a source mints, it doesn't consume.
 	 *
-	 * @param array<int, mixed> $message Incoming request Message.
+	 * @param array<int,mixed> $message Incoming request Message.
 	 */
 	public function fill( array $message ): void {
 		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
@@ -31,7 +31,7 @@ class Releases_Source_Demo_Node extends Node {
 	/**
 	 * TICK handler: emit each item as a TM_STRUCT message, then reply with the count.
 	 *
-	 * @param array<int, mixed> $message Incoming request Message.
+	 * @param array<int,mixed> $message Incoming request Message.
 	 */
 	private function handle_request( array $message ): void {
 		$emitted = 0;

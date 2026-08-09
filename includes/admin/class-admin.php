@@ -242,7 +242,7 @@ class Admin {
 	 *
 	 * @param string               $dir      Filesystem path to the build subdir.
 	 * @param string               $url      Public URL of the build subdir.
-	 * @param array<string, mixed> $localize Per-tab localize payload (string keys only).
+	 * @param array<string,mixed> $localize Per-tab localize payload (string keys only).
 	 * @return array{src:string, data:array<string,mixed>, style?:string}|null
 	 */
 	private static function lazy_tab_script( string $dir, string $url, array $localize ): ?array {
@@ -272,8 +272,8 @@ class Admin {
 	 * The `NewspackNodesData` payload: shared restUrl/nonce under per-bundle
 	 * extras — one shape for enqueued and lazily-injected bundles alike.
 	 *
-	 * @param array<string, mixed> $localize Per-bundle extras (string keys).
-	 * @return array<string, mixed>
+	 * @param array<string,mixed> $localize Per-bundle extras (string keys).
+	 * @return array<string,mixed>
 	 */
 	private static function localize_data( array $localize ): array {
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
@@ -874,7 +874,7 @@ class Admin {
 	/**
 	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.
 	 *
-	 * @param array<string, mixed> $defaults Config defaults.
+	 * @param array<string,mixed> $defaults Config defaults.
 	 * @param string               $key      Key to read.
 	 * @param int                  $fallback Default when missing/non-scalar.
 	 */

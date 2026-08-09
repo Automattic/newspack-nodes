@@ -69,7 +69,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 * (`VALUE = ['option' => $name]`); the effective value is read here at
 	 * consume time. Anything that isn't a TM_STRUCT with an 'option' key is dropped.
 	 *
-	 * @param array<int, mixed> $message Message reference.
+	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -184,7 +184,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 * option, once to its own `remote_*` copy); exact duplicates are idempotent
 	 * so re-running the topology doesn't fan out twice.
 	 *
-	 * @param array<array-key, mixed> $args Whitespace-separated `<local_option> <TO> <remote_option>`.
+	 * @param array<array-key,mixed> $args Whitespace-separated `<local_option> <TO> <remote_option>`.
 	 * @return string 'ok', or an `error: …` string on arity mismatch.
 	 */
 	public function add_setting( array $args ): string {
@@ -220,7 +220,7 @@ class Settings_Sync_Node extends Timer_Node {
 	 * inline closure).
 	 *
 	 * @param Command_Interpreter_Node $interpreter The sibling `:config` interpreter.
-	 * @param array<array-key, mixed>  $args        `<local_option> <TO> <remote_option>`.
+	 * @param array<array-key,mixed>  $args        `<local_option> <TO> <remote_option>`.
 	 * @return string Result line.
 	 */
 	public static function cmd_add_setting( Command_Interpreter_Node $interpreter, array $args ): string {

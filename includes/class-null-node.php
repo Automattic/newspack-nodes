@@ -27,13 +27,13 @@ class Null_Node extends Node {
 	 * Swallow the message. Counted, so `ls` still shows what a Null absorbed —
 	 * a silent black hole is indistinguishable from a broken route.
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
 	}
 
-	/** @return array<string, mixed> */
+	/** @return array<string,mixed> */
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Control',

@@ -78,7 +78,7 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_reconcile = false;
 
-	/** @var array<string, list<array<array-key, mixed>>>|null Request-static half of the wake map. */
+	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
 	private static ?array $on_demand_wake_map = null;
 
 	/** Cache-key prefix for the on-demand wake map. */
@@ -168,7 +168,7 @@ class Bootstrap {
 	 * active set, so activation cannot serve a stale answer; the TTL is what
 	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.
 	 *
-	 * @return array<string, list<array<array-key, mixed>>>
+	 * @return array<string,list<array<array-key,mixed>>>
 	 */
 	public static function on_demand_wake_map(): array {
 		if ( null !== self::$on_demand_wake_map ) {
@@ -202,7 +202,7 @@ class Bootstrap {
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}>
+	 * @return array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed,on_demand_idle: int}>
 	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
@@ -231,7 +231,7 @@ class Bootstrap {
 	 * The window IS the flag — declaring one opts a topology in — so absence
 	 * has to read as 0, or every deployment predating it would scale to zero.
 	 *
-	 * @param array<array-key, mixed> $descriptor Topology entry or worker descriptor.
+	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
 	 */
 	public static function on_demand_idle_of( array $descriptor ): int {
 		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? 0, 0 ) );
@@ -240,8 +240,8 @@ class Bootstrap {
 	/**
 	 * A cache entry is untrusted shape; keep only `dir => list<descriptor>`.
 	 *
-	 * @param array<array-key, mixed> $raw Decoded cache value.
-	 * @return array<string, list<array<array-key, mixed>>>
+	 * @param array<array-key,mixed> $raw Decoded cache value.
+	 * @return array<string,list<array<array-key,mixed>>>
 	 */
 	private static function sanitize_wake_map( array $raw ): array {
 		$map = [];
@@ -346,7 +346,7 @@ class Bootstrap {
 	 *
 	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).
 	 *
-	 * @return array<string, mixed> Topology name => entry (keys are always non-empty strings).
+	 * @return array<string,mixed> Topology name => entry (keys are always non-empty strings).
 	 */
 	public static function get_topologies(): array {
 		$catalog = self::get_topology_catalog();
@@ -450,7 +450,7 @@ class Bootstrap {
 	/**
 	 * Full topology catalog (ignores the operator overlay); the admin checkboxes render against this.
 	 *
-	 * @return array<array-key, mixed> Topology name => entry.
+	 * @return array<array-key,mixed> Topology name => entry.
 	 */
 	public static function get_topology_catalog(): array {
 		self::ensure_runtime_wired();
@@ -988,8 +988,8 @@ class Bootstrap {
 	 * jobintake.p<N> + jobfeed.p<N> + jobdelay.p0, the Alerts journal's
 	 * alerts.p0) so Log_Cleaner never sweeps them on ELN-less installs.
 	 *
-	 * @param array<int, string> $producers Producers from prior contributors.
-	 * @return array<int, string>
+	 * @param array<int,string> $producers Producers from prior contributors.
+	 * @return array<int,string>
 	 */
 	public static function register_log_producers( array $producers ): array {
 		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Job_Intake::FEED_BASENAME, Job_Intake::DELAY_BASENAME, Alerts::LOG_BASENAME ] ) ) );
@@ -999,8 +999,8 @@ class Bootstrap {
 	 * Register a 60-second cron interval for the reconcile tick.
 	 * Wired to the `cron_schedules` filter from the plugin file.
 	 *
-	 * @param array<string, mixed> $schedules Existing cron schedules.
-	 * @return array<string, mixed>
+	 * @param array<string,mixed> $schedules Existing cron schedules.
+	 * @return array<string,mixed>
 	 */
 	public static function register_cron_schedules( array $schedules ): array {
 		if ( ! isset( $schedules[ self::CRON_SCHEDULE ] ) ) {

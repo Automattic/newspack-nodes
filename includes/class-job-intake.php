@@ -114,7 +114,7 @@ class Job_Intake {
 	/**
 	 * Partition instances keyed by "{basename}.p{index}".
 	 *
-	 * @var array<string, Partition_Node>
+	 * @var array<string,Partition_Node>
 	 */
 	private array $partitions = [];
 
@@ -160,7 +160,7 @@ class Job_Intake {
 	 * compare the return value against your job count.
 	 *
 	 * @api Used by external plugins.
-	 * @param array<int, array<string, mixed>> $jobs  Zero-indexed list of ['handler' => string, 'parameters' => array].
+	 * @param array<int,array<string,mixed>> $jobs  Zero-indexed list of ['handler' => string, 'parameters' => array].
 	 * @param string|null                      $key   Optional partition key for all jobs.
 	 * @param string|null                      $batch Optional fan-in batch id (requires a selected
 	 *                                                cache backend: Memcached or APCu).
@@ -203,7 +203,7 @@ class Job_Intake {
 				continue;
 			}
 
-			/** @var array<string, mixed> $parameters */
+			/** @var array<string,mixed> $parameters */
 			if ( $this->write_job( $handler, $parameters, $key, \is_string( $id ) ? $id : null, $options ) ) {
 				++$written;
 			}
@@ -221,11 +221,11 @@ class Job_Intake {
 	 * - Otherwise, round-robin across partitions
 	 *
 	 * @param string      $handler    Handler name (alphanumeric, underscores, hyphens, max 64 chars).
-	 * @param array<string, mixed>       $parameters Job parameters (can be large).
+	 * @param array<string,mixed>       $parameters Job parameters (can be large).
 	 * @param string|null $key        Optional partition key for consistent routing.
 	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
 	 *                                jobstats keying ("handler:id"); omitted entirely when null/empty.
-	 * @param array<string, mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
+	 * @param array<string,mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
 	 *                                (seconds) schedules the job via jobdelay.p0; `retries` (int)
 	 *                                opts into Job_Worker backoff retries; `unique` + `unique_ttl`
 	 *                                dedups the enqueue within the ttl window (requires a selected
@@ -249,7 +249,7 @@ class Job_Intake {
 	 * cap is refused here — route that one through queue() instead of losing it.
 	 *
 	 * @param string               $handler    Handler name.
-	 * @param array<string, mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
+	 * @param array<string,mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
 	 * @param string|null          $key        Optional partition key for consistent routing.
 	 * @param string|null          $id         Optional per-job identity for jobstats keying.
 	 * @return bool False on validation failure or an entry over the atomic cap.
@@ -262,10 +262,10 @@ class Job_Intake {
 	 * Shared write path for both ingress logs.
 	 *
 	 * @param string               $handler    Handler name.
-	 * @param array<string, mixed> $parameters Job parameters.
+	 * @param array<string,mixed> $parameters Job parameters.
 	 * @param string|null          $key        Optional partition key.
 	 * @param string|null          $id         Optional per-job identity.
-	 * @param array<string, mixed> $options    write_job() options; empty for the feed path.
+	 * @param array<string,mixed> $options    write_job() options; empty for the feed path.
 	 * @param string               $basename   Target log basename.
 	 * @param bool                 $large      Lift the PIPE_BUF cap and take the write lock.
 	 *                                         The delay branch below assumes it: jobdelay is written locked.
@@ -414,7 +414,7 @@ class Job_Intake {
 	 * APCu keeping a memcached-less host functional.
 	 *
 	 * @param string               $handler Handler name (namespaces the slot).
-	 * @param array<string, mixed> $options The write_job options (unique + unique_ttl).
+	 * @param array<string,mixed> $options The write_job options (unique + unique_ttl).
 	 * @return bool True when this enqueue won the slot.
 	 * @throws \InvalidArgumentException Without a positive unique_ttl.
 	 * @throws \LogicException When no selected cache backend is available.
