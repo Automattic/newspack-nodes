@@ -151,6 +151,19 @@ describe( 'cumulative counters', () => {
 		expect( notified ).toBeGreaterThan( 0 );
 	} );
 
+	test( 'clear moves messageSeq, so a seq-keyed memo re-renders the empty list', () => {
+		for ( let i = 0; i < 5; i++ ) {
+			IoTelemetry.recordDebug( `DEBUG: line ${ i }` );
+		}
+		const before = IoTelemetry.snapshot().messageSeq;
+		expect( before ).toBe( 5 );
+
+		IoTelemetry.clear();
+
+		// Unchanged, the overlay's useMemo keeps showing the cleared lines.
+		expect( IoTelemetry.snapshot().messageSeq ).not.toBe( before );
+	} );
+
 	test( 'the message list is capped at MAX_MESSAGES (oldest dropped)', () => {
 		for ( let i = 0; i < MAX_MESSAGES + 10; i++ ) {
 			IoTelemetry.recordDebug( `m${ i }` );

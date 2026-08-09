@@ -59,6 +59,8 @@ class IoTelemetryImpl {
 		this.errors = 0;
 		this.debug = 0;
 		this.messages = [];
+		// Move the seq too, or a seq-keyed memo re-shows the cleared lines.
+		this.messageSeq = ( this.messageSeq ?? 0 ) + 1;
 		this.series = [];
 		this.revision++;
 		this._last = null;
@@ -174,6 +176,8 @@ class IoTelemetryImpl {
 		this.sseConnectedAt = null;
 		// Recent classified log lines `{ level, text, ts }` (bounded ring).
 		this.messages = [];
+		// Monotonic per-push seq — the message list's memo key.
+		this.messageSeq = 0;
 		// Compact rows: [ t, msgInRate, msgOutRate, byteInRate, byteOutRate ].
 		this.series = [];
 		// Monotonic sample counter — a stable, collision-free memo key.
