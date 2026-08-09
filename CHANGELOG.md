@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A resuming log stream stops holding a child for the whole idle window.**
+  `Tail_Node::file_lag()` read the raw cursor, which a queued resume seek leaves
+  at 0 until the first poll — so a Tail that resumed AT EOF looked maximally
+  behind, `idle_since()` answered null, and `SSE_Out` seeded its idle clock with
+  the present instead of the source's mtime. Every reconnect then ran the full
+  `sse_idle_timeout` rather than closing on the first tick, which is exactly the
+  residency `opened_at_eof_since()` exists to give back. The lag read counts a
+  queued seek only while it still describes the file that is there — same
+  generation, not past its end — since a candidate has not yet been through
+  `validate_resume_offset()`, and trusting a stale one would declare a rotated
+  file caught up and close before delivering it.
+- **`trace` can finally reach the browser's SSE stream.** `RemoteLink` composed
+  its `SseIn` child without a name, so it was absent from the node table — and
+  `trace *`, which walks that table, could never raise its `debug_state`. It is
+  now the patron-owned `<name>:sse-in`, matching PHP `Remote_Link_Node`.
+  `patron` is what keeps it off the canvas, the same mechanism
+  `dump_metadata` already honours, so naming it costs no layout churn.
+  `RemoteIpc` teardown now removes that child instead of only closing it;
+  dropping the reference alone stranded a registry entry that collided with the
+  next `make_node` of the same name.
+- **A TM_ERROR `/command` reply now says what went wrong.** The transport
+  counted it with no text, and a textless record adds no row — so the ERRORS
+  tile climbed while the message list stayed silent, and the reply's own
+  VALUE, which names the cause, was discarded. It is recorded as
+  `ERROR: <to>: <cause>`.
+- **"Reset stats" clears the debug overlay's message list.** `IoTelemetry`
+  emptied the ring but left `messageSeq` where it was, and the Overview tab
+  memoizes that list on the seq — so the cleared lines stayed on screen until
+  the next log line moved the key, or the page was reloaded. `clear()` now
+  moves the seq and `reset()` zeroes it.
+- **`set_state()` traces the transition in JS, as it does in PHP.** A node with
+  `debug_state` raised now emits `DEBUG: <EVENT> <detail>`, so a browser
+  `trace *` produces the same lifecycle lines a worker does. Without it the
+  console's `SseIn` states were set and cached but never observable.
+  Only a SCALAR payload traces — the shape PHP's `set_state( string, string )`
+  can hold. This runtime also publishes React view models through `set_state`,
+  and those stay silent: `_output` bridges its transcript that way, so tracing
+  it wrote a line into the transcript that published itself again.
+
 ## [2.16.0] - 2026-08-08
 
 ### Added
