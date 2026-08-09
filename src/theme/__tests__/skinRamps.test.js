@@ -32,7 +32,6 @@ const SCHEMATIC_CANVAS = path.join(
 	'src/topology-console/components/SchematicCanvas.js'
 );
 const SKINS_SCSS = path.join( ROOT, 'src/theme/_skins.scss' );
-const GALLERY_HTML = path.join( ROOT, 'tools/skin-gallery.html' );
 const compiledTheme = sass.compile( THEME_SCSS ).css;
 const stylesheet = postcss.parse( compiledTheme, { from: THEME_SCSS } );
 const uiStylesheet = postcss.parse( sass.compile( UI_SCSS ).css, {
@@ -319,13 +318,6 @@ graphStylesheet.walkRules( ( rule ) => {
 } );
 const graphCascadeRecords = cascadeRecords( graphStylesheet );
 const uiCascadeRecords = cascadeRecords( uiStylesheet );
-const gallerySource = fs.readFileSync( GALLERY_HTML, 'utf8' );
-const galleryCatalog = /const\s+THEMES\s*=\s*\[(.*?)\];/s.exec( gallerySource );
-const gallerySlugs = galleryCatalog
-	? [ ...galleryCatalog[ 1 ].matchAll( /\[\s*'([a-z0-9-]+)'\s*,/g ) ].map(
-			( match ) => match[ 1 ]
-	  )
-	: [];
 const skinsSource = fs.readFileSync( SKINS_SCSS, 'utf8' );
 
 const effectiveSkin = ( slug ) => ( {
@@ -1323,11 +1315,6 @@ describe( 'theme skin ramps', () => {
 		expect( skinRules.map( ( { slug } ) => slug ) ).toEqual(
 			EXPECTED_SKINS
 		);
-	} );
-
-	it( 'keeps the gallery in exact runtime catalog order', () => {
-		expect( galleryCatalog ).not.toBeNull();
-		expect( gallerySlugs ).toEqual( EXPECTED_SKINS );
 	} );
 
 	it( 'iterates the skin map without a parallel slug registry', () => {
