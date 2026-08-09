@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `newspack_nodes/job_worker/before_job` carries the job MESSAGE as a third
+  argument. A job's trace had no way back to the record that caused it: FROM
+  names the producer, ID is the `segment:offset:length` the Consumer stamped —
+  so it seeks straight onto the log — and KEY is the partition key. Listeners
+  registered at the old arity are unaffected.
+
+### Changed
+
 - **`Cache_Backend` owns memcache key scope, so two installs sharing one
   memcached stop reading each other's state.** It already resolved the *tier*
   (`local_first` APCu-then-memcached, `shared_first` the reverse) while callers

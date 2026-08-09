@@ -70,6 +70,35 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( [ 'before:ctx', 'after:ctx' ], $seen );
 	}
 
+	public function test_before_job_carries_the_job_message(): void {
+		// A job's trace has no way back to the record that caused it unless the
+		// message itself reaches the listener: FROM names the producer, ID is
+		// the segment:offset:length the Consumer stamped, KEY the partition key.
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'ctx', fn ( $p ) => null );
+
+		$seen = null;
+		add_action(
+			'newspack_nodes/job_worker/before_job',
+			function ( $handler, $id, $message ) use ( &$seen ) {
+				$seen = $message;
+			},
+			10,
+			3
+		);
+
+		$message                  = $this->job_message( 'ctx' );
+		$message[ Message::FROM ] = 'jobs.p3';
+		$message[ Message::ID ]   = '0:58746220:127';
+		$message[ Message::KEY ]  = 'affinity-7719';
+		$jw->fill( $message );
+
+		$this->assertIsArray( $seen );
+		$this->assertSame( 'jobs.p3', $seen[ Message::FROM ] );
+		$this->assertSame( '0:58746220:127', $seen[ Message::ID ] );
+		$this->assertSame( 'affinity-7719', $seen[ Message::KEY ] );
+	}
+
 	public function test_after_job_action_fires_even_when_handler_throws(): void {
 		// after_job runs in a finally, so it fires even though the handler throw now
 		// propagates (for the Consumer to quarantine) — an app logger suspended in
