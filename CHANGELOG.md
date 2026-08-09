@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.1] - 2026-08-09
+
 ### Changed
 
 - **A draft interpreter holds the canonical `_command_interpreter` name.** It
