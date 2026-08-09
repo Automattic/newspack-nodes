@@ -307,6 +307,17 @@ class AlertsTest extends TestCase {
 		$this->assertSame( '', Alerts::worst_severity( [] ) );
 	}
 
+	public function test_journal_template_names_the_dir_the_journal_writes(): void {
+		// The template IS what Bootstrap registers with the log GC, so a journal
+		// that drifts from it writes a dir the sweep will never declare.
+		$base = $this->arrange( [ 'stale-workers' ] );
+		$this->seed_heartbeat( $base, 'stale-workers', 120 );
+
+		Alerts::emit();
+
+		$this->assertDirectoryExists( Alerts::log_dir_template( "{$base}/logs" ) );
+	}
+
 	public function test_emit_journals_one_entry_per_alert_to_alerts_p0(): void {
 		$base = $this->arrange( [ 'stale-workers' ] );
 		$this->seed_heartbeat( $base, 'stale-workers', 120 );

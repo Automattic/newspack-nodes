@@ -300,9 +300,9 @@ class Job_Worker_Node extends Node {
 			return;
 		}
 		if ( null === $outcome || 'error' === $outcome['status'] ) {
-			$backend->increment( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
+			$backend->increment( Job_Intake::batch_err_key( $batch ) );
 		}
-		$left = $backend->decrement( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
+		$left = $backend->decrement( Job_Intake::batch_count_key( $batch ) );
 		if ( false === $left ) {
 			$this->print_less_often( 'batch counter missing (evicted or never seeded): ', $batch );
 			return;
@@ -311,7 +311,7 @@ class Job_Worker_Node extends Node {
 			return;
 		}
 		\do_action( 'newspack_nodes/job_worker/batch_complete', $batch );
-		$errors = Core::as_int( $backend->get( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch ), 0 );
+		$errors = Core::as_int( $backend->get( Job_Intake::batch_err_key( $batch ) ), 0 );
 		try {
 			Alerts::journal_event(
 				"batch:{$batch}",
@@ -321,8 +321,8 @@ class Job_Worker_Node extends Node {
 		} catch ( \Throwable $e ) {
 			$this->print_less_often( 'batch completion journal failed: ', $e->getMessage() );
 		}
-		$backend->delete( Job_Intake::BATCH_COUNT_KEY_PREFIX . $batch );
-		$backend->delete( Job_Intake::BATCH_ERR_KEY_PREFIX . $batch );
+		$backend->delete( Job_Intake::batch_count_key( $batch ) );
+		$backend->delete( Job_Intake::batch_err_key( $batch ) );
 	}
 
 	/**

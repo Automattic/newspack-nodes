@@ -252,7 +252,13 @@ class CommandAuthSessionTest extends TestCase {
 	 * from the site secret so a foreign entry never resolves here.
 	 */
 	public function test_a_key_planted_at_the_bare_address_does_not_resolve(): void {
-		Core::$memd->add( 'nodes-cmd-session:' . self::HANDLE, 'planted-key-4242', self::TTL );
+		// The correctly-SCOPED address, missing only the secret-derived half —
+		// so this exercises that half rather than passing on a prefix mismatch.
+		Core::$memd->add(
+			\Newspack_Nodes\Cache_Backend::site_key( 'cmd-session:' . self::HANDLE ),
+			'planted-key-4242',
+			self::TTL
+		);
 
 		$this->assertNull( Command_Auth::load_session( self::HANDLE ) );
 	}

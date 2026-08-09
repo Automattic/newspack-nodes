@@ -168,8 +168,8 @@ class AggregatorCITest extends TestCase {
 		// reads np:remote:spoke-c:firehose.p0 AND ...firehose.p1, keyed by partition
 		// index (0,1) — not a single wired partition.
 		$this->seed_aggregator_topology( [ [ 'spoke-c', 'cville', 'firehose.p<partition>' ] ], 2 );
-		Core::$memd->set( 'np:remote:spoke-c:firehose.p0', [ 'connected' => true ], 60 );
-		Core::$memd->set( 'np:remote:spoke-c:firehose.p1', [ 'connected' => false ], 60 );
+		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p0' ), [ 'connected' => true ], 60 );
+		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p1' ), [ 'connected' => false ], 60 );
 
 		$decoded = \json_decode(
 			VerbHarness::fire( new Aggregator_CI_Node(), 'aggregator', 'servers_status' ),
@@ -231,8 +231,8 @@ class AggregatorCITest extends TestCase {
 			],
 			2
 		);
-		Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
-		Core::$memd->set( 'np:remote:spoke-a:firehose.p1', [ 'connected' => false ], 60 );
+		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
+		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p1' ), [ 'connected' => false ], 60 );
 
 		$interpreter = new Aggregator_CI_Node();
 		$decoded     = \json_decode( VerbHarness::fire( $interpreter, 'aggregator', 'summary' ), true );
@@ -252,14 +252,14 @@ class AggregatorCITest extends TestCase {
 				[ 'spoke-c', 'tucson', 'firehose.p<partition>' ],
 			]
 		);
-		Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
+		Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
 		Core::$memd->set(
-			'np:remote:spoke-b:firehose.p0',
+			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-b', 'firehose.p0' ),
 			[ 'connected' => false, 'scheduled_reconnect_at' => \time() + 9 ],
 			60
 		);
 		Core::$memd->set(
-			'np:remote:spoke-c:firehose.p0',
+			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-c', 'firehose.p0' ),
 			[ 'connected' => false, 'last_error' => 'connection refused 8531' ],
 			60
 		);
@@ -318,7 +318,7 @@ class AggregatorCITest extends TestCase {
 		$this->seed_aggregator_topology( [ [ 'spoke-a', 'austin', 'firehose.p<partition>' ] ] );
 		$this->seed_vault( 'austin', [ 'url' => 'https://spoke.example/' ] );
 		Core::$memd->set(
-			'np:remote:spoke-a:firehose.p0',
+			\Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ),
 			[ 'connected' => true, 'last_http_code' => 200 ],
 			60
 		);
@@ -361,7 +361,7 @@ class AggregatorCITest extends TestCase {
 		// snapshot; the seeded topology lives in Topology_Registry and survives.
 		$reseed = function (): void {
 			Core::$memd = new InMemoryMemcached();
-			Core::$memd->set( 'np:remote:spoke-a:firehose.p0', [ 'connected' => true ], 60 );
+			Core::$memd->set( \Newspack_Nodes\Remote_Source_Node::status_key_for( 'spoke-a', 'firehose.p0' ), [ 'connected' => true ], 60 );
 			$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		};
 

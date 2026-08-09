@@ -66,33 +66,19 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * The pool namespace: this SITE on this MACHINE.
+	 * The pool namespace: this SITE on this MACHINE — both halves from
+	 * `Cache_Backend`, which owns key scope for every surface.
 	 *
 	 * @longform Neither half identifies the protected resource alone, and the
 	 * two deployments fail in opposite directions. On Atomic one pool host
 	 * serves many sites, so a machine-only key put 15 of them on one 10-slot
 	 * budget. In dndocker one site spans many containers over a shared database
-	 * and memcached, so a site-only key would collapse those instead. Each
-	 * environment gets its discriminator from whichever half actually varies.
-	 * Neither is caller-controllable — `SERVER_NAME` would be, and a rate-limit
-	 * namespace the caller chooses is not a rate limit.
+	 * and memcached, so a site-only key would collapse those instead. This is
+	 * the only surface that wants the machine: everything else is site-scoped,
+	 * because the hostname fragments what a fleet must agree on.
 	 */
 	public static function namespace_key(): string {
-		return self::hostname() . ':' . self::site();
-	}
-
-	/** Per-site half of the namespace. Hashed for length; `home_url` is not secret. */
-	private static function site(): string {
-		return \substr( \md5( \home_url() ), 0, 12 );
-	}
-
-	/**
-	 * Machine half of the slot key — see namespace_key() for why it is only a
-	 * half. Falls back to 'unknown' so a gethostname() failure can never pass
-	 * false to the string-typed callees.
-	 */
-	private static function hostname(): string {
-		return \gethostname() ?: 'unknown';
+		return Cache_Backend::machine() . ':' . Cache_Backend::site();
 	}
 
 	/**
@@ -350,6 +336,7 @@ class SSE_Slot_Pool {
 	 * within each host/user/IP namespace; liveness lives only in lease keys.
 	 */
 	private static function slot_key( string $namespace, int $user_id, string $ip_hash, int $slot ): string {
-		return "newspack_nodes:sse:v2:{$namespace}:{$user_id}:{$ip_hash}:{$slot}";
+		// $namespace IS the scope (machine:site); callers inject their own.
+		return Cache_Backend::key( $namespace, "sse:{$user_id}:{$ip_hash}:{$slot}" );
 	}
 }

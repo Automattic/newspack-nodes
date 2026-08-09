@@ -1326,7 +1326,7 @@ class RemoteSourceNodeTest extends TestCase {
 		];
 		$node->fill( $reply );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'last_heartbeat_response', $status );
 		$this->assertArrayHasKey( 'last_heartbeat_rtt', $status );
@@ -1350,7 +1350,7 @@ class RemoteSourceNodeTest extends TestCase {
 		];
 		$node->fill( $success );
 		$this->assertNotNull(
-			Core::$memd->get( 'np:remote:remote-austin:firehose.p0' )['last_heartbeat_response']
+			Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) )['last_heartbeat_response']
 		);
 
 		$lines = [];
@@ -1367,7 +1367,7 @@ class RemoteSourceNodeTest extends TestCase {
 		];
 		$node->fill( $error );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertNull( $status['last_heartbeat_response'] );
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 		$this->assertSame(
@@ -1406,7 +1406,7 @@ class RemoteSourceNodeTest extends TestCase {
 		];
 		$node->fill( $rejected );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertNull( $status['last_heartbeat_response'] );
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 		$this->assertSame(
@@ -1437,7 +1437,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// A tick right after the reply keeps the fresh response in the snapshot.
 		$node->fire();
 		$this->assertNotNull(
-			Core::$memd->get( 'np:remote:remote-austin:firehose.p0' )['last_heartbeat_response']
+			Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) )['last_heartbeat_response']
 		);
 
 		// No further reply; advance past the HEARTBEAT_INTERVAL*4 staleness window.
@@ -1445,7 +1445,7 @@ class RemoteSourceNodeTest extends TestCase {
 		// snapshot ages the response out to null (mirrors the old clear-on-disconnect).
 		Core::$now = 1000.0 + ( Remote_Source_Node::HEARTBEAT_INTERVAL * 4 ) + 5;
 		$node->fire();
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertNull( $status['last_heartbeat_response'] );
 		$this->assertNull( $status['last_heartbeat_rtt'] );
 	}
@@ -1474,7 +1474,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = 1748970001.0;
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertFalse( $status['connected'] );
 		$this->assertNull( $status['last_error'], 'a scheduled close is not a failure' );
 		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
@@ -1489,7 +1489,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: slot_released' ) );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertNull( ( $status ?: [] )['last_error'] ?? null );
 	}
 
@@ -1500,7 +1500,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fill( $this->heartbeat_error( 'remote-austin', 'SSE slot lease not owned: pointer_owner_mismatch' ) );
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertStringContainsString( 'pointer_owner_mismatch', (string) $status['last_error'] );
 	}
 
@@ -1526,7 +1526,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertIsArray( $status );
 		$this->assertArrayHasKey( 'connected', $status );
 		$this->assertArrayHasKey( 'current_backoff', $status );
@@ -1559,7 +1559,7 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = 1030.0;
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertSame( 1000, $status['last_connection_attempt'] );
 	}
 
@@ -1575,7 +1575,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$node->fire();
 
-		$status = Core::$memd->get( 'np:remote:remote-austin:firehose.p0' );
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
 		$this->assertSame( 1748960000, $status['last_sse_heartbeat'] );
 	}
 

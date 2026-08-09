@@ -11,9 +11,11 @@
  * comments whose full length is strictly necessary. Directive comments
  * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split.
  *
- * GENERICS: a docblock type carries no space after its comma —
- * `array<string,mixed>`, not `array<string,mixed>`. Both parse identically;
- * the editor only highlights the first as one type. `--fix` rewrites them.
+ * GENERICS: a docblock type carries no space after its comma. Write
+ * `array<string,mixed>`; a space before `mixed` is the violation. Both parse
+ * identically; the editor only highlights the tight one as a single type.
+ * `--fix` rewrites them. (The counter-example is described, not written: this
+ * file is linted by itself, and `--fix` would collapse it on the next run.)
  *
  * Exit 0 clean; exit 1 with `file:line: message` per violation.
  *
@@ -46,33 +48,68 @@ function visual_length( string $line ): int {
 }
 
 /**
- * Drop the spaces after commas inside generic type arguments, at any depth.
+ * The balanced `<...>` span starting at `$start`, collapsed, or null when it
+ * is not a type at all.
  *
- * Depth only opens on a `<` that follows an identifier (`array<`),so prose
- * keeps its `<=` and its commas, and `array<int,array<string,mixed>>`
- * collapses on both levels rather than only the inner one.
+ * @longform Two prose shapes defeat a plain depth counter, and both reached
+ * the tree. `n<10, retry, then bail` never closes, so the collapse ran to end
+ * of line and ate the spaces after every later comma. `a<b, see c>d` DOES
+ * close, so buffering alone still accepted it. The discriminator is the
+ * content: a type argument carries no internal space once its comma-spaces are
+ * gone, and `see c` does. Rejecting a candidate must also backtrack rather
+ * than skip the rest of the line, or a stray `<` earlier in a sentence hides a
+ * real generic behind it from the gate.
  *
- * @param string $line One source line.
- * @return string The line with its generics tightened.
+ * @param string $line  One source line.
+ * @param int    $start Index of the candidate `<`.
+ * @return array{0:int,1:string}|null End index and collapsed text, or null.
  */
-function collapse_generics( string $line ): string {
-	$out   = '';
+function generic_span( string $line, int $start ): ?array {
+	$span  = '';
 	$depth = 0;
 	$len   = \strlen( $line );
-	for ( $i = 0; $i < $len; $i++ ) {
+	for ( $i = $start; $i < $len; $i++ ) {
 		$ch = $line[ $i ];
-		if ( '<' === $ch && $i > 0 && 1 === \preg_match( '/\w/', $line[ $i - 1 ] ) ) {
+		if ( '<' === $ch ) {
 			++$depth;
-		} elseif ( '>' === $ch && $depth > 0 ) {
+		} elseif ( '>' === $ch ) {
 			--$depth;
-		} elseif ( ',' === $ch && $depth > 0 ) {
-			$out .= ',';
+		} elseif ( ',' === $ch ) {
+			$span .= ',';
 			while ( $i + 1 < $len && ( ' ' === $line[ $i + 1 ] || "\t" === $line[ $i + 1 ] ) ) {
 				++$i;
 			}
 			continue;
 		}
-		$out .= $ch;
+		$span .= $ch;
+		if ( 0 === $depth ) {
+			// A type has no internal whitespace once collapsed; prose does.
+			return \preg_match( '/\s/', $span ) ? null : [ $i, $span ];
+		}
+	}
+	return null;
+}
+
+/**
+ * Drop the spaces after commas inside generic type arguments, at any depth.
+ *
+ * @param string $line One source line.
+ * @return string The line with its generics tightened.
+ */
+function collapse_generics( string $line ): string {
+	$out = '';
+	$len = \strlen( $line );
+	for ( $i = 0; $i < $len; $i++ ) {
+		if ( '<' === $line[ $i ] && $i > 0 && 1 === \preg_match( '/\w/', $line[ $i - 1 ] ) ) {
+			$span = generic_span( $line, $i );
+			if ( null !== $span ) {
+				[ $end, $text ] = $span;
+				$out           .= $text;
+				$i              = $end;
+				continue;
+			}
+		}
+		$out .= $line[ $i ];
 	}
 	return $out;
 }
@@ -342,12 +379,12 @@ function expand_path( string $path ): array {
  * expression is never reached.
  *
  * @param string $file Path to rewrite.
- * @return void
+ * @return bool True when the file was rewritten.
  */
-function fix_generics( string $file ): void {
+function fix_generics( string $file ): bool {
 	$source = \file_get_contents( $file );
 	if ( false === $source ) {
-		return;
+		return false;
 	}
 	$out = '';
 	foreach ( \token_get_all( $source ) as $token ) {
@@ -357,9 +394,11 @@ function fix_generics( string $file ): void {
 		}
 		$out .= \is_array( $token ) ? $token[1] : $token;
 	}
-	if ( $out !== $source ) {
-		\file_put_contents( $file, $out );
+	if ( $out === $source ) {
+		return false;
 	}
+	\file_put_contents( $file, $out );
+	return true;
 }
 
 $targets = [];
@@ -381,9 +420,9 @@ foreach ( $targets as $file ) {
 	if ( 1 === \preg_match( '#(^|/)(' . \implode( '|', \array_map( '\preg_quote', SKIP_DIRS ) ) . ')/#', $file ) ) {
 		continue;
 	}
-	if ( $fix ) {
-		fix_generics( $file );
-		continue;
+	// --fix still gates; a fixer exiting 0 would no-op pre-commit.
+	if ( $fix && fix_generics( $file ) ) {
+		\fwrite( \STDOUT, "fixed generics: {$file}\n" );
 	}
 	foreach ( check_file( $file ) as $violation ) {
 		\fwrite( \STDERR, "{$file}:{$violation}\n" );

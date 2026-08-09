@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Spawn_Coordinator;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -393,7 +394,7 @@ class SpawnCoordinatorTest extends TestCase {
 		$now = microtime( true );
 		$s->record_spawn( 'firehose-workers', 0, $now );
 
-		$key = Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'firehose-workers|0';
+		$key = Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'firehose-workers|0' );
 		// Bootstrap stores transients as [value, expires_at]. Inspect the raw
 		// store to verify expiry was bounded.
 		$entry = $GLOBALS['_wp_test_transients'][ $key ] ?? null;
@@ -460,7 +461,7 @@ class SpawnCoordinatorTest extends TestCase {
 			$s = new Spawn_Coordinator( $this->tmp );
 			$s->record_spawn( 'throttled-type', 3, 1234567.0 );
 
-			$stored = $memd->get( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'throttled-type|3' );
+			$stored = $memd->get( Cache_Backend::site_key( Spawn_Coordinator::SPAWN_TS_CACHE_KEY . 'throttled-type|3' ) );
 			$this->assertSame( 1234567, $stored, 'spawn ts must land in the shared backend' );
 
 			$fresh = new Spawn_Coordinator( $this->tmp );

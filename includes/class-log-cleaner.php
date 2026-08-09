@@ -3,10 +3,11 @@
  * Log_Cleaner: log-only GC for orphan flat-layout data dirs.
  *
  * Sweeps first-level `logs/*` and `offsets/*` dirs against a config-declared set
- * (topology .tsl declarations resolved layout-agnostically + PHP-registered
- * producers). The declared set is built by substituting the `<partition>` token
- * (wherever it sits in a declared path) over 0..N-1, so there is no `.p{N}`
- * regex. Liveness-free: it does NOT read worker locks, lock dirs, ipc dirs, or
+ * (topology .tsl declarations + PHP-registered producers, both stating their own
+ * layout as a path template). The declared set is built by substituting the
+ * `<partition>` token — wherever it sits in a declared path — over 0..N-1, so
+ * there is no `.p{N}` regex and no layout this class spells itself.
+ * Liveness-free: it does NOT read worker locks, lock dirs, ipc dirs, or
  * live-worker descriptors — worker/topology lifecycle (the "orange") lives in
  * Fleet_Node and Spawn_Coordinator.
  *
@@ -100,13 +101,13 @@ class Log_Cleaner {
 
 	/**
 	 * Declared LOG dir names: every on-disk topology's resolved first-level log
-	 * dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic — the
+	 * dirs (`Topology_Analyzer::resolved_resource_dirs`, layout-agnostic — the
 	 * `<partition>` token may sit anywhere in the path), expanded over its
 	 * SPAWN-aligned partition count (`Bootstrap::num_partitions_for`), unioned
-	 * with each PHP-registered producer (`newspack_nodes/registered_log_producers`)
-	 * expanded over the global config num_partitions in ELN's fixed `{producer}.p{N}`
-	 * writer layout. An unresolvable `<config:logs_dir>` root yields `[]` (the GC
-	 * fail-closes; the diagnostic verb shows nothing declared).
+	 * with each PHP-registered producer template
+	 * (`newspack_nodes/registered_log_producers`) expanded the same way over the
+	 * global config num_partitions. An unresolvable `<config:logs_dir>` root
+	 * yields `[]` (the GC fail-closes; the diagnostic verb shows nothing declared).
 	 *
 	 * @return array<int,string>
 	 */
@@ -137,8 +138,8 @@ class Log_Cleaner {
 	 * deactivated (no live worker's dirs are at risk — anything spawning is, by
 	 * definition, in the active set). A `null` bucket is a fail-closed sentinel: its
 	 * root is unresolvable, so the caller MUST skip that sweep (the producer union
-	 * cannot mask it). The log bucket additionally unions the PHP-registered producers
-	 * (firehose/jobintake × clamped config num_partitions) — substrate logs with no
+	 * cannot mask it). The log bucket additionally unions the PHP-registered producer
+	 * templates (firehose/jobintake/… × clamped config num_partitions) — logs with no
 	 * consumer-offset of their own, hence log-only.
 	 *
 	 * Each non-null bucket is a `concrete dir name => enumerated partition index`
@@ -190,7 +191,14 @@ class Log_Cleaner {
 		}
 
 		if ( '' !== $logs_root ) {
-			foreach ( self::producer_log_dirs() as $dir => $partition ) {
+			$producers = self::producer_log_dirs();
+			if ( null === $producers ) {
+				return [
+					'logs'    => null,
+					'offsets' => null,
+				];
+			}
+			foreach ( $producers as $dir => $partition ) {
 				$logs[ $dir ] ??= $partition;
 			}
 			// Whitelist the auto-mounted settings log (only if a set exists).
@@ -206,27 +214,48 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Concrete log dir names for the request-scope PHP producers: each
-	 * `newspack_nodes/registered_log_producers` basename expanded over the
-	 * clamped global config num_partitions in ELN's fixed `{producer}.p{N}`
-	 * writer layout (exactly what Log_Manager / Job_Intake write). Shared by the
-	 * GC's declared set and the Workers dashboard catalog so both read one source.
+	 * Concrete log dir names for the request-scope PHP producers. Each registered
+	 * value is a PATH TEMPLATE in the same vocabulary a `.tsl` write_set entry
+	 * uses (`<config:logs_dir>/firehose.p<partition>`), expanded over the clamped
+	 * global config num_partitions through the one shared resolver and reduced to
+	 * its first-level dir — so a producer owns its own layout and the token may
+	 * sit anywhere, exactly as `Topology_Analyzer::resolved_resource_dirs` treats
+	 * a declared topology. A template carrying no partition token collapses to one
+	 * dir: `alerts.p0` is pinned across the fleet on purpose. Shared by the GC's
+	 * declared set and the Workers dashboard catalog so both read one source.
 	 *
-	 * @return array<string,int> `concrete dir name => enumerated partition index`.
+	 * `null` is the fail-closed sentinel: a registered template that lands under
+	 * no logs dir across the whole partition range declares nothing, so that
+	 * producer's live dirs are in NO declared set while a topology keeps the set
+	 * non-empty — and the sweep would delete them. Every other degraded input
+	 * here fails closed; this one must too.
+	 *
+	 * @return array<string,int>|null `concrete dir name => enumerated partition index`.
 	 */
-	public static function producer_log_dirs(): array {
+	public static function producer_log_dirs(): ?array {
+		$root   = Core::resolve_config_token( 'config', 'logs_dir' );
 		$cfg_np = self::config_num_partitions();
 		$dirs   = [];
-		foreach ( self::registered_producers() as $producer ) {
+		foreach ( self::registered_producers() as $template ) {
+			$produced = false;
 			for ( $p = 0; $p < $cfg_np; $p++ ) {
-				$dirs[ "{$producer}.p{$p}" ] = $p;
+				$first = Core::first_level_dir( Core::resolve_partition_template( $template, $p ), $root );
+				if ( '' === $first ) {
+					continue;
+				}
+				$produced       = true;
+				$dirs[ $first ] ??= $p;
+			}
+			if ( ! $produced ) {
+				Core::print_less_often( 'Log_Cleaner: skipping sweep: producer template declares no dir under the logs root: ', $template );
+				return null;
 			}
 		}
 		return $dirs;
 	}
 
 	/**
-	 * Non-empty string producer basenames from the registration filter.
+	 * Non-empty string producer path templates from the registration filter.
 	 *
 	 * @return array<int,string>
 	 */

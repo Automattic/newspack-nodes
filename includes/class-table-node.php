@@ -25,8 +25,6 @@ namespace Newspack_Nodes;
 class Table_Node extends Node {
 	use Schema_Reflection;
 
-	public const KEY_PREFIX = 'nodes-table:';
-
 	private string $namespace = '';
 	private int $ttl          = 0;
 
@@ -75,9 +73,9 @@ class Table_Node extends Node {
 			$empty = null === $value || [] === $value
 				|| ( \is_string( $value ) && '' === \rtrim( $value, "\r\n" ) );
 			if ( $empty ) {
-				$backend->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
+				$backend->delete( self::entry_key( $this->namespace, $key ) );
 			} else {
-				$backend->set( self::KEY_PREFIX . "{$this->namespace}:{$key}", $value, $this->ttl );
+				$backend->set( self::entry_key( $this->namespace, $key ), $value, $this->ttl );
 			}
 		}
 		parent::fill( $message );
@@ -133,16 +131,13 @@ class Table_Node extends Node {
 	 * @return mixed The stored VALUE, or null when absent (or memcached is unconfigured).
 	 */
 	public static function lookup( string $ns, string $key ): mixed {
-		if ( null === Core::$memd ) {
-			$backend = Cache_Backend::shared_first();
-			$value   = $backend?->get( self::KEY_PREFIX . "{$ns}:{$key}" );
-			return false === $value || null === $value ? null : $value;
+		// read() carries the status the raw handle needed getResultCode() for.
+		$read = Cache_Backend::shared_first()?->read( self::entry_key( $ns, $key ) );
+		if ( Cache_Backend::READ_ERROR === ( $read['status'] ?? null ) ) {
+			// Null reads as "empty table" downstream; say the backend broke.
+			Core::print_less_often( 'Table: backend read error for ', "{$ns}:{$key}" );
 		}
-		$value = Core::$memd->get( self::KEY_PREFIX . "{$ns}:{$key}" );
-		if ( false === $value && \Memcached::RES_NOTFOUND === Core::$memd->getResultCode() ) {
-			return null;
-		}
-		return $value;
+		return Cache_Backend::READ_HIT === ( $read['status'] ?? null ) ? $read['value'] : null;
 	}
 
 	/**
@@ -151,8 +146,17 @@ class Table_Node extends Node {
 	 * @param string $key Entry key.
 	 */
 	public function rm( string $key ): string {
-		Cache_Backend::shared_first()?->delete( self::KEY_PREFIX . "{$this->namespace}:{$key}" );
+		Cache_Backend::shared_first()?->delete( self::entry_key( $this->namespace, $key ) );
 		return "ok\n";
+	}
+
+	/**
+	 * Memcache key for one entry. Site-scoped through Cache_Backend: a table is
+	 * a cross-container source of truth for THIS install, and a co-tenant
+	 * install's table of the same name is a different table.
+	 */
+	public static function entry_key( string $ns, string $key ): string {
+		return Cache_Backend::site_key( "table:{$ns}:{$key}" );
 	}
 
 	public static function node_schema(): array {

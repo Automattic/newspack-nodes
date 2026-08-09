@@ -41,7 +41,8 @@ class Spawn_Coordinator {
 	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 
-	public const SPAWN_TS_CACHE_KEY = 'newspack_nodes:last_spawn:';
+	/** Logical name for the spawn-throttle window; Cache_Backend scopes it. */
+	public const SPAWN_TS_CACHE_KEY = 'last_spawn:';
 
 	/**
 	 * Deploy hold: while set, every spawn path is refused so a plugin update can
@@ -301,7 +302,7 @@ class Spawn_Coordinator {
 	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
 	 */
 	protected function load_spawn_ts( string $key ): ?float {
-		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
+		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
 
 		$backend = Cache_Backend::shared_first();
 		if ( null !== $backend ) {
@@ -527,7 +528,7 @@ class Spawn_Coordinator {
 	 * Persist a spawn timestamp (Cache_Backend, transient fallback) so a respawn honors the rate limit.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
-		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
+		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
 		$ttl       = self::MIN_SPAWN_INTERVAL_S * 2;
 
 		$backend = Cache_Backend::shared_first();

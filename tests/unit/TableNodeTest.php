@@ -104,7 +104,7 @@ class TableNodeTest extends TestCase {
 		$message[ Message::KEY ] = 'sku-9';
 		$table->fill( $message );
 
-		$this->assertFalse( $this->memd->get( 'nodes-table:prices:sku-9' ) );
+		$this->assertFalse( $this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ) );
 		$this->assertCount( 1, $sink->captured, 'only the reply, not the request itself' );
 		$this->assertSame( Message::TM_ERROR, $sink->captured[0][ Message::TYPE ] );
 	}
@@ -140,7 +140,7 @@ class TableNodeTest extends TestCase {
 
 		$table->fill( $this->keyed( 'sku-9', [ 'usd' => 1250 ] ) );
 
-		$this->assertSame( [ 'usd' => 1250 ], $this->memd->get( 'nodes-table:prices:sku-9' ) );
+		$this->assertSame( [ 'usd' => 1250 ], $this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ) );
 		$this->assertCount( 1, $sink->captured, 'write-through: the table composes mid-graph' );
 	}
 

@@ -38,6 +38,18 @@ final class Cache_Backend {
 	public const READ_ERROR = 'error';
 
 	/**
+	 * Key-schema version — the one rotatable salt. Bumping it orphans every
+	 * key at once, which is the point: a per-plugin salt only ever flushed
+	 * that plugin's keys while its neighbours kept serving stale ones.
+	 */
+	public const KEY_VERSION = 'v3';
+
+	/** Memoized install scope and machine half; `Core::reset()` clears them. */
+	public static string $site = '';
+
+	public static string $machine = '';
+
+	/**
 	 * APCu-usability seam. Lazily-defaulted to the real `apcu_enabled()`
 	 * check (a PHP_INI_SYSTEM fact tests can't flip at runtime); the test
 	 * harness pins it false so memcached-seeded tests stay deterministic,
@@ -64,6 +76,91 @@ final class Cache_Backend {
 	public static ?\Closure $apcu_sma_info = null;
 
 	private function __construct( private readonly ?\Memcached $memd ) {}
+
+	/**
+	 * Key for state one INSTALL owns, shared by every container serving it —
+	 * tables, batch counters, unique-enqueue claims, stats, render caches.
+	 *
+	 * The site half is the discriminator because it is the half that varies
+	 * where installs collide: co-tenants share a database (separate table
+	 * prefixes), and every container runs as the same unix user, so neither
+	 * `DB_NAME` nor the username tells two installs apart.
+	 */
+	public static function site_key( string $logical ): string {
+		return self::key( self::site(), $logical );
+	}
+
+	/**
+	 * Key for a per-MACHINE budget, where the machine is the resource being
+	 * rationed. SSE connection slots are the only one, and they pass their
+	 * scope explicitly (the tests inject two machines to prove the pools are
+	 * independent) — this is the same scope, for a reader that has to rebuild
+	 * such a key without one.
+	 */
+	public static function host_key( string $logical ): string {
+		return self::key( self::machine() . ':' . self::site(), $logical );
+	}
+
+	/**
+	 * Per-install half: the database plus the NETWORK's base table prefix,
+	 * which is exactly what distinguishes co-tenants — one database with
+	 * separate prefixes (the dndocker second-docroot posture) or separate
+	 * databases (Atomic).
+	 *
+	 * @longform Two identifiers this deliberately is NOT. Not `home_url()`:
+	 * that is per-REQUEST — forced to https under `is_ssl()`, filtered by
+	 * domain-mapping plugins, moved by `switch_to_blog()`. Not `$wpdb->prefix`:
+	 * that is per-BLOG, while the fleet is network-global (`fleet_site()` turns
+	 * subsites away, and locks/IPC/logs carry no blog namespace). Either would
+	 * split ONE install's keyspace — a batch counter seeded by a subsite or a
+	 * web request, then invisible to the CLI worker that decrements it, so
+	 * fan-in never completes. `base_prefix` is invariant across both.
+	 */
+	public static function site(): string {
+		if ( '' !== self::$site ) {
+			return self::$site;
+		}
+		$db     = \defined( 'DB_NAME' ) ? Core::as_string( \constant( 'DB_NAME' ), '' ) : '';
+		$prefix = '';
+		if ( isset( $GLOBALS['wpdb'] ) && \is_object( $GLOBALS['wpdb'] ) ) {
+			// base_prefix is the network half; prefix alone is this blog's.
+			$prefix = Core::as_string( $GLOBALS['wpdb']->base_prefix ?? ( $GLOBALS['wpdb']->prefix ?? '' ), '' );
+		}
+		if ( '' === $db && '' === $prefix ) {
+			// Last resort, and co-tenants SHARE it — hence the warning.
+			Core::print_less_often( 'ERROR: cache scope unresolvable (no DB_NAME, no $wpdb): keys are NOT install-scoped' );
+			return self::$site = 'unscoped';
+		}
+		return self::$site = \substr( \md5( $db . ':' . $prefix ), 0, 12 );
+	}
+
+	/**
+	 * Machine half, for the one scope that rations a per-MACHINE resource:
+	 * SSE connection slots compose `machine():site()` in
+	 * `SSE_Slot_Pool::namespace_key()`. Nothing else should — the hostname
+	 * fragments exactly the state a fleet spanning containers must agree on.
+	 *
+	 * Falls back to 'unknown' so a gethostname() failure can never pass false
+	 * to a string-typed callee. Deliberately NOT `SERVER_NAME`: that is
+	 * caller-controllable, and a rate-limit namespace the caller chooses is
+	 * not a rate limit.
+	 */
+	public static function machine(): string {
+		return self::$machine ?: ( self::$machine = \gethostname() ?: 'unknown' );
+	}
+
+	/**
+	 * THE key grammar: `newspack_nodes:{version}:{scope}:{logical}`.
+	 *
+	 * One shape for every surface, scope always ahead of the logical name, so a
+	 * reader holding a logical name can rebuild the key without knowing which
+	 * surface wrote it — that is what `wp nodes memcache get` reverses. A
+	 * surface that orders its parts differently is unreachable from the CLI, so
+	 * build here rather than concatenating your own.
+	 */
+	public static function key( string $scope, string $logical ): string {
+		return 'newspack_nodes:' . self::KEY_VERSION . ':' . $scope . ':' . $logical;
+	}
 
 	/** APCu → memcached → null. */
 	public static function local_first(): ?self {

@@ -64,7 +64,7 @@ class SseSlotPoolTest extends TestCase {
 
 		$this->assertTrue( SSE_Slot_Pool::touch( 'lease-host', 17, 'abc12345', $lease['slot'], $lease['owner'], 47 ) );
 
-		$pointer_key = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$lease_key   = "{$pointer_key}:lease:{$lease['owner']}";
 		$expiries    = Core::$memd->expiries();
 		$this->assertCount( 2, $expiries );
@@ -77,7 +77,7 @@ class SseSlotPoolTest extends TestCase {
 		/** @var InMemoryMemcached $memd */
 		$memd                       = Core::$memd;
 		Cache_Backend::$apcu_usable = static fn (): bool => true;
-		$pointer_key                = 'newspack_nodes:sse:v2:shared-host:73:fedcba98:0';
+		$pointer_key                = 'newspack_nodes:v3:shared-host:sse:73:fedcba98:0';
 		$lease                      = false;
 
 		try {
@@ -136,20 +136,33 @@ class SseSlotPoolTest extends TestCase {
 		$this->assertFalse( SSE_Slot_Pool::acquire( 'lease-host', 17, 'abc12345', 2, 47 ) );
 	}
 
-	public function test_slot_keys_use_the_coordinated_v2_substrate_prefix(): void {
+	public function test_slot_keys_use_the_coordinated_substrate_prefix(): void {
 		// The pool is substrate infrastructure; its keys must live in the
 		// newspack_nodes namespace, not a consumer application's.
 		$lease = SSE_Slot_Pool::acquire( 'lease-host', 17, 'abc12345', 1, 47 );
 		$this->assertIsArray( $lease );
 		/** @var InMemoryMemcached $memd */
 		$memd = Core::$memd;
-		$pointer_key = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$this->assertSame(
 			[
 				$pointer_key,
 				"{$pointer_key}:lease:{$lease['owner']}",
 			],
 			$memd->keys()
+		);
+	}
+
+	public function test_a_real_slot_key_is_reachable_through_the_shared_grammar(): void {
+		// The pool is the one host-scoped surface, and it must still land where
+		// `Cache_Backend::host_key()` says — otherwise `wp nodes memcache get`
+		// cannot reach an SSE slot.
+		$lease = SSE_Slot_Pool::acquire( SSE_Slot_Pool::namespace_key(), 17, 'abc12345', 1, 47 );
+		$this->assertIsArray( $lease );
+
+		$this->assertContains(
+			\Newspack_Nodes\Cache_Backend::host_key( "sse:17:abc12345:{$lease['slot']}" ),
+			Core::$memd->keys()
 		);
 	}
 
@@ -177,7 +190,7 @@ class SseSlotPoolTest extends TestCase {
 		$first = SSE_Slot_Pool::acquire( 'lease-host', 17, 'abc12345', 8, 47 );
 		$this->assertIsArray( $first );
 		$this->assertSame( 0, $first['slot'] );
-		$pointer_key = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$lease_key   = "{$pointer_key}:lease:{$first['owner']}";
 
 		$this->assertTrue( SSE_Slot_Pool::release( 'lease-host', 17, 'abc12345', $first['slot'], $first['owner'] ) );
@@ -208,7 +221,7 @@ class SseSlotPoolTest extends TestCase {
 		};
 		Core::$memd        = $memd;
 		$owner             = 42424243;
-		$memd->pointer_key = 'newspack_nodes:sse:v2:order-host:73:fedcba98:0';
+		$memd->pointer_key = 'newspack_nodes:v3:order-host:sse:73:fedcba98:0';
 		$memd->lease_key   = "{$memd->pointer_key}:lease:{$owner}";
 		$memd->set( $memd->pointer_key, $owner, 0 );
 		$memd->set( $memd->lease_key, 1, 83 );
@@ -238,7 +251,7 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	public function test_dead_owner_pointer_is_reclaimed_by_compare_and_swap(): void {
-		$pointer_key = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$dead_owner  = 42424243;
 		Core::$memd->set( $pointer_key, $dead_owner, 0 );
 
@@ -274,7 +287,7 @@ class SseSlotPoolTest extends TestCase {
 			}
 		};
 		Core::$memd        = $memd;
-		$memd->pointer_key = 'newspack_nodes:sse:v2:publication-host:79:feed9876:0';
+		$memd->pointer_key = 'newspack_nodes:v3:publication-host:sse:79:feed9876:0';
 		$before            = \time();
 
 		$lease = SSE_Slot_Pool::acquire( 'publication-host', 79, 'feed9876', 1, 83 );
@@ -289,7 +302,7 @@ class SseSlotPoolTest extends TestCase {
 	public function test_liveness_read_error_never_reclaims_a_pointer(): void {
 		/** @var InMemoryMemcached $memd */
 		$memd        = Core::$memd;
-		$pointer_key = 'newspack_nodes:sse:v2:error-host:73:fedcba98:0';
+		$pointer_key = 'newspack_nodes:v3:error-host:sse:73:fedcba98:0';
 		$old_owner   = 42424243;
 		$memd->set( $pointer_key, $old_owner, 0 );
 		$memd->fail_get( "{$pointer_key}:lease:{$old_owner}", \Memcached::RES_TIMEOUT );
@@ -318,7 +331,7 @@ class SseSlotPoolTest extends TestCase {
 			}
 		};
 		Core::$memd      = $memd;
-		$pointer_key     = 'newspack_nodes:sse:v2:contention-host:73:fedcba98:0';
+		$pointer_key     = 'newspack_nodes:v3:contention-host:sse:73:fedcba98:0';
 		$old_owner       = 42424243;
 		$memd->pointer_key = $pointer_key;
 		$memd->set( $pointer_key, $old_owner, 0 );
@@ -354,7 +367,7 @@ class SseSlotPoolTest extends TestCase {
 			}
 		};
 		Core::$memd        = $memd;
-		$memd->pointer_key = 'newspack_nodes:sse:v2:staged-host:73:fedcba98:0';
+		$memd->pointer_key = 'newspack_nodes:v3:staged-host:sse:73:fedcba98:0';
 
 		$this->assertFalse( SSE_Slot_Pool::acquire( 'staged-host', 73, 'fedcba98', 1, 47 ) );
 		$this->assertCount( 1, $memd->keys(), 'only the now-dead pointer may remain after staged liveness disappears' );
@@ -392,7 +405,7 @@ class SseSlotPoolTest extends TestCase {
 			}
 		};
 		Core::$memd        = $memd;
-		$memd->pointer_key = 'newspack_nodes:sse:v2:final-read-host:79:feed9876:0';
+		$memd->pointer_key = 'newspack_nodes:v3:final-read-host:sse:79:feed9876:0';
 		$before            = \time();
 
 		$this->assertFalse( SSE_Slot_Pool::acquire( 'final-read-host', 79, 'feed9876', 1, 83 ) );
@@ -427,7 +440,7 @@ class SseSlotPoolTest extends TestCase {
 			}
 		};
 		Core::$memd            = $memd;
-		$pointer_key           = 'newspack_nodes:sse:v2:check-host:73:fedcba98:0';
+		$pointer_key           = 'newspack_nodes:v3:check-host:sse:73:fedcba98:0';
 		$old_owner             = 42424243;
 		$memd->pointer_key     = $pointer_key;
 		$memd->watched_lease_key = "{$pointer_key}:lease:{$old_owner}";
@@ -439,7 +452,7 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	public function test_touch_checks_pointer_before_refreshing_stale_liveness(): void {
-		$pointer_key   = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key   = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$stale_owner   = 42424243;
 		$current_owner = 51515153;
 		$stale_key     = "{$pointer_key}:lease:{$stale_owner}";
@@ -502,7 +515,7 @@ class SseSlotPoolTest extends TestCase {
 		$owner                = 62626267;
 		$other_owner          = 84848489;
 		$touch_ttl            = 97;
-		$pointer_key          = "newspack_nodes:sse:v2:{$hostname}:{$user_id}:{$ip_hash}:{$slot}";
+		$pointer_key          = "newspack_nodes:v3:{$hostname}:sse:{$user_id}:{$ip_hash}:{$slot}";
 		$caller_liveness_key  = "{$pointer_key}:lease:{$owner}";
 		$other_liveness_key   = "{$pointer_key}:lease:{$other_owner}";
 		$other_liveness_value = 91919197;
@@ -538,7 +551,7 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	public function test_stale_release_cannot_tombstone_or_delete_a_replacement_lease(): void {
-		$pointer_key   = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key   = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		$stale_owner   = 42424243;
 		$current_owner = 51515153;
 		$stale_key     = "{$pointer_key}:lease:{$stale_owner}";
@@ -557,7 +570,7 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	public function test_reserved_tombstone_cannot_be_released_as_an_owner(): void {
-		$pointer_key = 'newspack_nodes:sse:v2:lease-host:17:abc12345:0';
+		$pointer_key = 'newspack_nodes:v3:lease-host:sse:17:abc12345:0';
 		Core::$memd->set( $pointer_key, 0, 0 );
 
 		$this->assertFalse( SSE_Slot_Pool::release( 'lease-host', 17, 'abc12345', 0, 0 ) );
@@ -569,7 +582,7 @@ class SseSlotPoolTest extends TestCase {
 		$memd = Core::$memd;
 		$first = SSE_Slot_Pool::acquire( 'interleave-host', 73, 'fedcba98', 1, 83 );
 		$this->assertIsArray( $first );
-		$pointer_key = 'newspack_nodes:sse:v2:interleave-host:73:fedcba98:0';
+		$pointer_key = 'newspack_nodes:v3:interleave-host:sse:73:fedcba98:0';
 		$stale_key   = "{$pointer_key}:lease:{$first['owner']}";
 		$replacement = false;
 		$release_result = false;
@@ -598,7 +611,7 @@ class SseSlotPoolTest extends TestCase {
 		$hostname                   = 'apcu-lease-host-' . \getmypid();
 		$user_id                    = 79;
 		$ip_hash                    = 'apcu9876';
-		$pointer_key                = "newspack_nodes:sse:v2:{$hostname}:{$user_id}:{$ip_hash}:0";
+		$pointer_key                = "newspack_nodes:v3:{$hostname}:sse:{$user_id}:{$ip_hash}:0";
 		$owners                     = [];
 		\apcu_delete( $pointer_key );
 
@@ -742,7 +755,9 @@ class SseSlotPoolTest extends TestCase {
 		Core::$memd = new InMemoryMemcached();
 
 		// Saturate one site's whole budget.
-		$GLOBALS['_wp_test_home_url'] = 'https://leoweekly.example';
+		$prev_prefix             = $GLOBALS['wpdb']->base_prefix;
+		$GLOBALS['wpdb']->base_prefix = 'leoweekly_';
+		Cache_Backend::$site     = '';
 		SSE_Slot_Pool::wire();
 		for ( $i = 0; $i < SSE_Slot_Pool::$max_slots; $i++ ) {
 			$this->assertIsArray( ( SSE_Out_Node::$acquire_slot )( -1 ) );
@@ -751,7 +766,8 @@ class SseSlotPoolTest extends TestCase {
 
 		// A co-located site — same hostname, same user, same caller IP — has its
 		// own budget and is unaffected.
-		$GLOBALS['_wp_test_home_url'] = 'https://okgazette.example';
+		$GLOBALS['wpdb']->base_prefix = 'okgazette_';
+		Cache_Backend::$site     = '';
 		SSE_Slot_Pool::wire();
 		$this->assertIsArray(
 			( SSE_Out_Node::$acquire_slot )( -1 ),
@@ -764,7 +780,8 @@ class SseSlotPoolTest extends TestCase {
 			\array_keys( Core::$memd->expiries() )[0],
 			'the machine half survives, for one site across many containers'
 		);
-		unset( $GLOBALS['_wp_test_home_url'] );
+		$GLOBALS['wpdb']->base_prefix = $prev_prefix;
+		Cache_Backend::$site     = '';
 	}
 
 	public function test_wire_populates_all_four_seams_with_endpoint_signatures(): void {
@@ -839,7 +856,7 @@ class SseSlotPoolTest extends TestCase {
 	}
 
 	private function diagnostic_pointer_key(): string {
-		return 'newspack_nodes:sse:v2:diagnostic-host:73:fedcba98:7';
+		return 'newspack_nodes:v3:diagnostic-host:sse:73:fedcba98:7';
 	}
 
 	/** @return array<string,int|string> */

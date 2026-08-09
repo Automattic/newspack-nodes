@@ -492,6 +492,31 @@ class JobIntakeTest extends TestCase {
 		$this->assertEqualsWithDelta( $due, $lines[0]['not_before'], 0.001 );
 	}
 
+	public function test_log_dir_templates_name_every_dir_the_writer_creates(): void {
+		// The templates ARE what Bootstrap registers with the log GC, so a writer
+		// that drifts from them writes dirs the sweep will not declare. 3 partitions
+		// so a fan-out template must expand and a pinned one must not.
+		$intake = new Job_Intake( $this->tmp, 3 );
+		for ( $i = 0; $i < 40; $i++ ) {
+			$intake->write_job( 'probe_h', [ 'i' => $i ], "key-{$i}" );
+			$intake->feed( 'probe_h', [ 'i' => $i ], "key-{$i}" );
+		}
+		$intake->write_job( 'late_h', [], null, null, [ 'not_before' => \microtime( true ) + 500.0 ] );
+		$intake->close();
+
+		$declared = [];
+		foreach ( Job_Intake::log_dir_templates( "{$this->tmp}/logs" ) as $template ) {
+			for ( $p = 0; $p < 3; $p++ ) {
+				$declared[ \basename( Core::resolve_partition_template( $template, $p ) ) ] = true;
+			}
+		}
+		$written = \array_map( 'basename', (array) \glob( "{$this->tmp}/logs/*", GLOB_ONLYDIR ) );
+
+		$this->assertContains( 'jobdelay.p0', $written, 'the probe must have written the pinned delay log' );
+		$this->assertSame( [], \array_diff( $written, \array_keys( $declared ) ) );
+		$this->assertArrayNotHasKey( 'jobdelay.p1', $declared, 'the delay log is pinned to p0' );
+	}
+
 	public function test_not_before_past_routes_to_jobintake_without_delay_fields(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
 		$this->assertTrue( $intake->write_job( 'prompt_h', [], 'affkey', null, [ 'not_before' => \microtime( true ) - 5.0 ] ) );
@@ -610,8 +635,8 @@ class JobIntakeTest extends TestCase {
 			Core::$memd = $prev;
 		}
 
-		$this->assertSame( 3, $memd->get( 'nodes-job-batch:b42' ) );
-		$this->assertSame( 0, $memd->get( 'nodes-job-batch-err:b42' ) );
+		$this->assertSame( 3, $memd->get( Job_Intake::batch_count_key( 'b42' ) ) );
+		$this->assertSame( 0, $memd->get( Job_Intake::batch_err_key( 'b42' ) ) );
 		$lines = $this->read_all_jobintake_lines();
 		$this->assertCount( 3, $lines );
 		foreach ( $lines as $line ) {

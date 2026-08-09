@@ -13,7 +13,7 @@
  *             topology (`Topology_Registry::graph_for` per active name,
  *             filtered on node `type === 'Remote_Source'`), then for every
  *             configured partition reads that node's substrate status snapshot
- *             from memcache under `np:remote:<node-name>:<remote_partition>` —
+ *             from memcache under `Remote_Source_Node::status_key_for()` —
  *             the exact key Remote_Link writes. The `<vault-id>` and the
  *             `<remote_partition>` template come from the 2-arg make_node line;
  *             the `<partition>` token is substituted 0..num_partitions-1. The
@@ -42,7 +42,7 @@
  * Auth: every verb requires `manage_options`.
  *
  * Memcache reads go through the shared `Core::$memd` handle: the `status`
- * verb reads `np:remote:<node-name>:<remote_partition>` per partition; the
+ * verb reads `Remote_Source_Node::status_key_for()` per partition; the
  * `health` verb reports whether the handle is configured. The `status`/`servers` verbs
  * read the substrate `Newspack_Nodes\Vault` singleton directly — there is
  * no injected registry dependency.
@@ -142,7 +142,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 	 *
 	 * Discovers every Remote_Source wired into ANY active topology
 	 * graph, then for every configured partition reads that node's substrate
-	 * status snapshot from memcache under `np:remote:<node-name>:<remote_partition>`
+	 * status snapshot from memcache under `Remote_Source_Node::status_key_for()`
 	 * (the exact key Remote_Link writes). Cache misses default to an empty array.
 	 *
 	 * @return array<string,array{id:string,vault_id:string,url:string,partitions:array<int,array<array-key,mixed>>}>
@@ -170,11 +170,11 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				$vault_id  = $node_args[0] ?? '';
 				$template  = $node_args[1] ?? '';
 
-				// Writer's exact key: np:remote:<name>:<concrete>.
+				// The writer's own builder, so the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
 					$concrete         = Core::resolve_partition_template( $template, $p );
-					$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( "np:remote:{$name}:{$concrete}" );
+					$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( \Newspack_Nodes\Remote_Source_Node::status_key_for( $name, $concrete ) );
 					$partitions[ $p ] = Core::arr( $val );
 				}
 

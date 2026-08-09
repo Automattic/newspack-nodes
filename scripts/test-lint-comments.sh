@@ -245,5 +245,84 @@ define( 'X', 1 );
 PHP
 assert_clean 'file-level comments are not class-body strays' "$tmp/bootstrap-file.php"
 
+# ---- generics: prose with a bare `<` is not a generic type ----
+# `n<10` opens no type. Treating it as one ran the collapse to end of line, so
+# the gate flagged plain English AND `--fix` ate the spaces after its commas.
+cat > "$tmp/class-prose-node.php" <<'PHP'
+<?php
+class Prose_Node {
+	public function f(): int {
+		// when n<10, retry, then bail
+		return 1;
+	}
+}
+PHP
+assert_clean 'prose with a bare < is not a generic type' "$tmp/class-prose-node.php"
+
+# ---- generics: --fix leaves that prose byte-for-byte alone ----
+before="$( cat "$tmp/class-prose-node.php" )"
+php ./lint-comments.php --fix "$tmp/class-prose-node.php" >/dev/null 2>&1
+if [ "$before" = "$( cat "$tmp/class-prose-node.php" )" ]; then
+	echo "✓ --fix leaves prose with a bare < untouched"
+else
+	echo "✗ --fix rewrote prose:"
+	diff <( printf '%s\n' "$before" ) "$tmp/class-prose-node.php"
+	fail=1
+fi
+
+# ---- generics: nested types still collapse at every level ----
+cat > "$tmp/class-nested-node.php" <<'PHP'
+<?php
+class Nested_Node {
+	/** @var array<int, array<string, mixed>> Rows. */
+	protected array $rows = [];
+}
+PHP
+assert_flags 'a spaced nested generic is flagged' \
+	"$tmp/class-nested-node.php" 'space inside a generic type'
+php ./lint-comments.php --fix "$tmp/class-nested-node.php" >/dev/null 2>&1
+if grep -q 'array<int,array<string,mixed>>' "$tmp/class-nested-node.php"; then
+	echo "✓ --fix collapses a nested generic at every level"
+else
+	echo "✗ --fix left a nested generic uncollapsed:"
+	grep '@var' "$tmp/class-nested-node.php"
+	fail=1
+fi
+
+# ---- generics: prose whose `<` and `>` happen to balance is still prose ----
+# `a<b, see c>d` closes depth, so depth alone accepted it as a type. A type
+# argument has no internal space; `see c` does.
+cat > "$tmp/class-balanced-node.php" <<'PHP'
+<?php
+class Balanced_Node {
+	public function f(): int {
+		// for a<b, see c>d, plus the note below
+		return 1;
+	}
+}
+PHP
+assert_clean 'prose whose angle brackets balance is not a generic' "$tmp/class-balanced-node.php"
+
+# ---- generics: a real type is still caught after an unbalanced `<` ----
+# The stray `n<` used to swallow the rest of the line, so the genuine generic
+# behind it went ungated.
+cat > "$tmp/class-shadowed-node.php" <<'PHP'
+<?php
+class Shadowed_Node {
+	/** @var int If n<10, then array<string, int> applies. */
+	protected int $n = 0;
+}
+PHP
+assert_flags 'a real generic behind a stray < is still flagged' \
+	"$tmp/class-shadowed-node.php" 'space inside a generic type'
+php ./lint-comments.php --fix "$tmp/class-shadowed-node.php" >/dev/null 2>&1
+if grep -q 'If n<10, then array<string,int> applies' "$tmp/class-shadowed-node.php"; then
+	echo "✓ --fix collapses that generic and leaves the prose alone"
+else
+	echo "✗ --fix mishandled the shadowed generic:"
+	grep '@var' "$tmp/class-shadowed-node.php"
+	fail=1
+fi
+
 [ "$fail" -eq 0 ] && echo "all comment-gate tests passed"
 exit "$fail"

@@ -59,7 +59,11 @@ class Job_Delay {
 	 */
 	public static function sweep( ?string $base_dir = null, ?int $num_partitions = null, ?float $now = null ): int {
 		$base_dir  = \rtrim( $base_dir ?? Config::get_base_directory(), '/' );
-		$delay_dir = "{$base_dir}/logs/" . Job_Intake::DELAY_BASENAME . '.p0';
+		// A template, not a path. Pinned to p0 today; resolve it regardless.
+		$delay_dir = Core::resolve_partition_template(
+			Job_Intake::log_dir_templates( "{$base_dir}/logs" )[ Job_Intake::DELAY_BASENAME ],
+			0
+		);
 		if ( ! \is_dir( $delay_dir ) ) {
 			return 0;
 		}

@@ -226,7 +226,7 @@ class CacheBackendTest extends TestCase {
 		$tmp                        = $this->make_temp_dir( 'apcu-only-' );
 		mkdir( "{$tmp}/locks", 0755, true );
 		mkdir( "{$tmp}/logs", 0755, true );
-		\apcu_delete( \Newspack_Nodes\Job_Intake::UNIQUE_KEY_PREFIX . 'apcu_h:solo' );
+		\apcu_delete( \Newspack_Nodes\Job_Intake::unique_key( 'apcu_h', 'solo' ) );
 
 		$intake = new \Newspack_Nodes\Job_Intake( $tmp, 1 );
 		try {
@@ -295,6 +295,147 @@ class CacheBackendTest extends TestCase {
 		$this->assertFalse(
 			$b->get( 'nodes-job-batch-err:never-seeded-8842' ),
 			'and must not be created as a side effect'
+		);
+	}
+
+	// ── key scoping ─────────────────────────────────────────────────────────
+
+	/**
+	 * Every shared surface routes through the scope, so a co-tenant install
+	 * cannot read or clobber this one's state. Builders rather than raw
+	 * prefixes because a scope a caller has to remember to apply is one a
+	 * caller eventually forgets.
+	 *
+	 * @return array<string,array{0:string}>
+	 */
+	public static function scoped_key_provider(): array {
+		return [
+			'table entry'    => [ \Newspack_Nodes\Table_Node::entry_key( 'stats', '7719' ) ],
+			'batch counter'  => [ \Newspack_Nodes\Job_Intake::batch_count_key( 'import-7719' ) ],
+			'batch errors'   => [ \Newspack_Nodes\Job_Intake::batch_err_key( 'import-7719' ) ],
+			'unique claim'   => [ \Newspack_Nodes\Job_Intake::unique_key( 'probe_h', 'tok-7719' ) ],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'scoped_key_provider' )]
+	public function test_shared_surfaces_are_site_scoped( string $key ): void {
+		$this->assertStringStartsWith(
+			'newspack_nodes:' . Cache_Backend::KEY_VERSION . ':' . Cache_Backend::site() . ':',
+			$key
+		);
+		$this->assertStringNotContainsString( (string) \gethostname(), $key );
+	}
+
+	public function test_site_key_separates_co_tenant_installs_by_table_prefix(): void {
+		// One memcached, one database, two installs told apart by their table
+		// prefix — the dndocker second-docroot posture, and the Atomic one once
+		// the database differs too.
+		$prev = $GLOBALS['wpdb']->base_prefix;
+
+		$GLOBALS['wpdb']->base_prefix = 'wp_';
+		Cache_Backend::$site     = '';
+		$alpha                   = Cache_Backend::site_key( 'table:stats:7719' );
+
+		$GLOBALS['wpdb']->base_prefix = 'wpgyro_';
+		Cache_Backend::$site     = '';
+		$beta                    = Cache_Backend::site_key( 'table:stats:7719' );
+
+		$GLOBALS['wpdb']->base_prefix = $prev;
+		Cache_Backend::$site     = '';
+
+		$this->assertNotSame( $alpha, $beta );
+		$this->assertStringContainsString( Cache_Backend::KEY_VERSION, $alpha );
+		$this->assertStringEndsWith( 'table:stats:7719', $alpha );
+	}
+
+	public function test_site_key_is_network_global_like_the_fleet_it_scopes(): void {
+		// One fleet per NETWORK — Bootstrap::fleet_site() turns subsites away,
+		// and locks/IPC/logs carry no blog namespace. Keying on the per-blog
+		// prefix would split it: a subsite request seeds a batch counter the
+		// main-site CLI worker then cannot find, so fan-in never completes.
+		$prev = $GLOBALS['wpdb']->prefix;
+
+		$GLOBALS['wpdb']->prefix = 'wp_';
+		Cache_Backend::$site     = '';
+		$main                    = Cache_Backend::site_key( 'job-batch:import-7719' );
+
+		$GLOBALS['wpdb']->prefix = 'wp_2_';
+		Cache_Backend::$site     = '';
+		$subsite                 = Cache_Backend::site_key( 'job-batch:import-7719' );
+
+		$GLOBALS['wpdb']->prefix = $prev;
+		Cache_Backend::$site     = '';
+
+		$this->assertSame( $main, $subsite );
+	}
+
+	public function test_site_key_does_not_move_with_the_request(): void {
+		// home_url() forces https under is_ssl(), runs a filter, and moves under
+		// switch_to_blog(). Keying on it split ONE install: a batch counter
+		// seeded by a web request would be invisible to the CLI worker that
+		// decrements it, and fan-in would never complete.
+		$prev = $GLOBALS['_wp_test_home_url'] ?? null;
+
+		$GLOBALS['_wp_test_home_url'] = 'http://example.test';
+		Cache_Backend::$site          = '';
+		$plain                        = Cache_Backend::site_key( 'job-batch:import-7719' );
+
+		$GLOBALS['_wp_test_home_url'] = 'https://example.test';
+		Cache_Backend::$site          = '';
+		$secure                       = Cache_Backend::site_key( 'job-batch:import-7719' );
+
+		$GLOBALS['_wp_test_home_url'] = $prev;
+		Cache_Backend::$site          = '';
+
+		$this->assertSame( $plain, $secure );
+	}
+
+	public function test_site_key_is_shared_across_containers_of_one_install(): void {
+		// Table data, batch counters and unique claims are cross-container
+		// sources of truth. Folding the hostname in would fragment them.
+		$this->assertStringNotContainsString(
+			(string) \gethostname(),
+			Cache_Backend::site_key( 'job-batch:import-7719' )
+		);
+	}
+
+	public function test_the_per_machine_budget_is_pinned_to_its_machine(): void {
+		// SSE slots ration connections per pool host, so the machine IS the
+		// resource — the one scope that must NOT be shared across containers.
+		$namespace = \Newspack_Nodes\SSE_Slot_Pool::namespace_key();
+
+		$this->assertStringContainsString( (string) \gethostname(), $namespace );
+		$this->assertStringContainsString( Cache_Backend::site(), $namespace );
+	}
+
+	/**
+	 * ONE grammar — `newspack_nodes:{version}:{scope}:{logical}` — so a reader
+	 * holding a logical name can rebuild the key without knowing which surface
+	 * wrote it. That is what `wp nodes memcache get <logical>` reverses; a
+	 * surface that orders its parts differently is unreachable from the CLI.
+	 */
+	public function test_every_key_shares_one_grammar(): void {
+		$prefix = 'newspack_nodes:' . Cache_Backend::KEY_VERSION . ':';
+
+		$this->assertSame( $prefix . Cache_Backend::site() . ':table:x:1', Cache_Backend::site_key( 'table:x:1' ) );
+		$this->assertSame(
+			$prefix . Cache_Backend::machine() . ':' . Cache_Backend::site() . ':table:x:1',
+			Cache_Backend::host_key( 'table:x:1' )
+		);
+		// The scopes differ only by the machine ahead of the site — never by
+		// where the logical name sits.
+		$this->assertSame(
+			Cache_Backend::key( Cache_Backend::site(), 'table:x:1' ),
+			Cache_Backend::site_key( 'table:x:1' )
+		);
+	}
+
+	public function test_sse_slot_pool_reads_its_namespace_from_the_shared_scope(): void {
+		// One owner for the host/site halves: the pool delegates rather than
+		// keeping the second copy that drifted from everything else.
+		$this->assertSame(
+			Cache_Backend::machine() . ':' . Cache_Backend::site(),
+			\Newspack_Nodes\SSE_Slot_Pool::namespace_key()
 		);
 	}
 
