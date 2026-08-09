@@ -170,7 +170,7 @@ class Job_Worker_Node extends Node {
 		$retry_scheduled = false;
 		try {
 			try {
-				\do_action( 'newspack_nodes/job_worker/before_job', $handler, $id );
+				\do_action( 'newspack_nodes/job_worker/before_job', $handler, $id, $message );
 				$before_ok = true;
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e;
