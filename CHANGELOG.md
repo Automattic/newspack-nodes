@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `Job_Intake::queue()` takes an `$id`, in the same position `feed()` takes it —
+  fourth, ahead of the `$base_dir` / `$num_partitions` test overrides. It was
+  hardwired to `null`, so a job that crossed PIPE_BUF and took the large-write
+  path lost the identity its jobstats are keyed by, while the small job beside
+  it kept one. The two static entry points now share a leading shape.
+
+  This shifts the trailing overrides by one for positional callers. Nothing
+  outside the substrate's own tests passes them — they exist for tests aiming
+  at a tmp dir, as the docblock says — but an out-of-tree caller that does will
+  hand a directory to `$id`.
+
 ## [2.16.1] - 2026-08-09
 
 ### Changed
