@@ -77,6 +77,63 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( (float) $stamp, $t->idle_since(), 'a caught-up file-mode Tail reports its own mtime' );
 	}
 
+	/**
+	 * The seek a resume queues IS the position — `cursor_position()` says so —
+	 * so the lag read must honour it too. Reading the raw cursor makes a Tail
+	 * that resumed AT EOF look maximally behind, which reads as busy and hands
+	 * SSE_Out a null idle seed: every resuming stream then holds a child for
+	 * the whole idle window instead of closing on the first tick.
+	 */
+	public function test_file_mode_idle_since_honours_a_pending_resume_seek(): void {
+		$path = "{$this->tmp}/resumed.log";
+		\file_put_contents( $path, "alpha-7788\nbeta-991122\n" );
+		$size  = \filesize( $path );
+		$stamp = \time() - 617;
+		\touch( $path, $stamp );
+		$t = $this->follow( $path );
+		// Resume at EOF before any poll: the seek is queued, not yet applied.
+		$t->next_offset( [ 'segment' => \fileinode( $path ), 'offset' => $size ] );
+
+		$this->assertSame(
+			(float) $stamp,
+			$t->idle_since(),
+			'a Tail resuming at EOF is caught up, however the seek is queued'
+		);
+	}
+
+	/**
+	 * A queued seek is a CANDIDATE — `validate_resume_offset()` still rejects one
+	 * naming a dead generation. Trusting it for the lag read lets a client echo a
+	 * pre-rotation position and have the new, smaller generation declared caught
+	 * up: SSE_Out then closes on the first tick and those bytes never ship.
+	 */
+	public function test_file_mode_idle_since_distrusts_a_seek_from_a_dead_generation(): void {
+		$path = "{$this->tmp}/rotated.log";
+		\file_put_contents( $path, "fresh-generation-4471\n" );
+		\touch( $path, \time() - 617 );
+		$t = $this->follow( $path );
+		// Pre-rotation position: another inode, far past this file's end.
+		$t->next_offset( [ 'segment' => \fileinode( $path ) + 1, 'offset' => 500000 ] );
+
+		$this->assertNull(
+			$t->idle_since(),
+			'a resume naming a dead generation must not read as caught up'
+		);
+	}
+
+	public function test_file_mode_idle_since_distrusts_a_seek_past_the_end(): void {
+		$path = "{$this->tmp}/truncated.log";
+		\file_put_contents( $path, "after-truncate-8823\n" );
+		\touch( $path, \time() - 617 );
+		$t = $this->follow( $path );
+		$t->next_offset( [ 'segment' => \fileinode( $path ), 'offset' => 500000 ] );
+
+		$this->assertNull(
+			$t->idle_since(),
+			'an offset past the end means the file shrank; unread bytes remain'
+		);
+	}
+
 	public function test_file_mode_idle_since_is_null_while_bytes_are_still_owed(): void {
 		$path = "{$this->tmp}/owed.log";
 		\file_put_contents( $path, "one\ntwo\n" );
