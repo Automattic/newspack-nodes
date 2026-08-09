@@ -55,7 +55,7 @@ class Alerts {
 	/** Option holding the last-journaled state (alert key => severity). */
 	private const STATE_OPTION = 'newspack_nodes_alerts_state';
 
-	/** Journal dir basename; Log_Cleaner spares `{basename}.p{N}` via Bootstrap. */
+	/** Journal dir basename. */
 	public const LOG_BASENAME = 'alerts';
 
 	/** @var Partition_Node|null Process-cached anonymous alerts.p0 journal writer. */
@@ -175,9 +175,21 @@ class Alerts {
 			return self::$journal;
 		}
 		$partition = new Partition_Node();
-		$partition->arguments( [ Config::get_logs_directory() . '/' . self::LOG_BASENAME . '.p0' ] );
+		$partition->arguments( [ self::log_dir_template( Config::get_logs_directory() ) ] );
 		self::$journal = $partition;
 		return $partition;
+	}
+
+	/**
+	 * Dir template for the alerts journal — the one place its layout is written.
+	 * Bootstrap registers it with the log GC and `journal()` writes through it.
+	 * No partition token: every worker on the fleet journals into the same
+	 * `alerts.p0`, so the GC declares that one dir rather than a fan-out of
+	 * `alerts.p1`+ nothing ever writes. The default root is the
+	 * `<config:logs_dir>` token — registration must not touch the filesystem.
+	 */
+	public static function log_dir_template( string $logs_dir = '<config:logs_dir>' ): string {
+		return \rtrim( $logs_dir, '/' ) . '/' . self::LOG_BASENAME . '.p0';
 	}
 
 	/**

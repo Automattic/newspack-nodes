@@ -87,6 +87,15 @@ class LogCleanerTest extends TestCase {
 		return $dir;
 	}
 
+	/** Seed a log dir under `logs/` by its literal name (no layout assumed); returns the dir path. */
+	private function seed_log_dir( string $name ): string {
+		$dir = "{$this->tmp}/logs/{$name}";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", 'X' );
+		$this->age_dir( $dir );
+		return $dir;
+	}
+
 	/** Seed a flat offset dir `offsets/{name}.p{N}/`; returns the dir path. */
 	private function seed_offsetlog_dir( string $name, int $partition ): string {
 		$dir = "{$this->tmp}/offsets/{$name}.p{$partition}";
@@ -223,11 +232,100 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $orphan );
 	}
 
-	public function test_registered_producer_protects_its_partition_dirs(): void {
-		// No topology declares 'firehose' — a PHP-registered producer protects it.
+	public function test_producer_template_expands_the_partition_token_wherever_it_sits(): void {
+		// A producer registers a PATH TEMPLATE in the .tsl write_set vocabulary, so
+		// its layout is its own — the substrate no longer spells `{name}.p{N}` for it.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ '<config:logs_dir>/<partition>-req' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 3;
+		Config::reset();
+
+		$kept   = [ $this->seed_log_dir( '0-req' ), $this->seed_log_dir( '1-req' ), $this->seed_log_dir( '2-req' ) ];
+		$orphan = $this->seed_log_dir( '3-req' );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		foreach ( $kept as $dir ) {
+			$this->assertDirectoryExists( $dir );
+		}
+		$this->assertDirectoryDoesNotExist( $orphan );
+	}
+
+	public function test_a_producer_template_outside_the_logs_root_skips_the_sweep(): void {
+		// Fail CLOSED, like every other degraded input here. A producer whose
+		// template declares nothing has live dirs in NO declared set, and a
+		// topology keeps that set non-empty — so the sweep would run and delete
+		// them. Reporting it and carrying on is how errors.p0 died twice.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
 			static fn (): array => [ 'firehose' ]
+		);
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
+		Config::reset();
+
+		$firehose = $this->seed_log_partition( 'firehose', 0 );
+		$requests = $this->seed_log_partition( 'requests', 0 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $firehose );
+		$this->assertDirectoryExists( $requests );
+		$this->assertSame( [], Log_Cleaner::declared_log_dirs(), 'the sentinel empties the declared set' );
+	}
+
+	public function test_a_producer_template_outside_the_logs_root_is_reported(): void {
+		// A template that never lands under the logs dir declares nothing, so that
+		// producer's live dirs are orphans on the next sweep. Staying quiet about
+		// it reads exactly like being protected.
+		$buf = '';
+		Core::set_stderr_handler(
+			function ( $message ) use ( &$buf ) {
+				$buf .= $message;
+			}
+		);
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose.p<partition>' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
+		Config::reset();
+
+		Log_Cleaner::declared_log_dirs();
+
+		$this->assertStringContainsString( 'firehose.p<partition>', $buf );
+	}
+
+	public function test_tokenless_producer_template_declares_exactly_one_dir(): void {
+		// `alerts.p0` / `jobdelay.p0` are pinned across the whole fleet. Expanding
+		// every producer over num_partitions declared `alerts.p1`+ that nothing
+		// writes — phantom "No segments" rows in the dashboard catalog, which reads
+		// the same declared set.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ '<config:logs_dir>/alerts.p0' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 3;
+		Config::reset();
+
+		$pinned = $this->seed_log_partition( 'alerts', 0 );
+
+		// settings.p0 rides along on any non-empty set (the substrate whitelist).
+		$this->assertSame( [ 'alerts.p0', 'settings.p0' ], Log_Cleaner::declared_log_dirs() );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $pinned );
+	}
+
+	public function test_registered_producer_protects_its_partition_dirs(): void {
+		// No topology declares 'firehose' — a PHP-registered producer protects it,
+		// across the configured count and no further.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
 		Config::reset();
@@ -279,7 +377,7 @@ class LogCleanerTest extends TestCase {
 		// producer names are protected. Fail closed: skip the whole log sweep.
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
 		);
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
@@ -515,8 +613,11 @@ class LogCleanerTest extends TestCase {
 		// Job_Intake writes jobintake.p<N> outside any topology's write set; the
 		// SUBSTRATE must protect it from the GC sweep (ELN-less installs queue
 		// through it via nuclear-gyrobase / pyrobase).
-		$this->assertContains( 'jobintake', Bootstrap::register_log_producers( [] ) );
-		$producers = Bootstrap::register_log_producers( [ 'firehose', 'jobintake' ] );
+		$this->assertContains(
+			Job_Intake::log_dir_templates()[ Job_Intake::LOG_BASENAME ],
+			Bootstrap::register_log_producers( [] )
+		);
+		$producers = Bootstrap::register_log_producers( [ 'firehose' ] );
 		$this->assertContains( 'firehose', $producers );
 		$this->assertSame( \array_unique( $producers ), $producers, 'merge dedupes against contributors that already declare it' );
 	}
@@ -524,10 +625,30 @@ class LogCleanerTest extends TestCase {
 	public function test_substrate_registers_alerts_as_a_producer(): void {
 		// The Alerts journal writes alerts.p0 outside any topology's write set
 		// too; the substrate must protect it the same way it protects jobintake.
-		$this->assertContains( Alerts::LOG_BASENAME, Bootstrap::register_log_producers( [] ) );
-		$producers = Bootstrap::register_log_producers( [ 'firehose', Alerts::LOG_BASENAME ] );
+		$this->assertContains( Alerts::log_dir_template(), Bootstrap::register_log_producers( [] ) );
+		$producers = Bootstrap::register_log_producers( [ 'firehose' ] );
 		$this->assertContains( 'firehose', $producers );
 		$this->assertSame( \array_unique( $producers ), $producers, 'merge dedupes against contributors that already declare it' );
+	}
+
+	public function test_substrate_pinned_producers_declare_only_their_own_partition(): void {
+		// The pinned logs are single-dir by design; the fan-out ones still expand.
+		// 2 partitions, so p1 tells the two apart.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			[ Bootstrap::class, 'register_log_producers' ]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
+		Config::reset();
+
+		$declared = Log_Cleaner::declared_log_dirs();
+
+		$this->assertContains( 'alerts.p0', $declared );
+		$this->assertContains( 'jobdelay.p0', $declared );
+		$this->assertContains( 'jobintake.p1', $declared );
+		$this->assertContains( 'jobfeed.p1', $declared );
+		$this->assertNotContains( 'alerts.p1', $declared );
+		$this->assertNotContains( 'jobdelay.p1', $declared );
 	}
 
 	public function test_registered_jobintake_producer_protects_its_partition_dirs(): void {
@@ -592,7 +713,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
@@ -613,7 +734,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>' ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();
@@ -653,7 +774,7 @@ class LogCleanerTest extends TestCase {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose', '', 42, [ 'x' ] ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>', '', 42, [ 'x' ] ]
 		);
 		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
 		Config::reset();

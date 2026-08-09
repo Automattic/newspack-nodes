@@ -393,9 +393,9 @@ class OnDemandWakeTest extends TestCase {
 	public function test_a_poisoned_cache_entry_is_filtered_to_descriptor_rows(): void {
 		$this->with_apcu();
 		$this->activate( 'marmot-ondemand', 23 );
-		$key = 'newspack_nodes:on_demand_wake:' . \md5(
+		$key = \Newspack_Nodes\Cache_Backend::site_key( 'on_demand_wake:' . \md5(
 			(string) \wp_json_encode( \Newspack_Nodes\Config::value( 'topologies' ) )
-		);
+		) );
 		\Newspack_Nodes\Cache_Backend::local_first()->set(
 			$key,
 			[

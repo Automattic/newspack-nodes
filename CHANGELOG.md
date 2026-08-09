@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Cache_Backend` owns memcache key scope, so two installs sharing one
+  memcached stop reading each other's state.** It already resolved the *tier*
+  (`local_first` APCu-then-memcached, `shared_first` the reverse) while callers
+  handed it finished key strings — so four plugins spelled four prefixes and only
+  `SSE_Slot_Pool`'s separated installs at all. Tier and scope are the same
+  question; centralizing one and not the other is how they drifted.
+
+  `site_key()` prefixes `newspack_nodes:{KEY_VERSION}:{site}:`, where site is
+  `md5(DB_NAME . ':' . $wpdb->base_prefix)` — the pair that actually varies
+  where installs collide, whether they share a database with separate table
+  prefixes or use separate databases. Two identifiers it deliberately is not:
+  `home_url()` is per-request (https under `is_ssl()`, filtered by
+  domain-mapping plugins, moved by `switch_to_blog()`), and `$wpdb->prefix` is
+  per-blog while the fleet is network-global. Either would split one install's
+  own keyspace, and a batch counter seeded by a web request or a subsite would
+  be invisible to the CLI worker that decrements it. `KEY_VERSION` is the one
+  rotatable salt — bump it and every key orphans at once, where a per-plugin
+  salt only ever flushed its own.
+
+  Site scope, not host scope, for everything but SSE slots: a fleet spans
+  containers and must agree on its tables and counters, so folding the hostname
+  in would fragment exactly the state that has to be shared. SSE slots ration
+  connections *per pool host*, so they compose `machine():site()` — the one
+  surface where the machine is the resource. Both halves stay
+  non-caller-controllable; `SERVER_NAME` would not be, and a rate-limit
+  namespace the caller chooses is not a rate limit.
+
+  Callers now state their scope through a builder rather than a raw prefix:
+  `Table_Node::entry_key()`, `Job_Intake::batch_count_key()` /
+  `batch_err_key()` / `unique_key()`. The `KEY_PREFIX` / `*_KEY_PREFIX`
+  constants are gone (no sibling plugin referenced them), and the command nonce
+  moves onto `site_key()` too — `nodes-cmd-session:` was already site-scoped by
+  accident, via `wp_salt('nonce')`.
+
+  **Every memcache key changes.** Caches simply refill. The live state is batch
+  fan-in counters and unique-enqueue claims; a deploy already quiesces the fleet
+  (`wp nodes stop`), which is when to take it.
+
+- `Table_Node::lookup()` reads through `Cache_Backend::read()` instead of the
+  raw `Core::$memd` handle. It only held the handle to call `getResultCode()`
+  and tell a confirmed miss from a read error — `read()` is that primitive, so
+  the two branches collapse to one and nothing in the substrate bypasses the
+  funnel.
+
+- **A log producer now registers the dir TEMPLATE it writes, so the substrate no
+  longer spells `{producer}.p{N}` on its behalf.**
+  `newspack_nodes/registered_log_producers` carries a path template in the same
+  vocabulary a `.tsl` write_set entry uses (`<config:logs_dir>/firehose.p<partition>`),
+  which `Log_Cleaner::producer_log_dirs()` expands through
+  `Core::resolve_partition_template()` and reduces to its first-level dir — the
+  same treatment `Topology_Analyzer::resolved_resource_dirs()` gives a declared
+  topology, sharing the new `Core::first_level_dir()` with it. The GC could not
+  call into the plugin that owns a layout and the filter only carried a
+  basename, so the last hardcoded `.p{N}` in the declared set lived here; the
+  token may now sit anywhere in a producer's path.
+
+  Each producer states its layout once, in the code that writes it, and
+  registration reads that same statement: `Job_Intake::log_dir_templates()`
+  (used by `partition_handle()` and `Job_Delay::sweep()`),
+  `Alerts::log_dir_template()` (used by `journal()`), and ELN's
+  `Log_Manager::firehose_dir_template()`. A writer that drifts from its
+  declaration is a dir the sweep will not declare, which is why they are now one
+  statement rather than two that agree.
+
+- **The pinned producer logs no longer declare partitions nothing writes.**
+  Every producer was expanded over `num_partitions`, but `alerts.p0` and
+  `jobdelay.p0` are pinned across the whole fleet — so on a 4-partition install
+  the declared set carried `alerts.p1..p3` and `jobdelay.p1..p3`, and the
+  dashboard catalog (which reads that same set) rendered six phantom log rows
+  reporting "No segments". A template carrying no partition token now collapses
+  to one dir, exactly as a tokenless topology template already did.
+
+  A template is expected in rooted form; the filter's previous bare-basename
+  contract is gone rather than shimmed, since the only two registrants are this
+  plugin and its sibling and they deploy together. A template that lands under
+  no logs dir across the whole partition range now reports itself — declaring
+  nothing is indistinguishable from being protected right up until the sweep
+  takes the producer's live dirs.
+
 ## [2.17.1] - 2026-08-09
 
 ### Changed

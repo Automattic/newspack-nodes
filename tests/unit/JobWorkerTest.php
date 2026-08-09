@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Worker_Should_Stop;
@@ -873,8 +874,8 @@ class JobWorkerTest extends TestCase {
 		Core::$memd = $memd;
 		\Newspack_Nodes\Alerts::reset();
 		try {
-			$memd->set( 'nodes-job-batch:bX', 2, 0 );
-			$memd->set( 'nodes-job-batch-err:bX', 0, 0 );
+			$memd->set( Job_Intake::batch_count_key( 'bX' ), 2, 0 );
+			$memd->set( Job_Intake::batch_err_key( 'bX' ), 0, 0 );
 
 			$jw = new Job_Worker_Node();
 			$this->register_job_handler( $jw, 'member', fn () => null );
@@ -883,7 +884,7 @@ class JobWorkerTest extends TestCase {
 			add_action( 'newspack_nodes/job_worker/batch_complete', function ( $batch ) use ( &$completed ) { $completed[] = $batch; } );
 
 			$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bX' ] ) );
-			$this->assertSame( 1, $memd->get( 'nodes-job-batch:bX' ) );
+			$this->assertSame( 1, $memd->get( Job_Intake::batch_count_key( 'bX' ) ) );
 			$this->assertSame( [], $completed );
 
 			$jw->fill( $this->job_message( 'member', [], 'job', null, [ 'batch' => 'bX' ] ) );
@@ -907,8 +908,8 @@ class JobWorkerTest extends TestCase {
 		Core::$memd = $memd;
 		\Newspack_Nodes\Alerts::reset();
 		try {
-			$memd->set( 'nodes-job-batch:bE', 1, 0 );
-			$memd->set( 'nodes-job-batch-err:bE', 0, 0 );
+			$memd->set( Job_Intake::batch_count_key( 'bE' ), 1, 0 );
+			$memd->set( Job_Intake::batch_err_key( 'bE' ), 0, 0 );
 
 			$jw = new Job_Worker_Node();
 			$this->register_job_handler( $jw, 'member', fn () => [ 'stats' => [ 'success_count' => 0, 'error_count' => 2 ] ] );
@@ -919,8 +920,8 @@ class JobWorkerTest extends TestCase {
 			$this->assertCount( 1, $alerts );
 			$this->assertSame( 'warning', $alerts[0]['value']['severity'] );
 			// Completion reaps both counters so the batch id can be reused.
-			$this->assertFalse( $memd->get( 'nodes-job-batch:bE' ) );
-			$this->assertFalse( $memd->get( 'nodes-job-batch-err:bE' ) );
+			$this->assertFalse( $memd->get( Job_Intake::batch_count_key( 'bE' ) ) );
+			$this->assertFalse( $memd->get( Job_Intake::batch_err_key( 'bE' ) ) );
 		} finally {
 			Core::$memd = $prev;
 			\Newspack_Nodes\Alerts::reset();
@@ -933,8 +934,8 @@ class JobWorkerTest extends TestCase {
 		$memd       = new InMemoryMemcached();
 		Core::$memd = $memd;
 		try {
-			$memd->set( 'nodes-job-batch:bY', 1, 0 );
-			$memd->set( 'nodes-job-batch-err:bY', 0, 0 );
+			$memd->set( Job_Intake::batch_count_key( 'bY' ), 1, 0 );
+			$memd->set( Job_Intake::batch_err_key( 'bY' ), 0, 0 );
 
 			$jw = new Job_Worker_Node();
 			$this->register_job_handler( $jw, 'flaky', function () { throw new \RuntimeException( 'transient' ); } );
@@ -944,7 +945,7 @@ class JobWorkerTest extends TestCase {
 
 			$jw->fill( $this->job_message( 'flaky', [], 'job', null, [ 'batch' => 'bY', 'retries' => 2 ] ) );
 
-			$this->assertSame( 1, $memd->get( 'nodes-job-batch:bY' ), 'a retry-scheduled job is not finished; the batch must stay open' );
+			$this->assertSame( 1, $memd->get( Job_Intake::batch_count_key( 'bY' ) ), 'a retry-scheduled job is not finished; the batch must stay open' );
 			$this->assertSame( [], $completed );
 		} finally {
 			Core::$memd = $prev;

@@ -479,9 +479,18 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
 	}
 
-	/** Keyed by NODE NAME first so two spokes on same partition don't collide. */
 	private function status_key(): string {
-		return "np:remote:{$this->name}:{$this->remote_partition}";
+		return self::status_key_for( $this->name, $this->remote_partition );
+	}
+
+	/**
+	 * Keyed by NODE NAME first so two spokes on same partition don't collide,
+	 * and site-scoped so two HUBS naming a spoke alike don't either. Public
+	 * because the reader (Aggregator_CI) must resolve the writer's exact key
+	 * rather than rebuild it — the two used to spell it separately.
+	 */
+	public static function status_key_for( string $name, string $partition ): string {
+		return Cache_Backend::site_key( "remote:{$name}:{$partition}" );
 	}
 
 	/**

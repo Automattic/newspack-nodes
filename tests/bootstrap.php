@@ -27,6 +27,12 @@ if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 // emit the forgeable-fallback warning into every /command response body.
 // (CommandAuthTest's no-salt case self-skips when this is set.)
 \define( 'NONCE_SALT', 'newspack-nodes-test-nonce-salt' );
+// Cache_Backend::site() scopes keys by database + table prefix.
+\define( 'DB_NAME', 'newspack_nodes_test' );
+$GLOBALS['wpdb'] = new class() {
+	public string $prefix      = 'wp_';
+	public string $base_prefix = 'wp_';
+};
 // The plugin file (loaded below) defines NEWSPACK_NODES_URL only when
 // plugin_dir_url() exists, which the suite doesn't stub — so define it here so
 // asset-enqueue paths model real WP (DIR + URL both present).

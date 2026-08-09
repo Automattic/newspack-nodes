@@ -50,10 +50,17 @@ class Job_Intake {
 	 */
 	public const DELAY_BASENAME = 'jobdelay';
 
-	/** Memcache key prefixes for batch fan-in counters and the unique-enqueue gate. */
-	public const BATCH_COUNT_KEY_PREFIX = 'nodes-job-batch:';
-	public const BATCH_ERR_KEY_PREFIX   = 'nodes-job-batch-err:';
-	public const UNIQUE_KEY_PREFIX      = 'nodes-job-uniq:';
+	/**
+	 * Dir template per log basename, relative to the logs dir — the one place
+	 * Job_Intake's layout is written. `log_dir_templates()` serves both the writer
+	 * and the GC registration, so the dirs written and the dirs declared cannot
+	 * drift apart.
+	 */
+	private const DIR_TEMPLATES = [
+		self::LOG_BASENAME   => self::LOG_BASENAME . '.p<partition>',
+		self::FEED_BASENAME  => self::FEED_BASENAME . '.p<partition>',
+		self::DELAY_BASENAME => self::DELAY_BASENAME . '.p0',
+	];
 
 	/** Batch counters outlive any sane batch runtime, then self-expire. */
 	public const BATCH_TTL_S = 7 * 86400;
@@ -184,11 +191,11 @@ class Job_Intake {
 						&& 1 === \preg_match( self::HANDLER_NAME_PATTERN, $job['handler'] )
 				)
 			);
-			if ( ! $backend->add( self::BATCH_COUNT_KEY_PREFIX . $batch, $valid, self::BATCH_TTL_S ) ) {
+			if ( ! $backend->add( self::batch_count_key( $batch ), $valid, self::BATCH_TTL_S ) ) {
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
 				throw new \RuntimeException( "batch id already active: {$batch}" );
 			}
-			$backend->add( self::BATCH_ERR_KEY_PREFIX . $batch, 0, self::BATCH_TTL_S );
+			$backend->add( self::batch_err_key( $batch ), 0, self::BATCH_TTL_S );
 			$options['batch'] = $batch;
 		}
 
@@ -239,6 +246,22 @@ class Job_Intake {
 	 */
 	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null, array $options = [] ): bool {
 		return $this->write_entry( $handler, $parameters, $key, $id, $options, self::LOG_BASENAME, true );
+	}
+
+	/** Error tally for a batch; see batch_count_key(). */
+	public static function batch_err_key( string $batch ): string {
+		return Cache_Backend::site_key( 'job-batch-err:' . $batch );
+	}
+
+	/**
+	 * Memcache keys for the batch fan-in counters and the unique-enqueue gate.
+	 * Site-scoped through Cache_Backend: one fleet spans many containers and
+	 * must agree on them, but a co-tenant install on the same memcached must
+	 * not join in. Builders, not prefixes — a scope the caller has to remember
+	 * to apply is one a caller eventually forgets.
+	 */
+	public static function batch_count_key( string $batch ): string {
+		return Cache_Backend::site_key( 'job-batch:' . $batch );
 	}
 
 	/**
@@ -378,7 +401,10 @@ class Job_Intake {
 		if ( isset( $this->partitions[ $slot ] ) ) {
 			return $this->partitions[ $slot ];
 		}
-		$log_base = $this->base_dir . '/logs/' . $basename;
+		$dir = Core::resolve_partition_template(
+			self::log_dir_templates( $this->base_dir . '/logs' )[ $basename ],
+			$partition
+		);
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
@@ -390,7 +416,7 @@ class Job_Intake {
 		if ( null === $p->sink() && null !== $ci ) {
 			$p->sink( $ci );
 		}
-		$args = [ "{$log_base}.p{$partition}" ];
+		$args = [ $dir ];
 		if ( self::FEED_BASENAME === $basename ) {
 			$args[] = (string) self::FEED_SEGMENT_SIZE;
 		}
@@ -400,6 +426,23 @@ class Job_Intake {
 		}
 		$this->partitions[ $slot ] = $p;
 		return $p;
+	}
+
+	/**
+	 * Dir templates for every log Job_Intake writes, keyed by basename. Bootstrap
+	 * registers these with the log GC and `partition_handle()` writes through
+	 * them, so declaration and writer are the same statement. The default root is
+	 * the `<config:logs_dir>` token — registration must not touch the filesystem;
+	 * a writer with its own base passes that base's `logs` dir.
+	 *
+	 * @return array<string,string> `basename => path template`.
+	 */
+	public static function log_dir_templates( string $logs_dir = '<config:logs_dir>' ): array {
+		$prefix = \rtrim( $logs_dir, '/' ) . '/';
+		return \array_map(
+			static fn ( string $template ): string => $prefix . $template,
+			self::DIR_TEMPLATES
+		);
 	}
 
 	/**
@@ -428,8 +471,13 @@ class Job_Intake {
 		if ( null === $backend ) {
 			throw new \LogicException( 'unique jobs require memcached or APCu' );
 		}
-		$slot = self::UNIQUE_KEY_PREFIX . $handler . ':' . Core::as_string( $options['unique'], '' );
+		$slot = self::unique_key( $handler, Core::as_string( $options['unique'], '' ) );
 		return $backend->add( $slot, 1, $ttl );
+	}
+
+	/** Unique-enqueue claim slot; see batch_count_key(). */
+	public static function unique_key( string $handler, string $token ): string {
+		return Cache_Backend::site_key( 'job-uniq:' . $handler . ':' . $token );
 	}
 
 	/**

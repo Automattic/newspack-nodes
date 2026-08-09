@@ -316,6 +316,8 @@ class Core {
 		self::$memd              = null;
 		self::$secure_level      = null;
 		self::$log_host          = '';
+		Cache_Backend::$site     = '';
+		Cache_Backend::$machine  = '';
 		self::set_stderr_handler( static function ( string $text, bool $raw = false ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
@@ -457,6 +459,21 @@ class Core {
 			\CURLOPT_SSL_VERIFYHOST    => self::$verify_spawn_tls ? 2 : 0,
 			\CURLOPT_SSL_VERIFYPEER    => self::$verify_spawn_tls,
 		];
+	}
+
+	/**
+	 * The first-level dir `$concrete` occupies under `$root` — the unit both the
+	 * log GC's declared set and the dashboard catalog work in, since a nested
+	 * layout (`{logs}/req/3`) is retained and swept as its top dir. `''` when
+	 * `$concrete` lies outside `$root`, which is not a failed expansion: a
+	 * template may legitimately resolve elsewhere.
+	 */
+	public static function first_level_dir( string $concrete, string $root ): string {
+		$prefix = \rtrim( $root, '/' ) . '/';
+		if ( '/' === $prefix || 0 !== \strpos( $concrete, $prefix ) ) {
+			return '';
+		}
+		return \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
 	}
 
 	/** True while the stderr handler is on the stack; pump() reads it to skip a log-write stop. */

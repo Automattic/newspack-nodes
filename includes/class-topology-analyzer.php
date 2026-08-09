@@ -662,11 +662,7 @@ class Topology_Analyzer {
 				// still expanding, and a path outside the root produces
 				// none. Neither is a failed expansion.
 				$produced[ $concrete ] = true;
-				$prefix   = $root . '/';
-				if ( 0 !== \strpos( $concrete, $prefix ) ) {
-					continue;
-				}
-				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
+				$first                 = Core::first_level_dir( $concrete, $root );
 				if ( '' === $first ) {
 					continue;
 				}

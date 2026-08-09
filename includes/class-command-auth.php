@@ -312,7 +312,7 @@ class Command_Auth {
 				Core::print_less_often( 'Command_Auth: no APCu and no memcache; refusing command (single-use unverifiable)' );
 				return false;
 			}
-			return $backend->add( 'nodes-cmd-nonce:' . $nonce, 1, $ttl );
+			return $backend->add( Cache_Backend::site_key( 'cmd-nonce:' . $nonce ), 1, $ttl );
 		};
 		return $claim( $nonce, self::NONCE_TTL_S );
 	}
@@ -358,14 +358,19 @@ class Command_Auth {
 	}
 
 	/**
-	 * Cache address for a session key. Namespaced per site: the cache is shared
-	 * infrastructure, not a trusted store, so a handle minted by another install
-	 * — or planted directly by anything that can write memcached — must not
-	 * resolve here. Deriving the namespace from the site secret costs nothing;
-	 * anyone who can compute it already holds the salt and can sign outright.
+	 * Cache address for a session key. Namespaced per site TWICE over, and the
+	 * inner half is the one that matters: the cache is shared infrastructure,
+	 * not a trusted store, so a handle minted by another install — or planted
+	 * directly by anything that can write memcached — must not resolve here.
+	 * Deriving that from the site SECRET costs nothing; anyone who can compute
+	 * it already holds the salt and can sign outright. `site_key()` adds no
+	 * secrecy on top, only membership in the shared rotation, so bumping
+	 * KEY_VERSION invalidates live sessions along with everything else.
 	 */
 	private static function session_address( string $handle ): string {
-		return 'nodes-cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle;
+		return Cache_Backend::site_key(
+			'cmd-session:' . \substr( \hash_hmac( 'sha256', 'session-ns', \wp_salt( 'nonce' ) ), 0, 16 ) . ':' . $handle
+		);
 	}
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */

@@ -887,7 +887,7 @@ class WorkersCITest extends TestCase {
 		);
 		\add_filter(
 			'newspack_nodes/registered_log_producers',
-			static fn (): array => [ 'firehose', 'jobintake' ]
+			static fn (): array => [ '<config:logs_dir>/firehose.p<partition>', '<config:logs_dir>/jobintake.p<partition>' ]
 		);
 		$this->seed_log_segment( $base, 'firehose',  0, 0, 128 );
 		$this->seed_log_segment( $base, 'jobintake', 1, 0, 64 );

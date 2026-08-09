@@ -81,8 +81,8 @@ class Bootstrap {
 	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
 	private static ?array $on_demand_wake_map = null;
 
-	/** Cache-key prefix for the on-demand wake map. */
-	private const ON_DEMAND_WAKE_KEY = 'newspack_nodes:on_demand_wake:';
+	/** Logical name for the on-demand wake map; Cache_Backend scopes it. */
+	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake:';
 
 	/** Seconds a wake map survives an edited `.tsl`; activation busts the key outright. */
 	private const ON_DEMAND_WAKE_TTL_S = 60;
@@ -176,7 +176,7 @@ class Bootstrap {
 		}
 		// The raw OPTION: building the key must not cost the walk it avoids.
 		$cache = Cache_Backend::local_first();
-		$key   = self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) );
+		$key   = Cache_Backend::site_key( self::ON_DEMAND_WAKE_KEY . \md5( (string) \wp_json_encode( Config::value( 'topologies' ) ) ) );
 		if ( null !== $cache ) {
 			$hit = $cache->get( $key );
 			if ( \is_array( $hit ) ) {
@@ -986,13 +986,19 @@ class Bootstrap {
 	/**
 	 * Declare the substrate's own non-topology log producers (Job_Intake's
 	 * jobintake.p<N> + jobfeed.p<N> + jobdelay.p0, the Alerts journal's
-	 * alerts.p0) so Log_Cleaner never sweeps them on ELN-less installs.
+	 * alerts.p0) so Log_Cleaner never sweeps them on ELN-less installs. Each
+	 * producer states its own layout as a path template; the substrate does not
+	 * spell one for it.
 	 *
 	 * @param array<int,string> $producers Producers from prior contributors.
 	 * @return array<int,string>
 	 */
 	public static function register_log_producers( array $producers ): array {
-		return \array_values( \array_unique( \array_merge( $producers, [ Job_Intake::LOG_BASENAME, Job_Intake::FEED_BASENAME, Job_Intake::DELAY_BASENAME, Alerts::LOG_BASENAME ] ) ) );
+		return \array_values( \array_unique( \array_merge(
+			$producers,
+			\array_values( Job_Intake::log_dir_templates() ),
+			[ Alerts::log_dir_template() ]
+		) ) );
 	}
 
 	/**
