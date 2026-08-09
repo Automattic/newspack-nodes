@@ -14,6 +14,10 @@ if ( ! \class_exists( 'WP_CLI', false ) ) {
 			$GLOBALS['_test_wp_cli_logs'][] = $message;
 		}
 
+		public static function line( string $message = '' ): void {
+			$GLOBALS['_test_wp_cli_lines'][] = $message;
+		}
+
 		public static function warning( string $message ): void {
 			$GLOBALS['_test_wp_cli_warns'][] = $message;
 		}

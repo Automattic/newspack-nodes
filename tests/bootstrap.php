@@ -29,10 +29,29 @@ if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 \define( 'NONCE_SALT', 'newspack-nodes-test-nonce-salt' );
 // Cache_Backend::site() scopes keys by database + table prefix.
 \define( 'DB_NAME', 'newspack_nodes_test' );
-$GLOBALS['wpdb'] = new class() {
-	public string $prefix      = 'wp_';
-	public string $base_prefix = 'wp_';
-};
+// Cache_Backend::salt() reads the option row through $wpdb, not get_option(),
+// because bin/pyrate runs under SHORTINIT where the option API is stubbed. The
+// harness needs a real `\wpdb` for that branch to be reachable at all.
+if ( ! \class_exists( 'wpdb', false ) ) {
+	class wpdb {
+		public string $prefix      = 'wp_';
+		public string $base_prefix = 'wp_';
+		public string $options     = 'wp_options';
+
+		/** @var array<string,string> option_name => option_value */
+		public array $rows = [];
+
+		public function prepare( string $query, mixed ...$args ): string {
+			return $query . '|' . \implode( '|', \array_map( 'strval', $args ) );
+		}
+
+		public function get_var( string $prepared ): ?string {
+			$name = (string) ( \explode( '|', $prepared )[2] ?? '' );
+			return $this->rows[ $name ] ?? null;
+		}
+	}
+}
+$GLOBALS['wpdb'] = new wpdb();
 // The plugin file (loaded below) defines NEWSPACK_NODES_URL only when
 // plugin_dir_url() exists, which the suite doesn't stub — so define it here so
 // asset-enqueue paths model real WP (DIR + URL both present).
