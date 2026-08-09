@@ -68,7 +68,7 @@ class Spawn_Coordinator {
 	 */
 	public function __construct( string $base_dir, ?string $nonce_salt = null ) {
 		$this->base_dir   = \rtrim( $base_dir, '/' );
-		$this->nonce_salt = $nonce_salt ?? \wp_salt( 'nonce' );
+		$this->nonce_salt = $nonce_salt ?? self::spawn_key();
 	}
 
 	/**
@@ -220,6 +220,69 @@ class Spawn_Coordinator {
 		}
 		// A stale lock is a worker that died holding it — a crash either way.
 		return Lock_Node::heartbeat_is_stale( $dir, (int) $now, $stale );
+	}
+
+	/**
+	 * Wake every absent on-demand reader whose partition holds unread bytes.
+	 *
+	 * `wake_on_demand()` is driven by a write this process performed, so it only
+	 * ever sees producers that went through `Partition_Node::fill()`. A producer
+	 * outside the substrate — gyrobase appending to a segment in Perl — marks
+	 * nothing, and `worker_needs_spawn()` deliberately declines to resurrect a
+	 * cleanly-absent on-demand worker, so without this pass nothing brings that
+	 * reader back at all. This is the fallback tier `wake_on_demand()` names.
+	 *
+	 * Backlog, not presence: a partition that exists but is drained must not wake
+	 * anyone, or the minute pass quietly restores the resident fleet on-demand
+	 * replaced. A live reader is skipped before its partition is ever read, and
+	 * so is a reader whose cursor is unknown — an ephemeral one keeps none, and
+	 * one that has not checkpointed yet reports the whole partition by default.
+	 * Reading either as "all of it is behind" respawns it on every pass forever,
+	 * which is the same resident fleet by another route.
+	 *
+	 * Spawns the SPECIFIC backlogged worker rather than delegating to
+	 * `wake_on_demand()`, which wakes every absent reader of the directory: two
+	 * ELN topologies tail the firehose, so a behind job-router would otherwise
+	 * drag a drained request-builder up with it, every minute.
+	 *
+	 * @param float $now Clock, so one pass judges every worker alike.
+	 * @return int Spawns posted.
+	 */
+	public function wake_readers_with_backlog( float $now ): int {
+		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
+		if ( '' === $spawn_url ) {
+			return 0;
+		}
+		$token = $this->generate_spawn_token( (int) $now );
+		$woken = 0;
+		foreach ( Bootstrap::on_demand_wake_map() as $dir => $readers ) {
+			foreach ( $readers as $worker ) {
+				$type      = Core::as_string( $worker['type'] );
+				$partition = Core::as_int( $worker['partition'] );
+				if ( \is_dir( $this->lock_path( $type, $partition ) ) ) {
+					continue;
+				}
+				// No durable cursor is no opinion, not "all of it is behind".
+				$cursor = Core::as_string( $worker['offsetlog_dir'] ?? '' );
+				if ( '' === $cursor ) {
+					continue;
+				}
+				$lag = Consumer_Node::lag_from_disk( $dir, $cursor );
+				if ( ! $lag['cursor_known'] || 0 === $lag['bytes_behind'] ) {
+					continue;
+				}
+				if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
+					continue;
+				}
+				$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
+				if ( null !== $err ) {
+					Core::print_less_often( "backlog wake failed for {$type}.p{$partition}: ", $err );
+				}
+				$this->record_spawn_local( $type, $partition, $now );
+				++$woken;
+			}
+		}
+		return $woken;
 	}
 
 	/**
@@ -539,6 +602,19 @@ class Spawn_Coordinator {
 		if ( \function_exists( 'set_transient' ) ) {
 			\set_transient( $cache_key, (int) $when, $ttl );
 		}
+	}
+
+	/**
+	 * The spawn-token HMAC key: `wp_salt('nonce')` run through one purpose-bound
+	 * derivation rather than used raw.
+	 *
+	 * The raw nonce salt forges every WordPress nonce on the site. This key
+	 * forges spawn tokens and nothing else, which is what makes it safe to hand
+	 * to a process outside PHP — nuclear-gyrobase exports it to the Perl engine
+	 * so a render can ring the doorbell for a job it just queued.
+	 */
+	public static function spawn_key(): string {
+		return \hash_hmac( 'sha256', 'newspack_nodes_spawn_key', \wp_salt( 'nonce' ) );
 	}
 
 	/** Unix time the deploy hold was placed, or 0 when the fleet is free to spawn. */

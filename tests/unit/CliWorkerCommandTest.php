@@ -71,18 +71,33 @@ class CliWorkerCommandTest extends TestCase {
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
-		$record                             = [];
-		$record[ Probe_Record::SOURCE ]     = $value['source'] ?? $value['source_log'] ?? "{$source_basename}.p{$partition}";
-		$record[ Probe_Record::READER ]     = "{$source_basename}.p{$partition}";
+		$record                                 = [];
+		$record[ Probe_Record::SOURCE ]         = $value['source'] ?? $value['source_log'] ?? "{$source_basename}.p{$partition}";
+		$record[ Probe_Record::READER ]         = "{$source_basename}.p{$partition}";
 		$record[ Probe_Record::CURSOR_SEGMENT ] = $value['segment'] ?? 0;
-		$record[ Probe_Record::CURSOR_OFF ] = $value['offset'] ?? 0;
+		$record[ Probe_Record::CURSOR_OFF ]     = $value['offset'] ?? 0;
 		$record[ Probe_Record::END_SEGMENT ]    = $value['end_segment'] ?? 0;
-		$record[ Probe_Record::END_SIZE ]   = $value['end_size'] ?? 0;
-		$record[ Probe_Record::DISTANCE ]   = $value['distance'] ?? $value['bytes_behind'] ?? 0;
-		$record[ Probe_Record::MSGS_DELTA ]       = $value['msgs'] ?? 0;
+		$record[ Probe_Record::END_SIZE ]       = $value['end_size'] ?? 0;
+		$record[ Probe_Record::DISTANCE ]       = $value['distance'] ?? $value['bytes_behind'] ?? 0;
+		$record[ Probe_Record::MSGS_DELTA ]     = $value['msgs'] ?? 0;
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;
+		if ( isset( $value['age_s'] ) ) {
+			$message[ Message::TIMESTAMP ] -= $value['age_s'];
+		}
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
+	}
+
+	/** Seed a durable read-cursor frame at offsets/{reader}/0.log. */
+	private function seed_offsetlog( string $reader, int $segment, int $offset ): void {
+		$dir = "{$this->tmp}/offsets/{$reader}";
+		if ( ! \is_dir( $dir ) ) {
+			\mkdir( $dir, 0755, true );
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'segment' => $segment, 'offset' => $offset ];
 		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
@@ -738,8 +753,10 @@ class CliWorkerCommandTest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_status_renders_per_consumer_behind_from_the_probe_snapshot(): void {
-		// Behind is read straight off the probe snapshot's DISTANCE (cursor vs
-		// partition-end measured together) — never recomputed against a fresh stat.
+		// A FRESH record is authoritative: Behind comes straight off its DISTANCE
+		// (cursor vs partition-end measured together), never the record's cursor
+		// against a newer stat — that pairing would overstate every live reader.
+		// The stale case recomputes BOTH halves; see the test below.
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
 			'source' => 'firehose.p0', 'distance' => 200,
 		] );
@@ -749,6 +766,48 @@ class CliWorkerCommandTest extends TestCase {
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose.p0', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
+	}
+
+	public function test_status_recomputes_behind_from_disk_when_the_probe_record_is_stale(): void {
+		// Nobody has reported in two sweeps, so the record's DISTANCE is not a
+		// slow reader — it is the last thing a since-departed worker said, and it
+		// said "caught up". An external producer wrote 777 bytes since. Both
+		// halves are re-read from disk TOGETHER, keeping the paired-measurement
+		// property the live path relies on.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'source'   => 'firehose.p0',
+			'distance' => 0,
+			'age_s'    => 120,
+		] );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/firehose.p0/0.log", \str_repeat( 'x', 777 ) );
+		// A real durable cursor 300 bytes in, so the recompute has to READ it —
+		// a run that ignored the offsetlog would report the whole 777.
+		$this->seed_offsetlog( 'firehose.p0', 0, 300 );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( '477B', $haystack );
+	}
+
+	public function test_status_leaves_a_stale_row_alone_when_the_offsetlog_is_unresolvable(): void {
+		// A nested offsetlog layout: the record's basename does not rebuild the
+		// path. Reading that as "no cursor" would call the whole partition
+		// backlog, which is a worse lie than the stale record.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'source'   => 'firehose.p0',
+			'distance' => 0,
+			'age_s'    => 120,
+		] );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/firehose.p0/0.log", \str_repeat( 'x', 777 ) );
+
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( '0B', $haystack );
+		$this->assertStringNotContainsString( '777B', $haystack );
 	}
 
 	public function test_status_renders_a_row_per_disambiguated_reader(): void {

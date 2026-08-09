@@ -382,7 +382,7 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $count );
 	}
 
-	// ── read_probe_index() ───────────────────────────────────────────────────────
+	// ── read_probe_frames() ───────────────────────────────────────────────────────
 
 	/** Append a positional Probe_Record snapshot to logs/topicprobe.p0/0.log. */
 	private function seed_probe_record( array $fields ): void {
@@ -405,19 +405,29 @@ class CliTest extends TestCase {
 		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
 	}
 
-	public function test_read_probe_index_keys_records_by_reader(): void {
+	public function test_read_probe_frames_keys_records_by_reader(): void {
 		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'cursor_segment' => 2, 'cursor_offset' => 50 ] );
 		$this->seed_probe_record( [ 'reader' => 'jobintake.p0', 'cursor_segment' => 1, 'cursor_offset' => 9 ] );
 
-		$index = ( new CLI( $this->tmp ) )->read_probe_index();
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames();
 
 		$this->assertSame( [ 'firehose.p0', 'jobintake.p0' ], \array_keys( $index ) );
-		$this->assertSame( 2, $index['firehose.p0'][ Probe_Record::CURSOR_SEGMENT ] );
-		$this->assertSame( 9, $index['jobintake.p0'][ Probe_Record::CURSOR_OFF ] );
+		$this->assertSame( 2, $index['firehose.p0']['value'][ Probe_Record::CURSOR_SEGMENT ] );
+		$this->assertSame( 9, $index['jobintake.p0']['value'][ Probe_Record::CURSOR_OFF ] );
 	}
 
-	public function test_read_probe_index_empty_when_no_log(): void {
-		$this->assertSame( [], ( new CLI( $this->tmp ) )->read_probe_index() );
+	public function test_read_probe_frames_carries_the_snapshot_time(): void {
+		// The age is the whole point: without it a departed worker's last record
+		// is indistinguishable from a live one's.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0' ] );
+
+		$index = ( new CLI( $this->tmp ) )->read_probe_frames();
+
+		$this->assertGreaterThan( 0, $index['firehose.p0']['timestamp'] );
+	}
+
+	public function test_read_probe_frames_empty_when_no_log(): void {
+		$this->assertSame( [], ( new CLI( $this->tmp ) )->read_probe_frames() );
 	}
 
 	// ── consumer_rows() ──────────────────────────────────────────────────────────

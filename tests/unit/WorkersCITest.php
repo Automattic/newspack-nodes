@@ -381,7 +381,7 @@ class WorkersCITest extends TestCase {
 					[ 'type' => 'demo-workers', 'partition' => 0, 'live' => true ],
 				];
 			}
-			public function read_probe_index(): array { return []; }
+			public function read_probe_frames(): array { return []; }
 			public function live_position( array $index, string $type, int $partition ): ?array {
 				return [ 'segment' => 0, 'offset' => 100 ];
 			}
@@ -406,7 +406,7 @@ class WorkersCITest extends TestCase {
 					[ 'type' => 'job-workers',  'partition' => 0 ],
 				];
 			}
-			public function read_probe_index(): array { return []; }
+			public function read_probe_frames(): array { return []; }
 			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
 				$this->called_with = [ 'workers' => $workers, 'filter' => $filter, 'partition' => $partition ];
@@ -682,7 +682,7 @@ class WorkersCITest extends TestCase {
 	private function stub_cli(): object {
 		return new class {
 			public function ls_workers(): array { return []; }
-			public function read_probe_index(): array { return []; }
+			public function read_probe_frames(): array { return []; }
 			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};

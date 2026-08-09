@@ -279,28 +279,107 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $last['size'];
 	}
 
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int} */
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_segment' => 0, 'end_size' => 0, 'end_bytes' => 0 ];
+			return self::lag_of( [], 0, 0 );
 		}
 		// Recover deleted/recreated cursor first; stale one reads as caught up.
 		$this->normalize_cursor( $segments );
-		$bytes_behind     = 0;
-		$segments_behind  = 0;
-		$end_bytes        = 0;
+		return self::lag_of( $segments, $this->cursor_segment, $this->cursor_offset );
+	}
+
+	/**
+	 * Lag for a reader that is NOT running, computed entirely from disk: segment
+	 * sizes for the partition end, the offsetlog's newest frame for the cursor.
+	 *
+	 * This is what lets the substrate hold an opinion about a partition an
+	 * external producer wrote — the probe log only ever reports what a LIVE
+	 * consumer said, so a down reader reads as caught up there. Partition
+	 * constructors do no event-loop work (ADR-5), so this is safe in request
+	 * scope and on the WP-Cron pass.
+	 *
+	 * `cursor_known` says whether a committed cursor was actually found. False
+	 * means the reported backlog is the whole partition by default, which a
+	 * caller deciding whether to WAKE something must not act on —
+	 * `ensure_offsetlog()` creates the directory at construction, so an empty
+	 * one is the ordinary state between boot and the first checkpoint.
+	 *
+	 * @param string $source_dir    Partition directory the reader tails.
+	 * @param string $offsetlog_dir Its durable cursor dir; empty = no cursor at all.
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int, cursor_known: bool}
+	 */
+	public static function lag_from_disk( string $source_dir, string $offsetlog_dir ): array {
+		\clearstatcache( true, $source_dir );
+		$source = new Partition_Node();
+		$source->arguments( [ $source_dir ] );
+		$segments = $source->get_segments( true );
+		if ( empty( $segments ) || '' === $offsetlog_dir ) {
+			// Empty partition = caught up; no offsetlog = no cursor to know.
+			return self::lag_of( $segments, 0, 0 )
+				+ [ 'cursor_known' => empty( $segments ) ];
+		}
+		$offsetlog = new Partition_Node();
+		$offsetlog->arguments( [ $offsetlog_dir ] );
+		$frame = self::last_frame_of( $offsetlog );
+		if ( null === $frame ) {
+			// Not checkpointed yet is not a cursor parked at 0:0.
+			return self::lag_of( $segments, 0, 0 ) + [ 'cursor_known' => false ];
+		}
+		return self::lag_of(
+			$segments,
+			Core::as_int( $frame['segment'] ?? 0 ),
+			Core::as_int( $frame['offset'] ?? 0 )
+		) + [ 'cursor_known' => true ];
+	}
+
+	/**
+	 * The lag arithmetic, over a segment list and a cursor. Pure, so the live
+	 * reader and `lag_from_disk()` share ONE implementation and a change to the
+	 * accounting cannot land on one path and miss the other.
+	 *
+	 * Both of `normalize_cursor()`'s recoveries apply, because a partition can be
+	 * recreated beneath a reader: a cursor whose segment is absent snaps to the
+	 * oldest, and one pointing past a segment that came back SHORTER rewinds to
+	 * its start. Skip either and a wiped-and-refilled partition reads as caught
+	 * up — every id sorting below the cursor in the first case, the subtraction
+	 * clamping to zero in the second — which is exactly the optimistic silence
+	 * this measurement exists to remove. Idempotent for the live caller, which
+	 * has already normalized.
+	 *
+	 * @param array<int,array{id: int, size: int}> $segments       Ascending segment list.
+	 * @param int                                  $cursor_segment Committed segment id.
+	 * @param int                                  $cursor_offset  Committed offset within it.
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
+	 */
+	public static function lag_of( array $segments, int $cursor_segment, int $cursor_offset ): array {
+		if ( empty( $segments ) ) {
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_segment' => 0, 'end_size' => 0, 'end_bytes' => 0, 'cursor_segment' => $cursor_segment, 'cursor_offset' => $cursor_offset ];
+		}
+		// Segment gone, or shorter than the cursor: recreated, so re-read.
+		$sizes = \array_column( $segments, 'size', 'id' );
+		if ( ! isset( $sizes[ $cursor_segment ] ) ) {
+			$oldest         = \reset( $segments );
+			$cursor_segment = $oldest['id'];
+			$cursor_offset  = 0;
+		} elseif ( $sizes[ $cursor_segment ] < $cursor_offset ) {
+			$cursor_offset = 0;
+		}
+		$bytes_behind    = 0;
+		$segments_behind = 0;
+		$end_bytes       = 0;
 		foreach ( $segments as $s ) {
 			$id   = $s['id'];
 			$size = $s['size'];
 			// Absolute byte pos (sum of segment sizes); browser derives rate.
 			$end_bytes += $size;
-			if ( $id < $this->cursor_segment ) {
+			if ( $id < $cursor_segment ) {
 				continue;
 			}
-			if ( $id === $this->cursor_segment ) {
-				$bytes_behind += \max( 0, $size - $this->cursor_offset );
+			if ( $id === $cursor_segment ) {
+				$bytes_behind += \max( 0, $size - $cursor_offset );
 			} else {
 				$bytes_behind += $size;
 				++$segments_behind;
@@ -312,9 +391,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			'bytes_behind'    => $bytes_behind,
 			'segments_behind' => $segments_behind,
 			'caught_up'       => 0 === $bytes_behind,
-			'end_segment'         => $last['id'],
+			'end_segment'     => $last['id'],
 			'end_size'        => $last['size'],
 			'end_bytes'       => $end_bytes,
+			// Carried so a distance and the cursor it measured travel together.
+			'cursor_segment'  => $cursor_segment,
+			'cursor_offset'   => $cursor_offset,
 		];
 	}
 

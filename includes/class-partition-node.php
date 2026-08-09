@@ -1363,7 +1363,7 @@ class Partition_Node extends Timer_Node {
 	 * Index the newest segment's TAIL by a VALUE field, latest-record-wins.
 	 *
 	 * Reads at most `$max_bytes` from the END of the NEWEST segment and returns
-	 * `key => VALUE` for the LAST record carrying each distinct `$key_field`.
+	 * `key => record` for the LAST one carrying each distinct `$key_field`.
 	 * Records append chronologically, so the tail holds the most recent ones; a
 	 * producer that writes every key on a short interval (Topic_Probe: every 15s)
 	 * keeps every active key present. A bounded tail read is cheaper than the
@@ -1376,12 +1376,17 @@ class Partition_Node extends Timer_Node {
 	 * after a rotation until the next sweep repopulates the fresh segment — is
 	 * absent. Intended for "currently-active" state, not a full historical sweep.
 	 *
+	 * Each record carries the Message TIMESTAMP it was written at, which is what
+	 * tells a reader whether anyone is still REPORTING: a probe record holds no
+	 * age inside its VALUE, so without it a departed worker's last snapshot is
+	 * indistinguishable from a live one's.
+	 *
 	 * @param string     $dir       The partition dir.
 	 * @param int|string $key_field VALUE field to index by (an int for a positional record).
 	 * @param int        $max_bytes Max tail bytes to scan (default 128 KiB).
-	 * @return array<string,array<mixed>> key → the latest record's VALUE.
+	 * @return array<string,array{value: array<mixed>, timestamp: int}> key → the latest record.
 	 */
-	public static function read_tail_index_by( string $dir, int|string $key_field, int $max_bytes = 131072 ): array {
+	public static function read_tail_frames_by( string $dir, int|string $key_field, int $max_bytes = 131072 ): array {
 		$index = [];
 		try {
 			$log = new self();
@@ -1397,22 +1402,27 @@ class Partition_Node extends Timer_Node {
 			if ( '' === $bytes ) {
 				return [];
 			}
-			// A non-zero start may land mid-record; drop the partial line.
+			$lines = \explode( "\n", $bytes );
+			// A non-zero start can land mid-record; line one is a fragment.
 			if ( $offset > 0 ) {
-				$nl    = \strpos( $bytes, "\n" );
-				$bytes = false === $nl ? '' : \substr( $bytes, $nl + 1 );
+				\array_shift( $lines );
 			}
-			foreach ( \explode( "\n", $bytes ) as $line ) {
+			foreach ( $lines as $line ) {
 				if ( '' === $line ) {
 					continue;
 				}
-				$value = Message::unpacked( $line )[ Message::VALUE ] ?? null;
+				$message = Message::unpacked( $line );
+				$value   = $message[ Message::VALUE ] ?? null;
 				if ( ! \is_array( $value ) ) {
 					continue;
 				}
 				$key = $value[ $key_field ] ?? '';
 				if ( \is_string( $key ) && '' !== $key ) {
-					$index[ $key ] = $value; // chronological → last wins
+					// chronological → last wins
+					$index[ $key ] = [
+						'value'     => $value,
+						'timestamp' => Core::as_int( $message[ Message::TIMESTAMP ] ?? 0 ),
+					];
 				}
 			}
 			return $index;
@@ -1420,6 +1430,7 @@ class Partition_Node extends Timer_Node {
 			return [];
 		}
 	}
+
 	/**
 	 * `allow_large_writes` verb handler — lift the 4KB cap on the patron + acquire its write
 	 * lock. An optional debounce_ms arg switches to debounced mode (lock per write burst,

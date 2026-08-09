@@ -81,8 +81,8 @@ class Bootstrap {
 	/** @var array<string,list<array<array-key,mixed>>>|null Request-static half of the wake map. */
 	private static ?array $on_demand_wake_map = null;
 
-	/** Logical name for the on-demand wake map; Cache_Backend scopes it. */
-	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake:';
+	/** Wake-map key; Cache_Backend scopes it. v2 rows carry offsetlog_dir. */
+	private const ON_DEMAND_WAKE_KEY = 'on_demand_wake_v2:';
 
 	/** Seconds a wake map survives an edited `.tsl`; activation busts the key outright. */
 	private const ON_DEMAND_WAKE_TTL_S = 60;
@@ -190,9 +190,13 @@ class Bootstrap {
 			}
 			$partition = Core::as_int( $worker['partition'] );
 			$topology  = Core::as_string( $worker['topology'] );
-			foreach ( Topology_Analyzer::consumer_sources( $topology ) as $template ) {
-				$dir           = \rtrim( Core::resolve_partition_template( $template, $partition, $topology ), '/' );
-				$map[ $dir ][] = $worker;
+			foreach ( Topology_Analyzer::consumer_positions( $topology ) as $position ) {
+				$dir      = \rtrim( Core::resolve_partition_template( $position['source'], $partition, $topology ), '/' );
+				$cursor   = '' === $position['offsetlog']
+					? ''
+					: \rtrim( Core::resolve_partition_template( $position['offsetlog'], $partition, $topology ), '/' );
+				// Paired here so the backlog sweep never re-walks the graph.
+				$map[ $dir ][] = $worker + [ 'offsetlog_dir' => $cursor ];
 			}
 		}
 		$cache?->set( $key, $map, self::ON_DEMAND_WAKE_TTL_S );
@@ -525,7 +529,7 @@ class Bootstrap {
 	/**
 	 * Spawn FIRST — it is the revival path and the only time-critical step, so
 	 * janitorial work may never preempt it by throwing. Every step then stands
-	 * alone: all five run third-party code (`expand_workers()` fires the
+	 * alone: all six run third-party code (`expand_workers()` fires the
 	 * `topologies` filter, `periodic` is whatever subscribed), and one bad
 	 * provider must not cost the others their window.
 	 */
@@ -536,6 +540,8 @@ class Bootstrap {
 		$coordinator = self::spawn_coordinator();
 		$base_dir    = self::base_dir();
 		self::reconcile_step( 'spawn', static fn() => $coordinator->spawn_due_workers( Core::right_now() ) );
+		// Revival too: the only pass that notices an external producer's write.
+		self::reconcile_step( 'backlog-wake', static fn() => $coordinator->wake_readers_with_backlog( Core::right_now() ) );
 		self::reconcile_step( 'lock-dirs', static fn() => $coordinator->reconcile_lock_dirs() );
 		self::reconcile_step( 'retention', static fn() => Log_Cleaner::cleanup_orphan_partitions( $base_dir ) );
 		self::reconcile_step( 'orphan-ipc', static fn() => $coordinator->cleanup_orphan_ipc() );

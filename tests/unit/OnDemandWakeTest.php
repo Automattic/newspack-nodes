@@ -85,13 +85,15 @@ class OnDemandWakeTest extends TestCase {
 	 * Activate a two-partition topology whose Consumer tails $reads, on-demand
 	 * or not. A real `.tsl`, because the wake resolves readers from the graph.
 	 */
-	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake' ): void {
+	private function activate( string $name, int $on_demand_idle = 23, string $reads = 'jobintake', ?string $cursor = null ): void {
+		// null = the stock offsetlog token; '' = an ephemeral reader, no cursor.
+		$offsetlog = null === $cursor ? "<config:offsets_dir>/{$reads}.p<partition>" : $cursor;
 		\file_put_contents(
 			"{$this->stock}/{$name}.tsl",
 			"var num_partitions = 2\n"
 			. ( $on_demand_idle > 0 ? "var on_demand_idle = {$on_demand_idle}\n" : '' )
 			. "make_node Consumer {$name}:in <config:logs_dir>/{$reads}.p<partition> "
-			. "<config:offsets_dir>/{$reads}.p<partition>\n"
+			. "{$offsetlog}\n"
 			. "make_node Echo {$name}:sink\n"
 			. "connect_node {$name}:in {$name}:sink\n"
 		);
@@ -112,6 +114,24 @@ class OnDemandWakeTest extends TestCase {
 		Topology_Registry::invalidate_config_cache();
 	}
 
+	/** Write $bytes of segment 0 for a partition, as an external producer would. */
+	private function seed_partition( string $partition, int $bytes ): void {
+		\mkdir( "{$this->tmp}/logs/{$partition}", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/{$partition}/0.log", \str_repeat( 'x', $bytes ) );
+	}
+
+	/** Seed a durable read-cursor frame at offsets/{partition}/0.log. */
+	private function seed_offsetlog( string $partition, int $segment, int $offset ): void {
+		\mkdir( "{$this->tmp}/offsets/{$partition}", 0755, true );
+		$message                                       = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]      = \Newspack_Nodes\Message::TM_STRUCT;
+		$message[ \Newspack_Nodes\Message::VALUE ]     = [ 'segment' => $segment, 'offset' => $offset ];
+		\file_put_contents(
+			"{$this->tmp}/offsets/{$partition}/0.log",
+			\Newspack_Nodes\Message::packed( $message ) . "\n"
+		);
+	}
+
 	/** @return list<string> `{type}.p{n}` of every spawn posted. */
 	private function woken(): array {
 		return \array_map(
@@ -130,6 +150,68 @@ class OnDemandWakeTest extends TestCase {
 		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
 
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	public function test_the_backlog_sweep_wakes_a_reader_an_external_producer_fed(): void {
+		// Gyrobase appends straight to the segment file, so no Partition_Node::fill()
+		// ran and nothing marked a pending wake. Reading the partition is the only
+		// way the fleet ever learns this happened.
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+		// Read 200 of the 512: a genuine cursor, so the wake decision has to
+		// pair the offsetlog against the log rather than assume either half.
+		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
+	}
+
+	public function test_the_backlog_sweep_leaves_a_caught_up_reader_alone(): void {
+		// The cursor sits at the end of the log. Nothing to do, so waking would
+		// respawn a worker every minute for a partition with no new work.
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 512 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [], $this->woken() );
+	}
+
+	public function test_the_backlog_sweep_ignores_a_reader_with_no_durable_cursor(): void {
+		// An ephemeral reader (empty offsetlog token) keeps no cursor, so its
+		// backlog is unknowable — not "all of it". Reading it the other way
+		// respawns that worker on every pass, forever.
+		$this->activate( 'marmot-ondemand', 23, 'jobintake', '' );
+		$this->seed_partition( 'jobintake.p1', 512 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [], $this->woken() );
+	}
+
+	public function test_the_reconcile_pass_runs_the_backlog_sweep(): void {
+		// The sweep is only a fallback tier if the minute pass actually runs it.
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 512 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
+
+		Bootstrap::reconcile_fleet();
+
+		$this->assertContains( 'marmot-ondemand.p1', $this->woken() );
+	}
+
+	public function test_the_backlog_sweep_leaves_a_drained_partition_alone(): void {
+		// An empty partition is not backlog. Waking on presence alone would respawn
+		// every on-demand worker every minute, which is the resident fleet again.
+		$this->activate( 'marmot-ondemand', 23 );
+		$this->seed_partition( 'jobintake.p1', 0 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 0 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [], $this->woken() );
 	}
 
 	public function test_it_leaves_a_resident_topology_to_the_ordinary_spawn_scan(): void {
@@ -393,7 +475,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_a_poisoned_cache_entry_is_filtered_to_descriptor_rows(): void {
 		$this->with_apcu();
 		$this->activate( 'marmot-ondemand', 23 );
-		$key = \Newspack_Nodes\Cache_Backend::site_key( 'on_demand_wake:' . \md5(
+		$key = \Newspack_Nodes\Cache_Backend::site_key( 'on_demand_wake_v2:' . \md5(
 			(string) \wp_json_encode( \Newspack_Nodes\Config::value( 'topologies' ) )
 		) );
 		\Newspack_Nodes\Cache_Backend::local_first()->set(

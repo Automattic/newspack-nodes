@@ -120,37 +120,104 @@ class CLI {
 	 */
 	public function consumer_rows(): array {
 		$rows = [];
-		foreach ( $this->read_probe_index() as $reader => $record ) {
+		$now  = (int) Core::right_now();
+		foreach ( $this->read_probe_frames() as $reader => $frame ) {
 			// reader is `{source_basename}.p{N}`: partition lives in the name.
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader, $m ) ) {
 				continue;
 			}
-			$rows[] = [
-				'reader'     => $reader,
-				'source'     => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
-				'partition'  => (int) $m[2],
+			$record = $frame['value'];
+			$row    = [
+				'reader'         => $reader,
+				'source'         => Core::as_string( $record[ Probe_Record::SOURCE ] ?? '' ),
+				'partition'      => (int) $m[2],
 				'cursor_segment' => Core::as_int( $record[ Probe_Record::CURSOR_SEGMENT ] ?? 0 ),
-				'cursor_offset' => Core::as_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
+				'cursor_offset'  => Core::as_int( $record[ Probe_Record::CURSOR_OFF ] ?? 0 ),
 				'end_segment'    => Core::as_int( $record[ Probe_Record::END_SEGMENT ] ?? 0 ),
-				'end_size'   => Core::as_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
-				'distance'   => Core::as_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
-				'msgs'       => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
+				'end_size'       => Core::as_int( $record[ Probe_Record::END_SIZE ] ?? 0 ),
+				'distance'       => Core::as_int( $record[ Probe_Record::DISTANCE ] ?? 0 ),
+				'msgs'           => Core::as_int( $record[ Probe_Record::MSGS_DELTA ] ?? 0 ),
 			];
+			if ( $now - $frame['timestamp'] > Topic_Probe_Node::stale_after_s() ) {
+				$row = $this->relag_from_disk( $row );
+			}
+			$rows[] = $row;
 		}
 		return $rows;
 	}
 
 	/**
-	 * Index of every active Consumer's latest stats record from the shared
-	 * topicprobe log, keyed by `offsetlog_dir` — the durable per-reader identity.
-	 * This is the single live-position source the dashboard + `wp nodes status`
-	 * read (it replaced memcache + the offsetlog fallback); Topic_Probe appends one
-	 * record per Consumer every ~15s.
+	 * Replace a stale row's position with one measured off disk.
 	 *
-	 * @return array<string,array<mixed>> offsetlog_dir → the latest probe record VALUE.
+	 * A probe record is only ever as fresh as the worker that wrote it, so a
+	 * departed reader's last snapshot says whatever was true when it left —
+	 * usually `caught up`, which is how an externally-fed partition reports 0B
+	 * while its backlog grows. Cursor and end are BOTH re-read, never mixed with
+	 * the record's: pairing a stale cursor against a fresh stat would overstate
+	 * every live reader by an interval of throughput, which is why the live path
+	 * measures them together.
+	 *
+	 * Rebuilding a dir from the record's basename assumes the flat layout the
+	 * probe's own SOURCE/READER basenames already assume. BOTH dirs must resolve
+	 * or the row is left alone: this row exists because a reader reported it, so
+	 * that reader HAS a cursor, and an offsetlog we cannot find means the
+	 * basename did not rebuild the path — not that there is no cursor. Reading
+	 * it as absent would call the whole partition backlog, a worse lie than the
+	 * stale record it replaces.
+	 *
+	 * Paths come off `$this->base_dir`, as `read_probe_index()`'s do, NOT the
+	 * `<config:logs_dir>` token: that resolves against the global base, and this
+	 * class is instance-scoped, so the two disagree for any CLI built on another
+	 * tree — recomputing one base's rows against another's partitions.
+	 *
+	 * @param array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int} $row Stale row.
+	 * @return array{reader:string,source:string,partition:int,cursor_segment:int,cursor_offset:int,end_segment:int,end_size:int,distance:int,msgs:int}
 	 */
-	public function read_probe_index(): array {
-		return Partition_Node::read_tail_index_by(
+	private function relag_from_disk( array $row ): array {
+		if ( '' === $row['source'] ) {
+			return $row;
+		}
+		$source_dir    = "{$this->base_dir}/logs/{$row['source']}";
+		$offsetlog_dir = "{$this->base_dir}/offsets/{$row['reader']}";
+		// Both, or neither: a missing offsetlog means the path didn't rebuild.
+		if ( ! \is_dir( $source_dir ) || ! \is_dir( $offsetlog_dir ) ) {
+			return $row;
+		}
+		try {
+			$lag = Consumer_Node::lag_from_disk( $source_dir, $offsetlog_dir );
+		} catch ( \Throwable $e ) {
+			// A status table must not fatal over one unreadable reader.
+			return $row;
+		}
+		if ( ! $lag['cursor_known'] ) {
+			return $row;
+		}
+
+		$row['cursor_segment'] = $lag['cursor_segment'];
+		$row['cursor_offset']  = $lag['cursor_offset'];
+		$row['end_segment']    = $lag['end_segment'];
+		$row['end_size']       = $lag['end_size'];
+		$row['distance']       = $lag['bytes_behind'];
+		// Nobody is reading: the rate is 0, not the last one seen.
+		$row['msgs'] = 0;
+		return $row;
+	}
+
+	/**
+	 * Every active Consumer's latest stats record from the shared topicprobe log,
+	 * keyed by `offsetlog_dir` — the durable per-reader identity — each with the
+	 * snapshot time it was written at.
+	 *
+	 * The primary live-position source the dashboard + `wp nodes status` read (it
+	 * replaced memcache + the offsetlog fallback); Topic_Probe appends one record
+	 * per Consumer every ~15s. A record only exists while a worker is running to
+	 * write one, so the timestamp is the only thing separating a reporting reader
+	 * from a departed one — and departed is what `consumer_rows()` falls back on.
+	 *
+	 * @return array<string,array{value: array<mixed>, timestamp: int}> offsetlog_dir → record + snapshot time.
+	 */
+	public function read_probe_frames(): array {
+		return Partition_Node::read_tail_frames_by(
 			"{$this->base_dir}/logs/" . Topic_Probe_Node::LOG_DIR,
 			Probe_Record::READER
 		);

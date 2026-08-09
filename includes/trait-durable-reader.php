@@ -152,18 +152,31 @@ trait Durable_Reader {
 	 * @return array<array-key,mixed>|null
 	 */
 	protected function read_last_offsetlog_frame(): ?array {
-		if ( null === $this->offsetlog ) {
+		return self::last_frame_of( $this->offsetlog );
+	}
+
+	/**
+	 * `read_last_offsetlog_frame()` over an offsetlog this process does not own —
+	 * the off-process half of the same read, so a caller holding only a directory
+	 * resolves a cursor the way a live reader does. One implementation: the
+	 * instance method is this, bound to its own offsetlog.
+	 *
+	 * @param Partition_Node|null $offsetlog Offsetlog partition, or null.
+	 * @return array<array-key,mixed>|null
+	 */
+	public static function last_frame_of( ?Partition_Node $offsetlog ): ?array {
+		if ( null === $offsetlog ) {
 			return null;
 		}
-		$segments = $this->offsetlog->get_segments( true );
+		$segments = $offsetlog->get_segments( true );
 		if ( empty( $segments ) ) {
 			return null;
 		}
 		$last    = \end( $segments );
-		$content = $this->offsetlog->read_at( $last['id'], 0, $last['size'] );
+		$content = $offsetlog->read_at( $last['id'], 0, $last['size'] );
 		if ( '' === $content && \count( $segments ) > 1 ) {
 			$prev    = $segments[ \count( $segments ) - 2 ];
-			$content = $this->offsetlog->read_at( $prev['id'], 0, $prev['size'] );
+			$content = $offsetlog->read_at( $prev['id'], 0, $prev['size'] );
 		}
 		if ( '' === $content ) {
 			return null;
@@ -175,7 +188,7 @@ trait Durable_Reader {
 		try {
 			$message = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
+			Core::print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
 			return null;
 		}
 		$value = $message[ Message::VALUE ];

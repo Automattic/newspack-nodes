@@ -26,14 +26,12 @@ use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
-use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Analyzer;
-use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_Base;
 
 \defined( 'ABSPATH' ) || exit;
