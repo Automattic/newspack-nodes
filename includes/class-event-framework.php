@@ -290,7 +290,7 @@ class Event_Framework {
 	 * Per-node cURL summary keyed by node spl_object_id. Introspection for `list_handles`
 	 * — one row per node with a registered easy handle, carrying its completion counter.
 	 *
-	 * @return array<int, array{node: Node, counter: int}>
+	 * @return array<int,array{node: Node,counter: int}>
 	 */
 	public function curl_handles(): array {
 		$rows = [];

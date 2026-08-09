@@ -251,7 +251,7 @@ function find_classes( string $src ): array {
  *
  * @param list<Token>        $toks
  * @param list<Member>       $methods
- * @param array<string, int> $names
+ * @param array<string,int> $names
  * @return callable(int): list<string>
  */
 function callees_factory( array $toks, array $methods, array $names ): callable {

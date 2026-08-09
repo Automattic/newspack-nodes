@@ -61,13 +61,13 @@ class Message {
 	/**
 	 * Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks.
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public static function packed_size( array $message ): int {
 		return \strlen( self::packed( $message ) );
 	}
 
-	/** @param array<int, mixed> $message The 7-field positional message array. */
+	/** @param array<int,mixed> $message The 7-field positional message array. */
 	public static function packed( array $message ): string {
 		// Canonical 7 fields; slicing drops LOCAL, never crosses processes.
 		$fields = \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 );
@@ -87,7 +87,7 @@ class Message {
 		return (string) \wp_json_encode( $error_message, \JSON_UNESCAPED_SLASHES );
 	}
 
-	/** @return array<int, mixed> The 7-field positional message array. */
+	/** @return array<int,mixed> The 7-field positional message array. */
 	public static function new_message(): array {
 		return [
 			self::TYPE      => self::TM_UNTYPED,
@@ -101,7 +101,7 @@ class Message {
 		];
 	}
 
-	/** @return array<int, mixed> The 7-field positional message array. */
+	/** @return array<int,mixed> The 7-field positional message array. */
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
 		if ( null === $decoded && \JSON_ERROR_NONE !== \json_last_error() ) {

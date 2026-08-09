@@ -46,7 +46,7 @@ class Command_Interpreter_Node extends Node {
 	 * The ladder freezes definitions and never disables the machine: reads
 	 * still read, wired flow still flows, defined verbs still run.
 	 *
-	 * @var array<int, list<string>>
+	 * @var array<int,list<string>>
 	 */
 	private const DISABLED_CLASSES = [
 		1 => [ 'make_node' ],
@@ -59,7 +59,7 @@ class Command_Interpreter_Node extends Node {
 	 * own verbs through `node_schema()['verb_classes']`, so a consumer plugin
 	 * joins a class without editing this file.
 	 *
-	 * @var array<string, string>
+	 * @var array<string,string>
 	 */
 	private const VERB_CLASSES = [
 		'make_node'       => 'make_node',
@@ -92,7 +92,7 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *
-	 * @var array<string, \Closure(Command_Interpreter_Node, list<string>, array<int,mixed>): mixed>|null Verb → handler. Initialized lazily.
+	 * @var array<string,\Closure(Command_Interpreter_Node,list<string>,array<int,mixed>): mixed>|null Verb → handler. Initialized lazily.
 	 */
 	private static ?array $C = null;
 
@@ -151,7 +151,7 @@ class Command_Interpreter_Node extends Node {
 		$this->sink->fill( $message );
 	}
 
-	/** @param array<int, mixed> $message Incoming command Message to interpret. */
+	/** @param array<int,mixed> $message Incoming command Message to interpret. */
 	private function interpret( array $message ): void {
 		$cmd = $message[ Message::VALUE ];
 		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
@@ -460,7 +460,7 @@ class Command_Interpreter_Node extends Node {
 	 * runtime — interpret() coerces the wire arguments before dispatch — so this
 	 * is a static-analysis pin, not a behavioral coercion.
 	 *
-	 * @param array<array-key, mixed> $args
+	 * @param array<array-key,mixed> $args
 	 * @return list<string>
 	 */
 	protected static function arg_strings( array $args ): array {
@@ -562,7 +562,7 @@ class Command_Interpreter_Node extends Node {
 	 * `pwd` verb: return ` <cwd> -> <envelope.from>`.
 	 *
 	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key, mixed> $envelope The command Message.
+	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_pwd( array $args, array $envelope ): string {
 		$path = $args[0] ?? '';
@@ -590,7 +590,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key, mixed> $envelope The command Message.
+	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_connect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
@@ -615,7 +615,7 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key, mixed> $envelope The command Message.
+	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_disconnect_node( array $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( $args, 2, '' );
@@ -777,7 +777,7 @@ class Command_Interpreter_Node extends Node {
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 *
 	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key, mixed> $envelope The command Message.
+	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_list_nodes( Command_Interpreter_Node $self, array $args, array $envelope = [] ): string {
 		// Completion mode: bare node names only, ignoring -clst flags.
@@ -1455,7 +1455,7 @@ class Command_Interpreter_Node extends Node {
 	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
 	 *
 	 * @param list<string>            $args     Verb arguments.
-	 * @param array<array-key, mixed> $envelope The command Message.
+	 * @param array<array-key,mixed> $envelope The command Message.
 	 */
 	private static function cmd_help( array $args, array $envelope = [] ): string {
 		// Completion: sorted verb names, newline-separated, no help text.

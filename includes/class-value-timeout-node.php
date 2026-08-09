@@ -37,10 +37,10 @@ class Value_Timeout_Node extends Timer_Node {
 	private int $timeout = self::DEFAULT_TIMEOUT;
 	private int $expires = self::DEFAULT_EXPIRES;
 
-	/** @var array<string, float> Value → refresh deadline (last arrival + timeout). */
+	/** @var array<string,float> Value → refresh deadline (last arrival + timeout). */
 	private array $recently_received = [];
 
-	/** @var array<string, float> Value → suppression deadline (last send + timeout). */
+	/** @var array<string,float> Value → suppression deadline (last send + timeout). */
 	private array $recently_sent = [];
 
 	/**
@@ -121,7 +121,7 @@ class Value_Timeout_Node extends Timer_Node {
 	 * the trailing re-emit (often the thing that invalidates a cache) still
 	 * fires instead of being lost with the process.
 	 *
-	 * @return array<string, array<string, float>>
+	 * @return array<string,array<string,float>>
 	 */
 	public function save_state(): array {
 		return [
@@ -133,7 +133,7 @@ class Value_Timeout_Node extends Timer_Node {
 	/**
 	 * Restore the co-committed window maps (see save_state()).
 	 *
-	 * @param array<array-key, mixed> $state A save_state() payload.
+	 * @param array<array-key,mixed> $state A save_state() payload.
 	 */
 	public function restore_state( array $state ): void {
 		foreach ( [ 'recently_received', 'recently_sent' ] as $map ) {

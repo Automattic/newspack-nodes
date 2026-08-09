@@ -17,7 +17,7 @@ final class Log_Discovery {
 	 *
 	 * Signature: `function ( string $pattern, int $flags ): array|false`.
 	 *
-	 * @var (\Closure(string, int): (array<int, string>|false))|null
+	 * @var (\Closure(string, int): (array<int,string>|false))|null
 	 */
 	public static ?\Closure $glob = null;
 
@@ -27,7 +27,7 @@ final class Log_Discovery {
 	/** @var array<string>|null Memoized basename list; null = not yet scanned. */
 	private static ?array $cached = null;
 
-	/** @var array<string, array<string>>|null Memoized group → basenames; null = not yet scanned. */
+	/** @var array<string,array<string>>|null Memoized group → basenames; null = not yet scanned. */
 	private static ?array $cached_groups = null;
 
 	/**
@@ -57,7 +57,7 @@ final class Log_Discovery {
 	 * (poison + write-stall quarantines). All packed partition dirs, so the
 	 * Partition Viewer renders any of them.
 	 *
-	 * @return array<string, array<string>>
+	 * @return array<string,array<string>>
 	 */
 	public static function groups(): array {
 		if ( null !== self::$cached_groups ) {

@@ -58,7 +58,7 @@ class Fleet_Node extends Timer_Node {
 	/** @var array<string,float> type => earliest timestamp at which a spawn is allowed. */
 	private array $spawn_after = [];
 
-	/** @var array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}> The active fleet, as of the last check. */
+	/** @var array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed}> The active fleet, as of the last check. */
 	private array $workers = [];
 
 	/**

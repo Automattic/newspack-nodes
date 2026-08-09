@@ -21,7 +21,7 @@ class Node_Schema_Help {
 	 * sections — each present only when the schema declares it.
 	 *
 	 * @param string               $type   Shell type token (e.g. `Partition`).
-	 * @param array<string, mixed> $schema The node's node_schema().
+	 * @param array<string,mixed> $schema The node's node_schema().
 	 */
 	public static function render( string $type, array $schema ): string {
 		$category = isset( $schema['category'] ) ? ' — ' . Core::as_string( $schema['category'] ) : '';
@@ -91,7 +91,7 @@ class Node_Schema_Help {
 	 * Extract a node_schema() section (a `mixed` value) as a plain list; a
 	 * non-array section yields []. Callers guard each entry's own shape.
 	 *
-	 * @param array<string, mixed> $schema
+	 * @param array<string,mixed> $schema
 	 * @return list<mixed>
 	 */
 	private static function schema_list( array $schema, string $key ): array {

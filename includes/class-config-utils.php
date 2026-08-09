@@ -14,10 +14,10 @@ class Config_Utils {
 	/**
 	 * Load a PHP config file (validated scalar/array tree) and merge it into $config.
 	 *
-	 * @param array<string, mixed> $config           Existing config to merge into.
+	 * @param array<string,mixed> $config           Existing config to merge into.
 	 * @param string                $config_file      Absolute path to a PHP file returning array.
 	 * @param string                $error_log_prefix Disambiguates failure messages across callers.
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 * @throws \RuntimeException If the config file returns an invalid value tree.
 	 */
 	public static function load_config_file(

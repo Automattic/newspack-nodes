@@ -43,8 +43,8 @@ class Scaffold_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function scaffold( array $args, array $assoc_args ): void {
 		$what = $args[0] ?? '';
@@ -81,7 +81,7 @@ class Scaffold_CLI_Command {
 	 * Write one TSL topology (stock nodes only) into the cwd.
 	 *
 	 * @param string $name Topology name.
-	 * @return array<int, string> Paths written, relative to cwd.
+	 * @return array<int,string> Paths written, relative to cwd.
 	 */
 	private function scaffold_topology( string $name ): array {
 		self::require_slug( $name );
@@ -121,7 +121,7 @@ TSL;
 	 * either, the answer is the same file.
 	 *
 	 * @param string $class Class name (with or without the `_Node` suffix).
-	 * @return array<int, string> Paths written, relative to cwd.
+	 * @return array<int,string> Paths written, relative to cwd.
 	 */
 	private function scaffold_node( string $class ): array {
 		if ( 1 !== \preg_match( '/^[A-Za-z_]+$/', $class ) ) {
@@ -145,7 +145,7 @@ TSL;
 	 * Create `./<slug>/` with the five canonical starter files.
 	 *
 	 * @param string $slug Plugin slug.
-	 * @return array<int, string> Paths written, relative to cwd.
+	 * @return array<int,string> Paths written, relative to cwd.
 	 */
 	private function scaffold_plugin( string $slug ): array {
 		self::require_slug( $slug );
@@ -184,7 +184,7 @@ TSL;
 	/**
 	 * `WP_CLI::error` (exits) if any target already exists — never overwrite.
 	 *
-	 * @param array<int, string> $paths Paths relative to cwd.
+	 * @param array<int,string> $paths Paths relative to cwd.
 	 */
 	private static function refuse_existing( array $paths ): void {
 		foreach ( $paths as $path ) {

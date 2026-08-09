@@ -105,7 +105,7 @@ class Settings_Event_Writer {
 	 * option is allowlisted, and only after the packed record fits under PIPE_BUF.
 	 *
 	 * @param string               $option Option name.
-	 * @param array<string, mixed> $values Raw old/new values keyed 'old'/'new' (either may be absent).
+	 * @param array<string,mixed> $values Raw old/new values keyed 'old'/'new' (either may be absent).
 	 */
 	private static function maybe_emit( string $option, array $values ): void {
 		if ( 0 !== \strpos( $option, self::WATCH_PREFIX ) ) {
@@ -132,7 +132,7 @@ class Settings_Event_Writer {
 	 * bytes to disk while the handle is open; remove_node() deregisters (try/finally
 	 * guarantees teardown even if fill/flush throws).
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	private static function default_append( array $message ): void {
 		// Runs on EVERY update_option; never fatal the caller we observe.
@@ -179,9 +179,9 @@ class Settings_Event_Writer {
 	 * until the line fits. When nothing's left to trim, drop to name-only (always
 	 * emits): the change still records, only its values are dropped.
 	 *
-	 * @param array<int, mixed> $message The minted record message.
+	 * @param array<int,mixed> $message The minted record message.
 	 * @param string            $option  Option name, for the name-only fallback.
-	 * @return array<int, mixed>
+	 * @return array<int,mixed>
 	 */
 	private static function fit_to_line( array $message, string $option ): array {
 		while ( Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
@@ -211,8 +211,8 @@ class Settings_Event_Writer {
 	 * excerpts when the option is allowlisted (each side present only if supplied).
 	 *
 	 * @param string               $option Option name.
-	 * @param array<string, mixed> $values Raw old/new values keyed 'old'/'new'.
-	 * @return array<string, string>
+	 * @param array<string,mixed> $values Raw old/new values keyed 'old'/'new'.
+	 * @return array<string,string>
 	 */
 	private static function build_record( string $option, array $values ): array {
 		$record = [ 'option' => $option ];

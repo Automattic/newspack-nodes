@@ -68,7 +68,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	/**
 	 * `list` verb handler — registered topologies + active state.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_list(): array {
 		// Active = what the fleet would spawn (catalog + overlay).
@@ -104,7 +104,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_get( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
@@ -165,9 +165,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * `save` verb handler — persist a topology's TSL (size-guarded).
 	 *
 	 * @param list<string> $args Verb argument.
-	 * @param array<int|string, mixed> $envelope Verb argument.
+	 * @param array<int|string,mixed> $envelope Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_save( array $args, array $envelope = [] ): array {
 		// $envelope is the 7-field positional message array (a list).
@@ -263,7 +263,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * spawn. Catch it at the boundary instead.
 	 *
 	 * @param string                                                                                          $tsl            The body being saved.
-	 * @param list<array{name: string, class: string, args: list<string>, origin: list<string>, via: list<string>}> $borrowed_nodes expand()'s node records.
+	 * @param list<array{name: string,class: string,args: list<string>,origin: list<string>,via: list<string>}> $borrowed_nodes expand()'s node records.
 	 * @throws \RuntimeException On a conflicting redeclaration.
 	 */
 	private static function assert_no_borrowed_node_conflict( string $tsl, array $borrowed_nodes ): void {
@@ -299,7 +299,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_delete( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
@@ -456,7 +456,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Space-separated topology names.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_expand( array $args ): array {
 		$names = $args;
@@ -472,7 +472,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_activate( array $args ): array {
 		// Name-validate here; rest is shared Topology_Registry::activate.
@@ -484,7 +484,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_deactivate( array $args ): array {
 		return Topology_Registry::deactivate( self::require_valid_name( $args[0] ?? '' ) );

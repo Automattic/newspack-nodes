@@ -80,9 +80,9 @@ class Job_Delay {
 			if ( '' !== $batch ) {
 				$options['batch'] = $batch;
 			}
-			/** @var array<string, mixed> $parameters */
+			/** @var array<string,mixed> $parameters */
 			$parameters = Core::arr( $entry['parameters'] ?? [], [] );
-			/** @var array<string, mixed> $options */
+			/** @var array<string,mixed> $options */
 			return $intake->write_job(
 				Core::as_string( $entry['handler'] ?? '', '' ),
 				$parameters,

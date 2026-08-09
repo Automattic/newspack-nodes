@@ -97,8 +97,8 @@ class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	 * so measure packed_size and halve LAST_MESSAGE until the line fits. Null when
 	 * nothing left to cut (a pathological identity key): drop, never emit oversize.
 	 *
-	 * @param array<int, mixed> $message The minted record message.
-	 * @return array<int, mixed>|null The fitting message, or null to drop.
+	 * @param array<int,mixed> $message The minted record message.
+	 * @return array<int,mixed>|null The fitting message, or null to drop.
 	 */
 	private function fit_to_line( array $message ): ?array {
 		while ( Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {

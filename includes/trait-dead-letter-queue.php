@@ -154,7 +154,7 @@ trait Dead_Letter_Queue {
 	 * message when it parses (so `wp nodes ingest` can replay it), else the raw bytes
 	 * wrapped in a TM_BYTESTREAM for inspection. Stamps the source segment:offset:length breadcrumb.
 	 *
-	 * @return array<int, mixed>
+	 * @return array<int,mixed>
 	 */
 	protected function poison_from_line( string $line, int $segment, int $offset ): array {
 		try {
@@ -179,7 +179,7 @@ trait Dead_Letter_Queue {
 	 * Replay is `wp nodes ingest <topic> <deadletter-segment>`, which re-`fill()`s each
 	 * stored message verbatim — so the entry is the original message, not a wrapper.
 	 *
-	 * @param array<int, mixed> $message The poison Message (positional).
+	 * @param array<int,mixed> $message The poison Message (positional).
 	 */
 	protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
 		$where   = Core::as_string( $message[ Message::ID ] ?? '' );
@@ -212,8 +212,8 @@ trait Dead_Letter_Queue {
 	 * IN THE SIDECAR (paste it into dl_requeue); `source` is its origin breadcrumb
 	 * (Message::ID) — same shape, different log, hence the distinct labels.
 	 *
-	 * @param array<int, mixed>  $message  The quarantined Message.
-	 * @param array<string, int> $position Its {segment,offset,length} in the sidecar.
+	 * @param array<int,mixed>  $message  The quarantined Message.
+	 * @param array<string,int> $position Its {segment,offset,length} in the sidecar.
 	 */
 	private function deadletter_index_row( array $message, array $position ): string {
 		return (string) \wp_json_encode( [
@@ -236,7 +236,7 @@ trait Dead_Letter_Queue {
 	 * within DEADLETTER_NUM_SEGMENTS. The DLQ is count-bounded, so the full .idx
 	 * pass behind the totals stays cheap.
 	 *
-	 * @return array{rows: array<int, mixed>, total: int, unindexed_segments: int}
+	 * @return array{rows: array<int,mixed>, total: int, unindexed_segments: int}
 	 */
 	public function list_deadletter( int $limit ): array {
 		$deadletter = $this->ensure_deadletter();
@@ -428,7 +428,7 @@ trait Dead_Letter_Queue {
 	 * using class layers its own crawl-entry side effects on the returned flag (Consumer
 	 * arms its boot-head sacrifice); poison_reason is left to the live strike path.
 	 *
-	 * @param array<array-key, mixed> $entry The restored frame VALUE.
+	 * @param array<array-key,mixed> $entry The restored frame VALUE.
 	 * @return bool True when this restore entered crawl (a hard-crash lineage).
 	 */
 	protected function resume_attempts_from_frame( array $entry ): bool {
@@ -474,7 +474,7 @@ trait Dead_Letter_Queue {
 	 * Consumer and Remote_Source both expose dl_list / dl_requeue / dl_purge on their
 	 * {name}:config interpreter (auto-wired by Schema_Reflection — no CI edits).
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int,array<string,mixed>>
 	 */
 	public static function deadletter_verbs(): array {
 		return [
@@ -528,7 +528,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_list` verb handler — reply the triage page as JSON.
 	 *
-	 * @param array<array-key, mixed> $args Optional limit token (default DEADLETTER_LIST_DEFAULT_LIMIT).
+	 * @param array<array-key,mixed> $args Optional limit token (default DEADLETTER_LIST_DEFAULT_LIMIT).
 	 */
 	public static function cmd_dl_list( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
@@ -543,7 +543,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_show` verb handler — decode one record; reply JSON or an error line.
 	 *
-	 * @param array<array-key, mixed> $args The sidecar locator from dl_list.
+	 * @param array<array-key,mixed> $args The sidecar locator from dl_list.
 	 */
 	public static function cmd_dl_show( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );
@@ -556,7 +556,7 @@ trait Dead_Letter_Queue {
 	/**
 	 * `dl_requeue` verb handler — redeliver one record; reply the ok/error line.
 	 *
-	 * @param array<array-key, mixed> $args The sidecar locator from dl_list.
+	 * @param array<array-key,mixed> $args The sidecar locator from dl_list.
 	 */
 	public static function cmd_dl_requeue( Command_Interpreter_Node $interpreter, array $args ): string {
 		$patron = self::deadletter_patron( $interpreter );

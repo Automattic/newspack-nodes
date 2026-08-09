@@ -55,7 +55,7 @@ class Topology_Analyzer {
 	 * `entry => { sig: normalized make_node line, warranty: cap lifted,
 	 * partitions: a Topic's own declared count, raw }`.
 	 *
-	 * @var array<string, array<string, array{sig: string, warranty: bool, partitions: string}>>
+	 * @var array<string,array<string,array{sig: string,warranty: bool,partitions: string}>>
 	 */
 	private static array $write_meta_cache = [];
 
@@ -63,7 +63,7 @@ class Topology_Analyzer {
 	 * Per-topology `node name => write_set entry` for Partition/Topic nodes, so a
 	 * caller can resolve ONE node's dirs without pattern-matching a path.
 	 *
-	 * @var array<string, array<string, string>>
+	 * @var array<string,array<string,string>>
 	 */
 	private static array $write_nodes_cache = [];
 
@@ -76,7 +76,7 @@ class Topology_Analyzer {
 	 *
 	 * @param list<string> $include_names Directly-declared includes.
 	 *
-	 * @return array{nodes: list<array{name: string, class: string, fans_out: bool, args: list<string>, origin: list<string>, via: list<string>}>, edges: list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
+	 * @return array{nodes: list<array{name: string,class: string,fans_out: bool,args: list<string>,origin: list<string>,via: list<string>}>, edges: list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>, tree: array<string,mixed>, hulls: array<string,list<string>>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function expand( array $include_names ): array {
@@ -104,7 +104,7 @@ class Topology_Analyzer {
 	 * nested hull lands on top of its parent.
 	 *
 	 * @param array<array-key,mixed> $tree Include tree from statements().
-	 * @return array<string, list<string>> Topology name => node names it provides.
+	 * @return array<string,list<string>> Topology name => node names it provides.
 	 */
 	private static function hulls_for_tree( array $tree ): array {
 		$out = [];
@@ -122,9 +122,9 @@ class Topology_Analyzer {
 	/**
 	 * Export active edge state for the topology-console baseline contract.
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map.
 	 * @param list<string> $origin_order Top-level include declaration order.
-	 * @return list<array{from: string, to: string, origin: list<string>, roles: list<string>, config_slots?: list<string>}>
+	 * @return list<array{from: string,to: string,origin: list<string>,roles: list<string>,config_slots?: list<string>}>
 	 */
 	private static function export_edges( array $edges, array $origin_order ): array {
 		$out          = [];
@@ -161,8 +161,8 @@ class Topology_Analyzer {
 	 *
 	 * @param array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>} $statement Walked statement.
 	 * @param list<string>                                                            $origins   Top-level includes providing it.
-	 * @param array<string, array{name: string, class: string, fans_out: bool, args: list<string>, verbs: list<array{verb: string, args: list<string>}>, origin: list<string>, via: list<string>}> $nodes Node map, by reference.
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
+	 * @param array<string,array{name: string,class: string,fans_out: bool,args: list<string>,verbs: list<array{verb: string,args: list<string>}>,origin: list<string>,via: list<string>}> $nodes Node map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}>      $edges Edge-state map, by reference.
 	 */
 	private static function absorb_statement( array $statement, array $origins, array &$nodes, array &$edges ): void {
 		$verb   = $statement['verb'];
@@ -379,9 +379,9 @@ class Topology_Analyzer {
 	/**
 	 * Replace one named config-target slot without disturbing other setters.
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param list<string> $origins Top-level includes providing the configuration.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function set_config_edge( array &$edges, string $source, string $target, string $slot, array $origins ): void {
 		$current_key = $source . "\0" . $target;
@@ -431,9 +431,9 @@ class Topology_Analyzer {
 	/**
 	 * Mirror Node::connect_node (replace) versus Tee_Node::connect_node (append).
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function connect_edge( array &$edges, string $source, string $target, array $origins, bool $fans_out ): void {
 		if ( ! $fans_out ) {
@@ -456,9 +456,9 @@ class Topology_Analyzer {
 	/**
 	 * Add one connect relationship origin.
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
 	 * @param list<string> $origins Top-level includes providing the connection.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function add_connect_origins( array &$edges, string $source, string $target, array $origins ): void {
 		$key             = self::ensure_edge( $edges, $source, $target );
@@ -482,8 +482,8 @@ class Topology_Analyzer {
 	/**
 	 * Ensure one insertion-ordered edge-state record and return its key.
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function ensure_edge( array &$edges, string $source, string $target ): string {
 		$key = $source . "\0" . $target;
@@ -506,8 +506,8 @@ class Topology_Analyzer {
 	 * Shell envelope FROM and therefore does not clear the topology's fan-out.
 	 * Configuration-target roles are independent and never removed here.
 	 *
-	 * @param array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges Edge-state map, by reference.
-	 * @param-out array<string, array{from: string, to: string, origins: array{connect: list<string>, config: array<string,list<string>>}}> $edges
+	 * @param array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges Edge-state map, by reference.
+	 * @param-out array<string,array{from: string,to: string,origins: array{connect: list<string>,config: array<string,list<string>>}}> $edges
 	 */
 	private static function disconnect_edge( array &$edges, string $source, ?string $target, bool $fans_out ): void {
 		if ( $fans_out && null === $target ) {
@@ -570,7 +570,7 @@ class Topology_Analyzer {
 	 * Empty array = the set is safe to run together.
 	 *
 	 * @param array<string> $names
-	 * @return array<array{a: string, b: string, shared: array<string>}>
+	 * @return array<array{a: string,b: string,shared: array<string>}>
 	 */
 	public static function find_conflicts( array $names ): array {
 		$names = \array_values( \array_unique( $names ) );
@@ -954,13 +954,13 @@ class Topology_Analyzer {
 		if ( null === Topology_Registry::resolve( $name ) ) {
 			return [];
 		}
-		/** @var array<array-key, mixed> $tree */
+		/** @var array<array-key,mixed> $tree */
 		$tree = self::statements( $name )['tree'];
 		return self::flatten_tree( $tree );
 	}
 
 	/**
-	 * @param array<array-key, mixed> $tree Include subtree.
+	 * @param array<array-key,mixed> $tree Include subtree.
 	 * @return list<string> Every name in the subtree, depth-first.
 	 */
 	private static function flatten_tree( array $tree ): array {
@@ -986,7 +986,7 @@ class Topology_Analyzer {
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.
 	 *
-	 * @return array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, tree: array<string, mixed>}
+	 * @return array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, tree: array<string,mixed>}
 	 * @throws \RuntimeException On unknown include, cycle, or conflicting make_node.
 	 */
 	public static function statements( string $name, array $extra_includes = [] ): array {
@@ -1032,10 +1032,10 @@ class Topology_Analyzer {
 	 * @param string|null  $origin Directly-declared include this file sits under; null = the top-level file's own lines.
 	 * @param list<string> $via    Include path from the top level down to this file.
 	 * @param list<string> $stack  Ancestor resolved paths — a repeat is a cycle.
-	 * @param array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
-	 * @param-out array{statements: list<array{line: string, verb: string, values: list<string>, spans: list<string>, origin: ?string, origins: list<string>, via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
+	 * @param array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state Walker state, by reference.
+	 * @param-out array{statements: list<array{line: string,verb: string,values: list<string>,spans: list<string>,origin: ?string,origins: list<string>,via: list<string>}>, expanded: array<string,list<int>>, subtrees: array<string,array<string,mixed>>, defs: array<string,array{type:string,args:string,index:int}>} $state
 	 *
-	 * @return array<string, mixed> This file's include subtree.
+	 * @return array<string,mixed> This file's include subtree.
 	 */
 	private static function walk( string $path, string $name, ?string $origin, array $via, array $stack, array &$state ): array {
 		if ( \in_array( $path, $stack, true ) ) {
@@ -1146,7 +1146,7 @@ class Topology_Analyzer {
 	 * sanitizer's settings error and the spawner's refusal log so the two
 	 * gates phrase a conflict identically. Empty input → empty string.
 	 *
-	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 * @param array<array{a: string,b: string,shared: array<string>}> $conflicts
 	 */
 	public static function describe_conflicts( array $conflicts ): string {
 		return \implode(

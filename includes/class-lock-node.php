@@ -56,7 +56,7 @@ class Lock_Node extends Node {
 	/**
 	 * Node entry point: KEY='heartbeat' refreshes the lock; anything else forwards via sink.
 	 *
-	 * @param array<int, mixed> $message Unused past the KEY check; never mutated.
+	 * @param array<int,mixed> $message Unused past the KEY check; never mutated.
 	 */
 	public function fill( array $message ): void {
 		if ( 'heartbeat' === $message[ Message::KEY ] ) {
@@ -456,7 +456,7 @@ class Lock_Node extends Node {
 	 * The stale threshold a worker descriptor declares, defaulting to
 	 * STALE_TIMEOUT. The one place that `?? STALE_TIMEOUT` fallback lives.
 	 *
-	 * @param array<array-key, mixed> $descriptor A worker descriptor or topology entry.
+	 * @param array<array-key,mixed> $descriptor A worker descriptor or topology entry.
 	 * @return int Seconds.
 	 */
 	public static function stale_timeout_of( array $descriptor ): int {

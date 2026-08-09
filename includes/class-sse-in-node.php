@@ -115,7 +115,7 @@ class SSE_In_Node extends Node {
 	 * sink. It doesn't accept upstream messages.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;

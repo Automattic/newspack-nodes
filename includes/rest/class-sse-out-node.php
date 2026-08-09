@@ -263,7 +263,7 @@ class SSE_Out_Node extends Node {
 	 * Decode the `positions` query parameter (JSON object keyed by
 	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
 	 *
-	 * @return array<array-key, mixed>|null
+	 * @return array<array-key,mixed>|null
 	 */
 	public function parse_positions( string $raw ): ?array {
 		if ( '' === $raw ) {
@@ -306,7 +306,7 @@ class SSE_Out_Node extends Node {
 	 * unexplained-EOF path for those failures.
 	 *
 	 * @param array<int,string>             $subs      Subscription names.
-	 * @param array<array-key, mixed>|null  $positions Per-subscription saved positions.
+	 * @param array<array-key,mixed>|null  $positions Per-subscription saved positions.
 	 * @param int                           $interval  Heartbeat / flush cadence ms.
 	 * @param array{slot:int,owner:int}     $lease     Acquired lease (default slot -1 = unmetered).
 	 * @param int                           $partition Slot-pool partition (-1 = shared browser).
@@ -560,7 +560,7 @@ class SSE_Out_Node extends Node {
 	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
 	 *
 	 * @param string            $event   Event name.
-	 * @param array<int, mixed> $message 7-field positional Message.
+	 * @param array<int,mixed> $message 7-field positional Message.
 	 * @param string            $id      Resume token; omitted leaves the client's last one standing.
 	 */
 	protected function send_sse_event( string $event, array $message, string $id = '' ): void {
@@ -852,7 +852,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * @param array{slot:int,owner:int} $lease
 	 * @param array<int,string>         $subs
-	 * @return array<int, mixed> The 7-field positional Message.
+	 * @return array<int,mixed> The 7-field positional Message.
 	 */
 	private function build_connected_msg( array $lease, array $subs, int $interval ): array {
 		$message                       = Message::new_message();
@@ -876,7 +876,7 @@ class SSE_Out_Node extends Node {
 	 * Build a `heartbeat` Message envelope
 	 *
 	 * @param float $now Current timestamp.
-	 * @return array<int, mixed> The 7-field positional Message.
+	 * @return array<int,mixed> The 7-field positional Message.
 	 */
 	private function build_heartbeat_msg( float $now ): array {
 		$message                       = Message::new_message();

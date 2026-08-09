@@ -129,7 +129,7 @@ class Job_Worker_Node extends Node {
 		if ( ! \is_array( $entry ) ) {
 			return;
 		}
-		/** @var array<string, mixed> $entry */
+		/** @var array<string,mixed> $entry */
 		$encoded = \wp_json_encode( $entry );
 		if ( false !== $encoded && \strlen( $encoded ) > self::MAX_JOB_SIZE ) {
 			$this->print_less_often( 'oversized entry, skipping' );
@@ -237,7 +237,7 @@ class Job_Worker_Node extends Node {
 	 * to the poison path — when not opted in, exhausted, or the requeue write
 	 * itself fails (a job must never vanish into a failed swallow).
 	 *
-	 * @param array<string, mixed> $entry The jobs.log entry that threw.
+	 * @param array<string,mixed> $entry The jobs.log entry that threw.
 	 */
 	private function schedule_retry( array $entry ): bool {
 		$retries = Core::as_int( $entry['retries'] ?? 0, 0 );
@@ -257,7 +257,7 @@ class Job_Worker_Node extends Node {
 		}
 		$key = Core::as_string( $entry['key'] ?? '', '' );
 		$id  = Core::as_string( $entry['id'] ?? '', '' );
-		/** @var array<string, mixed> $parameters */
+		/** @var array<string,mixed> $parameters */
 		$parameters = Core::arr( $entry['parameters'] ?? [], [] );
 		try {
 			$intake = new Job_Intake();
@@ -405,7 +405,7 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * @param array<int, mixed> $message
+	 * @param array<int,mixed> $message
 	 */
 	private function handle_request( array $message ): void {
 		if ( null === $this->sink ) {

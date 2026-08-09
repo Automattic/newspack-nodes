@@ -63,7 +63,7 @@ trait Durable_Reader {
 	 * still continues. resume_attempts_from_frame is ALWAYS called (it seeds attempts/first_crash_ts
 	 * even off the crawl path). Shared by Consumer (load_offsetlog) and Remote_Source (restore_position).
 	 *
-	 * @param array<array-key, mixed> $entry The restored frame VALUE.
+	 * @param array<array-key,mixed> $entry The restored frame VALUE.
 	 * @return bool True when the head skip is armed.
 	 */
 	protected function arm_skip_head_from_frame( array $entry ): bool {
@@ -149,7 +149,7 @@ trait Durable_Reader {
 	 * then unpacks the last parseable line. Returns the raw VALUE array — each
 	 * caller reads its own fields out of it.
 	 *
-	 * @return array<array-key, mixed>|null
+	 * @return array<array-key,mixed>|null
 	 */
 	protected function read_last_offsetlog_frame(): ?array {
 		if ( null === $this->offsetlog ) {
@@ -187,7 +187,7 @@ trait Durable_Reader {
 	 * caller's VALUE, fill the offsetlog and flush synchronously (don't wait on the
 	 * Partition's PIPE_BUF threshold — a cursor frame must be durable now).
 	 *
-	 * @param array<array-key, mixed> $value The caller-owned frame schema.
+	 * @param array<array-key,mixed> $value The caller-owned frame schema.
 	 */
 	protected function commit_offsetlog_frame( array $value ): void {
 		if ( null === $this->offsetlog ) {
@@ -278,7 +278,7 @@ trait Durable_Reader {
 	/**
 	 * Config-verb fragment; the using node splices this into its node_schema commands.
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int,array<string,mixed>>
 	 */
 	public static function pump_verbs(): array {
 		return [
@@ -692,7 +692,7 @@ trait Durable_Reader {
 	 * last parseable line (Consumer's segment_size=1 makes that the sole record;
 	 * a coarser offsetlog's newest record in the segment).
 	 *
-	 * @return array<array-key, mixed>|null
+	 * @return array<array-key,mixed>|null
 	 */
 	private function read_frame_record( int $segment ): ?array {
 		if ( null === $this->offsetlog ) {
@@ -720,7 +720,7 @@ trait Durable_Reader {
 	 * Parse one packed offsetlog line into its {seg, off, ...} VALUE, or null when
 	 * the line is unparseable or its VALUE isn't the expected struct.
 	 *
-	 * @return array<array-key, mixed>|null
+	 * @return array<array-key,mixed>|null
 	 */
 	private function parse_offsetlog_entry( string $line ): ?array {
 		try {
@@ -812,7 +812,7 @@ trait Durable_Reader {
 	 *   - `on_frame`: the cursor is exactly on `at_frame`'s committed position vs
 	 *     advanced past it. Seeked: `! stepped_since_seek`. Live: cursor == checkpoint.
 	 *
-	 * @return array{frames: array<int, array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
+	 * @return array{frames: array<int,array{id:int,size:int}>, cursor: array{segment:int, offset:int}, polling: string, at_frame: int|null, on_frame: bool}
 	 */
 	public function time_travel_metadata(): array {
 		$frames    = $this->offsetlog?->get_segments() ?? [];
@@ -882,7 +882,7 @@ trait Durable_Reader {
 	 * (on_checkpoint_committed — Consumer publishes its CHECKPOINT state).
 	 *
 	 * @param bool                    $graceful Stamp attempts=0 instead of the live count.
-	 * @param array<array-key, mixed> $extra    Per-call frame additions (cache / dlq marker).
+	 * @param array<array-key,mixed> $extra    Per-call frame additions (cache / dlq marker).
 	 */
 	protected function commit_checkpoint_frame( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->offsetlog ) {
@@ -915,7 +915,7 @@ trait Durable_Reader {
 	 * Node-specific frame fields beyond the shared {seg,off,attempts,reason,first_crash_ts}
 	 * base (Consumer: name/target/…; Remote_Source: _ts). Return [] for none.
 	 *
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 */
 	abstract protected function checkpoint_frame_extra(): array;
 
@@ -925,7 +925,7 @@ trait Durable_Reader {
 	/**
 	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
 	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit {segment,offset}.
+	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
 	 */
 	abstract public function next_offset( $position ): void;
 
@@ -947,7 +947,7 @@ trait Durable_Reader {
 	 * `add_snapshot_node` verb handler — append a snapshot-target node.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key, mixed>  $args        Verb argument.
+	 * @param array<array-key,mixed>  $args        Verb argument.
 	 */
 	public static function cmd_add_snapshot_node( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -960,7 +960,7 @@ trait Durable_Reader {
 	 * `SEEK_FRAME` verb handler — seek the patron reader to a frame.
 	 *
 	 * @param Command_Interpreter_Node $interpreter Verb argument.
-	 * @param array<array-key, mixed>  $args        Verb argument.
+	 * @param array<array-key,mixed>  $args        Verb argument.
 	 */
 	public static function cmd_seek_frame( Command_Interpreter_Node $interpreter, array $args ): string {
 		/** @var self $patron */
@@ -1007,7 +1007,7 @@ trait Durable_Reader {
 	 * The shared time-travel verb table, merged into a node's node_schema()['commands']
 	 * so Consumer and Remote_Source register identical verbs.
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int,array<string,mixed>>
 	 */
 	public static function time_travel_verbs(): array {
 		return [

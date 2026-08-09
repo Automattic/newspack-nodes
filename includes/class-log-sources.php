@@ -35,7 +35,7 @@ class Log_Sources {
 	 * temp fixtures without the container's ini/constants. A source whose backing
 	 * location is unconfigured is omitted from the map.
 	 *
-	 * @var (\Closure(): array<string, string>)|null
+	 * @var (\Closure(): array<string,string>)|null
 	 */
 	public static ?\Closure $builtin_sources = null;
 
@@ -58,7 +58,7 @@ class Log_Sources {
 	 * `taillog` verb delegates here — file I/O over a registry Log_Sources owns.
 	 *
 	 * @param list<string> $args
-	 * @return string|array<array-key, mixed> Struct/read replies are arrays; tails and errors are strings.
+	 * @return string|array<array-key,mixed> Struct/read replies are arrays; tails and errors are strings.
 	 */
 	public static function taillog( array $args ): string|array {
 		[ $source, $max_kb ] = \array_pad( $args, 2, '' );
@@ -137,7 +137,7 @@ class Log_Sources {
 	 * Tabulate the registry: SOURCE, AVAILABLE (exists + readable), BYTES, PATH.
 	 * Reuses the ONE Command_Interpreter_Node::tabulate renderer.
 	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
 	 */
 	private static function taillog_list( array $registry ): string {
 		$rows = [];
@@ -170,7 +170,7 @@ class Log_Sources {
 	 * validates the segment slot as the file's inode (a breadcrumb round-trip);
 	 * a mismatch re-seeks to 0 rather than reading a rotated-away generation.
 	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
 	 * @param string $name     Registry source name.
 	 * @param string $position `<segment>:<offset>[:<length>]`.
 	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
@@ -227,8 +227,8 @@ class Log_Sources {
 	 * boundary); null when the source has no readable file. `segments` is the
 	 * `{id, size}` list a segment browser renders — [] in file mode.
 	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry.
-	 * @return list<array{name:string, path:string, mode:string, available:bool, bytes:?int, segments:list<array{id:int, size:int}>}>
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
+	 * @return list<array{name:string,path:string,mode:string,available:bool,bytes:?int,segments:list<array{id:int,size:int}>}>
 	 */
 	private static function taillog_sources_struct( array $registry ): array {
 		$rows = [];
@@ -253,7 +253,7 @@ class Log_Sources {
 	 * Pass a pre-listed $segments to skip re-globbing (the struct builder has one).
 	 *
 	 * @param array{path: string, mode: string} $entry
-	 * @param list<array{id: int, size: int}>|null $segments A source_segments() list, or null to list here.
+	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list, or null to list here.
 	 */
 	private static function tail_bytes( array $entry, ?array $segments = null ): ?int {
 		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
@@ -280,7 +280,7 @@ class Log_Sources {
 	 * its own loop); keep the two in step. File mode has no segments: [].
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
-	 * @return list<array{id: int, size: int}>
+	 * @return list<array{id: int,size: int}>
 	 */
 	private static function source_segments( array $entry ): array {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
@@ -314,7 +314,7 @@ class Log_Sources {
 		return \is_file( $path ) && \is_readable( $path );
 	}
 
-	/** @return array<int, string> The on-disk `{path}.{seg}` segment files. */
+	/** @return array<int,string> The on-disk `{path}.{seg}` segment files. */
 	private static function segment_files( string $path ): array {
 		$segments = \glob( $path . '.[0-9]*' );
 		return \is_array( $segments ) ? $segments : [];
@@ -324,7 +324,7 @@ class Log_Sources {
 	 * The merged registry: built-ins → config → topologies, first name wins,
 	 * realpath-deduped (insertion order is priority).
 	 *
-	 * @return array<string, array{path: string, mode: string}>
+	 * @return array<string,array{path: string,mode: string}>
 	 */
 	public static function registry(): array {
 		$entries = [];
@@ -353,8 +353,8 @@ class Log_Sources {
 	 * resolver, so the ini-configured aggregation point is the survivor. A path that
 	 * doesn't yet exist (`realpath` false) can't be a duplicate and is kept.
 	 *
-	 * @param array<string, array{path: string, mode: string}> $registry Name → entry (insertion order = priority).
-	 * @return array<string, array{path: string, mode: string}>
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry (insertion order = priority).
+	 * @return array<string,array{path: string,mode: string}>
 	 */
 	private static function dedupe_by_realpath( array $registry ): array {
 		$deduped = [];
@@ -379,7 +379,7 @@ class Log_Sources {
 	 * but the basename isn't). The graph scan is display-grade: a broken topology
 	 * degrades to skipping that topology, never a thrown stream.
 	 *
-	 * @return array<string, array{path: string, mode: string}>
+	 * @return array<string,array{path: string,mode: string}>
 	 */
 	private static function topology_entries(): array {
 		$partitions_by_type = [];
@@ -434,7 +434,7 @@ class Log_Sources {
 		return \str_contains( $template, '<partition>' ) || \str_contains( $template, '{partition}' );
 	}
 
-	/** @return array<string, string> Config `log_sources` name → path (invalid lines skipped). */
+	/** @return array<string,string> Config `log_sources` name → path (invalid lines skipped). */
 	private static function config_entries(): array {
 		$entries = [];
 		foreach ( Core::arr( Config::value( 'log_sources' ) ) as $line ) {
@@ -482,7 +482,7 @@ class Log_Sources {
 		return 1 === \preg_match( self::NAME_PATTERN, $name );
 	}
 
-	/** @return array<string, string> Builtin name → absolute path, via the seam. */
+	/** @return array<string,string> Builtin name → absolute path, via the seam. */
 	private static function builtin_entries(): array {
 		$resolve = self::$builtin_sources ?? static function (): array {
 			$sources = [];

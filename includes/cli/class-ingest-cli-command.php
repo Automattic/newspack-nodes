@@ -68,8 +68,8 @@ class Ingest_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional: <topic> then one or more files.
-	 * @param array<string, mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
+	 * @param array<int,string>   $args       Positional: <topic> then one or more files.
+	 * @param array<string,mixed> $assoc_args --num_partitions / --segment_size / --num_segments / --allow_large_writes / --void_warranty / --dry-run.
 	 */
 	public function ingest( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -256,7 +256,7 @@ class Ingest_CLI_Command {
 	/**
 	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
 	 *
-	 * @param array<string, mixed> $assoc_args
+	 * @param array<string,mixed> $assoc_args
 	 */
 	private function int_flag( array $assoc_args, string $key, int $default ): int {
 		$raw = $assoc_args[ $key ] ?? null;

@@ -67,7 +67,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * `dump_graph` verb handler — the worker-graph payload.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_dump_graph(): array {
 		$payload          = self::collect_dump_metadata();
@@ -180,7 +180,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * re-deciding what absence means.
 	 *
 	 * @param int $on_demand_idle Whether the topology scales to zero when idle.
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 */
 	private static function build_worker_status(
 		string $type,
@@ -270,7 +270,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * renders the .tsl graph alongside the live fleet so operators see node
 	 * wiring next to worker status.
 	 *
-	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>, edges: list<array{0:string,1:string}>}>
+	 * @return array<string,array{nodes: list<array<string,int|string|list<string>>>,edges: list<array{0:string,1:string}>}>
 	 */
 	private static function collect_topology_graphs(): array {
 		$graphs = [];
@@ -384,7 +384,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * the override basename when the concrete name starts with it).
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
-	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
+	 * @return array<int,array{name:string,partitions:array<int,mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
@@ -447,7 +447,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
 	 * `$cursor_segment` and `$cursor_offset` are non-null (else the UI treats it as output-only).
 	 *
-	 * @return array<string, mixed>
+	 * @return array<string,mixed>
 	 */
 	private static function build_log_status_entry(
 		string $log_name,
@@ -590,7 +590,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 *
 	 * @param Workers_CI_Node $self Verb argument.
 	 *
-	 * @return array<int|string, mixed>
+	 * @return array<int|string,mixed>
 	 */
 	public static function cmd_list( Workers_CI_Node $self ): array {
 		return $self->cli()->ls_workers();

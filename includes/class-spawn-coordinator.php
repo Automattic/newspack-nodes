@@ -204,7 +204,7 @@ class Spawn_Coordinator {
 		return $spawned;
 	}
 
-	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
+	/** @param array<string,mixed> $worker Worker descriptor (type, partition, …). */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$raw_type      = $worker['type'];
 		$raw_partition = $worker['partition'];
@@ -332,7 +332,7 @@ class Spawn_Coordinator {
 	 * `<partition>` token sits in someone's TSL.
 	 *
 	 * @param string $dir Resolved partition directory.
-	 * @return list<array<array-key, mixed>>|null Null when $dir is not under ipc/.
+	 * @return list<array<array-key,mixed>>|null Null when $dir is not under ipc/.
 	 */
 	private function ipc_reader_of( string $dir ): ?array {
 		$prefix = $this->base_dir . '/ipc/';

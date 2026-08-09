@@ -24,7 +24,7 @@ trait Sidecar {
 	 *
 	 * @param string             $dir      Segment directory.
 	 * @param string             $name     Node name; '' leaves it unnamed.
-	 * @param array<int, int>    $geometry segment_size, then the five retention axes
+	 * @param array<int,int>    $geometry segment_size, then the five retention axes
 	 *                                     (min_segments, num_segments, max_segments, min_lifetime, lifetime).
 	 */
 	protected function make_sidecar( string $dir, string $name, array $geometry ): Partition_Node {

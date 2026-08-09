@@ -94,7 +94,7 @@ class Table_Node extends Node {
 	 * `KEYS` and `STATS` are deliberately absent: both enumerate
 	 * Tachikoma's in-memory buckets, which the memcache backing cannot do.
 	 *
-	 * @param array<int, mixed> $message The TM_REQUEST.
+	 * @param array<int,mixed> $message The TM_REQUEST.
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
 	private function handle_request( array $message ): void {

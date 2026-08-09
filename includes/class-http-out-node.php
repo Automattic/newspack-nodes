@@ -57,7 +57,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 *
 	 * Signature: `function ( string $url, array $args ): array|\WP_Error`.
 	 *
-	 * @var \Closure(string, array<string, mixed>): (array<string, mixed>|\WP_Error)|null
+	 * @var \Closure(string, array<string,mixed>): (array<string,mixed>|\WP_Error)|null
 	 */
 	public static ?\Closure $http_call = null;
 
@@ -127,7 +127,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * POST happens on the next drain tick in fire(). Never blocks and never
 	 * resolves the Vault (fire() does that once per batch).
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -197,7 +197,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * Report a batch we could not deliver. Silent on an empty one: a session-less
 	 * tick reaches this path with nothing queued and has nothing to report.
 	 *
-	 * @param array<int, array<int, mixed>> $batch  The undelivered envelopes.
+	 * @param array<int,array<int,mixed>> $batch  The undelivered envelopes.
 	 * @param string                        $reason Why they could not be sent.
 	 */
 	private function drop_batch( array $batch, string $reason ): void {
@@ -385,7 +385,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * non-reply arriving while a target is set is the remote picking its own
 	 * destination inside us — refused. With no target neither arm engages.
 	 *
-	 * @param array<int, mixed> $reply Reply Message, mutated in place.
+	 * @param array<int,mixed> $reply Reply Message, mutated in place.
 	 * @return bool True if the reply may be forwarded to the sink.
 	 */
 	private function accept_inbound( array &$reply ): bool {
@@ -484,11 +484,11 @@ class HTTP_Out_Node extends Timer_Node {
 	 * themselves — this never surfaces raw remote JSON.
 	 *
 	 * @param string                  $dest      Vault server id — the session identity.
-	 * @param array<array-key, mixed> $server    Decrypted vault server config.
+	 * @param array<array-key,mixed> $server    Decrypted vault server config.
 	 * @param string                  $to        Target node path on the spoke.
 	 * @param string                  $verb      Command verb name.
 	 * @param list<string>            $verb_args Argument tail (Command_Args grammar).
-	 * @return array<array-key, mixed> The reply's `payload` array.
+	 * @return array<array-key,mixed> The reply's `payload` array.
 	 * @throws \RuntimeException On any transport, auth, or envelope failure.
 	 */
 	public static function probe_command( string $dest, array $server, string $to, string $verb, array $verb_args = [] ): array {
@@ -521,7 +521,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * a struct VALUE wins; other lines are noise.
 	 *
 	 * @param string $body The raw response body.
-	 * @return array<array-key, mixed>
+	 * @return array<array-key,mixed>
 	 * @throws \RuntimeException When the body carries no usable reply.
 	 */
 	private static function payload_of( string $body ): array {
@@ -580,7 +580,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * unexplained refusal from the far side.
 	 *
 	 * @param string                  $dest   Vault server id.
-	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param array<array-key,mixed> $server Decrypted vault server config.
 	 * @param string                  $base   Spoke base url, already checked.
 	 * @throws \RuntimeException When the spoke will not issue a session.
 	 */
@@ -605,7 +605,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * Outbound WP-HTTP args for either endpoint on the blocking path: bounds,
 	 * TLS posture, stored credentials.
 	 *
-	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param array<array-key,mixed> $server Decrypted vault server config.
 	 * @param string                  $body   Request body.
 	 * @return array<string,mixed>
 	 */
@@ -636,7 +636,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 */
 	private static function blocking_post( string $url, array $args ) {
 		$call = self::$http_call ?? static function ( string $u, array $a ) {
-			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string, mixed>|string, body?: array<string, mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
+			/** @var array{method?: string, timeout?: float, redirection?: int, httpversion?: string, user-agent?: string, reject_unsafe_urls?: bool, blocking?: bool, headers?: array<string,mixed>|string, body?: array<string,mixed>|string, sslverify?: bool} $a -- WP HTTP args shape; loose `array` param widens it. */
 			return \wp_remote_post( $u, $a );
 		};
 		return $call( $url, $args );
@@ -672,7 +672,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * wins over Bearer: a config carrying both means the operator set a username
 	 * and password, which is the more specific statement.
 	 *
-	 * @param array<array-key, mixed> $server Decrypted vault server config.
+	 * @param array<array-key,mixed> $server Decrypted vault server config.
 	 * @return string e.g. `Basic <base64 of user:pass>`, or ''.
 	 */
 	private static function authorization( array $server ): string {

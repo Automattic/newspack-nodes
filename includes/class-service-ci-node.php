@@ -62,8 +62,8 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 *
 	 * Gating happens on INSTALL only, so a read never stacks a second check.
 	 *
-	 * @param array<string, callable>|null $table Table to install, or null to read.
-	 * @return array<string, callable> The live, gated table.
+	 * @param array<string,callable>|null $table Table to install, or null to read.
+	 * @return array<string,callable> The live, gated table.
 	 */
 	public function commands( ?array $table = null ): array {
 		if ( null === $table ) {
@@ -86,9 +86,9 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * declares, defaulting to MANAGE — fail closed for a verb that declares
 	 * nothing.
 	 *
-	 * @param array<string, callable> $table  Verb name => handler.
-	 * @param array<string, mixed>    $schema The concrete class's node_schema.
-	 * @return array<string, callable>
+	 * @param array<string,callable> $table  Verb name => handler.
+	 * @param array<string,mixed>    $schema The concrete class's node_schema.
+	 * @return array<string,callable>
 	 */
 	private static function gate_table( array $table, array $schema ): array {
 		$roles = [];

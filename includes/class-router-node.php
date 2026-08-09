@@ -31,7 +31,7 @@ class Router_Node extends Timer_Node {
 	 * Per-node self-time profiles, keyed by node name; null = profiling off.
 	 * Follows Router.pm's $PROFILES / @STACK (package globals).
 	 *
-	 * @var array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
+	 * @var array<string,array{time: float,count: int,avg: float,oldest: float,timestamp: float}>|null
 	 */
 	private static ?array $profiles = null;
 
@@ -149,7 +149,7 @@ class Router_Node extends Timer_Node {
 		}
 	}
 
-	/** @param array<int, mixed> $message Message that failed to route. */
+	/** @param array<int,mixed> $message Message that failed to route. */
 	public function send_error( array $message, string $error ): void {
 		if ( $this->handling_error ) {
 			$this->drop_message( $message, 'breaking recursion' );
@@ -206,8 +206,8 @@ class Router_Node extends Timer_Node {
 	/**
 	 * Get/set the profile table. Setting (even to null) resets the frame stack.
 	 *
-	 * @param array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null ...$set New table (array to enable, null to disable) when given.
-	 * @return array<string, array{time: float, count: int, avg: float, oldest: float, timestamp: float}>|null
+	 * @param array<string,array{time: float,count: int,avg: float,oldest: float,timestamp: float}>|null ...$set New table (array to enable, null to disable) when given.
+	 * @return array<string,array{time: float,count: int,avg: float,oldest: float,timestamp: float}>|null
 	 */
 	public static function profiles( ?array ...$set ): ?array {
 		if ( \count( $set ) > 0 ) {

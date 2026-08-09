@@ -36,7 +36,7 @@ class Worker_CLI_Command {
 	 * Slots whose stop-flag write was refused; kept so the warning is not
 	 * repeated on every poll.
 	 *
-	 * @var array<int, string>
+	 * @var array<int,string>
 	 */
 	private array $refused_flags = [];
 
@@ -62,8 +62,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments (unused).
-	 * @param array<string, mixed> $assoc_args --timeout.
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args --timeout.
 	 */
 	public function stop( array $args, array $assoc_args ): void {
 		unset( $args );
@@ -119,7 +119,7 @@ class Worker_CLI_Command {
 	 * heartbeating long before it exits, and calling it gone is the one lie this
 	 * command must never tell.
 	 *
-	 * @return array<int, string>
+	 * @return array<int,string>
 	 */
 	private function stop_blockers(): array {
 		$blockers = \array_keys( $this->held_lock_dirs() );
@@ -165,8 +165,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments (unused).
-	 * @param array<string, mixed> $assoc_args Associative arguments (unused).
+	 * @param array<int,string>   $args       Positional arguments (unused).
+	 * @param array<string,mixed> $assoc_args Associative arguments (unused).
 	 */
 	public function start( array $args, array $assoc_args ): void {
 		unset( $args, $assoc_args );
@@ -191,7 +191,7 @@ class Worker_CLI_Command {
 	 * current `num_partitions`, still holds a real lock and still runs until
 	 * `reconcile_lock_dirs()` retires it a full lifetime later.
 	 *
-	 * @return array<string, string> slot => directory path.
+	 * @return array<string,string> slot => directory path.
 	 */
 	private function held_lock_dirs(): array {
 		$dirs = [];
@@ -225,8 +225,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function restart( array $args, array $assoc_args ): void {
 		$target = $args[0] ?? '';
@@ -275,8 +275,8 @@ class Worker_CLI_Command {
 	 * @alias ls
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
 		$now   = \time();
@@ -353,8 +353,8 @@ class Worker_CLI_Command {
 	 * Render rows via WP_CLI format_items, or a plain aligned dump without it.
 	 *
 	 * @param string                            $format  table|json|csv|yaml ('' = table).
-	 * @param array<int, array<string, mixed>>  $rows    Table rows.
-	 * @param array<int, string>                $columns Column order.
+	 * @param array<int,array<string,mixed>>  $rows    Table rows.
+	 * @param array<int,string>                $columns Column order.
 	 */
 	private static function render( string $format, array $rows, array $columns ): void {
 		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
@@ -376,10 +376,10 @@ class Worker_CLI_Command {
 	 *
 	 * @param string                    $name           Topology name.
 	 * @param int                       $p              Partition.
-	 * @param array<string, mixed>|null $w              Matching liveness row, if any.
+	 * @param array<string,mixed>|null $w              Matching liveness row, if any.
 	 * @param int                       $now            Clock.
 	 * @param int                       $on_demand_idle Whether the topology scales to zero when idle.
-	 * @return array<string, int|string>
+	 * @return array<string,int|string>
 	 */
 	private static function fleet_row( string $name, int $p, ?array $w, int $now, int $on_demand_idle = 0 ): array {
 		$heartbeat_at = null === $w ? 0 : Core::as_int( $w['heartbeat_at'] );
@@ -431,8 +431,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function activate( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -467,8 +467,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function deactivate( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -485,7 +485,7 @@ class Worker_CLI_Command {
 	 * `WP_CLI::error`s (which exits) on a missing or unknown-to-catalog name,
 	 * listing the available catalog names so the operator can pick a real one.
 	 *
-	 * @param array<int, string> $args Positional arguments.
+	 * @param array<int,string> $args Positional arguments.
 	 * @param string             $verb Verb name, for the usage message.
 	 * @return string The validated topology name.
 	 */
@@ -519,8 +519,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function types( array $args, array $assoc_args ): void {
 		$topologies = Bootstrap::get_topologies();
@@ -570,8 +570,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function run( array $args, array $assoc_args ): void {
 		// Same footgun as `cli`: root-owned IPC/locks lock out the web user.
@@ -671,7 +671,7 @@ class Worker_CLI_Command {
 	 * Expand topologies registered via the `newspack_nodes/topologies` filter
 	 * into a flat list of `{type, partition, stale_timeout}` rows.
 	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 * @return array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed}>
 	 */
 	private function workers(): array {
 		return Bootstrap::expand_workers();
@@ -698,8 +698,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function gc( array $args, array $assoc_args ): void {
 		Bootstrap::ensure_runtime_wired();
@@ -739,8 +739,8 @@ class Worker_CLI_Command {
 	 *
 	 * @when after_wp_load
 	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 * @param array<int,string>   $args       Positional arguments.
+	 * @param array<string,mixed> $assoc_args Associative arguments.
 	 */
 	public function doctor( array $args, array $assoc_args ): void {
 		$results  = Health_Checks::evaluate( Health_Probe_Client::cache_backend() );

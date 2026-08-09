@@ -57,7 +57,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * Each entry is `[ closure, owning link ]` so a removed link's pending
 	 * connect can be purged rather than resurrect it.
 	 *
-	 * @var list<array{0: callable, 1: self|null}>
+	 * @var list<array{0: callable,1: self|null}>
 	 */
 	private static array $connect_queue = [];
 
@@ -128,7 +128,7 @@ class Remote_Link_Node extends Timer_Node {
 	 * back from the spoke records RTT; anything else is a command to send().
 	 *
 	 * @api Dynamic entrypoint.
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -189,7 +189,7 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Default send: relay the message out through the patron HTTP_Out.
 	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	protected function send( array $message ): void {
 		$this->ensure_patrons();

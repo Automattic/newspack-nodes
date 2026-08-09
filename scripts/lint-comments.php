@@ -11,6 +11,10 @@
  * comments whose full length is strictly necessary. Directive comments
  * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split.
  *
+ * GENERICS: a docblock type carries no space after its comma —
+ * `array<string,mixed>`, not `array<string,mixed>`. Both parse identically;
+ * the editor only highlights the first as one type. `--fix` rewrites them.
+ *
  * Exit 0 clean; exit 1 with `file:line: message` per violation.
  *
  * @package Newspack_Nodes
@@ -41,6 +45,38 @@ function visual_length( string $line ): int {
 	return $col;
 }
 
+/**
+ * Drop the spaces after commas inside generic type arguments, at any depth.
+ *
+ * Depth only opens on a `<` that follows an identifier (`array<`),so prose
+ * keeps its `<=` and its commas, and `array<int,array<string,mixed>>`
+ * collapses on both levels rather than only the inner one.
+ *
+ * @param string $line One source line.
+ * @return string The line with its generics tightened.
+ */
+function collapse_generics( string $line ): string {
+	$out   = '';
+	$depth = 0;
+	$len   = \strlen( $line );
+	for ( $i = 0; $i < $len; $i++ ) {
+		$ch = $line[ $i ];
+		if ( '<' === $ch && $i > 0 && 1 === \preg_match( '/\w/', $line[ $i - 1 ] ) ) {
+			++$depth;
+		} elseif ( '>' === $ch && $depth > 0 ) {
+			--$depth;
+		} elseif ( ',' === $ch && $depth > 0 ) {
+			$out .= ',';
+			while ( $i + 1 < $len && ( ' ' === $line[ $i + 1 ] || "\t" === $line[ $i + 1 ] ) ) {
+				++$i;
+			}
+			continue;
+		}
+		$out .= $ch;
+	}
+	return $out;
+}
+
 function is_directive( string $text ): bool {
 	return 1 === \preg_match( '/^\s*(?:\/\/|#|\/\*)+\s*(?:phpcs:|translators:|eslint-|@var\s|@codeCoverageIgnore|@phpstan-|@codingStandardsIgnore|@psalm-)/', $text );
 }
@@ -68,7 +104,7 @@ const DECLARATION_TOKENS = [
  * arms all nest deeper and count as function scope.
  *
  * @param string $source PHP source.
- * @return array<int, string> `line: message` violations.
+ * @return array<int,string> `line: message` violations.
  */
 function stray_comments( string $source ): array {
 	$tokens      = \token_get_all( $source );
@@ -166,7 +202,7 @@ function stray_comments( string $source ): array {
 }
 
 /**
- * @return array<int, string> `line: message` violations for one file.
+ * @return array<int,string> `line: message` violations for one file.
  */
 function check_file( string $file ): array {
 	$source = \file_get_contents( $file );
@@ -209,6 +245,18 @@ function check_file( string $file ): array {
 		$src_line = \rtrim( $lines[ $line - 1 ] ?? '', "\r" );
 		if ( visual_length( $src_line ) > MAX_COLS ) {
 			$violations[] = "{$line}: comment exceeds " . MAX_COLS . ' columns (condense, or tag @longform)';
+		}
+	}
+
+	// Generics: docblocks carry the types, so this pass sees both kinds.
+	foreach ( \token_get_all( $source ) as $token ) {
+		if ( ! \is_array( $token ) || ! \in_array( $token[0], [ \T_COMMENT, \T_DOC_COMMENT ], true ) ) {
+			continue;
+		}
+		foreach ( \explode( "\n", $token[1] ) as $offset => $text_line ) {
+			if ( collapse_generics( $text_line ) !== $text_line ) {
+				$violations[] = ( $token[2] + $offset ) . ': space inside a generic type (array<string,mixed>)';
+			}
 		}
 	}
 
@@ -287,8 +335,40 @@ function expand_path( string $path ): array {
 	return $out;
 }
 
+/**
+ * Rewrite one file's docblock generics in place, leaving code untouched.
+ *
+ * Only comment and docblock tokens are rewritten, so a `<` in a string or an
+ * expression is never reached.
+ *
+ * @param string $file Path to rewrite.
+ * @return void
+ */
+function fix_generics( string $file ): void {
+	$source = \file_get_contents( $file );
+	if ( false === $source ) {
+		return;
+	}
+	$out = '';
+	foreach ( \token_get_all( $source ) as $token ) {
+		if ( \is_array( $token ) && \in_array( $token[0], [ \T_COMMENT, \T_DOC_COMMENT ], true ) ) {
+			$out .= \implode( "\n", \array_map( 'collapse_generics', \explode( "\n", $token[1] ) ) );
+			continue;
+		}
+		$out .= \is_array( $token ) ? $token[1] : $token;
+	}
+	if ( $out !== $source ) {
+		\file_put_contents( $file, $out );
+	}
+}
+
 $targets = [];
+$fix     = false;
 foreach ( \array_slice( $argv, 1 ) as $argument ) {
+	if ( '--fix' === $argument ) {
+		$fix = true;
+		continue;
+	}
 	$targets = \array_merge( $targets, expand_path( $argument ) );
 }
 
@@ -299,6 +379,10 @@ foreach ( $targets as $file ) {
 	}
 	// Also filter explicit paths: lint-staged passes files, not a directory.
 	if ( 1 === \preg_match( '#(^|/)(' . \implode( '|', \array_map( '\preg_quote', SKIP_DIRS ) ) . ')/#', $file ) ) {
+		continue;
+	}
+	if ( $fix ) {
+		fix_generics( $file );
 		continue;
 	}
 	foreach ( check_file( $file ) as $violation ) {
