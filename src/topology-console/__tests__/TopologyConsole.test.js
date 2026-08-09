@@ -815,6 +815,10 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply routes to _metadata/_uptime)', async () => {
+		// The stub server carries no `heartbeat` verb; the poke reports that.
+		expectConsoleWarn(
+			'_heartbeat: ERROR: client heartbeat failed - no such verb: heartbeat'
+		);
 		jest.useFakeTimers();
 		try {
 			globalThis.__httpPosts = [];

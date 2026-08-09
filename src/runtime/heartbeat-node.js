@@ -19,6 +19,8 @@ const LEASE_OWNER_RE = /^[1-9][0-9]*$/;
 // job server-side, and clears SSE_Slot_Pool::$ttl (60s) four times over. 5s
 // was 12x more often than the lease actually needs.
 const POKE_INTERVAL_MS = 15000;
+// Remote_Link_Node::RELEASED_SLOT — an idled-out stream, not a fault.
+const RELEASED_SLOT = 'slot_released';
 
 /**
  * The `_heartbeat` node: one poke per live lease, on every Router tick.
@@ -63,20 +65,26 @@ export class HeartbeatNode extends TimerNode {
 			response && 'object' === typeof response && 'payload' in response
 				? response.payload
 				: response;
+		// Both failure kinds, ONE verdict — as Remote_Link_Node reads them.
+		let failure = null;
 		if ( type & TM_ERROR ) {
-			this._recordFailure(
-				this._safeError( payload, 'Heartbeat command failed' )
-			);
-			return;
-		}
-		if (
+			failure = this._safeError( payload, 'Heartbeat command failed' );
+		} else if (
 			! payload ||
 			'object' !== typeof payload ||
 			true !== payload.success
 		) {
-			this._recordFailure(
-				this._safeError( payload, 'Heartbeat rejected' )
-			);
+			failure = this._safeError( payload, 'Heartbeat rejected' );
+		}
+		if ( null !== failure ) {
+			// A released slot is a race, not a fault. Say nothing.
+			if ( ! failure.includes( RELEASED_SLOT ) ) {
+				this._recordFailure( failure );
+				// Rate-limited: a standing failure would log every tick.
+				this.printLessOften(
+					`ERROR: client heartbeat failed - ${ failure }`
+				);
+			}
 			return;
 		}
 		this.lastHeartbeatResponse = Core.now();

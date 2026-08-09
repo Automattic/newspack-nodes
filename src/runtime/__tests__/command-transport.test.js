@@ -20,6 +20,7 @@ import {
 	TM_ERROR,
 } from '../message';
 import { IoTelemetry } from '../io-telemetry';
+import names from '../reserved-node-names.json';
 import apiFetch from '@wordpress/api-fetch';
 
 describe( 'the command transport.fromGlobal', () => {
@@ -432,7 +433,7 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		expect( String( replies[ 0 ][ VALUE ].payload ) ).toMatch( /401/ );
 	} );
 
-	it( 'records a TM_ERROR reply WITH its cause, so the message list shows it', async () => {
+	it( 'records a TM_ERROR reply WITH its cause, so the list shows a diagnosis', async () => {
 		const reply = newMessage();
 		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
 		reply[ TO ] = 'topologies:list';
@@ -453,6 +454,30 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		expect( snap.messages.map( ( m ) => m.text ).join( '\n' ) ).toContain(
 			'NOT_AVAILABLE: no slot 0 lease'
 		);
+	} );
+
+	/**
+	 * The heartbeat judges its own replies and logs the ones that matter, so
+	 * its refusals reach the tile through `stderr` like every other logged
+	 * line. Counting them here as well put the expected `slot_released` race —
+	 * one per reconnect, forever — on the tile with no message beside it.
+	 */
+	it( 'leaves the heartbeat to judge its own refusals', async () => {
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+		reply[ TO ] = names.HEARTBEAT;
+		reply[ VALUE ] = 'SSE slot lease not owned: slot_released';
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			status: 200,
+			text: () => Promise.resolve( pack( reply ) ),
+		} );
+		IoTelemetry.clear();
+		const client = commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
+
+		await client.postBatch( [ posted( names.HEARTBEAT ) ] );
+
+		expect( IoTelemetry.snapshot().errors ).toBe( 0 );
 	} );
 
 	it( 'says nothing for a 202 the server routed onward', async () => {

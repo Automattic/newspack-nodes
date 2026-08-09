@@ -327,6 +327,8 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	} );
 
 	test( 'the Router TIMER drives heartbeat.fire (via notify_timer) so the slot keep-alive actually fires', async () => {
+		// The fake transport answers no `success: true` body; the poke says so.
+		expectConsoleWarn( '_heartbeat: ERROR: client heartbeat failed - ' );
 		jest.useFakeTimers();
 		try {
 			const client = makeFakeClient( { list_logs: oneLogReply() } );

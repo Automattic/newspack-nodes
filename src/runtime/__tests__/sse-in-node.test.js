@@ -366,19 +366,24 @@ test( 'a connected envelope preserves a greater-than-2^53 lease owner byte-for-b
 	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 } );
 
-test( 'the connected envelope is cached as the raw CONNECTED state string', () => {
+/**
+ * `SSE_In_Node` publishes `PID <pid> SLOT <slot>` and nothing else. The raw
+ * envelope also carries OWNER — the lease token the heartbeat authenticates
+ * with — and a state payload is traced to stderr, cached, and pushed to every
+ * subscriber, so publishing it verbatim writes that token into the transcript
+ * and the overlay's message ring on every reconnect.
+ */
+test( 'CONNECTED publishes the pid and slot only, never the lease owner', () => {
 	const { sse } = makeSseIn();
 	sse.start();
-	const raw = connectedRaw( {
-		pid: 7777,
-		slot: 3,
-		owner: LEASE_OWNER,
-	} );
 	FakeEventSource.last.dispatch(
 		'connected',
 		connectedFrame( { pid: 7777, slot: 3, owner: LEASE_OWNER } )
 	);
-	expect( sse.setStateCache.CONNECTED ).toBe( raw );
+	expect( sse.setStateCache.CONNECTED ).toBe( 'PID 7777 SLOT 3' );
+	expect( sse.setStateCache.CONNECTED ).not.toContain( LEASE_OWNER );
+	// Still snooped from the envelope — published is not the same as parsed.
+	expect( sse.leaseOwner() ).toBe( LEASE_OWNER );
 } );
 
 test( 'a connected envelope with no PID sets ERROR state and warns', () => {
