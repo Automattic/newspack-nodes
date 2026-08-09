@@ -317,6 +317,7 @@ class Core {
 		self::$secure_level      = null;
 		self::$log_host          = '';
 		Cache_Backend::$site     = '';
+		Cache_Backend::$salt     = null;
 		Cache_Backend::$machine  = '';
 		self::set_stderr_handler( static function ( string $text, bool $raw = false ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]

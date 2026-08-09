@@ -44,8 +44,13 @@ final class Cache_Backend {
 	 */
 	public const KEY_VERSION = 'v3';
 
-	/** Memoized install scope and machine half; `Core::reset()` clears them. */
+	/** Option holding the rotatable salt; rotating it orphans every key. */
+	public const SALT_OPTION = 'newspack_nodes_cache_salt';
+
+	/** Memoized install scope, salt and machine half; `Core::reset()` clears them. */
 	public static string $site = '';
+
+	public static ?string $salt = null;
 
 	public static string $machine = '';
 
@@ -115,6 +120,9 @@ final class Cache_Backend {
 	 * split ONE install's keyspace — a batch counter seeded by a subsite or a
 	 * web request, then invisible to the CLI worker that decrements it, so
 	 * fan-in never completes. `base_prefix` is invariant across both.
+	 *
+	 * The rotatable salt folds in here, so one rotation moves the keyspace for
+	 * every plugin on this install at once.
 	 */
 	public static function site(): string {
 		if ( '' !== self::$site ) {
@@ -131,7 +139,33 @@ final class Cache_Backend {
 			Core::print_less_often( 'ERROR: cache scope unresolvable (no DB_NAME, no $wpdb): keys are NOT install-scoped' );
 			return self::$site = 'unscoped';
 		}
-		return self::$site = \substr( \md5( $db . ':' . $prefix ), 0, 12 );
+		return self::$site = \substr( \md5( $db . ':' . $prefix . ':' . self::salt() ), 0, 12 );
+	}
+
+	/**
+	 * The install's cache salt. Empty until something rotates it.
+	 *
+	 * @longform Read through `$wpdb` rather than `get_option()` because pyrobase's
+	 * `bin/pyrate` runs under SHORTINIT, where the option API is stubbed to
+	 * return defaults — and pyrate warms the SAME caches the web serves. Reading
+	 * the row directly is what keeps one rotation coherent across both.
+	 */
+	public static function salt(): string {
+		if ( null !== self::$salt ) {
+			return self::$salt;
+		}
+		$wpdb = $GLOBALS['wpdb'] ?? null;
+		if ( ! $wpdb instanceof \wpdb ) {
+			return self::$salt = '';
+		}
+		// %i keeps the query a literal string with the table as an identifier.
+		$sql = $wpdb->prepare(
+			'SELECT option_value FROM %i WHERE option_name = %s LIMIT 1',
+			$wpdb->options,
+			self::SALT_OPTION
+		);
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared
+		return self::$salt = Core::as_string( $wpdb->get_var( $sql ), '' );
 	}
 
 	/**
@@ -269,6 +303,20 @@ final class Cache_Backend {
 	private function apcu_has( string $key ): bool {
 		\apcu_fetch( $key, $hit );
 		return (bool) $hit;
+	}
+
+	/**
+	 * Rotate the salt: every key on this install is orphaned at once, and no
+	 * co-tenant's is touched. THE flush — plugins do not keep their own.
+	 */
+	public static function rotate_salt(): string {
+		$salt = \function_exists( 'wp_generate_password' ) ? \wp_generate_password( 12, false ) : (string) \time();
+		if ( \function_exists( 'update_option' ) ) {
+			\update_option( self::SALT_OPTION, $salt, true );
+		}
+		self::$salt = $salt;
+		self::$site = '';
+		return $salt;
 	}
 
 	/** Atomic claim: false when the key already exists. */

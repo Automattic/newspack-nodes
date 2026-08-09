@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Admin;
 use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Config_System\Reset_Gate;
@@ -51,6 +52,10 @@ class Admin {
 	public const RESET_MARK_FIELD = 'newspack_nodes_reset';
 	public const RESET_NONCE  = 'newspack_nodes_reset_nonce';
 
+	/** THE cache flush: rotates the shared salt every plugin's keys hang off. */
+	public const FLUSH_ACTION = 'newspack_nodes_flush_cache';
+	public const FLUSH_NONCE  = 'newspack_nodes_flush_nonce';
+
 	/** Settings page slug for add_settings_field() / do_settings_sections(). */
 	public const SETTINGS_PAGE = 'newspack_nodes';
 
@@ -60,6 +65,7 @@ class Admin {
 		\add_action( 'admin_menu', [ $this, 'register_event_dashboard_pages' ], 11 );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
+		\add_action( 'admin_post_' . self::FLUSH_ACTION, [ $this, 'handle_flush_cache' ] );
 		// Priority 1: register the token sheet before any dashboard deps on it.
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_theme_style' ], 1 );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'register_ui_style' ], 2 );
@@ -742,6 +748,16 @@ class Admin {
 				<input type="hidden" name="action" value="<?php echo \esc_attr( self::RESET_ACTION ); ?>">
 				<?php \wp_nonce_field( self::RESET_ACTION, self::RESET_NONCE ); ?>
 			</form>
+			<form method="post" action="<?php echo \esc_url( $reset_url ); ?>">
+				<input type="hidden" name="action" value="<?php echo \esc_attr( self::FLUSH_ACTION ); ?>">
+				<?php \wp_nonce_field( self::FLUSH_ACTION, self::FLUSH_NONCE ); ?>
+				<p>
+					<?php \submit_button( \__( 'Flush Caches', 'newspack-nodes' ), 'secondary', 'submit', false ); ?>
+					<span class="description">
+						<?php \esc_html_e( 'Rotates this install\'s cache salt: every cached value for every Newspack plugin is orphaned at once. A co-tenant install on the same server is untouched.', 'newspack-nodes' ); ?>
+					</span>
+				</p>
+			</form>
 			<?php
 			// Extension plugins inject sections below the form.
 			\do_action( 'newspack_nodes/settings_after_form' );
@@ -881,6 +897,39 @@ class Admin {
 	private static function default_int( array $defaults, string $key, int $fallback ): int {
 		$value = $defaults[ $key ] ?? $fallback;
 		return Core::as_int( $value, $fallback );
+	}
+
+	/**
+	 * Rotate the install's cache salt — THE flush.
+	 *
+	 * One rotation orphans every Newspack plugin's cached values at once, and
+	 * touches no co-tenant install sharing the server. Plugins deliberately keep
+	 * no salt of their own: three independent rotations meant flushing one left
+	 * the other two serving stale values.
+	 */
+	public function handle_flush_cache(): void {
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$nonce = isset( $_POST[ self::FLUSH_NONCE ] ) && \is_string( $_POST[ self::FLUSH_NONCE ] ) ? \sanitize_text_field( \wp_unslash( $_POST[ self::FLUSH_NONCE ] ) ) : '';
+		if ( '' === $nonce || ! \wp_verify_nonce( $nonce, self::FLUSH_ACTION ) ) {
+			\wp_die( \esc_html__( 'Security check failed.', 'newspack-nodes' ) );
+		}
+		if ( ! self::current_user_allowed() ) {
+			\wp_die( \esc_html__( 'You do not have permission to perform this action.', 'newspack-nodes' ) );
+		}
+
+		Cache_Backend::rotate_salt();
+
+		$redirect = \function_exists( 'admin_url' )
+			? \add_query_arg(
+				[
+					'page'    => self::MENU_SLUG,
+					'flushed' => '1',
+				],
+				\admin_url( 'admin.php' )
+			)
+			: '';
+		\wp_safe_redirect( $redirect );
+		exit;
 	}
 
 	/**
