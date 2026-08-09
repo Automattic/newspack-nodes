@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.18.0] - 2026-08-09
+
 ### Changed
 
 - `newspack_nodes/job_worker/before_job` carries the job MESSAGE as a third
