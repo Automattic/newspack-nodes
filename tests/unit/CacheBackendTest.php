@@ -468,4 +468,21 @@ class CacheBackendTest extends TestCase {
 		Cache_Backend::$site = '';
 		$this->assertSame( $before, Cache_Backend::site_key( 'table:prices:sku-9' ) );
 	}
+	public function test_the_salt_is_read_from_the_option_row_not_get_option(): void {
+		// bin/pyrate runs under SHORTINIT, where get_option() is stubbed to
+		// return the default — so a salt read that way is invisible to the CLI
+		// while the web sees it, and the two write to split caches. Reading the
+		// row through $wpdb is what keeps one rotation coherent across both.
+		$GLOBALS['wpdb']->rows[ Cache_Backend::SALT_OPTION ] = 'row-7719';
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+
+		$this->assertSame( 'row-7719', Cache_Backend::salt() );
+
+		unset( $GLOBALS['wpdb']->rows[ Cache_Backend::SALT_OPTION ] );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+
+		$this->assertSame( '', Cache_Backend::salt(), 'no row means unflushed, not a salt' );
+	}
 }
