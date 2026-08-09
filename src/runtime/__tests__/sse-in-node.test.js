@@ -3,7 +3,8 @@
  * now merged in: SseInNode extends Node directly). It opens an EventSource,
  * snoops the `connected` handshake string for `pid()` + the complete slot
  * lease, runs the heartbeat watchdog / reconnect logic, and forwards each
- * parsed positional Message into its sink. Composed UNNAMED by RemoteLink;
+ * parsed positional Message into its sink. Composed by RemoteLink as its
+ * patron-owned `<patron>:sse-in`;
  * receive-only (inbound frames route via the EventSource listener →
  * `super.fill`).
  *

@@ -3,8 +3,8 @@
  * substrate's canonical rule-#2 backbone (`_command_interpreter → _router`) via
  * a SINGLE `RemoteLink` node plus the single `partition:view` view-model node.
  *
- * RemoteLink composes an UNNAMED per-link SseIn (held as `link.sseIn`, NOT
- * registered in Core — no canvas churn) and SHARES the reserved-name `_http`
+ * RemoteLink composes a per-link `<name>:sse-in` (held as `link.sseIn`,
+ * registered but patron-owned — no canvas churn) and SHARES `_http`
  * (HttpOut) + `_heartbeat` (Heartbeat) singletons, wiring the connected lease
  * to that shared heartbeat. The bespoke `partition:route` /
  * `partition:transform` nodes are gone — envelope→row shaping is inlined into the
@@ -13,7 +13,7 @@
  * EventSource is faked via `global.EventSource`; SseInNode's connection logic
  * (already covered by the substrate's `sse-in-node.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
- * actually routes the composed (unnamed) sse-in → view.
+ * actually routes the composed `:sse-in` → view.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -71,7 +71,7 @@ import { usePartitionViewerGraph } from '../usePartitionViewerGraph';
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const LINK = 'partition:link';
-// SseIn is UNNAMED (link.sseIn); HttpOut + Heartbeat are shared singletons.
+// SseIn is patron-owned; HttpOut + Heartbeat are shared singletons.
 const HTTP = names.HTTP;
 const HEARTBEAT = names.HEARTBEAT;
 const VIEW = 'partition:view';
@@ -146,10 +146,10 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		// The view sinks into the interpreter.
 		expect( Core.node( VIEW ) ).toBeTruthy();
 		expect( Core.node( VIEW ).sink ).toBe( interpreter );
-		// The composed SseIn is UNNAMED — held on the link, never registered.
+		// The composed SseIn is the link's patron-owned `<name>:sse-in`.
 		const link = Core.node( LINK );
 		expect( link.sseIn ).toBeTruthy();
-		expect( Core.node( 'partition:link:sse-in' ) ).toBeNull();
+		expect( Core.node( 'partition:link:sse-in' ) ).toBe( link.sseIn );
 		// HttpOut + Heartbeat are SHARED singletons sinking into the backbone.
 		for ( const name of [ HTTP, HEARTBEAT ] ) {
 			const node = Core.node( name );
@@ -160,7 +160,7 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( link.heartbeat ).toBe( Core.node( HEARTBEAT ) );
 	} );
 
-	test( 'steers flow with targets: composed (unnamed) sse-in → stream Tee → view; shared heartbeat → _http/workers', async () => {
+	test( 'steers flow with targets: composed `:sse-in` → stream Tee → view; shared heartbeat → _http/workers', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		// The link re-homes frames to the Tee, which fans to the view.

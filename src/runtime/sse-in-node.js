@@ -2,7 +2,7 @@
 /**
  * SseInNode — the SSE receive-ingress node: opens an EventSource, snoops the
  * `connected` handshake for `pid()`, and fills each parsed `msg` frame into the
- * local graph. Composed UNNAMED by RemoteLink as the per-link inbound stream.
+ * local graph. Composed by RemoteLink as the per-link `<patron>:sse-in`.
  *
  * Receive-only: inbound frames route through the EventSource listener →
  * `super.fill` (Node.fill, route-by-TO). The outgoing reply-FROM wrap

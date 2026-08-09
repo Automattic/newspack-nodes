@@ -2,9 +2,9 @@
  * RemoteIpcNode tests — the per-worker interactive command channel.
  *
  * One RemoteIpc per active worker, named `{topology}.p{N}`. It EXTENDS RemoteLink
- * but overrides the child composition for the console: it owns an UNNAMED SseIn
- * (an internal per-worker stream — unregistered, so it never churns the canvas
- * layout) and SHARES the reserved-name `_http` (HttpOut) + `_heartbeat`
+ * but overrides the child composition for the console: it owns a per-worker
+ * `<name>:sse-in` (registered so `trace` can reach it, patron-owned so the
+ * canvas skips it) and SHARES the reserved-name `_http` (HttpOut) + `_heartbeat`
  * (Heartbeat) singletons with every other RemoteIpc (stable names; `/_http`
  * resolves). It adds the worker-relay send + the single live-connection steal.
  * A send boots/steals the single live EventSource (closing whichever RemoteIpc
@@ -106,15 +106,24 @@ describe( 'RemoteIpcNode', () => {
 		);
 	} );
 
-	it( 'extends RemoteLink and owns an UNNAMED SseIn (not registered in Core)', () => {
+	it( 'extends RemoteLink and owns a patron-registered `<name>:sse-in`', () => {
 		const { interpreter } = mountExospine();
 		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
 		expect( node ).toBeInstanceOf( RemoteLinkNode );
 		node.fill( command() );
 		expect( node.sseIn ).toBeInstanceOf( SseInNode );
 		expect( node.sseIn.sink ).toBe( node.sink );
-		// Unnamed: the old per-worker `{reader}:sse-in` node is gone.
-		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBe( null );
+		expect( Core.node( 'aggregator.p0:sse-in' ) ).toBe( node.sseIn );
+		expect( node.sseIn.patron ).toBe( node );
+	} );
+
+	it( 'takes its `:sse-in` out of the table on teardown, leaving the name free', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'indigo-ipc-731', interpreter );
+		node.fill( command() );
+		expect( Core.node( 'indigo-ipc-731:sse-in' ) ).not.toBe( null );
+		node.removeNode();
+		expect( Core.node( 'indigo-ipc-731:sse-in' ) ).toBe( null );
 	} );
 
 	it( 'a palette make preserves a distinct reader across dumpConfig replay and routes through it', () => {
