@@ -18,6 +18,7 @@ import { DraftInterpreterNode } from '../draft-interpreter-node';
 import { NodeRegistry } from '../node-registry';
 import { parseStatements } from '../shell-node';
 import { newMessage, TYPE, TO, VALUE, TM_COMMAND } from '../message';
+import names from '../reserved-node-names.json';
 import { markLocal } from '../command-auth';
 
 /**
@@ -49,9 +50,11 @@ beforeEach( () => Core.reset() );
 class DraftInterpreter extends CommandInterpreterNode {
 	constructor() {
 		super();
-		// Its own name table for its CONTENTS. The interpreter itself still
-		// lives in Core under one reserved name — the Job shape.
+		// Its own name table for its CONTENTS, and the canonical name inside
+		// it: a draft is a self-contained world, so nothing collides.
 		this.childRegistry = new NodeRegistry();
+		this.registry = this.childRegistry;
+		this.name = names.COMMAND_INTERPRETER;
 	}
 
 	_cmdMakeNode( args ) {
@@ -68,18 +71,12 @@ class DraftInterpreter extends CommandInterpreterNode {
 		node.name = name;
 		node.arguments = args.slice( 2 );
 		node.sink = this;
-		// Same rule makeNode follows: record the sink you wired, or
-		// dump_config emits a set_sink line for your own default.
-		node._defaultSink = this;
 		return 'ok';
 	}
 }
 
-function draftInterpreter( name = '_draft' ) {
-	const interpreter = new DraftInterpreter();
-	// Lives in Core under ONE reserved name; its contents do not.
-	interpreter.name = name;
-	return interpreter;
+function draftInterpreter() {
+	return new DraftInterpreter();
 }
 
 /**
@@ -124,7 +121,7 @@ describe( 'a draft interpreter holding a server topology', () => {
 			return dumpAll( draft );
 		} )();
 
-		const reloaded = draftInterpreter( '_draft2' );
+		const reloaded = draftInterpreter();
 		evalTsl( reloaded, first );
 
 		expect( dumpAll( reloaded ) ).toBe( first );
@@ -463,5 +460,30 @@ describe( 'move_node against a verb argument that names a node', () => {
 		expect( invocations[ 0 ].args ).toEqual( [ 'armadillo' ] );
 		// Same text, not a node reference: an int argument stays put.
 		expect( invocations[ 1 ].args ).toEqual( [ 'pangolin' ] );
+	} );
+} );
+
+/**
+ * A draft is a self-contained world: its contents live in its own registry, so
+ * the canonical `_command_interpreter` name is free there and belongs to it.
+ * Naming it anything else makes every node's implicit sink read as a stated
+ * one, and dump_config emits a `set_sink` line the TSL never had.
+ */
+describe( 'the draft interpreter names itself canonically', () => {
+	it( 'is `_command_interpreter` inside its own registry, and absent from Core', () => {
+		const draft = draftInterpreter();
+		expect( draft.name ).toBe( names.COMMAND_INTERPRETER );
+		expect( draft.childRegistry.node( names.COMMAND_INTERPRETER ) ).toBe(
+			draft
+		);
+		expect( Core.registry.node( names.COMMAND_INTERPRETER ) ).toBe( null );
+	} );
+
+	it( 'omits set_sink for a node it wired itself', () => {
+		const draft = draftInterpreter();
+		evalTsl( draft, 'make_node Tee cerulean-fanout-619' );
+		expect(
+			draft.childRegistry.node( 'cerulean-fanout-619' ).dumpConfig()
+		).toBe( 'make_node Tee cerulean-fanout-619\n' );
 	} );
 } );

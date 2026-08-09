@@ -7,8 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A draft interpreter holds the canonical `_command_interpreter` name.** It
+  lives in a table of its own — never Core, never the document it edits — so
+  the name is free to take, and taking it is what lets `dump_config` tell the
+  sink `make_node` wired from one a document stated. The `_defaultSink` field
+  that used to answer that question, and every assignment of it, are gone.
+  Production always built this interpreter unnamed, so only tests named it
+  `_draft`; they now construct it the way the console does.
+
 ### Fixed
 
+- **The heartbeat's released slot is no longer counted as an error.** A stream
+  the server lets go idle releases its slot, and the next client poke is told
+  it no longer owns the lease — expected, and `Remote_Link_Node` has said so
+  all along ("a released slot is a race, not a fault"). The JS twin had no such
+  rule, so every reconnect climbed the ERRORS tile. It now keeps its green
+  status on `slot_released` and logs any other failure, which it never did.
+- **The boundary stops tallying the heartbeat's refusals, and names the rest.**
+  A TM_ERROR reply is counted with its cause now, so the ERRORS tile always has
+  a message beside it — it recorded textlessly before, and a record with no
+  text adds no row. The heartbeat is the one exemption: it judges its own
+  replies and logs the ones that matter, so counting them at the boundary as
+  well put the expected `slot_released` race on the tile once per reconnect.
+- **`SSE_In` publishes `PID <pid> SLOT <slot>` on CONNECTED.** It published the
+  raw handshake, which also carries OWNER — the lease token the heartbeat
+  authenticates with — and a state payload is traced to stderr, cached, and
+  pushed to every subscriber, so that token was written into the transcript and
+  the overlay's message ring on every reconnect. Matches `SSE_In_Node`.
 - **A resuming log stream stops holding a child for the whole idle window.**
   `Tail_Node::file_lag()` read the raw cursor, which a queued resume seek leaves
   at 0 until the first poll — so a Tail that resumed AT EOF looked maximally

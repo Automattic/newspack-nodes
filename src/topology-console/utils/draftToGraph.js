@@ -121,8 +121,8 @@ export function draftToGraph( interpreter ) {
 /**
  * Read a TSL source into a graph, composed with its include expansion.
  *
- * A throwaway interpreter, deliberately unnamed: it is a READER, and naming it
- * would register a second `_draft` beside the console's own.
+ * A throwaway interpreter: it is a READER, and it names itself
+ * `_command_interpreter` inside its own registry, never in Core.
  *
  * @param {string} tsl                   Topology source.
  * @param {Object} [expansion]           `topologies expand` result for its includes.

@@ -23,8 +23,11 @@
  *      property; here it edits a line, both directions.
  *
  * Its nodes live in its own registry, so a draft `firehose` is not the live
- * one. The interpreter itself is registered normally — the Tachikoma Job shape,
- * where the job's node sits in the parent table and its contents do not.
+ * one — and the interpreter itself lives in a THIRD table, holding the
+ * canonical `_command_interpreter` name without ever entering Core or the
+ * document it edits. That name is what lets `dump_config` tell the sink
+ * `make_node` wired from one a document stated: every draft node sinks into
+ * `_command_interpreter`, exactly as it reads in the TSL.
  */
 
 import { CommandInterpreterNode } from './command-interpreter-node';
@@ -40,6 +43,7 @@ import {
 	TM_NOREPLY,
 	TM_ERROR,
 } from './message';
+import names from './reserved-node-names.json';
 
 /**
  * Spans back to values, through the one tokenizer.
@@ -74,6 +78,9 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		super();
 		// Its CONTENTS live here; it lives where it is named.
 		this.childRegistry = new NodeRegistry();
+		// A THIRD table, its own: holds the name, never the document.
+		this.registry = new NodeRegistry();
+		this.name = names.COMMAND_INTERPRETER;
 		this.frontmatter = {};
 		this.includes = [];
 		this.secureLevel = '';
@@ -178,7 +185,6 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			node.fansOut =
 				record.fans_out ?? this._catalogFansOut( record.class );
 			node.sink = this;
-			node._defaultSink = this;
 			this._seeded.set(
 				record.name,
 				( record.verbs ?? [] ).map( ( v ) => ( {
@@ -296,7 +302,6 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		node.name = name;
 		node.arguments = ctor;
 		node.sink = this;
-		node._defaultSink = this;
 		return 'ok';
 	}
 
@@ -496,11 +501,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			}
 			// A sink the document STATED, not the one make_node wired.
 			const sinkName = node.sink?.name ?? '';
-			if (
-				sinkName &&
-				undefined !== node._defaultSink &&
-				node.sink !== node._defaultSink
-			) {
+			if ( sinkName && names.COMMAND_INTERPRETER !== sinkName ) {
 				lines.push( `set_sink ${ name } ${ sinkName }` );
 			}
 			for ( const inv of this.declaredInvocationsFor( name ) ) {
@@ -730,15 +731,15 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * @return {string[]} Included topology names, in order, deduplicated.
 	 */
 	static includesOf( tsl ) {
-		const names = [];
+		const named = [];
 		for ( const { verb, values } of parseStatements( tsl || '' ) ) {
 			if ( 'include' === verb && values.length >= 2 ) {
-				if ( ! names.includes( values[ 1 ] ) ) {
-					names.push( values[ 1 ] );
+				if ( ! named.includes( values[ 1 ] ) ) {
+					named.push( values[ 1 ] );
 				}
 			}
 		}
-		return names;
+		return named;
 	}
 
 	/**

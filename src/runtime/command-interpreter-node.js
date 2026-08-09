@@ -346,7 +346,6 @@ export class CommandInterpreterNode extends Node {
 		}
 		node.sink = this;
 		// The sink dump_config may omit: the one make_node wired.
-		node._defaultSink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			// Trace level is stamped from outside; no class declares it.
 			/** @type {{ debugState?: number }} */ ( node ).debugState =
