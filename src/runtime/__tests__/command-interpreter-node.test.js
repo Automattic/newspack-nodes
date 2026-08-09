@@ -1018,8 +1018,6 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( body.class ).toBeUndefined(); // header, not a body key
 		} );
 		it( 'still shows a private with no public accessor', () => {
-			// Hiding `_defaultSink` must not hide the internals an operator
-			// reads at the REPL — a Dumper's ring, a Request's queue.
 			const interpreter = makeInterpreter();
 			const n = new Node();
 			n.name = 'priv';
@@ -1030,10 +1028,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 		} );
 
-		it( 'does not expose the sink make_node recorded', () => {
-			// `make_node` records the sink it wired so dump_config can tell an
-			// implicit sink from a stated one. That is bookkeeping, not state
-			// an operator inspects — and PHP's dump_node has no such row.
+		it( '_defaultSink is still gone', () => {
 			const interpreter = makeInterpreter();
 			dispatch( interpreter, 'make_node', 'Echo made' );
 

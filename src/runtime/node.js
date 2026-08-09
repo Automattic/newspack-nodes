@@ -92,14 +92,6 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
  */
 export class Node {
 	/**
-	 * The sink `make_node` wired, so `dump_config` can tell an implicit sink
-	 * from a stated one. Bookkeeping; `dumpNode` hides it.
-	 *
-	 * @type {?Object}
-	 */
-	_defaultSink = undefined;
-
-	/**
 	 * Builds the empty node: no sink, no target, zeroed stats, and the
 	 * registration allow-list seeded from the subclass `nodeSchema()`.
 	 */
@@ -121,7 +113,6 @@ export class Node {
 		this._largestMsgSent = 0;
 		this.registrations = {};
 		this.setStateCache = {};
-		// `trace` raises this; PHP declares the same field on its base Node.
 		this.debugState = 0;
 		this.patron = null;
 		this.interpreter = null;
@@ -270,7 +261,6 @@ export class Node {
 		if ( 'function' === typeof cb ) {
 			return cb( payload );
 		}
-		// Node-name mode: deliver TM_INFO directly to the resolved node, no TO.
 		const target = this.registry.node( listener );
 		if ( ! target ) {
 			// Stale listener could fire on every notify — rate-limit.
@@ -298,7 +288,6 @@ export class Node {
 	 */
 	stampMessage( message, name ) {
 		if ( '' === name ) {
-			// Programming error — unlikely to spam, won't recover.
 			this.stderr(
 				`ERROR: ${ this.constructor.name } stampMessage() called with empty name`
 			);
@@ -307,7 +296,6 @@ export class Node {
 		const from = message[ FROM ];
 		const next = '' === from ? name : `${ name }/${ from }`;
 		if ( next.length > MAX_FROM_SIZE ) {
-			// Rate-limit: a routing cycle could trigger this per-message.
 			this.printLessOften(
 				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
 			);
@@ -423,11 +411,7 @@ export class Node {
 		out += '\n';
 
 		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
-		// Only the sink make_node wired is implicit; another must be stated.
-		const implicit =
-			names.COMMAND_INTERPRETER === sinkName ||
-			( undefined !== this._defaultSink &&
-				this.sink === this._defaultSink );
+		const implicit = names.COMMAND_INTERPRETER === sinkName;
 		if ( '' !== sinkName && ! implicit ) {
 			out += `set_sink ${ this.name } ${ sinkName }\n`;
 		}
@@ -484,7 +468,6 @@ export class Node {
 	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
 	 */
 	command( name, args = [] ) {
-		// Fail loud like buildMessage: a string here would drop the args to [].
 		if ( ! Array.isArray( args ) ) {
 			throw new Error(
 				`command args must be a token array, got ${ typeof args } for verb "${ name }"`
@@ -608,7 +591,6 @@ export class Node {
 			);
 		}
 		this._name = name;
-		// In place: table order is file order, so a rename moves one line.
 		if ( registry.node( previous ) === this ) {
 			registry.renameNode( previous, name );
 			return;
@@ -681,10 +663,6 @@ export class Node {
 			const val = this[ key ];
 			if ( 'sink' === key ) {
 				snapshot.sink = val && val.name ? val.name : '';
-				continue;
-			}
-			// dump_config bookkeeping; PHP's dump_node has no such row.
-			if ( '_defaultSink' === key ) {
 				continue;
 			}
 			// `_foo` field with a public `foo` accessor: snapshot the public.

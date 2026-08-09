@@ -16,6 +16,7 @@
 import { Core } from '../core';
 import { StubNode } from '../stub-node';
 import { DraftInterpreterNode } from '../draft-interpreter-node';
+import names from '../reserved-node-names.json';
 
 // A draft reports every non-`ok` reply; some cases refuse deliberately.
 beforeEach( () => {
@@ -24,11 +25,30 @@ beforeEach( () => {
 } );
 afterEach( () => jest.restoreAllMocks() );
 
-const draft = () => {
-	const d = new DraftInterpreterNode();
-	d.name = '_draft';
-	return d;
-};
+// It names itself `_command_interpreter` in its own registry; renaming it here
+// would put the interpreter in its own dump as an ordinary node.
+const draft = () => new DraftInterpreterNode();
+
+/**
+ * The interpreter holds the canonical name in a home table of its own, so a
+ * `load()` clearing the document cannot take the name with it. Were it in the
+ * table it clears, every node it wires would read as an implicit sink after a
+ * load only by accident — an empty sink name short-circuits the same guard.
+ */
+describe( 'the interpreter keeps its own name across a load', () => {
+	it( 'is still `_command_interpreter`, and stays out of the document', () => {
+		const d = draft();
+		d.load( 'make_node Tee cerulean-fanout-619' );
+		expect( d.name ).toBe( names.COMMAND_INTERPRETER );
+		expect( [ ...d.childRegistry.nodes.keys() ] ).toEqual( [
+			'cerulean-fanout-619',
+		] );
+		// And the document it just loaded still dumps as written.
+		expect(
+			d.childRegistry.node( 'cerulean-fanout-619' ).dumpConfig()
+		).toBe( 'make_node Tee cerulean-fanout-619\n' );
+	} );
+} );
 
 describe( 'graph verbs', () => {
 	it( 'stubs a class the browser cannot build, and keeps its name', () => {

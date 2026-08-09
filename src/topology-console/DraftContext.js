@@ -48,7 +48,7 @@ const DraftContext = createContext( null );
 export function useDraftInterpreter() {
 	const ref = useRef( null );
 	if ( null === ref.current ) {
-		// UNNAMED: nothing routes to a draft, and a name would collide.
+		// It names itself `_command_interpreter` in a registry of its own.
 		ref.current = new DraftInterpreterNode();
 	}
 	const [ graph, setGraph ] = useState( () => draftToGraph( ref.current ) );
