@@ -141,7 +141,16 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		for ( const message of messages ) {
 			if ( message[ TYPE ] & TM_ERROR ) {
-				IoTelemetry.recordError();
+				// With no text the operator gets a tally and no diagnosis.
+				const cause = message[ VALUE ];
+				IoTelemetry.recordError(
+					1,
+					`ERROR: ${ message[ TO ] || '/command' }: ${
+						'string' === typeof cause
+							? cause
+							: JSON.stringify( cause )
+					}`
+				);
 			}
 		}
 		return { messages, refusal: null };

@@ -10,6 +10,7 @@ import * as auth from '../command-auth';
 import { Core } from '../core';
 import {
 	newMessage,
+	pack,
 	TYPE,
 	FROM,
 	TO,
@@ -18,6 +19,7 @@ import {
 	TM_COMMAND,
 	TM_ERROR,
 } from '../message';
+import { IoTelemetry } from '../io-telemetry';
 import apiFetch from '@wordpress/api-fetch';
 
 describe( 'the command transport.fromGlobal', () => {
@@ -428,6 +430,29 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		expect( replies[ 0 ][ TO ] ).toBe( 'topologies:list' );
 		expect( replies[ 1 ][ TO ] ).toBe( 'topologies:get' );
 		expect( String( replies[ 0 ][ VALUE ].payload ) ).toMatch( /401/ );
+	} );
+
+	it( 'records a TM_ERROR reply WITH its cause, so the message list shows it', async () => {
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+		reply[ TO ] = 'topologies:list';
+		reply[ VALUE ] = 'NOT_AVAILABLE: no slot 0 lease';
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: true,
+			status: 200,
+			text: () => Promise.resolve( pack( reply ) ),
+		} );
+		IoTelemetry.clear();
+		const client = commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
+
+		await client.postBatch( [ posted( 'topologies:list' ) ] );
+
+		const snap = IoTelemetry.snapshot();
+		expect( snap.errors ).toBe( 1 );
+		// A textless tally leaves the operator a count and no diagnosis.
+		expect( snap.messages.map( ( m ) => m.text ).join( '\n' ) ).toContain(
+			'NOT_AVAILABLE: no slot 0 lease'
+		);
 	} );
 
 	it( 'says nothing for a 202 the server routed onward', async () => {
