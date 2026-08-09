@@ -405,7 +405,7 @@ class Tail_Node extends Consumer_Node {
 	/** @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int} */
 	private function file_lag(): array {
 		$size         = $this->file_current_size();
-		$bytes_behind = \max( 0, $size - $this->cursor_offset );
+		$bytes_behind = \max( 0, $size - $this->lag_cursor_offset() );
 		return [
 			'bytes_behind'    => $bytes_behind,
 			'segments_behind' => 0,
@@ -414,6 +414,42 @@ class Tail_Node extends Consumer_Node {
 			'end_size'        => $size,
 			'end_bytes'       => $size,
 		];
+	}
+
+	/**
+	 * Offset the lag read may trust: a queued seek counts only while it still
+	 * describes the file that is there — same generation, not past its end.
+	 *
+	 * @longform A candidate is not yet validated; `validate_resume_offset()`
+	 * runs at the first poll and cannot run here, with no follow handle open.
+	 * Honouring a stale one lets a client echo a pre-rotation position and have
+	 * the new generation declared caught up, so SSE_Out closes on the first
+	 * tick and never delivers it. Falling back to the raw cursor reads as
+	 * behind, which keeps the stream open long enough to validate and rewind.
+	 */
+	private function lag_cursor_offset(): int {
+		$candidate = $this->file_seek_candidate;
+		if ( null === $candidate ) {
+			return $this->cursor_offset;
+		}
+		$inode = $candidate['inode'] ?? null;
+		if ( null !== $inode && $inode !== $this->file_current_inode() ) {
+			return $this->cursor_offset;
+		}
+		return $candidate['offset'] > $this->file_current_size()
+			? $this->cursor_offset
+			: $candidate['offset'];
+	}
+
+	/** Inode of the followed path right now, or 0 when it is absent. */
+	private function file_current_inode(): int {
+		$path = $this->source_file;
+		if ( '' === $path || ! \is_file( $path ) ) {
+			return 0;
+		}
+		\clearstatcache( true, $path );
+		$inode = \fileinode( $path );
+		return false === $inode ? 0 : $inode;
 	}
 
 	/** Current byte size of the followed path, or 0 when it is absent. */
