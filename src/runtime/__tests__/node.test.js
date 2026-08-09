@@ -241,6 +241,41 @@ test( 'setState caches payload and replays to late closure registrants', () => {
 	expect( got ).toEqual( [ 'cached' ] );
 } );
 
+test( 'setState traces the transition once debugState is raised', () => {
+	const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+	const n = new Node();
+	n.name = 'violet-947';
+
+	n.setState( 'LEASED', 'slot 7' );
+	expect( stderr ).not.toHaveBeenCalled();
+
+	n.debugState = 1;
+	n.setState( 'LEASED', 'slot 7' );
+	expect( stderr.mock.calls[ 0 ][ 0 ] ).toContain(
+		'violet-947: DEBUG: LEASED slot 7'
+	);
+
+	// A detail-less transition prints the event alone, no trailing space.
+	n.setState( 'SEALED' );
+	expect( stderr.mock.calls[ 1 ][ 0 ] ).toMatch( /DEBUG: SEALED\n?$/ );
+	stderr.mockRestore();
+} );
+
+test( 'setState leaves a structured payload untraced: it is a render bridge', () => {
+	const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+	const n = new Node();
+	n.name = 'indigo-731';
+	n.debugState = 1;
+
+	n.setState( 'transcript', [ 'line one', 'line two' ] );
+	expect( stderr ).not.toHaveBeenCalled();
+
+	// The scalar states around it still trace.
+	n.setState( 'LEASED', 'slot 7' );
+	expect( stderr ).toHaveBeenCalledTimes( 1 );
+	stderr.mockRestore();
+} );
+
 test( 'unregister stops further notifications', () => {
 	const n = new Node();
 	n.registrations.X = {};

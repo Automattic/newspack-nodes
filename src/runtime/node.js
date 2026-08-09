@@ -121,6 +121,8 @@ export class Node {
 		this._largestMsgSent = 0;
 		this.registrations = {};
 		this.setStateCache = {};
+		// `trace` raises this; PHP declares the same field on its base Node.
+		this.debugState = 0;
 		this.patron = null;
 		this.interpreter = null;
 		this._arguments = [];
@@ -212,11 +214,24 @@ export class Node {
 	 * Notify `event` and cache the payload, so a listener registering later
 	 * receives the current state instead of waiting for the next change.
 	 *
+	 * A scalar payload is a lifecycle state — the only shape PHP's
+	 * `set_state( string, string )` can hold — and `debug_state` traces it. A
+	 * structured payload is this runtime's React bridge instead, and stays
+	 * untraced: `_output` publishes its transcript that way, so a trace line
+	 * would land in the transcript and publish itself again.
+	 *
 	 * @param {string} event   Pre-declared event name on this node.
 	 * @param {*}      payload Current state; rides as the TM_INFO VALUE.
 	 */
 	setState( event, payload = null ) {
 		this.setStateCache[ event ] = payload;
+		const scalar = null === payload || 'object' !== typeof payload;
+		if ( scalar && ( this.debugState ?? 0 ) > 0 ) {
+			const detail = null === payload ? '' : String( payload );
+			this.stderr(
+				`DEBUG: ${ event }${ '' !== detail ? ` ${ detail }` : '' }`
+			);
+		}
 		this.notify( event, payload );
 	}
 
