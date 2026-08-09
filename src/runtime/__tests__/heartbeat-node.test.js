@@ -275,6 +275,9 @@ describe( 'Heartbeat node', () => {
 			node.fill( success );
 			expect( node.lastHeartbeatResponse ).toBe( 5151.53 );
 
+			expectConsoleWarn(
+				'ERROR: client heartbeat failed - SSE slot lease ownership mismatch'
+			);
 			const failed = newMessage();
 			failed[ TYPE ] = TM_COMMAND | TM_ERROR;
 			failed[ VALUE ] = {
@@ -290,7 +293,55 @@ describe( 'Heartbeat node', () => {
 			);
 		} );
 
+		it( 'treats a released slot as the race it is: keeps the green status, logs nothing', () => {
+			const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+			jest.spyOn( Core, 'now' ).mockReturnValue( 7171.71 );
+			const node = new HeartbeatNode();
+			const success = newMessage();
+			success[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			success[ VALUE ] = {
+				name: 'heartbeat',
+				payload: { success: true },
+			};
+			node.fill( success );
+
+			const released = newMessage();
+			released[ TYPE ] = TM_COMMAND | TM_ERROR;
+			released[ VALUE ] = {
+				name: 'heartbeat',
+				payload: 'SSE slot lease not owned: slot_released',
+			};
+			node.fill( released );
+
+			// The server let the idle stream go; the reconnect takes a new slot.
+			expect( node.lastHeartbeatError ).toBeNull();
+			expect( node.lastHeartbeatResponse ).toBe( 7171.71 );
+			expect( stderr ).not.toHaveBeenCalled();
+			stderr.mockRestore();
+		} );
+
+		it( 'logs a heartbeat failure that is NOT a released slot', () => {
+			const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+			const node = new HeartbeatNode();
+			const failed = newMessage();
+			failed[ TYPE ] = TM_COMMAND | TM_ERROR;
+			failed[ VALUE ] = {
+				name: 'heartbeat',
+				payload: 'SSE slot lease not owned: pointer_owner_mismatch',
+			};
+			node.fill( failed );
+
+			expect( node.lastHeartbeatError ).toBe(
+				'SSE slot lease not owned: pointer_owner_mismatch'
+			);
+			expect( stderr.mock.calls[ 0 ][ 0 ] ).toContain(
+				'ERROR: client heartbeat failed - SSE slot lease not owned: pointer_owner_mismatch'
+			);
+			stderr.mockRestore();
+		} );
+
 		it( 'a success:false application reply clears a prior success and retains its error', () => {
+			expectConsoleWarn( 'ERROR: client heartbeat failed - ' );
 			jest.spyOn( Core, 'now' ).mockReturnValue( 6262.67 );
 			const node = new HeartbeatNode();
 			const success = newMessage();
@@ -342,6 +393,7 @@ describe( 'Heartbeat node', () => {
 		] )(
 			'a %s clears prior success and records a bounded failure',
 			( _case, payload, expectedError ) => {
+				expectConsoleWarn( 'ERROR: client heartbeat failed - ' );
 				const now = jest.spyOn( Core, 'now' );
 				const node = new HeartbeatNode();
 				const success = newMessage();

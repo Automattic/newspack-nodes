@@ -483,8 +483,8 @@ describe( 'RemoteLinkNode', () => {
 		link.onConnected = ( payload ) => seen.push( payload );
 		link.connect();
 		dispatchConnected( link, { pid: 4242, slot: 3 } );
-		// Bridge fires the hook with the CONNECTED payload (raw envelope).
-		expect( seen ).toEqual( [ connectedRaw( { pid: 4242, slot: 3 } ) ] );
+		// The CONNECTED payload, which carries no lease owner.
+		expect( seen ).toEqual( [ 'PID 4242 SLOT 3' ] );
 	} );
 
 	it( 'defaults the shared `_http` client from the localized global when none is injected and args carry no baseUrl/nonce', () => {

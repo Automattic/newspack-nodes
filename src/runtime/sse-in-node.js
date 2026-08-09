@@ -234,7 +234,8 @@ export class SseInNode extends TimerNode {
 		this.sessionPid = pid;
 		this.sessionSlot = slot;
 		this.sessionLeaseOwner = leaseOwner;
-		this.setState( 'CONNECTED', raw );
+		// SSE_In_Node's payload: the raw envelope also carries the lease OWNER.
+		this.setState( 'CONNECTED', `PID ${ pid } SLOT ${ slot }` );
 		this._mayRenewNonce = true;
 		// Stamp the live-stream connect time for the Overview SSE Uptime card.
 		IoTelemetry.markSseConnected();

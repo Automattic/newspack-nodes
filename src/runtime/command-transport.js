@@ -25,6 +25,7 @@ import { invalidateAuth, renewSession } from './command-auth';
 import { Core } from './core';
 import { IoTelemetry, byteLength } from './io-telemetry';
 import { nodesData, refreshNodesNonce } from './nodes-data';
+import names from './reserved-node-names.json';
 
 // JSONL body, so NOT application/json (WP would reject the newlines).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -140,8 +141,16 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 		// Inbound boundary accounting: response bytes, replies, error tally.
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		for ( const message of messages ) {
-			if ( message[ TYPE ] & TM_ERROR ) {
-				// With no text the operator gets a tally and no diagnosis.
+			// @longform The heartbeat judges its own replies and logs the ones
+			// that matter, so those reach the tile through stderr like any
+			// other logged line. Counting them here as well put the expected
+			// `slot_released` race — one per reconnect, forever — on the
+			// ERRORS tile, and textlessly, since a record with no text adds no
+			// message row: a climbing count with nothing to read beside it.
+			if (
+				message[ TYPE ] & TM_ERROR &&
+				names.HEARTBEAT !== message[ TO ]
+			) {
 				const cause = message[ VALUE ];
 				IoTelemetry.recordError(
 					1,
