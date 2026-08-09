@@ -14,6 +14,7 @@ namespace Newspack_Nodes\Admin;
 use Newspack_Nodes\Capabilities;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
@@ -918,6 +919,15 @@ class Admin {
 		}
 
 		Cache_Backend::rotate_salt();
+
+		// @longform The scope is memoized per process, so a live worker keeps
+		// writing the old one until it restarts. Best-effort: a failure only
+		// delays the new scope to the next spawn, so it is logged not surfaced.
+		try {
+			( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'Cache flush: restart_workers failed — ', $e->getMessage() );
+		}
 
 		$redirect = \function_exists( 'admin_url' )
 			? \add_query_arg(
