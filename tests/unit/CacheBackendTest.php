@@ -450,4 +450,22 @@ class CacheBackendTest extends TestCase {
 		$this->assertTrue( \method_exists( Cache_Backend::class, 'read' ), 'cache read-status primitive is missing' );
 		return $backend->read( $key );
 	}
+	public function test_rotating_the_salt_orphans_every_key_at_once(): void {
+		// The ONE flush: the salt folds into the scope, so a rotation moves the
+		// keyspace for every plugin on this install in a single step — no
+		// per-plugin salt, and no co-tenant's keys touched.
+		Cache_Backend::$site = '';
+		$before              = Cache_Backend::site_key( 'table:prices:sku-9' );
+
+		$rotated = Cache_Backend::rotate_salt();
+
+		$this->assertNotSame( '', $rotated );
+		$this->assertSame( $rotated, Cache_Backend::salt(), 'the rotation is readable back' );
+		$this->assertNotSame( $before, Cache_Backend::site_key( 'table:prices:sku-9' ) );
+
+		\delete_option( 'newspack_nodes_cache_salt' );
+		Cache_Backend::$salt = null;
+		Cache_Backend::$site = '';
+		$this->assertSame( $before, Cache_Backend::site_key( 'table:prices:sku-9' ) );
+	}
 }
