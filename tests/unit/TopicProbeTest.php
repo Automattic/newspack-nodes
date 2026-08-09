@@ -27,6 +27,41 @@ class TopicProbeTest extends TestCase {
 		Core::$now = 1000;
 	}
 
+	/**
+	 * A record is stale after two SWEEPS, and the sweep cadence is whatever
+	 * `topic-probe.tsl` declares — not the class default. A deployment that
+	 * retunes the probe would otherwise have every healthy reader read as
+	 * departed, recomputing off disk on every poll and reporting a zero rate.
+	 */
+	public function test_stale_after_reads_the_declared_sweep_cadence(): void {
+		// 47 is distinct from the stock 15 and from any fallback, so a lookup
+		// that quietly missed the file cannot produce 94 by coincidence.
+		$stock = $this->make_temp_dir( 'probe-cadence-' );
+		\file_put_contents(
+			"{$stock}/topic-probe.tsl",
+			"make_node Topic_Probe topicprobe 47\n"
+			. "make_node Partition topicprobe:log <config:logs_dir>/topicprobe.p0\n"
+			. "connect_node topicprobe topicprobe:log\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		Topic_Probe_Node::forget_interval();
+
+		$this->assertSame( 94, Topic_Probe_Node::stale_after_s() );
+
+		Topic_Probe_Node::forget_interval();
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $stock );
+	}
+
+	public function test_stale_after_falls_back_to_the_default_cadence(): void {
+		// No topic-probe topology reachable at all: the default is the only
+		// honest answer, and it must not become "never stale".
+		\Newspack_Nodes\Topology_Registry::reset();
+		Topic_Probe_Node::forget_interval();
+
+		$this->assertSame( 30, Topic_Probe_Node::stale_after_s() );
+	}
+
 	/** A registered Consumer whose probe_stats() is a canned positional record. */
 	private function stub_consumer( string $name, int $distance = 0 ): Consumer_Node {
 		$c = new class() extends Consumer_Node {

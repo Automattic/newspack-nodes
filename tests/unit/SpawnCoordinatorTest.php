@@ -500,14 +500,16 @@ class SpawnCoordinatorTest extends TestCase {
 		);
 	}
 
-	public function test_spawn_token_defaults_to_the_site_nonce_salt(): void {
-		$explicit = new Spawn_Coordinator( $this->tmp, \wp_salt( 'nonce' ) );
+	public function test_spawn_token_defaults_to_the_derived_spawn_key(): void {
+		// NOT wp_salt('nonce') raw: that key forges every nonce on the site, and
+		// nuclear-gyrobase hands this one to a process outside PHP.
+		$explicit = new Spawn_Coordinator( $this->tmp, Spawn_Coordinator::spawn_key() );
 		$implicit = new Spawn_Coordinator( $this->tmp );
 
 		$this->assertSame(
 			$explicit->generate_spawn_token( 1700000000 ),
 			$implicit->generate_spawn_token( 1700000000 ),
-			'an omitted salt must resolve to the one production key'
+			'an omitted salt must resolve to the derived production key'
 		);
 	}
 

@@ -225,28 +225,37 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Raw source templates of every Consumer in `$topology`.
+	 * Every Consumer's source template paired with its offsetlog template — the
+	 * two positional arguments that together locate a reader's position
+	 * (`make_node Consumer <name> <source_dir> <offsetlog_dir>`).
 	 *
-	 * The template, not a basename: a caller resolves it per partition through
-	 * `Core::resolve_partition_template()`, which is the ONE place the
-	 * `<partition>` token is substituted. Nothing here may assume the token sits
-	 * in any particular position — a `.p<partition>` suffix is one layout among
-	 * several, and matching on it is how a path that puts the token elsewhere
-	 * silently stops resolving.
+	 * A caller that wants to know how far behind a reader is needs BOTH: the
+	 * source gives the end of the log, the offsetlog gives the committed cursor.
+	 * Templates, not basenames — resolve each through
+	 * `Core::resolve_partition_template()`, the ONE place the `<partition>` token
+	 * is substituted. Nothing here may assume the token sits in any particular
+	 * position: a `.p<partition>` suffix is one layout among several, and
+	 * matching on it is how a path that puts it elsewhere stops resolving.
+	 * An offsetlog is optional (an ephemeral reader keeps no cursor), so its
+	 * template may be empty.
 	 *
 	 * @param string $topology Topology name.
-	 * @return list<string>
+	 * @return list<array{source: string, offsetlog: string}>
 	 */
-	public static function consumer_sources( string $topology ): array {
+	public static function consumer_positions( string $topology ): array {
 		$out = [];
 		foreach ( self::graph_for( $topology )['nodes'] as $node ) {
 			if ( 'consumer' !== ( $node['kind'] ?? '' ) ) {
 				continue;
 			}
 			$args   = $node['args'] ?? [];
-			$source = \is_array( $args ) ? Core::as_string( $args[0] ?? '' ) : '';
+			$args   = \is_array( $args ) ? $args : [];
+			$source = Core::as_string( $args[0] ?? '' );
 			if ( '' !== $source ) {
-				$out[] = $source;
+				$out[] = [
+					'source'    => $source,
+					'offsetlog' => Core::as_string( $args[1] ?? '' ),
+				];
 			}
 		}
 		return $out;

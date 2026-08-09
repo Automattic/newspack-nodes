@@ -342,6 +342,46 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $stats[ Probe_Record::END_SIZE ], $stats[ Probe_Record::END_BYTES ] );
 	}
 
+	public function test_lag_from_disk_sees_an_external_append_with_no_live_consumer(): void {
+		// Gyrobase appends straight to a segment file. With the reader down there
+		// is no cursor in memory and no fresh probe record — both halves have to
+		// come off disk: segment sizes for the end, the offsetlog for the cursor.
+		$source = new Partition_Node();
+		$source->arguments( [ "{$this->tmp}/data.p0", (string) ( 64 * 1024 ), "4", "86400" ] );
+		$source->fill( $this->produce( 'consumed' ) );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->name( 'firehose' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets/firehose.job-router.p0" ] );
+		$c->sink( new Capture_Sink_Node() );
+		$this->pump_consumer( $c );
+		$c->checkpoint();
+
+		// The external writer, after the reader checkpointed and went away.
+		$appended = Message::packed( $this->produce( 'from-gyrobase' ) ) . "\n";
+		\file_put_contents( "{$this->tmp}/data.p0/0.log", $appended, \FILE_APPEND );
+
+		$lag = Consumer_Node::lag_from_disk(
+			"{$this->tmp}/data.p0",
+			"{$this->tmp}/offsets/firehose.job-router.p0"
+		);
+
+		$this->assertSame( \strlen( $appended ), $lag['bytes_behind'] );
+		$this->assertFalse( $lag['caught_up'] );
+	}
+
+	public function test_lag_of_re_reads_a_segment_recreated_smaller_than_the_cursor(): void {
+		// The partition was wiped and refilled: segment 0 exists again, so the
+		// missing-segment snap does not fire, but the cursor points past its new
+		// end. Unclamped that subtracts to zero and reads as caught up — the
+		// optimistic silence this measurement exists to remove.
+		$lag = Consumer_Node::lag_of( [ [ 'id' => 0, 'size' => 700 ] ], 0, 5000 );
+
+		$this->assertSame( 700, $lag['bytes_behind'] );
+		$this->assertFalse( $lag['caught_up'] );
+	}
+
 	public function test_probe_stats_reports_offsetlog_cache_size_after_checkpoint(): void {
 		// CACHE_SIZE = byte size of the newest offsetlog segment. After a checkpoint
 		// the offsetlog is non-empty, so the probe reports its real on-disk size.

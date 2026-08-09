@@ -2816,7 +2816,7 @@ class PartitionTest extends TestCase {
 		);
 	}
 
-	public function test_read_tail_index_by_returns_latest_record_per_key(): void {
+	public function test_read_tail_frames_by_returns_latest_record_per_key(): void {
 		// Topicprobe-style reader: index the newest segment's tail by a VALUE
 		// field, latest record wins (records append chronologically).
 		$dir = "{$this->tmp}/probe";
@@ -2837,10 +2837,10 @@ class PartitionTest extends TestCase {
 		}
 		$log->flush();
 
-		$index = Partition_Node::read_tail_index_by( $dir, 'offsetlog_dir' );
+		$index = Partition_Node::read_tail_frames_by( $dir, 'offsetlog_dir' );
 		$this->assertSame( [ 'a.p0', 'b.p0' ], \array_keys( $index ) );
-		$this->assertSame( 9, $index['a.p0']['cursor_offset'], 'latest record per key wins' );
-		$this->assertSame( 2, $index['b.p0']['cursor_offset'] );
+		$this->assertSame( 9, $index['a.p0']['value']['cursor_offset'], 'latest record per key wins' );
+		$this->assertSame( 2, $index['b.p0']['value']['cursor_offset'] );
 	}
 
 	public function test_fill_pumps_event_framework_so_a_blocked_worker_can_stop_mid_write(): void {

@@ -27,6 +27,15 @@ class Topic_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 
 	private const DEFAULT_INTERVAL_S = 15;
 
+	/** The stock topology every install includes; its arg 0 is the cadence. */
+	private const TOPOLOGY = 'topic-probe';
+
+	/** Missed sweeps before a record means nobody is reporting. */
+	private const STALE_SWEEPS = 2;
+
+	/** Memoized declared cadence; null until read. */
+	private static ?int $interval_s = null;
+
 	/**
 	 * The N-second sweep cadence is the base Timer's interval_ms (> 1000), so it
 	 * hitchhikes the Router TIMER and Timer_Node::fire_cb() throttles to it — no
@@ -87,6 +96,52 @@ class Topic_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 			++$this->counter;
 			$sink->fill( $message );
 		}
+	}
+
+	/**
+	 * How old a probe record may be before it is nobody reporting rather than a
+	 * slow reader. The sweep runs unconditionally while a worker lives, so two
+	 * missed cadences means the process is gone.
+	 *
+	 * Measured in SWEEPS against the declared cadence, not a fixed number of
+	 * seconds: `topic-probe.tsl` carries `interval_s` as arg 0, and a deployment
+	 * that retunes it would otherwise have every healthy reader read as departed
+	 * — recomputing off disk on every dashboard poll and reporting a zero rate
+	 * for workers that are running fine.
+	 */
+	public static function stale_after_s(): int {
+		return self::interval_s() * self::STALE_SWEEPS;
+	}
+
+	/**
+	 * The cadence `topic-probe.tsl` declares, or the class default when the
+	 * topology is unreachable. Memoized: read once per request, off a graph the
+	 * analyzer already caches.
+	 */
+	public static function interval_s(): int {
+		if ( null !== self::$interval_s ) {
+			return self::$interval_s;
+		}
+		$declared = 0;
+		try {
+			foreach ( Topology_Analyzer::graph_for( self::TOPOLOGY )['nodes'] as $node ) {
+				if ( 'Topic_Probe' !== ( $node['type'] ?? '' ) ) {
+					continue;
+				}
+				$args     = \is_array( $node['args'] ?? null ) ? $node['args'] : [];
+				$declared = Core::num_int( $args[0] ?? 0, 0 );
+				break;
+			}
+		} catch ( \Throwable $e ) {
+			// An unreadable topology is a default, never a "never stale".
+			$declared = 0;
+		}
+		return self::$interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
+	}
+
+	/** Drop the memoized cadence. Tests, and any stock-dir change. */
+	public static function forget_interval(): void {
+		self::$interval_s = null;
 	}
 
 	/**

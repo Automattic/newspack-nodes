@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The fleet notices partitions it did not write.** A producer outside the
+  substrate — gyrobase appends to the firehose and jobfeed in Perl — never
+  reaches `Partition_Node::fill()`, so nothing marked a pending wake, and
+  `worker_needs_spawn()` deliberately declines to resurrect a cleanly-absent
+  on-demand worker. Its reader stayed down indefinitely. `reconcile_fleet()`
+  gains a `backlog-wake` step: for every on-demand reader with unread bytes on
+  disk, wake it. Placed with `spawn`, ahead of the janitorial steps, because it
+  is a revival path. Backlog, not presence — a drained partition wakes nobody,
+  and neither does a reader with no durable cursor, which would otherwise read
+  as permanently behind and restore the resident fleet by another route.
+
+- `Consumer_Node::lag_from_disk()` measures a reader's position with no live
+  process: segment sizes for the end, the offsetlog for the cursor. The
+  arithmetic itself moved to `lag_of()`, so the live path and this one share ONE
+  implementation — including the recreated-partition cursor snap, without which
+  a wiped-and-refilled partition reads as caught up.
+
+### Changed
+
+- **`wp nodes status` and the Overview dashboard stop reporting `0B` for a
+  reader that is down.** Both read the topicprobe log, which only exists while a
+  worker is running to write it, so a departed reader's last snapshot — taken
+  while it was caught up — was served as current. A record older than two sweeps
+  is now recomputed from disk, cursor and end together, preserving the paired
+  measurement the live path depends on: a fresh record stays authoritative,
+  because pairing its stale cursor against a newer stat would overstate every
+  live reader by an interval of throughput. `Alerts::evaluate()` reads the same
+  rows, so consumer-lag alerts can now fire on the case that previously
+  suppressed its own alarm.
+
+- The staleness threshold is two SWEEPS at the cadence `topic-probe.tsl`
+  declares, not a fixed thirty seconds. A retuned probe would otherwise have
+  every healthy reader read as departed — recomputing on every poll and
+  reporting a zero rate for workers running fine.
+
+- `Partition_Node::read_tail_frames_by()` keeps each record's Message TIMESTAMP
+  beside its VALUE; `read_tail_index_by()` is the same scan without it. A probe
+  record carries no age inside its VALUE, so without this a departed worker's
+  last snapshot is indistinguishable from a live one's.
+
+### Removed
+
+- `CLI::read_probe_index()` and `Topology_Analyzer::consumer_sources()`, both
+  superseded and callerless. Three `WorkersCITest` stubs overrode the former to
+  force empty rows and had silently become inert.
+
 ## [2.18.0] - 2026-08-09
 
 ### Changed

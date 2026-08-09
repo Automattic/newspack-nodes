@@ -172,8 +172,8 @@ class FleetNodeTest extends TestCase {
 	}
 
 	public function test_the_spawn_token_validates_against_the_site_salt(): void {
-		// The salt must NOT be a node argument (it would be dumped in cleartext);
-		// the node mints from wp_salt('nonce') itself, and this proves it.
+		// The key must NOT be a node argument (it would be dumped in cleartext);
+		// the node mints from Spawn_Coordinator::spawn_key() itself.
 		$this->with_topology( $this->ledger( 1 ) );
 
 		$now = (int) Core::right_now();
@@ -186,9 +186,9 @@ class FleetNodeTest extends TestCase {
 				Internal_Request_Token::PURPOSE_SPAWN,
 				$bodies[0]['nonce'],
 				$now,
-				\wp_salt( 'nonce' )
+				\Newspack_Nodes\Spawn_Coordinator::spawn_key()
 			),
-			'the endpoint validates against wp_salt(nonce); the token must match it'
+			'the endpoint validates against the derived spawn key; the token must match'
 		);
 	}
 
