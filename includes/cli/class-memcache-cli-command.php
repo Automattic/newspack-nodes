@@ -50,7 +50,6 @@ class Memcache_CLI_Command {
 		$logical = Core::as_string( $args[0] ?? '', '' );
 		if ( '' === $logical ) {
 			\WP_CLI::error( 'a logical name is required' );
-			return;
 		}
 
 		$key = isset( $assoc_args['host'] )
@@ -64,6 +63,7 @@ class Memcache_CLI_Command {
 
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
+			// error() exits, but the analyser cannot know that.
 			\WP_CLI::error( 'no cache backend: neither memcached nor APCu is available' );
 			return;
 		}
@@ -72,11 +72,9 @@ class Memcache_CLI_Command {
 		// A confirmed miss and a read error are different answers; say which.
 		if ( Cache_Backend::READ_ERROR === $read['status'] ) {
 			\WP_CLI::error( 'backend read error for ' . $key );
-			return;
 		}
 		if ( Cache_Backend::READ_MISS === $read['status'] ) {
 			\WP_CLI::error( 'not found: ' . $key );
-			return;
 		}
 
 		if ( ! isset( $assoc_args['porcelain'] ) ) {
