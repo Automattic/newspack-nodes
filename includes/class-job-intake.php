@@ -468,12 +468,13 @@ class Job_Intake {
 	 * overrides are for tests targeting an isolated tmp dir.
 	 *
 	 * @api Used by external plugins (pyrobase Log runtime large-write path).
-	 * @param string      $handler        Handler name.
-	 * @param array<string, mixed>       $parameters     Job parameters.
-	 * @param string|null $key            Optional partition key (e.g., event ID).
-	 * @param string|null $base_dir       Override base directory.
-	 * @param int|null    $num_partitions Override partition count.
-	 * @param array<string, mixed>       $options        Optional behaviors — see write_job().
+	 * @param string              $handler        Handler name.
+	 * @param array<string,mixed> $parameters     Job parameters.
+	 * @param string|null         $key            Optional partition key (e.g., event ID).
+	 * @param string|null         $id             Optional job ID for logging.
+	 * @param string|null         $base_dir       Override base directory.
+	 * @param int|null            $num_partitions Override partition count.
+	 * @param array<string,mixed> $options        Optional behaviors — see write_job().
 	 * @return bool True on success, false on validation failure or unrecoverable
 	 *              lock contention (live concurrent writer on same partition).
 	 */
@@ -481,6 +482,7 @@ class Job_Intake {
 		string $handler,
 		array $parameters,
 		?string $key = null,
+		?string $id = null,
 		?string $base_dir = null,
 		?int $num_partitions = null,
 		array $options = []
@@ -491,7 +493,7 @@ class Job_Intake {
 
 		$intake = new self( $base_dir, $num_partitions );
 		try {
-			$result = $intake->write_job( $handler, $parameters, $key, null, $options );
+			$result = $intake->write_job( $handler, $parameters, $key, $id, $options );
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e; // ADR-14: a cooperative stop is not a write failure.
 		} catch ( \RuntimeException $e ) {
@@ -506,12 +508,12 @@ class Job_Intake {
 	 * Queue a small job on the feed log — the static counterpart to queue().
 	 *
 	 * @api Small-job ingress. Paired with a firehose `job` write by every producer.
-	 * @param string               $handler        Handler name.
-	 * @param array<string, mixed> $parameters     Job parameters (must fit PIPE_BUF once packed).
-	 * @param string|null          $key            Optional partition key for consistent routing.
-	 * @param string|null          $id             Optional per-job identity for jobstats keying.
-	 * @param string|null          $base_dir       Override the configured base dir.
-	 * @param int|null             $num_partitions Override the configured partition count.
+	 * @param string              $handler        Handler name.
+	 * @param array<string,mixed> $parameters     Job parameters (must fit PIPE_BUF once packed).
+	 * @param string|null         $key            Optional partition key for consistent routing.
+	 * @param string|null         $id             Optional per-job identity for jobstats keying.
+	 * @param string|null         $base_dir       Override the configured base dir.
+	 * @param int|null            $num_partitions Override the configured partition count.
 	 * @return bool False on validation failure or an entry over the atomic cap.
 	 * @throws Worker_Should_Stop When a cooperative stop lands mid-write.
 	 */
