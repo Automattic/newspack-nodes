@@ -69,6 +69,37 @@ class TopologyRegistryExpandTest extends TestCase {
 		);
 	}
 
+	public function test_consumer_positions_pairs_each_source_with_its_offsetlog(): void {
+		// Knowing how far behind a reader is needs BOTH: the source gives the end
+		// of the log, the offsetlog gives the committed cursor. Templates, not
+		// resolved paths — the caller owns the `<partition>` substitution.
+		$this->write_tsl(
+			'vicuna-readers',
+			"make_node Consumer vicuna-in <config:logs_dir>/jobfeed.p<partition> "
+			. "<config:offsets_dir>/jobfeed.p<partition>\n"
+			. "make_node Consumer vicuna-ephemeral <config:logs_dir>/alerts.p<partition>\n"
+			. "make_node Echo vicuna-sink\n"
+		);
+
+		$positions = Topology_Analyzer::consumer_positions( 'vicuna-readers' );
+
+		$this->assertSame(
+			[
+				[
+					'source'    => '<config:logs_dir>/jobfeed.p<partition>',
+					'offsetlog' => '<config:offsets_dir>/jobfeed.p<partition>',
+				],
+				// An ephemeral reader keeps no cursor; its template is empty,
+				// which is what stops the sweep calling it permanently behind.
+				[
+					'source'    => '<config:logs_dir>/alerts.p<partition>',
+					'offsetlog' => '',
+				],
+			],
+			$positions
+		);
+	}
+
 	public function test_graph_for_keeps_quoted_ctor_args_as_raw_spans(): void {
 		$this->write_tsl(
 			'vicuna-graphed',
