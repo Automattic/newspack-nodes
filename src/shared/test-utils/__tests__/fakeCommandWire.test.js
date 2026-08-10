@@ -1,10 +1,9 @@
 /**
  * fakeCommandWire tests — the wire double every hook test seams at.
  *
- * The `batches` affordance is what lets a test assert WHAT was posted without
- * replacing the transport: `makeFakeCommandClient` offered that by letting a
- * caller push in `postBatch`, and the wire has to answer it too or each of the
- * nineteen hook suites keeps a local copy of the same unpack loop.
+ * The `batches` affordance is what lets a test assert what was posted without
+ * replacing the transport: a suite has to be able to assert WHAT was posted,
+ * or each one keeps a local copy of the same unpack loop.
  */
 
 import {

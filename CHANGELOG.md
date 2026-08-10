@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Retiring the `commandClient` seam, starting with the two Viewer graphs.**
+- **The `commandClient` seam is gone from the substrate.**
   It replaces the whole transport subsystem, so a hook test exercising it
   never runs HttpOut, pack/unpack, the router or the interpreter; the wire
   seam (`installFakeCommandWire`) replaces `fetch` alone and leaves all of
@@ -31,9 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `CommandClient.send()`. `useLogViewerGraph` and `usePartitionViewerGraph`
   now take no options at all — `commandClient` was the only one, and neither
   caller passed it. `makeFakeCommandWire` records what was POSTED on
-  `wire.batches`, matching the client double's affordance so the remaining
-  suites convert without each growing a local unpack loop. The other
-  seventeen hook suites still use the client seam.
+  `wire.batches`, matching the client double's affordance so no suite grows a
+  local unpack loop. `makeFakeCommandClient` and its test are deleted.
+
+  Every hook that took it — `useBatchedPoll`, `useVisibilityGatedLink`,
+  `useVaultGraph`, `useTopologyManager`, `useAggregatorStatusGraph`, the three
+  stream hooks and both Viewers — no longer does; several lost their options
+  object entirely, since the seam was the only one. Four tests whose SUBJECT
+  was the injection now assert the graph reaches the wire with nothing
+  injected, which is the property that actually mattered.
 
 - **The last four bare `'live'` comparisons read `LIVE`.** v2.21.0 exported the
   constant but left the view side comparing the literal — `LogBrowser`'s

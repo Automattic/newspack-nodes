@@ -237,11 +237,10 @@ function flushed( pending ) {
  * Mount the Topology Manager graph and expose its model plus mutations. See the
  * file header for the graph and the merge it performs.
  *
- * @param {Object}  [opts]               Options (testing seams).
- * @param {Object}  [opts.commandClient] transport seam assigned to `_http.client`.
- * @param {boolean} [opts.paused]        Suspend polling (e.g. an Overview drag in flight).
- * @param {number}  [opts.refreshMs]     Poll interval in ms; also the unit of the
- *                                       staleness window. Defaults to 5000.
+ * @param {Object}  [opts]           Options (testing seams).
+ * @param {boolean} [opts.paused]    Suspend polling (e.g. an Overview drag in flight).
+ * @param {number}  [opts.refreshMs] Poll interval in ms; also the unit of the
+ *                                   staleness window. Defaults to 5000.
  * @return {{ topologies: Array, readRate: number, writeRate: number,
  *   logPartitions: number, activate: Function, deactivate: Function,
  *   restart: Function, connected: boolean }} The Topology Manager data +
@@ -250,7 +249,7 @@ function flushed( pending ) {
  *   cards, the mutation verbs, and connected.
  */
 export function useTopologyManager( opts = {} ) {
-	const { commandClient, paused = false } = opts;
+	const { paused = false } = opts;
 	// Parsed once here; parseInt stringifies its argument anyway.
 	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
 
@@ -264,7 +263,6 @@ export function useTopologyManager( opts = {} ) {
 		},
 		timerName: 'topologymanager:timer',
 		teeName: 'topologymanager:tee',
-		commandClient,
 		paused,
 		// Omitted = every router tick; refreshMs only reached the bump.
 		intervalMs: refreshMs,

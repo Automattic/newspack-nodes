@@ -17,17 +17,8 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import {
-	newMessage,
-	TYPE,
-	TO,
-	ID,
-	FROM,
-	VALUE,
-	TM_COMMAND,
-	TM_RESPONSE,
-	TM_ERROR,
-} from '../../runtime/message';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { TO, VALUE } from '../../runtime/message';
 import { Core } from '../../runtime/core';
 import { useTopologyManager } from '../hooks/useTopologyManager';
 
@@ -37,42 +28,26 @@ jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	default: () => mockPageVisible,
 } ) );
 
-// Recording transport double: postBatch records sends, resolves replies.
-function makeRecordingClient( payloadByVerb = {}, errorVerbs = new Set() ) {
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `sent` records each command
+// in order; a verb in `errorVerbs` answers TM_ERROR carrying its payload.
+function installRecordingWire( payloadByVerb = {}, errorVerbs = new Set() ) {
 	const sent = [];
-	const client = {
-		buildMessage( { to, verb, args = '' } ) {
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args };
-			return m;
-		},
-		postBatch( messages ) {
-			const replies = messages.map( ( m ) => {
-				const verb = m[ VALUE ]?.name;
-				sent.push( {
-					verb,
-					args: m[ VALUE ]?.arguments ?? '',
-					to: m[ TO ],
-				} );
-				const reply = newMessage();
-				reply[ TYPE ] = errorVerbs.has( verb )
-					? TM_COMMAND | TM_RESPONSE | TM_ERROR
-					: TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ VALUE ] = {
-					name: verb,
-					payload:
-						payloadByVerb[ verb ] ?? payloadByVerb._default ?? null,
-				};
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return { client, sent };
+	const wire = installFakeCommandWire( ( m ) => {
+		const verb = m[ VALUE ]?.name;
+		sent.push( {
+			verb,
+			args: m[ VALUE ]?.arguments ?? '',
+			to: m[ TO ],
+		} );
+		const payload = payloadByVerb[ verb ] ?? payloadByVerb._default ?? null;
+		if ( ! errorVerbs.has( verb ) ) {
+			return payload;
+		}
+		// answerBatch ships an Error as its `.message`, so unwrap first.
+		return new Error( payload?.message ?? payload ?? verb );
+	} );
+	return { wire, sent };
 }
 
 // A dump_graph snapshot whose graph carries the active topology `a`.
@@ -118,7 +93,7 @@ const TOPOLOGIES_LIST = {
 };
 
 function buildClient() {
-	return makeRecordingClient( {
+	return installRecordingWire( {
 		dump_graph: DUMP_GRAPH,
 		list: TOPOLOGIES_LIST,
 		activate: { name: 'b', active: true, spawned: 2 },
@@ -128,19 +103,16 @@ function buildClient() {
 }
 
 // Answers the FIRST poll, then wedges: later polls never reply at all.
-function wedgingClient() {
-	const { client } = buildClient();
-	let answered = false;
-	return {
-		buildMessage: client.buildMessage,
-		postBatch: ( messages ) => {
-			if ( answered ) {
-				return Promise.resolve( [] );
-			}
-			answered = true;
-			return client.postBatch( messages );
-		},
+function installWedgingWire() {
+	const base = {
+		dump_graph: DUMP_GRAPH,
+		list: TOPOLOGIES_LIST,
 	};
+	// batches already holds THIS POST, so >1 means a later tick.
+	const wire = installFakeCommandWire( ( m ) =>
+		wire.batches.length > 1 ? undefined : base[ m[ VALUE ]?.name ] ?? null
+	);
+	return wire;
 }
 
 beforeEach( () => {
@@ -155,18 +127,16 @@ describe( 'useTopologyManager', () => {
 		// got no intervalMs at all, and omitted means "fire every router tick"
 		// — so the hub Overview polled the server at 1Hz while the staleness
 		// calculation judged it against a multi-second cadence.
-		const { client } = buildClient();
-		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		buildClient();
+		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		expect( Core.node( 'topologymanager:timer' ).interval_ms ).toBe( 5000 );
 	} );
 
 	it( 'surfaces every topology (active + inactive) with provenance + active flag', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		const { topologies } = result.current;
@@ -182,10 +152,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'merges the live worker-status section onto the active topology only', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		const byName = Object.fromEntries(
@@ -196,10 +164,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'enriches the active section with the worker-status rate/segment/time slices', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		const status = result.current.topologies.find(
@@ -215,10 +181,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'attaches the logs catalog (model.logs) to the active topology status', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		const status = result.current.topologies.find(
@@ -232,10 +196,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'deactivate dispatches `topologies deactivate <name>`', async () => {
-		const { client, sent } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		const { sent } = buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		await act( async () => {
@@ -248,10 +210,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'activate dispatches `topologies activate <name>`', async () => {
-		const { client, sent } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		const { sent } = buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		await act( async () => {
@@ -264,10 +224,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'restart is exposed and dispatches the worker restart verb', async () => {
-		const { client, sent } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		const { sent } = buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		expect( typeof result.current.restart ).toBe( 'function' );
@@ -281,7 +239,7 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'activate rejects when the server replies TM_ERROR', async () => {
-		const { client } = makeRecordingClient(
+		installRecordingWire(
 			{
 				dump_graph: DUMP_GRAPH,
 				list: TOPOLOGIES_LIST,
@@ -289,9 +247,7 @@ describe( 'useTopologyManager', () => {
 			},
 			new Set( [ 'activate' ] )
 		);
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		await act( async () => {
@@ -302,8 +258,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'each poll fires both dump_graph and topologies list', async () => {
-		const { client, sent } = buildClient();
-		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		const { sent } = buildClient();
+		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		expect( sent.some( ( s ) => 'dump_graph' === s.verb ) ).toBe( true );
@@ -311,8 +267,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'is a genuine node graph: toolkit boundary + a Fetcher per slice fanned from the owned Tee', async () => {
-		const { client } = buildClient();
-		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		buildClient();
+		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		// useBatchedPoll owns the I/O boundary, fan-out Tee, hitchhike Timer.
@@ -334,8 +290,8 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'puts WorkerStatusTransform on a graph edge: the receiver Tee fans to the transform, the transform targets the worker view', async () => {
-		const { client } = buildClient();
-		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		buildClient();
+		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		// Transform rides the receiver-Tee to view edge, NOT inside the view.
@@ -349,32 +305,23 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'one poll tick batches both slice commands into ONE HttpOut POST', async () => {
-		const recording = [];
-		const client = {
-			buildMessage: buildClient().client.buildMessage,
-			postBatch( messages ) {
-				recording.push( messages );
-				return buildClient().client.postBatch( messages );
-			},
-		};
-		renderHook( () => useTopologyManager( { commandClient: client } ) );
+		const { wire } = buildClient();
+		renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
-		recording.length = 0;
+		wire.batches.length = 0;
 
 		await act( async () => {
 			Core.node( '_router' ).fireCb();
 		} );
 
-		expect( recording.length ).toBe( 1 );
-		const verbs = recording[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
+		expect( wire.batches.length ).toBe( 1 );
+		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
 		expect( verbs ).toEqual( [ 'dump_graph', 'list' ] );
 	} );
 
 	it( 'exposes connected state', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 		expect( result.current ).toHaveProperty( 'connected' );
 	} );
@@ -383,9 +330,9 @@ describe( 'useTopologyManager', () => {
 		// Fake timers drive the poll interval AND Date.now, aging the clock.
 		jest.useFakeTimers();
 		try {
+			installWedgingWire();
 			const { result, rerender } = renderHook( () =>
 				useTopologyManager( {
-					commandClient: wedgingClient(),
 					refreshMs: 4000,
 				} )
 			);
@@ -410,9 +357,9 @@ describe( 'useTopologyManager', () => {
 	it( 'stays connected while a hidden tab ages the clock (polling is paused)', async () => {
 		jest.useFakeTimers();
 		try {
+			installWedgingWire();
 			const { result, rerender } = renderHook( () =>
 				useTopologyManager( {
-					commandClient: wedgingClient(),
 					refreshMs: 4000,
 				} )
 			);
@@ -429,35 +376,29 @@ describe( 'useTopologyManager', () => {
 	} );
 
 	it( 'reports disconnected when a poll reply comes back TM_ERROR', async () => {
-		const { client } = makeRecordingClient(
+		installRecordingWire(
 			{
 				dump_graph: DUMP_GRAPH,
 				list: { message: 'topologies unavailable' },
 			},
 			new Set( [ 'list' ] )
 		);
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 		expect( result.current.connected ).toBe( false );
 	} );
 
 	it( 'does not flash disconnected before the very first poll lands', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		// Nothing has polled yet; the never-stamped clock is not "stale".
 		expect( result.current.connected ).toBe( true );
 		await act( async () => {} );
 	} );
 
 	it( 'stays connected while replies keep arriving (fresh polls)', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 		expect( result.current.connected ).toBe( true );
 	} );
@@ -530,7 +471,7 @@ const TOPOLOGY_A_LIST = {
 
 // Single-poll client over the lean dump: read_rate has no delta yet, so 0.
 function healthClient( opts ) {
-	return makeRecordingClient( {
+	return installRecordingWire( {
 		dump_graph: healthDump( opts ),
 		list: TOPOLOGY_A_LIST,
 	} );
@@ -550,10 +491,8 @@ function worker( partition, { heartbeatAge, behind, status = 'running' } ) {
 
 // Poll once with the lean dump; return topology `a`'s merged row.
 async function pollHealth( opts ) {
-	const { client } = healthClient( opts );
-	const { result } = renderHook( () =>
-		useTopologyManager( { commandClient: client } )
-	);
+	healthClient( opts );
+	const { result } = renderHook( () => useTopologyManager( {} ) );
 	await act( async () => {} );
 	return result.current.topologies.find( ( t ) => 'a' === t.name );
 }
@@ -571,10 +510,8 @@ async function pollHealthAtTenBytesPerSecond( workers ) {
 		dump_graph: healthDump( { workers, currentTime: 1000 } ),
 		list: TOPOLOGY_A_LIST,
 	};
-	const { client } = makeRecordingClient( payloads );
-	const { result } = renderHook( () =>
-		useTopologyManager( { commandClient: client } )
-	);
+	installRecordingWire( payloads );
+	const { result } = renderHook( () => useTopologyManager( {} ) );
 	await act( async () => {} );
 	payloads.dump_graph = healthDump( {
 		workers,
@@ -668,10 +605,8 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 	} );
 
 	it( 'gives an inactive topology no partitions, health ok, and eta 0', async () => {
-		const { client } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
+		buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
 		const row = result.current.topologies.find( ( t ) => 'b' === t.name );

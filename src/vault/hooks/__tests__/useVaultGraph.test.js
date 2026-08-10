@@ -9,23 +9,13 @@
  * the node that wants its answer, the reply comes back TO = FROM, and it lands
  * there — so the table refresh and four awaited verbs are told apart by WHICH
  * NODE they arrive on. `message[ID]` and `message[KEY]` stay empty throughout,
- * which the mint assertions pin. `_http.client` is injected via
- * `opts.commandClient` so the hook never touches the network.
+ * which the mint assertions pin. Nothing is injected: the seam is `fetch`, so
+ * HttpOut, pack/unpack, the router and the interpreter all run for real.
  */
 
 import { renderHook, act } from '@testing-library/react';
-import {
-	newMessage,
-	ID,
-	KEY,
-	TO,
-	FROM,
-	VALUE,
-	TYPE,
-	TM_COMMAND,
-	TM_RESPONSE,
-	TM_ERROR,
-} from '../../../runtime/message';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { ID, KEY, TO, FROM, VALUE } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
 import { useNodeState } from '../../../runtime/react';
@@ -48,41 +38,17 @@ const TEST = 'vault:test';
 const REQUEST_NAMES = [ ADD, UPDATE, DELETE, TEST ];
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...REQUEST_NAMES ];
 
-// Fake transport: postBatch replies back along FROM, payload by verb.
-function makeFakeClient( payloadByVerb = {}, opts = {} ) {
-	const client = {
-		batches: [],
-		buildMessage( { to, verb, args = '' } ) {
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args };
-			return m;
-		},
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] =
-					opts.errorVerbs &&
-					opts.errorVerbs.includes( m[ VALUE ]?.name )
-						? TM_COMMAND | TM_RESPONSE | TM_ERROR
-						: TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ VALUE ] = {
-					name: m[ VALUE ]?.name,
-					payload:
-						payloadByVerb[ m[ VALUE ]?.name ] ??
-						payloadByVerb._default ??
-						null,
-				};
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `wire.batches` is what was
+// posted; a verb in `errorVerbs` answers TM_ERROR carrying its payload.
+function installWire( payloadByVerb = {}, opts = {} ) {
+	return installFakeCommandWire( ( m ) => {
+		const name = m[ VALUE ]?.name;
+		const payload = payloadByVerb[ name ] ?? payloadByVerb._default ?? null;
+		return opts.errorVerbs?.includes( name )
+			? new Error( payload ?? name )
+			: payload;
+	} );
 }
 
 beforeEach( () => {
@@ -91,8 +57,8 @@ beforeEach( () => {
 
 describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', async () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire();
+		renderHook( () => useVaultGraph() );
 		// The mount list waits on the session; flush the /auth microtask.
 		await act( async () => {} );
 		// The mount-time list goes through _shell, so the Tap counts it.
@@ -100,8 +66,8 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 	} );
 
 	test( 'mounts the backbone + _http + the table edge + one node per awaited verb', () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire();
+		renderHook( () => useVaultGraph() );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
@@ -121,14 +87,14 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 	} );
 
 	test( 'the receiver Tee fans to exactly the list view', () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire();
+		renderHook( () => useVaultGraph() );
 		expect( Core.node( LIST_RECV ).target ).toEqual( [ LIST_VIEW ] );
 	} );
 
 	test( 'does NOT mount the old god vault:view or the REPL-only nodes', () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire();
+		renderHook( () => useVaultGraph() );
 		for ( const name of [
 			'vault:view',
 			'vault:testIn',
@@ -141,29 +107,30 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		}
 	} );
 
-	test( '_http has the injected transport as its client', () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
-		expect( Core.node( HTTP ).client ).toBe( client );
+	test( '_http reaches the wire with nothing injected', async () => {
+		const wire = installWire();
+		renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+		// HttpOut defaults its own client lazily, at the first post — so the
+		// POST landing is the proof, not a client set at mount time.
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
 	test( 'fires one immediate list() on mount, FROM the list receiver', async () => {
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		const wire = installWire();
+		renderHook( () => useVaultGraph() );
 		// The mount list waits on the session; flush the /auth microtask.
 		await act( async () => {} );
-		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
-		const msg = client.batches[ 0 ][ 0 ];
+		expect( wire.batches.length ).toBeGreaterThanOrEqual( 1 );
+		const msg = wire.batches[ 0 ][ 0 ];
 		expect( msg[ TO ] ).toBe( 'vault' );
 		expect( msg[ FROM ] ).toBe( LIST_RECV );
 		expect( msg[ VALUE ].name ).toBe( 'list' );
 	} );
 
 	test( 'returns the four CRUD callbacks', () => {
-		const client = makeFakeClient();
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		installWire();
+		const { result } = renderHook( () => useVaultGraph() );
 		expect( typeof result.current.addServer ).toBe( 'function' );
 		expect( typeof result.current.updateServer ).toBe( 'function' );
 		expect( typeof result.current.removeServer ).toBe( 'function' );
@@ -177,8 +144,8 @@ describe( 'useVaultGraph — list lands in the list view', () => {
 			'spoke-01': { id: 'spoke-01', url: 'https://a' },
 			'spoke-02': { id: 'spoke-02', url: 'https://b' },
 		};
-		const client = makeFakeClient( { list: servers } );
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire( { list: servers } );
+		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 
 		const view = Core.node( LIST_VIEW );
@@ -193,15 +160,13 @@ describe( 'useVaultGraph — list lands in the list view', () => {
 
 describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lists', () => {
 	test( 'addServer dispatches an add command then re-lists', async () => {
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list: {},
 			add: { id: 'spoke-01' },
 		} );
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		const listsBefore = countVerbs( client.batches, 'list' );
+		const listsBefore = countVerbs( wire.batches, 'list' );
 
 		let returned;
 		await act( async () => {
@@ -215,7 +180,7 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 
 		expect( returned ).toEqual( { id: 'spoke-01' } );
 
-		const add = findVerb( client.batches, 'add' );
+		const add = findVerb( wire.batches, 'add' );
 		expect( add ).toBeTruthy();
 		expect( add[ TO ] ).toBe( 'vault' );
 		expect( add[ FROM ] ).toBe( ADD );
@@ -234,20 +199,18 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 		expect( addArgs.options.url ).toBe( 'https://x' );
 		expect( addArgs.options.enabled ).toBeUndefined();
 
-		const listsAfter = countVerbs( client.batches, 'list' );
+		const listsAfter = countVerbs( wire.batches, 'list' );
 		expect( listsAfter ).toBeGreaterThan( listsBefore );
 	} );
 
 	test( 'updateServer dispatches an update command then re-lists', async () => {
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list: {},
 			update: { id: 'spoke-01' },
 		} );
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		const listsBefore = countVerbs( client.batches, 'list' );
+		const listsBefore = countVerbs( wire.batches, 'list' );
 
 		await act( async () => {
 			await result.current.updateServer( 'spoke-01', {
@@ -255,7 +218,7 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 			} );
 		} );
 
-		const update = findVerb( client.batches, 'update' );
+		const update = findVerb( wire.batches, 'update' );
 		expect( update ).toBeTruthy();
 		expect( update[ FROM ] ).toBe( UPDATE );
 		expect( update[ ID ] ).toBe( '' );
@@ -263,27 +226,25 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 		expect( update[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ], { url: 'https://y' } )
 		);
-		expect( countVerbs( client.batches, 'list' ) ).toBeGreaterThan(
+		expect( countVerbs( wire.batches, 'list' ) ).toBeGreaterThan(
 			listsBefore
 		);
 	} );
 
 	test( 'removeServer dispatches a delete command then re-lists', async () => {
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list: {},
 			delete: { id: 'spoke-01' },
 		} );
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		const listsBefore = countVerbs( client.batches, 'list' );
+		const listsBefore = countVerbs( wire.batches, 'list' );
 
 		await act( async () => {
 			await result.current.removeServer( 'spoke-01' );
 		} );
 
-		const del = findVerb( client.batches, 'delete' );
+		const del = findVerb( wire.batches, 'delete' );
 		expect( del ).toBeTruthy();
 		expect( del[ FROM ] ).toBe( DELETE );
 		expect( del[ ID ] ).toBe( '' );
@@ -291,7 +252,7 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 		expect( del[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
 		);
-		expect( countVerbs( client.batches, 'list' ) ).toBeGreaterThan(
+		expect( countVerbs( wire.batches, 'list' ) ).toBeGreaterThan(
 			listsBefore
 		);
 	} );
@@ -300,22 +261,20 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 describe( 'useVaultGraph — the probe is its own node', () => {
 	test( 'testServer mints FROM vault:test, resolves to the probe, and does not re-list', async () => {
 		const probe = { id: 'spoke-01', status: 'connected', response: {} };
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list: {},
 			test: probe,
 		} );
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		const listsBefore = countVerbs( client.batches, 'list' );
+		const listsBefore = countVerbs( wire.batches, 'list' );
 
 		let returned;
 		await act( async () => {
 			returned = await result.current.testServer( 'spoke-01' );
 		} );
 
-		const t = findVerb( client.batches, 'test' );
+		const t = findVerb( wire.batches, 'test' );
 		expect( t ).toBeTruthy();
 		expect( t[ FROM ] ).toBe( TEST );
 		expect( t[ ID ] ).toBe( '' );
@@ -327,19 +286,17 @@ describe( 'useVaultGraph — the probe is its own node', () => {
 		expect( returned ).toEqual( probe );
 
 		// test is read-only — no re-list, and the list view never saw it.
-		expect( countVerbs( client.batches, 'list' ) ).toBe( listsBefore );
+		expect( countVerbs( wire.batches, 'list' ) ).toBe( listsBefore );
 	} );
 } );
 
 describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 	test( 'a failed addServer rejects without polluting the list-view banner', async () => {
-		const client = makeFakeClient(
+		installWire(
 			{ list: {}, add: 'duplicate id' },
 			{ errorVerbs: [ 'add' ] }
 		);
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 
 		await act( async () => {
@@ -356,13 +313,11 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 	} );
 
 	test( 'a failed testServer rejects, and the table banner stays clean', async () => {
-		const client = makeFakeClient(
+		installWire(
 			{ list: {}, test: 'unauthorized' },
 			{ errorVerbs: [ 'test' ] }
 		);
-		const { result } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 
 		await act( async () => {
@@ -376,10 +331,8 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 
 describe( 'useVaultGraph — teardown', () => {
 	test( 'unmount unregisters every graph node + the backbone', () => {
-		const client = makeFakeClient();
-		const { unmount } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
-		);
+		installWire();
+		const { unmount } = renderHook( () => useVaultGraph() );
 		unmount();
 		for ( const name of [ ...ALL_GRAPH_NAMES, INTERPRETER, ROUTER ] ) {
 			expect( Core.node( name ) ).toBeNull();
@@ -388,34 +341,16 @@ describe( 'useVaultGraph — teardown', () => {
 
 	test( 'a reply resolving after unmount does not throw (sink may be gone)', async () => {
 		let resolveReply;
-		const client = {
-			batches: [],
-			buildMessage: ( { to, verb } ) => {
-				const m = newMessage();
-				m[ TYPE ] = TM_COMMAND;
-				m[ TO ] = to;
-				m[ VALUE ] = { name: verb, arguments: '' };
-				return m;
-			},
-			postBatch( messages ) {
-				client.batches.push( messages );
-				return new Promise( ( res ) => {
-					resolveReply = ( replies ) => res( replies );
-				} );
-			},
-		};
-		const { unmount } = renderHook( () =>
-			useVaultGraph( { commandClient: client } )
+		// replyFor may return a promise, and answerBatch awaits it — so the
+		// reply lands whenever this resolves, which here is after unmount.
+		installFakeCommandWire(
+			() => new Promise( ( res ) => ( resolveReply = res ) )
 		);
+		const { unmount } = renderHook( () => useVaultGraph() );
 		// The mount list waits on the session; let it POST before unmounting.
 		await act( async () => {} );
 		unmount();
-		expect( () => {
-			const reply = newMessage();
-			reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-			reply[ VALUE ] = { name: 'list', payload: {} };
-			resolveReply( [ reply ] );
-		} ).not.toThrow();
+		expect( () => resolveReply( {} ) ).not.toThrow();
 		await Promise.resolve();
 	} );
 } );
@@ -425,8 +360,8 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		// Overlay owns the backbone; this dashboard is a reused mount. A bump (the
 		// real Reset Graph trigger) fires its spine.reinit — soft nodes only.
 		mountExospine();
-		const client = makeFakeClient();
-		renderHook( () => useVaultGraph( { commandClient: client } ) );
+		installWire();
+		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 		const firstList = Core.node( LIST_VIEW );
 		const firstHttp = Core.node( HTTP );
@@ -438,18 +373,18 @@ describe( 'useVaultGraph — graphGeneration Reset Graph', () => {
 		} );
 
 		expect( Core.node( LIST_VIEW ) ).not.toBe( firstList );
-		// _http is a backbone singleton: kept across rebuild, client reset.
+		// _http is a backbone singleton: the same node across the rebuild.
 		expect( Core.node( HTTP ) ).toBe( firstHttp );
-		expect( Core.node( HTTP ).client ).toBe( client );
+		expect( Core.node( HTTP ).client ).toBeTruthy();
 		expect( Core.node( LIST_VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
 		expect( Core.node( INTERPRETER ) ).toBe( backbone );
 	} );
 
 	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh list view', async () => {
 		mountExospine();
-		const client = makeFakeClient();
+		installWire();
 		const { result } = renderHook( () => {
-			useVaultGraph( { commandClient: client } );
+			useVaultGraph();
 			return useNodeState( LIST_VIEW, 'view' );
 		} );
 		await act( async () => {} );

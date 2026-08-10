@@ -35,10 +35,9 @@ function positionsForMode( mode ) {
 
 /**
  * @param {Object} [opts]
- * @param {string} [opts.mode]          'history' (24h replay) or 'follow' (tail).
- * @param {Object} [opts.commandClient] transport seam for the link and the backbone `_http`.
+ * @param {string} [opts.mode] 'history' (24h replay) or 'follow' (tail).
  */
-export function useJobstatsStream( { mode = 'follow', commandClient } = {} ) {
+export function useJobstatsStream( { mode = 'follow' } = {} ) {
 	const isPageVisible = usePageVisibility();
 
 	// Shared lifecycle owns close-while-hidden + resume-on-refocus.
@@ -58,7 +57,6 @@ export function useJobstatsStream( { mode = 'follow', commandClient } = {} ) {
 			return { link };
 		},
 		isActive: isPageVisible,
-		commandClient,
 		onConnect: ( link, { isReconnect } ) =>
 			link.connect(
 				isReconnect ? link.resumePositions() : positionsForMode( mode )

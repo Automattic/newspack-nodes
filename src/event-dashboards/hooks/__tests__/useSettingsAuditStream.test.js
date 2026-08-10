@@ -6,6 +6,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import {
@@ -38,6 +39,8 @@ class FakeEventSource {
 }
 
 beforeEach( () => {
+	// The seam is the wire; no command in this suite expects a reply.
+	installFakeCommandWire( () => undefined );
 	Core.reset();
 	FakeEventSource.last = null;
 	FakeEventSource.instances = [];
@@ -50,8 +53,6 @@ import { useSettingsAuditStream } from '../useSettingsAuditStream';
 const LINK = 'settingsaudit:link';
 const TEE = 'settingsaudit:stream';
 const VIEW = 'settingsaudit:view';
-
-const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
 function settingsFrame( {
 	ts = 1700000042,
@@ -69,9 +70,7 @@ function settingsFrame( {
 
 describe( 'useSettingsAuditStream', () => {
 	it( 'mounts the backbone + a RemoteLink to settings.p0 + the view', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
 		expect( Core.node( LINK ) ).toBeTruthy();
@@ -83,17 +82,13 @@ describe( 'useSettingsAuditStream', () => {
 	} );
 
 	it( 'makes the RemoteLink with a token-free (subscribe-only) argument string', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'settings.p0' ] );
 	} );
 
 	it( 'seeks from start (full replay of the retained history)', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain(
 			encodeURIComponent( JSON.stringify( { 'settings.p0': 'start' } ) )
@@ -101,9 +96,7 @@ describe( 'useSettingsAuditStream', () => {
 	} );
 
 	it( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		const interpreter = Core.node( '_command_interpreter' );
 		const tee = Core.node( TEE );
@@ -114,9 +107,7 @@ describe( 'useSettingsAuditStream', () => {
 	} );
 
 	it( 'routes a settings frame through the link into the view', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		await act( async () => {
 			FakeEventSource.last.dispatch(
@@ -135,9 +126,7 @@ describe( 'useSettingsAuditStream', () => {
 	} );
 
 	it( 'fans the live stream to a debug-overlay watcher without disturbing the view', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		const watcher = new Node();
 		watcher.name = 'watcher';
@@ -157,9 +146,7 @@ describe( 'useSettingsAuditStream', () => {
 	} );
 
 	it( 're-seeks history after a graph rebuild drops + recreates the link', async () => {
-		renderHook( () =>
-			useSettingsAuditStream( { commandClient: fakeClient() } )
-		);
+		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		const firstLink = Core.node( LINK );
 		const before = FakeEventSource.instances.length;

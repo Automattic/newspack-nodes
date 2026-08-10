@@ -18,14 +18,6 @@
  *     redundant re-render never tears a live seek down into a tail reconnect
  *     (nor re-runs a pre-connect side effect like the gyroscope view-clear).
  *
- * It also owns the transport seam (`commandClient`). Five of six consumers were
- * stamping it themselves, under two rules: three guarded on presence and set
- * the link alone, while the two whose dashboards also issue out-of-band verbs
- * assigned unconditionally and reached `_http` by hardcoded name. Both halves
- * were right about something — the guard matters because production supplies
- * no client, and the backbone write matters because those verbs leave before
- * the link connects, which is the only point RemoteLink stamps `_http` itself.
- *
  * The Partition/Log Viewers deliberately do NOT use this hook: their
  * catalog-driven, user-selected `setSubscribe([selected], …)` flow is not
  * visibility-gated connect and does not fit the `mountNodes`/`onConnect` shape.
@@ -39,25 +31,17 @@ import { mountExospine } from '@newspack-nodes/runtime';
  * See the module overview above for the two resume guards it owns.
  *
  * @param {Object}   o
- * @param {Function} o.mountNodes      `(interpreter) => { link, view? }` — construct the
- *                                     RemoteLink (+ Tee + view) and return the live handles. The hook stamps
- *                                     `linkRef`/`viewRef`, resets the first-connect flag, and owns `link.removeNode()`.
- * @param {boolean}  o.isActive        Whether the stream should be open right now
- *                                     (typically `pageVisible && ! paused`). False closes the stream.
- * @param {Function} o.onConnect       `(link, { isReconnect, view }) => void` — open the
- *                                     stream. Typically `link.connect( isReconnect ? link.resumePositions() : first )`.
- * @param {Object}   [o.commandClient] Transport seam, stamped on the link AND on
- *                                     the backbone `_http`. Absent in production, where RemoteLink and
- *                                     HttpOut both default it — hence the guard, and hence not the caller's job.
+ * @param {Function} o.mountNodes `(interpreter) => { link, view? }` — construct the
+ *                                RemoteLink (+ Tee + view) and return the live handles. The hook stamps
+ *                                `linkRef`/`viewRef`, resets the first-connect flag, and owns `link.removeNode()`.
+ * @param {boolean}  o.isActive   Whether the stream should be open right now
+ *                                (typically `pageVisible && ! paused`). False closes the stream.
+ * @param {Function} o.onConnect  `(link, { isReconnect, view }) => void` — open the
+ *                                stream. Typically `link.connect( isReconnect ? link.resumePositions() : first )`.
  * @return {{ viewRef: Object }} The live view-node ref, for the caller's control
  *   callbacks (e.g. setPaused / clear publishing through the view).
  */
-export function useVisibilityGatedLink( {
-	mountNodes,
-	isActive,
-	onConnect,
-	commandClient,
-} ) {
+export function useVisibilityGatedLink( { mountNodes, isActive, onConnect } ) {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 	const hasConnectedRef = useRef( false );
@@ -69,23 +53,11 @@ export function useVisibilityGatedLink( {
 	mountNodesRef.current = mountNodes;
 	const onConnectRef = useRef( onConnect );
 	onConnectRef.current = onConnect;
-	const clientRef = useRef( commandClient );
-	clientRef.current = commandClient;
 
 	// Mount once; cleanup runs FIRST so a rebuild clears connectedLinkRef.
 	useEffect( () => {
-		const build = ( { interpreter, http } ) => {
+		const build = ( { interpreter } ) => {
 			const { link, view } = mountNodesRef.current( interpreter );
-			// @longform
-			// Only when supplied: absent, RemoteLink reads `client ||` and
-			// HttpOut defaults, so an unguarded assign would blank both. The
-			// backbone gets it too because a dashboard's out-of-band verbs
-			// leave before the link connects, which is when RemoteLink's
-			// ensureChildren() would otherwise be the one to stamp `_http`.
-			if ( clientRef.current ) {
-				link.client = clientRef.current;
-				http.client = clientRef.current;
-			}
 			linkRef.current = link;
 			viewRef.current = view ?? null;
 			// Fresh link's SseIn has no offset; connect uses the default seek.

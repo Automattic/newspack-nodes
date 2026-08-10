@@ -22,9 +22,8 @@
  * The graph build is handed to `mountExospine( build )`, which snapshots Core so
  * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph").
  *
- * The command boundary is injectable: tests pass `opts.commandClient` (assigned
- * to `_http.client`) so the hook never touches the network. Production lazily
- * defaults to the shared transport singleton.
+ * Nothing is injected: HttpOut lazily defaults its own client, and tests seam
+ * at `fetch` (`installFakeCommandWire`) so the whole egress runs for real.
  */
 
 import { ensureSession } from '../../runtime/command-auth';
@@ -58,19 +57,13 @@ function fireList( shell ) {
 }
 
 /**
- * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] transport seam assigned to `_http.client`;
- *                                      defaults (inside HttpOut) to the localized transport.
  * @return {{ addServer: Function, updateServer: Function, removeServer: Function,
  *   testServer: Function }} CRUD callbacks for the thin React view (each view's
  *   model is read via useNodeState). Reset Graph is driven by a
  *   `Core.bumpGraphGeneration()` bump — mountExospine subscribes this reused
  *   mount's rebuild to it.
  */
-export function useVaultGraph( opts = {} ) {
-	const optsRef = useRef( opts );
-	optsRef.current = opts;
-
+export function useVaultGraph() {
 	// _shell Tap: the list refresh enters here, observable via connect _shell.
 	const shellRef = useRef( null );
 
@@ -85,12 +78,7 @@ export function useVaultGraph( opts = {} ) {
 
 	// Mount the graph once: clip onto the exospine, then fire a list.
 	useEffect( () => {
-		const build = ( { interpreter, shell, http } ) => {
-			// Shared _http singleton (mountExospine owns it); set its client.
-			if ( optsRef.current.commandClient ) {
-				http.client = optsRef.current.commandClient;
-			}
-
+		const build = ( { interpreter, shell } ) => {
 			// The table's reply edge: a receiver Tee fronts the list view.
 			const listIn = interpreter.makeNode( 'Tee', LIST_RECV );
 			interpreter.makeNode( 'VaultListView', LIST_VIEW );
