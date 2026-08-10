@@ -438,9 +438,9 @@ class Lock_Node extends Node {
 	 * Four readers of this one mtime once had four policies — the respawn
 	 * decision and the Workers dashboard honoured a topology's declared
 	 * `stale_timeout`, `wp nodes status` used a flat 60, and two dashboards
-	 * hardcoded 30. So a job-worker mid-job (`job-worker.tsl` lifts the
-	 * threshold to 600 precisely because job handlers run slow user code) read
-	 * DOWN in the CLI and the UI while the peer scan correctly left it alone.
+	 * hardcoded 30. So a worker mid-job (`job-spoke.tsl` lifts the threshold to
+	 * 600 precisely because a render is slow user code) read DOWN in the CLI and
+	 * the UI while the peer scan correctly left it alone.
 	 *
 	 * @param string $lock_dir      The `.lock.d` directory.
 	 * @param int    $now           Clock, so one scan judges every worker alike.
