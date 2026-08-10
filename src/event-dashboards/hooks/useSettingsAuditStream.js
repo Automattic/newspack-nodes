@@ -27,7 +27,7 @@ const SUBSCRIBE = 'settings.p0';
 
 /**
  * @param {Object} [opts]
- * @param {Object} [opts.commandClient] transport seam for the link's HttpOut.
+ * @param {Object} [opts.commandClient] transport seam for the link and the backbone `_http`.
  */
 export function useSettingsAuditStream( { commandClient } = {} ) {
 	const isPageVisible = usePageVisibility();
@@ -41,9 +41,6 @@ export function useSettingsAuditStream( { commandClient } = {} ) {
 			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			if ( commandClient ) {
-				link.client = commandClient;
-			}
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
@@ -52,6 +49,7 @@ export function useSettingsAuditStream( { commandClient } = {} ) {
 			return { link };
 		},
 		isActive: isPageVisible,
+		commandClient,
 		// Always full replay; a reconnect resumes from the last seen offset.
 		onConnect: ( link, { isReconnect } ) =>
 			link.connect(

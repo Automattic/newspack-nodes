@@ -44,6 +44,7 @@
 		"babel-jest",
 		"jest-environment-jsdom",
 		"@testing-library/react",
+		"react-dom",
 		"jsdom",
 		"@csstools/selector-specificity",
 		"postcss-selector-parser",

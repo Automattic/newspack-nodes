@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`useVisibilityGatedLink` takes the `commandClient` transport seam**, which
+  five of its six consumers were applying to the module's output themselves.
+  They had drifted into two rules: three guarded on presence and stamped the
+  link alone, while the two whose dashboards also issue out-of-band verbs
+  assigned unconditionally and reached the backbone `_http` by hardcoded name.
+  Each half was right about something. The guard matters because production
+  supplies no client and both RemoteLink and HttpOut default it — an
+  unguarded assign writes `undefined` over the backbone. The backbone write
+  matters because those out-of-band verbs leave before the link connects,
+  which is the only moment `RemoteLink.ensureChildren()` would stamp `_http`
+  itself. The hook now does both, once, and no consumer does either.
+
 ### Changed
+
+- **The last four bare `'live'` comparisons read `LIVE`.** v2.21.0 exported the
+  constant but left the view side comparing the literal — `LogBrowser`'s
+  `isLive`, both Viewers' initial `mode`, and event-logger-nodes'
+  `useGlobBrowse` fallback. The value is pinned by test, so this changes
+  nothing; it removes the four places a rename would have missed.
+
+- **knip stops reporting `react-dom` as an unused devDependency**, which
+  blocked any commit touching JS. It is a required peer of
+  `@testing-library/react` (already ignored for the same reason) and the
+  target of the build-kit's own esbuild-externals and jest `moduleNameMapper`
+  entries — all string references knip cannot follow.
 
 - **`Probe_To_Graphite_Node` emits `<prefix>.<reader>.<field>`**, dropping the
   hostname and the hardcoded `nodes.topics` segment from the middle of the
