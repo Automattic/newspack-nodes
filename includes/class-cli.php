@@ -245,33 +245,13 @@ class CLI {
 			] + self::lock_liveness(
 				"{$locks_dir}/{$entry}",
 				$now,
-				self::stale_timeout_for( $m[1] )
+				Bootstrap::stale_timeout_for( $m[1] )
 			);
 		}
 		\usort( $workers, fn ( $a, $b ) =>
 			[ $a['type'], $a['partition'] ] <=> [ $b['type'], $b['partition'] ]
 		);
 		return $workers;
-	}
-
-	/**
-	 * The stale threshold a topology declares, or the default.
-	 *
-	 * The respawn decision and the Workers dashboard both honour this;
-	 * `wp nodes status` did not, so a topology that raised its own threshold
-	 * read DOWN here while the peer scan correctly left it running. One
-	 * heartbeat, one threshold.
-	 *
-	 * @param string $type The topology name.
-	 * @return int Seconds.
-	 */
-	private static function stale_timeout_for( string $type ): int {
-		foreach ( Bootstrap::expand_workers() as $descriptor ) {
-			if ( $descriptor['type'] === $type ) {
-				return Lock_Node::stale_timeout_of( $descriptor );
-			}
-		}
-		return Lock_Node::STALE_TIMEOUT;
 	}
 
 	/**
