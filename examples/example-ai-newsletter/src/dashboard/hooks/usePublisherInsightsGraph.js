@@ -17,7 +17,7 @@
  * it). All this hook supplies is its slices: `addSliceFetcher` (helper H4) wires
  * each Fetcher → `_shell/_http/insights-demo`, its receiver Tee, and its view
  * node — an independent reply path per slice. The command boundary is injectable
- * via `opts.commandClient` so tests never touch the network.
+ * The seam is `fetch`, so tests never touch the network.
  */
 
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
@@ -63,8 +63,7 @@ const SLICES = [
 ];
 
 /**
- * @param {Object} [opts]               Options (test seams).
- * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`.
+ * @param {Object} [opts] Options (test seams).
  */
 export function usePublisherInsightsGraph( opts = {} ) {
 	useBatchedPoll( {
@@ -78,7 +77,6 @@ export function usePublisherInsightsGraph( opts = {} ) {
 			),
 		timerName: 'insights:timer',
 		teeName: 'insights:tee',
-		commandClient: opts.commandClient,
 		// A digest changes on the order of minutes; poll accordingly.
 		intervalMs: opts.intervalMs ?? DEFAULT_INTERVAL_MS,
 	} );

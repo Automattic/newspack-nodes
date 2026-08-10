@@ -236,9 +236,9 @@ Per-slot semantics (named here for documentation only — the wire is positional
 | `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
 | `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
-| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell/`CommandClient` tokenizes ONCE at the producer boundary and the tokens ride verbatim through the envelope, interpreter, and `make_node`. Every verb (scalar and structured alike) reads its data from that token array (`$args[0]`, `$args[1]`, …). (The request-side `payload` slot was removed in 0.6.0.) VALUE also carries `auth` — the HMAC envelope every minter must stamp; see [Command Signing](#command-signing). |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; `arguments` is a **flat token array** (`list<string>` argv) — the Shell/browser transport tokenizes ONCE at the producer boundary and the tokens ride verbatim through the envelope, interpreter, and `make_node`. Every verb (scalar and structured alike) reads its data from that token array (`$args[0]`, `$args[1]`, …). (The request-side `payload` slot was removed in 0.6.0.) VALUE also carries `auth` — the HMAC envelope every minter must stamp; see [Command Signing](#command-signing). |
 
-The browser's `CommandClient` and the attached `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
+The browser's command transport and the attached `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
 ### Response
 

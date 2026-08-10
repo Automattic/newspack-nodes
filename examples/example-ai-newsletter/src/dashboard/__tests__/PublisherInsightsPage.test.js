@@ -1,48 +1,18 @@
 /* eslint-env jest */
 /**
  * PublisherInsightsPage — mounts the genuine node graph (usePublisherInsightsGraph)
- * and renders the three slice widgets. Here we inject a fake CommandClient whose
+ * and renders the three slice widgets. Here we seam at the wire, whose
  * slice replies (counts/top/accumulated) carry known data, so the graph fills the
  * three view nodes and the page renders the populated dashboard.
  */
 
 import { render, screen, waitFor } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { act } from 'react';
-import {
-	newMessage,
-	ID,
-	TO,
-	FROM,
-	VALUE,
-	TYPE,
-	TM_COMMAND,
-	TM_RESPONSE,
-	Core,
-} from '@newspack-nodes/runtime';
+import { VALUE, Core } from '@newspack-nodes/runtime';
 import PublisherInsightsPage from '../PublisherInsightsPage';
 
 const ROUTER = '_router';
-
-// A fake CommandClient: postBatch echoes a per-verb reply pivoted back along FROM.
-function makeClient( payloadByVerb ) {
-	return {
-		postBatch( messages ) {
-			return Promise.resolve(
-				messages.map( ( m ) => {
-					const reply = newMessage();
-					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-					reply[ TO ] = m[ FROM ];
-					reply[ ID ] = m[ ID ];
-					reply[ VALUE ] = {
-						name: m[ VALUE ]?.name,
-						payload: payloadByVerb[ m[ VALUE ]?.name ] ?? null,
-					};
-					return reply;
-				} )
-			);
-		},
-	};
-}
 
 const populated = {
 	counts: JSON.stringify( { sources: { releases: 2, community: 1 } } ),
@@ -55,11 +25,18 @@ const populated = {
 	accumulated: JSON.stringify( { accumulated: 3 } ),
 };
 
+// The seam is the wire; the page's graph POSTs and unpacks for real.
+function installWire( payloadByVerb = {} ) {
+	return installFakeCommandWire(
+		( m ) => payloadByVerb[ m[ VALUE ]?.name ] ?? null
+	);
+}
+
 beforeEach( () => Core.reset() );
 
 // Render the page, drive one router tick to fill the views, await the replies.
-async function renderAndTick( client ) {
-	const utils = render( <PublisherInsightsPage commandClient={ client } /> );
+async function renderAndTick() {
+	const utils = render( <PublisherInsightsPage /> );
 	await act( async () => {
 		Core.node( ROUTER ).fireCb();
 	} );
@@ -79,11 +56,7 @@ describe( 'PublisherInsightsPage', () => {
 		// useBatchedPoll fires one batched poll on mount (immediate first paint),
 		// so the mount settles async view-node updates — flush them under act().
 		await act( async () => {
-			render(
-				<PublisherInsightsPage
-					commandClient={ makeClient( populated ) }
-				/>
-			);
+			render( <PublisherInsightsPage /> );
 		} );
 		expect(
 			screen.getByRole( 'heading', { name: 'Publisher Insights' } )
@@ -91,7 +64,8 @@ describe( 'PublisherInsightsPage', () => {
 	} );
 
 	it( 'renders all three slice widgets from their own view nodes after a tick', async () => {
-		const { container } = await renderAndTick( makeClient( populated ) );
+		installWire( populated );
+		const { container } = await renderAndTick();
 		await waitFor( () =>
 			expect( screen.getByText( 'Big release' ) ).toBeInTheDocument()
 		);
@@ -113,13 +87,12 @@ describe( 'PublisherInsightsPage', () => {
 	it( 'renders per-slice empty states from an empty SERVER reply (after a tick)', async () => {
 		// Drive the real reply path (renderAndTick), not the constructor seed —
 		// this proves an empty server reply lands in the views and renders empty.
-		await renderAndTick(
-			makeClient( {
-				counts: JSON.stringify( { sources: {} } ),
-				top: JSON.stringify( { top: [] } ),
-				accumulated: JSON.stringify( { accumulated: 0 } ),
-			} )
-		);
+		installWire( {
+			counts: JSON.stringify( { sources: {} } ),
+			top: JSON.stringify( { top: [] } ),
+			accumulated: JSON.stringify( { accumulated: 0 } ),
+		} );
+		await renderAndTick();
 		await waitFor( () =>
 			expect(
 				screen.getByText( /no scored items yet/i )
@@ -133,11 +106,7 @@ describe( 'PublisherInsightsPage', () => {
 		// localStorage flag so it mounts, then assert its FAB renders on the page.
 		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
 		await act( async () => {
-			render(
-				<PublisherInsightsPage
-					commandClient={ makeClient( populated ) }
-				/>
-			);
+			render( <PublisherInsightsPage /> );
 		} );
 		expect(
 			screen.getByRole( 'button', { name: 'Toggle node debugger' } )

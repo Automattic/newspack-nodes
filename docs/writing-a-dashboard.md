@@ -487,7 +487,6 @@ export function usePublisherInsightsGraph( opts = {} ) {
 			),
 		timerName: 'insights:timer',
 		teeName:   'insights:tee',
-		commandClient: opts.commandClient,   // test seam assigned to `_http.client`
 	} );
 }
 ```
@@ -526,8 +525,8 @@ import { TopTable } from './widgets/TopTable';
 import { AccumulatedCard } from './widgets/AccumulatedCard';
 import './styles/insights.scss';
 
-export default function PublisherInsightsPage( { commandClient } = {} ) {
-	usePublisherInsightsGraph( { commandClient } );   // mount the graph + start polling
+export default function PublisherInsightsPage() {
+	usePublisherInsightsGraph();   // mount the graph + start polling
 
 	return (
 		<div className="eai-insights">
@@ -739,9 +738,9 @@ A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) 
 
 This example mounts `DebugOverlay` in §9, so its stylesheet explicitly depends on `newspack-nodes-graph` (which brings the canonical UI and theme handles with it). `GraphView` deliberately has no stylesheet side-effect import: every host that renders the graph owns this dependency, keeping the graph CSS in one build asset instead of copying it into each consumer bundle.
 
-> **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS `CommandClient` reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
+> **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS transport reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
-The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `CommandClient` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and the hook's lazily-built `CommandClient` (JS) are the two ends of one wire.
+The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `defaultTransport()` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and HttpOut's lazily-defaulted transport (JS) are the two ends of one wire.
 
 ---
 
@@ -829,7 +828,7 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the previous guide in order: the headless pipeline this dashboard reads from.
 - **[writing-a-real-dashboard.md](writing-a-real-dashboard.md)** — the next step: take these primitives to a production dashboard.
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
-- **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook, and widget tested with a fake `CommandClient`, no browser).
+- **[`examples/example-ai-newsletter/`](../examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node, hook, and widget tested against a fake wire, no browser).
 - **`newspack-event-logger-nodes`** — the production application: four real dashboards (Performance, Error Log, Gyroscope, Request Log) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
 </content>
 </invoke>

@@ -14,17 +14,8 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import {
-	newMessage,
-	ID,
-	TO,
-	FROM,
-	VALUE,
-	TYPE,
-	TM_COMMAND,
-	TM_RESPONSE,
-	Core,
-} from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { TO, FROM, VALUE, Core } from '@newspack-nodes/runtime';
 import { usePublisherInsightsGraph } from '../usePublisherInsightsGraph';
 
 const INTERPRETER = '_command_interpreter';
@@ -42,35 +33,21 @@ function setVisibility( state ) {
 	document.dispatchEvent( new Event( 'visibilitychange' ) );
 }
 
-// A fake CommandClient matching HttpOut's seam: postBatch records each batch and
 // echoes a reply addressed back along FROM, payload keyed by the posted verb.
-function makeFakeClient( payloadByVerb = {} ) {
-	const client = {
-		batches: [],
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ VALUE ] = {
-					name: m[ VALUE ]?.name,
-					payload: payloadByVerb[ m[ VALUE ]?.name ] ?? null,
-				};
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
-}
-
 const emptyPayloads = {
 	counts: JSON.stringify( { sources: {} } ),
 	top: JSON.stringify( { top: [] } ),
 	accumulated: JSON.stringify( { accumulated: 0 } ),
 };
+
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `wire.batches` is what
+// was posted.
+function installWire( payloadByVerb = {} ) {
+	return installFakeCommandWire(
+		( m ) => payloadByVerb[ m[ VALUE ]?.name ] ?? null
+	);
+}
 
 beforeEach( () => {
 	Core.reset();
@@ -83,10 +60,8 @@ beforeEach( () => {
 
 describe( 'usePublisherInsightsGraph — graph wiring', () => {
 	test( 'mounts the backbone, `_http`, `_shell` tap, the timer/tee/fetchers, and three view nodes, each sinking into the interpreter', async () => {
-		const client = makeFakeClient( emptyPayloads );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+		installWire( emptyPayloads );
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
 
 		const interpreter = Core.node( INTERPRETER );
@@ -115,20 +90,17 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 		}
 	} );
 
-	test( '`_http` has the injected CommandClient as its client', async () => {
-		const client = makeFakeClient( emptyPayloads );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+	test( '`_http` reaches the wire with nothing injected', async () => {
+		const wire = installWire( emptyPayloads );
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
-		expect( Core.node( HTTP ).client ).toBe( client );
+		// HttpOut defaults its own client lazily, at the first post.
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
 	test( 'each Fetcher is configured with its receiver + verb and targets `_shell/_http/insights-demo`', async () => {
-		const client = makeFakeClient( emptyPayloads );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+		installWire( emptyPayloads );
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
 		const path = `${ SHELL }/${ HTTP }/insights-demo`;
 		expect( Core.node( 'fetch-counts' ).receiver ).toBe( 'countsIn' );
@@ -143,20 +115,18 @@ describe( 'usePublisherInsightsGraph — graph wiring', () => {
 
 describe( 'usePublisherInsightsGraph — batched poll', () => {
 	test( 'one router TIMER tick emits exactly three TM_COMMANDs (counts/top/accumulated, FROM=their receivers) batched into ONE HttpOut POST', async () => {
-		const client = makeFakeClient( emptyPayloads );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+		const wire = installWire( emptyPayloads );
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
 
 		// ONE POST for the whole tick — the batch assertion.
-		expect( client.batches.length ).toBe( 1 );
-		const batch = client.batches[ 0 ];
+		expect( wire.batches.length ).toBe( 1 );
+		const batch = wire.batches[ 0 ];
 		expect( batch.length ).toBe( 3 );
 
 		const byVerb = Object.fromEntries(
@@ -175,12 +145,10 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 	} );
 
 	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {
-		const client = makeFakeClient( emptyPayloads );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+		const wire = installWire( emptyPayloads );
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		// Tab hidden: the timer must unregister from the router TIMER, so a tick
 		// fans out to nothing — no fetcher commands, no HttpOut POST.
@@ -190,7 +158,7 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( wire.batches.length ).toBe( 0 );
 
 		// Tab visible again: polling resumes — the next tick posts one batch.
 		await act( async () => {
@@ -199,21 +167,19 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 
 	test( 'each slice reply routes back to its own view node and lands in its slice', async () => {
-		const client = makeFakeClient( {
+		installWire( {
 			counts: JSON.stringify( { sources: { releases: 2 } } ),
 			top: JSON.stringify( {
 				top: [ { source: 'releases', title: 'X', score: 5 } ],
 			} ),
 			accumulated: JSON.stringify( { accumulated: 7 } ),
 		} );
-		renderHook( () =>
-			usePublisherInsightsGraph( { commandClient: client } )
-		);
+		renderHook( () => usePublisherInsightsGraph() );
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
