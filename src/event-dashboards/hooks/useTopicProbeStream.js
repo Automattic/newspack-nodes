@@ -37,7 +37,7 @@ function positionsForMode( mode ) {
 /**
  * @param {Object} [opts]
  * @param {string} [opts.mode]          'history' (24h replay) or 'follow' (tail).
- * @param {Object} [opts.commandClient] transport seam for the link's HttpOut.
+ * @param {Object} [opts.commandClient] transport seam for the link and the backbone `_http`.
  */
 export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 	const isPageVisible = usePageVisibility();
@@ -51,9 +51,6 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			if ( commandClient ) {
-				link.client = commandClient;
-			}
 
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
@@ -62,6 +59,7 @@ export function useTopicProbeStream( { mode = 'follow', commandClient } = {} ) {
 			return { link };
 		},
 		isActive: isPageVisible,
+		commandClient,
 		onConnect: ( link, { isReconnect } ) =>
 			link.connect(
 				isReconnect ? link.resumePositions() : positionsForMode( mode )

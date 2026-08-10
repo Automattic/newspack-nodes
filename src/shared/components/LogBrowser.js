@@ -1,4 +1,5 @@
 import { __ } from '@wordpress/i18n';
+import { LIVE } from '../nodes/seekTracker';
 import './LogBrowser.scss';
 
 /**
@@ -47,7 +48,7 @@ export default function LogBrowser( {
 	title,
 	emptyLabel,
 } ) {
-	const isLive = 'live' === mode;
+	const isLive = LIVE === mode;
 	// Last-received wins the highlight; else the clicked item.
 	const highlightKey = activeKey ?? selectedKey;
 	return (

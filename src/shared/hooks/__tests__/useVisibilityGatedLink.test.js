@@ -7,7 +7,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { Core } from '@newspack-nodes/runtime';
+import { Core, mountExospine } from '@newspack-nodes/runtime';
 import { useVisibilityGatedLink } from '../useVisibilityGatedLink';
 
 function fakeLink() {
@@ -25,13 +25,14 @@ beforeEach( () => {
 	Core.reset();
 } );
 
-function mount( { link, isActive, onConnect, view } ) {
+function mount( { link, isActive, onConnect, view, commandClient } ) {
 	return renderHook(
 		( props ) =>
 			useVisibilityGatedLink( {
 				mountNodes: () => ( { link, view } ),
 				isActive: props.isActive,
 				onConnect,
+				commandClient,
 			} ),
 		{ initialProps: { isActive } }
 	);
@@ -88,4 +89,34 @@ test( 'teardown removes the link', () => {
 	const { unmount } = mount( { link, isActive: true, onConnect: jest.fn() } );
 	act( () => unmount() );
 	expect( link.removeNode ).toHaveBeenCalled();
+} );
+
+test( 'the transport seam rides the link, so no consumer assigns it itself', () => {
+	const link = fakeLink();
+	const commandClient = { postBatch: jest.fn(), id: 'seam-8675309' };
+	mount( { link, isActive: true, onConnect: jest.fn(), commandClient } );
+	expect( link.client ).toBe( commandClient );
+} );
+
+test( 'omitting it leaves BOTH untouched, so the defaults still apply', () => {
+	const link = fakeLink();
+	link.client = 'REMOTELINK-DEFAULTS-THIS';
+	let http;
+	mountExospine( ( spine ) => {
+		http = spine.http;
+		http.client = 'HTTPOUT-DEFAULTS-THIS';
+	} );
+	mount( { link, isActive: true, onConnect: jest.fn() } );
+	// An unguarded assign blanks either one; both read `client ||` to default.
+	expect( link.client ).toBe( 'REMOTELINK-DEFAULTS-THIS' );
+	expect( http.client ).toBe( 'HTTPOUT-DEFAULTS-THIS' );
+} );
+
+test( 'the seam also reaches the backbone _http, for pre-connect commands', () => {
+	const link = fakeLink();
+	const commandClient = { postBatch: jest.fn(), id: 'seam-8675309' };
+	mount( { link, isActive: true, onConnect: jest.fn(), commandClient } );
+	// A dashboard's out-of-band verbs leave before the link ever connects, so
+	// RemoteLink.ensureChildren() has not stamped `_http` yet.
+	expect( Core.node( '_http' ).client ).toBe( commandClient );
 } );

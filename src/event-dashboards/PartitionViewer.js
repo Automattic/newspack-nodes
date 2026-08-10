@@ -24,6 +24,7 @@ import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import useLogPositions from '@newspack-nodes/shared/hooks/useLogPositions';
+import { LIVE } from '@newspack-nodes/shared/nodes/seekTracker';
 import './styles/partition-viewer.scss';
 
 const ROW_HEIGHT = 33;
@@ -36,7 +37,7 @@ const EMPTY_VIEW = {
 	selected: '',
 	paused: false,
 	connectionError: false,
-	mode: 'live',
+	mode: LIVE,
 	lastReceivedSegment: null,
 };
 
