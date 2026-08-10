@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.21.0] - 2026-08-10
+
 ### Added
 
 - **`LRU_Cache` moved here from `newspack-event-logger-nodes`** as
@@ -43,42 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     writing process read its own failure back as fact for a whole window while
     every other process correctly saw the old value.
 
-### Changed
-
-- **BREAKING: `Table_Node::lookup()` / `store()` / `forget()` are instance
-  methods**, and the namespace and TTL come from the table rather than from
-  every call: `Table_Node::table( $ns, $ttl, $l1_ttl )->lookup( $key )`. They
-  were static because their callers have no graph, but "no graph" never
-  implied "no instance" — `new Table_Node()` registers nothing globally. Made
-  static, an L1 would have needed a namespace-keyed registry, a configuration
-  verb and a teardown hook; as instance state it needs none of them, and the
-  cache's lifetime belongs visibly to whoever holds the table.
-  `entry_key()` stays static.
-
-- **BREAKING: job handlers are called `( string $id, array $parameters )`.**
-  `$id` leads because every job has one and it is what the request context is
-  named for; a producer that omits it is a bug, not a shorthand. Reversed, a
-  handler receives a string where it declared an array and dies at the
-  boundary, so there is no additive intermediate — the substrate and every
-  handler in every consumer ship together.
-  - Handlers get no `Message`. Per-job request context belongs to
-    `newspack_nodes/job_worker/{before,after}_job` alone, which is what let the
-    four handlers that opened a SECOND context inside the wrapper's stop doing
-    so; each was billing its job two completed requests.
-  - Listeners on the two actions are unaffected.
-
-## [2.21.0] - 2026-08-10
-
-### Added
-
-- **Job handlers receive the job's `Message` as a third argument** —
-  `( array $parameters, string $id, array $message )`. Only a `before_job`
-  listener could see it before, so a handler wanting its own request context
-  had to let that listener guess a shape only the handler knows. Additive and
-  safe to ship ahead of consumers: PHP ignores extra positional arguments to a
-  user function, so existing one- and two-argument handlers are untouched.
-  Groundwork for `docs/superpowers/specs/2026-08-10-handlers-own-their-job-context.md`.
-
 - **`Table_Node::store()` and `forget()`** — the write half of the divergence
   `lookup()` already documented. A table's contents are often owned by a
   process that is not in a graph, so `fill()` cannot be its way in: a ruleset
@@ -91,6 +57,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the panel below it, with `.is-warning` / `.is-info` tones — the same
   modifier shape the status badge uses. `.newspack-nodes-error-banner` remains
   what it was: a failure, not a caveat.
+
+### Changed
+
+- **BREAKING: `Table_Node::lookup()` is an instance method**, and the
+  namespace and TTL come from the table rather than from every call:
+  `Table_Node::table( $ns, $ttl, $l1_ttl )->lookup( $key )`. It was static
+  because its callers have no graph, but "no graph" never implied "no
+  instance" — `new Table_Node()` registers nothing globally. Left static, an
+  L1 would have needed a namespace-keyed registry, a configuration verb and a
+  teardown hook; as instance state it needs none of them, and the cache's
+  lifetime belongs visibly to whoever holds the table. `entry_key()` stays
+  static. `store()` and `forget()` are new in this release and never shipped
+  static.
+
+- **BREAKING: job handlers are called `( string $id, array $parameters )`.**
+  `$id` leads because every job has one and it is what the request context is
+  named for; a producer that omits it is a bug, not a shorthand. Reversed, a
+  handler receives a string where it declared an array and dies at the
+  boundary, so there is no additive intermediate — the substrate and every
+  handler in every consumer ship together.
+  - Handlers get no `Message`. Per-job request context belongs to
+    `newspack_nodes/job_worker/{before,after}_job` alone, which is what let the
+    four handlers that opened a SECOND context inside the wrapper's stop doing
+    so; each was billing its job two completed requests.
+  - Listeners on the two actions are unaffected.
 
 ## [2.20.1] - 2026-08-10
 
