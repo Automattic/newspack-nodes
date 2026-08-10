@@ -3,9 +3,13 @@
 #   Consumer (jobs.log) ─→ JobWorker
 
 # Frontmatter — the runtime reads these via Topology_Registry::frontmatter().
-# Handlers that block on serial HTTP pump() the continue-predicate at their
-# fetch point, so the heartbeat rides along and the default window holds.
-var stale_timeout = 60;
+#
+# A handler only heartbeats where it reaches should_continue() — pump() at a
+# fetch point, or the drain loop between messages.  One that reaches neither
+# for a while (CPU-bound work, a long query, a proc_open render) does not beat
+# at all, and at 60s a peer steals its lock mid-job and the job replays to
+# die again.
+var stale_timeout = 600;
 
 include topic-probe
 

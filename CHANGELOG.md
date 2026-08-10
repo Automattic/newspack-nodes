@@ -20,9 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `should_continue()` is the beat again, reached mid-work through
   `Event_Framework::pump()` and between messages by the drain loop. Work that
   reaches neither does not heartbeat, which is what a topology's
-  `stale_timeout` budgets for (`job-worker` declares 600s precisely for this),
-  and what the gyrobase lease covers for a render — the engine keeps its own
-  heartbeat warm from inside the child, where the parent cannot.
+  `stale_timeout` budgets for — `job-spoke` declares 600s precisely because a
+  gyrobase render is slow user code, and the engine keeps its own heartbeat warm
+  from inside the child, where the parent cannot.
+
+### Changed
+
+- **`job-worker` declares `stale_timeout = 600`**, matching `job-spoke`. It sat
+  at 60 on the assumption that a blocking handler pumps the continue-predicate
+  at its fetch point — true of the handlers that do, and silently underwritten
+  by the alarm for every handler that does not. With the alarm gone, a handler
+  working longer than the window without reaching `should_continue()` stops
+  heartbeating, a peer steals its lock, and the job replays to die again.
+  Event-logger-nodes lifts `jobs` and `job-hub` to match.
 
   The test that vouched for the alarm blocked on `sleep()`, which IS
   interruptible; it proved the easy case and was read as covering `proc_open`.

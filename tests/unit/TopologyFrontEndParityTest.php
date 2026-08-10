@@ -68,7 +68,7 @@ class TopologyFrontEndParityTest extends TestCase {
 	/** The trailing-`;` fix leaves frontmatter reads unchanged (semicolon stripped either way). */
 	public function test_trailing_semicolon_var_frontmatter_is_stable(): void {
 		$this->assertSame( [ 'num_partitions' => '1' ], Topology_Analyzer::frontmatter( 'settings-sync' ) );
-		$this->assertSame( [ 'stale_timeout' => '60' ], Topology_Analyzer::frontmatter( 'job-worker' ) );
+		$this->assertSame( [ 'stale_timeout' => '600' ], Topology_Analyzer::frontmatter( 'job-worker' ) );
 	}
 
 	/** Write-set golden for a bundled topology (Partition + Consumer offsetlog/deadletter). */
