@@ -12,8 +12,9 @@ use Newspack_Nodes\Tests\TestCase;
 /**
  * Port of Tachikoma's TopicProbeToGraphite.pm over our positional
  * Probe_Record: fill() accumulates per-reader, fire() formats
- * `prefix.host.nodes.topics.<reader>.<field> value ts` lines (distance,
- * msgs), batches them ≤16 per TM_BYTESTREAM, and clears its state.
+ * `<prefix>.<reader>.<field> value ts` lines (distance, msgs_delta,
+ * bytes_read_delta, cache_size), batches them ≤16 per TM_BYTESTREAM, and
+ * clears its state.
  */
 #[CoversClass( Probe_To_Graphite_Node::class )]
 class ProbeToGraphiteTest extends TestCase {
@@ -39,16 +40,20 @@ class ProbeToGraphiteTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function probe_message( string $reader, int $distance, int $msgs, ?float $ts = null ): array {
-		$record                              = [];
-		$record[ Probe_Record::SOURCE ]      = 'firehose.p0';
-		$record[ Probe_Record::READER ]      = $reader;
+	private function probe_message( string $reader, int $distance, int $msgs, ?float $ts = null, int $bytes = 7331, int $cache = 4242 ): array {
+		$record                                 = [];
+		$record[ Probe_Record::SOURCE ]         = 'firehose.p0';
+		$record[ Probe_Record::READER ]         = $reader;
 		$record[ Probe_Record::CURSOR_SEGMENT ] = 3;
-		$record[ Probe_Record::CURSOR_OFF ]  = 100;
-		$record[ Probe_Record::END_SEGMENT ] = 3;
-		$record[ Probe_Record::END_SIZE ]    = 100 + $distance;
-		$record[ Probe_Record::DISTANCE ]    = $distance;
-		$record[ Probe_Record::MSGS_DELTA ]        = $msgs;
+		$record[ Probe_Record::CURSOR_OFF ]     = 100;
+		$record[ Probe_Record::END_SEGMENT ]    = 3;
+		$record[ Probe_Record::END_SIZE ]       = 100 + $distance;
+		$record[ Probe_Record::DISTANCE ]       = $distance;
+		$record[ Probe_Record::MSGS_DELTA ]     = $msgs;
+		// Distinct from each other and from the 0 an absent field reads as, so
+		// a field wired to the wrong Probe_Record position fails loudly.
+		$record[ Probe_Record::BYTES_READ_DELTA ] = $bytes;
+		$record[ Probe_Record::CACHE_SIZE ]       = $cache;
 
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -57,7 +62,9 @@ class ProbeToGraphiteTest extends TestCase {
 		return $message;
 	}
 
-	public function test_fire_formats_distance_and_msgs_lines_per_reader(): void {
+	public function test_fire_formats_one_line_per_field_per_reader(): void {
+		// The path carries no hostname: one Graphite tree per install, not per
+		// container, so a reader's series survives the worker moving hosts.
 		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 120, 45 ) );
 		$this->node->fire();
 
@@ -66,11 +73,26 @@ class ProbeToGraphiteTest extends TestCase {
 		sort( $lines );
 		$this->assertSame(
 			[
-				'eve.' . gethostname() . '.nodes.topics.combined_firehose_p0.distance 120 1000000',
-				'eve.' . gethostname() . '.nodes.topics.combined_firehose_p0.msgs_delta 45 1000000',
+				'eve.combined_firehose_p0.bytes_read_delta 7331 1000000',
+				'eve.combined_firehose_p0.cache_size 4242 1000000',
+				'eve.combined_firehose_p0.distance 120 1000000',
+				'eve.combined_firehose_p0.msgs_delta 45 1000000',
 			],
 			$lines
 		);
+	}
+
+	public function test_an_unconfigured_node_emits_under_the_topics_prefix(): void {
+		$node = new Probe_To_Graphite_Node();
+		$node->name( 'graphite-default' );
+		$sink = new Capture_Sink_Node();
+		$node->sink( $sink );
+		$node->arguments( [] );
+
+		$node->fill( $this->probe_message( 'combined.firehose.p0', 120, 45 ) );
+		$node->fire();
+
+		$this->assertStringStartsWith( 'nodes.topics.combined_firehose_p0.', $sink->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_latest_record_per_reader_wins_and_state_clears_after_fire(): void {
@@ -88,15 +110,17 @@ class ProbeToGraphiteTest extends TestCase {
 	}
 
 	public function test_fire_batches_at_most_sixteen_lines_per_message(): void {
-		for ( $i = 0; $i < 20; $i++ ) {
+		// 19 readers, deliberately not a multiple of the batch size: 19 x 4
+		// fields = 76 lines → 16 x 4 + a 12-line remainder, so the partial
+		// final batch stays covered.
+		for ( $i = 0; $i < 19; $i++ ) {
 			$this->node->fill( $this->probe_message( "reader{$i}.p0", $i, $i ) );
 		}
 		$this->node->fire();
 
-		// 40 lines → 16 + 16 + 8.
-		$this->assertCount( 3, $this->sink->captured );
+		$this->assertCount( 5, $this->sink->captured );
 		$this->assertCount( 16, explode( "\n", rtrim( $this->sink->captured[0][ Message::VALUE ], "\n" ) ) );
-		$this->assertCount( 8, explode( "\n", rtrim( $this->sink->captured[2][ Message::VALUE ], "\n" ) ) );
+		$this->assertCount( 12, explode( "\n", rtrim( $this->sink->captured[4][ Message::VALUE ], "\n" ) ) );
 	}
 
 	public function test_non_struct_and_malformed_records_are_ignored(): void {

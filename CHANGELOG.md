@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Probe_To_Graphite_Node` emits `<prefix>.<reader>.<field>`**, dropping the
+  hostname and the hardcoded `nodes.topics` segment from the middle of the
+  path; the prefix now carries the whole leading path and defaults to
+  `nodes.topics`. A per-host tree started a fresh series every time a worker
+  moved hosts, and the fleet is network-global. Adds `bytes_read_delta` and
+  `cache_size` beside `distance` and `msgs_delta`, and drops the default
+  interval from 60s to 15s.
+
 ## [2.21.0] - 2026-08-10
 
 ### Added
