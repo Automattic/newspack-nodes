@@ -55,10 +55,8 @@ import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '../formatters';
+import { partitionSummaries } from '../partitionSummaries';
 import '../nodes/register';
-
-// Partition stalled when heartbeat age exceeds interval x STALL_PAD.
-const STALL_PAD = 3;
 
 // Stale once the last successful poll is older than this many poll intervals.
 const STALE_POLL_INTERVALS = 3;
@@ -128,7 +126,6 @@ function sectionsByName( model ) {
 			writeRates: model.writeRates ?? {},
 			segmentSize: model.segmentSize,
 			currentTime: model.currentTime,
-			heartbeatIntervalS: model.heartbeatIntervalS ?? 10,
 			prevSegments: model.prevSegments ?? {},
 			removingSegments: model.removingSegments ?? {},
 		};
@@ -138,10 +135,20 @@ function sectionsByName( model ) {
 
 /**
  * Derive a topology's per-partition stall flags and rolled-up health from its
- * live status section. A partition is stalled when its (process-level)
- * heartbeat_age exceeds `heartbeatIntervalS × STALL_PAD`; health rolls up to
- * `stalled` if any partition stalled, else `behind` if any consumer is behind,
- * else `ok`. An inactive topology (no section) gets no partitions and `ok`.
+ * live status section. A partition is stalled when the server marked its
+ * worker `stale`; health rolls up to `stalled` if any partition stalled, else
+ * `behind` if any consumer is behind, else `ok`. An inactive topology (no
+ * section) gets no partitions and `ok`.
+ *
+ * The server's flag, not a local re-derivation: it judges each heartbeat
+ * against the topology's OWN declared `stale_timeout`, which the job pools
+ * raise to 600s. Re-deriving as `heartbeatIntervalS × 3` called a live
+ * job-worker stalled at 31s, so this view contradicted `wp nodes status`
+ * reading the same heartbeat. One heartbeat, one threshold.
+ *
+ * The per-partition fold is `partitionSummaries()`, which TopologyRow and
+ * fleetSummary already share — a fourth hand-rolled copy of the same group-by
+ * is how the two would drift apart again.
  *
  * @param {?Object} section A topology's enriched status section (or null).
  * @return {{ partitions: Array, health: string, etaSeconds: number }} Partition
@@ -153,9 +160,6 @@ function deriveHealth( section ) {
 		return { partitions: [], health: 'ok', etaSeconds: 0 };
 	}
 	const workers = section.workers || [];
-	const intervalS = section.heartbeatIntervalS ?? 10;
-	const threshold = intervalS * STALL_PAD;
-	const byPartition = new Map();
 	let anyBehind = false;
 	let worstEta = 0;
 	for ( const wk of workers ) {
@@ -167,21 +171,11 @@ function deriveHealth( section ) {
 		if ( eta > worstEta ) {
 			worstEta = eta;
 		}
-		const age = wk.heartbeat_age;
-		const stalled = age !== null && age !== undefined && age > threshold;
-		const cur = byPartition.get( wk.partition );
-		if ( ! cur ) {
-			byPartition.set( wk.partition, {
-				partition: wk.partition,
-				stalled,
-			} );
-		} else if ( stalled ) {
-			cur.stalled = true;
-		}
 	}
-	const partitions = [ ...byPartition.values() ].sort(
-		( a, b ) => a.partition - b.partition
-	);
+	const partitions = partitionSummaries( workers ).map( ( p ) => ( {
+		...p,
+		stalled: p.stale,
+	} ) );
 	const anyStalled = partitions.some( ( p ) => p.stalled );
 	let health = 'ok';
 	if ( anyStalled ) {

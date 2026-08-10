@@ -262,6 +262,26 @@ class Bootstrap {
 		return $map;
 	}
 
+	/**
+	 * The stale threshold one topology declares, or the default.
+	 *
+	 * Every consumer that starts from a TYPE rather than a descriptor wants
+	 * this: `wp nodes status`, and the render lease nuclear-gyrobase hands its
+	 * Perl child. Each grew its own scan, and `wp nodes status` read DOWN to the
+	 * default for a topology that raised its threshold while the peer scan
+	 * correctly left it running. One heartbeat, one threshold.
+	 *
+	 * @param string $type The topology name.
+	 * @return int Seconds.
+	 */
+	public static function stale_timeout_for( string $type ): int {
+		$topologies = self::get_topologies();
+		if ( ! isset( $topologies[ $type ] ) ) {
+			return Lock_Node::STALE_TIMEOUT;
+		}
+		return Lock_Node::stale_timeout_of( Core::arr( $topologies[ $type ] ) );
+	}
+
 	/** Self-heal (admin_init): re-arm the reconcile cron if it should run but isn't scheduled. */
 	public static function self_heal_reconcile_cron(): void {
 		if ( ! self::is_fleet_enabled() ) {

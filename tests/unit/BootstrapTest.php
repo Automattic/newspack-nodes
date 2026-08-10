@@ -443,6 +443,28 @@ class BootstrapTest extends TestCase {
 		$this->assertNull( $part->sink(), 'no interpreter in scope → no sink' );
 	}
 
+	// ── stale_timeout_for ─────────────────────────────────────────────────
+
+	public function test_stale_timeout_for_reads_the_topologys_own_declaration(): void {
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['patient'] = [ 'num_partitions' => 1, 'topology' => '/x.php', 'stale_timeout' => 600 ];
+			$topologies['brisk']   = [ 'num_partitions' => 1, 'topology' => '/y.php', 'stale_timeout' => 45 ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'patient', 'brisk' ];
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertSame( 600, Bootstrap::stale_timeout_for( 'patient' ) );
+		$this->assertSame( 45, Bootstrap::stale_timeout_for( 'brisk' ) );
+	}
+
+	public function test_stale_timeout_for_falls_back_for_an_unknown_type(): void {
+		$this->assertSame(
+			\Newspack_Nodes\Lock_Node::STALE_TIMEOUT,
+			Bootstrap::stale_timeout_for( 'never-declared' )
+		);
+	}
+
 	// ── expand_workers ────────────────────────────────────────────────────
 
 	public function test_expand_topologies_yields_one_entry_per_partition(): void {

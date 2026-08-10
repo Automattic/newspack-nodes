@@ -588,12 +588,16 @@ async function pollHealthAtTenBytesPerSecond( workers ) {
 }
 
 describe( 'useTopologyManager — partition stall + rolled-up health', () => {
-	it( 'stalls a partition only past heartbeat interval × 3', async () => {
+	it( 'stalls a partition when the server marks its heartbeat stale', async () => {
 		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
 			workers: [
 				worker( 0, { heartbeatAge: 29, behind: 0 } ),
-				worker( 1, { heartbeatAge: 31, behind: 0 } ),
+				worker( 1, {
+					heartbeatAge: 900,
+					behind: 0,
+					status: 'stale',
+				} ),
 			],
 		} );
 		const byPart = Object.fromEntries(
@@ -602,6 +606,19 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 		expect( byPart[ 0 ].stalled ).toBe( false );
 		expect( byPart[ 1 ].stalled ).toBe( true );
 		expect( row.health ).toBe( 'stalled' );
+	} );
+
+	it( 'defers to the server flag rather than re-deriving from heartbeat age', async () => {
+		// The server judges each heartbeat against the topology's OWN declared
+		// stale_timeout — 600s for the job pools. Re-deriving here as interval×3
+		// called a live job-worker stalled at 31s, so the dashboard contradicted
+		// `wp nodes status` reading the very same heartbeat.
+		const row = await pollHealth( {
+			heartbeatIntervalS: 10,
+			workers: [ worker( 0, { heartbeatAge: 90, behind: 0 } ) ],
+		} );
+		expect( row.partitions[ 0 ].stalled ).toBe( false );
+		expect( row.health ).toBe( 'ok' );
 	} );
 
 	it( 'rolls up to health=behind when no partition stalled but a consumer is behind', async () => {
@@ -621,7 +638,13 @@ describe( 'useTopologyManager — partition stall + rolled-up health', () => {
 	it( 'lets a heartbeat stall outrank a behind consumer', async () => {
 		const row = await pollHealth( {
 			heartbeatIntervalS: 10,
-			workers: [ worker( 0, { heartbeatAge: 40, behind: 4096 } ) ],
+			workers: [
+				worker( 0, {
+					heartbeatAge: 900,
+					behind: 4096,
+					status: 'stale',
+				} ),
+			],
 		} );
 		expect( row.health ).toBe( 'stalled' );
 	} );

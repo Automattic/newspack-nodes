@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Bootstrap::stale_timeout_for( $type )`** — the stale window a topology
+  declares, looked up by name. `wp nodes status` had its own private copy and
+  nuclear-gyrobase was about to grow a third; each scan that goes missing reads
+  DOWN to the 60s default while the peer scan correctly leaves a 600s worker
+  running. One heartbeat, one threshold.
+
+### Fixed
+
+- **The Topologies dashboard called live workers stalled.** It re-derived
+  staleness as `heartbeat_interval × 3` — 30 seconds — while the server had
+  already judged the same heartbeat against the topology's own
+  `stale_timeout`. Every job pool declares 600, so `wp nodes status` and the
+  dashboard disagreed about the identical file. The view now reads the server's
+  `stale` flag, which is what every other consumer already honours.
+
 ## [2.19.1] - 2026-08-09
 
 ### Removed
