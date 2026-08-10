@@ -10,7 +10,9 @@
  *
  * fill() stores KEY→VALUE write-through (the message passes on), so the
  * table composes mid-graph: `… → Table → …`. Keyless messages pass through
- * unstored.
+ * unstored. `lookup()` / `store()` / `forget()` are the same table reached
+ * from outside a graph — a REST handler, wp-admin, a CLI command — and are
+ * how a caller stays out of the key convention's business.
  *
  * @package Newspack_Nodes
  */
@@ -141,13 +143,45 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Cross-process write — the mirror of lookup(), and the same divergence.
+	 *
+	 * `fill()` is the graph's way in, but the processes that own a table's
+	 * contents are not always in a graph: a ruleset saved from wp-admin, a
+	 * REST handler, a CLI command. Without this they each assemble
+	 * `Cache_Backend::shared_first()?->set( Table_Node::entry_key( … ) )` by
+	 * hand, which puts the key convention in every caller.
+	 *
+	 * Fails soft when no backend is configured, as every read here does.
+	 *
+	 * @api Non-graph writers store table values without a live worker.
+	 * @param string $ns    Table namespace.
+	 * @param string $key   Entry key.
+	 * @param mixed  $value Value to store.
+	 * @param int    $ttl   Seconds; 0 = no expiry.
+	 */
+	public static function store( string $ns, string $key, mixed $value, int $ttl = 0 ): void {
+		Cache_Backend::shared_first()?->set( self::entry_key( $ns, $key ), $value, $ttl );
+	}
+
+	/**
 	 * Delete one entry. Verb-exposed (`rm <key>`).
 	 *
 	 * @param string $key Entry key.
 	 */
 	public function rm( string $key ): string {
-		Cache_Backend::shared_first()?->delete( self::entry_key( $this->namespace, $key ) );
+		self::forget( $this->namespace, $key );
 		return "ok\n";
+	}
+
+	/**
+	 * Cross-process delete, for the same callers `store()` serves.
+	 *
+	 * @api Non-graph writers drop table entries without a live worker.
+	 * @param string $ns  Table namespace.
+	 * @param string $key Entry key.
+	 */
+	public static function forget( string $ns, string $key ): void {
+		Cache_Backend::shared_first()?->delete( self::entry_key( $ns, $key ) );
 	}
 
 	/**

@@ -223,6 +223,39 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'prices', '300' ], $table->arguments() );
 	}
 
+	public function test_store_puts_an_entry_where_lookup_finds_it(): void {
+		// A ruleset saved from wp-admin is not inside any graph, so there is no
+		// node to fill(). Same table, same site scoping, no node required.
+		Table_Node::store( 'prices', 'sku-9', [ 'usd' => 1250 ], 300 );
+
+		$this->assertSame( [ 'usd' => 1250 ], Table_Node::lookup( 'prices', 'sku-9' ) );
+		$this->assertSame(
+			[ 'usd' => 1250 ],
+			$this->memd->get( Table_Node::entry_key( 'prices', 'sku-9' ) ),
+			'store() must land on the same key fill() writes'
+		);
+	}
+
+	public function test_store_scopes_by_namespace_like_every_other_write(): void {
+		Table_Node::store( 'prices', 'sku-9', 'here', 0 );
+		$this->assertNull( Table_Node::lookup( 'ledger', 'sku-9' ) );
+	}
+
+	public function test_forget_removes_an_entry(): void {
+		Table_Node::store( 'prices', 'sku-9', 'gone-soon', 0 );
+		Table_Node::forget( 'prices', 'sku-9' );
+		$this->assertNull( Table_Node::lookup( 'prices', 'sku-9' ) );
+	}
+
+	public function test_store_and_forget_survive_an_unconfigured_backend(): void {
+		// Every other cache path here fails soft; a ruleset save must not fatal
+		// because memcached went away.
+		Core::$memd = null;
+		Table_Node::store( 'prices', 'sku-9', 'nowhere', 0 );
+		Table_Node::forget( 'prices', 'sku-9' );
+		$this->assertNull( Table_Node::lookup( 'prices', 'sku-9' ) );
+	}
+
 	public function test_rm_deletes_a_key(): void {
 		[ $table ] = $this->table();
 		$table->fill( $this->keyed( 'sku-9', 'gone-soon' ) );

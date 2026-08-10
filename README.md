@@ -97,7 +97,7 @@ To get workers running, install an application plugin that registers a topology 
 - **Tail** — line-oriented file follower; inode + size-shrink rotation detection.
 - **Log** — file writer (inverse of Tail). Append/overwrite, optional size-based auto-rotate, retention pruning.
 - **Consumer** — Partition reader with offsetlog checkpointing.
-- **Table** — keyed store backed by memcache, so any process reads a value via `Table_Node::lookup()`. Write-through, so it composes mid-graph.
+- **Table** — keyed store backed by memcache, so any process reads or writes a value via `Table_Node::lookup()` / `store()` / `forget()`. Write-through, so it composes mid-graph.
 - **Grep**, **Age_Sieve**, **Value_Timeout** — filters. Grep forwards VALUEs matching a regex; Age_Sieve drops messages older than `max_age`; Value_Timeout dedups by VALUE within a timeout window.
 - **Topic_Probe**, **Job_Probe** — periodic stats sweeps. Topic_Probe logs each Consumer's cursor distance; Job_Probe logs one per-interval record per job identity. Both feed the dashboards.
 - **Null** — counts and discards. The destination for traffic that must go somewhere and do nothing.

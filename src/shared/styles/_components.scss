@@ -579,6 +579,28 @@
 		font-size: 12px;
 	}
 
+	// Canonical banner: a sentence qualifying the panel below it, where the
+	// error banner above is a failure. Tone is a modifier, as on the badge.
+	.newspack-nodes-banner {
+		padding: $space-sm $space-md;
+		border-radius: $border-radius-sm;
+		margin-bottom: $space-md;
+		font-size: 12px;
+		line-height: 1.5;
+
+		&.is-warning {
+			background: var(--brass-subtle, var(--np-warning-subtle));
+			color: var(--brass-text, var(--np-text));
+			border-left: 3px solid var(--brass, var(--np-warning));
+		}
+
+		&.is-info {
+			background: var(--cyan-subtle, var(--np-primary-subtle));
+			color: var(--cyan-text, var(--np-text));
+			border-left: 3px solid var(--cyan, var(--np-primary));
+		}
+	}
+
 	// Shared dashboard section header.
 	.newspack-nodes-inflight-header,
 	.newspack-nodes-request-stream-header,

@@ -23,9 +23,11 @@
  * The worker eager-loads both filters in its constructor via
  * load_handlers_from_filters().
  *
- * Handler signature: `( array $parameters, string $id )` — $id is the entry's
- * top-level `id` ('' when absent). Extra args are ignored by shorter callables,
- * so a legacy one-arg `( $parameters )` handler keeps working.
+ * Handler signature: `( string $id, array $parameters )` — $id FIRST, because
+ * every job has one and it is what the request context is named for; a
+ * producer that omits it is a bug, not a shorthand. Per-job request context
+ * belongs to `before_job` / `after_job` alone, so a handler neither opens one
+ * nor needs the Message to do it.
  *
  * Per-job request context (suspending a parent logger, rewriting $_SERVER to a
  * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() fires
@@ -182,7 +184,7 @@ class Job_Worker_Node extends Node {
 				$started  = Core::right_now(); // real wall clock: job duration must not use the frozen $now
 				$queue_ms = $ts > 0 ? \max( 0.0, ( $started - $ts ) * 1000 ) : 0.0;
 				try {
-					$result  = ( $handlers[ $handler ] )( $parameters, $id );
+					$result  = ( $handlers[ $handler ] )( $id, $parameters );
 					$outcome = $this->classify_outcome( $result );
 				} catch ( Worker_Should_Stop $e ) {
 					// Cooperative stop is not a job failure: record nothing.
