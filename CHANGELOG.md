@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.19.1] - 2026-08-09
+
 ### Removed
 
 - **The SIGALRM heartbeat.** It was added on the belief that a signal would beat
