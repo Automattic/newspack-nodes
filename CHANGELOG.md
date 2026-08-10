@@ -7,7 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`LRU_Cache` moved here from `newspack-event-logger-nodes`** as
+  `Newspack_Nodes\LRU_Cache`, unchanged apart from three additions.
+  `Table_Node` needs it and the substrate cannot depend on a consumer.
+  - `get_multi()` / `set_multi()` — found-only batch access.
+  - `without_promotion()` — a hit stops moving into the newest bucket. The
+    default suits a WORKING SET, where a read is what keeps a live entry
+    alive; a read-through tier needs the opposite, or its hottest key is the
+    one most likely to be stale forever and any window over it is decorative.
+
+- **`Cache_Backend::read_multi()`** — one round trip for many keys, found-only.
+  Deliberately without `read()`'s PER-KEY miss/error distinction: `getMulti`
+  reports ONE result code for the batch, so a per-key status would be a
+  fiction. A batch that fails outright still says so, because empty reads as
+  "nothing stored" downstream — silently, a reset connection renders a whole
+  page of rows as absent.
+
+- **`Table_Node` grows an optional L1**, a third argument: `l1_ttl` seconds,
+  0 (the default) meaning none. Tachikoma's in-memory buckets come back as a
+  tier in front of memcache rather than as the store. Opt-in per table,
+  because a table is a cross-process source of truth and an L1 is not — a
+  write in one process does not touch another's, so the price is bounded
+  staleness. Every table that exists today keeps its read-through semantics.
+  - The L1 is keyed by the derived `entry_key()`, not the bare key. That is
+    what lets a caller carry a schema generation in the NAMESPACE — name the
+    table `pyrobase:g47`, re-call `arguments()` on a bump, and every key is
+    orphaned at both tiers at once. Keyed by the bare key the L1 would survive
+    the bump and serve the previous generation.
+  - `lookup_multi()` batches the whole path: L1 sweep, one `read_multi()` for
+    the remainder, populate, merge.
+  - The L1 holds only what the backend CONFIRMED. A refused write cached
+    anyway — a dead server, an item over the size limit — would make the
+    writing process read its own failure back as fact for a whole window while
+    every other process correctly saw the old value.
+
 ### Changed
+
+- **BREAKING: `Table_Node::lookup()` / `store()` / `forget()` are instance
+  methods**, and the namespace and TTL come from the table rather than from
+  every call: `Table_Node::table( $ns, $ttl, $l1_ttl )->lookup( $key )`. They
+  were static because their callers have no graph, but "no graph" never
+  implied "no instance" — `new Table_Node()` registers nothing globally. Made
+  static, an L1 would have needed a namespace-keyed registry, a configuration
+  verb and a teardown hook; as instance state it needs none of them, and the
+  cache's lifetime belongs visibly to whoever holds the table.
+  `entry_key()` stays static.
 
 - **BREAKING: job handlers are called `( string $id, array $parameters )`.**
   `$id` leads because every job has one and it is what the request context is

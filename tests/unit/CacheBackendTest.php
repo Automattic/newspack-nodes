@@ -201,6 +201,70 @@ class CacheBackendTest extends TestCase {
 		$this->assertSame( 42424243, $memd->get( 'lease-owner' ) );
 	}
 
+	public function test_memcached_read_multi_returns_found_keys_only(): void {
+		$memd                       = new InMemoryMemcached();
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+
+		$memd->set( 'sku-9', [ 'usd' => 1250 ], 0 );
+		$memd->set( 'sku-7', 'plain', 0 );
+
+		$this->assertSame(
+			[ 'sku-9' => [ 'usd' => 1250 ], 'sku-7' => 'plain' ],
+			$backend->read_multi( [ 'sku-9', 'sku-7', 'never-stored' ] )
+		);
+	}
+
+	public function test_memcached_read_multi_reports_a_broken_batch_as_empty_and_says_so(): void {
+		// getMulti answers false for the batch; there is no per-key status to
+		// salvage, so a caller sees "nothing found" and falls through to its
+		// slower tier. Empty reads as "nothing stored" downstream, so a broken
+		// batch that said nothing would render a whole page as absent in
+		// silence — this is the one place that knows the difference.
+		$memd = new class() extends InMemoryMemcached {
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				return false;
+			}
+		};
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+
+		$memd->set( 'sku-9', 'stored', 0 );
+
+		// Core::reset() in setUp restores the default handler for the next test.
+		$captured = [];
+		Core::set_stderr_handler(
+			static function ( string $message ) use ( &$captured ): void {
+				$captured[] = $message;
+			}
+		);
+
+		$this->assertSame( [], $backend->read_multi( [ 'sku-9' ] ) );
+		$this->assertNotEmpty(
+			\array_filter( $captured, static fn ( string $l ): bool => \str_contains( $l, 'batch read error' ) ),
+			'a failed batch must surface via print_less_often'
+		);
+	}
+
+	public function test_read_multi_of_nothing_asks_the_backend_nothing(): void {
+		$memd = new class() extends InMemoryMemcached {
+			public int $multi_calls = 0;
+
+			public function getMulti( array $keys, int $get_flags = 0 ): array|false {
+				++$this->multi_calls;
+				return parent::getMulti( $keys, $get_flags );
+			}
+		};
+		Core::$memd                 = $memd;
+		Cache_Backend::$apcu_usable = static fn (): bool => false;
+		$backend                    = Cache_Backend::shared_first();
+
+		$this->assertSame( [], $backend->read_multi( [] ) );
+		$this->assertSame( 0, $memd->multi_calls, 'an all-L1-hit lookup must not round-trip' );
+	}
+
 	// --- Real APCu arms (skip where the SAPI has no usable segment) ----------
 
 	private function apcu_backend( string $order ): Cache_Backend {
@@ -253,6 +317,18 @@ class CacheBackendTest extends TestCase {
 		$this->assertTrue( $this->compare_and_swap_without_ttl( $b, 'owner', 42424243, 51515153 ) );
 		$this->assertSame( 51515153, $b->get( 'owner' ) );
 		$this->assertFalse( $this->compare_and_swap_without_ttl( $b, 'owner', 42424243, 60606061 ) );
+	}
+
+	public function test_apcu_read_multi_returns_found_keys_only(): void {
+		$b = $this->apcu_backend( 'shared' );
+
+		$b->set( 'v', [ 'a' => 1 ], 60 );
+		$b->set( 'n', 7373, 60 );
+
+		$this->assertSame(
+			[ 'v' => [ 'a' => 1 ], 'n' => 7373 ],
+			$b->read_multi( [ 'v', 'n', 'claim' ] )
+		);
 	}
 
 	public function test_apcu_counters_clamp_at_zero_like_memcached(): void {

@@ -306,6 +306,43 @@ final class Cache_Backend {
 	}
 
 	/**
+	 * Read many keys in one round trip, found-only, keyed by cache key.
+	 *
+	 * Deliberately without read()'s per-key miss/error distinction: `getMulti`
+	 * reports ONE result code for the whole batch, so a per-key status would be
+	 * a fiction. A caller that must tell a confirmed miss from a broken backend
+	 * asks key by key through read().
+	 *
+	 * A batch that fails outright still says so here, because empty reads as
+	 * "nothing stored" downstream — silently, a reset connection renders a
+	 * whole page of rows as absent.
+	 *
+	 * @param list<string> $keys Cache keys.
+	 * @return array<string,mixed> Values for the keys that were present.
+	 */
+	public function read_multi( array $keys ): array {
+		if ( [] === $keys ) {
+			return [];
+		}
+		$found = null !== $this->memd ? $this->memd->getMulti( $keys ) : \apcu_fetch( $keys );
+		if ( ! \is_array( $found ) ) {
+			Core::print_less_often( 'Cache_Backend: batch read error from ', $this->backend_name() );
+			return [];
+		}
+		$out = [];
+		foreach ( $found as $key => $value ) {
+			// An all-digit key comes back an int from a PHP array.
+			$out[ (string) $key ] = $value;
+		}
+		return $out;
+	}
+
+	/** Selected backend name for failure diagnostics. */
+	public function backend_name(): string {
+		return null !== $this->memd ? 'memcached' : 'apcu';
+	}
+
+	/**
 	 * Rotate the salt: every key on this install is orphaned at once, and no
 	 * co-tenant's is touched. THE flush — plugins do not keep their own.
 	 */
@@ -351,11 +388,6 @@ final class Cache_Backend {
 		return $hit
 			? [ 'status' => self::READ_HIT, 'value' => $value ]
 			: [ 'status' => self::READ_MISS, 'value' => null ];
-	}
-
-	/** Selected backend name for failure diagnostics. */
-	public function backend_name(): string {
-		return null !== $this->memd ? 'memcached' : 'apcu';
 	}
 
 	/**

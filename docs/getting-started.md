@@ -25,7 +25,7 @@ is what the left column becomes when it needs durability, ordering, or a live vi
 | `error_log()` → debug.log | `Log_Node` | Segmented, size/age-rotated, tailable from the dashboard |
 | Custom events table (`$wpdb`) | `Topic` / `Partition` | An append-only log you can replay from any offset |
 | Reading that table in a loop | `Consumer_Node` | A durable cursor: crash, respawn, resume where you left off |
-| Transient / object-cache value | `Table_Node` | Keyed store any process reads via `Table_Node::lookup()` |
+| Transient / object-cache value | `Table_Node` | Keyed store any process reads via `Table_Node::table( $ns )->lookup( $key )` |
 | REST endpoint per admin action | a CI verb (`Service_CI_Node`) | One schema entry: dispatch, auth, and help come free |
 | admin-ajax polling | the SSE stream | Push, not poll; every dashboard rides the same stream |
 

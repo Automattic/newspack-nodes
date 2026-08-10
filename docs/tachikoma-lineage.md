@@ -168,7 +168,7 @@ Shell3's `string3` shells out. Ours treats a backtick as a third quote character
 
 ### Table is memcache-backed, and an absent key is an error
 
-Tachikoma's `Table.pm` holds windowed in-memory buckets. Ours stores through to memcache with a TTL in place of the bucket window, and `Table_Node::lookup()` reads it from any process.
+Tachikoma's `Table.pm` holds windowed in-memory buckets. Ours stores through to memcache with a TTL in place of the bucket window, and `Table_Node::table( $ns )->lookup( $key )` reads it from any process. The buckets come back as an OPTIONAL L1 in front of memcache (`arguments()`'s third argument), which is a tier rather than the store.
 
 **Why:** the dashboards, REST endpoints, and CLI here have no efficient way to query a live worker's memory, so a value that exists only inside one worker process is a value nothing can read. Two consequences follow deliberately: a `GET` on an absent key replies `TM_ERROR` rather than the empty string Tachikoma returns — an empty string cannot distinguish *absent* from *stored-empty* — and `KEYS` / `STATS` are absent entirely, because both enumerate in-memory buckets that a memcache backing cannot enumerate.
 
