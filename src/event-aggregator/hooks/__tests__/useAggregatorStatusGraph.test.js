@@ -12,21 +12,17 @@
  * Each slice has its OWN inspectable reply path (its own command + receiver Tee);
  * a reply to `summary` never touches `servers:view` and vice-versa. useBatchedPoll
  * owns the Timer/Tee/_shell/_http + lock-flush batching; both slices ride one POST
- * per tick. _http.client is injected via opts.commandClient (no network in tests).
+ * per tick. Nothing is injected: the seam is `fetch`, so the whole egress runs.
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
-	newMessage,
 	TO,
 	FROM,
 	ID,
 	KEY,
 	VALUE,
-	TYPE,
-	TM_COMMAND,
-	TM_RESPONSE,
-	TM_ERROR,
 	Core,
 	useNodeState,
 	mountExospine,
@@ -41,28 +37,18 @@ const SUMMARY_VIEW = 'summary:view';
 const SERVERS_VIEW = 'servers:view';
 const SLICE_VIEWS = [ SUMMARY_VIEW, SERVERS_VIEW ];
 
-// Fake transport: records batches, mints one TO=FROM reply per message.
-function makeFakeClient( { summary = {}, servers = [] } = {} ) {
-	const client = {
-		batches: [],
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ]; // server's TO=FROM reply
-				const name = m[ VALUE ]?.name;
-				const payload =
-					'summary' === name
-						? JSON.stringify( summary )
-						: JSON.stringify( servers );
-				reply[ VALUE ] = { name, payload };
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real.
+// `wire.batches` is what was posted.
+function installWire( { summary = {}, servers = [], rollup = null } = {} ) {
+	return installFakeCommandWire( ( m ) => {
+		const name = m[ VALUE ]?.name;
+		if ( 'probe' === name ) {
+			return rollup;
+		}
+		return 'summary' === name
+			? JSON.stringify( summary )
+			: JSON.stringify( servers );
+	} );
 }
 
 beforeEach( () => {
@@ -72,9 +58,7 @@ beforeEach( () => {
 
 describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', () => {
 	test( 'mounts the backbone, _http/_shell, and both slice views (each sinking into the interpreter)', () => {
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		renderHook( () => useAggregatorStatusGraph( {} ) );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
@@ -88,26 +72,22 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 	} );
 
 	test( 'does NOT mount _output / _completion / _uptime / _cwd (dashboards are not REPLs)', () => {
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		renderHook( () => useAggregatorStatusGraph( {} ) );
 		for ( const name of [ '_output', '_completion', '_uptime', '_cwd' ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}
 	} );
 
-	test( '_http has the injected transport as its client', () => {
-		const client = makeFakeClient();
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
-		expect( Core.node( HTTP ).client ).toBe( client );
+	test( '_http reaches the wire with nothing injected', async () => {
+		const wire = installWire();
+		renderHook( () => useAggregatorStatusGraph( {} ) );
+		await act( async () => {} );
+		// HttpOut defaults its own client lazily, at the first post.
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
 	test( 'mounts a Fetcher + receiver Tee per slice (own reply path each)', () => {
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		renderHook( () => useAggregatorStatusGraph( {} ) );
 		for ( const name of [
 			'fetch-summary',
 			'fetch-servers',
@@ -119,40 +99,32 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 	} );
 
 	test( 'fires both slice commands on mount (summary + servers_status), batched into one POST', () => {
-		const client = makeFakeClient();
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
-		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
-		const verbs = client.batches[ 0 ]
-			.map( ( m ) => m[ VALUE ].name )
-			.sort();
+		const wire = installWire();
+		renderHook( () => useAggregatorStatusGraph( {} ) );
+		expect( wire.batches.length ).toBeGreaterThanOrEqual( 1 );
+		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
 		expect( verbs ).toEqual( [ 'servers_status', 'summary' ] );
 		// Each command's FROM is its own receiver Tee, the reply target.
-		const froms = client.batches[ 0 ].map( ( m ) => m[ FROM ] ).sort();
+		const froms = wire.batches[ 0 ].map( ( m ) => m[ FROM ] ).sort();
 		expect( froms ).toEqual( [ 'serversIn', 'summaryIn' ] );
 	} );
 
 	test( 'returns the current refresh interval (defaults to 2000)', () => {
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		expect( result.current.refreshInterval ).toBe( '2000' );
 	} );
 } );
 
 describe( 'useAggregatorStatusGraph — end-to-end routing into each slice view', () => {
 	test( 'the summary reply lands ONLY in summary:view; the servers reply ONLY in servers:view', async () => {
-		const client = makeFakeClient( {
+		installWire( {
 			summary: { connected: 1, total: 2, server_now: 1748960000 },
 			servers: [
 				{ id: 'server1', partitions: { 0: { connected: true } } },
 				{ id: 'server2', partitions: {} },
 			],
 		} );
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
+		renderHook( () => useAggregatorStatusGraph( {} ) );
 		await act( async () => {} );
 
 		const summary = Core.node( SUMMARY_VIEW ).setStateCache.view;
@@ -179,23 +151,19 @@ describe( 'useAggregatorStatusGraph — poll interval', () => {
 	afterEach( () => jest.useRealTimers() );
 
 	test( 'polls again after the configured interval elapses', () => {
-		const client = makeFakeClient();
-		renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
-		const afterMount = client.batches.length;
+		const wire = installWire();
+		renderHook( () => useAggregatorStatusGraph( {} ) );
+		const afterMount = wire.batches.length;
 		act( () => {
 			jest.advanceTimersByTime( 2000 );
 		} );
-		expect( client.batches.length ).toBeGreaterThan( afterMount );
+		expect( wire.batches.length ).toBeGreaterThan( afterMount );
 	} );
 } );
 
 describe( 'useAggregatorStatusGraph — refresh interval control', () => {
 	test( 'setRefreshInterval persists the choice to localStorage', () => {
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		act( () => result.current.setRefreshInterval( '5000' ) );
 		expect( result.current.refreshInterval ).toBe( '5000' );
 		expect(
@@ -205,26 +173,20 @@ describe( 'useAggregatorStatusGraph — refresh interval control', () => {
 
 	test( 'seeds the interval from a previously-persisted localStorage value', () => {
 		window.localStorage.setItem( 'aggregator-status-refresh', '10000' );
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		expect( result.current.refreshInterval ).toBe( '10000' );
 	} );
 
 	test( 'ignores an invalid persisted value and falls back to the default', () => {
 		window.localStorage.setItem( 'aggregator-status-refresh', '999' );
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		expect( result.current.refreshInterval ).toBe( '2000' );
 	} );
 } );
 
 describe( 'useAggregatorStatusGraph — teardown', () => {
 	test( 'unmount unregisters every slice view + the backbone', () => {
-		const { unmount } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeFakeClient() } )
-		);
+		const { unmount } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		unmount();
 		for ( const name of [ ...SLICE_VIEWS, INTERPRETER, ROUTER, HTTP ] ) {
 			expect( Core.node( name ) ).toBeNull();
@@ -237,9 +199,9 @@ describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
 		// Overlay owns the backbone; this dashboard is a reused mount whose
 		// spine.reinit is subscribed to graphGeneration (the real Reset trigger).
 		mountExospine();
-		const client = makeFakeClient();
+		installWire();
 		const { result } = renderHook( () => {
-			useAggregatorStatusGraph( { commandClient: client } );
+			useAggregatorStatusGraph( {} );
 			return useNodeState( SUMMARY_VIEW, 'view' );
 		} );
 		await act( async () => {} );
@@ -258,40 +220,15 @@ describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
 	} );
 } );
 
+// The whole shape: no fleet view, no correlator — a node per spoke.
 describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
-	// Client that echoes m[ID] + a per-verb payload; probe → object roll-up.
-	function makeClient( { summary = {}, servers = [], rollup = {} } = {} ) {
-		return {
-			posted: [],
-			postBatch( messages ) {
-				this.posted.push( ...messages );
-				const replies = messages.map( ( m ) => {
-					const reply = newMessage();
-					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-					reply[ TO ] = m[ FROM ];
-					reply[ ID ] = m[ ID ];
-					const name = m[ VALUE ]?.name;
-					let payload;
-					if ( 'probe' === name ) {
-						payload = rollup;
-					} else if ( 'summary' === name ) {
-						payload = JSON.stringify( summary );
-					} else {
-						payload = JSON.stringify( servers );
-					}
-					reply[ VALUE ] = { name, payload };
-					return reply;
-				} );
-				return Promise.resolve( replies );
-			},
-		};
-	}
+	// A default wire; tests needing a specific roll-up reinstall their own.
+	beforeEach( () => {
+		installWire();
+	} );
 
-	// The whole shape: no fleet view, no correlator — a node per spoke.
 	test( 'mounts nothing up front; the first probe raises that spoke its node', async () => {
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeClient() } )
-		);
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		expect( Core.node( 'aggregator:probe:spokeX' ) ).toBeNull();
 
 		await act( async () => {
@@ -301,16 +238,14 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 	} );
 
 	test( "probe(id) mints FROM that spoke's node, with no ID and no KEY", async () => {
-		const client = makeClient();
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
+		const wire = installWire();
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		await act( async () => {
 			await result.current.probe( 'spokeX' );
 		} );
-		const probeMsg = client.posted.find(
-			( m ) => 'probe' === m[ VALUE ]?.name
-		);
+		const probeMsg = wire.batches
+			.flat()
+			.find( ( m ) => 'probe' === m[ VALUE ]?.name );
 		expect( probeMsg ).toBeTruthy();
 		expect( probeMsg[ FROM ] ).toBe( 'aggregator:probe:spokeX' );
 		expect( probeMsg[ ID ] ).toBe( '' );
@@ -320,10 +255,8 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 	} );
 
 	test( 'two spokes probed at once settle independently, each on its own node', async () => {
-		const client = makeClient( { rollup: { id: 'either' } } );
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
+		installWire( { rollup: { id: 'either' } } );
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		await act( async () => {
 			await Promise.all( [
 				result.current.probe( 'spoke1' ),
@@ -344,10 +277,8 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 			worst_distance: 41,
 			deadletter_segments: 3,
 		};
-		const client = makeClient( { rollup } );
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
+		installWire( { rollup } );
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		let settled;
 		await act( async () => {
 			settled = await result.current.probe( 'spoke1' );
@@ -358,7 +289,7 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 
 	test( 'probe rejects after unmount (graph gone)', async () => {
 		const { result, unmount } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: makeClient() } )
+			useAggregatorStatusGraph( {} )
 		);
 		unmount();
 		await expect( result.current.probe( 'x' ) ).rejects.toThrow(
@@ -367,25 +298,8 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 	} );
 
 	test( 'a failed probe rejects AND files the failure for that spoke', async () => {
-		const client = makeClient();
-		client.postBatch = ( messages ) => {
-			client.posted.push( ...messages );
-			return Promise.resolve(
-				messages.map( ( m ) => {
-					const reply = newMessage();
-					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
-					reply[ TO ] = m[ FROM ];
-					reply[ VALUE ] = {
-						name: m[ VALUE ]?.name,
-						payload: 'spoke unreachable',
-					};
-					return reply;
-				} )
-			);
-		};
-		const { result } = renderHook( () =>
-			useAggregatorStatusGraph( { commandClient: client } )
-		);
+		installFakeCommandWire( () => new Error( 'spoke unreachable' ) );
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 
 		await act( async () => {
 			await expect( result.current.probe( 'spoke9' ) ).rejects.toThrow(

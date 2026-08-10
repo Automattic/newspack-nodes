@@ -5,7 +5,7 @@
  *
  *  - the exospine mount, which brings the `_command_interpreter → _router`
  *    backbone plus its `_http` HttpOut egress and `_shell` observe-only Tap,
- *  - the `_http` command client (the I/O boundary; injectable for tests),
+ *  - the `_http` command client (the I/O boundary; HttpOut defaults it),
  *  - a fan-out `Tee` + a router-hitchhike `Timer` that fans each tick to it,
  *  - the lock/flush bracket on the router TIMER tick, so a tick's commands batch
  *    into ONE HttpOut POST (Tachikoma batching — fan-out is free),
@@ -22,7 +22,6 @@
  *     build:     ( { interpreter, tee } ) => slices.forEach( … ),
  *     timerName: 'insights:timer',
  *     teeName:   'insights:tee',
- *     commandClient,   // test seam assigned to `_http.client`
  *     paused,          // suspend the poll without unmounting (e.g. a drag in flight)
  *   } );
  *
@@ -58,12 +57,11 @@ function syncTimer( timer, isPageVisible, paused, intervalMs ) {
  * pause, and cadence. See the module overview above for what it wires up.
  *
  * @param {Object}   opts
- * @param {Function} opts.build           `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
- * @param {string}   opts.timerName       Name for the owned router-hitchhike Timer.
- * @param {string}   opts.teeName         Name for the owned fan-out Tee.
- * @param {Object}   [opts.commandClient] Transport seam assigned to `_http.client`.
- * @param {boolean}  [opts.paused]        Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
- * @param {number}   opts.intervalMs      Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval. Changing it re-arms the Timer.
+ * @param {Function} opts.build      `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
+ * @param {string}   opts.timerName  Name for the owned router-hitchhike Timer.
+ * @param {string}   opts.teeName    Name for the owned fan-out Tee.
+ * @param {boolean}  [opts.paused]   Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
+ * @param {number}   opts.intervalMs Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval. Changing it re-arms the Timer.
  * @return {{ interpreterRef: Object, pollNow: Function }} A ref to the live interpreter, and `pollNow()` — fire the batched poll tick off-cadence.
  */
 export function useBatchedPoll( opts ) {
@@ -100,11 +98,6 @@ export function useBatchedPoll( opts ) {
 
 	useEffect( () => {
 		const build = ( { interpreter, router, http } ) => {
-			// I/O boundary — assign the command client; injectable for tests.
-			if ( optsRef.current.commandClient ) {
-				http.client = optsRef.current.commandClient;
-			}
-
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 
 			// The fan-out Tee + the router-hitchhike Timer that fans each tick.

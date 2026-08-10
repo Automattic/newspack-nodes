@@ -6,6 +6,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import {
@@ -46,6 +47,8 @@ class FakeEventSource {
 }
 
 beforeEach( () => {
+	// The seam is the wire; no command in this suite expects a reply.
+	installFakeCommandWire( () => undefined );
 	Core.reset();
 	FakeEventSource.last = null;
 	FakeEventSource.instances = [];
@@ -58,8 +61,6 @@ import { useTopicProbeStream } from '../useTopicProbeStream';
 const LINK = 'topicprobe:link';
 const TEE = 'topicprobe:stream';
 const VIEW = 'topicprobe:view';
-
-const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
 // The view drops records older than 24h; ts is an OFFSET into the live window.
 const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
@@ -97,7 +98,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -116,7 +116,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -128,7 +127,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'history',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -142,7 +140,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -153,7 +150,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -171,7 +167,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -197,7 +192,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -233,7 +227,6 @@ describe( 'useTopicProbeStream', () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'history',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );

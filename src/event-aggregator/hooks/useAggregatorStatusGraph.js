@@ -21,9 +21,8 @@
  * unconditionally on the user-chosen interval. The only pause is useBatchedPoll's
  * page-visibility gate, which suspends polling on a HIDDEN tab.
  *
- * The command boundary is injectable: tests pass `opts.commandClient` (assigned
- * to `_http.client`); production lets HttpOut default it.
- *
+ * Nothing is injected: HttpOut lazily defaults its own client, and tests seam
+ * at `fetch` (`installFakeCommandWire`) so the whole egress runs for real.
  * Alongside the polled slices it serves the on-demand deep probe, and there the
  * same principle decides the shape: each spoke gets its OWN `aggregator:probe:<id>`
  * Request node. One shared node would have to tell N roll-ups apart — which is
@@ -95,9 +94,6 @@ const SLICES = [
 ];
 
 /**
- * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] transport seam assigned to `_http.client`;
- *                                      defaults (inside HttpOut) to the localized transport.
  * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => Promise<*>, probes: Object<string, { ok: boolean, rollup?: *, error?: string }> }}
  *   The controls the thin React view needs: `setRefreshInterval` takes a
  *   REFRESH_OPTIONS value (string ms), `probe` deep-probes one spoke by id and
@@ -105,7 +101,7 @@ const SLICES = [
  *   result of that spoke's last probe. Each polled slice is read separately
  *   via useNodeState.
  */
-export function useAggregatorStatusGraph( opts = {} ) {
+export function useAggregatorStatusGraph() {
 	// The persisted refresh interval (string ms); seeds from localStorage.
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
@@ -124,7 +120,6 @@ export function useAggregatorStatusGraph( opts = {} ) {
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
-		commandClient: opts.commandClient,
 		// Refresh value (ms) = poll cadence; >1s hitchhikes TIMER, re-arms.
 		intervalMs:
 			parseInt( refreshInterval, 10 ) ||

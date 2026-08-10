@@ -9,22 +9,16 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useEffect } from '@wordpress/element';
 import {
 	Core,
 	Node,
-	ID,
-	TO,
-	FROM,
 	VALUE,
-	TYPE,
 	TIMESTAMP,
-	TM_COMMAND,
-	TM_RESPONSE,
 	CommandInterpreterNode,
 	forgetSession,
 	__setAuthFetch,
-	newMessage,
 } from '@newspack-nodes/runtime';
 import { addSliceFetcher } from '../../helpers/addSliceFetcher';
 import { useBatchedPoll } from '../useBatchedPoll';
@@ -57,25 +51,6 @@ function setVisibility( state ) {
 }
 
 // A fake transport matching HttpOut's seam: records each batch.
-function makeFakeClient() {
-	const client = {
-		batches: [],
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ VALUE ] = { name: m[ VALUE ]?.name, payload: null };
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
-}
-
 // The three Publisher-Insights slices, as the example will pass them.
 const SLICES = [
 	{
@@ -109,6 +84,13 @@ function buildSlices( { interpreter, tee } ) {
 	);
 }
 
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `wire.batches` is what was
+// posted — one entry per POST, which is what the batching tests count.
+function installWire() {
+	return installFakeCommandWire( () => null );
+}
+
 function renderPoll( opts = {} ) {
 	return renderHook( () =>
 		useBatchedPoll( {
@@ -123,27 +105,28 @@ function renderPoll( opts = {} ) {
 
 const VISIBILITY_RACE_INTERVAL_MS = 4321;
 
-function useObservedVisibilityRace( client, observations ) {
+function useObservedVisibilityRace( wire, observations ) {
 	const poll = useBatchedPoll( {
 		build: buildSlices,
 		timerName: 'visibility-race:timer',
 		teeName: 'visibility-race:tee',
-		commandClient: client,
 		intervalMs: VISIBILITY_RACE_INTERVAL_MS,
 	} );
 	useEffect( () => {
 		const timer = Core.node( 'visibility-race:timer' );
 		observations.push( {
-			batches: client.batches.length,
+			batches: wire.batches.length,
 			mode: timer.mode,
 			intervalMs: timer.interval_ms,
 		} );
-	}, [ client, observations ] );
+	}, [ wire, observations ] );
 	return poll;
 }
 
 beforeEach( () => {
 	Core.reset();
+	// Every test posts; a suite-wide wire keeps each one from re-installing.
+	installWire();
 	Object.defineProperty( document, 'visibilityState', {
 		configurable: true,
 		get: () => 'visible',
@@ -158,7 +141,7 @@ afterEach( () => {
 
 describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 	test( 'mounts the backbone, `_http`, `_shell` Tap, the fan-out Tee + hitchhike Timer, each sinking into the interpreter', async () => {
-		renderPoll( { commandClient: makeFakeClient() } );
+		renderPoll( {} );
 		await act( async () => {} );
 
 		const interpreter = Core.node( INTERPRETER );
@@ -180,15 +163,16 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 		);
 	} );
 
-	test( '`_http` gets the injected transport as its client', async () => {
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+	test( '`_http` reaches the wire with nothing injected', async () => {
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
-		expect( Core.node( HTTP ).client ).toBe( client );
+		// HttpOut defaults its own client lazily, at the first post.
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
 	test( 'calls build with the interpreter and the fan-out Tee, wiring the slice fetchers', async () => {
-		renderPoll( { commandClient: makeFakeClient() } );
+		renderPoll( {} );
 		await act( async () => {} );
 		// build wired the three fetchers through addSliceFetcher.
 		for ( const name of [ 'fetch-counts', 'fetch-top', 'fetch-acc' ] ) {
@@ -206,7 +190,7 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 	} );
 
 	test( 'returns an interpreterRef pointing at the mounted interpreter', async () => {
-		const { result } = renderPoll( { commandClient: makeFakeClient() } );
+		const { result } = renderPoll( {} );
 		await act( async () => {} );
 		expect( result.current.interpreterRef.current ).toBe(
 			Core.node( INTERPRETER )
@@ -216,12 +200,12 @@ describe( 'useBatchedPoll — backbone + boilerplate it owns', () => {
 
 describe( 'useBatchedPoll — initial poll on mount', () => {
 	test( 'fires one batched POST on mount (immediate first paint, not a one-interval wait)', async () => {
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
 
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 
 	test( 'does NOT fire the initial poll while the tab is hidden', async () => {
@@ -229,26 +213,25 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			configurable: true,
 			get: () => 'hidden',
 		} );
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( wire.batches.length ).toBe( 0 );
 	} );
 
 	test( 'DOES fire the initial poll when visible even if paused — paused suspends only ongoing polling, not the one-time first load', async () => {
-		const client = makeFakeClient();
+		const wire = installWire();
 		renderHook( () =>
 			useBatchedPoll( {
 				build: buildSlices,
 				timerName: 'insights:timer',
 				teeName: 'insights:tee',
-				commandClient: client,
 				paused: true,
 				intervalMs: 5000,
 			} )
 		);
 		await act( async () => {} );
-		expect( client.batches.length ).toBe( 1 );
+		expect( wire.batches.length ).toBe( 1 );
 	} );
 
 	test( 'keeps a paused first poll eligible until deferred authentication can sign it', async () => {
@@ -262,16 +245,18 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		const auth = new Promise( ( resolve ) => {
 			resolveAuth = resolve;
 		} );
+		const wire = installWire();
+		// AFTER installWire: it installs an auth stub of its own, and this
+		// test's whole subject is a session that lands late.
 		forgetSession();
 		__setAuthFetch( () => auth );
 		const nowSpy = jest
 			.spyOn( Date, 'now' )
 			.mockReturnValue( 1912345678000 );
-		const client = makeFakeClient();
 
-		renderPoll( { commandClient: client, paused: true } );
+		renderPoll( { paused: true } );
 		await act( async () => {} );
-		expect( client.batches ).toHaveLength( 0 );
+		expect( wire.batches ).toHaveLength( 0 );
 
 		await act( async () => {
 			resolveAuth( session );
@@ -285,9 +270,9 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		} );
 		nowSpy.mockRestore();
 
-		expect( client.batches ).toHaveLength( 1 );
-		expect( client.batches[ 0 ] ).toHaveLength( 3 );
-		for ( const message of client.batches[ 0 ] ) {
+		expect( wire.batches ).toHaveLength( 1 );
+		expect( wire.batches[ 0 ] ).toHaveLength( 3 );
+		for ( const message of wire.batches[ 0 ] ) {
 			expect( message[ TIMESTAMP ] ).toBe( session.now );
 			expect( message[ VALUE ].auth ).toEqual(
 				expect.objectContaining( {
@@ -301,7 +286,7 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			router.fireCb();
 			router.fireCb();
 		} );
-		expect( client.batches ).toHaveLength( 1 );
+		expect( wire.batches ).toHaveLength( 1 );
 		expect( timer.mode ).toBe( 'inactive' );
 	} );
 
@@ -311,60 +296,57 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 			configurable: true,
 			get: () => 'hidden',
 		} );
-		const client = makeFakeClient();
+		const wire = installWire();
 		renderHook( () =>
 			useBatchedPoll( {
 				build: buildSlices,
 				timerName: 'insights:timer',
 				teeName: 'insights:tee',
-				commandClient: client,
 				paused: true,
 				intervalMs: 5000,
 			} )
 		);
 		await act( async () => {} );
-		expect( client.batches.length ).toBe( 0 ); // hidden ⇒ nothing yet
+		expect( wire.batches.length ).toBe( 0 ); // hidden ⇒ nothing yet
 
 		await act( async () => {
 			setVisibility( 'visible' );
 		} );
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 } );
 
 describe( 'useBatchedPoll — the batching bracket', () => {
 	test( 'one router TIMER tick batches every slice command into ONE HttpOut POST', async () => {
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
 
 		// ONE POST for the whole tick — the batch assertion.
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
-		const verbs = client.batches[ 0 ]
-			.map( ( m ) => m[ VALUE ].name )
-			.sort();
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
+		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
 		expect( verbs ).toEqual( [ 'accumulated', 'counts', 'top' ] );
 	} );
 
 	test( 'brackets the tick: `_http` is locked before notify and flushed after (empty buffer ⇒ no POST when nothing fans out)', async () => {
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		// Remove the fan-out: tick emits no commands, empty buffer posts none.
 		Core.node( 'insights:timer' ).disconnectNode( 'insights:tee' );
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( wire.batches.length ).toBe( 0 );
 		expect( Core.node( HTTP ).locked ).toBe( false );
 	} );
 } );
@@ -385,24 +367,24 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 				addEventListener( type, listener, options );
 			}
 		);
-		const client = makeFakeClient();
+		const wire = installWire();
 		const observations = [];
 
-		renderHook( () => useObservedVisibilityRace( client, observations ) );
+		renderHook( () => useObservedVisibilityRace( wire, observations ) );
 		await act( async () => {} );
 
 		expect( observations ).toEqual( [
 			{ batches: 0, mode: 'inactive', intervalMs: 0 },
 		] );
-		expect( client.batches ).toHaveLength( 0 );
+		expect( wire.batches ).toHaveLength( 0 );
 		expect( Core.node( 'visibility-race:timer' ).mode ).toBe( 'inactive' );
 	} );
 
 	test( 'while the tab is HIDDEN no router tick posts; becoming visible resumes polling', async () => {
-		const client = makeFakeClient();
-		renderPoll( { commandClient: client } );
+		const wire = installWire();
+		renderPoll( {} );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		await act( async () => {
 			setVisibility( 'hidden' );
@@ -410,7 +392,7 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( wire.batches.length ).toBe( 0 );
 
 		await act( async () => {
 			setVisibility( 'visible' );
@@ -418,28 +400,27 @@ describe( 'useBatchedPoll — page-visibility gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 } );
 
 describe( 'useBatchedPoll — paused gate', () => {
 	test( 'while paused no router tick posts; unpausing resumes polling', async () => {
-		const client = makeFakeClient();
+		const wire = installWire();
 		const { rerender } = renderHook(
 			( { paused } ) =>
 				useBatchedPoll( {
 					build: buildSlices,
 					timerName: 'insights:timer',
 					teeName: 'insights:tee',
-					commandClient: client,
 					paused,
 					intervalMs: 5000,
 				} ),
 			{ initialProps: { paused: false } }
 		);
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		// Pause (e.g. an Overview drag in flight): the tick fans out nothing.
 		await act( async () => {
@@ -448,7 +429,7 @@ describe( 'useBatchedPoll — paused gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 0 );
+		expect( wire.batches.length ).toBe( 0 );
 
 		// Resume: the tick posts one batched POST again.
 		await act( async () => {
@@ -457,8 +438,8 @@ describe( 'useBatchedPoll — paused gate', () => {
 		await act( async () => {
 			Core.node( ROUTER ).fireCb();
 		} );
-		expect( client.batches.length ).toBe( 1 );
-		expect( client.batches[ 0 ].length ).toBe( 3 );
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 } );
 
@@ -469,7 +450,6 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 				build: buildSlices,
 				timerName: 'insights:timer',
 				teeName: 'insights:tee',
-				commandClient: makeFakeClient(),
 				intervalMs: 5000,
 			} )
 		);
@@ -491,7 +471,6 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 					build: buildSlices,
 					timerName: 'insights:timer',
 					teeName: 'insights:tee',
-					commandClient: makeFakeClient(),
 					intervalMs,
 				} ),
 			{ initialProps: { intervalMs: 5000 } }
@@ -526,7 +505,6 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 					build: buildSlices,
 					timerName: 'insights:timer',
 					teeName: 'insights:tee',
-					commandClient: makeFakeClient(),
 					intervalMs,
 				} ),
 			{ initialProps: { intervalMs: 5000 } }
@@ -550,7 +528,7 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 		// router's own cadence. Both dashboards ship a '1s' option and 1000 IS
 		// that cadence, so the floor case is the batch at its fastest — never
 		// an own slot, which is exactly what armTimer avoids.
-		renderPoll( { commandClient: makeFakeClient(), intervalMs: 1000 } );
+		renderPoll( { intervalMs: 1000 } );
 		await act( async () => {} );
 		const timer = Core.node( 'insights:timer' );
 		expect( timer.mode ).toBe( 'router' );
@@ -560,7 +538,7 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 
 describe( 'useBatchedPoll — teardown', () => {
 	test( 'on unmount it clears the router lock/flush hooks and removes the owned nodes', async () => {
-		const { unmount } = renderPoll( { commandClient: makeFakeClient() } );
+		const { unmount } = renderPoll( {} );
 		await act( async () => {} );
 		const router = Core.node( ROUTER );
 		expect( router.beforeTimerNotify ).toBeTruthy();
@@ -623,14 +601,14 @@ describe( 'useBatchedPoll — intervalMs is required', () => {
  */
 describe( 'useBatchedPoll — pollNow()', () => {
 	test( 'fires every slice off-cadence in ONE POST', async () => {
-		const client = makeFakeClient();
-		const { result } = renderPoll( { commandClient: client } );
+		const wire = installWire();
+		const { result } = renderPoll( {} );
 		await act( async () => {} );
-		client.batches.length = 0;
+		wire.batches.length = 0;
 
 		await act( async () => result.current.pollNow() );
 
-		expect( client.batches ).toHaveLength( 1 );
-		expect( client.batches[ 0 ].length ).toBe( SLICES.length );
+		expect( wire.batches ).toHaveLength( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( SLICES.length );
 	} );
 } );

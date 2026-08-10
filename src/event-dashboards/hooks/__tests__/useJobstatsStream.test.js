@@ -6,6 +6,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import {
 	newMessage,
@@ -43,6 +44,8 @@ class FakeEventSource {
 }
 
 beforeEach( () => {
+	// The seam is the wire; no command in this suite expects a reply.
+	installFakeCommandWire( () => undefined );
 	Core.reset();
 	FakeEventSource.last = null;
 	FakeEventSource.instances = [];
@@ -54,8 +57,6 @@ import { useJobstatsStream } from '../useJobstatsStream';
 
 const LINK = 'jobstats:link';
 const VIEW = 'jobstats:view';
-
-const fakeClient = () => ( { postBatch: () => Promise.resolve( [] ) } );
 
 // The view drops records older than 24h; ts is an OFFSET into the live window.
 const TS_BASE = Math.floor( Date.now() / 1000 ) - 10000;
@@ -83,9 +84,7 @@ function jobstatsFrame( {
 
 describe( 'useJobstatsStream', () => {
 	it( 'mounts the backbone + a RemoteLink to jobstats.p0 + the view', async () => {
-		renderHook( () =>
-			useJobstatsStream( { mode: 'follow', commandClient: fakeClient() } )
-		);
+		renderHook( () => useJobstatsStream( { mode: 'follow' } ) );
 		await act( async () => {} );
 		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
 		expect( Core.node( LINK ) ).toBeTruthy();
@@ -100,7 +99,6 @@ describe( 'useJobstatsStream', () => {
 		renderHook( () =>
 			useJobstatsStream( {
 				mode: 'history',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -116,7 +114,6 @@ describe( 'useJobstatsStream', () => {
 		renderHook( () =>
 			useJobstatsStream( {
 				mode: 'history',
-				commandClient: fakeClient(),
 			} )
 		);
 		await act( async () => {} );
@@ -136,17 +133,13 @@ describe( 'useJobstatsStream', () => {
 	} );
 
 	it( "mode:'follow' tail-seeks (no positions param)", async () => {
-		renderHook( () =>
-			useJobstatsStream( { mode: 'follow', commandClient: fakeClient() } )
-		);
+		renderHook( () => useJobstatsStream( { mode: 'follow' } ) );
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
 	} );
 
 	it( 'routes a jobstats frame through the link into the view keyed by identity', async () => {
-		renderHook( () =>
-			useJobstatsStream( { mode: 'follow', commandClient: fakeClient() } )
-		);
+		renderHook( () => useJobstatsStream( { mode: 'follow' } ) );
 		await act( async () => {} );
 		await act( async () => {
 			FakeEventSource.last.dispatch(

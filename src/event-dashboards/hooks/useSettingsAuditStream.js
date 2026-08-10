@@ -27,9 +27,8 @@ const SUBSCRIBE = 'settings.p0';
 
 /**
  * @param {Object} [opts]
- * @param {Object} [opts.commandClient] transport seam for the link and the backbone `_http`.
  */
-export function useSettingsAuditStream( { commandClient } = {} ) {
+export function useSettingsAuditStream( {} = {} ) {
 	const isPageVisible = usePageVisibility();
 
 	// Shared lifecycle owns close-while-hidden + resume-on-refocus.
@@ -49,7 +48,6 @@ export function useSettingsAuditStream( { commandClient } = {} ) {
 			return { link };
 		},
 		isActive: isPageVisible,
-		commandClient,
 		// Always full replay; a reconnect resumes from the last seen offset.
 		onConnect: ( link, { isReconnect } ) =>
 			link.connect(
