@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was the injection now assert the graph reaches the wire with nothing
   injected, which is the property that actually mattered.
 
+  The bundled `example-ai-newsletter` and the `writing-a-dashboard` guide go
+  with it — the documented pattern would otherwise teach the seam. The docs
+  also stop naming a `CommandClient` class, which no longer exists anywhere
+  in the runtime: the egress is `HttpOut` plus a lazily-defaulted
+  `commandTransport`.
+
 - **The last four bare `'live'` comparisons read `LIVE`.** v2.21.0 exported the
   constant but left the view side comparing the literal — `LogBrowser`'s
   `isLive`, both Viewers' initial `mode`, and event-logger-nodes'

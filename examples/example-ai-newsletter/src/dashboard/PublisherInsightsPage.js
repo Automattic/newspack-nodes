@@ -13,12 +13,9 @@ import './styles/insights.scss';
  * via useNodeState. No god view node, no god `insights` command — each widget
  * owns one slice. Styling follows the Newspack in-product design system
  * (docs/DESIGN.product.md): light surfaces, a Cobalt accent, Inter, in wp-admin flow.
- *
- * @param {Object} props
- * @param {Object} [props.commandClient] CommandClient seam forwarded to the hook (tests).
  */
-export default function PublisherInsightsPage( { commandClient } = {} ) {
-	usePublisherInsightsGraph( { commandClient } );
+export default function PublisherInsightsPage() {
+	usePublisherInsightsGraph();
 
 	return (
 		<div className="eai-insights">

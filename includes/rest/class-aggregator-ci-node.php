@@ -4,7 +4,7 @@
  *
  * Command-dispatch for the hub-side aggregator verbs — `status`, `servers`,
  * `health`, plus the de-god slices `summary` / `servers_status`. The dashboard
- * reaches them via `commandClient.send('aggregator', <verb>)`. Mounts at
+ * reaches them via a command addressed `TO = _http/aggregator`. Mounts at
  * priority 11 alongside the rest of the M2 service CIs.
  *
  * Verbs:
