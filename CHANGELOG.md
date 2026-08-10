@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The SIGALRM heartbeat.** It was added on the belief that a signal would beat
+  the worker's lock through work that yields nothing — one long query, a
+  `proc_open` render. It cannot: while the parent blocks reading a child's
+  pipes the alarm does not fire, which is the case it existed for. Where it DID
+  fire it did harm — it suppressed `should_continue()`'s beat, and it cut every
+  interruptible sleep short at the heartbeat interval, so a template asking for
+  90 seconds got 10.
+
+  `should_continue()` is the beat again, reached mid-work through
+  `Event_Framework::pump()` and between messages by the drain loop. Work that
+  reaches neither does not heartbeat, which is what a topology's
+  `stale_timeout` budgets for (`job-worker` declares 600s precisely for this),
+  and what the gyrobase lease covers for a render — the engine keeps its own
+  heartbeat warm from inside the child, where the parent cannot.
+
+  The test that vouched for the alarm blocked on `sleep()`, which IS
+  interruptible; it proved the easy case and was read as covering `proc_open`.
+
 ## [2.19.0] - 2026-08-09
 
 ### Added

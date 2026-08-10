@@ -22,12 +22,6 @@ namespace Newspack_Nodes;
 
 trait Cooperative_Stop {
 
-	/** True while the SIGALRM heartbeat is armed; pcntl may be absent. */
-	private bool $alarm_armed = false;
-
-	/** Async-signal dispatch as found, restored on disarm. */
-	private bool $async_signals_was = false;
-
 	/** Seconds a process runs before yielding to its successor. */
 	public const DEFAULT_MAX_RUNTIME = 595;
 
@@ -97,69 +91,7 @@ trait Cooperative_Stop {
 	abstract protected function stop_label(): string;
 
 	/**
-	 * Beat the lock from a SIGALRM, so work that yields nothing keeps its lock.
-	 *
-	 * The preferred beat, and while armed the only one. `should_continue()`
-	 * beats only between messages, and a job that writes nothing — one long
-	 * query, a `proc_open` — starves that: `Event_Framework::pump()` is reached
-	 * solely from the Partition write path. Silence past `stale_timeout` costs
-	 * the lock to a peer and the job dies mid-flight, replayed to die again.
-	 * Where pcntl is missing (it is CLI-only on some builds, and workers run in
-	 * the web SAPI) that fallback is what keeps the lock alive, quietly.
-	 *
-	 * The handler does the MINIMUM: touch the heartbeat, re-arm, return. It
-	 * must NOT call should_continue() — that scans the disk and can raise
-	 * `Worker_Should_Stop`, and unwinding from a signal at an arbitrary
-	 * instruction is not something the drain path survives. Stopping belongs to
-	 * the drain loop and pump().
-	 *
-	 * `pcntl_alarm()` is one-shot; the handler re-arming itself IS the
-	 * mechanism. Without pcntl there is no beat at all, so say so loudly.
-	 *
-	 * @param int $seconds Alarm period; defaults to the ordinary beat interval.
-	 */
-	protected function arm_heartbeat_alarm( int $seconds = self::HEARTBEAT_INTERVAL_S ): void {
-		if ( ! \function_exists( 'pcntl_async_signals' ) || ! \function_exists( 'pcntl_alarm' ) ) {
-			return; // should_continue() falls back; see beat().
-		}
-		// Returns the prior setting; disarm puts it back.
-		$this->async_signals_was = \pcntl_async_signals( true );
-		\pcntl_signal(
-			\SIGALRM,
-			function () use ( $seconds ): void {
-				// microtime: a signal must not move the cached clock.
-				$this->beat( \microtime( true ) );
-				\pcntl_alarm( $seconds );
-			}
-		);
-		\pcntl_alarm( $seconds );
-		$this->alarm_armed = true;
-	}
-
-	/**
-	 * Stop the SIGALRM heartbeat and put the process back as it was.
-	 *
-	 * Idempotent, and called from the shutdown handler as well as the `finally`:
-	 * a fatal skips the `finally`, and an alarm landing inside `Lock_Node::
-	 * release()` — after `verify_ownership()` reads the heartbeat, before the
-	 * unlink completes — recreates the file, so the rmdir fails on a non-empty
-	 * dir and the leftover looks fresh enough that nothing will steal it. That
-	 * partition then sits dark for a whole `stale_timeout`.
-	 */
-	protected function disarm_heartbeat_alarm(): void {
-		if ( ! $this->alarm_armed ) {
-			return;
-		}
-		$this->alarm_armed = false;
-		\pcntl_alarm( 0 );
-		// SIG_IGN: SIGALRM's default action terminates the process.
-		\pcntl_signal( \SIGALRM, \SIG_IGN );
-		\pcntl_async_signals( $this->async_signals_was );
-	}
-
-	/**
-	 * Touch the lock and stamp the beat. The one implementation, shared by the
-	 * alarm and by `should_continue()`'s fallback, so the two cannot drift.
+	 * Touch the lock and stamp the beat.
 	 *
 	 * @param float $now The instant to stamp; the caller owns which clock.
 	 */
@@ -169,8 +101,8 @@ trait Cooperative_Stop {
 	}
 
 	/**
-	 * Whether to keep running. Every cooperative-stop trigger lives here;
-	 * proving the process alive belongs to `arm_heartbeat_alarm()`.
+	 * Whether to keep running. Every cooperative-stop trigger lives here, and so
+	 * does the heartbeat — this is the only thing that beats the lock.
 	 *
 	 * @param bool $mid_work True when asked from INSIDE a unit of work, which is
 	 *   what `Event_Framework::pump()` does so a long job still heartbeats and
@@ -221,8 +153,8 @@ trait Cooperative_Stop {
 			);
 		}
 
-		// Fallback while no alarm is armed; see arm_heartbeat_alarm().
-		if ( ! $this->alarm_armed && ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
+		// The one beat: pump() calls this mid-work, the drain loop between.
+		if ( ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
 			$this->beat( $now );
 		}
 
