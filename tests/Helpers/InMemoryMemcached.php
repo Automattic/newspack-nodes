@@ -39,9 +39,26 @@ class InMemoryMemcached extends \Memcached {
 	 */
 	public ?\Closure $after_touch_read = null;
 
+	/**
+	 * Round trips by shape, so a test can assert a tier answered without one.
+	 * getMulti() counts as ONE batch trip and no single-key trips, however many
+	 * keys it reads.
+	 */
+	public int $get_calls = 0;
+
+	public int $multi_calls = 0;
+
+	/** @var array<string,true> */
+	private array $set_failures = [];
+
 	/** Force get() to return false with a non-NOTFOUND backend result. */
 	public function fail_get( string $key, int $result_code = \Memcached::RES_FAILURE ): void {
 		$this->get_failures[ $key ] = $result_code;
+	}
+
+	/** Force set() to refuse the key — an item over the size limit, or a dead server. */
+	public function fail_set( string $key ): void {
+		$this->set_failures[ $key ] = true;
 	}
 
 	/** Force only the next get() to return a backend error. */
@@ -50,6 +67,7 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function get( string $key, ?callable $cache_cb = null, int $get_flags = 0 ): mixed {
+		++$this->get_calls;
 		if ( \array_key_exists( $key, $this->next_get_failures ) ) {
 			$this->result_code = $this->next_get_failures[ $key ];
 			unset( $this->next_get_failures[ $key ] );
@@ -95,6 +113,10 @@ class InMemoryMemcached extends \Memcached {
 	}
 
 	public function set( string $key, mixed $value, int $expiration = 0 ): bool {
+		if ( isset( $this->set_failures[ $key ] ) ) {
+			$this->result_code = \Memcached::RES_E2BIG;
+			return false;
+		}
 		$this->store[ $key ] = [
 			'value'   => $value,
 			'expires' => $expiration > 0 ? \time() + $expiration : 0,
@@ -154,14 +176,18 @@ class InMemoryMemcached extends \Memcached {
 		return true;
 	}
 
+	/** Found-only, and a stored `false` IS found — the real getMulti includes it. */
 	public function getMulti( array $keys, int $get_flags = 0 ): array|false {
-		$out = [];
+		++$this->multi_calls;
+		$singles = $this->get_calls;
+		$out     = [];
 		foreach ( $keys as $key ) {
 			$val = $this->get( $key );
-			if ( false !== $val ) {
+			if ( \Memcached::RES_SUCCESS === $this->result_code ) {
 				$out[ $key ] = $val;
 			}
 		}
+		$this->get_calls = $singles;
 		return $out;
 	}
 
