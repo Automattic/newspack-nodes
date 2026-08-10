@@ -754,9 +754,6 @@ class Admin {
 				<?php \wp_nonce_field( self::FLUSH_ACTION, self::FLUSH_NONCE ); ?>
 				<p>
 					<?php \submit_button( \__( 'Flush Caches', 'newspack-nodes' ), 'secondary', 'submit', false ); ?>
-					<span class="description">
-						<?php \esc_html_e( 'Rotates this install\'s cache salt: every cached value for every Newspack plugin is orphaned at once. A co-tenant install on the same server is untouched.', 'newspack-nodes' ); ?>
-					</span>
 				</p>
 			</form>
 			<?php
