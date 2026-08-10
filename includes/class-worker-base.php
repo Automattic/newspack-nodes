@@ -104,8 +104,6 @@ class Worker_Base {
 		}
 
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
-			// A fatal skips the finally; see disarm_heartbeat_alarm().
-			$this->disarm_heartbeat_alarm();
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
 				// Handoff durable cursors; skipped on fatal (crashes climb).
@@ -121,9 +119,6 @@ class Worker_Base {
 
 		// Brief grace so a concurrent spawn sees we hold the lock before retry.
 		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
-
-		// Keeps beating through a job that writes nothing; see the trait.
-		$this->arm_heartbeat_alarm();
 
 		try {
 			$interpreter = $this->build_scaffolding();
@@ -156,7 +151,6 @@ class Worker_Base {
 			// pump() stopped mid-job; normal exit, finally releases/respawns.
 			Core::stderr( "{$this->worker_type}.p{$this->partition}: stopped mid-job (pump)" );
 		} finally {
-			$this->disarm_heartbeat_alarm();
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
 				$this->shutdown_handoff();
