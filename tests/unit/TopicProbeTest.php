@@ -53,6 +53,38 @@ class TopicProbeTest extends TestCase {
 		$this->rmdir_recursive( $stock );
 	}
 
+	public function test_stale_after_falls_back_when_the_topology_declares_no_probe(): void {
+		// A topic-probe topology carrying no Topic_Probe node at all: there is no
+		// cadence to read, and "no cadence" must not become "never stale".
+		$stock = $this->make_temp_dir( 'probe-nonode-' );
+		\file_put_contents( "{$stock}/topic-probe.tsl", "make_node Echo topicprobe:sink\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		Topic_Probe_Node::forget_interval();
+
+		$this->assertSame( 30, Topic_Probe_Node::stale_after_s() );
+
+		Topic_Probe_Node::forget_interval();
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $stock );
+	}
+
+	public function test_the_cadence_is_read_once_and_memoized(): void {
+		// Read per request, off a graph the analyzer caches — a status poll must
+		// not re-parse the TSL for every reader row.
+		$stock = $this->make_temp_dir( 'probe-memo-' );
+		\file_put_contents( "{$stock}/topic-probe.tsl", "make_node Topic_Probe topicprobe 23\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		Topic_Probe_Node::forget_interval();
+
+		$this->assertSame( 23, Topic_Probe_Node::interval_s() );
+		\file_put_contents( "{$stock}/topic-probe.tsl", "make_node Topic_Probe topicprobe 99\n" );
+		$this->assertSame( 23, Topic_Probe_Node::interval_s(), 'memoized, not re-read' );
+
+		Topic_Probe_Node::forget_interval();
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $stock );
+	}
+
 	public function test_stale_after_falls_back_to_the_default_cadence(): void {
 		// No topic-probe topology reachable at all: the default is the only
 		// honest answer, and it must not become "never stale".

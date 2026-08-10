@@ -402,7 +402,91 @@ class CliTest extends TestCase {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
 		$message[ Message::VALUE ] = $record;
+		if ( isset( $fields['age_s'] ) ) {
+			$message[ Message::TIMESTAMP ] -= $fields['age_s'];
+		}
 		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n", FILE_APPEND );
+	}
+
+	/** A partition segment of $bytes, as an external producer would leave it. */
+	private function seed_source( string $name, int $bytes ): void {
+		mkdir( "{$this->tmp}/logs/{$name}", 0755, true );
+		file_put_contents( "{$this->tmp}/logs/{$name}/0.log", str_repeat( 'x', $bytes ) );
+	}
+
+	/** A durable read-cursor frame; $offset null leaves the dir with no frame. */
+	private function seed_cursor( string $reader, ?int $offset, int $segment = 0 ): void {
+		mkdir( "{$this->tmp}/offsets/{$reader}", 0755, true );
+		if ( null === $offset ) {
+			return;
+		}
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'segment' => $segment, 'offset' => $offset ];
+		file_put_contents(
+			"{$this->tmp}/offsets/{$reader}/0.log",
+			Message::packed( $message ) . "\n"
+		);
+	}
+
+	public function test_consumer_rows_recomputes_a_stale_row_from_disk(): void {
+		// Nobody has reported in two sweeps, so the record's DISTANCE is the last
+		// thing a departed worker said — and it said caught up. 900 bytes have
+		// landed since, of which the cursor covers 250.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_source( 'firehose.p0', 900 );
+		$this->seed_cursor( 'firehose.p0', 250 );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 650, $rows[0]['distance'] );
+		$this->assertSame( 250, $rows[0]['cursor_offset'] );
+		$this->assertSame( 0, $rows[0]['msgs'], 'nobody reading means no rate' );
+	}
+
+	public function test_consumer_rows_keeps_a_fresh_row_as_reported(): void {
+		// A live reader's record is a PAIRED measurement; recomputing its end
+		// against a newer stat would overstate it by an interval of throughput.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 17, 'msgs' => 5 ] );
+		$this->seed_source( 'firehose.p0', 900 );
+		$this->seed_cursor( 'firehose.p0', 250 );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 17, $rows[0]['distance'] );
+		$this->assertSame( 5, $rows[0]['msgs'] );
+	}
+
+	public function test_consumer_rows_leaves_a_stale_row_alone_without_an_offsetlog_dir(): void {
+		// A nested layout: the reader basename does not rebuild the cursor path.
+		// Treating that as "no cursor" would report the whole partition behind.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_source( 'firehose.p0', 900 );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 0, $rows[0]['distance'] );
+	}
+
+	public function test_consumer_rows_leaves_a_stale_row_alone_without_a_source_dir(): void {
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_cursor( 'firehose.p0', 250 );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 0, $rows[0]['distance'] );
+	}
+
+	public function test_consumer_rows_leaves_a_stale_row_alone_before_the_first_checkpoint(): void {
+		// The offsetlog dir exists (ensure_offsetlog() makes it at construction)
+		// but holds no frame. That is an unknown cursor, not one parked at 0:0.
+		$this->seed_probe_record( [ 'reader' => 'firehose.p0', 'distance' => 0, 'age_s' => 300 ] );
+		$this->seed_source( 'firehose.p0', 900 );
+		$this->seed_cursor( 'firehose.p0', null );
+
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+
+		$this->assertSame( 0, $rows[0]['distance'], 'no cursor is no opinion' );
 	}
 
 	public function test_read_probe_frames_keys_records_by_reader(): void {
