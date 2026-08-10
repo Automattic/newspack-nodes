@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: job handlers are called `( string $id, array $parameters )`.**
+  `$id` leads because every job has one and it is what the request context is
+  named for; a producer that omits it is a bug, not a shorthand. Reversed, a
+  handler receives a string where it declared an array and dies at the
+  boundary, so there is no additive intermediate — the substrate and every
+  handler in every consumer ship together.
+  - Handlers get no `Message`. Per-job request context belongs to
+    `newspack_nodes/job_worker/{before,after}_job` alone, which is what let the
+    four handlers that opened a SECOND context inside the wrapper's stop doing
+    so; each was billing its job two completed requests.
+  - Listeners on the two actions are unaffected.
+
+## [2.21.0] - 2026-08-10
+
+### Added
+
+- **Job handlers receive the job's `Message` as a third argument** —
+  `( array $parameters, string $id, array $message )`. Only a `before_job`
+  listener could see it before, so a handler wanting its own request context
+  had to let that listener guess a shape only the handler knows. Additive and
+  safe to ship ahead of consumers: PHP ignores extra positional arguments to a
+  user function, so existing one- and two-argument handlers are untouched.
+  Groundwork for `docs/superpowers/specs/2026-08-10-handlers-own-their-job-context.md`.
+
+- **`Table_Node::store()` and `forget()`** — the write half of the divergence
+  `lookup()` already documented. A table's contents are often owned by a
+  process that is not in a graph, so `fill()` cannot be its way in: a ruleset
+  saved from wp-admin, a REST handler, a CLI command. Without these each of
+  them assembles `Cache_Backend::shared_first()?->set( Table_Node::entry_key(
+  … ) )` by hand, which puts the key convention — including the per-install
+  scoping — in every caller. Both fail soft with no backend, as the reads do.
+  `rm()` now delegates to `forget()`.
+- **`.newspack-nodes-banner`**, the canonical banner for a sentence qualifying
+  the panel below it, with `.is-warning` / `.is-info` tones — the same
+  modifier shape the status badge uses. `.newspack-nodes-error-banner` remains
+  what it was: a failure, not a caveat.
+
 ## [2.20.1] - 2026-08-10
 
 ### Changed

@@ -43,7 +43,7 @@ class JobWorkerTest extends TestCase {
 	public function test_executes_job_via_handler(): void {
 		$jw = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'a', function ( $payload ) use ( &$received ) {
+		$this->register_job_handler( $jw, 'a', function ( $id, $payload ) use ( &$received ) {
 			$received = $payload;
 		} );
 
@@ -58,7 +58,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_before_and_after_job_actions_fire_with_handler(): void {
 		$jw = new Job_Worker_Node();
-		$this->register_job_handler( $jw, 'ctx', fn ( $p ) => null );
+		$this->register_job_handler( $jw, 'ctx', fn ( $id, $p ) => null );
 
 		$seen = [];
 		add_action( 'newspack_nodes/job_worker/before_job', function ( $h ) use ( &$seen ) { $seen[] = "before:$h"; } );
@@ -70,12 +70,30 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( [ 'before:ctx', 'after:ctx' ], $seen );
 	}
 
+	public function test_a_handler_is_called_with_its_id_first(): void {
+		// $id names the request context the job runs in, so it leads. Reversed,
+		// a handler receives a string where it declared an array and dies.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler(
+			$jw,
+			'ctx',
+			function ( string $id, array $parameters ) use ( &$seen ) {
+				$seen = [ $id, $parameters ];
+			}
+		);
+
+		$jw->fill( $this->job_message( 'ctx', [ 'stage' => 'theaters' ], 'job', 'run-4471' ) );
+
+		$this->assertSame( [ 'run-4471', [ 'stage' => 'theaters' ] ], $seen );
+	}
+
 	public function test_before_job_carries_the_job_message(): void {
 		// A job's trace has no way back to the record that caused it unless the
 		// message itself reaches the listener: FROM names the producer, ID is
 		// the segment:offset:length the Consumer stamped, KEY the partition key.
 		$jw = new Job_Worker_Node();
-		$this->register_job_handler( $jw, 'ctx', fn ( $p ) => null );
+		$this->register_job_handler( $jw, 'ctx', fn ( $id, $p ) => null );
 
 		$seen = null;
 		add_action(
@@ -163,7 +181,7 @@ class JobWorkerTest extends TestCase {
 	public function test_two_param_handler_receives_the_top_level_id(): void {
 		$jw          = new Job_Worker_Node();
 		$captured_id = 'NO_ID';
-		$this->register_job_handler( $jw, 'cron', function ( $params, $id = 'NO_ID' ) use ( &$captured_id ) {
+		$this->register_job_handler( $jw, 'cron', function ( $id, $params ) use ( &$captured_id ) {
 			$captured_id = $id;
 		} );
 
@@ -176,7 +194,7 @@ class JobWorkerTest extends TestCase {
 		// BC pin: a legacy one-arg handler ignores the extra id arg and still runs.
 		$jw       = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'legacy', function ( $params ) use ( &$received ) {
+		$this->register_job_handler( $jw, 'legacy', function ( $id, $params ) use ( &$received ) {
 			$received = $params;
 		} );
 
@@ -190,7 +208,7 @@ class JobWorkerTest extends TestCase {
 		// No top-level id ⇒ the handler's id arg is '' (same coercion as the jobstats key).
 		$jw          = new Job_Worker_Node();
 		$captured_id = 'NO_ID';
-		$this->register_job_handler( $jw, 'cron', function ( $params, $id = 'NO_ID' ) use ( &$captured_id ) {
+		$this->register_job_handler( $jw, 'cron', function ( $id, $params ) use ( &$captured_id ) {
 			$captured_id = $id;
 		} );
 
@@ -201,7 +219,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_before_job_action_receives_the_id_as_second_arg(): void {
 		$jw = new Job_Worker_Node();
-		$this->register_job_handler( $jw, 'cron', fn ( $p ) => null );
+		$this->register_job_handler( $jw, 'cron', fn ( $id, $p ) => null );
 
 		$captured = 'MISSING';
 		add_action( 'newspack_nodes/job_worker/before_job', function ( $h, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 2 );
@@ -213,7 +231,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_after_job_action_receives_the_id_as_third_arg(): void {
 		$jw = new Job_Worker_Node();
-		$this->register_job_handler( $jw, 'cron', fn ( $p ) => null );
+		$this->register_job_handler( $jw, 'cron', fn ( $id, $p ) => null );
 
 		$captured = 'MISSING';
 		add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $outcome, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 3 );
@@ -276,7 +294,7 @@ class JobWorkerTest extends TestCase {
 
 	public function test_cache_flush_interval_default_is_50(): void {
 		$jw = new Job_Worker_Node();
-		$this->register_job_handler( $jw, 'noop', fn ( $p ) => null );
+		$this->register_job_handler( $jw, 'noop', fn ( $id, $p ) => null );
 
 		for ( $i = 0; $i < 51; ++$i ) {
 			$message = $this->job_message( 'noop' );
@@ -310,7 +328,7 @@ class JobWorkerTest extends TestCase {
 		// through by Job_Router. Job_Worker must dispatch on `k`, not `type`.
 		$jw = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'evtemplate', function ( $p ) use ( &$received ) { $received = $p; } );
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$received ) { $received = $p; } );
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -328,7 +346,7 @@ class JobWorkerTest extends TestCase {
 	public function test_dispatches_remote_entry_keyed_by_k(): void {
 		$jw = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'hub_op', function ( $p ) use ( &$received ) { $received = $p; }, true );
+		$this->register_job_handler( $jw, 'hub_op', function ( $id, $p ) use ( &$received ) { $received = $p; }, true );
 
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_STRUCT;
@@ -369,7 +387,7 @@ class JobWorkerTest extends TestCase {
 	public function test_local_handler_dispatches_for_type_job(): void {
 		$jw = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'sync', function ( $p ) use ( &$received ) { $received = $p; } );
+		$this->register_job_handler( $jw, 'sync', function ( $id, $p ) use ( &$received ) { $received = $p; } );
 
 		$message = $this->job_message( 'sync', [ 'k' => 'v' ], 'job' );
 		$jw->fill( $message );
@@ -380,7 +398,7 @@ class JobWorkerTest extends TestCase {
 	public function test_remote_handler_dispatches_for_type_remote_job(): void {
 		$jw = new Job_Worker_Node();
 		$received = null;
-		$this->register_job_handler( $jw, 'hub_op', function ( $p ) use ( &$received ) { $received = $p; }, true );
+		$this->register_job_handler( $jw, 'hub_op', function ( $id, $p ) use ( &$received ) { $received = $p; }, true );
 
 		$message = $this->job_message( 'hub_op', [ 'a' => 1 ], 'remote_job' );
 		$jw->fill( $message );
