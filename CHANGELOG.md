@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.20.1] - 2026-08-10
+
+### Changed
+
+- **Dependencies updated within range** — phpstan 2.2.8, vipwpcs 3.1.0, wpcs
+  3.4.1, dead-code-detector 1.3.3, phpunit 10.5.64, plus esbuild, knip and the
+  babel presets. PHPUnit 11 exists but the `^10.0` pin is deliberate: its event
+  API drifted from our bootstrap.
+- **The `@wordpress/*` packages now follow the `wp-7.0` dist tag** rather than
+  npm `latest`. They are build externals — esbuild maps them to `window.wp.*`,
+  so WordPress supplies the code at runtime and the npm copy is only the API
+  contract the bundle compiles against. Tracking `latest` compiles against APIs
+  the installed WordPress does not have.
+- **`react`/`react-dom` are declared directly** at the major WP 7.0 bundles.
+  Without that, `@testing-library/react` resolved its own React 19 beside
+  `@wordpress/element`'s 18 and every hook threw "Invalid hook call".
+- Plugin header now carries the same fields, in the same order, as its siblings.
+
 ## [2.20.0] - 2026-08-09
 
 ### Added
