@@ -71,28 +71,42 @@ export async function answerBatch( messages, replyFor ) {
  */
 
 /**
+ * The wire plus what was POSTED, unpacked — the client double offered this by
+ * letting a caller push in `postBatch`, and every converting suite needs it.
+ *
+ * @typedef {FakeFetch & { batches: Array<Array<Array>> }} RecordingFakeFetch
+ */
+
+/**
  * @param {( message: Array ) => any} replyFor Maps a posted command Message to
  *                                             its reply payload — a value, an
  *                                             `Error`, `undefined`, or a
  *                                             promise of any of those.
- * @return {FakeFetch} A `fetch` double answering `/command`.
+ * @return {RecordingFakeFetch} A `fetch` double answering `/command`.
  */
 export function makeFakeCommandWire( replyFor ) {
-	return jest.fn( async ( url, init ) => {
-		const sent = String( init?.body ?? '' )
-			.split( '\n' )
-			.filter( ( line ) => '' !== line.trim() )
-			.map( ( line ) => unpack( line ) );
-		const replies = await answerBatch( sent, replyFor );
-		return {
-			ok: true,
-			status: 200,
-			text: () =>
-				Promise.resolve(
-					replies.map( ( m ) => pack( m ) ).join( '\n' )
-				),
-		};
-	} );
+	const wire = /** @type {RecordingFakeFetch} */ (
+		/** @type {unknown} */ (
+			jest.fn( async ( url, init ) => {
+				const sent = String( init?.body ?? '' )
+					.split( '\n' )
+					.filter( ( line ) => '' !== line.trim() )
+					.map( ( line ) => unpack( line ) );
+				wire.batches.push( sent );
+				const replies = await answerBatch( sent, replyFor );
+				return {
+					ok: true,
+					status: 200,
+					text: () =>
+						Promise.resolve(
+							replies.map( ( m ) => pack( m ) ).join( '\n' )
+						),
+				};
+			} )
+		)
+	);
+	wire.batches = [];
+	return wire;
 }
 
 /**

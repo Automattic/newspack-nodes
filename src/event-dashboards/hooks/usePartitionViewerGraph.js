@@ -62,9 +62,6 @@ const controlMsg = ( value ) => {
 
 // raw-logs: the view mints; TO/ID stamped after (neither is signed).
 /**
- * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] transport seam assigned to the link's
- *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
  * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,
@@ -74,10 +71,7 @@ const controlMsg = ( value ) => {
  *   Graph is driven by a `Core.bumpGraphGeneration()` bump — mountExospine
  *   subscribes this reused mount's rebuild to it.
  */
-export function usePartitionViewerGraph( opts = {} ) {
-	const optsRef = useRef( opts );
-	optsRef.current = opts;
-
+export function usePartitionViewerGraph() {
 	// Live node handles for the control callbacks (stable across renders).
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
@@ -113,19 +107,13 @@ export function usePartitionViewerGraph( opts = {} ) {
 
 	useEffect( () => {
 		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
-		const build = ( { interpreter, http } ) => {
+		const build = ( { interpreter } ) => {
 			// ONE RemoteLink; baseUrl/nonce come from the global, not tokens.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, [
 				'raw-logs',
 			] );
 			// Pass-through stream Tee; copies frames to the view.
 			link.target = TEE;
-			// The shared `_http` carries every command out; both ride it.
-			if ( optsRef.current.commandClient ) {
-				http.client = optsRef.current.commandClient;
-			}
-			link.client = http.client;
-
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
 

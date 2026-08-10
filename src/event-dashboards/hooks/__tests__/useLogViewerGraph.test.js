@@ -14,15 +14,12 @@ import {
 	TYPE,
 	KEY,
 	VALUE,
-	TIMESTAMP,
 	TO,
 	FROM,
 	ID,
-	TM_COMMAND,
-	TM_RESPONSE,
-	TM_ERROR,
 	TM_BYTESTREAM,
 } from '../../../runtime/message';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
 import { forgetSession, __setAuthFetch } from '../../../runtime/command-auth';
@@ -61,34 +58,17 @@ const LINK = 'logviewer:link';
 const VIEW = 'logviewer:view';
 const HTTP = names.HTTP;
 
-// transport double: postBatch echoes a reply per verb name along FROM.
-// A verb in `errorVerbs` replies TM_ERROR so a rejected pending-reply is exercised.
-function makeFakeClient( payloadByVerb = {}, errorVerbs = [] ) {
-	const client = {
-		batches: [],
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] = errorVerbs.includes( m[ VALUE ]?.name )
-					? TM_COMMAND | TM_RESPONSE | TM_ERROR
-					: TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ TIMESTAMP ] = 0;
-				reply[ VALUE ] = {
-					name: m[ VALUE ]?.name,
-					payload:
-						payloadByVerb[ m[ VALUE ]?.name ] ??
-						payloadByVerb._default ??
-						null,
-				};
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `wire.batches` is what was
+// posted. A verb in `errorVerbs` answers TM_ERROR, exercising a rejected
+// pending reply.
+function installWire( payloadByVerb = {}, errorVerbs = [] ) {
+	return installFakeCommandWire( ( m ) => {
+		const name = m[ VALUE ]?.name;
+		return errorVerbs.includes( name )
+			? new Error( name )
+			: payloadByVerb[ name ] ?? payloadByVerb._default ?? null;
+	} );
 }
 
 // debug listed first but unavailable; access is the first AVAILABLE source.
@@ -98,13 +78,14 @@ const sourcesReply = () => [
 	{ name: 'access', path: '/a', mode: 'file', available: true, bytes: 977 },
 ];
 
-function mountGraph( client ) {
-	return renderHook( () => useLogViewerGraph( { commandClient: client } ) );
+function mountGraph() {
+	return renderHook( () => useLogViewerGraph() );
 }
 
 describe( 'useLogViewerGraph', () => {
 	test( 'mounts a RemoteLink pointed at /log/stream and the raw-line view', async () => {
-		mountGraph( makeFakeClient( { taillog: sourcesReply() } ) );
+		installWire( { taillog: sourcesReply() } );
+		mountGraph();
 		await act( async () => {} );
 		const link = Core.node( LINK );
 		expect( link ).toBeTruthy();
@@ -117,10 +98,10 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'catalogs via the taillog-sources interpreter builtin (empty TO)', async () => {
-		const client = makeFakeClient( { taillog: sourcesReply() } );
-		mountGraph( client );
+		const wire = installWire( { taillog: sourcesReply() } );
+		mountGraph();
 		await act( async () => {} );
-		const cmd = client.batches
+		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
 		expect( cmd ).toBeTruthy();
@@ -142,11 +123,11 @@ describe( 'useLogViewerGraph', () => {
 			expires_in: 3600,
 			now: 1771000000,
 		} ) );
-		const client = makeFakeClient( { taillog: sourcesReply() } );
-		mountGraph( client );
+		const wire = installWire( { taillog: sourcesReply() } );
+		mountGraph();
 		await act( async () => {} );
 
-		const cmd = client.batches
+		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
 		expect( cmd ).toBeTruthy();
@@ -154,7 +135,8 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'opens the stream on the first AVAILABLE source over /log/stream', async () => {
-		mountGraph( makeFakeClient( { taillog: sourcesReply() } ) );
+		installWire( { taillog: sourcesReply() } );
+		mountGraph();
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain(
 			'newspack-nodes/v1/log/stream'
@@ -166,23 +148,22 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'returns the source catalog for the picker', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		expect( result.current.sources ).toEqual( sourcesReply() );
 	} );
 
 	test( 'an empty catalog leaves the picker empty and opens nothing new', async () => {
-		const { result } = mountGraph( makeFakeClient( { taillog: [] } ) );
+		installWire( { taillog: [] } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		expect( result.current.sources ).toEqual( [] );
 	} );
 
 	test( 'selectSource re-subscribes the stream and records the pick', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const before = FakeEventSource.last;
 		await act( async () => result.current.selectSource( 'debug' ) );
@@ -192,9 +173,8 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'seek repositions the current source with a positions seed', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		// Replay first captures the fresh byte size, then reopens the stream.
 		await act( async () =>
@@ -211,9 +191,8 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'replay captures the source byte size as the file-mode boundary', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () =>
 			result.current.seek( 'access', { access: 'start' }, { bytes: 977 } )
@@ -232,17 +211,15 @@ describe( 'useLogViewerGraph', () => {
 	 * row it holds and re-catalogs on its own cadence.
 	 */
 	test( 'replay captures the boundary from the caller row, dispatching NO command', async () => {
-		const client = makeFakeClient( { taillog: sourcesReply() } );
-		const { result } = mountGraph( client );
+		const wire = installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
-		client.batches.length = 0; // ignore the mount-time catalog fetch
+		wire.batches.length = 0; // ignore the mount-time catalog fetch
 		await act( async () =>
 			result.current.seek( 'access', { access: 'start' }, { bytes: 977 } )
 		);
 		expect(
-			client.batches
-				.flat()
-				.find( ( m ) => 'taillog' === m[ VALUE ]?.name )
+			wire.batches.flat().find( ( m ) => 'taillog' === m[ VALUE ]?.name )
 		).toBeFalsy();
 		expect( Core.node( VIEW ).seek.endOffset ).toBe( 977 );
 	} );
@@ -263,9 +240,8 @@ describe( 'useLogViewerGraph', () => {
 	];
 
 	test( 'replay on a SEGMENTED source captures the newest segment as the boundary', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: segmentedReply() } )
-		);
+		installWire( { taillog: segmentedReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () =>
 			result.current.seek(
@@ -291,9 +267,8 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'browsing a SEGMENT rides positions and keeps the newest-segment boundary', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: segmentedReply() } )
-		);
+		installWire( { taillog: segmentedReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () =>
 			result.current.seek(
@@ -314,8 +289,8 @@ describe( 'useLogViewerGraph', () => {
 
 	test( 'selectSource refreshes the catalog (fresh segments for the sidebar)', async () => {
 		const payload = { taillog: sourcesReply() };
-		const client = makeFakeClient( payload );
-		const { result } = mountGraph( client );
+		installWire( payload );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		payload.taillog = segmentedReply();
 		await act( async () => result.current.selectSource( 'debug' ) );
@@ -323,9 +298,8 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'a stale seek does NOT reposition after the selection moved on', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () => {
 			// Replay 'access' starts its catalog fetch…
@@ -348,8 +322,8 @@ describe( 'useLogViewerGraph', () => {
 		const payload = {
 			taillog: sourcesReply(),
 		};
-		const client = makeFakeClient( payload );
-		const { result } = mountGraph( client );
+		const wire = installWire( payload );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const env = newMessage();
 		env[ TYPE ] = TM_BYTESTREAM;
@@ -370,7 +344,7 @@ describe( 'useLogViewerGraph', () => {
 		await act( async () => result.current.step() );
 
 		expect( FakeEventSource.instances.length ).toBe( esCount );
-		const cmd = client.batches
+		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'read' === m[ VALUE ]?.arguments?.[ 0 ] );
 		expect( cmd[ VALUE ].arguments ).toEqual( [
@@ -383,7 +357,8 @@ describe( 'useLogViewerGraph', () => {
 
 	test( 'fetchSources refreshes the returned catalog', async () => {
 		const payload = { taillog: sourcesReply() };
-		const { result } = mountGraph( makeFakeClient( payload ) );
+		installWire( payload );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		payload.taillog = segmentedReply();
 		await act( async () => result.current.fetchSources() );
@@ -398,9 +373,8 @@ describe( 'useLogViewerGraph', () => {
 	 * An unknown row now FOLLOWS: no boundary means nothing to replay to.
 	 */
 	test( 'a seek with no catalog row follows instead of stranding in replay', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() }, [ 'taillog' ] )
-		);
+		installWire( { taillog: sourcesReply() }, [ 'taillog' ] );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () => result.current.selectSource( 'access' ) );
 		await act( async () =>
@@ -419,7 +393,8 @@ describe( 'useLogViewerGraph', () => {
 				bytes: 0,
 			},
 		];
-		const { result } = mountGraph( makeFakeClient( { taillog: empty } ) );
+		installWire( { taillog: empty } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		await act( async () =>
 			result.current.seek( 'access', { access: 'start' } )
@@ -428,18 +403,16 @@ describe( 'useLogViewerGraph', () => {
 	} );
 
 	test( 'setPaused toggles the view paused flag', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
 	} );
 
 	test( 'unmount tears down the link, view, and closes the EventSource', async () => {
-		const { unmount } = mountGraph(
-			makeFakeClient( { taillog: sourcesReply() } )
-		);
+		installWire( { taillog: sourcesReply() } );
+		const { unmount } = mountGraph();
 		await act( async () => {} );
 		const es = FakeEventSource.last;
 		unmount();
@@ -461,7 +434,8 @@ describe( 'useLogViewerGraph', () => {
 		afterEach( () => setVisibility( 'visible' ) );
 
 		test( 'closes the stream when hidden and reopens the source when visible', async () => {
-			mountGraph( makeFakeClient( { taillog: sourcesReply() } ) );
+			installWire( { taillog: sourcesReply() } );
+			mountGraph();
 			await act( async () => {} );
 			const open = FakeEventSource.last;
 			act( () => setVisibility( 'hidden' ) );
@@ -486,9 +460,8 @@ describe( 'useLogViewerGraph', () => {
 		afterEach( () => setVisibility( 'visible' ) );
 
 		test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			const open = FakeEventSource.last;
 			expect( open.closed ).toBe( false );
@@ -498,9 +471,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=)', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			// A streamed line stamps segment:offset in ID + the source in FROM.
 			const env = newMessage();
@@ -527,9 +499,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'a user pause outranks a visibility refocus: pause → hide → refocus stays CLOSED', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			const open = FakeEventSource.last;
 			act( () => result.current.setPaused( true ) );
@@ -543,9 +514,8 @@ describe( 'useLogViewerGraph', () => {
 
 		test( 'reinit while paused re-publishes paused:true and does NOT reopen the stream', async () => {
 			mountExospine();
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			const afterPause = FakeEventSource.instances.length;
@@ -557,9 +527,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'selectSource while paused does NOT reopen the stream (stays closed)', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			const closed = FakeEventSource.last;
@@ -573,9 +542,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'Play after a paused selectSource opens the NEW source (tail)', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			await act( async () => result.current.selectSource( 'debug' ) );
@@ -586,9 +554,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'seek while paused does NOT reopen the stream', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			const count = FakeEventSource.instances.length;
@@ -599,9 +566,8 @@ describe( 'useLogViewerGraph', () => {
 		} );
 
 		test( 'Play after a paused seek replays the source and the tracker flips at the boundary', async () => {
-			const { result } = mountGraph(
-				makeFakeClient( { taillog: sourcesReply() } )
-			);
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
 			await act( async () => {} );
 			act( () => result.current.setPaused( true ) );
 			await act( async () =>

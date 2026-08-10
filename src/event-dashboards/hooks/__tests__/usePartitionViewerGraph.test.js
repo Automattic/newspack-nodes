@@ -23,15 +23,13 @@ import {
 	TYPE,
 	KEY,
 	VALUE,
-	TIMESTAMP,
 	TO,
 	FROM,
 	ID,
 	TM_INFO,
-	TM_COMMAND,
-	TM_RESPONSE,
 	TM_BYTESTREAM,
 } from '../../../runtime/message';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
 import { Node } from '../../../runtime/node';
@@ -78,38 +76,14 @@ const VIEW = 'partition:view';
 const TEE = 'partition:stream';
 const LEASE_OWNER = '9007199254740993';
 
-// transport double: postBatch returns reply Messages addressed along FROM.
-function makeFakeClient( payloadByVerb = {} ) {
-	const client = {
-		batches: [],
-		buildMessage( { to, verb, args = '' } ) {
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args };
-			return m;
-		},
-		postBatch( messages ) {
-			client.batches.push( messages );
-			const replies = messages.map( ( m ) => {
-				const reply = newMessage();
-				reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-				reply[ TO ] = m[ FROM ];
-				reply[ ID ] = m[ ID ];
-				reply[ TIMESTAMP ] = 0;
-				reply[ VALUE ] = {
-					name: m[ VALUE ]?.name,
-					payload:
-						payloadByVerb[ m[ VALUE ]?.name ] ??
-						payloadByVerb._default ??
-						null,
-				};
-				return reply;
-			} );
-			return Promise.resolve( replies );
-		},
-	};
-	return client;
+// The seam is the WIRE: the graph packs, POSTs and unpacks for real, so
+// HttpOut, the router and the interpreter all run. `wire.batches` is what was
+// posted.
+function installWire( payloadByVerb = {} ) {
+	return installFakeCommandWire(
+		( m ) =>
+			payloadByVerb[ m[ VALUE ]?.name ] ?? payloadByVerb._default ?? null
+	);
 }
 
 // Build a connected envelope as a flat string (TM_INFO values are strings).
@@ -128,17 +102,16 @@ function connectedEnvelope( {
 	return m;
 }
 
-function mountGraph( client ) {
-	return renderHook( () =>
-		usePartitionViewerGraph( { commandClient: client } )
-	);
+function mountGraph() {
+	return renderHook( () => usePartitionViewerGraph() );
 }
 
 const oneLogReply = () => [ { key: 'firehose.p0', label: 'firehose.p0' } ];
 
 describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	test( 'mounts the backbone + one RemoteLink (composing three children) + the view', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
@@ -161,7 +134,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'steers flow with targets: composed `:sse-in` → stream Tee → view; shared heartbeat → _http/workers', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		// The link re-homes frames to the Tee, which fans to the view.
 		expect( Core.node( LINK ).sseIn.target ).toBe( TEE );
@@ -170,14 +144,16 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'does NOT mount partition:route or partition:transform (chain collapsed into view)', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		expect( Core.node( 'partition:route' ) ).toBeNull();
 		expect( Core.node( 'partition:transform' ) ).toBeNull();
 	} );
 
 	test( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		const interpreter = Core.node( INTERPRETER );
 		const tee = Core.node( TEE );
@@ -192,7 +168,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'a delivered log envelope still reaches the view through the Tee', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
 			'connected',
@@ -210,7 +187,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'connecting a second target to the Tee fans the live stream out without disturbing the view', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		// A debug-overlay `connect <tee> <watcher>` appends a second target.
 		const watcher = new Node();
@@ -235,23 +213,25 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		expect( Core.node( VIEW ).lines ).toHaveLength( 1 );
 	} );
 
-	test( 'the composed HttpOut has the injected transport as its client', async () => {
-		const client = makeFakeClient( { list_logs: oneLogReply() } );
-		mountGraph( client );
+	test( 'the composed HttpOut reaches the wire with nothing injected', async () => {
+		const wire = installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
-		expect( Core.node( HTTP ).client ).toBe( client );
+		// HttpOut defaults its own client, so the POST is the whole proof.
+		expect( Core.node( HTTP ).client ).toBeTruthy();
+		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
 	test( 'fires list_logs on mount addressed to raw-logs and pushes it into the view', async () => {
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list_logs: [
 				{ key: 'firehose.p0', label: 'firehose.p0' },
 				{ key: 'errors.p0', label: 'errors.p0' },
 			],
 		} );
-		mountGraph( client );
+		mountGraph();
 		await act( async () => {} );
-		const listMsg = client.batches
+		const listMsg = wire.batches
 			.flat()
 			.find( ( m ) => 'list_logs' === m[ VALUE ]?.name );
 		expect( listMsg ).toBeTruthy();
@@ -263,7 +243,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'opens an EventSource against /messages/stream?subscribe={selected-log}', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		expect( FakeEventSource.last ).toBeTruthy();
 		expect( FakeEventSource.last.url ).toContain(
@@ -273,7 +254,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 	} );
 
 	test( 'makes the RemoteLink with a token-free (subscribe-only) argument string', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'raw-logs' ] );
@@ -282,7 +264,8 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 
 describe( 'usePartitionViewerGraph — end-to-end routing through the exospine', () => {
 	test( 'a delivered log envelope routes composed sse-in → view (shaped inline)', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		// Drive a `connected` envelope so the heartbeat has a slot to poke.
 		FakeEventSource.last.dispatch(
@@ -304,7 +287,8 @@ describe( 'usePartitionViewerGraph — end-to-end routing through the exospine',
 
 describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	test( 'a `connected` envelope populates heartbeat.slot', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		FakeEventSource.last.dispatch(
 			'connected',
@@ -314,7 +298,8 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 	} );
 
 	test( 'a `connected` envelope with no slot leaves heartbeat slot null', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		expectConsoleWarn(
 			'ERROR: SseInNode: connected envelope missing or invalid SLOT'
@@ -331,8 +316,8 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 		expectConsoleWarn( '_heartbeat: ERROR: client heartbeat failed - ' );
 		jest.useFakeTimers();
 		try {
-			const client = makeFakeClient( { list_logs: oneLogReply() } );
-			mountGraph( client );
+			const wire = installWire( { list_logs: oneLogReply() } );
+			mountGraph();
 			await act( async () => {} ); // settle list_logs → EventSource opens
 			act( () => {
 				FakeEventSource.last.dispatch(
@@ -340,13 +325,13 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 					pack( connectedEnvelope( { pid: 7, slot: 5 } ) )
 				);
 			} );
-			client.batches.length = 0; // ignore the initial list_logs batch
+			wire.batches.length = 0; // ignore the initial list_logs batch
 			// 1s Router TIMER x 5 = past the 5s base-Timer throttle.
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
 			expect( Core.node( HEARTBEAT ).lastFireTime ).toBeGreaterThan( 0 );
-			const poke = client.batches
+			const poke = wire.batches
 				.flat()
 				.find(
 					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
@@ -361,9 +346,8 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 
 describe( 'usePartitionViewerGraph — teardown', () => {
 	test( 'unmount tears down the RemoteLink + shared singletons + the backbone and closes the EventSource', async () => {
-		const { unmount } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { unmount } = mountGraph();
 		await act( async () => {} );
 		const es = FakeEventSource.last;
 		unmount();
@@ -384,9 +368,8 @@ describe( 'usePartitionViewerGraph — teardown', () => {
 
 describe( 'usePartitionViewerGraph — control callbacks', () => {
 	test( 'selectLog re-subscribes the EventSource and selects in the view', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const before = FakeEventSource.last;
 		act( () => result.current.selectLog( 'errors.p0' ) );
@@ -401,16 +384,15 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 	} );
 
 	test( 'setPaused toggles the view paused flag', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
 	} );
 
 	test( 'fetchLogStatus resolves a log_status reply addressed to raw-logs', async () => {
-		const client = makeFakeClient( {
+		const wire = installWire( {
 			list_logs: oneLogReply(),
 			log_status: {
 				log_id: 'firehose.p0',
@@ -422,13 +404,13 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 				total_size: 300,
 			},
 		} );
-		const { result } = mountGraph( client );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		let status;
 		await act( async () => {
 			status = await result.current.fetchLogStatus( 'firehose.p0' );
 		} );
-		const statusMsg = client.batches
+		const statusMsg = wire.batches
 			.flat()
 			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
 		expect( statusMsg[ TO ] ).toBe( 'raw-logs' );
@@ -440,9 +422,8 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 	} );
 
 	test( 'seek re-subscribes the stream at the given positions seed', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const before = FakeEventSource.last;
 		act( () =>
@@ -468,7 +449,8 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		// spine.reinit is subscribed to graphGeneration. A bump (the real Reset
 		// Graph trigger) rebuilds JUST its soft nodes, keeping the shared backbone.
 		mountExospine();
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		const firstView = Core.node( VIEW );
 		const firstHttp = Core.node( HTTP );
@@ -488,9 +470,9 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 
 	test( 'a graphGeneration bump re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
 		mountExospine();
-		const client = makeFakeClient( { list_logs: oneLogReply() } );
+		installWire( { list_logs: oneLogReply() } );
 		const { result } = renderHook( () => {
-			const graph = usePartitionViewerGraph( { commandClient: client } );
+			const graph = usePartitionViewerGraph();
 			const view = useNodeState( VIEW, 'view' );
 			return { graph, view };
 		} );
@@ -526,7 +508,8 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 	afterEach( () => setVisibility( 'visible' ) );
 
 	test( 'closes the EventSource when the tab is hidden', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		const open = FakeEventSource.last;
 		expect( open.closed ).toBe( false );
@@ -535,7 +518,8 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 	} );
 
 	test( 'reopens on the selected log when the tab becomes visible again', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		act( () => setVisibility( 'hidden' ) );
 		const before = FakeEventSource.instances.length;
@@ -545,7 +529,8 @@ describe( 'usePartitionViewerGraph — visibility-gated streaming', () => {
 	} );
 
 	test( 'resumes from the last streamed offset on refocus (reopen carries &positions=), not a blind tail', async () => {
-		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
 		await act( async () => {} );
 		// Server stamps segment:offset in ID + partition dir in FROM.
 		const env = newMessage();
@@ -584,9 +569,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	afterEach( () => setVisibility( 'visible' ) );
 
 	test( 'setPaused(true) closes the EventSource (frees the server slot), not just the view flag', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const open = FakeEventSource.last;
 		expect( open.closed ).toBe( false );
@@ -597,9 +581,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'setPaused(false) resumes at the paused offset (reopen carries &positions=), not a blind tail', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		// A streamed record stamps segment:offset in ID + partition dir in FROM.
 		const env = newMessage();
@@ -641,8 +624,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 				at_eof: false,
 			},
 		};
-		const client = makeFakeClient( payload );
-		const { result } = mountGraph( client );
+		const wire = installWire( payload );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		// A live frame seeds the resume cursor, then pause closes the stream.
 		const env = newMessage();
@@ -659,7 +642,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 
 		// No stream opened; the record rode the command channel.
 		expect( FakeEventSource.instances.length ).toBe( esCount );
-		const cmd = client.batches
+		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
 		expect( cmd[ VALUE ].arguments ).toEqual( [ 'firehose.p0', '7:120' ] );
@@ -675,7 +658,7 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			at_eof: false,
 		};
 		await act( async () => result.current.step() );
-		const cmds = client.batches
+		const cmds = wire.batches
 			.flat()
 			.filter( ( m ) => 'read_message' === m[ VALUE ]?.name );
 		expect( cmds[ 1 ][ VALUE ].arguments ).toEqual( [
@@ -685,9 +668,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'step while LIVE is a no-op (paused-only control)', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const before = FakeEventSource.instances.length;
 		await act( async () => result.current.step() );
@@ -695,9 +677,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'a user pause outranks a visibility refocus: pause → hide → refocus stays CLOSED (no auto-resume)', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		const open = FakeEventSource.last;
 		act( () => result.current.setPaused( true ) );
@@ -712,9 +693,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 
 	test( 'reinit while paused re-publishes paused:true and does NOT reopen the stream', async () => {
 		mountExospine();
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		const afterPause = FakeEventSource.instances.length;
@@ -733,9 +713,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	];
 
 	test( 'selectLog while paused does NOT reopen the stream (stays closed, slot stays freed)', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: twoLogReply() } )
-		);
+		installWire( { list_logs: twoLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		const closed = FakeEventSource.last;
@@ -751,9 +730,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'Play after a paused selectLog opens the NEW selection (tail, no stale offset)', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: twoLogReply() } )
-		);
+		installWire( { list_logs: twoLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		// Stream firehose.p0 so a stale resume offset exists for the OLD dir.
 		const env = newMessage();
@@ -775,9 +753,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'seek while paused does NOT reopen the stream', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		const count = FakeEventSource.instances.length;
@@ -792,9 +769,8 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 	} );
 
 	test( 'Play after a paused seek replays that segment and the tracker flips at the boundary', async () => {
-		const { result } = mountGraph(
-			makeFakeClient( { list_logs: oneLogReply() } )
-		);
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		act( () =>

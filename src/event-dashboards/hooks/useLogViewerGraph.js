@@ -55,18 +55,12 @@ function defaultSourceName( sources ) {
 }
 
 /**
- * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] transport seam assigned to the link's
- *                                      HttpOut; defaults (inside HttpOut) to the localized transport.
  * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
  *   for the picker and segment sidebar; fetchSources refreshes that catalog,
  *   and step (paused only) delivers one record from the cursor.
  */
-export function useLogViewerGraph( opts = {} ) {
-	const optsRef = useRef( opts );
-	optsRef.current = opts;
-
+export function useLogViewerGraph() {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
@@ -99,17 +93,11 @@ export function useLogViewerGraph( opts = {} ) {
 	const [ sources, setSources ] = useState( [] );
 
 	useEffect( () => {
-		const build = ( { interpreter, http } ) => {
+		const build = ( { interpreter } ) => {
 			// 'php' is a builtin source placeholder; the catalog repoints it.
 			const link = interpreter.makeNode( 'RemoteLink', LINK, [ 'php' ] );
 			link.endpoint = LOG_STREAM_ENDPOINT;
 			link.target = TEE;
-			// The shared `_http` carries every command out; both ride it.
-			if ( optsRef.current.commandClient ) {
-				http.client = optsRef.current.commandClient;
-			}
-			link.client = http.client;
-
 			const tee = interpreter.makeNode( 'Tee', TEE );
 			tee.connectNode( VIEW );
 
