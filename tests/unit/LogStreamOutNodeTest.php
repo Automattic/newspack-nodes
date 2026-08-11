@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Log_Sources;
 use Newspack_Nodes\Rest\Log_Stream_Out_Node;
 use Newspack_Nodes\Tail_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
@@ -66,7 +67,7 @@ class LogStreamOutNodeTest extends TestCase {
 
 		// The reopen carries it as Last-Event-ID and sends no positions param.
 		$ctrl     = new Log_Stream_Out_Node();
-		$resumed  = $ctrl->resume_positions( null, $token );
+		$resumed  = self::positions_from_token( $token );
 		$reopened = $ctrl->open_subscription( 'php', $resumed )[0];
 		$cap      = new Capture_Sink_Node();
 		$reopened->sink( $cap );
@@ -89,7 +90,7 @@ class LogStreamOutNodeTest extends TestCase {
 		$token = 'php=' . $first->cursor_position();
 
 		$ctrl     = new Log_Stream_Out_Node();
-		$reopened = $ctrl->open_subscription( 'php', $ctrl->resume_positions( null, $token ) )[0];
+		$reopened = $ctrl->open_subscription( 'php', self::positions_from_token( $token ) )[0];
 		$cap      = new Capture_Sink_Node();
 		$reopened->sink( $cap );
 		// The first tick only fills the buffer; pump until it stops producing.
@@ -110,23 +111,59 @@ class LogStreamOutNodeTest extends TestCase {
 		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
 
 		$ctrl = new Log_Stream_Out_Node();
-		$tail = $ctrl->open_subscription( 'php', $ctrl->resume_positions( null, 'php=:9' ) )[0];
+		$tail = $ctrl->open_subscription( 'php', self::positions_from_token( 'php=:9' ) )[0];
 
+		// The CLIENT named no generation, and its offset belongs to whichever
+		// one it was reading — pairing it with the live inode would pass the
+		// resume check and mis-seek into a rotated-in file.
 		$this->assertSame( ':9', $tail->cursor_position() );
 	}
 
-	public function test_cursor_position_omits_the_container_until_the_inode_is_known(): void {
+	/**
+	 * The round trip the viewer actually performs: connect at EOF, hang up,
+	 * lines arrive in the gap, reconnect echoing the advertised token. Those
+	 * lines must be DELIVERED — tail-seeking again is what leaves the view on
+	 * "Waiting for log lines..." while the offset climbs.
+	 */
+	public function test_reconnect_with_the_advertised_token_delivers_the_gap(): void {
+		$path = "{$this->tmp}/php-error.log";
+		\file_put_contents( $path, "before-one\nbefore-two\n" );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $path ];
+
+		// Connect at EOF and take the id the `connected` envelope would carry.
+		$first = ( new Log_Stream_Out_Node() )->open_subscription( 'php', null )[0];
+		$token = 'php=' . $first->cursor_position();
+
+		// The gap: lines written while nothing is connected.
+		\file_put_contents( $path, "gap-one\ngap-two\n", \FILE_APPEND );
+
+		$ctrl     = new Log_Stream_Out_Node();
+		$reopened = $ctrl->open_subscription( 'php', self::positions_from_token( $token ) )[0];
+		$cap      = new Capture_Sink_Node();
+		$reopened->sink( $cap );
+		for ( $i = 0; $i < 12; $i++ ) {
+			$reopened->poll();
+		}
+
+		$this->assertSame(
+			[ "gap-one\n", "gap-two\n" ],
+			\array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured ),
+			"token was {$token}"
+		);
+	}
+
+	public function test_cursor_position_names_the_generation_before_the_first_poll(): void {
 		$path = "{$this->tmp}/gyro-live.log";
 		\file_put_contents( $path, "abcdefgh\n" );
 		Log_Sources::$builtin_sources = static fn (): array => [ 'gyro' => $path ];
 
 		$tail = ( new Log_Stream_Out_Node() )->open_subscription( 'gyro', null )[0];
 
-		// The byte offset is seated by next_offset('end'), but the inode lands
-		// in cursor_segment only when the handle opens on the first poll. An
-		// advertised `0:9` is a resume against inode 0, which never validates —
-		// the reader restarts from the top of the file on every reconnect.
-		$this->assertSame( ':9', $tail->cursor_position() );
+		// The inode reaches cursor_segment only when the handle opens on the
+		// first poll, and a stream that seeks to EOF and hangs up never polls
+		// — so ask the path. An unnamed generation is indistinguishable from a
+		// foreign one and reads the whole file back on every reconnect.
+		$this->assertSame( \fileinode( $path ) . ':9', $tail->cursor_position() );
 	}
 
 	public function test_position_keyed_by_name_seeds_the_file_mode_resume_candidate(): void {
@@ -226,4 +263,26 @@ class LogStreamOutNodeTest extends TestCase {
 		$this->assertIsCallable( $route['args']['callback'] );
 		$this->assertIsCallable( $route['args']['permission_callback'] );
 	}
+	/**
+	 * A client's own token → the `positions` shape it sends. The server no
+	 * longer decodes `Last-Event-ID`; `positions` is the only resume input.
+	 *
+	 * @param string $token `dir=segment:offset` pairs, comma-separated.
+	 * @return array<string,array{segment?:int,offset:int}>|null
+	 */
+	private static function positions_from_token( string $token ): ?array {
+		$out = [];
+		foreach ( \explode( ',', $token ) as $pair ) {
+			if ( ! \preg_match( '/^(\S+)=(\d*):(\d+)$/D', $pair, $m ) ) {
+				continue;
+			}
+			$position = [ 'offset' => (int) $m[3] ];
+			if ( '' !== $m[2] ) {
+				$position['segment'] = (int) $m[2];
+			}
+			$out[ $m[1] ] = $position;
+		}
+		return [] === $out ? null : $out;
+	}
+
 }

@@ -61,12 +61,13 @@ class SSE_Out_Node extends Node {
 	 * @var array<string,int>
 	 */
 	private const SAFE_EVENTS = [
-		'hello'     => 1,
-		'msg'       => 1,
-		'heartbeat' => 1,
-		'connected' => 1,
+		'hello'      => 1,
+		'msg'        => 1,
+		'heartbeat'  => 1,
+		'connected'  => 1,
 		'disconnect' => 1,
-		'timeout'   => 1,
+		'retry'      => 1,
+		'timeout'    => 1,
 	];
 
 	/**
@@ -123,22 +124,11 @@ class SSE_Out_Node extends Node {
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
 
-	/**
-	 * Where each live subscription resumes, keyed by dir name, as `seg:offset`.
-	 * Rides every `msg` as the SSE `id:` so a reopen restores the WHOLE stream:
-	 * one subscription's cursor would leave its siblings on the stale query
-	 * parameter, re-delivering everything they had already seen.
-	 *
-	 * @var array<string,string>
-	 */
-	private array $cursors = [];
-
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array $message ): void {
 		++$this->counter;
 		$this->last_data = Core::$now ?: Core::right_now();
-		$this->track_cursor( $message );
-		$this->send_sse_event( 'msg', $message, $this->cursor_token() );
+		$this->send_sse_event( 'msg', $message );
 	}
 
 	/**
@@ -154,10 +144,8 @@ class SSE_Out_Node extends Node {
 		$subscribe     = $request->get_param( 'subscribe' );
 		$positions_raw = $request->get_param( 'positions' ) ?? '';
 		$subs          = $this->parse_subscriptions( Core::as_string( $subscribe ) );
-		$positions     = $this->resume_positions(
-			$this->parse_positions( Core::as_string( $positions_raw ) ),
-			Core::as_string( $request->get_header( 'Last-Event-ID' ) )
-		);
+		// `positions` is the ONLY resume input; the client assembles it.
+		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
 		$interval      = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
@@ -186,77 +174,6 @@ class SSE_Out_Node extends Node {
 		}
 		$parts = \array_map( 'trim', \explode( ',', $raw ) );
 		return \array_values( \array_filter( $parts, static fn ( $s ) => '' !== $s ) );
-	}
-
-	/**
-	 * The positions a stream actually opens at. A `Last-Event-ID` entry BEATS
-	 * the query parameter for its subscription: a native `EventSource` reopens
-	 * on the URL it was constructed with, so that parameter is the original one
-	 * and stale by definition, while the header is the cursor this server
-	 * stamped on the last message the client actually received.
-	 *
-	 * @param array<array-key,mixed>|null $positions      Decoded `positions` parameter.
-	 * @param string                      $last_event_id  The client's echoed resume token.
-	 * @return array<array-key,mixed>|null Merged positions, or null to tail-seek all.
-	 */
-	public function resume_positions( ?array $positions, string $last_event_id ): ?array {
-		$resume = $this->parse_cursor_token( $last_event_id );
-		if ( [] === $resume ) {
-			return $positions;
-		}
-		return \array_merge( \is_array( $positions ) ? $positions : [], $resume );
-	}
-
-	/**
-	 * Decode a resume token — `name=seg:offset` pairs, comma-separated — into
-	 * the positions shape. A malformed entry is dropped with a rate-limited
-	 * note rather than failing the reopen; its subscription falls back to the
-	 * query parameter.
-	 *
-	 * An EMPTY container (`name=:offset`) omits `segment` entirely, which reads
-	 * as "this offset, in whatever generation is current" — what a file-mode
-	 * Tail advertises before its inode is known.
-	 *
-	 * @return array<string,array{segment?:int,offset:int}>
-	 */
-	private function parse_cursor_token( string $token ): array {
-		$out = [];
-		foreach ( \explode( ',', $token ) as $entry ) {
-			if ( '' === $entry ) {
-				continue;
-			}
-			if ( ! \preg_match( '/^([a-z0-9_-]+\/)?([a-z0-9_-][a-z0-9_.-]*)=(\d*):(\d+)$/D', $entry, $m ) ) {
-				$this->print_less_often( 'dropping malformed resume token entry' );
-				continue;
-			}
-			// An empty container means this offset in the current generation.
-			$position = [ 'offset' => (int) $m[4] ];
-			if ( '' !== $m[3] ) {
-				$position['segment'] = (int) $m[3];
-			}
-			$out[ $m[1] . $m[2] ] = $position;
-		}
-		return $out;
-	}
-
-	/**
-	 * Record where the subscription this message came from resumes NEXT. The
-	 * boundary is computed HERE, from the reader's own `seg:offset:length`
-	 * breadcrumb, because the +1 for the record's framing newline already rides
-	 * that length — a client adding it back would have to know the on-disk
-	 * framing, and would mis-seek into a record the day it changed.
-	 *
-	 * @param array<int,mixed> $message The 7-field positional Message.
-	 */
-	private function track_cursor( array $message ): void {
-		if ( ! \preg_match( '/^(\d+):(\d+):(\d+)$/D', Core::as_string( $message[ Message::ID ] ?? '' ), $m ) ) {
-			return;
-		}
-		$dir = self::dir_from_stamp( Core::as_string( $message[ Message::FROM ] ?? '' ) );
-		if ( '' === $dir ) {
-			return;
-		}
-		$this->cursors[ $dir ] = $m[1] . ':' . ( (int) $m[2] + (int) $m[3] );
 	}
 
 	/**
@@ -343,6 +260,7 @@ class SSE_Out_Node extends Node {
 		$consumers          = [];
 		$diagnostic_written = false;
 		try {
+			Core::right_now(); // seed Core::$now for the drain loop
 			$active_lease = self::require_lease( $lease );
 			if ( $initialize_stream ) {
 				\set_time_limit( 0 );
@@ -351,7 +269,7 @@ class SSE_Out_Node extends Node {
 			}
 
 			// Lead with the reopen schedule; every close relies on it.
-			$this->send_retry_hint( Core::num_int( Config::value( 'sse_retry_ms' ), 0 ) );
+			$this->send_sse_event( 'retry', $this->build_retry_msg() );
 
 			// Build INSIDE try so finally cleans up (else _router collides).
 			( new Router_Node() )->name( Node_Names::ROUTER );
@@ -409,19 +327,29 @@ class SSE_Out_Node extends Node {
 			$idle_since = $this->opened_at_eof_since( $consumers );
 
 			// Own cursors: never advertise the last stream's subscriptions.
-			$this->cursors = [];
+			$pairs = [];
 			foreach ( $consumers as $name => $c ) {
-				$this->cursors[ self::dir_from_stamp( $name ) ] = $c->cursor_position();
+				$dir = self::dir_from_stamp( $name );
+				// Either would desync the envelope's KEY VALUE pairing.
+				if ( '' === $dir || \strpbrk( $dir, ' ,' ) ) {
+					continue;
+				}
+				$pairs[] = $dir . '=' . $c->cursor_position();
 			}
-			// @longform The envelope carries the resume point, so a stream that
-			// closes without delivering a message still leaves the client
-			// something to echo back. Only `msg` used to carry an `id:`, and an
-			// idle close makes zero-message streams the normal case — the
-			// reopen then tail-seeks and drops whatever arrived in the gap.
+			// @longform The envelope carries the STARTING resume point, so a
+			// stream that closes without delivering a message still leaves the
+			// client somewhere to resume — an idle close makes zero-message
+			// streams the normal case, and a reopen without one tail-seeks and
+			// drops whatever arrived in the gap. From there the client advances
+			// its own from each message's ID breadcrumb.
 			$this->send_sse_event(
 				'connected',
-				$this->build_connected_msg( $active_lease, $subs, $interval ),
-				$this->cursor_token()
+				$this->build_connected_msg(
+					$active_lease,
+					$subs,
+					$interval,
+					\implode( ',', $pairs )
+				)
 			);
 			// Padding clears proxy buffers; a bare flush does not.
 			$this->flush_if_needed();
@@ -512,15 +440,6 @@ class SSE_Out_Node extends Node {
 		}
 	}
 
-	/** The whole stream's resume state, as the SSE `id:` a client echoes back. */
-	private function cursor_token(): string {
-		$pairs = [];
-		foreach ( $this->cursors as $dir => $position ) {
-			$pairs[] = "{$dir}={$position}";
-		}
-		return \implode( ',', $pairs );
-	}
-
 	/**
 	 * The subscription dir a FROM breadcrumb names — the inverse of
 	 * `stamp_for()`: a grouped stamp keeps its `{group}/` prefix, a bare-logs
@@ -559,39 +478,16 @@ class SSE_Out_Node extends Node {
 	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
 	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
 	 *
-	 * @param string            $event   Event name.
+	 * @param string           $event   Event name.
 	 * @param array<int,mixed> $message 7-field positional Message.
-	 * @param string            $id      Resume token; omitted leaves the client's last one standing.
 	 */
-	protected function send_sse_event( string $event, array $message, string $id = '' ): void {
+	protected function send_sse_event( string $event, array $message ): void {
 		$event = $this->sanitize_event_name( $event );
 		if ( '' === $event ) {
 			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
 		}
-		$json   = Message::packed( $message );
-		$prefix = '' === $id ? '' : 'id: ' . self::sanitize_id( $id ) . "\n";
-		$this->write_wire( "{$prefix}event: {$event}\ndata: {$json}\n\n" );
-	}
-
-	/** Keep a resume token to one line — a newline in it would break framing. */
-	private static function sanitize_id( string $id ): string {
-		return (string) \preg_replace( '/[^a-zA-Z0-9_.:,=\/-]/', '', $id );
-	}
-
-	/**
-	 * Emit the SSE `retry:` field — how long a client waits before reopening
-	 * after ANY close, including the deliberate idle one. A browser
-	 * `EventSource` honors it natively; `SSE_In_Node` parses it to tell a
-	 * scheduled close from a transport failure. Non-positive advertises
-	 * nothing, leaving every client on its own reconnect policy.
-	 *
-	 * @param int $retry_ms Reconnect delay in milliseconds.
-	 */
-	protected function send_retry_hint( int $retry_ms ): void {
-		if ( $retry_ms <= 0 ) {
-			return;
-		}
-		$this->write_wire( "retry: {$retry_ms}\n\n" );
+		$json = Message::packed( $message );
+		$this->write_wire( "event: {$event}\ndata: {$json}\n\n" );
 	}
 
 	/** Put one framed chunk on the wire. Never escaped — SSE framing is bytes. */
@@ -854,7 +750,7 @@ class SSE_Out_Node extends Node {
 	 * @param array<int,string>         $subs
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
-	private function build_connected_msg( array $lease, array $subs, int $interval ): array {
+	private function build_connected_msg( array $lease, array $subs, int $interval, string $cursors = '' ): array {
 		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain seeds Core::$now; take a fresh read.
@@ -869,6 +765,10 @@ class SSE_Out_Node extends Node {
 			'SUBSCRIPTIONS', \implode( ',', $subs ),
 			'INTERVAL',      (string) $interval,
 		] );
+		// Where each subscription STARTS; the client advances its own after.
+		if ( '' !== $cursors ) {
+			$message[ Message::VALUE ] .= ' CURSORS ' . $cursors;
+		}
 		return $message;
 	}
 
@@ -884,6 +784,21 @@ class SSE_Out_Node extends Node {
 		$message[ Message::FROM ]      = '_stream';
 		$message[ Message::KEY ]       = 'heartbeat';
 		$message[ Message::VALUE ]     = (string) $now;
+		return $message;
+	}
+
+	/**
+	 * The reopen schedule, as an EVENT rather than the protocol `retry:` field:
+	 * the client owns reconnect, so it needs the interval as data it can read.
+	 *
+	 * @return array<int,mixed> `retry` Message envelope.
+	 */
+	private function build_retry_msg(): array {
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_INFO;
+		$message[ Message::FROM ]      = '_stream';
+		$message[ Message::KEY ]       = 'retry';
+		$message[ Message::VALUE ]     = (string) Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
 		return $message;
 	}
 

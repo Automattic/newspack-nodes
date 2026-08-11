@@ -89,7 +89,7 @@ class SSE_In_Node extends Node {
 
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
-	/** Reopen delay the server advertised via `retry:`; null = it advertised none. */
+	/** Reopen delay the server advertised — `retry` event or field; null = none. */
 	private ?int  $server_retry_ms      = null;
 	/** Wall-second this stream is due back after a scheduled close; null = not waiting on one. */
 	private ?int  $scheduled_reconnect_at = null;
@@ -375,7 +375,7 @@ class SSE_In_Node extends Node {
 				$this->current_event['event'] = $value;
 				break;
 			case 'retry':
-				// Per the SSE spec a malformed value is ignored, not an error.
+				// Our SSE_Out sends an EVENT; this covers plain-SSE servers.
 				$this->server_retry_ms = self::canonical_decimal( $value, true ) ?? $this->server_retry_ms;
 				break;
 			case 'data':
@@ -407,6 +407,22 @@ class SSE_In_Node extends Node {
 		// Any successful event receipt resets backoff and refreshes liveness.
 		$this->current_backoff = self::INITIAL_BACKOFF;
 		$this->last_event_time = Core::$now ?: Core::right_now();
+
+		// An EVENT, not the `retry:` field: the client owns reconnect.
+		if ( 'retry' === $type ) {
+			try {
+				$message = Message::unpacked( $raw_data );
+			} catch ( \InvalidArgumentException $e ) {
+				// Per the SSE spec a malformed retry is ignored, not an error.
+				return true;
+			}
+			$advertised = self::canonical_decimal( Core::as_string( $message[ Message::VALUE ] ), true );
+			// 0 is "no schedule", not a schedule of zero.
+			if ( null !== $advertised && $advertised > 0 ) {
+				$this->server_retry_ms = $advertised;
+			}
+			return true;
+		}
 
 		// Heartbeats prove liveness — record receipt, return before unpack.
 		if ( 'heartbeat' === $type ) {

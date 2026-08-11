@@ -356,7 +356,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 */
 	public static function lag_of( array $segments, int $cursor_segment, int $cursor_offset ): array {
 		if ( empty( $segments ) ) {
-			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true, 'end_segment' => 0, 'end_size' => 0, 'end_bytes' => 0, 'cursor_segment' => $cursor_segment, 'cursor_offset' => $cursor_offset ];
+			return [
+				'bytes_behind' => 0,
+				'segments_behind' => 0,
+				'caught_up' => true,
+				'end_segment' => 0,
+				'end_size' => 0,
+				'end_bytes' => 0,
+				'cursor_segment' => $cursor_segment,
+				'cursor_offset' => $cursor_offset,
+			];
 		}
 		// Segment gone, or shorter than the cursor: recreated, so re-read.
 		$sizes = \array_column( $segments, 'size', 'id' );
@@ -471,7 +480,8 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			&& null !== $this->first_crash_ts
 			&& ( Core::$now - $this->first_crash_ts ) > self::STATE_WIPE_AFTER_S
 		) {
-			$this->print_less_often( 'WARNING: snapshot cache exceeded ' . self::STATE_WIPE_AFTER_S . 's crash streak; discarding (suspected corrupt state, not a poison message)' );
+			$this->print_less_often( 'WARNING: snapshot cache exceeded '
+				. self::STATE_WIPE_AFTER_S . 's crash streak; discarding (suspected corrupt state, not a poison message)' );
 			$this->loaded_cache = null;
 		}
 		// Stateless boot frame BEFORE restore: crash still advances counter.
@@ -783,11 +793,12 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * This reader's resume point as the SSE `id:` pair value, `segment:offset`.
+	 * This reader's resume point, `segment:offset`, for the `connected`
+	 * envelope's CURSORS token.
 	 *
 	 * The offset is the next byte to read, which is what a resume seeks to —
-	 * the same semantic `track_cursor` derives from a delivered message, so a
-	 * stream that delivers nothing still hands the client a usable position.
+	 * the same boundary a client derives from a delivered record's ID
+	 * breadcrumb, so a stream that delivers nothing still hands it a position.
 	 *
 	 * @return string `{segment}:{offset}`.
 	 */
