@@ -110,9 +110,10 @@ function checkFile( path ) {
 					`${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)`
 				);
 			}
-			const stray = blockIsDoc && ! blockExempt
-				? proseAfterTags( blockContent )
-				: 0;
+			const stray =
+				blockIsDoc && ! blockExempt
+					? proseAfterTags( blockContent )
+					: 0;
 			if ( stray ) {
 				violations.push(
 					`${ stray }: prose after the tag block (the description goes above the tags)`
