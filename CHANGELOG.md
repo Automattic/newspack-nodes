@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The dead-letter Triage panel shows an `unparseable` record's VALUE alone.**
+  Every other quarantine reason still shows the whole message, unchanged —
+  those records keep a real envelope worth reading. An `unparseable` one does
+  not: `poison_from_line()` cannot unpack the line, so it mints a fresh
+  `TM_BYTESTREAM` wrapper and puts the raw bytes in its VALUE. The wrapper's
+  FROM, TO and KEY are empty by construction and its type describes the
+  wrapper rather than the message, so the VALUE *is* the whole original record
+  and the envelope around it was noise — previously rendered as an escaped
+  string (`\"k\":\"job\"`), which was the least legible part of the panel.
+
 - **The draft interpreter's "replace operations" rationale was wrong.** Its
   header justified `replaceInvocations` / `replaceFrontmatter` /
   `clearSecureLevel` with "TSL appends; an editor replaces… `var` cannot

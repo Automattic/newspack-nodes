@@ -180,9 +180,7 @@ test( 'View dispatches dl_show with the row locator and renders the record', () 
 	} );
 	reply( 'dl_show', showJson() );
 	const detail = getByTestId( 'triage-record' );
-	expect( detail.textContent ).toContain( 'TM_STRUCT' );
-	expect( detail.textContent ).toContain( 'origin-node' );
-	expect( detail.textContent ).toContain( 'poison-key-909' );
+	expect( detail.textContent ).toContain( '"k": "job"' );
 	expect( detail.textContent ).toContain( 'blob-909' );
 } );
 
@@ -446,3 +444,57 @@ function commandReply( payload, kind = TM_RESPONSE ) {
 	m[ VALUE ] = { payload };
 	return m;
 }
+
+const showJsonWithStringValue = ( value ) =>
+	JSON.stringify( {
+		type: 1,
+		type_flags: 'TM_BYTESTREAM',
+		timestamp: 1_786_480_953.325_673,
+		from: '',
+		to: '',
+		id: '13:458292:315',
+		key: '',
+		value,
+		size: 413,
+	} );
+
+const row = () => ( {
+	reason: 'timeout',
+	attempts: 1,
+	first_crash_ts: 1_777_000_000,
+	ts: 1_777_000_123,
+	source: '13:654256:170',
+	locator: '2:40:96',
+} );
+
+test( 'an unparseable record shows its VALUE alone — that IS the whole message', () => {
+	const raw =
+		'16,1786489854.07299,"Bob","Ken","123:456:789","Jerb",{"k":"job"}]';
+	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
+	reply(
+		'dl_list',
+		listJson( { rows: [ { ...row(), reason: 'unparseable' } ] } )
+	);
+	fireEvent.click( view.getByText( 'View' ) );
+	reply( 'dl_show', showJsonWithStringValue( raw ) );
+	expect( view.getByTestId( 'triage-record' ).textContent ).toBe( raw );
+} );
+
+test( 'any other reason shows the whole message, envelope included', () => {
+	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
+	reply( 'dl_list', listJson( { rows: [ { ...row(), reason: 'throw' } ] } ) );
+	fireEvent.click( view.getByText( 'View' ) );
+	reply( 'dl_show', showJson() );
+	const body = view.getByTestId( 'triage-record' ).textContent;
+	expect( body ).toContain( 'origin-node' );
+	expect( body ).toContain( 'poison-key-909' );
+	expect( body ).toContain( 'blob-909' );
+} );
+
+test( 'no envelope header is rendered for either kind', () => {
+	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
+	reply( 'dl_list', listJson() );
+	fireEvent.click( view.getByText( 'View' ) );
+	reply( 'dl_show', showJson() );
+	expect( view.queryByTestId( 'triage-record-meta' ) ).toBeNull();
+} );
