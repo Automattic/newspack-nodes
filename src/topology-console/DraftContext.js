@@ -6,16 +6,18 @@
  * The COMMAND face is the grammar: `run( line )` sends the same line live mode
  * sends, and the only difference is which interpreter receives it — a cwd.
  *
- * The EDITOR face is everything an editor needs that TSL cannot say. It exists
- * because of one rule:
+ * The EDITOR face is everything an editor needs that TSL cannot say, plus the
+ * one thing it can say only a line at a time. One rule covers it:
  *
- *   **TSL appends; an editor replaces.**
+ *   **TSL edits one thing per line; an editor holds the whole map.**
  *
- * `command_node` only ever appends, so "these are now the verbs" needs
- * `replaceVerbs`. `var` sets and TSL cannot unset, so "this is now the
- * frontmatter" needs `replaceFrontmatter`. `secure` sets a level and a bare
- * `secure` means 1, so "undeclared" needs `clearSecure`. `load` replaces a
- * whole document, which is why loading is not a verb either.
+ * `command_node` only ever appends and has no removal spelling, so "these are
+ * now the verbs" needs `replaceVerbs`. `secure` sets a level and a bare
+ * `secure` means 1, while `insecure` declares a third state rather than
+ * removing the line, so "undeclared" needs `clearSecure`. `replaceFrontmatter`
+ * is the weaker case: `var <name> =` DOES delete, so it is expressible as a
+ * diff — it stays because the settings panel holds the whole map already.
+ * `load` replaces a whole document, which is why loading is not a verb either.
  *
  * This module IS that editor face. Nothing outside it touches the interpreter:
  * a consumer that reached past these operations would be inventing a second,
