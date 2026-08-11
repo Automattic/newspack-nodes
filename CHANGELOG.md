@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The debug overlay no longer fetches the vault catalog.** Its only consumer
+  is `CtorField`'s `vault_id` picker, and no JS class declares such an
+  argument — the overlay drives the BROWSER graph, so the picker could never
+  fire. It reached one only via the PHP catalog at `/_http`, where the node it
+  would configure dies with the request. That bought a `vault list` round trip
+  per scope and a node named `vault:list`, which is what collided below. The
+  standalone console keeps it: it edits topologies that persist. The class
+  catalog stays in the overlay — beyond the palette it feeds `invoke`'s
+  `is_interpreter` decision, which is how a verb on a server CI gets addressed
+  at the node rather than its `:config` sibling.
+
 - **Opening the Vault tab with the debug overlay open crashed it.** The
   overlay's `useVaults` mounted a `Request` node named `vault:list`; the Vault
   page mounts its `VaultListView` under the same name. Two components, two
