@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.23.0] - 2026-08-11
+
 ### Fixed
 
 - **A log viewer never showed you what happened while you were away.** Every
