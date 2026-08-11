@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The canvas no longer freezes its zoom on a half-built graph.** The viewport
+  was fitted once, on the first render carrying any node, and the guard that
+  froze it never let go. But the node set arrives over several Router ticks and
+  changes wholesale when the devtools hub switches tabs, so the fit stuck to
+  whichever set happened to be mounted at that instant — the Jobs tab rendered
+  at the Overview tab's fit, tiny and off-centre, and switching again fixed it
+  or didn't, at random. An untouched viewport now keeps tracking autofit. The
+  stored delta is what marks it untouched: `{ 0, 0, 1 }` IS autofit, so a
+  panned or zoomed view still parks exactly where it was left. Tracking keys
+  on MEMBERSHIP alone — dragging a card and opening the REPL transcript both
+  move the autofit box too, and following either yanks the canvas mid-gesture.
+
+- **The Reset Graph chip was stuck on with nothing to reset.** A node counted
+  as user-added unless it was reserved, listed in `Core.reinitNames`, or its
+  class set `isSystemNode` — three registries that all had to agree, with
+  nothing enforcing it. Every `useRouterTick` timer is minted in its own effect
+  rather than a `mountExospine` build, so none of the three knew about it and
+  all four dashboards using one lit the chip permanently. Clicking it could not
+  help: the rebuild recreates the timer. `useGraphReset` now records the names
+  the Shell minted, through the same dispatch tap that already drives
+  `structureDirty`, so "user-added" is a fact rather than an inference.
+  `Core.reinitNames` existed only to feed that guess and is gone, along with
+  its exospine bookkeeping and the `useConsoleGraph` hand-patch that worked
+  around the same bug for RemoteIpc; the `static isSystemNode` flag it also
+  consulted is removed from all nine classes that declared it. One scoping
+  change rides along: the old inference read the process-wide `Core`, so any
+  surface saw any user-added node, while the record is per-hook. Two surfaces
+  sharing a `Core` now each light their own chip for their own edits.
+
+### Changed
+
+- **Router-tick nodes are named after the graph they belong to.** All four used
+  a hyphenated prefix no other node in their graph used
+  (`topology-manager:freshness` beside `topologymanager:view`), and
+  `log-viewer:sources` sat next to a different node called
+  `logviewer:sources`. They are now `topologymanager:freshness`,
+  `aggregator:clock`, `partition:refresh` and `logviewer:refresh`, and the log
+  viewer's source list is `logviewer:list` to match `partition:list`. Both
+  viewers now read alike: `:link`, `:stream`, `:view`, `:read`, `:list`,
+  `:refresh`.
+
 - **The debug overlay no longer fetches the vault catalog.** Its only consumer
   is `CtorField`'s `vault_id` picker, and no JS class declares such an
   argument — the overlay drives the BROWSER graph, so the picker could never
