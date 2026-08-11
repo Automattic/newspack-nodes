@@ -19,9 +19,6 @@ const PUBLISH_THROTTLE_MS = 500;
  * @param {number} [maxEntries] Ring cap (defaults to MAX_ENTRIES; injectable for tests).
  */
 export class SettingsAuditViewNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
-
 	/**
 	 * Sizes the ring and zeroes the throttle state.
 	 *

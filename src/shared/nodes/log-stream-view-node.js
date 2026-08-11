@@ -27,9 +27,6 @@ const MAX_LINES = 100000;
  * default filter work everywhere.
  */
 export class LogStreamViewNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
-
 	/**
 	 * @param {number} [maxLines] Ring cap; defaults to MAX_LINES (100000).
 	 */

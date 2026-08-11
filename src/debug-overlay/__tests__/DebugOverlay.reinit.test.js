@@ -1,11 +1,9 @@
 /**
  * DebugOverlay — Reset Graph is deterministic and sourced from Core.
  *
- * Reset Graph keeps reserved infra names ∪ Core.reinitNames (the nodes the
- * dashboard build registered), reinit()s to restore wiring, and unregisters
- * everything else. There is NO first-open baseline snapshot and NO reinit
- * prop — the handle and the managed-name set both live on Core, stashed by
- * mountExospine.
+ * Reset Graph removes every node, then reinit()s so each build rebuilds off
+ * the canonical wiring. There is NO first-open baseline snapshot and NO reinit
+ * prop — the rebuild handle lives on Core, stashed by mountExospine.
  *
  * The sibling DebugOverlay.test.js drives the REAL GraphView/CanvasFrame through
  * the canvas DOM; here we mock GraphView so a connect gesture and the two reset

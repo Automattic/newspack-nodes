@@ -91,9 +91,6 @@ function defaultPartitionCount() {
  * the first reply lands.
  */
 export class TopologyCatalogNode extends TimerNode {
-	// Hardwired console infrastructure; Reset-Graph must not see it as added.
-	static isSystemNode = true;
-
 	/**
 	 * Publish the localized seed immediately, so a subscriber mounting before
 	 * the first reply still renders a catalog.

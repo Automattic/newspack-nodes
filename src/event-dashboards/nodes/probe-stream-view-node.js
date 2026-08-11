@@ -46,9 +46,6 @@ const ENTRY_TTL_MS = 300000; // 5 min
  * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
 export class ProbeStreamViewNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
-
 	/**
 	 * Sizes the per-key ring and the liveness TTL, and starts with no entries.
 	 *

@@ -15,9 +15,6 @@ import { errorMessage } from '../../shared/errorMessage';
  *    poll's, and that IS the global surface.
  */
 export class TopologyManagerViewNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
-
 	/**
 	 * Seeds the published model in its pre-reply state: no topologies, no
 	 * `user_dir`, no error, and `loading` true until the first `topologies list`

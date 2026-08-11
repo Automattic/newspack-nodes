@@ -194,10 +194,6 @@ describe( 'SettingsAuditViewNode', () => {
 		}
 	} );
 
-	it( 'is a system node (never a user-added node)', () => {
-		expect( SettingsAuditViewNode.isSystemNode ).toBe( true );
-	} );
-
 	it( 'declares a Hidden, target-free node schema', () => {
 		const schema = SettingsAuditViewNode.nodeSchema();
 		expect( schema.category ).toBe( 'Hidden' );
