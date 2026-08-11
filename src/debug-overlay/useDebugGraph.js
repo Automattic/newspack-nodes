@@ -3,8 +3,6 @@ import { Core } from '../runtime/core';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
 import { useGraphSource } from '../topology-console/hooks/useGraphSource';
 import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
-import { FROM, applyComposeFields } from '../runtime/message';
-import { tokenize } from '../runtime/shell-node';
 import names from '../runtime/reserved-node-names.json';
 
 /**
@@ -34,12 +32,16 @@ import names from '../runtime/reserved-node-names.json';
  *   readiness flag, gesture handlers, and the palette-drop staging trio: `pendingDrop` is
  *   the staged `{ shellName, defaultName, argSchema, x, y }` payload (null when no drop is
  *   pending), `commitDrop({ name, args })` makes the node, `cancelDrop()` discards it.
+ * @param {Function} [sendLine]         `( line, fields ) => void` — THE dispatch path,
+ *                                      the same one the console injects (echo, compose
+ *                                      fields, cwd mirror, debug_state persist).
  */
 export function useDebugGraph(
 	_active = true,
 	shell,
 	catalogClasses = [],
-	onPositionChange = null
+	onPositionChange = null,
+	sendLine = null
 ) {
 	// Drop with args stages here; ref-mirror avoids StrictMode double-run.
 	const [ pendingDrop, setPendingDrop ] = useState( null );
@@ -48,36 +50,10 @@ export function useDebugGraph(
 	// Shared metadata‖coreToGraph source; ready = the graph carries a node.
 	const { graph, hasNodes: ready } = useGraphSource( { active: _active } );
 
-	// Echo the line into `_output` then dispatch (reply routes back via FROM).
-	const sendVerb = useCallback(
-		( echoText, path, name, args = '', fields = null ) => {
-			Core.node( names.OUTPUT )?.append( {
-				kind: 'sent',
-				text: echoText,
-				prompt: `/${ shell.path }`,
-			} );
-			// Use shell.dispatch so useGraphReset's tap sees it.
-			const parsed = shell.parse( echoText );
-			if ( Array.isArray( parsed ) ) {
-				if ( ! parsed[ FROM ] ) {
-					parsed[ FROM ] = names.OUTPUT;
-				}
-				// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
-				applyComposeFields( parsed, fields );
-				shell.dispatch( parsed );
-			} else {
-				// Tokenize the raw arg tail at the producer boundary.
-				shell.sendCommand( path, name, tokenize( args || '' ) );
-			}
-		},
-		[ shell ]
-	);
-
-	// Non-invoke verbs echo + route via sendVerb (path '' — overlay local).
+	// ONE dispatch path — a second one let `trace` skip sendLine's bookkeeping.
 	const dispatch = useCallback(
-		( echoLine, name, args, fields ) =>
-			sendVerb( echoLine, '', name, args, fields ),
-		[ sendVerb ]
+		( echoLine, name, args, fields ) => sendLine?.( echoLine, fields ),
+		[ sendLine ]
 	);
 
 	// Append straight to the `_output` Dumper (invoke echo + sse error).
@@ -109,7 +85,7 @@ export function useDebugGraph(
 			const line = trimmed
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
-			sendVerb( `make_node ${ line }`, '', 'make_node', line );
+			dispatch( `make_node ${ line }`, 'make_node', line );
 			// Optimistically inject the dropped node; next poll reconciles.
 			Core.node( names.METADATA )?.optimisticPatch( name, {
 				class: current.shellName,
@@ -124,7 +100,7 @@ export function useDebugGraph(
 			}
 			setPendingDrop( null );
 		},
-		[ sendVerb, onPositionChange ]
+		[ dispatch, onPositionChange ]
 	);
 
 	const cancelDrop = useCallback( () => setPendingDrop( null ), [] );

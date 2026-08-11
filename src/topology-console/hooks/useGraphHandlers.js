@@ -18,8 +18,9 @@ import { canonicalReverseCwd } from '../../runtime/metadata-node';
 /**
  * Shared canvas/Inspector command handlers for the debug overlay and topology
  * console: connect / remove / disconnect / send / trace / invoke / drop. The
- * non-invoke verbs become command lines routed through the injected `dispatch`
- * (overlay: `shell.sendCommand` via `sendVerb`; console: `sendLine`); `invoke`
+ * non-invoke verbs become command lines routed through the injected `dispatch`,
+ * which BOTH consumers point at their `sendLine` — the one path that owns the
+ * echo, compose fields, cwd mirror and debug_state persist; `invoke`
  * builds the raw TM_COMMAND / TM_REQUEST itself because it needs the
  * is_interpreter→target decision, the request/command split, the prefix/replyFrom
  * wrapping, and the SSE-session guard — none of which a command line can express.

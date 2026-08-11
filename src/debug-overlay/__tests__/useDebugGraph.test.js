@@ -18,6 +18,7 @@ import {
 	newMessage,
 } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
+import { useDebugRepl } from '../useDebugRepl';
 import { markLocal } from '../../runtime/command-auth';
 
 // Mount _output Dumper so transcript echoes are observable in tests.
@@ -33,6 +34,22 @@ function sentLines( dumper ) {
 	return dumper._transcript
 		.filter( ( e ) => 'sent' === e.kind )
 		.map( ( e ) => e.text );
+}
+
+// InspectorTab composes these two: useDebugRepl owns the ONE dispatch path,
+// useDebugGraph's handlers hand it command lines. Wiring them the same way
+// here keeps these tests over the real path.
+function withRepl( shell, classes = [], onPositionChange = null ) {
+	return () => {
+		const { sendLine } = useDebugRepl( true, shell );
+		return useDebugGraph(
+			true,
+			shell,
+			classes,
+			onPositionChange,
+			sendLine
+		);
+	};
 }
 
 describe( 'useDebugGraph', () => {
@@ -133,7 +150,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onConnect dispatches connect_node into the local interpreter', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -141,7 +157,7 @@ describe( 'useDebugGraph', () => {
 		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		// connect_node sets src.target (command_interpreter _cmdConnect).
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
@@ -149,14 +165,13 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction handles tail / disconnect / trace (parity with the console)', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Routes 5 non-invoke actions like console; overlay used to drop them.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		// tail = connect_node with no target → defaults to FROM (_output).
 		act( () =>
 			result.current.handlers.onInspectorAction( 'tail', 'a', null )
@@ -186,8 +201,9 @@ describe( 'useDebugGraph', () => {
 		// The ping button must produce TM_PING, not a TM_COMMAND name=ping.
 		const captured = [];
 		const shell = new ShellNode();
-		shell.sink = { fill: ( m ) => captured.push( m ) };
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
+		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'command', null, 'ping' )
 		);
@@ -197,12 +213,11 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onDropNode + commitDrop end-to-end: SchematicCanvas {shellName,x,y} envelope → modal → make_node', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// onDropNode takes one {shellName,x,y} object, not positional args.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
@@ -225,7 +240,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop records the drop position via onPositionChange (snapped to grid)', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Without this the node renders at autoLayout's spot, not the drop.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
@@ -257,12 +271,11 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop is silent on position when no onPositionChange is provided', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Back-compat: no onPositionChange must not crash; make_node fires.
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
@@ -296,9 +309,7 @@ describe( 'useDebugGraph', () => {
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: true } ];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		// Publish my-interpreter so invoke resolves its class.
 		act( () => {
 			metadata.setState( 'metadata', {
@@ -337,9 +348,7 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		// No catalog entry (or is_interpreter:false) ⇒ target :config sibling.
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
@@ -352,13 +361,12 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onRemoveNode dispatches remove_node with the node id', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
 		// Side-effect of remove_node verb: node leaves Core.
 		expect( Core.node( 'a' ) ).toBeNull();
@@ -366,7 +374,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction `dump` dispatches dump_node for the target id', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -374,7 +381,7 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		// Every parsed message routes through shell.dispatch — spy there.
 		const spy = jest.spyOn( shell, 'dispatch' );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'dump', 'a', null )
 		);
@@ -391,8 +398,9 @@ describe( 'useDebugGraph', () => {
 		// send_node parses to a TM_BYTESTREAM to the node, not a TM_COMMAND.
 		const captured = [];
 		const shell = new ShellNode();
-		shell.sink = { fill: ( m ) => captured.push( m ) };
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
+		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'send', 'a', 'hello' )
 		);
@@ -408,8 +416,9 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const captured = [];
 		const shell = new ShellNode();
-		shell.sink = { fill: ( m ) => captured.push( m ) };
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
+		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi', {
 				response: true,
@@ -426,8 +435,9 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const captured = [];
 		const shell = new ShellNode();
-		shell.sink = { fill: ( m ) => captured.push( m ) };
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
+		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => captured.push( m );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'cmd', 'a', 'hi' )
 		);
@@ -438,14 +448,13 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'dispatch' );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		// Non-numeric payload triggers the `level = 1` default branch.
 		act( () =>
 			result.current.handlers.onInspectorAction( 'trace', 'a', undefined )
@@ -472,9 +481,7 @@ describe( 'useDebugGraph', () => {
 				],
 			},
 		];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Partition',
@@ -500,7 +507,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop dispatches make_node with the modal-provided name + args and records the drop position', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -514,8 +520,8 @@ describe( 'useDebugGraph', () => {
 		const positionCalls = [];
 		const onPositionChange = ( id, pos ) =>
 			positionCalls.push( { id, pos } );
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes, onPositionChange )
+		const { result } = renderHook(
+			withRepl( shell, classes, onPositionChange )
 		);
 		act( () =>
 			result.current.handlers.onDropNode( {
@@ -545,7 +551,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop with empty-trimmed args omits the trailing arg portion', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -555,9 +560,7 @@ describe( 'useDebugGraph', () => {
 				arguments: [ { name: 'topic' } ],
 			},
 		];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
@@ -583,9 +586,7 @@ describe( 'useDebugGraph', () => {
 				arguments: [ { name: 'topic', required: true } ],
 			},
 		];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Partition',
@@ -608,9 +609,7 @@ describe( 'useDebugGraph', () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [ { shell_name: 'Tee', arguments: [] } ];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
@@ -642,7 +641,7 @@ describe( 'useDebugGraph', () => {
 		a.sink = { fill: () => {} };
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 
 		act( () =>
 			result.current.handlers.onInspectorAction( 'dump', 'a', null )
@@ -683,9 +682,7 @@ describe( 'useDebugGraph', () => {
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
@@ -708,7 +705,7 @@ describe( 'useDebugGraph', () => {
 		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( sentLines( dumper ) ).toContain( 'connect_node a b' );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
@@ -721,7 +718,7 @@ describe( 'useDebugGraph', () => {
 		const dumper = mountOutput();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () =>
 			result.current.handlers.onDropNode( {
 				shellName: 'Tee',
@@ -738,7 +735,6 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'dispatches via the passed-in Shell.dispatch (not a separate local dispatch)', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Every gesture routes through the passed-in shell.dispatch.
 		const { teardown } = mountExospine();
 		const a = new Node();
@@ -748,7 +744,7 @@ describe( 'useDebugGraph', () => {
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'dispatch' );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( spy ).toHaveBeenCalledTimes( 1 );
 		expect( spy.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
@@ -771,13 +767,11 @@ describe( 'useDebugGraph', () => {
 		const captured = [];
 		const shell = new ShellNode();
 		shell.path = '_http';
-		shell.sink = {
-			fill: ( m ) => captured.push( Array.isArray( m ) ? m.slice() : m ),
-		};
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
-		const { result } = renderHook( () =>
-			useDebugGraph( true, shell, classes )
-		);
+		const { result } = renderHook( withRepl( shell, classes ) );
+		// useDebugRepl binds shell.sink to the `_shell` Tap; capture there.
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) =>
+			captured.push( Array.isArray( m ) ? m.slice() : m );
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
@@ -789,19 +783,20 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'sendVerb backfills FROM=_output, leaving the Shell-set LOCAL intact', () => {
+	it( 'dispatch backfills FROM=_output, leaving the Shell-set LOCAL intact', () => {
 		// A real parse() completes every branch through stampNoreply, so the
 		// message arrives LOCAL-marked and signed; sendVerb only backfills FROM.
 		const { teardown } = mountExospine();
 		const dispatched = [];
 		const shell = {
 			path: '',
+			hasPending: () => false,
 			parse: () => markLocal( newMessage() ),
 			dispatch: ( m ) => dispatched.push( m ),
 			prefix: ( t ) => t,
 			replyFrom: ( n ) => n,
 		};
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( dispatched ).toHaveLength( 1 );
 		expect( dispatched[ 0 ][ FROM ] ).toBe( names.OUTPUT );
@@ -809,23 +804,29 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'falls back to shell.sendCommand when the parsed line is NOT a Message array (a local/error signal)', () => {
-		// A {kind} signal (not a Message array) → sendVerb uses sendCommand.
+	it( 'surfaces a parse error instead of sending the line anyway', () => {
+		// The overlay's old dispatcher fell back to shell.sendCommand on a
+		// non-Message parse, which sent the command and swallowed the error.
+		// One path means console parity: the error reaches the transcript.
 		const { teardown } = mountExospine();
 		const calls = [];
 		const shell = {
 			path: '',
+			hasPending: () => false,
 			parse: () => ( { kind: 'error', text: 'nope' } ),
 			sendCommand: ( path, name, args ) =>
 				calls.push( { path, name, args } ),
 			prefix: ( t ) => t,
 			replyFrom: ( n ) => n,
 		};
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		act( () => result.current.handlers.onRemoveNode( 'a' ) );
-		expect( calls ).toEqual( [
-			{ path: '', name: 'remove_node', args: [ 'a' ] },
-		] );
+		expect( calls ).toEqual( [] );
+		expect(
+			Core.node( names.OUTPUT )._transcript.some(
+				( e ) => 'error' === e.kind && 'nope' === e.text
+			)
+		).toBe( true );
 		teardown();
 	} );
 
@@ -835,7 +836,7 @@ describe( 'useDebugGraph', () => {
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'dispatch' );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const { result } = renderHook( withRepl( shell ) );
 		expect( result.current.pendingDrop ).toBeNull();
 		act( () =>
 			result.current.commitDrop( { name: 'whatever', args: '' } )
@@ -844,22 +845,23 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'GUI dispatch routes through the already-bound shell.sink without re-resolving it', () => {
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
-		// useDebugRepl binds shell.sink at build; here the test pre-binds it.
+	it( 'GUI dispatch rides the `_shell` Tap, so `connect _shell` observes it', () => {
+		// useDebugRepl binds shell.sink to the Tap at build (rule #2): every
+		// command the GUI mints is observable at the same point a typed one is.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
 		const b = new Node();
 		b.name = 'b';
-		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		const shell = new ShellNode();
 		shell.path = '';
-		shell.sink = interpreter; // bound by the build, before render
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const { result } = renderHook( withRepl( shell ) );
+		const tap = Core.node( names.CONSOLE_TAP );
+		const before = tap.counter;
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
-		// sendVerb did not re-resolve/rebind — it used the bound sink as-is.
-		expect( shell.sink ).toBe( interpreter );
+		expect( shell.sink ).toBe( tap );
+		expect( tap.counter ).toBeGreaterThan( before );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
 	} );

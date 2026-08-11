@@ -10,7 +10,7 @@ import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
 import { useGraphGeneration, useNodeState } from '../runtime/react';
-import { FROM, TO, VALUE } from '../runtime/message';
+import { FROM, TO, VALUE, applyComposeFields } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
 import {
@@ -169,7 +169,7 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	}, [] );
 
 	// Run one statement through the Shell; handle the three local-scope shapes.
-	const dispatchStatement = useCallback( ( statement ) => {
+	const dispatchStatement = useCallback( ( statement, fields ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;
 		if ( ! s || ! dumper ) {
@@ -195,6 +195,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
+			// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
+			applyComposeFields( parsed, fields );
 			// shell.sink bound; null sink = no interpreter — surface it.
 			if ( ! s.sink ) {
 				const verb = parsed[ VALUE ]?.name || '?';
@@ -227,14 +229,14 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	}, [] );
 
 	const sendLine = useCallback(
-		( line ) => {
+		( line, fields ) => {
 			const shellNode = shellRef.current;
 			// A held continuation owns the whole next line (no ';' splitting).
 			const stmts = shellNode?.hasPending()
 				? [ line ]
 				: splitStatements( line );
 			for ( const stmt of stmts ) {
-				dispatchStatement( stmt );
+				dispatchStatement( stmt, fields );
 			}
 			// Mirror `cd` shell.path change to _cwd.target and reactive cwd.
 			const s = shellRef.current;

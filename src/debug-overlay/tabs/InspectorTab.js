@@ -166,8 +166,12 @@ export default function InspectorTab( {
 		pendingDrop,
 		commitDrop,
 		cancelDrop,
-	} = useDebugGraph( buildRepl, shell, catalog.classes || [], ( id, p ) =>
-		onPositionChangeRef.current?.( id, p )
+	} = useDebugGraph(
+		buildRepl,
+		shell,
+		catalog.classes || [],
+		( id, p ) => onPositionChangeRef.current?.( id, p ),
+		sendLine
 	);
 	// Gate layout + render on both infra mounted AND the graph carrying nodes.
 	const ready = replReady && graphHasNodes;
