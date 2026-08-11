@@ -324,5 +324,129 @@ else
 	fail=1
 fi
 
+# ---- docblock: prose after the tag block ----
+# A description below `@return` reads as documentation and is nothing of the
+# kind: no renderer shows it, and the next editor moves it or drops it. The
+# separator is what identifies it — a WRAPPED tag description continues on the
+# very next line, so only a blank ` *` followed by non-tag text is this shape.
+cat > "$tmp/class-trailer-node.php" <<'PHP'
+<?php
+class Trailer_Node {
+	/**
+	 * Does the thing.
+	 *
+	 * @param int $n A count.
+	 * @return int The result.
+	 *
+	 * A note the author appended after the tags, where it does not belong.
+	 */
+	public function f( int $n ): int {
+		return $n;
+	}
+}
+PHP
+assert_flags 'prose after the tag block is flagged (php)' \
+	"$tmp/class-trailer-node.php" 'prose after the tag block'
+
+# A tag description that WRAPS is the shape this must not confuse itself with.
+cat > "$tmp/class-wrapped-node.php" <<'PHP'
+<?php
+class Wrapped_Node {
+	/**
+	 * Does the thing.
+	 *
+	 * @param int $n A count whose description is long enough to wrap onto a
+	 *               second line, and then onto a third line after that.
+	 * @return int The result.
+	 */
+	public function f( int $n ): int {
+		return $n;
+	}
+}
+PHP
+assert_clean 'a wrapped tag description is not prose after the tags (php)' \
+	"$tmp/class-wrapped-node.php"
+
+# A WP-CLI command docblock puts `## OPTIONS` / `## EXAMPLES` BELOW the tags by
+# design, and `wp help` renders them. A markdown heading opens that section.
+cat > "$tmp/class-wpcli-node.php" <<'PHP'
+<?php
+class WPCLI_Node {
+	/**
+	 * Manage the thing.
+	 *
+	 * @phpstan-import-type Row from Other
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     # Show the version
+	 *     wp thing version
+	 */
+	public function f(): void {
+	}
+}
+PHP
+assert_clean 'a WP-CLI section below the tags is not stray prose (php)' \
+	"$tmp/class-wpcli-node.php"
+
+# ---- the JS twin must agree, since JSDoc is where this was found ----
+command -v node >/dev/null 2>&1 || { echo "✗ node not found on PATH"; exit 2; }
+
+assert_flags_js() {
+	local label="$1" file="$2" needle="$3" out
+	out="$( node ./lint-comments.mjs "$file" 2>&1 )"
+	if [[ "$out" == *"$needle"* ]]; then
+		echo "✓ $label"
+	else
+		echo "✗ $label: expected '$needle'; got:"
+		echo "$out"
+		fail=1
+	fi
+}
+
+assert_clean_js() {
+	local label="$1" file="$2" out
+	out="$( node ./lint-comments.mjs "$file" 2>&1 )"
+	if [ -z "$out" ]; then
+		echo "✓ $label"
+	else
+		echo "✗ $label: expected no violations; got:"
+		echo "$out"
+		fail=1
+	fi
+}
+
+cat > "$tmp/trailer.js" <<'JS'
+/**
+ * Does the thing.
+ *
+ * @param {number} n A count.
+ * @return {number} The result.
+ *
+ * A note the author appended after the tags, where it does not belong.
+ */
+export function f( n ) {
+	return n;
+}
+JS
+assert_flags_js 'prose after the tag block is flagged (js)' \
+	"$tmp/trailer.js" 'prose after the tag block'
+
+cat > "$tmp/wrapped.js" <<'JS'
+/**
+ * Does the thing.
+ *
+ * @param {Object} [baseline] The result a fresh load starts from. Edges it
+ *                            supplies that we no longer declare become
+ *                            explicit `disconnect_node` lines.
+ * @return {number} The result.
+ */
+export function f( baseline ) {
+	return baseline;
+}
+JS
+assert_clean_js 'a wrapped tag description is not prose after the tags (js)' \
+	"$tmp/wrapped.js"
+
 [ "$fail" -eq 0 ] && echo "all comment-gate tests passed"
 exit "$fail"

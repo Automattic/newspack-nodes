@@ -241,6 +241,44 @@ function stray_comments( string $source ): array {
 /**
  * @return array<int,string> `line: message` violations for one file.
  */
+/**
+ * The line a docblock's description sits BELOW its tags on, or 0.
+ *
+ * No renderer shows that text, so it reads as documentation while documenting
+ * nothing, and the next editor moves it or drops it. The separator identifies
+ * it: a WRAPPED tag description continues on the very next line, so only a
+ * blank `*` line followed by non-tag text is this shape. JS twin:
+ * `proseAfterTags` in lint-comments.mjs.
+ *
+ * @param string $doc   The whole T_DOC_COMMENT text.
+ * @param int    $start Its first line number.
+ * @return int The offending line, or 0 when the block is well-formed.
+ */
+function prose_after_tags( string $doc, int $start ): int {
+	$seen_tag = false;
+	$blank    = false;
+	foreach ( \explode( "\n", $doc ) as $offset => $raw ) {
+		$text = \trim( (string) \preg_replace( '{^\s*/?\*+/?\s?}', '', $raw ) );
+		$text = \trim( (string) \preg_replace( '{\*/$}', '', $text ) );
+		if ( \str_starts_with( $text, '##' ) ) {
+			// WP-CLI parses `## OPTIONS` / `## EXAMPLES` below the tags.
+			return 0;
+		}
+		if ( \str_starts_with( $text, '@' ) ) {
+			$seen_tag = true;
+			$blank    = false;
+		} elseif ( '' === $text ) {
+			$blank = true;
+		} else {
+			if ( $seen_tag && $blank ) {
+				return $start + $offset;
+			}
+			$blank = false;
+		}
+	}
+	return 0;
+}
+
 function check_file( string $file ): array {
 	$source = \file_get_contents( $file );
 	if ( false === $source ) {
@@ -294,6 +332,17 @@ function check_file( string $file ): array {
 			if ( collapse_generics( $text_line ) !== $text_line ) {
 				$violations[] = ( $token[2] + $offset ) . ': space inside a generic type (array<string,mixed>)';
 			}
+		}
+	}
+
+	// Docblocks: a description below the tags documents nothing.
+	foreach ( \token_get_all( $source ) as $token ) {
+		if ( ! \is_array( $token ) || \T_DOC_COMMENT !== $token[0] || is_longform( $token[1] ) ) {
+			continue;
+		}
+		$stray = prose_after_tags( $token[1], $token[2] );
+		if ( 0 !== $stray ) {
+			$violations[] = "{$stray}: prose after the tag block (the description goes above the tags)";
 		}
 	}
 
