@@ -356,7 +356,15 @@ describe( 'InspectorTab interactions', () => {
 		expect( targets ).not.toContain( '_router:config' );
 	} );
 
-	it( 'provides the vault catalog so vault_id args render the picker', () => {
+	/**
+	 * The overlay drives the BROWSER graph, and no JS class declares a
+	 * `vault_id` arg — so `CtorField`'s vault picker can never fire here. The
+	 * catalog only reached a PHP class at `/_http`, whose node dies with the
+	 * request. It cost a node named `vault:list`, which collided with the
+	 * Vault page's view, plus a `vault list` round trip per scope. The
+	 * standalone console still offers it: it edits topologies that persist.
+	 */
+	it( 'offers NO vault catalog — nothing in the browser graph takes one', () => {
 		const InspectorTab = require( '../tabs/InspectorTab' ).default;
 		render(
 			<InspectorTab
@@ -365,9 +373,8 @@ describe( 'InspectorTab interactions', () => {
 				frame={ { h: 600, w: 800 } }
 			/>
 		);
-		expect( mockCaptured.consoleShell.catalogs.vaults ).toEqual( [
-			{ id: 'austin', url: '' },
-		] );
+		expect( mockCaptured.consoleShell.catalogs.vaults ).toEqual( [] );
+		expect( Core.node( 'vaults:catalog' ) ).toBeNull();
 	} );
 
 	it( 'a palette drop records the drop position when the modal is confirmed', () => {
