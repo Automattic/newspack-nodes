@@ -952,13 +952,19 @@ describe( 'distinctive canonical roles', () => {
 
 			expect(
 				pseudoRuleReaches( brand, '::before', {
-					content: '"N"',
-					width: '24px',
-					height: '24px',
-					'border-radius': '6px',
-					background: 'var(--cyan,var(--np-primary))',
+					content: '""',
+					width: '32px',
+					height: '32px',
+					'flex-shrink': '0',
+					'background-size': '32px',
+					'background-repeat': 'no-repeat',
 				} )
 			).toBe( true );
+			// Inlined, not a file URL: these styles are bundled into every
+			// consumer, where a relative URL resolves against the wrong plugin.
+			expect( uiStylesheet.toString() ).toContain(
+				'url("data:image/png;base64,'
+			);
 			expect( matchingDeclarations( separator ).color ).toBe(
 				'--cyan' === separatorToken
 					? 'var(--cyan,var(--np-primary))'
