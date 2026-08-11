@@ -36,6 +36,40 @@ const isDirective = ( text ) =>
 
 const isLongform = ( text ) => text.includes( '@longform' );
 
+/**
+ * Docblock content lines, stripped of their leading `*`, as [line, text].
+ *
+ * The line a description sits BELOW the tags on, or 0. No renderer shows that
+ * text, so it reads as documentation while documenting nothing. The separator
+ * is what identifies it: a wrapped tag description continues on the very next
+ * line, so only a blank `*` followed by non-tag text is this shape.
+ *
+ * @param {Array} content `[ lineNumber, text ]` pairs.
+ * @return {number} The offending line, or 0 when the block is well-formed.
+ */
+const proseAfterTags = ( content ) => {
+	let seenTag = false;
+	let blank = false;
+	for ( const [ n, text ] of content ) {
+		if ( text.startsWith( '##' ) ) {
+			// WP-CLI parses `## OPTIONS` / `## EXAMPLES` below the tags.
+			return 0;
+		}
+		if ( text.startsWith( '@' ) ) {
+			seenTag = true;
+			blank = false;
+		} else if ( '' === text ) {
+			blank = true;
+		} else {
+			if ( seenTag && blank ) {
+				return n;
+			}
+			blank = false;
+		}
+	}
+	return 0;
+};
+
 const visualLength = ( line ) => {
 	let col = 0;
 	for ( const ch of line ) {
@@ -55,6 +89,7 @@ function checkFile( path ) {
 	let blockStart = 0;
 	let blockIsDoc = false;
 	let blockExempt = false;
+	let blockContent = [];
 
 	lines.forEach( ( raw, i ) => {
 		const n = i + 1;
@@ -62,13 +97,26 @@ function checkFile( path ) {
 		const trimmed = line.trim();
 
 		if ( inBlock ) {
-			if ( trimmed.includes( '*/' ) ) {
-				inBlock = false;
-				if ( ! blockIsDoc && ! blockExempt && n > blockStart ) {
-					violations.push(
-						`${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)`
-					);
-				}
+			if ( ! trimmed.includes( '*/' ) ) {
+				blockContent.push( [
+					n,
+					trimmed.replace( /^\*+\s?/, '' ).trim(),
+				] );
+				return;
+			}
+			inBlock = false;
+			if ( ! blockIsDoc && ! blockExempt && n > blockStart ) {
+				violations.push(
+					`${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)`
+				);
+			}
+			const stray = blockIsDoc && ! blockExempt
+				? proseAfterTags( blockContent )
+				: 0;
+			if ( stray ) {
+				violations.push(
+					`${ stray }: prose after the tag block (the description goes above the tags)`
+				);
 			}
 			return;
 		}
@@ -76,6 +124,7 @@ function checkFile( path ) {
 			blockIsDoc = trimmed.startsWith( '/**' );
 			blockExempt = isLongform( trimmed ) || isDirective( trimmed );
 			blockStart = n;
+			blockContent = [];
 			if ( ! trimmed.includes( '*/' ) ) {
 				inBlock = true;
 			} else if (
