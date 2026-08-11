@@ -115,6 +115,9 @@ export class SseInNode extends TimerNode {
 		this._watchdogBase = 0;
 		this._lastForce = 0;
 		this._backoffMs = INITIAL_BACKOFF_MS;
+		// Reopen delay the server advertised as a `retry` event; null = none.
+		this._serverRetryMs = null;
+		this._reopenTimer = null;
 		this._mayRenewNonce = true;
 		// Session identity from `connected`; lease owner remains a string.
 		this.sessionPid = null;
@@ -123,7 +126,15 @@ export class SseInNode extends TimerNode {
 		// Last terminal server control event for this EventSource connection.
 		this.terminalDisconnect = null;
 		this._handleVisibilityChange = () => {
-			if ( 'visible' === document.visibilityState && this._es ) {
+			if ( 'visible' !== document.visibilityState ) {
+				return;
+			}
+			// Background timers throttle to ~1/min; don't wait one out.
+			if ( this._reopenTimer ) {
+				this._restart( 'visibility', true );
+				return;
+			}
+			if ( this._es ) {
 				this._restart( 'visibility', true );
 			}
 		};
@@ -234,6 +245,7 @@ export class SseInNode extends TimerNode {
 		this.sessionPid = pid;
 		this.sessionSlot = slot;
 		this.sessionLeaseOwner = leaseOwner;
+		this._seedPositions( info.CURSORS );
 		// SSE_In_Node's payload: the raw envelope also carries the lease OWNER.
 		this.setState( 'CONNECTED', `PID ${ pid } SLOT ${ slot }` );
 		this._mayRenewNonce = true;
@@ -301,6 +313,40 @@ export class SseInNode extends TimerNode {
 					`ERROR: SseInNode: REST nonce renewal failed - ${ message }`
 				);
 			} );
+	}
+
+	/**
+	 * Own the reopen the browser was about to make for us.
+	 *
+	 * EventSource reconnects by itself on the server's `retry:`
+	 * field, which SSE_Out no longer sends — the interval arrives as a `retry`
+	 * EVENT instead, so the browser would fall back to its own default and the
+	 * two halves of one link would disagree about the cadence. Closing the
+	 * stream is what stops that built-in retry from racing this one. Backoff
+	 * covers the case where the server advertised nothing.
+	 */
+	_scheduleReopen() {
+		if ( this._reopenTimer ) {
+			return;
+		}
+		// Never reached a live server: back off, don't hammer it flat.
+		const delay = this._serverRetryMs ?? this._backoffMs;
+		if ( null === this._serverRetryMs ) {
+			this._backoffMs = Math.min( MAX_BACKOFF_MS, this._backoffMs * 2 );
+		}
+		// close() drops _es, so `stale()` retires this connection's listeners.
+		this.close();
+		// close() unregisters it; a hidden tab still recovers on sight.
+		if ( 'undefined' !== typeof document ) {
+			document.addEventListener(
+				'visibilitychange',
+				this._handleVisibilityChange
+			);
+		}
+		this._reopenTimer = setTimeout( () => {
+			this._reopenTimer = null;
+			this._restart( 'scheduled reopen' );
+		}, delay );
 	}
 
 	/**
@@ -373,6 +419,20 @@ export class SseInNode extends TimerNode {
 					);
 				}
 				this._recoverConnection();
+				return;
+			}
+			// CONNECTING: we own that reopen, on the server's schedule.
+			this._scheduleReopen();
+		} );
+		// The reopen schedule, as data — the protocol `retry:` field is gone.
+		es.addEventListener( 'retry', ( e ) => {
+			if ( stale() ) {
+				return;
+			}
+			this.lastEventTime = Date.now();
+			const ms = Number( unpack( e.data )[ VALUE ] );
+			if ( Number.isFinite( ms ) && ms > 0 ) {
+				this._serverRetryMs = ms;
 			}
 		} );
 		// Idle keepalive `event: heartbeat`: snoop for liveness, don't route.
@@ -500,6 +560,10 @@ export class SseInNode extends TimerNode {
 	 * and any terminal disconnect. Safe when nothing is open.
 	 */
 	close() {
+		if ( this._reopenTimer ) {
+			clearTimeout( this._reopenTimer );
+			this._reopenTimer = null;
+		}
 		if ( 'undefined' !== typeof document ) {
 			document.removeEventListener(
 				'visibilitychange',
@@ -518,6 +582,39 @@ export class SseInNode extends TimerNode {
 		this.sessionSlot = null;
 		this.sessionLeaseOwner = null;
 		this.terminalDisconnect = null;
+	}
+
+	/**
+	 * Seed each subscription's resume point from the `connected` envelope.
+	 *
+	 * A stream that closes having delivered nothing — the normal case for an
+	 * idle close — hands the client no ID breadcrumb to advance from, so
+	 * without this the reopen tail-seeks and drops whatever arrived in the gap.
+	 * A delivered record overwrites the seed, since its breadcrumb is newer.
+	 *
+	 * @param {*} token `dir=segment:offset` pairs, comma-separated.
+	 */
+	_seedPositions( token ) {
+		String( token ?? '' )
+			.split( ',' )
+			.forEach( ( pair ) => {
+				const eq = pair.indexOf( '=' );
+				if ( eq < 1 ) {
+					return;
+				}
+				const colon = pair.indexOf( ':', eq );
+				if ( colon < 0 ) {
+					return;
+				}
+				const offset = Number( pair.slice( colon + 1 ) );
+				if ( ! Number.isFinite( offset ) ) {
+					return;
+				}
+				this.lastPositions[ pair.slice( 0, eq ) ] = {
+					segment: Number( pair.slice( eq + 1, colon ) ),
+					offset,
+				};
+			} );
 	}
 
 	/**

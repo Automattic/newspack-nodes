@@ -89,6 +89,36 @@ afterEach( () => {
 	live.splice( 0 ).forEach( ( sse ) => sse.close() );
 } );
 
+test( "the server's retry event sets the reopen delay we schedule", () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ VALUE ] = '7000';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+
+	// Server-initiated close: the browser would auto-retry; we own it now.
+	first.dispatchError( FakeEventSource.CONNECTING );
+	expect( FakeEventSource.last ).toBe( first );
+
+	jest.advanceTimersByTime( 6999 );
+	expect( FakeEventSource.last ).toBe( first );
+	jest.advanceTimersByTime( 2 );
+	expect( FakeEventSource.last ).not.toBe( first );
+} );
+
+test( 'a server close no longer leaves the browser to reconnect', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	first.dispatchError( FakeEventSource.CONNECTING );
+
+	// Closing it is what stops the browser's own retry from racing ours.
+	expect( first.readyState ).toBe( FakeEventSource.CLOSED );
+} );
+
 test( 'a visible event directly reopens a stream whose hidden event was frozen', () => {
 	Object.defineProperty( document, 'visibilityState', {
 		configurable: true,
@@ -258,13 +288,22 @@ function makeSseIn( { subscribe = [ 'x' ], baseUrl = '/', nonce = 'n' } = {} ) {
 	return { sse, routed };
 }
 
+// Mirrors sse-in-node's module-private INITIAL_BACKOFF_MS.
+const DEFAULT_REOPEN_MS = 2000;
+
 // Owner intentionally exceeds Number.MAX_SAFE_INTEGER: it must stay a string.
 const LEASE_OWNER = '9007199254740993';
 const SECOND_LEASE_OWNER = '9007199254740995';
 
 // SseIn splits the flat `connected` string into pid + the complete slot lease.
-const connectedRaw = ( { pid = 7777, slot = 3, owner = LEASE_OWNER } = {} ) =>
-	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } SUBSCRIPTIONS x INTERVAL 2000`;
+const connectedRaw = ( {
+	pid = 7777,
+	slot = 3,
+	owner = LEASE_OWNER,
+	cursors = '',
+} = {} ) =>
+	`PID ${ pid } SLOT ${ slot } OWNER ${ owner } SUBSCRIPTIONS x INTERVAL 2000` +
+	( cursors ? ` CURSORS ${ cursors }` : '' );
 function connectedFrame( opts ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_INFO;
@@ -272,6 +311,83 @@ function connectedFrame( opts ) {
 	m[ VALUE ] = connectedRaw( opts );
 	return JSON.stringify( m );
 }
+
+test( 'a server we never reached backs off instead of reopening flat', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+
+	// No `retry` event ever arrives — the endpoint is down or 429ing, so the
+	// only schedule we have is our own, and it has to widen.
+	let stream = FakeEventSource.last;
+	stream.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+	expect( FakeEventSource.last ).not.toBe( stream );
+
+	stream = FakeEventSource.last;
+	stream.dispatchError( FakeEventSource.CONNECTING );
+	// Still closed at the first interval: the second wait is twice as long.
+	jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+	expect( FakeEventSource.last ).toBe( stream );
+	jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+	expect( FakeEventSource.last ).not.toBe( stream );
+} );
+
+test( 'an advertised interval is used as-is and never widened', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn();
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ VALUE ] = '5000';
+	first.dispatch( 'retry', JSON.stringify( m ) );
+
+	first.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 5000 );
+	const second = FakeEventSource.last;
+	expect( second ).not.toBe( first );
+
+	// A live server's cadence is its own; two failures must not double it.
+	second.dispatch( 'retry', JSON.stringify( m ) );
+	second.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 5000 );
+	expect( FakeEventSource.last ).not.toBe( second );
+} );
+
+test( 'the connected envelope seeds positions for a zero-message stream', () => {
+	const { sse } = makeSseIn();
+	sse.start();
+	FakeEventSource.last.dispatch(
+		'connected',
+		connectedFrame( { cursors: 'firehose.p0=11647:1306456' } )
+	);
+
+	// Nothing was delivered, so the ID breadcrumb never fired — without the
+	// envelope's seed the reopen would tail-seek and drop the gap.
+	expect( sse.resumePositions() ).toEqual( {
+		'firehose.p0': { segment: 11647, offset: 1306456 },
+	} );
+} );
+
+test( 'a delivered record advances past the envelope seed', () => {
+	const { sse } = makeSseIn();
+	sse.start();
+	const stream = FakeEventSource.last;
+	stream.dispatch(
+		'connected',
+		connectedFrame( { cursors: 'firehose.p0=11647:100' } )
+	);
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'firehose.p0';
+	m[ ID ] = '11647:100:40';
+	m[ VALUE ] = 'a line\n';
+	stream.dispatch( 'msg', JSON.stringify( m ) );
+
+	expect( sse.resumePositions() ).toEqual( {
+		'firehose.p0': { segment: 11647, offset: 140 },
+	} );
+} );
 
 test( 'start opens an EventSource with the right URL', () => {
 	const { sse } = makeSseIn( {
@@ -509,6 +625,7 @@ test( 'a valid in-place EventSource retry handshake clears the prior terminal re
 		.spyOn( Core, 'printLessOften' )
 		.mockImplementation( () => {} );
 	const { sse } = makeSseIn();
+	jest.useFakeTimers();
 	try {
 		sse.start();
 		const stream = FakeEventSource.last;
@@ -519,7 +636,10 @@ test( 'a valid in-place EventSource retry handshake clears the prior terminal re
 		stream.dispatch( 'disconnect', JSON.stringify( terminal ) );
 
 		stream.dispatchError( FakeEventSource.CONNECTING );
-		stream.dispatch(
+		// The reopen is ours now, so the handshake lands on a FRESH stream.
+		jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+		const reopened = FakeEventSource.last;
+		reopened.dispatch(
 			'connected',
 			connectedFrame( {
 				pid: 8888,
@@ -527,11 +647,11 @@ test( 'a valid in-place EventSource retry handshake clears the prior terminal re
 				owner: SECOND_LEASE_OWNER,
 			} )
 		);
-		const reusedStream = FakeEventSource.last === stream;
+		const reusedStream = FakeEventSource.last !== stream;
 		const terminalAfterHandshake = sse.terminalDisconnect;
 		const callsBeforeFinalClose = warn.mock.calls.length;
 
-		stream.dispatchError( FakeEventSource.CLOSED );
+		reopened.dispatchError( FakeEventSource.CLOSED );
 		const finalCloseCalls = warn.mock.calls.slice( callsBeforeFinalClose );
 
 		expect( reusedStream ).toBe( true );
@@ -950,15 +1070,20 @@ test( 'onerror with readyState CLOSED reports DISCONNECTED, warns, and forces a 
 	}
 } );
 
-test( 'onerror with readyState CONNECTING does NOT reconnect (browser is auto-retrying)', () => {
+test( 'onerror with readyState CONNECTING closes and schedules OUR reopen', () => {
 	jest.useFakeTimers();
 	try {
 		const { sse } = makeSseIn();
 		sse.start();
 		const first = FakeEventSource.last;
+		// The browser would reopen this one itself; we take that over so both
+		// halves of the link keep to the server's advertised cadence.
 		first.dispatchError( FakeEventSource.CONNECTING );
+		expect( first.readyState ).toBe( FakeEventSource.CLOSED );
 		expect( FakeEventSource.last ).toBe( first );
-		expect( first.closed ).toBeUndefined();
+
+		jest.advanceTimersByTime( DEFAULT_REOPEN_MS );
+		expect( FakeEventSource.last ).not.toBe( first );
 	} finally {
 		jest.useRealTimers();
 	}

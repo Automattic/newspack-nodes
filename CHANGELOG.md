@@ -7,7 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A log viewer never showed you what happened while you were away.** Every
+  resume rode the `Last-Event-ID` header, and a freshly-constructed
+  `EventSource` never sends one — only the browser's own in-place retry does.
+  So every path that builds a new stream (visibility change, nonce renewal,
+  watchdog force) tail-seeked to the end. Switching to a tab of log viewers
+  fired `visibilitychange` on all of them at once, and each seeked past
+  precisely the window you had come back to read. It looked correct whenever
+  anyone WATCHED a stream, which is why it survived so long.
+
+  Resume no longer touches the header. The `connected` envelope now ends with
+  `CURSORS dir=segment:offset` — where each subscription starts, so a stream
+  that closes having delivered nothing still leaves a resume point — and the
+  client advances its own from each record's `FROM` + `ID` breadcrumb, sending
+  it back as `positions`. Nothing in the path depends on browser behaviour.
+
+### Removed
+
+- **The SSE `id:` line and the whole `Last-Event-ID` chain.** `track_cursor()`,
+  `cursor_token()`, `sanitize_id()`, `send_sse_event()`'s `$id` parameter,
+  `resume_positions()` and `parse_cursor_token()` are gone, along with the
+  header read in `stream()`; `positions` is the only resume input. Neither
+  `SSE_In` ever read an `id:` — the PHP field parser has no `case 'id'` and the
+  JS never touched `e.lastEventId` — so the emission was write-only.
+
 ### Changed
+
+- **The reopen schedule is an `event: retry`, not the protocol `retry:` field.**
+  That field is what arms the browser's own reconnect, and a browser-made
+  reconnect is the only thing that sends `Last-Event-ID`. The client owns the
+  schedule now: the JS takes over an `EventSource` entering CONNECTING, closes
+  it, and reopens on the server's interval; the PHP half already reconnected
+  itself and now reads the interval from the event.
 
 - **A `Tail` resumes on line boundaries.** `end` on a live log lands mid-line as
   often as not, so it syncs forward onto the newline that completes the

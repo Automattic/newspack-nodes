@@ -101,10 +101,15 @@ class SSEOutTest extends TestCase {
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
-		// connected + line-one + line-two = at least 3 events.
-		$this->assertGreaterThanOrEqual( 3, \count( $events ) );
+		// retry + connected + line-one + line-two = at least 4 events.
+		$this->assertGreaterThanOrEqual( 4, \count( $events ) );
 
-		// First event should be the `connected` handshake — now its own event type.
+		// The reopen schedule leads; the client owns reconnect, so it needs the
+		// interval before anything can close on it.
+		$this->assertSame( 'retry', $events[0]['event'] );
+		\array_shift( $events );
+
+		// Then the `connected` handshake — its own event type.
 		$this->assertSame( 'connected', $events[0]['event'] );
 		$first = \json_decode( $events[0]['data'], true );
 		$this->assertSame( 'connected', $first[ Message::KEY ] );
@@ -150,7 +155,9 @@ class SSEOutTest extends TestCase {
 
 		$events = $this->split_sse_events( $out );
 		$this->assertNotEmpty( $events );
-		$first = \json_decode( $events[0]['data'], true );
+		// The reopen schedule leads; `connected` follows it.
+		$this->assertSame( 'retry', $events[0]['event'] );
+		$first = \json_decode( $events[1]['data'], true );
 		$this->assertSame( 'connected', $first[ Message::KEY ] );
 
 		$this->rmdir_recursive( $base );
@@ -293,8 +300,14 @@ class SSEOutTest extends TestCase {
 		$ctrl->run_stream_loop( [ 'firehose.*' ], null, 500 );
 		$out = (string) \ob_get_clean();
 
-		$retry_at = \strpos( $out, "retry: 4500\n" );
+		// An EVENT, not the protocol `retry:` field: that field is what makes the
+		// browser reconnect on its own — and a browser-made reconnect is the only
+		// thing that sends `Last-Event-ID`. The client owns the schedule now.
+		$this->assertStringNotContainsString( 'retry: 4500', $out, 'the protocol field would restore browser-managed reconnect' );
+		$retry_at = \strpos( $out, 'event: retry' );
 		$this->assertNotFalse( $retry_at, 'the stream must advertise its reopen schedule' );
+		$events = $this->split_sse_events( $out );
+		$this->assertSame( '4500', \json_decode( $events[0]['data'], true )[ Message::VALUE ] );
 		$connected_at = \strpos( $out, 'event: connected' );
 		$this->assertNotFalse( $connected_at );
 		$this->assertLessThan( $connected_at, $retry_at, 'the client learns when to come back before anything else' );
@@ -413,9 +426,9 @@ class SSEOutTest extends TestCase {
 		$dir  = "{$base}/logs/firehose.p0";
 		\mkdir( $dir, 0755, true );
 		// Quiet source: the stream closes on its first tick having emitted no
-		// `msg`, and only `msg` carries an `id:`. With none, the browser echoes
-		// no Last-Event-ID, the reopen tail-seeks, and everything written during
-		// the retry gap is lost — every cycle, which is what resume exists for.
+		// `msg`, so the client has no breadcrumb to advance from. Without a
+		// starting cursor in the envelope the reopen tail-seeks and everything
+		// written during the retry gap is lost — every cycle.
 		\file_put_contents( "{$dir}/0.log", "{}\n" );
 		\touch( "{$dir}/0.log", \time() - 300 );
 		$ctrl = new SSE_Out_Node();
@@ -429,10 +442,11 @@ class SSEOutTest extends TestCase {
 
 		$this->assertStringNotContainsString( 'event: msg', $out, 'the fixture must close without delivering a message' );
 		$this->assertMatchesRegularExpression(
-			'/id: firehose\.p0=0:\d+\nevent: connected/',
+			'/CURSORS firehose\.p0=0:\d+/',
 			$out,
 			'a stream that delivers nothing must still hand the client a resume point'
 		);
+		$this->assertStringNotContainsString( 'id: ', $out, 'the id: line is what fed Last-Event-ID' );
 
 		$this->rmdir_recursive( $base );
 	}
@@ -653,34 +667,85 @@ class SSEOutTest extends TestCase {
 		\ob_start();
 		$ctrl->run_stream_loop(
 			$subs,
-			$ctrl->resume_positions( $positions, $last_event_id ),
+			'' === $last_event_id
+				? $positions
+				: \array_merge(
+					\is_array( $positions ) ? $positions : [],
+					self::positions_from_token( $last_event_id ) ?? []
+				),
 			60000
 		);
 		$out = (string) \ob_get_clean();
 		$this->assertFalse( $capped, 'the stream must close on its idle timeout' );
 
-		$values = [];
-		$by_sub = [];
-		$ids    = [];
+		// A client's job now: seed from the `connected` envelope's CURSORS, then
+		// advance each subscription from its own FROM + ID breadcrumb. There is
+		// no `id:` line to echo — that is what fed Last-Event-ID.
+		$values  = [];
+		$by_sub  = [];
+		$ids     = [];
+		$cursors = [];
 		foreach ( $this->split_sse_events( $out ) as $event ) {
-			if ( 'msg' !== $event['event'] ) {
+			$decoded = \json_decode( $event['data'], true );
+			if ( ! \is_array( $decoded ) ) {
 				continue;
 			}
-			$decoded = \json_decode( $event['data'], true );
-			if ( \is_array( $decoded ) && \is_string( $decoded[ Message::VALUE ] ?? null ) ) {
-				$value                                          = \rtrim( $decoded[ Message::VALUE ], "\n" );
-				$values[]                                       = $value;
-				$by_sub[ (string) $decoded[ Message::FROM ] ][] = $value;
-				$ids[]                                          = $event['id'];
+			if ( 'connected' === $event['event'] ) {
+				$cursors = self::seed_cursors( Core::as_string( $decoded[ Message::VALUE ] ?? '' ) );
+				continue;
 			}
+			if ( 'msg' !== $event['event'] || ! \is_string( $decoded[ Message::VALUE ] ?? null ) ) {
+				continue;
+			}
+			$value                                          = \rtrim( $decoded[ Message::VALUE ], "\n" );
+			$values[]                                       = $value;
+			$from                                           = (string) $decoded[ Message::FROM ];
+			$by_sub[ $from ][]                              = $value;
+			if ( \preg_match( '/^(\d+):(\d+):(\d+)$/D', Core::as_string( $decoded[ Message::ID ] ?? '' ), $m ) ) {
+				$cursors[ \explode( '/', $from )[0] ] = $m[1] . ':' . ( (int) $m[2] + (int) $m[3] );
+			}
+			// The token a client holds after THIS record: its resume boundary.
+			$ids[] = self::cursor_token( $cursors );
 		}
 		\ksort( $by_sub );
 		return [
 			'values' => $values,
 			'by_sub' => $by_sub,
 			'ids'    => $ids,
-			'id'     => [] === $ids ? '' : (string) \end( $ids ),
+			'id'     => self::cursor_token( $cursors ),
 		];
+	}
+
+	/**
+	 * The resume token a client assembles from what it has seen.
+	 *
+	 * @param array<string,string> $cursors dir => `segment:offset`.
+	 */
+	private static function cursor_token( array $cursors ): string {
+		$pairs = [];
+		foreach ( $cursors as $dir => $position ) {
+			$pairs[] = "{$dir}={$position}";
+		}
+		return \implode( ',', $pairs );
+	}
+
+	/**
+	 * Pull `CURSORS a=1:2,b=3:4` out of the flat connected envelope.
+	 *
+	 * @return array<string,string> dir => `segment:offset`.
+	 */
+	private static function seed_cursors( string $value ): array {
+		if ( ! \preg_match( '/(?:^| )CURSORS (\S+)/', $value, $m ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( \explode( ',', $m[1] ) as $pair ) {
+			$parts = \explode( '=', $pair, 2 );
+			if ( 2 === \count( $parts ) && '' !== $parts[0] ) {
+				$out[ $parts[0] ] = $parts[1];
+			}
+		}
+		return $out;
 	}
 
 	/** Append TM_BYTESTREAM records to one concrete partition dir. */
@@ -1008,4 +1073,26 @@ class SSEOutTest extends TestCase {
 		$this->assertLessThan( 2000, $ticks, 'self-heal added then removed the partition before the cap' );
 		$this->rmdir_recursive( $base );
 	}
+	/**
+	 * A client's own token → the `positions` shape it sends. The server no
+	 * longer decodes `Last-Event-ID`; `positions` is the only resume input.
+	 *
+	 * @param string $token `dir=segment:offset` pairs, comma-separated.
+	 * @return array<string,array{segment?:int,offset:int}>|null
+	 */
+	private static function positions_from_token( string $token ): ?array {
+		$out = [];
+		foreach ( \explode( ',', $token ) as $pair ) {
+			if ( ! \preg_match( '/^(\S+)=(\d*):(\d+)$/D', $pair, $m ) ) {
+				continue;
+			}
+			$position = [ 'offset' => (int) $m[3] ];
+			if ( '' !== $m[2] ) {
+				$position['segment'] = (int) $m[2];
+			}
+			$out[ $m[1] ] = $position;
+		}
+		return [] === $out ? null : $out;
+	}
+
 }
