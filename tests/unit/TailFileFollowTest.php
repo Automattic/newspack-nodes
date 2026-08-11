@@ -44,22 +44,97 @@ class TailFileFollowTest extends TestCase {
 		return $t;
 	}
 
-	public function test_file_mode_seek_without_a_container_lands_on_the_current_file(): void {
+	/**
+	 * Rule 1: `end` on a live log lands mid-line. That is not a resume point,
+	 * so the partial is DISCARDED, not emitted as though it were a line — the
+	 * tail syncs on the newline that completes it and buffers normally after.
+	 */
+	public function test_file_mode_end_mid_line_syncs_on_the_next_newline(): void {
+		$path = "{$this->tmp}/midline.log";
+		\file_put_contents( $path, "line-one\nline-two\npartial-no" );
+		$t   = $this->follow( $path );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		$t->next_offset( 'end' );
+		$this->pump( $t );
+
+		$this->assertSame( [], $this->values( $cap ), 'mid-line seat must emit nothing' );
+
+		// The line completes and a whole one follows: only the WHOLE one ships.
+		\file_put_contents( $path, "-newline\nline-four\n", \FILE_APPEND );
+		$this->pump( $t );
+
+		$this->assertSame( [ "line-four\n" ], $this->values( $cap ) );
+	}
+
+	/** Rule 1: the advertised id names the generation even when mid-line. */
+	public function test_file_mode_end_advertises_the_generation_even_mid_line(): void {
+		$path = "{$this->tmp}/midline-id.log";
+		\file_put_contents( $path, "line-one\npartial" );
+		$t = $this->follow( $path );
+		$t->next_offset( 'end' );
+
+		$this->assertSame(
+			\fileinode( $path ) . ':' . \filesize( $path ),
+			$t->cursor_position()
+		);
+	}
+
+	/**
+	 * Rule 2: a CORRECT inode with a mid-line offset syncs forward onto the
+	 * next newline — the remainder of the split line is not a line.
+	 */
+	public function test_file_mode_correct_inode_mid_line_offset_syncs_forward(): void {
+		$path = "{$this->tmp}/resume-mid.log";
+		\file_put_contents( $path, "alpha\nbravo\ncharlie\n" );
+		$t   = $this->follow( $path );
+		$cap = new Capture_Sink_Node();
+		$t->sink( $cap );
+		// Offset 8 is inside "bravo\n" (which spans 6..11).
+		$t->next_offset( [ 'segment' => \fileinode( $path ), 'offset' => 8 ] );
+		$this->pump( $t );
+
+		$this->assertSame( [ "charlie\n" ], $this->values( $cap ) );
+	}
+
+	/**
+	 * Rule 3: a wrong, zero or absent generation reads the CURRENT file from
+	 * the beginning — the offset belonged to something else.
+	 */
+	public function test_file_mode_foreign_generation_reads_from_the_beginning(): void {
+		$path = "{$this->tmp}/foreign.log";
+		\file_put_contents( $path, "alpha\nbravo\n" );
+
+		foreach ( [ 999999999, 0, null ] as $inode ) {
+			$t   = $this->follow( $path );
+			$cap = new Capture_Sink_Node();
+			$t->sink( $cap );
+			$t->next_offset( [ 'segment' => $inode, 'offset' => 6 ] );
+			$this->pump( $t );
+
+			$this->assertSame(
+				[ "alpha\n", "bravo\n" ],
+				$this->values( $cap ),
+				'generation ' . \var_export( $inode, true ) . ' must restart'
+			);
+		}
+	}
+
+	public function test_file_mode_seek_without_a_container_reads_from_the_beginning(): void {
 		$path = "{$this->tmp}/resume.log";
 		\file_put_contents( $path, "alpha-7788\nbeta-991122\n" );
 
 		$cap = new Capture_Sink_Node();
 		$t   = $this->follow( $path );
 		$t->sink( $cap );
-		// No 'segment' key: resume this offset in whatever generation is live.
-		// A resume that names inode 0 instead never validates and restarts at 0.
+		// No 'segment' key names no generation, and an offset without one says
+		// nothing about THIS file: read it whole rather than guess.
 		$t->next_offset( [ 'offset' => 11 ] );
 		$this->pump( $t );
 
 		$this->assertSame(
-			[ "beta-991122\n" ],
-			$this->values( $cap ),
-			'the offset must apply to the current file, not replay from the top'
+			[ "alpha-7788\n", "beta-991122\n" ],
+			$this->values( $cap )
 		);
 	}
 
@@ -309,19 +384,25 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( [ "fresh1\n", "fresh2\n" ], $this->values( $cap ), 'an inode mismatch restarts from offset 0 of the current file' );
 	}
 
-	public function test_file_mode_resume_same_inode_bad_line_boundary_restarts_from_zero(): void {
-		// Same inode (copytruncate-in-place regrow) but byte-before-cursor is NOT "\n": restart from 0.
+	/**
+	 * A same-inode cursor whose preceding byte is not a newline is a MID-LINE
+	 * offset, and syncs forward like any other — so a copytruncate that regrows
+	 * past the old cursor skips to the next newline instead of replaying.
+	 */
+	public function test_file_mode_resume_same_inode_mid_line_syncs_forward(): void {
 		$path = "{$this->tmp}/debug.log";
-		$off  = $this->seed_and_checkpoint( $path, "one\ntwo\n" ); // cursor lands at 8, byte[7]="\n".
+		$off  = $this->seed_and_checkpoint( $path, "one\ntwo\n" ); // cursor 8, byte[7]="\n".
 
-		// Truncate + rewrite IN PLACE (same inode): 12 bytes >= cursor 8, but byte[7]='A', not "\n".
+		// Truncate + rewrite IN PLACE (same inode): 12 bytes >= cursor 8, but byte[7]='A'.
 		\file_put_contents( $path, "AAAAAAAAAAA\n" );
 
 		$t2  = $this->follow( $path, $off );
 		$cap = new Capture_Sink_Node();
 		$t2->sink( $cap );
 		$this->pump( $t2 );
-		$this->assertSame( [ "AAAAAAAAAAA\n" ], $this->values( $cap ), 'a same-inode cursor whose preceding byte is not a newline restarts from 0' );
+
+		// Resumes at 8, syncs past the newline at 11, and finds nothing after.
+		$this->assertSame( [], $this->values( $cap ) );
 	}
 
 	public function test_file_mode_offsetlog_frame_stores_the_inode_in_the_container_slot(): void {

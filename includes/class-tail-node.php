@@ -10,8 +10,8 @@
  * reuses the SAME cursor shape as the segmented shape — the inode simply occupies the container
  * slot where a segment id sits, so `<inode>:<offset>:<length>` rides the existing offsetlog
  * frame and DLQ machinery with no new field. A resume validates the persisted cursor against
- * the current file (inode match + size + a line-boundary newline check) and restarts from 0 on
- * any mismatch, at-least-once — never cross-generation hunting. Both shapes share the
+ * the current file: a foreign, zero or absent generation reads it whole, and a mid-line offset in
+ * the RIGHT generation syncs forward onto the next newline — never cross-generation hunting. Both shapes share the
  * Buffered_Pump line-assembly spine (partial-line buffering, per-line emit) and the durable
  * offsetlog cursor; only the byte-source differs. Mode is declared explicitly by the
  * `source_mode` argument (default 'segmented') and fails loud on anything else. Each mode
@@ -57,11 +57,20 @@ class Tail_Node extends Consumer_Node {
 	 * File mode: an explicit array-form next_offset() seek {inode, offset} made BEFORE the file
 	 * opens (build time), awaiting validation on the first poll once the live inode is known. A
 	 * runtime seek (handle already open) validates immediately and leaves this null. null = none.
-	 * A null `inode` means the seek named no generation: apply it to the current one.
+	 * A null `inode` named no generation, so its offset says nothing about this file: read whole.
 	 *
 	 * @var array{inode:int|null,offset:int}|null
 	 */
 	private ?array $file_seek_candidate = null;
+
+	/**
+	 * Set when the seated cursor is NOT a line boundary. The bytes up to the
+	 * next newline are the tail of a line this reader never saw the start of,
+	 * so they are dropped rather than emitted as though they were a line.
+	 *
+	 * @var bool
+	 */
+	private bool $pending_line_sync = false;
 
 	/**
 	 * Store the token array, validate the mode, then arm the reader. File mode skips the
@@ -163,14 +172,14 @@ class Tail_Node extends Consumer_Node {
 			}
 			return;
 		}
-		$this->cursor_offset = $this->file_current_size();
+		$this->next_offset( 'end' );
 	}
 
 	/**
 	 * Reposition the read cursor. File mode has no segments: 'end' is the file size, 'start'/'recent'
 	 * are 0, and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated through
-	 * the same validate_resume_offset() path as a durable frame (inode mismatch / shrink / non-newline
-	 * boundary → 0). A runtime seek (handle already open) validates now; a build-time one defers to the
+	 * the same validate_resume_offset() path as a durable frame (a foreign/absent generation or a
+	 * shrunk file reads from 0; a mid-line offset syncs forward). A runtime seek (handle already open) validates now; a build-time one defers to the
 	 * first poll. Segmented defers to Consumer.
 	 *
 	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
@@ -184,6 +193,7 @@ class Tail_Node extends Consumer_Node {
 		$this->buffer              = '';
 		$this->at_eof              = false;
 		$this->file_seek_candidate = null;
+		$this->pending_line_sync   = false;
 		if ( \is_array( $position ) ) {
 			// Absent stays absent: coerced, a closed handle stores inode 0.
 			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : null;
@@ -195,7 +205,14 @@ class Tail_Node extends Consumer_Node {
 			}
 			return;
 		}
-		$this->cursor_offset = 'end' === $position ? $this->file_current_size() : 0;
+		if ( 'end' !== $position ) {
+			$this->cursor_offset = 0;
+			return;
+		}
+		// EOF on a live log is mid-line as often as not; sync, don't ship it.
+		$this->cursor_offset     = $this->file_current_size();
+		$this->pending_line_sync = $this->cursor_offset > 0
+			&& "\n" !== $this->read_byte_at( $this->cursor_offset - 1 );
 	}
 
 	/**
@@ -252,9 +269,10 @@ class Tail_Node extends Consumer_Node {
 			$size     = false === $stat ? 0 : $stat['size'];
 			if ( $size < $read_pos ) {
 				// Truncated in place (copytruncate): reset to the new start.
-				$this->cursor_offset = 0;
-				$this->buffer        = '';
-				$read_pos            = 0;
+				$this->cursor_offset     = 0;
+				$this->buffer            = '';
+				$read_pos                = 0;
+				$this->pending_line_sync = false;
 			}
 			$available = $size - $read_pos;
 			if ( $available > 0 ) {
@@ -266,6 +284,7 @@ class Tail_Node extends Consumer_Node {
 					$this->buffer     .= $bytes;
 					$this->bytes_read += \strlen( $bytes );
 					$this->at_eof      = false;
+					$this->drop_partial_line();
 					return;
 				}
 			}
@@ -322,11 +341,12 @@ class Tail_Node extends Consumer_Node {
 			$this->at_eof         = true;
 			return;
 		}
-		$this->follow_handle  = $handle;
-		$stat                 = \fstat( $handle );
-		$this->cursor_segment = false === $stat ? 0 : $stat['ino'];
-		$this->cursor_offset  = 0;
-		$this->at_eof         = false;
+		$this->follow_handle     = $handle;
+		$stat                    = \fstat( $handle );
+		$this->cursor_segment    = false === $stat ? 0 : $stat['ino'];
+		$this->cursor_offset     = 0;
+		$this->at_eof            = false;
+		$this->pending_line_sync = false;
 	}
 
 	private function close_follow_handle(): void {
@@ -338,44 +358,74 @@ class Tail_Node extends Consumer_Node {
 
 	/**
 	 * Validate a persisted cursor against the CURRENT file and return the offset to resume at. The
-	 * frame's container slot is the stored inode; a Tail checkpoints only at line boundaries, so a
-	 * legitimate cursor always sits just past a newline. Three cheap checks — a different current
-	 * inode, a shrunk file (size < cursor), or a byte-before-cursor that is not "\n" — each restart
-	 * from 0 of the current file (no cross-generation hunting). Failure mode is at-least-once
-	 * (duplicate lines), never lost lines. cursor == size (the file ends exactly on the last emitted
+	 * frame's container slot is the stored inode. An absent, zero or foreign generation, or a file
+	 * that shrank below the cursor, reads the current file from 0 (no cross-generation hunting). A
+	 * cursor in the RIGHT generation that is not just past a newline is mid-line: resume there and
+	 * sync forward onto the next one. cursor == size (the file ends exactly on the last emitted
 	 * newline) is valid and simply reads nothing until it grows.
 	 */
 	private function validate_resume_offset( ?int $stored_inode, int $cursor ): int {
-		if ( $cursor <= 0 ) {
+		// Offset 0 IS a boundary; a flag left armed would eat the first line.
+		$this->pending_line_sync = false;
+		if ( $cursor <= 0 || 0 === $this->cursor_segment ) {
 			return 0;
 		}
-		if ( 0 === $this->cursor_segment ) {
-			return 0;
-		}
-		// A null inode means the current generation; size + boundary guard it.
-		if ( null !== $stored_inode && $stored_inode !== $this->cursor_segment ) {
+		// Another file's offset means nothing here: read this one whole.
+		if ( null === $stored_inode || 0 === $stored_inode
+			|| $stored_inode !== $this->cursor_segment ) {
 			return 0;
 		}
 		$size = $this->file_current_size();
 		if ( $size < $cursor ) {
-			return null === $stored_inode ? $size : 0;
+			return 0;
 		}
 		if ( "\n" === $this->read_byte_at( $cursor - 1 ) ) {
 			return $cursor;
 		}
-		// @longform A container-less resume is a LIVE TAIL saying "put me back
-		// where I was". Its offset is the raw file size, which is not a line
-		// boundary when the log was sampled mid-write — and answering 0 there
-		// dumps the whole file to a viewer that asked to follow the end.
-		// Falling forward to the current end loses at most a partial line; a
-		// durable resume (named inode) keeps restarting from 0.
-		return null === $stored_inode ? $size : 0;
+		// Right generation, mid-line: resume and sync onto the next newline.
+		$this->pending_line_sync = true;
+		return $cursor;
 	}
 
-	/** Read the single byte at $pos from the open follow handle, or '' when it can't be read. */
+	/**
+	 * Discard the buffered fragment that precedes the first newline, once.
+	 *
+	 * Advancing cursor_offset by what is dropped keeps it the file position of
+	 * buffer[0], which is what the next read_pos and every emitted line offset
+	 * are computed from. Until the newline arrives there is nothing to sync on,
+	 * so the fragment simply keeps buffering and nothing is emitted.
+	 */
+	private function drop_partial_line(): void {
+		if ( ! $this->pending_line_sync ) {
+			return;
+		}
+		$nl = \strpos( $this->buffer, "\n" );
+		if ( false === $nl ) {
+			return;
+		}
+		$this->cursor_offset     += $nl + 1;
+		$this->buffer             = \substr( $this->buffer, $nl + 1 );
+		$this->pending_line_sync  = false;
+	}
+
+	/** Read the single byte at $pos — from the open handle, else the path; '' when unreadable. */
 	private function read_byte_at( int $pos ): string {
 		if ( null === $this->follow_handle ) {
-			return '';
+			// 'end' asks before the handle opens; the path answers.
+			$path = $this->source_file;
+			if ( '' === $path || ! \is_file( $path ) ) {
+				return '';
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$handle = @\fopen( $path, 'rb' );
+			if ( false === $handle ) {
+				return '';
+			}
+			\fseek( $handle, $pos );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+			$byte = \fread( $handle, 1 );
+			\fclose( $handle );
+			return \is_string( $byte ) ? $byte : '';
 		}
 		\fseek( $this->follow_handle, $pos );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
@@ -426,6 +476,8 @@ class Tail_Node extends Consumer_Node {
 	 * the new generation declared caught up, so SSE_Out closes on the first
 	 * tick and never delivers it. Falling back to the raw cursor reads as
 	 * behind, which keeps the stream open long enough to validate and rewind.
+	 * An unnamed generation is one of those stale cases — the poll will read
+	 * the file whole — so only a candidate naming THIS one may be trusted.
 	 */
 	private function lag_cursor_offset(): int {
 		$candidate = $this->file_seek_candidate;
@@ -433,23 +485,12 @@ class Tail_Node extends Consumer_Node {
 			return $this->cursor_offset;
 		}
 		$inode = $candidate['inode'] ?? null;
-		if ( null !== $inode && $inode !== $this->file_current_inode() ) {
+		if ( null === $inode || $inode !== $this->file_current_inode() ) {
 			return $this->cursor_offset;
 		}
 		return $candidate['offset'] > $this->file_current_size()
 			? $this->cursor_offset
 			: $candidate['offset'];
-	}
-
-	/** Inode of the followed path right now, or 0 when it is absent. */
-	private function file_current_inode(): int {
-		$path = $this->source_file;
-		if ( '' === $path || ! \is_file( $path ) ) {
-			return 0;
-		}
-		\clearstatcache( true, $path );
-		$inode = \fileinode( $path );
-		return false === $inode ? 0 : $inode;
 	}
 
 	/** Current byte size of the followed path, or 0 when it is absent. */
@@ -477,30 +518,43 @@ class Tail_Node extends Consumer_Node {
 	}
 
 	/**
-	 * File-mode override: drop the container when the inode is not known yet.
+	 * File-mode override: always name the generation this offset belongs to.
 	 *
-	 * @longform The byte offset is seated eagerly by next_offset(), but the
-	 * inode reaches cursor_segment only when the handle opens on the first
-	 * poll — and a stream that closes idle before polling never gets there.
-	 * Advertising `0:<offset>` resumes against inode 0, which never validates,
-	 * so the reader restarts from the top of the file on every reconnect. An
-	 * empty container means "this offset, in whatever generation is current",
-	 * which is what next_offset() already does for a missing `segment` key.
+	 * @longform The inode reaches cursor_segment only when the handle opens on
+	 * the first poll, and a stream that seeks to EOF and hangs up never polls —
+	 * so ask the path, which next_offset() already stats for its size. An
+	 * unnamed generation is indistinguishable from a foreign one and reads the
+	 * whole file back on every reconnect. The offset is named even when it is
+	 * mid-line; the resume syncs forward from there.
 	 *
-	 * @return string `{inode}:{offset}`, or `:{offset}` while the inode is unknown.
+	 * @return string `{inode}:{offset}`, or `:{offset}` when there is no file.
 	 */
 	public function cursor_position(): string {
 		if ( self::MODE_FILE !== $this->source_mode ) {
 			return parent::cursor_position();
 		}
-		$inode  = $this->cursor_segment;
-		$offset = $this->cursor_offset;
-		// A pending seek IS the position; cursor_offset is 0 until the poll.
+		// A candidate's offset belongs to the generation the CLIENT named.
 		if ( null !== $this->file_seek_candidate ) {
-			$inode  = $this->file_seek_candidate['inode'] ?? 0;
-			$offset = $this->file_seek_candidate['offset'];
+			$inode = $this->file_seek_candidate['inode'] ?? 0;
+			return ( 0 === $inode ? '' : (string) $inode ) . ':'
+				. $this->file_seek_candidate['offset'];
 		}
-		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $offset;
+		// Always named; this offset came from that same path.
+		$inode = 0 !== $this->cursor_segment
+			? $this->cursor_segment
+			: $this->file_current_inode();
+		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $this->cursor_offset;
+	}
+
+	/** Inode of the followed path right now, or 0 when it is absent. */
+	private function file_current_inode(): int {
+		$path = $this->source_file;
+		if ( '' === $path || ! \is_file( $path ) ) {
+			return 0;
+		}
+		\clearstatcache( true, $path );
+		$inode = \fileinode( $path );
+		return false === $inode ? 0 : $inode;
 	}
 
 	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */
