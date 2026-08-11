@@ -346,19 +346,20 @@
 		font-weight: 700;
 		letter-spacing: -0.01em;
 
+		// Newspack mark, inlined: the shared styles are bundled into every
+		// consumer, so a file URL would resolve against the wrong plugin.
 		&::before {
-			content: "N";
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			width: 24px;
-			height: 24px;
-			margin-right: 9px;
-			border-radius: 6px;
-			background: var(--cyan, var(--np-primary));
-			color: var(--on-cyan, var(--np-on-primary));
-			font-size: 16px;
-			font-weight: 800;
+			content: "";
+			// An empty pseudo-element's min-content is 0, so as a flex item it
+			// would compress in a narrow header; the glyph used to floor it.
+			flex-shrink: 0;
+			width: 32px;
+			height: 32px;
+			margin-inline-end: 9px;
+			background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAG9klEQVR42t1ba2xTZRg+YOIFjDXRGPljRSMoYqZ/NJBAQ1DD4mWIipFbFRKBeKkaMISZnLABIipjYDQy5QwSNgYbZRe2oYNycYPBoGOFbejGGR23dYzTzpWusPXze0rOrFvbnZ7LeroveZMlpzvne5/zfu/1OQyj4SKEmAKBAOsSfLbGix6+prGDHDh1leRW8CQzv5GszzkXlE3075w/+OA1/MbRLNguubwZvYGAmd7DwCTSohtOocLd6PQLeQdaiHlNFXl+YSl57B0ruf/VPDLSlEOYKTvCCq7hN/gt/gf/i3u0u7vt9J4W3YKBjfX2BlhnWxefsauBJC+zkfte3hlR0VgF95qx7CDZuLuRNLR4uJ6egFE3it/u6WVPNlwX0rIdZNKS/WTUK+op3l9G03vjGau3OUhx5SXO67ttjKupe7y3+KziJjJuThEZOXWHZooPOCr0WePpM/Hsazd87JAeDTysy3fb+medizz1fuGQKR1JsAfqPPm/Wj1JQ6F8EjU7nv3tDHnotd1xV14U7AV7Ejr9Fk1N/rzTI0xaup/cFcWTx0uwp8l0b1UOF6e68jSWm4+eaSNTP/ldd4qHyggq2CO3r4mjOYRBNeXrW9xk/NwiXSsfKnCQ1fXtNlXMHm8+kZTvA4HumStt5hQ5PJx5vZt9NMHey6qvsLJCHbw9nMqIBFVeFDjtDk93SkwAIM4jrOjR28uJDl/9fFqgabRB8rmvdLh0FefVyBMKDjutkky/k6a3esjw1M8Yi0hds2CKCgAKG+TXw015UTbkNfBR335NY4eAGBrrjR95s4BWankRr6PGn5deST7OOKmKLP6umjxn3hfzPlG0pWc7zGEBQD2PMlNOVQfllv90mhiSd4W9fve0XPLhN8fIles3CY0uiqXd3R0EQU4V+cXmmvBW4Gzz8qi15ZgW3srldi9ht9ZF/V06Bdj9j58oXQABz5QVFqmOZdWXTQM8P7oto2U2M7AZbAoLINwzPTfybzecUAyCEgDQsHlr5WGuPwAcWk5ynUsoAL7unqiWcO/0nWTRuuNxAwCClt3/mihoYCrp4YUCIC6AEMknxFuga6vLa+5rXaPzquSG4QAQOv26BmHN9rOcWO6yaD+rDUAoCHoEgB75O9EAQwv04LUAIPQ4RHOMkGfnlwQLFyny0uJy8mhKgaI9Q+dfS5oMDC15eQwitARgMMcIWbC6ijjbuoj/Vs+gItAosvSHE4r2DJ1X/GI3MRhFIVPTEgCpjnFW6hFy8VqX5lFAzE7X55yzMJjHjVRY9koFYDDHiBAJEK51+DQHADqv4upYBkNJpQ5FKgBSHSPyBOqbiM/fE1Y6PH6y5PtqxfteuaU2g8FkdigBiMUxai2rOIeNwXhaKwAuubyKHKPWQi1AWwBWbrGTrOK/dWsJQQAyNTwCi749TgwzdmGSq0tL+Dqr1sqAraElALgOEKRYQrQQOTetMhgd1HSClswaVtMwKAJwp2uUT/IPXSQ36RuXGyLFUlq1MJhNw6CWiVAoAMHs621rEAQlIRJNFXSW1EiEqFWlMHXNgk2rVLg/AKIlKHWMaK+hDac0Ff58U00SAzaWVsVQOABEn6DEMaLHqNRqx80pEvqmv1qVw5EAUMsxKhueFlv72uFaNEQGA0A8Dj8WnJftGJVIWnbdf2yS6+5uu9otMSkASLEELZoq0PUc7zaGNkUtaBTGAwBRAEIkS1A7Y3zxo3L7gKkQCI6jVGiLywUAloDjoHXGiNb/hPklA8lU9S1uTslgRCkAIgipWbWaOsaJC0qEbeUXDOEGo0awPeWMxjCmwriq/wjLvDb26CJawo1Of9ixGCZQGMNFm0VGG41NmF8cmTFSeLSVGydjOIpBJUDoP8SkD5P1lh6gICA0RxqOIgnCQDbW+z7+7l7h4dfzIxMlqBMyDufxePJy2+B8IVpxscORIDF29l4+p6LFIIklUlFzlR9uFJkP1laZJJOkzjs7k4YTSWraZxUZMVPlQDzGFCaRlQfFb8zMPXbZZMkqRzs3JYGJki8sLBWyyy4o4wxv3dfEyeENxVueeK9QeGPFIeXfEIB1DeJxIoHwJFV+4bpj6n5AAUvAcRiRAGavypsPt0A8nqzjDybGzCywKz7zgy0Qj8G91dsnM9MsMkKd3JWZ32jYc9hp1UPGOHZ2IW+OJclRc4F7C/rp+Dh8NmekhU3ysoOspPRW67Vm+1nzl5tPBYmWozX8cBINm4nmEuGZeSXsg8m79fcZbdnxy6ZZqUeCnEO1P51FG+vpucWW7fsv6P9jahRUrW1eM6hoYGPJ+XgafXu0rtOyHZb6Fo+RSeQFNlbqlloTODmYx4GZQRWzYTwNSc2qtWJQCcrKvPTKlE83nkwaqr39CwE726QiD/uZAAAAAElFTkSuQmCC");
+			background-size: 32px;
+			background-repeat: no-repeat;
+			background-position: center;
 		}
 	}
 }
