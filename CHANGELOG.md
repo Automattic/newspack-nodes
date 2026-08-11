@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.22.1] - 2026-08-10
+
 ### Changed
 
 - **The Newspack skins draw the real Newspack mark.** The brand chip was a
