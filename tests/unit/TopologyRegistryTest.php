@@ -173,6 +173,78 @@ class TopologyRegistryTest extends TestCase {
 		);
 	}
 
+	public function test_frontmatter_deletes_on_a_valueless_assignment(): void {
+		// `var <name> =` DELETES, in both Shells (Shell3.pm:2839). Setting it
+		// to '' instead is not the same thing: an absent key falls back to the
+		// config default, while '' overrides it with nothing. 9 is distinct
+		// from the num_partitions default (1) and from every other seed here.
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions = 9\nvar num_partitions =\nvar stale_timeout = 600\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'stale_timeout' => '600' ],
+			Topology_Analyzer::frontmatter( 'aggregator' )
+		);
+	}
+
+	public function test_frontmatter_keeps_an_explicitly_quoted_empty_value(): void {
+		// A quoted empty string is a VALUE token, so it sets. Only a valueless
+		// `=` deletes — the two must not collapse.
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions = \"\"\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'num_partitions' => '' ],
+			Topology_Analyzer::frontmatter( 'aggregator' )
+		);
+	}
+
+	public function test_frontmatter_skips_a_compound_operator_instead_of_inventing_a_key(): void {
+		// The static reader splits on the FIRST `=` with no operator awareness,
+		// so `//=` used to yield the key `num_partitions //` — a junk entry,
+		// and the real key absent. It still does not APPLY the operator (the
+		// executed Shell does), but it must not invent a name for it.
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions //= 9\nvar stale_timeout = 600\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'stale_timeout' => '600' ],
+			Topology_Analyzer::frontmatter( 'aggregator' )
+		);
+	}
+
+	public function test_synthesize_entry_falls_back_when_a_declared_value_is_not_positive(): void {
+		// `var stale_timeout = ""` casts to 0, and 0 means every worker in the
+		// fleet reads as instantly stale — continuous respawn churn. A
+		// non-positive declaration is not a declaration. Caller defaults here
+		// (5/900) are distinct from both the frontmatter and the class
+		// defaults, so a fallback to the WRONG default still fails.
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions = \"\"\nvar stale_timeout = 0\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[
+				'topology'       => 'aggregator',
+				'num_partitions' => 5,
+				'stale_timeout'  => 900,
+				'on_demand_idle' => 0,
+			],
+			Topology_Registry::synthesize_entry( 'aggregator', 5, 900, 0 )
+		);
+	}
+
 	public function test_frontmatter_returns_empty_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
 		$this->assertSame( [], Topology_Analyzer::frontmatter( 'no-such-topology' ) );

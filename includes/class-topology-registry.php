@@ -68,6 +68,14 @@ class Topology_Registry {
 	 * Build a `[topology, num_partitions, stale_timeout, on_demand_idle]`
 	 * entry from a TSL's frontmatter; null if unknown.
 	 *
+	 * A non-positive `num_partitions` or `stale_timeout` is not a declaration —
+	 * it is a cast artifact, since `(int) ''` is 0 and an explicitly empty
+	 * `var stale_timeout = ""` is a legal frontmatter line. Zero there means
+	 * every worker in the fleet reads as instantly stale, which is continuous
+	 * respawn churn, and zero partitions means no fleet at all. Both fall back
+	 * to the caller's default. `on_demand_idle` is exempt: 0 is its meaningful
+	 * "stay resident" value.
+	 *
 	 * @return array<string,mixed>|null
 	 */
 	public static function synthesize_entry(
@@ -79,12 +87,15 @@ class Topology_Registry {
 		if ( null === self::resolve( $name ) ) {
 			return null;
 		}
-		$front = Topology_Analyzer::frontmatter( $name );
+		$front       = Topology_Analyzer::frontmatter( $name );
+		$partitions  = isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions;
+		$stale       = isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout;
+		$idle        = isset( $front['on_demand_idle'] ) ? (int) $front['on_demand_idle'] : $default_on_demand_idle;
 		return [
 			'topology'       => $name,
-			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
-			'stale_timeout'  => isset( $front['stale_timeout'] )  ? (int) $front['stale_timeout']  : $default_stale_timeout,
-			'on_demand_idle' => isset( $front['on_demand_idle'] ) ? (int) $front['on_demand_idle'] : $default_on_demand_idle
+			'num_partitions' => $partitions > 0 ? $partitions : $default_num_partitions,
+			'stale_timeout'  => $stale > 0 ? $stale : $default_stale_timeout,
+			'on_demand_idle' => \max( 0, $idle ),
 		];
 	}
 

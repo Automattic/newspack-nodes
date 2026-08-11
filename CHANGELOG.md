@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`var <name> =` deletes the key, in the two readers that were setting it to
+  `''`.** The valueless assignment has always deleted in both Shells
+  (`Shell_Node::var_command()`, `shell-node.js`, after Shell3.pm:2839), but
+  neither static reader implemented it: `DraftInterpreterNode::_cmdVar` and
+  `Topology_Analyzer::frontmatter()` both trimmed the tail and assigned it
+  unconditionally.
+
+  The PHP one had teeth. An ABSENT frontmatter key falls back to the config
+  default; an empty one overrides it with nothing. So `var num_partitions =` in
+  a topology file silently overrode the default with `''` rather than standing
+  aside, and `synthesize_entry()` carried that forward into the worker
+  descriptor.
+
+  The discriminator is the UNTRIMMED tail after the first `=`, which is the
+  token count in disguise: `= ""` unquotes to an empty token that still joins a
+  separating space, while a bare `=` joins nothing at all. Trim first and the
+  two collapse — which is why an explicitly quoted empty value still SETS, and
+  is pinned by test on both sides.
+
+  Deliberately NOT ported to the draft: `++`, the compound assignments and the
+  bare-name read-and-autovivify. Those are an interactive REPL's business, not
+  a frontmatter line's, and `DraftInterpreterNode`'s divergence 4 now says so
+  rather than leaving the subset to be inferred.
+
+- **`dumpDocument()` quotes an EMPTY frontmatter value instead of writing it
+  bare.** With the delete form in place, `var x = ` reads as a deletion — so
+  dumping an empty value bare made every save of a loaded document drop the
+  key, converting an explicit empty override back into "fall back to the
+  default". Found in review; the whole suite passed with the hole open, so the
+  round-trip is now pinned by test.
+
+- **`Topology_Analyzer::frontmatter()` skips a compound assignment rather than
+  coining a key for it.** `var num_partitions //= 4` split on the first `=` and
+  yielded the key `num_partitions //`, leaving the real name absent and a junk
+  entry no caller could ask for. The static reader still does not APPLY the
+  operator — the executed topology does — but it no longer invents a name.
+
+- **A non-positive `num_partitions` or `stale_timeout` in frontmatter falls
+  back to the caller's default.** `(int) ''` is 0, and `var stale_timeout = ""`
+  is a legal line, so a zero there made every worker in the fleet read as
+  instantly stale — continuous respawn churn — while zero partitions meant no
+  fleet at all. `on_demand_idle` is exempt, since 0 is its meaningful "stay
+  resident" value.
+
+### Changed
+
+- **The draft interpreter's "replace operations" rationale was wrong.** Its
+  header justified `replaceInvocations` / `replaceFrontmatter` /
+  `clearSecureLevel` with "TSL appends; an editor replaces… `var` cannot
+  unset." `var` can unset. The rule is now "TSL edits one thing per line; an
+  editor holds the whole map", and `replaceFrontmatter` is marked as the weak
+  leg it is: expressible as a diff, kept because the settings panel already
+  holds the map. `command_node` (no removal spelling) and `clearSecureLevel`
+  (`insecure` declares a third state, not the absence of a line) are unchanged
+  and still inexpressible.
+
 ## [2.23.0] - 2026-08-11
 
 ### Fixed

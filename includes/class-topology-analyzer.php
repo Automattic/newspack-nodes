@@ -1166,6 +1166,22 @@ class Topology_Analyzer {
 	/**
 	 * Lightweight `var name = value` extractor for fleet metadata reads (no topology execution).
 	 *
+	 * A valueless `=` DELETES the key, as it does in both Shells
+	 * (Shell3.pm:2839). The discriminator is the UNTRIMMED tail, which is the
+	 * token count in disguise: `= ""` unquotes to an empty token that still
+	 * joins a separating space, while a bare `=` joins nothing at all. Trim
+	 * first and the two collapse, and "set empty" silently eats the delete —
+	 * which matters because an absent key falls back to the config default
+	 * while an empty one overrides it with nothing.
+	 *
+	 * That is the ONLY part of the Shell's `var` grammar mirrored here. The
+	 * compound operators (`//=`, `||=`, `.=`, `+=`), `++`/`--` and the
+	 * bare-name read-and-autovivify are not, matching the draft interpreter's
+	 * divergence 4. A compound assignment therefore leaves its operator head
+	 * on the key, so a non-identifier key is SKIPPED rather than coined: the
+	 * executed topology still applies the operator, and a junk entry here
+	 * would be a name no caller could ever ask for.
+	 *
 	 * @return array<string,string>
 	 */
 	public static function frontmatter( string $name ): array {
@@ -1190,10 +1206,17 @@ class Topology_Analyzer {
 				continue;
 			}
 			$key = \trim( \substr( $assignment, 0, $eq ) );
-			if ( '' === $key ) {
+			// A compound operator leaves its head on the key; skip, never coin.
+			if ( '' === $key || 1 !== \preg_match( '/^[A-Za-z_]\w*$/', $key ) ) {
 				continue;
 			}
-			$out[ $key ] = \trim( \substr( $assignment, $eq + 1 ) );
+			// Untrimmed: a valueless `=` deletes, `= ""` sets empty. See above.
+			$tail = \substr( $assignment, $eq + 1 );
+			if ( '' === $tail ) {
+				unset( $out[ $key ] );
+				continue;
+			}
+			$out[ $key ] = \trim( $tail );
 		}
 		return self::$frontmatter_cache[ $name ] = $out;
 	}

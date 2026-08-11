@@ -482,6 +482,49 @@ describe( 'var follows the canonical frontmatter grammar', () => {
 	it( 'round-trips a spaced assignment unchanged', () => {
 		expect( draft( 'var num = 4' ).dumpDocument() ).toBe( 'var num = 4\n' );
 	} );
+
+	it( 'deletes the key when `=` carries no value', () => {
+		// Shell3.pm:2839, and both live engines: `var <name> =` DELETES.
+		// Asserting ABSENCE, not '': setting the empty string is exactly the
+		// bug, and it round-trips as a `var` line the document never had.
+		const d = draft( 'var retention_grace = 17' );
+
+		d.run( 'var retention_grace =' );
+
+		expect( 'retention_grace' in d.frontmatter ).toBe( false );
+		expect( d.dumpDocument() ).toBe( '' );
+	} );
+
+	it( 'deletes on a bare `=` with trailing whitespace', () => {
+		const d = draft( 'var retention_grace = 17' );
+
+		d.run( 'var retention_grace =   ' );
+
+		expect( 'retention_grace' in d.frontmatter ).toBe( false );
+	} );
+
+	it( 'keeps an explicitly quoted empty value', () => {
+		// `= ""` is a VALUE token, so it sets. Only a valueless `=` deletes.
+		const d = draft( 'var retention_grace = ""' );
+
+		expect( d.frontmatter ).toEqual( { retention_grace: '' } );
+	} );
+
+	it( 'round-trips an empty value as a quoted one, not as a delete', () => {
+		// Dumping `var x = ` would re-read as the valueless DELETE form, so a
+		// save of a loaded document would silently drop the key — turning an
+		// explicit empty override back into "fall back to the default".
+		const d = draft( 'var retention_grace = ""' );
+
+		const dumped = d.dumpDocument();
+
+		// The quote CHARACTER is the serializer's business; what matters is
+		// that the line is not the valueless form and survives a reload.
+		expect( dumped ).not.toMatch( /=\s*$/m );
+		expect( draft( dumped ).frontmatter ).toEqual( {
+			retention_grace: '',
+		} );
+	} );
 } );
 
 describe( 'a redeclaration that fails leaves the node it replaced', () => {

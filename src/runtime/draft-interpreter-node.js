@@ -11,16 +11,24 @@
  *   2. **`move_node` rewrites references.** Live it is `$node->name($new)` and
  *      nothing else, stranding every target that named the old node — faithful
  *      to Tachikoma, and indefensible in an editor.
- *   3. **Replace operations.** TSL APPENDS; an editor REPLACES. `command_node`
- *      only appends, `var` cannot unset, and `secure` cannot undeclare — so
- *      `replaceInvocations`, `replaceFrontmatter` and `clearSecureLevel` are
- *      methods, not verbs. Giving them a spelling would put words in the
- *      grammar no topology can contain. `load` replaces a whole document,
+ *   3. **Replace operations.** TSL edits one thing per line; an editor holds
+ *      the whole map. `command_node` only appends and has no removal
+ *      spelling, and `secure` cannot undeclare — `insecure` declares a THIRD
+ *      state, not the absence of a line — so `replaceInvocations` and
+ *      `clearSecureLevel` are methods, not verbs: a spelling for either would
+ *      put words in the grammar no topology can contain.
+ *      `replaceFrontmatter` is the weaker case, and says so: `var <name> =`
+ *      DOES delete, so replacing a whole map is expressible as a diff. It
+ *      stays because the settings panel already holds the map, not because
+ *      the grammar is missing anything. `load` replaces a whole document,
  *      which is why loading is not a verb either.
  *   4. **Document verbs.** `var`, `include`, `remove_include` and `secure`
  *      belong to a FILE, not a graph, and touch no node table. `secure` is a
  *      one-way ratchet live, because that irreversibility is the security
- *      property; here it edits a line, both directions.
+ *      property; here it edits a line, both directions. `var` implements the
+ *      Shell's assignment and its valueless-`=` delete, and nothing else —
+ *      `++`, the compound assignments and the bare-name read-and-autovivify
+ *      are an interactive REPL's business, not a frontmatter line's.
  *
  * Its nodes live in its own registry, so a draft `firehose` is not the live
  * one — and the interpreter itself lives in a THIRD table, holding the
@@ -470,6 +478,13 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * a required order, and `secure` must come last or it disables `make_node`
 	 * for everything after it.
 	 *
+	 * An EMPTY frontmatter value is quoted, not written bare: `var x = ` is the
+	 * valueless DELETE form, so dumping it bare would make every save of a
+	 * loaded document drop the key — turning an explicit empty override back
+	 * into "fall back to the config default", which is the exact distinction
+	 * the delete form exists to draw. PHP re-joins tokens, so only what would
+	 * end the line, or vanish from it, needs the quotes.
+	 *
 	 * @param {Object} [baseline] The `topologies expand` result a fresh load
 	 *                            starts from. Edges it supplies that we no
 	 *                            longer declare become explicit
@@ -483,11 +498,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	dumpDocument( baseline = null ) {
 		const lines = [];
 		for ( const [ name, value ] of Object.entries( this.frontmatter ) ) {
-			// PHP re-joins tokens; only what would END the line needs quoting.
+			// Only what would END the line, or vanish, needs quoting.
 			const raw = String( value );
-			const safe = /[#;'"`\\]/.test( raw )
-				? serializeDraftArg( raw )
-				: raw;
+			const safe =
+				'' === raw || /[#;'"`\\]/.test( raw )
+					? serializeDraftArg( raw )
+					: raw;
 			lines.push( `var ${ name } = ${ safe }` );
 		}
 		for ( const name of this.includes ) {
@@ -743,10 +759,16 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * `var <name> = <value>` — set one frontmatter entry.
+	 * `var <name> = [<value>]` — set one frontmatter entry, or delete it.
 	 *
 	 * Mirror of PHP `frontmatter()`: the tail is re-joined and split on the
-	 * FIRST `=`, so a value may contain further ones.
+	 * FIRST `=`, so a value may contain further ones. A valueless `=` DELETES,
+	 * as it does in both Shells (Shell3.pm:2839).
+	 *
+	 * The discriminator is the UNTRIMMED tail, which is the token count in
+	 * disguise: `= ""` unquotes to an empty token that still joins a separating
+	 * space, while a bare `=` joins nothing at all. Trim first and the two
+	 * collapse — and "set empty" would silently eat the delete.
 	 *
 	 * @param {string[]} args Token array after the verb, unquoted.
 	 * @return {string} The reply line.
@@ -758,7 +780,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		if ( '' === name ) {
 			throw new Error( 'usage: var <name> = <value>' );
 		}
-		this.frontmatter[ name ] = assignment.slice( eq + 1 ).trim();
+		const tail = assignment.slice( eq + 1 );
+		if ( '' === tail ) {
+			delete this.frontmatter[ name ];
+			return 'ok';
+		}
+		this.frontmatter[ name ] = tail.trim();
 		return 'ok';
 	}
 
