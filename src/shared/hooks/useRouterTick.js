@@ -26,7 +26,7 @@
  * `list_timers` and torn down with the graph, instead of a hand-rolled interval
  * the graph cannot see.
  *
- *   useRouterTick( { name: 'partition-viewer:segments', onTick: refresh,
+ *   useRouterTick( { name: 'partition:refresh', onTick: refresh,
  *                    intervalMs: 10000, enabled: Boolean( selectedLog ) } );
  */
 

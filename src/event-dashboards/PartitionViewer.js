@@ -146,7 +146,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 
 	// Maintain the rail: rotation and size growth while streaming.
 	useRouterTick( {
-		name: 'partition-viewer:segments',
+		name: 'partition:refresh',
 		onTick: refreshSegments,
 		intervalMs: SEGMENTS_REFRESH_MS,
 		enabled: Boolean( selectedLog ),

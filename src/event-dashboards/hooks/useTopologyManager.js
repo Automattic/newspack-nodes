@@ -316,7 +316,7 @@ export function useTopologyManager( opts = {} ) {
 	const [ , bumpFreshness ] = useState( 0 );
 	const bump = useCallback( () => bumpFreshness( ( n ) => n + 1 ), [] );
 	useRouterTick( {
-		name: 'topology-manager:freshness',
+		name: 'topologymanager:freshness',
 		onTick: bump,
 		intervalMs: refreshMs,
 	} );
