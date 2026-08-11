@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A `Tail` resumes on line boundaries.** `end` on a live log lands mid-line as
+  often as not, so it syncs forward onto the newline that completes the
+  fragment rather than shipping the tail of a line it never saw the start of.
+  A cursor in the right generation but mid-line syncs forward the same way; a
+  null, zero or foreign generation reads the current file from the beginning.
+  `cursor_position()` always names the generation — an unnamed one is
+  indistinguishable from a foreign one, and read the whole file back.
+
 ## [2.22.1] - 2026-08-10
 
 ### Changed
