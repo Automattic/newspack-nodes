@@ -7,36 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **The canvas no longer freezes its zoom on a half-built graph.** The viewport
-  was fitted once, on the first render carrying any node, and the guard that
-  froze it never let go. But the node set arrives over several Router ticks and
-  changes wholesale when the devtools hub switches tabs, so the fit stuck to
-  whichever set happened to be mounted at that instant — the Jobs tab rendered
-  at the Overview tab's fit, tiny and off-centre, and switching again fixed it
-  or didn't, at random. An untouched viewport now keeps tracking autofit. The
-  stored delta is what marks it untouched: `{ 0, 0, 1 }` IS autofit, so a
-  panned or zoomed view still parks exactly where it was left. Tracking keys
-  on MEMBERSHIP alone — dragging a card and opening the REPL transcript both
-  move the autofit box too, and following either yanks the canvas mid-gesture.
-
-- **The Reset Graph chip was stuck on with nothing to reset.** A node counted
-  as user-added unless it was reserved, listed in `Core.reinitNames`, or its
-  class set `isSystemNode` — three registries that all had to agree, with
-  nothing enforcing it. Every `useRouterTick` timer is minted in its own effect
-  rather than a `mountExospine` build, so none of the three knew about it and
-  all four dashboards using one lit the chip permanently. Clicking it could not
-  help: the rebuild recreates the timer. `useGraphReset` now records the names
-  the Shell minted, through the same dispatch tap that already drives
-  `structureDirty`, so "user-added" is a fact rather than an inference.
-  `Core.reinitNames` existed only to feed that guess and is gone, along with
-  its exospine bookkeeping and the `useConsoleGraph` hand-patch that worked
-  around the same bug for RemoteIpc; the `static isSystemNode` flag it also
-  consulted is removed from all nine classes that declared it. One scoping
-  change rides along: the old inference read the process-wide `Core`, so any
-  surface saw any user-added node, while the record is per-hook. Two surfaces
-  sharing a `Core` now each light their own chip for their own edits.
+## [2.22.0] - 2026-08-10
 
 ### Changed
 
@@ -75,43 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it now refuses a name held by anything that is not a `Request` node. That
   guard is what makes this class of bug loud in both orders instead of in one.
 
-### Fixed
-
-- **Half the nodes came up traced on a fresh page.** The debug overlay
-  injected its own `sendVerb` dispatcher into `useGraphHandlers` while the
-  console injected `sendLine` — a divergence its own docblock described as the
-  design. Only `sendLine` persists `debug_state`, so the Inspector's global
-  `trace *` toggle flipped every node, wrote nothing, and left the stale level
-  in localStorage. The next load seeded it back onto the interpreter, and
-  `makeNode` stamps the interpreter's level onto every node it creates — hence
-  the nodes built after the REPL seeds (`_completion`, `_metadata`, `_cwd`,
-  `classes:list`) coming up traced while a dashboard's own nodes did not.
-  Typing `trace *` in the REPL persisted correctly, which is what made it look
-  like a flake.
-
-  The overlay now injects `sendLine` too, exactly as the console does, and
-  `sendVerb` is deleted. `sendLine` takes the compose `fields` the second
-  dispatcher existed to carry, so one path serves both. Two behaviours come
-  along for free and are pinned by test: a parse error now surfaces in the
-  transcript instead of being swallowed and re-sent via `shell.sendCommand`,
-  and every GUI-minted command rides the `_shell` Tap, so `connect _shell`
-  observes it like a typed one.
-
-### Added
-
-- **`useVisibilityGatedLink` takes the `commandClient` transport seam**, which
-  five of its six consumers were applying to the module's output themselves.
-  They had drifted into two rules: three guarded on presence and stamped the
-  link alone, while the two whose dashboards also issue out-of-band verbs
-  assigned unconditionally and reached the backbone `_http` by hardcoded name.
-  Each half was right about something. The guard matters because production
-  supplies no client and both RemoteLink and HttpOut default it — an
-  unguarded assign writes `undefined` over the backbone. The backbone write
-  matters because those out-of-band verbs leave before the link connects,
-  which is the only moment `RemoteLink.ensureChildren()` would stamp `_http`
-  itself. The hook now does both, once, and no consumer does either.
-
-### Changed
 
 - **The `commandClient` seam is gone from the substrate.**
   It replaces the whole transport subsystem, so a hook test exercising it
@@ -123,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller passed it. `makeFakeCommandWire` records what was POSTED on
   `wire.batches`, matching the client double's affordance so no suite grows a
   local unpack loop. `makeFakeCommandClient` and its test are deleted.
+  `useVisibilityGatedLink` keeps the backbone `_http` stamp the seam work
+  centralised there: out-of-band verbs (`useGlobBrowse`'s mount-time
+  `list_logs`) leave before the link connects, and that connect is the only
+  moment `RemoteLink.ensureChildren()` would stamp `_http` itself.
 
   Every hook that took it — `useBatchedPoll`, `useVisibilityGatedLink`,
   `useVaultGraph`, `useTopologyManager`, `useAggregatorStatusGraph`, the three
@@ -156,6 +94,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   moved hosts, and the fleet is network-global. Adds `bytes_read_delta` and
   `cache_size` beside `distance` and `msgs_delta`, and drops the default
   interval from 60s to 15s.
+
+### Fixed
+
+- **The canvas no longer freezes its zoom on a half-built graph.** The viewport
+  was fitted once, on the first render carrying any node, and the guard that
+  froze it never let go. But the node set arrives over several Router ticks and
+  changes wholesale when the devtools hub switches tabs, so the fit stuck to
+  whichever set happened to be mounted at that instant — the Jobs tab rendered
+  at the Overview tab's fit, tiny and off-centre, and switching again fixed it
+  or didn't, at random. An untouched viewport now keeps tracking autofit. The
+  stored delta is what marks it untouched: `{ 0, 0, 1 }` IS autofit, so a
+  panned or zoomed view still parks exactly where it was left. Tracking keys
+  on MEMBERSHIP alone — dragging a card and opening the REPL transcript both
+  move the autofit box too, and following either yanks the canvas mid-gesture.
+
+- **The Reset Graph chip was stuck on with nothing to reset.** A node counted
+  as user-added unless it was reserved, listed in `Core.reinitNames`, or its
+  class set `isSystemNode` — three registries that all had to agree, with
+  nothing enforcing it. Every `useRouterTick` timer is minted in its own effect
+  rather than a `mountExospine` build, so none of the three knew about it and
+  all four dashboards using one lit the chip permanently. Clicking it could not
+  help: the rebuild recreates the timer. `useGraphReset` now records the names
+  the Shell minted, through the same dispatch tap that already drives
+  `structureDirty`, so "user-added" is a fact rather than an inference.
+  `Core.reinitNames` existed only to feed that guess and is gone, along with
+  its exospine bookkeeping and the `useConsoleGraph` hand-patch that worked
+  around the same bug for RemoteIpc; the `static isSystemNode` flag it also
+  consulted is removed from all nine classes that declared it. One scoping
+  change rides along: the old inference read the process-wide `Core`, so any
+  surface saw any user-added node, while the record is per-hook. Two surfaces
+  sharing a `Core` now each light their own chip for their own edits.
+
+
+- **Half the nodes came up traced on a fresh page.** The debug overlay
+  injected its own `sendVerb` dispatcher into `useGraphHandlers` while the
+  console injected `sendLine` — a divergence its own docblock described as the
+  design. Only `sendLine` persists `debug_state`, so the Inspector's global
+  `trace *` toggle flipped every node, wrote nothing, and left the stale level
+  in localStorage. The next load seeded it back onto the interpreter, and
+  `makeNode` stamps the interpreter's level onto every node it creates — hence
+  the nodes built after the REPL seeds (`_completion`, `_metadata`, `_cwd`,
+  `classes:list`) coming up traced while a dashboard's own nodes did not.
+  Typing `trace *` in the REPL persisted correctly, which is what made it look
+  like a flake.
+
+  The overlay now injects `sendLine` too, exactly as the console does, and
+  `sendVerb` is deleted. `sendLine` takes the compose `fields` the second
+  dispatcher existed to carry, so one path serves both. Two behaviours come
+  along for free and are pinned by test: a parse error now surfaces in the
+  transcript instead of being swallowed and re-sent via `shell.sendCommand`,
+  and every GUI-minted command rides the `_shell` Tap, so `connect _shell`
+  observes it like a typed one.
 
 ## [2.21.0] - 2026-08-10
 
