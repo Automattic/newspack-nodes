@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The Newspack skins draw the real Newspack mark.** The brand chip was a
+  CSS-drawn blue square with an `N` glyph; it is now the icon itself, inlined
+  as a data URI because these shared styles are bundled into every consumer
+  and a file URL would resolve against the wrong plugin. Scoped, as before, to
+  `.theme-newspack` and `.theme-newspack-brand` only.
+
 ## [2.22.0] - 2026-08-10
 
 ### Changed
