@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Half the nodes came up traced on a fresh page.** The debug overlay
+  injected its own `sendVerb` dispatcher into `useGraphHandlers` while the
+  console injected `sendLine` — a divergence its own docblock described as the
+  design. Only `sendLine` persists `debug_state`, so the Inspector's global
+  `trace *` toggle flipped every node, wrote nothing, and left the stale level
+  in localStorage. The next load seeded it back onto the interpreter, and
+  `makeNode` stamps the interpreter's level onto every node it creates — hence
+  the nodes built after the REPL seeds (`_completion`, `_metadata`, `_cwd`,
+  `classes:list`) coming up traced while a dashboard's own nodes did not.
+  Typing `trace *` in the REPL persisted correctly, which is what made it look
+  like a flake.
+
+  The overlay now injects `sendLine` too, exactly as the console does, and
+  `sendVerb` is deleted. `sendLine` takes the compose `fields` the second
+  dispatcher existed to carry, so one path serves both. Two behaviours come
+  along for free and are pinned by test: a parse error now surfaces in the
+  transcript instead of being swallowed and re-sent via `shell.sendCommand`,
+  and every GUI-minted command rides the `_shell` Tap, so `connect _shell`
+  observes it like a typed one.
+
 ### Added
 
 - **`useVisibilityGatedLink` takes the `commandClient` transport seam**, which

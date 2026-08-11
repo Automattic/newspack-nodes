@@ -4,7 +4,7 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
 import { ShellNode } from '../../runtime/shell-node';
-import { VALUE } from '../../runtime/message';
+import { KEY, VALUE } from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell like DebugOverlay does: empty cwd, sinks into the page CI.
@@ -438,6 +438,63 @@ describe( 'useDebugRepl', () => {
 		rerender( { active: false } );
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
 		expect( result.current.transcript ).toEqual( [] );
+		teardown();
+	} );
+
+	/**
+	 * ONE dispatch path. The overlay used to inject its own `sendVerb`-based
+	 * dispatcher into useGraphHandlers while the console injected `sendLine`,
+	 * so an Inspector action never reached the persist/cwd bookkeeping that
+	 * lives on sendLine. `trace * 0` was the visible cost: the toggle worked,
+	 * nothing was written, and the next load seeded the stale level back onto
+	 * the interpreter, which stamps it onto every node made afterwards.
+	 */
+	it( 'persists debug_state through sendLine, the one dispatch path [87]', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		// 3, not 1: a level no default or toggle would land on by accident.
+		act( () => result.current.sendLine( 'trace * 3' ) );
+
+		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 3 );
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
+		).toBe( '3' );
+		teardown();
+	} );
+
+	it( 'persists an OFF the same as an ON — 0 is a value, not an absence [87]', () => {
+		window.localStorage.setItem(
+			'newspack-nodes:console:debug-state',
+			'1'
+		);
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		expect( Core.node( names.COMMAND_INTERPRETER ).debugState ).toBe( 1 );
+
+		act( () => result.current.sendLine( 'trace * 0' ) );
+
+		expect(
+			window.localStorage.getItem( 'newspack-nodes:console:debug-state' )
+		).toBe( '0' );
+		teardown();
+	} );
+
+	it( 'carries compose fields, so the flags path needs no second dispatcher', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const seen = [];
+		Core.node( names.COMMAND_INTERPRETER ).fill = ( m ) => seen.push( m );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		act( () =>
+			result.current.sendLine( 'send_eof _router', { key: 'k-9182' } )
+		);
+
+		expect( seen ).toHaveLength( 1 );
+		expect( seen[ 0 ][ KEY ] ).toBe( 'k-9182' );
 		teardown();
 	} );
 } );
