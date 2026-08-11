@@ -26,6 +26,25 @@ import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
 
+/**
+ * What the panel shows for a record.
+ *
+ * An `unparseable` record has no envelope of its own: poison_from_line() mints
+ * a fresh TM_BYTESTREAM wrapper and puts the raw line in its VALUE, so the
+ * VALUE *is* the whole original message and the wrapper is noise. Every other
+ * reason preserves the real envelope, which is worth reading in full.
+ *
+ * @param {Object} record Decoded `dl_show` reply.
+ * @param {string} reason Quarantine reason from the dl_list row.
+ * @return {string} Body text.
+ */
+function recordBody( record, reason ) {
+	if ( 'unparseable' === reason ) {
+		return String( record.value );
+	}
+	return JSON.stringify( record, null, 2 );
+}
+
 // Parse the dl_list JSON reply; a malformed/shapeless reply flags parseError.
 function parseList( payload ) {
 	let data = null;
@@ -145,7 +164,7 @@ export default function TriageView( { node, onAction } ) {
 		refreshRef.current();
 	}, [ node.id ] );
 
-	const view = ( locator ) => {
+	const view = ( locator, reason ) => {
 		setConfirmPurge( false );
 		setViewPending( true );
 		runVerb( 'dl_show', locator, { locator }, ( payload, isError ) => {
@@ -170,7 +189,8 @@ export default function TriageView( { node, onAction } ) {
 				} );
 				return;
 			}
-			setShown( { locator, record } );
+			// Decoded here, with the envelope, rather than on every render.
+			setShown( { locator, record, body: recordBody( record, reason ) } );
 		} );
 	};
 
@@ -304,7 +324,10 @@ export default function TriageView( { node, onAction } ) {
 											onClick={ () =>
 												shown?.locator === r.locator
 													? setShown( null )
-													: view( r.locator )
+													: view(
+															r.locator,
+															r.reason
+													  )
 											}
 										>
 											{ shown?.locator === r.locator
@@ -338,11 +361,7 @@ export default function TriageView( { node, onAction } ) {
 												className="triage-view__record"
 												data-testid="triage-record"
 											>
-												{ JSON.stringify(
-													shown.record,
-													null,
-													2
-												) }
+												{ shown.body }
 											</pre>
 										</td>
 									</tr>
