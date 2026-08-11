@@ -3383,4 +3383,116 @@ describe( 'SchematicCanvas — background click with only a hull selected', () =
 
 		expect( onDeselect ).toHaveBeenCalled();
 	} );
+
+	describe( 'autofit tracking across node-set changes', () => {
+		// Same node COUNT, different members — a length-keyed guard can't
+		// tell these apart, which is the bug under test.
+		const THREE = {
+			nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
+			edges: [],
+		};
+		const TWO = { nodes: [ { id: 'a' }, { id: 'b' } ], edges: [] };
+		const WIDE = {
+			a: { x: 0, y: 0 },
+			b: { x: 400, y: 300 },
+			c: { x: 4000, y: 3000 },
+		};
+		const NARROW = { a: { x: 0, y: 0 }, b: { x: 400, y: 300 } };
+		// WIDE with one card nudged: membership identical, extent is not.
+		const WIDE_DRAGGED = { ...WIDE, c: { x: 4400, y: 3300 } };
+
+		const canvasProps = {
+			parsed: THREE,
+			selectedId: null,
+			onSelect: () => {},
+			onDeselect: () => {},
+			hoveredId: null,
+			onHover: () => {},
+			rateRef: { current: new Map() },
+		};
+
+		const ambient = (
+			positionOverrides,
+			viewport,
+			onViewportChange,
+			bottomObstructionPx = 0
+		) => ( {
+			classCatalog: {},
+			positionOverrides,
+			onPositionChange: () => {},
+			viewport,
+			onViewportChange,
+			bottomObstructionPx,
+		} );
+
+		const lastCall = ( fn ) => fn.mock.calls[ fn.mock.calls.length - 1 ];
+		const lastViewport = ( fn ) => lastCall( fn )[ 0 ];
+
+		it( 're-fits an untouched viewport when the node set changes', () => {
+			const onViewportChange = jest.fn();
+			const { rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...canvasProps } />,
+				ambient( WIDE, null, onViewportChange )
+			);
+			// The parent stores BOTH halves, as useCanvasLayout does.
+			const [ frozen, delta ] = lastCall( onViewportChange );
+			expect( delta ).toEqual( { dcx: 0, dcy: 0, zoom: 1 } );
+			rerenderWithCatalog(
+				<SchematicCanvas
+					{ ...canvasProps }
+					parsed={ TWO }
+					viewportDelta={ delta }
+				/>,
+				ambient( NARROW, frozen, onViewportChange )
+			);
+			expect( lastViewport( onViewportChange ).w ).toBeLessThan(
+				frozen.w
+			);
+		} );
+
+		// Only MEMBERSHIP re-fits. Positions and the transcript inset move the
+		// autofit box too, and following either yanks the canvas mid-gesture.
+		it.each( [
+			[ 'a node is dragged', WIDE_DRAGGED, 0 ],
+			[ 'the transcript opens', WIDE, 950 ],
+		] )( 'does not re-fit when %s', ( _label, positions, inset ) => {
+			const onViewportChange = jest.fn();
+			const { rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...canvasProps } />,
+				ambient( WIDE, null, onViewportChange )
+			);
+			const [ frozen, delta ] = lastCall( onViewportChange );
+			// Let the parent store the first fit before anything else moves.
+			rerenderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
+				ambient( WIDE, frozen, onViewportChange )
+			);
+			const before = onViewportChange.mock.calls.length;
+			rerenderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ delta } />,
+				ambient( positions, frozen, onViewportChange, inset )
+			);
+			expect( onViewportChange.mock.calls ).toHaveLength( before );
+		} );
+
+		it( 'leaves a panned viewport alone when the node set changes', () => {
+			const onViewportChange = jest.fn();
+			const panned = { dcx: 350, dcy: -275, zoom: 1.75 };
+			const { rerenderWithCatalog } = renderWithCatalog(
+				<SchematicCanvas { ...canvasProps } viewportDelta={ panned } />,
+				ambient( WIDE, null, onViewportChange )
+			);
+			const restored = lastViewport( onViewportChange );
+			const before = onViewportChange.mock.calls.length;
+			rerenderWithCatalog(
+				<SchematicCanvas
+					{ ...canvasProps }
+					parsed={ TWO }
+					viewportDelta={ panned }
+				/>,
+				ambient( NARROW, restored, onViewportChange )
+			);
+			expect( onViewportChange.mock.calls ).toHaveLength( before );
+		} );
+	} );
 } );

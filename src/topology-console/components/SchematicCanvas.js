@@ -115,6 +115,30 @@ function nodesBBox( nodes ) {
 	};
 }
 
+// Zero-delta slack: a resize re-derive drifts ULPs; a real pan moves decades.
+const AUTOFIT_DELTA_EPSILON = 1e-6;
+
+/**
+ * Whether a stored delta is indistinguishable from `{ 0, 0, 1 }` — the view
+ * was never panned or zoomed, so it still IS autofit.
+ *
+ * @param {{dcx:number,dcy:number,zoom:number}} delta Stored offset from autofit.
+ * @return {boolean} True when the viewport still IS autofit.
+ */
+function isAutofitView( delta ) {
+	return (
+		Math.abs( delta.dcx ) < AUTOFIT_DELTA_EPSILON &&
+		Math.abs( delta.dcy ) < AUTOFIT_DELTA_EPSILON &&
+		Math.abs( delta.zoom - 1 ) < AUTOFIT_DELTA_EPSILON
+	);
+}
+
+function boxesEqual( a, b ) {
+	return (
+		!! a && !! b && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
+	);
+}
+
 function tightViewBoxFor( nodes, canvasSize = null, bottomInsetPx = 0 ) {
 	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
 	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
@@ -579,24 +603,38 @@ export default function SchematicCanvas( {
 			)
 		);
 	}, [ nodes, canvasPx, bottomObstructionPx ] );
-	// Freeze autofit on first render so drags don't re-fit; apply stored delta.
+	// MEMBERSHIP, not array identity: a drag moves the autofit box too.
+	const nodeIdsKey = useMemo(
+		() =>
+			nodes
+				.map( ( n ) => n.id )
+				.sort()
+				.join( '\n' ),
+		[ nodes ]
+	);
+	// Fit once, then TRACK autofit until a pan: the node set arrives late.
 	useEffect( () => {
-		const currentNodes = nodesRef.current;
 		const autofit = autofitBoxRef.current;
-		if ( ! viewport && currentNodes.length > 0 && autofit ) {
+		if ( '' === nodeIdsKey || ! autofit ) {
+			return;
+		}
+		if ( ! viewport ) {
 			setViewport(
 				viewportDelta
 					? viewportFromDelta( viewportDelta, autofit )
 					: autofit
 			);
+			return;
 		}
-	}, [
-		viewport,
-		viewportDelta,
-		nodes.length,
-		setViewport,
-		bottomObstructionPx,
-	] );
+		// No delta alongside a live viewport = the parent drives it directly.
+		if ( ! viewportDelta || ! isAutofitView( viewportDelta ) ) {
+			return;
+		}
+		if ( ! boxesEqual( autofit, viewport ) ) {
+			setViewport( autofit );
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ viewport, viewportDelta, nodeIdsKey, setViewport ] );
 
 	// On resize, rewrite the viewport to track autofit without a full re-fit.
 	const viewportRef = useRef( viewport );
