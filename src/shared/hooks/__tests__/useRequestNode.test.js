@@ -108,3 +108,24 @@ it( 'a disabled consumer does not unmount one an enabled consumer holds', () => 
 	expect( Core.node( 'topologies:get' ) ).not.toBeNull();
 	holder.unmount();
 } );
+
+/**
+ * The overlay's `useVaults` claimed `vault:list`, which is also the Vault
+ * page's `VaultListView`. Whoever mounted second decided the symptom: the
+ * page's `makeNode` threw a name collision, while this hook silently ADOPTED
+ * the view and issued `vault list` through it. Adoption exists so two hooks
+ * can share ONE concern — not so they can share a name across classes.
+ */
+test( 'refuses to adopt a node of some other class', () => {
+	const { teardown } = mountExospine();
+	const interpreter = Core.node( names.COMMAND_INTERPRETER );
+	interpreter.makeNode( 'Tee', 'vault:list' );
+
+	// The throw escapes through render, so React logs it too.
+	const spy = jest.spyOn( console, 'error' ).mockImplementation( () => {} );
+	expect( () =>
+		renderHook( () => useRequestNode( 'vault:list', 'vault' ) )
+	).toThrow( 'useRequestNode: vault:list is already a TeeNode' );
+	spy.mockRestore();
+	teardown();
+} );

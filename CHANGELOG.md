@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Opening the Vault tab with the debug overlay open crashed it.** The
+  overlay's `useVaults` mounted a `Request` node named `vault:list`; the Vault
+  page mounts its `VaultListView` under the same name. Two components, two
+  classes, one name. Whichever mounted second decided the symptom — the page's
+  `makeNode` threw `node name collision: vault:list already registered`, which
+  is why it only happened arriving from another tab and never on a reload,
+  where the page mounts first. The overlay's node is now `vaults:catalog`.
+
+  In the other order it was worse than a crash: `useRequestNode` ADOPTED the
+  view node and sent `vault list` through it, silently. Adoption exists so two
+  hooks can share one concern, not so they can share a name across classes, so
+  it now refuses a name held by anything that is not a `Request` node. That
+  guard is what makes this class of bug loud in both orders instead of in one.
+
+### Fixed
+
 - **Half the nodes came up traced on a fresh page.** The debug overlay
   injected its own `sendVerb` dispatcher into `useGraphHandlers` while the
   console injected `sendLine` — a divergence its own docblock described as the

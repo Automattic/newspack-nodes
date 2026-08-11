@@ -22,7 +22,7 @@ import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
  */
 export function useVaults( { enabled = false } = {} ) {
 	const [ vaults, setVaults ] = useState( [] );
-	const request = useRequestNode( 'vault:list', 'vault' );
+	const request = useRequestNode( 'vaults:catalog', 'vault' );
 
 	const load = useCallback( async () => {
 		const body = ( await request( 'list' ) ) || {};

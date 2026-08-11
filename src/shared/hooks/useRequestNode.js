@@ -43,6 +43,27 @@ function targetFor( ci ) {
 }
 
 /**
+ * Refuse a name already held by something that is not a Request node.
+ *
+ * Adoption below exists so two hooks can share ONE concern. Sharing a NAME
+ * across classes is a different thing and always a bug: whoever mounts second
+ * decides whether it throws a `makeNode` collision or silently sends its verbs
+ * through a stranger. `vault:list` was both the overlay's Request node and the
+ * Vault page's view.
+ *
+ * @param {Object} existing The node already registered under the name.
+ * @param {string} node     The name.
+ * @throws {Error} When the incumbent is not a Request node.
+ */
+function assertRequestNode( existing, node ) {
+	if ( 'RequestNode' !== existing.constructor.name ) {
+		throw new Error(
+			`useRequestNode: ${ node } is already a ${ existing.constructor.name }`
+		);
+	}
+}
+
+/**
  * Mount a `Request` node on the CURRENT backbone if it is not there already.
  *
  * For a concern whose membership is only known at call time — one probe node
@@ -56,6 +77,7 @@ function targetFor( ci ) {
 export function ensureRequestNode( node, ci ) {
 	const existing = Core.node( node );
 	if ( existing ) {
+		assertRequestNode( existing, node );
 		return existing;
 	}
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
@@ -103,6 +125,7 @@ export default function useRequestNode( node, ci, enabled = true ) {
 			const interpreter = Core.node( names.COMMAND_INTERPRETER );
 			const existing = Core.node( node );
 			if ( existing ) {
+				assertRequestNode( existing, node );
 				// A new backbone means a new Tap; re-derive the path.
 				existing.sink = interpreter;
 				existing.target = targetFor( ci );
