@@ -97,7 +97,7 @@ export function useBatchedPoll( opts ) {
 	const isPageVisible = usePageVisibility();
 
 	useEffect( () => {
-		const build = ( { interpreter, router, http } ) => {
+		const build = ( { interpreter, http } ) => {
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 
 			// The fan-out Tee + the router-hitchhike Timer that fans each tick.
@@ -112,10 +112,6 @@ export function useBatchedPoll( opts ) {
 			timerRef.current = timer;
 
 			interpreterRef.current = interpreter;
-
-			// Batch: lock `_http` before tick notify, flush after → ONE POST.
-			router.beforeTimerNotify = () => http.lock();
-			router.afterTimerNotify = () => http.flush();
 
 			// One batched tick = ONE POST, reused to deliver the first load.
 			const fireTick = () => {
@@ -156,8 +152,6 @@ export function useBatchedPoll( opts ) {
 
 			// Undo the non-node hooks before the nodes are removed on teardown.
 			return () => {
-				router.beforeTimerNotify = null;
-				router.afterTimerNotify = null;
 				timerRef.current = null;
 				interpreterRef.current = null;
 				fireTickRef.current = null;

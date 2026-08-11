@@ -103,7 +103,7 @@ describe( 'TopologyCatalogNode', () => {
 
 	// @longform
 	// The headline claim, end to end: with the interpreter's `_http` LOCKED —
-	// which is what the Router's beforeTimerNotify does — a tick's emission is
+	// which is what the Router's http.lock() does — a tick's emission is
 	// buffered rather than posted, so it leaves in the same request as the
 	// console's other polls instead of a standalone fetch of its own.
 	it( 'buffers into a locked `_http` instead of posting on its own', () => {

@@ -308,32 +308,6 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 			.filter( Boolean );
 		expect( verbNames ).toContain( 'dump_metadata' );
 	} );
-
-	// @longform
-	// This replaces a "flushes the SAME node it locked when a steal swaps
-	// active mid-notify" test. Both hooks now close over the one `_http`, so
-	// RemoteIpcNode.active is not read by either and the steal it staged could
-	// no longer make the assertion fail — a tautology. What is worth pinning is
-	// that the bracket actually holds the buffer across notifyTimer.
-	it( 'holds `_http` locked across notifyTimer and releases it after', () => {
-		renderGraph( {
-			topology: 'demo',
-			partition: 0,
-			workers: [ 'demo.p0' ],
-		} );
-		const router = Core.node( names.ROUTER );
-		const http = Core.node( names.HTTP );
-
-		expect( http.locked ).toBe( false );
-		act( () => {
-			router.beforeTimerNotify();
-		} );
-		expect( http.locked ).toBe( true );
-		act( () => {
-			router.afterTimerNotify();
-		} );
-		expect( http.locked ).toBe( false );
-	} );
 } );
 
 describe( 'useConsoleGraph — connection state', () => {

@@ -182,8 +182,6 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				uptime.sink = interpreter;
 				metadata.target = reserved.CWD;
 				uptime.target = reserved.CWD;
-				router.beforeTimerNotify = () => Core.node( '_http' )?.lock();
-				router.afterTimerNotify = () => Core.node( '_http' )?.flush();
 				// Metadata/Uptime hitchhike _router TIMER: fire each tick.
 				metadata.setTimer();
 				uptime.setTimer();
