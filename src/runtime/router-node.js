@@ -11,6 +11,7 @@ import {
 	TM_ERROR,
 	newMessage,
 } from './message';
+import names from './reserved-node-names.json';
 
 /** The shared heartbeat every hitchhiking poller rides, in milliseconds. */
 export const ROUTER_TICK_MS = 1000;
@@ -41,9 +42,6 @@ export class RouterNode extends TimerNode {
 	 */
 	constructor() {
 		super();
-		// Optional hooks to bracket each tick's notify (HttpOut lock/flush).
-		this.beforeTimerNotify = null;
-		this.afterTimerNotify = null;
 		// Router self-starts its own 1s slot; isRouter skips the hitchhike.
 		this.isRouter = true;
 		this.setTimer( ROUTER_TICK_MS );
@@ -118,22 +116,20 @@ export class RouterNode extends TimerNode {
 	}
 
 	/**
-	 * The Router tick (Router::fire_cb): run `notifyTimer()` bracketed by the
-	 * optional `beforeTimerNotify` / `afterTimerNotify` hooks, which HttpOut
-	 * uses to batch a whole tick's commands into one POST. Idle profile entries
-	 * are trimmed here while profiling is on.
+	 * The Router tick (Router::fire_cb): run `notifyTimer()` bracketed by
+	 * `_http`'s lock/flush, which HttpOut uses to batch a whole tick's
+	 * commands into one POST. There is one `_http` per graph, so the bracket
+	 * belongs here rather than with whichever consumer mounted last. Idle profile entries are trimmed
+	 * here while profiling is on.
 	 */
 	fireCb() {
 		this.fireCount++;
-		if ( this.beforeTimerNotify ) {
-			this.beforeTimerNotify();
-		}
+		const http = Core.node( names.HTTP );
+		http?.lock();
 		try {
 			this.notifyTimer();
 		} finally {
-			if ( this.afterTimerNotify ) {
-				this.afterTimerNotify();
-			}
+			http?.flush();
 			if ( null !== RouterNode._profiles ) {
 				this.trimProfiles();
 			}

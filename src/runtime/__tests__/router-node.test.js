@@ -177,45 +177,6 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		}
 	} );
 
-	test( 'beforeTimerNotify / afterTimerNotify bracket the notify_timer dispatch', () => {
-		jest.useFakeTimers();
-		try {
-			const r = new RouterNode();
-			r.name = '_router';
-			const log = [];
-			r.beforeTimerNotify = () => log.push( 'before' );
-			r.afterTimerNotify = () => log.push( 'after' );
-			const t = new TimerNode();
-			t.name = 'sub';
-			t.fireCb = () => log.push( 'fire' );
-			r.register( 'TIMER', 'sub' );
-			jest.advanceTimersByTime( 1000 );
-			expect( log ).toEqual( [ 'before', 'fire', 'after' ] );
-			r.stopTimer();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'afterTimerNotify runs even when notify_timer throws', () => {
-		jest.useFakeTimers();
-		try {
-			const r = new RouterNode();
-			r.name = '_router';
-			const log = [];
-			r.beforeTimerNotify = () => log.push( 'before' );
-			r.afterTimerNotify = () => log.push( 'after' );
-			r.notifyTimer = () => {
-				throw new Error( 'boom' );
-			};
-			expect( () => jest.advanceTimersByTime( 1000 ) ).toThrow( /boom/ );
-			expect( log ).toEqual( [ 'before', 'after' ] );
-			r.stopTimer();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
 	test( 'stopTimer halts further ticks', () => {
 		jest.useFakeTimers();
 		try {

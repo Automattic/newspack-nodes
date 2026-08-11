@@ -537,15 +537,13 @@ describe( 'useBatchedPoll — intervalMs (hitchhike + throttle cadence)', () => 
 } );
 
 describe( 'useBatchedPoll — teardown', () => {
-	test( 'on unmount it clears the router lock/flush hooks and removes the owned nodes', async () => {
+	test( 'on unmount it removes the owned nodes', async () => {
 		const { unmount } = renderPoll( {} );
 		await act( async () => {} );
-		const router = Core.node( ROUTER );
-		expect( router.beforeTimerNotify ).toBeTruthy();
 
 		unmount();
 
-		// The backbone is torn down (owner) and the lock/flush hooks cleared.
+		// The backbone is torn down by its owner.
 		expect( Core.node( INTERPRETER ) ).toBeNull();
 		expect( Core.node( 'insights:tee' ) ).toBeNull();
 		expect( Core.node( HTTP ) ).toBeNull();

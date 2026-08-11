@@ -114,9 +114,7 @@ export function useConsoleGraph( {
 		// The shared rule-#2 backbone: _command_interpreter → _router.
 		const {
 			interpreter,
-			router,
 			shell: shellTap,
-			http,
 			teardown: teardownSpine,
 		} = mountExospine();
 		// Interpreter ships the PHP verb set as built-ins (no overrides).
@@ -189,13 +187,6 @@ export function useConsoleGraph( {
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
 		dmesg.target = names.CWD;
-		// @longform
-		// Absolute: ONE `_http` per graph, so the tick's commands batch into a
-		// single POST whatever TO each carries. The old form reached through
-		// RemoteIpcNode.active, which could change between before and after —
-		// hence a steal guard for a steal that cannot happen.
-		router.beforeTimerNotify = () => http.lock();
-		router.afterTimerNotify = () => http.flush();
 		// Poll nodes hitchhike the _router TIMER (fireCb runs each tick).
 		metadata.setTimer();
 		uptime.setTimer();
