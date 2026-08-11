@@ -293,53 +293,6 @@ describe( 'mountExospine — Core.rebuildable capability flag', () => {
 
 		expect( Core.rebuildable ).toBe( false );
 	} );
-
-	test( 'stashes the build-registered names on Core.reinitNames', () => {
-		mountExospine( ( { interpreter } ) => {
-			const view = new Node();
-			view.name = 'view';
-			view.sink = interpreter;
-		} );
-
-		expect( Core.reinitNames ).toEqual( [ 'view' ] );
-	} );
-
-	test( 'clears Core.reinitNames on teardown', () => {
-		const { teardown } = mountExospine( ( { interpreter } ) => {
-			const view = new Node();
-			view.name = 'view';
-			view.sink = interpreter;
-		} );
-
-		teardown();
-
-		expect( Core.reinitNames ).toBeNull();
-	} );
-
-	test( 'accumulates names across co-mounted builds; a teardown drops only its own', () => {
-		// reinitNames must recognize BOTH co-mounted builds, not just one.
-		const a = mountExospine( ( { interpreter } ) => {
-			const n = new Node();
-			n.name = 'a:view';
-			n.sink = interpreter;
-		} );
-		const b = mountExospine( ( { interpreter } ) => {
-			const n = new Node();
-			n.name = 'b:view';
-			n.sink = interpreter;
-		} );
-
-		expect( [ ...Core.reinitNames ].sort() ).toEqual( [
-			'a:view',
-			'b:view',
-		] );
-
-		// Tearing down the reuser drops only its names; the owner's survive.
-		b.teardown();
-		expect( Core.reinitNames ).toEqual( [ 'a:view' ] );
-
-		a.teardown();
-	} );
 } );
 
 test( 'a second build-mount reuses the backbone without tearing it down (no orphaned interpreter)', () => {

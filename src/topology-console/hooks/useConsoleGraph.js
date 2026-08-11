@@ -168,12 +168,6 @@ export function useConsoleGraph( {
 			remotes.push( remote );
 		}
 
-		// Bare mount: list RemoteIpc in reinitNames (else Reset sticks).
-		Core.reinitNames = [
-			...( Core.reinitNames || [] ),
-			...remotes.map( ( r ) => r.name ),
-		];
-
 		// `_cwd`.target IS the cwd; polls to `_cwd`, Router stamps TO.
 		const cwdNode = new Node();
 		cwdNode.name = names.CWD;

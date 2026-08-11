@@ -78,9 +78,6 @@ function replyError( text ) {
  * its turn in the queue rather than overlapping.
  */
 export class RequestNode extends Node {
-	// Hook-mounted infrastructure, not an operator's canvas drop.
-	static isSystemNode = true;
-
 	/**
 	 * Start idle: no outstanding continuation, no armed deadline, empty queue.
 	 */

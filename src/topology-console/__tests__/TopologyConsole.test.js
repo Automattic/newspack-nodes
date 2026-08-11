@@ -2064,7 +2064,10 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Chip shows only with a user-added node; inject via metadata.
+		// The chip needs a node the SHELL made; dispatch, then surface it.
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Echo n1' );
+		} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -2085,6 +2088,9 @@ describe( 'TopologyConsole boot', () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
 		expect( lastHeaderProps.path ).toBe( '' );
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Echo n1' );
+		} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -2110,6 +2116,9 @@ describe( 'TopologyConsole boot', () => {
 		// Simulate a user `make_node Tee my-tee` surviving a prior session.
 		const userNode = new Node();
 		userNode.name = 'my-user-tee';
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Tee my-user-tee' );
+		} );
 		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
 		// Surface it in metadata so the chip shows (gating reads parsed.nodes).
 		await fireMsg( {
@@ -2142,7 +2151,11 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// User node surfaces the reset-graph chip; no reset-layout chip yet.
+		// A shell-made node surfaces reset-graph; markDirty no-ops until
+		// positions exist, so reset-layout stays hidden until the click.
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Echo n1' );
+		} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -2245,7 +2258,10 @@ describe( 'TopologyConsole boot', () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
 		expect( queryByText( 'reset-graph' ) ).toBeNull();
-		// Add a user node via metadata → chip appears (findByText settles it).
+		// Make one through the shell, then surface it (findByText settles it).
+		act( () => {
+			lastReplProps.onSubmit( 'make_node Echo n1' );
+		} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,

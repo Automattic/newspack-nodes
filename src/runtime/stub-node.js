@@ -26,9 +26,6 @@ import { Node } from './node';
  * runs none of the behaviour it describes.
  */
 export class StubNode extends Node {
-	// Not an operator's palette drop — only a draft interpreter mints these.
-	static isSystemNode = true;
-
 	/**
 	 * Start out standing for nothing in particular — class `Stub`, no origin,
 	 * single-target semantics. A draft interpreter sets each from the expanded

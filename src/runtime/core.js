@@ -24,7 +24,6 @@ class CoreImpl {
 		this.rebuildable = false; // overlay Reset-Graph capability; mountExospine sets it
 		this.backboneOwned = false; // a non-passenger mount holds the backbone
 		this.backbonePassengers = 0; // live passenger mounts clipped onto it
-		this.reinitNames = null; // names mountExospine's build registered
 		// Full-graph rebuild signal: bumping re-runs every graph effect.
 		this.graphGeneration = 0;
 		// Bumped when a mount CREATES the backbone (bare or delegated).

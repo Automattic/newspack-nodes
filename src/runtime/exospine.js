@@ -152,10 +152,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		builtNames = [ ...Core.nodes.keys() ].filter(
 			( name ) => ! before.has( name )
 		);
-		// Publish the build-registered set (UNION across mounts) for overlay.
-		Core.reinitNames = [
-			...new Set( [ ...( Core.reinitNames || [] ), ...builtNames ] ),
-		];
 	};
 	const teardownBuilt = () => {
 		if ( 'function' === typeof cleanup ) {
@@ -166,11 +162,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		for ( const name of builtNames ) {
 			Core.node( name )?.removeNode();
 		}
-		// Drop only THIS mount's names (inverse of runBuild's union).
-		const gone = new Set( builtNames );
-		Core.reinitNames = ( Core.reinitNames || [] ).filter(
-			( name ) => ! gone.has( name )
-		);
 		builtNames = [];
 	};
 	const teardownBackbone = () => {
@@ -219,7 +210,6 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			teardownBackbone();
 			Core.backboneOwned = false;
 			Core.rebuildable = false;
-			Core.reinitNames = null;
 		}
 	};
 

@@ -43,9 +43,6 @@ const GAP_INTERVALS = 6;
  * own `_prevSegments` is advanced synchronously for the NEXT delta.
  */
 export class WorkerStatusTransformNode extends Node {
-	// View-model/infra node: never a user-added node (see useGraphReset).
-	static isSystemNode = true;
-
 	/**
 	 * Seed the cross-poll state this transform carries: the previous snapshot's
 	 * segment ids and data (segment slide-in/-out animation), the per-reader and

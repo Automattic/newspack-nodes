@@ -15,10 +15,14 @@ import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { newMessage, TYPE, VALUE, TM_COMMAND } from '../../runtime/message';
 
+// Shell_Node tokenizes before dispatch, so `arguments` is a token array.
 function commandMsg( name, args = '' ) {
+	const argv = Array.isArray( args )
+		? args
+		: args.split( /\s+/ ).filter( Boolean );
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	m[ VALUE ] = { name, arguments: args };
+	m[ VALUE ] = { name, arguments: argv };
 	return m;
 }
 
@@ -106,48 +110,57 @@ describe( 'useGraphReset', () => {
 		expect( marked ).toBe( 0 );
 	} );
 
-	it( 'canResetGraph is true when a non-reserved user node is present (no dispatch needed)', () => {
-		const { result } = renderHook( () =>
-			useGraphReset(
-				opts( makeShell(), { nodes: [ { id: 'my-tee' } ] } )
-			)
-		);
+	it( 'a shell-made node lights the chip', () => {
+		const shell = makeShell();
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( shell ),
+		} );
+		act( () => shell.dispatch( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		rerender( opts( shell, { nodes: [ { id: 'my-tee' } ] } ) );
 		expect( result.current.canResetGraph ).toBe( true );
 	} );
 
-	it( 'a reserved (infra) node alone does not make canResetGraph true', () => {
+	it( 'a shell-made node stops counting once it is removed', () => {
+		const shell = makeShell();
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( shell, { nodes: [ { id: 'my-tee' } ] } ),
+		} );
+		act( () => shell.dispatch( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		act( () => shell.dispatch( commandMsg( 'remove_node', 'my-tee' ) ) );
+		// Dirty stays (the removal IS an edit); the node no longer counts.
+		rerender( opts( shell, { nodes: [] } ) );
+		expect( result.current.canResetGraph ).toBe( true );
+		rerender( opts( makeShell(), { nodes: [] } ) );
+		expect( result.current.canResetGraph ).toBe( false );
+	} );
+
+	// Machinery the graph mints for itself — none of it is a user edit.
+	// `topologymanager:freshness` is a useRouterTick Timer, minted outside any
+	// build, and resetGraph's rebuild brings it straight back.
+	it.each( [
+		names.ROUTER,
+		'workerstatus:view',
+		'combined.p0',
+		'topologymanager:freshness',
+	] )( 'the machinery node %s does not light the chip', ( id ) => {
 		const { result } = renderHook( () =>
-			useGraphReset(
-				opts( makeShell(), { nodes: [ { id: names.ROUTER } ] } )
-			)
+			useGraphReset( opts( makeShell(), { nodes: [ { id } ] } ) )
 		);
 		expect( result.current.canResetGraph ).toBe( false );
 	} );
 
-	it( 'a view-model node (class isSystemNode) does not count as a user node', () => {
-		// A view-model node (workerstatus:view) must not read as a user node.
-		class SystemViewNode {}
-		SystemViewNode.isSystemNode = true;
-		Core.nodes.set( 'workerstatus:view', new SystemViewNode() );
-		const { result } = renderHook( () =>
-			useGraphReset(
-				opts( makeShell(), {
-					nodes: [ { id: 'workerstatus:view' } ],
-				} )
-			)
-		);
-		expect( result.current.canResetGraph ).toBe( false );
-	} );
-
-	it( 'a node registered in Core.reinitNames (build/console infra) does not count as a user node', () => {
-		// An infra node in reinitNames must not keep Reset Graph chip stuck.
-		Core.reinitNames = [ 'combined.p0' ];
-		const { result } = renderHook( () =>
-			useGraphReset(
-				opts( makeShell(), { nodes: [ { id: 'combined.p0' } ] } )
-			)
-		);
-		expect( result.current.canResetGraph ).toBe( false );
+	it( 'a node the shell made still counts after the shell is replaced', () => {
+		let shell = makeShell();
+		const nodes = [ { id: 'my-tee' } ];
+		const { result, rerender } = renderHook( ( p ) => useGraphReset( p ), {
+			initialProps: opts( shell, { nodes } ),
+		} );
+		act( () => shell.dispatch( commandMsg( 'make_node', 'Tee my-tee' ) ) );
+		// A rebuild swaps the shell and clears dirty; the node outlives it.
+		shell = makeShell();
+		rerender( opts( shell, { nodes } ) );
+		expect( result.current.structureDirty ).toBe( false );
+		expect( result.current.canResetGraph ).toBe( true );
 	} );
 
 	it( 'a user node only counts at the local scope', () => {
