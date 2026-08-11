@@ -93,7 +93,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 		fetchSources().catch( () => {} );
 	}, [ fetchSources ] );
 	useRouterTick( {
-		name: 'log-viewer:sources',
+		name: 'logviewer:refresh',
 		onTick: recatalog,
 		intervalMs: SEGMENTS_REFRESH_MS,
 		enabled: Boolean( currentSource ),

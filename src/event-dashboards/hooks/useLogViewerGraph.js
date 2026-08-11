@@ -36,7 +36,7 @@ const LINK = 'logviewer:link';
 const TEE = 'logviewer:stream';
 const VIEW = 'logviewer:view';
 const READ_NODE = 'logviewer:read';
-const SOURCES_NODE = 'logviewer:sources';
+const SOURCES_NODE = 'logviewer:list';
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 
 // A control the view applies on FROM, never on payload shape; FROM=VIEW.
