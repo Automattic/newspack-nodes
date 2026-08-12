@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A `Log` node's path is validated against the runtime base.** `Log_Node` has no
+  `arguments()` override, so it inherits `Partition_Node`'s — which guards
+  `$this->partition_dir`, a property Log's schema never fills, because its first
+  argument is named `file`. `assert_within_base()` then returned early on `''`, so
+  a Log path was checked on NO code path, including `make_node Log … /etc/whatever`
+  from a topology. The guard now runs on the `segment_dir()` seam Log already
+  overrides, so it follows whichever property the subclass actually fills.
+
 - **`Capabilities::can()` fails CLOSED.** It answered `true` when
   `current_user_can` was undefined, so four security call sites hand-negated
   the same `function_exists` test to reverse it (`HTTP_In_Node`,
@@ -38,6 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwards untouched, matching the JS twin.
 
 ### Fixed
+
+- **A zero `segment_size` fails loud instead of becoming a 1-byte segment.**
+  `max( 1, … )` turned a missing or zero required byte count into a segment that
+  every single write exceeds, so every write rotated. Required config fails loud.
+
+- **The six `remote_*` bounded ints register as integers.** They declared
+  `register_args type => 'string'` while three sibling int fields declared
+  `'integer'` — one kind of field, two answers. Inert while nothing sets
+  `show_in_rest`, wrong the moment something does. A schema invariant test now
+  fails on any int field that declares a non-integer register type.
 
 - **The browser REPL's `dump_node` redacts credentials, as PHP's does.** PHP masks
   a secret-NAMED property whole and runs `redact_secrets()` over everything else,

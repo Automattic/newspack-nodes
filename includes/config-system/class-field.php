@@ -107,9 +107,13 @@ class Field {
 
 	/**
 	 * The sanitizer `register_setting()` gets. A bounded `int` field derives its
-	 * own clamp from the declared min/max, so the settings page and the
-	 * `settings` service CI cannot disagree about what is valid; every other
-	 * field uses the callable it declared.
+	 * own clamp from the declared min/max — the SAME declaration the `settings`
+	 * service CI bounds-checks against, so the two cannot disagree about what is
+	 * valid. They deliberately differ in what they do about an invalid value: the
+	 * page CLAMPS, because its input is a constrained widget and a browser round
+	 * trip has nowhere to report to; the CI REFUSES with `invalid value for
+	 * setting`, because a programmatic caller must be told rather than silently
+	 * given a different number. Every other field uses the callable it declared.
 	 *
 	 * A blank (or non-numeric) value answers `''`, which is NOT a value this
 	 * sanitizer may store: presence is override (see Options_Overlay), and a

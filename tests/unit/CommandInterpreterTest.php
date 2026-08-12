@@ -1452,11 +1452,10 @@ class CommandInterpreterTest extends TestCase {
 
 		$tmp = $this->make_temp_dir();
 		try {
-			// Only the required args (base_dir, partition); the base arguments()
-			// setter now leaves segment_size/max_segments/max_lifetime at their
-			// real schema defaults instead of overwriting them with placeholder
-			// strings — so this short form constructs successfully.
-			$interpreter->dispatch( 'make_node', [ "Partition", "mypart", "{$tmp}", "0" ] );
+			// Only the REQUIRED arg (partition_dir); every later position takes
+			// its real schema default, so this short form constructs. Passing a
+			// literal 0 for segment_size does not — it is a required byte count.
+			$interpreter->dispatch( 'make_node', [ "Partition", "mypart", "{$tmp}" ] );
 			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'mypart' ) );
 
 			$interpreter->dispatch( 'remove_node', [ 'mypart' ] );

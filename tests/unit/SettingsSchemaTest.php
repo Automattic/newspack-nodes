@@ -262,4 +262,20 @@ class SettingsSchemaTest extends TestCase {
 			'0 = resident; a non-zero default would opt every topology in'
 		);
 	}
+	/**
+	 * `register_args['type']` is what register_setting() tells WordPress the
+	 * option is. Six remote_* bounded ints declared `string` while three sibling
+	 * ints declared `integer` — same kind of field, two answers. Harmless while
+	 * nothing sets show_in_rest, and wrong the moment something does.
+	 */
+	public function test_every_int_field_registers_as_an_integer(): void {
+		$wrong = [];
+		foreach ( Settings_Schema::get()->fields() as $field ) {
+			$declared = $field->register_args['type'] ?? null;
+			if ( 'int' === $field->type && null !== $declared && 'integer' !== $declared ) {
+				$wrong[ $field->key ] = $declared;
+			}
+		}
+		$this->assertSame( [], $wrong, 'int fields declaring a non-integer register type' );
+	}
 }

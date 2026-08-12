@@ -303,7 +303,9 @@ class AdminTest extends TestCase {
 			'newspack_nodes_remote_max_segments',
 		] as $option ) {
 			$this->assertArrayHasKey( $option, $GLOBALS['_registered_settings'], "missing option: $option" );
-			$this->assertSame( 'string', $GLOBALS['_registered_settings'][ $option ]['args']['type'] );
+			// Bounded ints register as integers; they declared `string` while three
+			// sibling ints declared `integer` — one kind of field, two answers.
+			$this->assertSame( 'integer', $GLOBALS['_registered_settings'][ $option ]['args']['type'] );
 		}
 	}
 
