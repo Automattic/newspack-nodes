@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.25.0] - 2026-08-12
+
 ### Security
 
 - **A `Log` node's path is validated against the runtime base.** `Log_Node` has no
