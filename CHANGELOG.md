@@ -56,10 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The dead-letter Triage panel shows an `unparseable` record's VALUE alone.**
-  Every other quarantine reason still shows the whole message, unchanged —
-  those records keep a real envelope worth reading. An `unparseable` one does
-  not: `poison_from_line()` cannot unpack the line, so it mints a fresh
-  `TM_BYTESTREAM` wrapper and puts the raw bytes in its VALUE. The wrapper's
+  Every other quarantine reason shows the whole message, rendered by the Dumper
+  exactly as the REPL prints it — those records keep a real envelope worth
+  reading, and `dl_show`'s keyed reply is regrouped into the positional message
+  it came from, so there is one message rendering in the codebase, not two.
+  An `unparseable` one does not: `poison_from_line()` cannot unpack the line,
+  so it mints a fresh `TM_BYTESTREAM` wrapper and puts the raw bytes in its
+  VALUE. The wrapper's
   FROM, TO and KEY are empty by construction and its type describes the
   wrapper rather than the message, so the VALUE *is* the whole original record
   and the envelope around it was noise — previously rendered as an escaped
@@ -74,6 +77,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   holds the map. `command_node` (no removal spelling) and `clearSecureLevel`
   (`insecure` declares a third state, not the absence of a line) are unchanged
   and still inexpressible.
+
+- **The browser Shell has ONE entry point, `fill( message )`, as PHP's does.**
+  A typed line now rides in on a `TM_BYTESTREAM` VALUE, and every caller — the
+  console, the debug overlay, and every GUI gesture that mints a command —
+  goes through that door. `parse()` and `dispatch()` are internals again;
+  `sendCommand()`, a second public send path with no production caller left, is
+  gone. The Shell returns nothing from any of it (ADR-13): builtins act and
+  print, and a refusal is a printed usage line, not a `{ kind: 'error' }` the
+  caller has to interpret.
+
+  Two things fell out of closing the door. Anything that needs to send through
+  the Shell must hold the reference or sink into it — so the Compose modal's
+  reply-flag fields and the console's no-`sse_pid` refusal, which used to sit
+  in React between two Shell calls, are now an UNNAMED gate node downstream of
+  the Shell that nothing can address. And builtin output needed somewhere to
+  go: `_stdout` (`StdoutNode`, a port of PHP's `Stdout_Node`) now exists in the
+  browser, so a builtin's text bypasses `_output` — the Dumper renders
+  MESSAGES, and `print hello` is text.
+
+- **`debug_level` is published as Dumper node state, read where every other
+  slice is read.** The dial was a React ref plus a hand-maintained `useState`
+  mirror per consumer, kept in step by `dispatchLocalCommand`'s `onDebugLevel`
+  callback. With that dispatcher gone the mirrors had nothing driving them, so
+  the JS `DumperNode` now owns `setDebugLevel()` and both REPLs read
+  `useNodeState( '_output', 'debug_level' )` — one owner, no mirror to drift.
 
 ## [2.23.0] - 2026-08-11
 

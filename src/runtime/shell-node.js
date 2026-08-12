@@ -1,8 +1,8 @@
 /**
  * ShellNode — the anonymous, React-driven REPL parser node. A typed line becomes a
  * single positional Message (the substrate's only format) and is filled into
- * the sink (`_command_interpreter`); local builtins (`clear`, `debug_level`)
- * return a `{ kind: 'local', … }` signal for TopologyConsole to act on instead.
+ * the sink (`_command_interpreter`); builtins (`print`, `debug_level`) act and
+ * emit their output through `_stdout`, returning nothing (ADR-13).
  *
  * Mirrors the verb vocabulary of PHP `class-shell.php` + the prior utils/shell.js
  * (ping / tell / send / send_eof / request / cmd + a bare-verb default). The
@@ -502,9 +502,9 @@ export function serializeDraftArg( value ) {
 }
 
 /**
- * The REPL front-end Node: `fill( line )` turns one typed line into a single
- * positional Message filled into the sink, or into a `{ kind: 'local'|'error' }`
- * signal the host acts on instead. It also carries the shell state a line is
+ * The REPL front-end Node: `fill( message )` turns the typed line carried in a
+ * TM_BYTESTREAM VALUE into positional Messages filled into the sink. It also
+ * carries the shell state a line is
  * parsed against — the cwd, the `var` namespace, and any held continuation —
  * and doubles as the throwaway shell `parseStatements()` drives the static TSL
  * front-end with. Anonymous by contract: naming it throws.
@@ -537,44 +537,60 @@ export class ShellNode extends Node {
 		this.lineContinuation = '';
 		// Dispatch tap: invoked with every outgoing Message before the sink.
 		this.onDispatch = null;
+		// The skins are the host's: it owns the stylesheet and the storage.
+		this.host = {};
 	}
 
 	/**
-	 * Parse + dispatch one line. Returns the local/error signal for the host to
-	 * act on, or null when a Message was filled into the sink (or input empty).
+	 * The one entry point (ADR-1): a TM_BYTESTREAM whose VALUE is the typed
+	 * line or script. Splits it into statements, parses each, and fills the
+	 * sink with whatever became a Message. Builtins act and emit through
+	 * `stdout()`; nothing comes back (ADR-13). Port of PHP `Shell_Node::fill()`.
 	 *
-	 * This is the ONE `fill()` in the runtime that takes a line rather than a
-	 * Message, and it is safe for a structural reason rather than a convention:
-	 * the browser Shell is a SOURCE. It is anonymous by contract — the `name`
-	 * setter below throws — so it is never registered, never routable, and no
-	 * Message can arrive here. Only its host calls it, always with typed text.
-	 * (PHP's `Shell_Node::fill()` is the routable one and takes a Message; it
-	 * reads its line out of a TM_BYTESTREAM VALUE.)
+	 * The Shell stays unnamed and unroutable, so no message can ARRIVE here by
+	 * routing: a caller either holds this reference or sinks into it.
 	 *
-	 * @param {string} line Raw REPL line.
-	 * @return {Object|null} A `{ kind: … }` signal, or null.
+	 * @param {Array} message Positional Message carrying the line in VALUE.
 	 */
-	// @ts-expect-error Source-only Shell: unnamed, unroutable, host-fed lines.
-	fill( line ) {
-		this.counter++;
-		const parsed = this.parse( line );
-		if ( null === parsed ) {
-			return null;
+	fill( message ) {
+		if ( ! this.sink ) {
+			throw new Error( 'fill requires a wired sink' );
 		}
-		if ( Array.isArray( parsed ) ) {
+		const type = message[ TYPE ];
+		const value = message[ VALUE ];
+		if ( TM_EOF === type ) {
+			// Input closed mid-statement: report before draining.
+			this.flushPending();
+			message[ FROM ] = this.replyFrom( names.OUTPUT );
+			message[ TO ] = this.path;
+			this.sink.fill( message );
+			return;
+		}
+		if ( ! ( type & TM_BYTESTREAM ) || 'string' !== typeof value ) {
+			// Not REPL input; PHP passes it through rather than dropping it.
+			this.sink.fill( message );
+			return;
+		}
+		for ( const { text } of splitStatementsIndexed( value ) ) {
+			const parsed = this.parse( text );
+			if ( null === parsed ) {
+				continue;
+			}
+			this.counter++;
+			if ( '' === parsed[ KEY ] ) {
+				parsed[ KEY ] = message[ KEY ];
+			}
 			this.dispatch( parsed );
-			return null;
 		}
-		// A local-builtin / error signal — hand it back to the host.
-		return parsed;
 	}
 
 	/**
-	 * Parse one typed line. Returns a local-signal object for builtins/errors,
-	 * a positional Message array for everything to send, or null for empty input.
+	 * Parse one typed line into the positional Message it should send, or null
+	 * when it produced none — a builtin that already acted, or empty input. An
+	 * internal of `fill()`; nothing outside the node calls it (ADR-1).
 	 *
 	 * @param {string} line Raw REPL line.
-	 * @return {Object|Array|null} `{ kind: 'local'|'error', … }`, a Message, or null.
+	 * @return {Array|null} A positional Message, or null.
 	 */
 	parse( line ) {
 		let raw = line || '';
@@ -620,32 +636,31 @@ export class ShellNode extends Node {
 
 		// `include` reads a topology file from disk — impossible in-browser.
 		if ( 'include' === verb ) {
-			return {
-				kind: 'error',
-				text: 'include is not supported in the browser shell',
-			};
+			this.stdout( 'include is not supported in the browser shell\n' );
+			return null;
 		}
 
+		// PHP erases the terminal; in the browser the Dumper owns the display.
 		if ( 'clear' === verb ) {
-			return { kind: 'local', name: 'clear' };
+			Core.node( names.OUTPUT )?.clear();
+			return null;
 		}
 
 		// Shell3:1363 — verbatim; the newline is the caller's. No `echo`.
 		if ( 'print' === verb ) {
-			return { kind: 'local', name: 'print', text: join( 0 ) };
+			this.stdout( join( 0 ) );
+			return null;
 		}
 
 		if ( 'show_parse' === verb ) {
 			this.showParse = ! this.showParse;
-			return { kind: 'local', name: 'show_parse', on: this.showParse };
+			this.stdout( `show_parse: ${ this.showParse ? 'on' : 'off' }\n` );
+			return null;
 		}
 
 		if ( 'status' === verb ) {
-			return {
-				kind: 'local',
-				name: 'status',
-				lines: this.statusLines.slice(),
-			};
+			this.statusLines.forEach( ( l ) => this.stdout( `${ l }\n` ) );
+			return null;
 		}
 
 		if ( 'var' === verb ) {
@@ -659,21 +674,34 @@ export class ShellNode extends Node {
 				null !== level &&
 				( Number.isNaN( level ) || level < 0 || level > 2 )
 			) {
-				return { kind: 'error', text: 'usage: debug_level [0|1|2]' };
+				this.stdout( 'usage: debug_level [0|1|2]\n' );
+				return null;
 			}
-			return { kind: 'local', name: 'debug_level', level };
+			const dumper = Core.node( names.OUTPUT );
+			if ( dumper?.setDebugLevel ) {
+				// No argument toggles; PHP's `debug_level` does the same.
+				const toggled = dumper.debugLevelRef.current > 0 ? 0 : 1;
+				dumper.setDebugLevel( null !== level ? level : toggled );
+				this.stdout(
+					`debug_level: ${ dumper.debugLevelRef.current }\n`
+				);
+			}
+			return null;
 		}
 
-		// Undocumented skin builtins: emit a local signal for the host.
+		// Skins are the host's: it owns the stylesheet, the shell does not.
 		if ( 'list_skins' === verb ) {
-			return { kind: 'local', name: 'list_skins' };
+			this.host.listSkins?.();
+			return null;
 		}
 		if ( 'set_skin' === verb ) {
 			const skin = join( 0 );
 			if ( '' === skin ) {
-				return { kind: 'error', text: 'usage: set_skin <name>' };
+				this.stdout( 'usage: set_skin <name>\n' );
+				return null;
 			}
-			return { kind: 'local', name: 'set_skin', skin };
+			this.host.setSkin?.( skin );
+			return null;
 		}
 
 		// `cd` navigates the path tree locally (no message); `..` walks up.
@@ -698,10 +726,8 @@ export class ShellNode extends Node {
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
 			const name = args[ 1 ] ?? '';
 			if ( ! to || ! name ) {
-				return {
-					kind: 'error',
-					text: 'usage: cmd <path> <verb> [<args>]',
-				};
+				this.stdout( 'usage: cmd <path> <verb> [<args>]\n' );
+				return null;
 			}
 			message[ TYPE ] = TM_COMMAND;
 			message[ VALUE ] = { name, arguments: args.slice( 2 ) };
@@ -710,7 +736,8 @@ export class ShellNode extends Node {
 
 		if ( 'send' === verb || 'send_node' === verb ) {
 			if ( ! to ) {
-				return { kind: 'error', text: 'usage: send <path> <bytes>' };
+				this.stdout( 'usage: send <path> <bytes>\n' );
+				return null;
 			}
 			message[ TYPE ] = TM_BYTESTREAM;
 			// Line-terminate so line-oriented nodes don't merge sends.
@@ -720,7 +747,8 @@ export class ShellNode extends Node {
 
 		if ( 'request' === verb || 'request_node' === verb ) {
 			if ( ! to ) {
-				return { kind: 'error', text: 'usage: request <path> <args>' };
+				this.stdout( 'usage: request <path> <args>\n' );
+				return null;
 			}
 			message[ TYPE ] = TM_REQUEST;
 			message[ VALUE ] = join( 1 );
@@ -729,7 +757,8 @@ export class ShellNode extends Node {
 
 		if ( 'tell' === verb || 'tell_node' === verb ) {
 			if ( ! to ) {
-				return { kind: 'error', text: 'usage: tell <path> <bytes>' };
+				this.stdout( 'usage: tell <path> <bytes>\n' );
+				return null;
 			}
 			message[ TYPE ] = TM_INFO;
 			message[ VALUE ] = join( 1 );
@@ -738,16 +767,15 @@ export class ShellNode extends Node {
 
 		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
 			if ( ! to ) {
-				return {
-					kind: 'error',
-					text: 'usage: send_struct <path> <json>',
-				};
+				this.stdout( 'usage: send_struct <path> <json>\n' );
+				return null;
 			}
 			let value;
 			try {
 				value = JSON.parse( join( 1 ) );
 			} catch ( e ) {
-				return { kind: 'error', text: `send_struct: ${ e.message }` };
+				this.stdout( `send_struct: ${ e.message }\n` );
+				return null;
 			}
 			message[ TYPE ] = TM_STRUCT;
 			message[ VALUE ] = value;
@@ -756,7 +784,8 @@ export class ShellNode extends Node {
 
 		if ( 'send_eof' === verb ) {
 			if ( ! to ) {
-				return { kind: 'error', text: 'usage: send_eof <path>' };
+				this.stdout( 'usage: send_eof <path>\n' );
+				return null;
 			}
 			message[ TYPE ] = TM_EOF;
 			return this.stampNoreply( message );
@@ -810,24 +839,25 @@ export class ShellNode extends Node {
 						) }\n`
 				)
 				.join( '' );
-			return '' === text ? null : { kind: 'local', name: 'print', text };
+			if ( '' !== text ) {
+				this.stdout( text );
+			}
+			return null;
 		}
 
 		const m = VAR_GRAMMAR.exec( line );
 		if ( ! m ) {
-			return {
-				kind: 'error',
-				text: 'var: expected <name> [ <op> [ <value> ] ]',
-			};
+			this.stdout( 'var: expected <name> [ <op> [ <value> ] ]\n' );
+			return null;
 		}
 		const [ , name, op = '', rest = '' ] = m;
 		// Shell3:2825 — a value TOKEN sets (even if blank); none deletes.
 		const hasValue = '' !== rest;
 		if ( name.includes( ':' ) ) {
-			return {
-				kind: 'error',
-				text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
-			};
+			this.stdout(
+				`var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)\n`
+			);
+			return null;
 		}
 		// ltrim only: tokenize stripped the edges, so the tail is content.
 		const value = rest.replace( /^\s+/, '' );
@@ -835,18 +865,19 @@ export class ShellNode extends Node {
 		if ( '' === op ) {
 			// Shell3:630 fatals on trailing junk where an operator belongs.
 			if ( '' !== value.trim() ) {
-				return {
-					kind: 'error',
-					text: `var: unexpected token in assignment: ${ value }`,
-				};
+				this.stdout(
+					`var: unexpected token in assignment: ${ value }\n`
+				);
+				return null;
 			}
 			// Reading defines the key — Shell3's `$hash->{$name} //= q()`.
 			this.vars[ name ] ??= '';
 			const read = String( this.vars[ name ] );
 			// Printed verbatim: an empty value prints nothing at all.
-			return '' === read
-				? null
-				: { kind: 'local', name: 'print', text: read };
+			if ( '' !== read ) {
+				this.stdout( read );
+			}
+			return null;
 		}
 		return this.operate( name, op, value, hasValue );
 	}
@@ -876,7 +907,8 @@ export class ShellNode extends Node {
 			} else if ( '--' === op ) {
 				this.vars[ name ] = String( num( current ) - 1 );
 			} else {
-				return { kind: 'error', text: `var: bad arguments: ${ op }` };
+				this.stdout( `var: bad arguments: ${ op }\n` );
+				return null;
 			}
 			return null;
 		}
@@ -900,7 +932,8 @@ export class ShellNode extends Node {
 				return null;
 			case '/=':
 				if ( 0 === num( value ) ) {
-					return { kind: 'error', text: 'var: division by zero' };
+					this.stdout( 'var: division by zero\n' );
+					return null;
 				}
 				this.vars[ name ] = String( num( current ) / num( value ) );
 				return null;
@@ -914,10 +947,8 @@ export class ShellNode extends Node {
 				this.vars[ name ] = String( num( current ) * num( value ) );
 				return null;
 			default:
-				return {
-					kind: 'error',
-					text: `var: invalid operator: ${ op }`,
-				};
+				this.stdout( `var: invalid operator: ${ op }\n` );
+				return null;
 		}
 	}
 
@@ -1016,29 +1047,6 @@ export class ShellNode extends Node {
 	}
 
 	/**
-	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
-	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
-	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
-	 * callers issue commands as method calls instead of via parse().
-	 *
-	 * @param {string}   path Routing target (TO). Empty = local interpreter.
-	 * @param {string}   name Command verb (e.g. 'connect_node').
-	 * @param {string[]} args Positional argument tokens.
-	 * @return {void}
-	 */
-	sendCommand( path, name, args = [] ) {
-		const m = this.command( name, args );
-		if ( null === m ) {
-			return; // unauthenticated; re-auth is under way
-		}
-		m[ FROM ] = this.replyFrom( names.OUTPUT );
-		// `path` is RELATIVE to the cwd — prefix() joins them.
-		m[ TO ] = this.prefix( path );
-		this.stampNoreply( m );
-		this.dispatch( m );
-	}
-
-	/**
 	 * The FROM this session stamps: the bare reply node, unwrapped. A private
 	 * per-session address is `_sse:{pid}`'s job downstream, not the Shell's.
 	 *
@@ -1086,8 +1094,8 @@ export class ShellNode extends Node {
 
 	/**
 	 * The single send chokepoint: announce the Message to the `onDispatch` tap,
-	 * then fill it into the sink. Every outgoing Message — sendCommand, a parsed
-	 * REPL line, a GUI gesture — routes through here so the tap sees them all.
+	 * then fill it into the sink. Every outgoing Message routes through here,
+	 * so the tap sees them all. An internal of `fill()` (ADR-1).
 	 *
 	 * @param {Array} message Positional Message to send.
 	 * @return {void}
@@ -1099,9 +1107,8 @@ export class ShellNode extends Node {
 
 	/**
 	 * End-of-input gate: a held continuation at EOF is Tachikoma's
-	 * `got EOF while waiting for tokens` — report it and clear.
-	 *
-	 * @return {Object|null} An error signal, or null when nothing was pending.
+	 * `got EOF while waiting for tokens` — report it through `_stdout` and
+	 * clear, as PHP's `flush_pending(): void` does.
 	 */
 	flushPending() {
 		const pending = (
@@ -1111,12 +1118,27 @@ export class ShellNode extends Node {
 		this.lineContinuation = '';
 		this.pendingQuote = '';
 		if ( '' === pending ) {
-			return null;
+			return;
 		}
-		return {
-			kind: 'error',
-			text: `got EOF while waiting for tokens: ${ pending }`,
-		};
+		this.stdout( `got EOF while waiting for tokens: ${ pending }\n` );
+	}
+
+	/**
+	 * Emit a line as a Message into `_stdout`, bypassing `_output`: the Dumper
+	 * renders MESSAGES, and a builtin's output is text. Mirrors PHP
+	 * `Shell_Node::stdout()`.
+	 *
+	 * @param {string} text Line to print, newline included by the caller.
+	 */
+	stdout( text ) {
+		const stdout = Core.node( names.STDOUT );
+		if ( ! stdout ) {
+			return;
+		}
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ VALUE ] = text;
+		stdout.fill( m );
 	}
 
 	/** True while a quote/backslash continuation holds an open statement. */

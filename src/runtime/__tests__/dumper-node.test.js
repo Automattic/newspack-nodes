@@ -312,6 +312,15 @@ describe( 'Dumper node — debug levels', () => {
 		expect( t[ 0 ].text ).toMatch( /^Message \{/ );
 	} );
 
+	it( 'setDebugLevel() moves the ref AND publishes it as node state', () => {
+		const ref = { current: 0 };
+		const dumper = new DumperNode();
+		dumper.debugLevelRef = ref;
+		dumper.setDebugLevel( 2 );
+		expect( ref.current ).toBe( 2 );
+		expect( dumper.setStateCache.debug_level ).toBe( 2 );
+	} );
+
 	it( 'level 1 still surfaces a TM_EOF arrival as a header even though the curated render drops it', () => {
 		const { dumper } = makeDumper( 1 );
 		dumper.fill( msg( TM_EOF, '' ) );
@@ -354,6 +363,29 @@ describe( 'Dumper node — append / clear', () => {
 		} finally {
 			spy.mockRestore();
 		}
+	} );
+
+	it( 'appendText() turns a written chunk into one recv entry per line', () => {
+		const { dumper } = makeDumper();
+		dumper.appendText( 'alpha\nbravo\n' );
+		expect( dumper.setStateCache.transcript ).toEqual( [
+			expect.objectContaining( { kind: 'recv', text: 'alpha' } ),
+			expect.objectContaining( { kind: 'recv', text: 'bravo' } ),
+		] );
+	} );
+
+	it( 'appendText() keeps a chunk with no trailing newline', () => {
+		const { dumper } = makeDumper();
+		dumper.appendText( 'no-newline' );
+		expect(
+			dumper.setStateCache.transcript.map( ( e ) => e.text )
+		).toEqual( [ 'no-newline' ] );
+	} );
+
+	it( 'appendText() ignores an empty write', () => {
+		const { dumper } = makeDumper();
+		dumper.appendText( '' );
+		expect( dumper.setStateCache.transcript ?? [] ).toEqual( [] );
 	} );
 
 	it( 'clear() empties the transcript and emits a fresh empty array', () => {

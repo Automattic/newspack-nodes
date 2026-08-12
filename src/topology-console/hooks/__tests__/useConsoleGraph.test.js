@@ -151,6 +151,14 @@ const renderGraph = ( props = {} ) =>
 // The composed HttpOut of the session worker's RemoteIpc — where sends land.
 const httpOf = () => Core.node( names.HTTP );
 
+// The one door (ADR-1): a typed line rides into the Shell in a TM_BYTESTREAM.
+function typeLine( shell, line ) {
+	const m = wire.newMessage();
+	m[ wire.TYPE ] = wire.TM_BYTESTREAM;
+	m[ wire.VALUE ] = line;
+	shell.fill( m );
+}
+
 describe( 'useConsoleGraph — graph topology', () => {
 	it( 'mounts the spine + the session worker RemoteIpc under the reserved node names', () => {
 		renderGraph();
@@ -259,11 +267,13 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( interpreter.sink ).toBe( Core.node( names.ROUTER ) );
 	} );
 
-	it( 'wires Shell.sink → _command_interpreter → _router', () => {
+	it( 'wires Shell.sink → gate → _command_interpreter → _router', () => {
 		const { result } = renderGraph();
 		const shell = result.current.shell;
 		expect( shell ).toBeInstanceOf( ShellNode );
-		expect( shell.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
+		// The sink is the console's UNNAMED outgoing gate; the Tap is next.
+		expect( shell.sink.name ).toBe( '' );
+		expect( shell.sink.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
 		expect( Core.node( names.COMMAND_INTERPRETER ).sink ).toBe(
 			Core.node( names.ROUTER )
 		);
@@ -614,7 +624,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		const postBatch = jest.fn().mockResolvedValue( [] );
 		httpOf().client = { postBatch };
 		act( () => {
-			result.current.shell.fill( 'ls -al' );
+			typeLine( result.current.shell, 'ls -al' );
 		} );
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const batch = postBatch.mock.calls[ 0 ][ 0 ];
@@ -630,8 +640,8 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'ls -a at the local root (cd /) lists EVERY in-browser node in the transcript', () => {
 		const { result } = renderGraph();
-		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local
-		act( () => result.current.shell.fill( 'ls -a' ) );
+		act( () => typeLine( result.current.shell, 'cd /' ) ); // empty cwd → local
+		act( () => typeLine( result.current.shell, 'ls -a' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
@@ -642,8 +652,8 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'ls -c at the local root renders the full _cmdList COUNT column (not a flat name dump)', () => {
 		const { result } = renderGraph();
-		act( () => result.current.shell.fill( 'cd /' ) );
-		act( () => result.current.shell.fill( 'ls -c' ) );
+		act( () => typeLine( result.current.shell, 'cd /' ) );
+		act( () => typeLine( result.current.shell, 'ls -c' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
@@ -653,8 +663,8 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'bare ls at the local root lists the interpreter siblings, not _router', () => {
 		const { result } = renderGraph();
-		act( () => result.current.shell.fill( 'cd /' ) );
-		act( () => result.current.shell.fill( 'ls' ) );
+		act( () => typeLine( result.current.shell, 'cd /' ) );
+		act( () => typeLine( result.current.shell, 'ls' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();

@@ -168,7 +168,7 @@ describe( 'useDebugRepl', () => {
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		// Bound during the build (render-phase), not in a post-render effect.
-		expect( shell.sink ).toBe( Core.node( names.CONSOLE_TAP ) );
+		expect( shell.sink ).toBeTruthy();
 		act( () => result.current.sendLine( 'ls' ) );
 		// The _shell Tap forwards to the interpreter, so its fill still runs.
 		expect( fillSpy ).toHaveBeenCalled();
@@ -329,29 +329,26 @@ describe( 'useDebugRepl', () => {
 		stderrSpy.mockRestore();
 	} );
 
-	it( 'invalid `debug_level` arg emits an error transcript entry', () => {
+	it( 'invalid `debug_level` arg prints the usage instead of moving the dial', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
-		// Shell rejects out-of-range → an `error` transcript entry.
+		// Shell rejects out-of-range and prints the usage through `_stdout`.
 		act( () => result.current.sendLine( 'debug_level 9' ) );
-		const errEntry = result.current.transcript.find(
-			( e ) => e.kind === 'error'
+		const usage = result.current.transcript.find( ( e ) =>
+			/^usage: debug_level/.test( e.text )
 		);
-		expect( errEntry ).toBeTruthy();
-		expect( errEntry.text ).toMatch( /debug_level/ );
+		expect( usage ).toBeTruthy();
 		teardown();
 	} );
 
-	it( 'sendLine `debug_level 2` clamps to the valid range and appends an info entry', () => {
+	it( 'sendLine `debug_level 2` sets the level and reports it', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'debug_level 2' ) );
-		const info = result.current.transcript.find(
-			( e ) => e.kind === 'info'
-		);
-		expect( info ).toBeTruthy();
+		const info = result.current.transcript.at( -1 );
+		expect( info.kind ).toBe( 'recv' );
 		expect( info.text ).toBe( 'debug_level: 2' );
 		teardown();
 	} );
@@ -361,15 +358,13 @@ describe( 'useDebugRepl', () => {
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'debug_level' ) );
-		let info = result.current.transcript
-			.filter( ( e ) => e.kind === 'info' )
-			.at( -1 );
-		expect( info.text ).toBe( 'debug_level: 1' );
+		expect( result.current.transcript.at( -1 ).text ).toBe(
+			'debug_level: 1'
+		);
 		act( () => result.current.sendLine( 'debug_level' ) );
-		info = result.current.transcript
-			.filter( ( e ) => e.kind === 'info' )
-			.at( -1 );
-		expect( info.text ).toBe( 'debug_level: 0' );
+		expect( result.current.transcript.at( -1 ).text ).toBe(
+			'debug_level: 0'
+		);
 		teardown();
 	} );
 
@@ -388,15 +383,13 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'sendLine `show_parse` appends an info entry with the current setting', () => {
+	it( 'sendLine `show_parse` reports the current setting', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'show_parse' ) );
-		const info = result.current.transcript.find(
-			( e ) => e.kind === 'info'
-		);
-		expect( info ).toBeTruthy();
+		const info = result.current.transcript.at( -1 );
+		expect( info.kind ).toBe( 'recv' );
 		expect( info.text ).toMatch( /show_parse: (on|off)/ );
 		teardown();
 	} );

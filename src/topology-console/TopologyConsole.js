@@ -66,16 +66,18 @@ import {
 	verbInvocationArgs,
 	verbUsesConfig,
 } from './utils/editorLines';
-import { dispatchLocalCommand } from './core/dispatchLocalCommand';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { scopeFromCwd } from './utils/scope';
 import { Core } from '../runtime/core';
-import { TO, applyComposeFields } from '../runtime/message';
+import {
+	newMessage,
+	TYPE,
+	VALUE,
+	TM_BYTESTREAM,
+	applyComposeFields,
+} from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
-	THEMES,
-	getStoredTheme,
-	applySkin,
 	initSkin,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
@@ -430,8 +432,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Dumper verbosity dial (0/1/2); a ref so it's read without re-binding.
 	const debugLevelRef = useRef( 0 );
-	// Reactive mirror of the dial so the Inspector's Verbose toggle reads it.
-	const [ debugLevel, setDebugLevel ] = useState( 0 );
 
 	// "reset graph" stashes the cwd so the shell sync can restore it.
 	const cwdRestoreRef = useRef( null );
@@ -454,7 +454,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	);
 
 	// SSE off in edit mode / off-worker cwd; same detection as poll gate.
-	const { status, ssePid, shell, seedError } = useConsoleGraph( {
+	const { status, ssePid, shell, seedError, outgoing } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
@@ -485,6 +485,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
 	const transcript =
 		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
+	// Same slot for the verbosity dial the `debug_level` builtin moves.
+	const debugLevel = useNodeState( names.OUTPUT, 'debug_level' ) ?? 0;
 
 	// The silent canvas polls fill the CommandInterpreter directly (§5).
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
@@ -936,17 +938,32 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		Core.node( names.METADATA )?.setState( 'metadata', null );
 	}, [ scope.key ] );
 
+	// The gate is a node, so the console configures it by reference.
+	const fieldsRef = useRef( null );
+	useEffect( () => {
+		const gate = outgoing?.current;
+		if ( ! gate ) {
+			return;
+		}
+		gate.sseGuard = ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid );
+		gate.beforeSend = ( m ) => applyComposeFields( m, fieldsRef.current );
+		gate.onRefused = () =>
+			appendTranscript( {
+				kind: 'error',
+				text: __(
+					'[no sse_pid yet] retry once CONNECTED',
+					'newspack-nodes'
+				),
+			} );
+	}, [ outgoing, ssePid, appendTranscript ] );
+
 	const dispatchStatement = useCallback(
 		( statement, fields ) => {
 			if ( ! shell ) {
 				return;
 			}
-			// Branch before fill so the ssePid gate blocks only worker sends.
 			const promptAtSend = `/${ shell.path }`;
-			const parsedLine = shell.parse( statement );
-			// cd mutates shell.path; route the new path like a Path-menu pick.
-			handlePathChange( shell.path );
-			// Echo input verbatim before the null-return; blanks stay silent.
+			// Echo input verbatim; blanks stay silent.
 			if ( '' !== statement.trim() ) {
 				appendTranscript( {
 					kind: 'sent',
@@ -954,46 +971,17 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 					prompt: promptAtSend,
 				} );
 			}
-			if ( null === parsedLine ) {
-				return;
-			}
-
-			if ( Array.isArray( parsedLine ) ) {
-				// Only an attached worker's async reply waits on the SSE pid.
-				if ( toNeedsSseSession( parsedLine[ TO ] ) && ! ssePid ) {
-					appendTranscript( {
-						kind: 'error',
-						text: __(
-							'[no sse_pid yet] retry once CONNECTED',
-							'newspack-nodes'
-						),
-					} );
-					return;
-				}
-				// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
-				applyComposeFields( parsedLine, fields );
-				// dispatch (not sink.fill) so useGraphReset's tap sees it.
-				shell.dispatch( parsedLine );
-				return;
-			}
-			if ( parsedLine.kind === 'error' ) {
-				appendTranscript( { kind: 'error', text: parsedLine.text } );
-				return;
-			}
-			dispatchLocalCommand( {
-				parsed: parsedLine,
-				append: appendTranscript,
-				clear: clearTranscript,
-				debugLevelRef,
-				// Reactive mirror for the Inspector's Verbose toggle.
-				onDebugLevel: setDebugLevel,
-				setSkin: applySkin,
-				skins: THEMES,
-				// Read fresh so list_skins marks the live skin.
-				currentSkin: getStoredTheme(),
-			} );
+			// Applied on the way out by the gate the console owns.
+			fieldsRef.current = fields;
+			// The one door (ADR-1): the typed line rides in a TM_BYTESTREAM.
+			const line = newMessage();
+			line[ TYPE ] = TM_BYTESTREAM;
+			line[ VALUE ] = statement;
+			shell.fill( line );
+			// cd mutates shell.path; route the new path like a Path-menu pick.
+			handlePathChange( shell.path );
 		},
-		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
+		[ shell, appendTranscript, handlePathChange ]
 	);
 
 	// Live-canvas poll gating (WIRING-PLAN §4/§5): point _cwd.target at cwd.

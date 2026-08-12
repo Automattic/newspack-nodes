@@ -12,6 +12,8 @@ import {
 	quoteToken,
 } from '../shell-node';
 import { Node, serializeArg } from '../node';
+import { DumperNode } from '../dumper-node';
+import { StdoutNode } from '../stdout-node';
 import names from '../reserved-node-names.json';
 import { Core } from '../core';
 import {
@@ -33,6 +35,17 @@ import {
 	TM_NOREPLY,
 } from '../message';
 
+// The graph is process-global; a leaked `_output` from a previous test would
+// capture this one's output.
+let printed = [];
+beforeEach( () => {
+	Core.reset();
+	printed = [];
+} );
+
+// Everything the shell printed this test, joined.
+const printedText = () => printed.join( '' );
+
 function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	const shell = new ShellNode();
 	shell.path = path;
@@ -41,8 +54,31 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	const filled = [];
 	sink.fill = ( m ) => filled.push( m );
 	shell.sink = sink;
-	return { shell, filled };
+	// Builtin output bypasses the Dumper and lands on `_stdout`.
+	const stdout = new StdoutNode( {
+		write: ( text ) => printed.push( text ),
+	} );
+	stdout.name = names.STDOUT;
+	// `_output` is the real Dumper: the shell drives its actual API.
+	const out = new DumperNode();
+	out.name = names.OUTPUT;
+	return { shell, filled, out };
 }
+
+// The only way in: a TM_BYTESTREAM carrying the typed line (ADR-1).
+function send( shell, line ) {
+	const m = [];
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ TIMESTAMP ] = 0;
+	m[ FROM ] = '';
+	m[ TO ] = '';
+	m[ ID ] = '';
+	m[ KEY ] = '';
+	m[ VALUE ] = line;
+	shell.fill( m );
+}
+
+// Text of everything the shell printed, joined.
 
 describe( 'parse — backslash continuation splices with nothing', () => {
 	it( 'holds the line, then splices bash-style (hi\\ + bye = hibye)', () => {
@@ -50,23 +86,16 @@ describe( 'parse — backslash continuation splices with nothing', () => {
 		expect( shell.parse( 'print hi\\' ) ).toBeNull();
 		expect( shell.hasPending() ).toBe( true );
 		expect( shell.pendingPrompt() ).toBe( '> ' );
-		const parsed = shell.parse( 'bye' );
-		expect( parsed ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'hibye',
-		} );
+		shell.parse( 'bye' );
+		expect( printedText() ).toBe( 'hibye' );
 		expect( shell.hasPending() ).toBe( false );
 	} );
 
 	it( 'flushPending reports a held backslash continuation at EOF', () => {
 		const { shell } = makeShell();
 		expect( shell.parse( 'print hi\\' ) ).toBeNull();
-		const flushed = shell.flushPending();
-		expect( flushed ).toEqual( {
-			kind: 'error',
-			text: expect.stringMatching( /got EOF while waiting for tokens/ ),
-		} );
+		shell.flushPending();
+		expect( printedText() ).toMatch( /got EOF while waiting for tokens/ );
 		expect( shell.hasPending() ).toBe( false );
 	} );
 } );
@@ -84,12 +113,12 @@ describe( 'parse — an open quote continues onto the next line', () => {
 		const { shell } = makeShell();
 		expect( shell.parse( "tell node 'foo" ) ).toBeNull();
 		expect( shell.pendingPrompt() ).toBe( "'> " );
-		const flushed = shell.flushPending();
-		expect( flushed ).toEqual( {
-			kind: 'error',
-			text: expect.stringMatching( /got EOF while waiting for tokens/ ),
-		} );
-		expect( shell.flushPending() ).toBeNull();
+		shell.flushPending();
+		expect( printedText() ).toMatch( /got EOF while waiting for tokens/ );
+		// A second flush has nothing held, so it prints nothing more.
+		const before = printedText();
+		shell.flushPending();
+		expect( printedText() ).toBe( before );
 	} );
 } );
 
@@ -226,47 +255,38 @@ describe( 'Shell node — local builtins', () => {
 		expect( msg[ LOCAL ] ).toBe( true );
 	} );
 
-	it( 'clear → a local signal, not a filled message', () => {
-		const { shell, filled } = makeShell();
-		expect( shell.parse( 'clear' ) ).toEqual( {
-			kind: 'local',
-			name: 'clear',
-		} );
+	it( 'clear wipes the Dumper transcript and fills nothing', () => {
+		const { shell, filled, out } = makeShell();
+		out.append( { kind: 'sent', text: 'ls' } );
+		send( shell, 'clear' );
+		expect( out.setStateCache.transcript ).toEqual( [] );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
-	it( 'debug_level with no arg → local signal with level null', () => {
-		const { shell } = makeShell();
-		expect( shell.parse( 'debug_level' ) ).toEqual( {
-			kind: 'local',
-			name: 'debug_level',
-			level: null,
-		} );
+	it( 'debug_level with no arg toggles the Dumper and reports it', () => {
+		const { shell, out } = makeShell();
+		send( shell, 'debug_level' );
+		expect( out.debugLevelRef.current ).toBe( 1 );
 	} );
 
-	it( 'debug_level with a numeric arg → local signal carrying that level', () => {
-		const { shell } = makeShell();
-		expect( shell.parse( 'debug_level 2' ) ).toEqual( {
-			kind: 'local',
-			name: 'debug_level',
-			level: 2,
-		} );
+	it( 'debug_level with a numeric arg sets the Dumper to it', () => {
+		const { shell, out } = makeShell();
+		send( shell, 'debug_level 2' );
+		expect( out.debugLevelRef.current ).toBe( 2 );
 	} );
 
-	it( 'debug_level out of range → an error signal', () => {
-		const { shell } = makeShell();
-		expect( shell.parse( 'debug_level 9' ) ).toEqual( {
-			kind: 'error',
-			text: 'usage: debug_level [0|1|2]',
-		} );
+	it( 'debug_level out of range prints usage and changes nothing', () => {
+		const { shell, filled } = makeShell();
+		send( shell, 'debug_level 9' );
+		expect( printedText() ).toContain( 'usage: debug_level [0|1|2]' );
+		expect( filled ).toHaveLength( 0 );
 	} );
 } );
 
 describe( 'Shell node — fill() reply path + TO', () => {
 	it( 'fill() of a typed line stamps the bare reply-node FROM and TO=prefix(path)', () => {
 		const { shell, filled } = makeShell( { path: 'demo.p0' } );
-		const signal = shell.fill( 'ls -al' );
-		expect( signal ).toBeNull(); // a posted command returns null
+		send( shell, 'ls -al' );
 		expect( filled ).toHaveLength( 1 );
 		const m = filled[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
@@ -279,19 +299,18 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		} );
 	} );
 
-	it( 'fill() of a builtin returns the local signal and fills nothing', () => {
-		const { shell, filled } = makeShell();
-		expect( shell.fill( 'clear' ) ).toEqual( {
-			kind: 'local',
-			name: 'clear',
-		} );
+	it( 'fill() of a builtin acts and fills nothing', () => {
+		const { shell, filled, out } = makeShell();
+		out.append( { kind: 'sent', text: 'ls' } );
+		send( shell, 'clear' );
+		expect( out.setStateCache.transcript ).toEqual( [] );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {
 		const { shell } = makeShell();
-		shell.fill( 'ls' );
-		shell.fill( 'ls' );
+		send( shell, 'ls' );
+		send( shell, 'ls' );
 		expect( shell.counter ).toBe( 2 );
 	} );
 } );
@@ -299,8 +318,8 @@ describe( 'Shell node — fill() reply path + TO', () => {
 describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	const drive = ( line, opts ) => {
 		const { shell, filled } = makeShell( opts );
-		const signal = shell.fill( line );
-		return { signal, m: filled[ 0 ], filled };
+		send( shell, line );
+		return { m: filled[ 0 ], filled, printed };
 	};
 
 	it( 'ping with no path → TM_PING, TO=path, numeric send-timestamp VALUE', () => {
@@ -325,11 +344,8 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'tell with no node → error signal', () => {
-		const { signal, filled } = drive( 'tell' );
-		expect( signal ).toEqual( {
-			kind: 'error',
-			text: 'usage: tell <path> <bytes>',
-		} );
+		const { filled } = drive( 'tell' );
+		expect( printedText() ).toContain( 'usage: tell <path> <bytes>' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
@@ -349,18 +365,15 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'send_struct with no node → error signal', () => {
-		const { signal, filled } = drive( 'send_struct' );
-		expect( signal ).toEqual( {
-			kind: 'error',
-			text: 'usage: send_struct <path> <json>',
-		} );
+		const { filled } = drive( 'send_struct' );
+		expect( printedText() ).toContain( 'usage: send_struct <path> <json>' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
 	it( 'send_struct with invalid JSON → error signal, sends nothing', () => {
-		const { signal, filled } = drive( "send_struct my_node '{bad json}'" );
-		expect( signal.kind ).toBe( 'error' );
-		expect( signal.text ).toContain( 'send_struct' );
+		const { filled } = drive( "send_struct my_node '{bad json}'" );
+
+		expect( printedText() ).toContain( 'send_struct' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
@@ -371,11 +384,8 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'send_eof with no node → error signal', () => {
-		const { signal } = drive( 'send_eof' );
-		expect( signal ).toEqual( {
-			kind: 'error',
-			text: 'usage: send_eof <path>',
-		} );
+		drive( 'send_eof' );
+		expect( printedText() ).toContain( 'usage: send_eof <path>' );
 	} );
 
 	it( 'request <node> <args> → TM_REQUEST with the args as VALUE', () => {
@@ -396,11 +406,10 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 	} );
 
 	it( 'cmd with only a path → error signal', () => {
-		const { signal } = drive( 'cmd only_path' );
-		expect( signal ).toEqual( {
-			kind: 'error',
-			text: 'usage: cmd <path> <verb> [<args>]',
-		} );
+		drive( 'cmd only_path' );
+		expect( printedText() ).toContain(
+			'usage: cmd <path> <verb> [<args>]'
+		);
 	} );
 
 	it( 'a bare verb defaults to TM_COMMAND at the cwd (path)', () => {
@@ -424,13 +433,13 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 describe( 'Shell node — settable path (cwd) + prefix', () => {
 	it( 'empty path leaves TO at the bare node target', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'tell n hi' );
+		send( shell, 'tell n hi' );
 		expect( filled[ 0 ][ TO ] ).toBe( 'n' );
 	} );
 
 	it( 'path-only (no node) routes a bare verb to the cwd', () => {
 		const { shell, filled } = makeShell( { path: '_http/demo.p0' } );
-		shell.fill( 'ls' );
+		send( shell, 'ls' );
 		expect( filled[ 0 ][ TO ] ).toBe( '_http/demo.p0' );
 	} );
 } );
@@ -445,7 +454,7 @@ describe( 'Shell node — anonymity', () => {
 describe( 'Shell node — pwd', () => {
 	it( 'pwd → TM_COMMAND name=pwd targeting the bare cwd (not prefixed)', () => {
 		const { shell, filled } = makeShell( { path: '_http/demo.p0' } );
-		shell.fill( 'pwd' );
+		send( shell, 'pwd' );
 		const m = filled[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( '_http/demo.p0' );
@@ -457,7 +466,7 @@ describe( 'Shell node — pwd', () => {
 
 	it( 'pwd at the local root → TO empty, arguments empty', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'pwd' );
+		send( shell, 'pwd' );
 		const m = filled[ 0 ];
 		expect( m[ TO ] ).toBe( '' );
 		expect( m[ VALUE ] ).toMatchObject( {
@@ -477,16 +486,14 @@ describe( 'Shell node — var + interpolation', () => {
 
 	it( 'var with a `:` name is rejected with an error signal', () => {
 		const { shell } = makeShell();
-		const sig = shell.parse( 'var config:x = 1' );
-		expect( sig.kind ).toBe( 'error' );
-		expect( sig.text ).toContain( 'config:x' );
+		send( shell, 'var config:x = 1' );
+		expect( printedText() ).toContain( 'config:x' );
 		expect( shell.vars[ 'config:x' ] ).toBeUndefined();
 	} );
 
 	it( 'var with no `=` fails loud with an error signal', () => {
 		const { shell } = makeShell();
-		const sig = shell.parse( 'var greeting hello' );
-		expect( sig.kind ).toBe( 'error' );
+		send( shell, 'var greeting hello' );
 		expect( shell.vars.greeting ).toBeUndefined();
 	} );
 
@@ -505,7 +512,7 @@ describe( 'Shell node — var + interpolation', () => {
 	it( 'interpolates <var> into a later command line', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.parse( 'var node = my_node' );
-		shell.fill( 'tell <node> hi there' );
+		send( shell, 'tell <node> hi there' );
 		const m = filled[ 0 ];
 		expect( m[ TO ] ).toBe( 'my_node' );
 		expect( m[ VALUE ] ).toBe( 'hi there' );
@@ -514,7 +521,7 @@ describe( 'Shell node — var + interpolation', () => {
 	it( 'interpolates <config:foo> from the config map', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.config = { base: 'firehose-in' };
-		shell.fill( 'ping <config:base>' );
+		send( shell, 'ping <config:base>' );
 		expect( filled[ 0 ][ TO ] ).toBe( 'firehose-in' );
 	} );
 
@@ -523,7 +530,7 @@ describe( 'Shell node — var + interpolation', () => {
 		const warn = jest
 			.spyOn( Core, '_stderr' )
 			.mockImplementation( () => {} );
-		shell.fill( 'tell <missing>node hi' );
+		send( shell, 'tell <missing>node hi' );
 		// `<missing>` → '' so the token is `node`.
 		expect( filled[ 0 ][ TO ] ).toBe( 'node' );
 		expect( warn.mock.calls.join( ' ' ) ).toContain(
@@ -566,38 +573,26 @@ describe( 'Shell node — var + interpolation', () => {
 } );
 
 describe( 'Shell node — echo / status / show_parse', () => {
-	it( 'print <args> → a local print signal carrying the joined text', () => {
+	it( 'print → the joined text out through _output, nothing filled', () => {
 		const { shell, filled } = makeShell();
-		expect( shell.parse( 'print hello world' ) ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'hello world',
-		} );
+		send( shell, 'print hello world' );
+		expect( printedText() ).toBe( 'hello world' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
-	it( 'show_parse toggles and reports its new state via a local signal', () => {
+	it( 'show_parse toggles its own flag and reports the new state', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'show_parse' ) ).toEqual( {
-			kind: 'local',
-			name: 'show_parse',
-			on: true,
-		} );
-		expect( shell.parse( 'show_parse' ) ).toEqual( {
-			kind: 'local',
-			name: 'show_parse',
-			on: false,
-		} );
+		send( shell, 'show_parse' );
+		expect( printedText() ).toContain( 'show_parse: on' );
+		send( shell, 'show_parse' );
+		expect( printedText() ).toContain( 'show_parse: off' );
 	} );
 
-	it( 'status → a local signal carrying the configured status lines', () => {
+	it( 'status prints each configured line', () => {
 		const { shell } = makeShell();
 		shell.statusLines = [ 'one', 'two' ];
-		expect( shell.parse( 'status' ) ).toEqual( {
-			kind: 'local',
-			name: 'status',
-			lines: [ 'one', 'two' ],
-		} );
+		send( shell, 'status' );
+		expect( printedText() ).toBe( 'one\ntwo\n' );
 	} );
 } );
 
@@ -615,11 +610,10 @@ describe( 'Shell node — control-flow verbs flow through as commands (no forbid
 } );
 
 describe( 'Shell node — include (browser-adapted)', () => {
-	it( 'include → an error signal noting it is unsupported in the browser', () => {
+	it( 'include → an error through _output, unsupported in the browser', () => {
 		const { shell, filled } = makeShell();
-		const sig = shell.parse( 'include /some/file' );
-		expect( sig.kind ).toBe( 'error' );
-		expect( sig.text ).toContain( 'include' );
+		send( shell, 'include /some/file' );
+		expect( printedText() ).toContain( 'include' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 } );
@@ -648,26 +642,26 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 
 	it( 'send <node> "hello world" → body has quotes stripped, runs collapsed', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'send demo.p0 "hello world"' );
+		send( shell, 'send demo.p0 "hello world"' );
 		expect( filled[ 0 ][ TO ] ).toBe( 'demo.p0' );
 		expect( filled[ 0 ][ VALUE ] ).toBe( 'hello world\n' );
 	} );
 
 	it( 'tell quoted body strips quotes; spaces inside the quotes are kept', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( "tell n 'a    b'" );
+		send( shell, "tell n 'a    b'" );
 		expect( filled[ 0 ][ VALUE ] ).toBe( 'a    b' );
 	} );
 
 	it( 'tell collapses runs of UNquoted whitespace between tokens', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'tell n hello   world' );
+		send( shell, 'tell n hello   world' );
 		expect( filled[ 0 ][ VALUE ] ).toBe( 'hello world' );
 	} );
 
 	it( 'cmd args are slice(2) tokens; a quoted arg stays one token', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'cmd n verb a   "b c"' );
+		send( shell, 'cmd n verb a   "b c"' );
 		expect( filled[ 0 ][ VALUE ] ).toMatchObject( {
 			name: 'verb',
 			arguments: [ 'a', 'b c' ],
@@ -676,16 +670,13 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 
 	it( 'print collapses whitespace runs and strips quotes', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'print a   "b c"' ) ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'a b c',
-		} );
+		send( shell, 'print a   "b c"' );
+		expect( printedText() ).toBe( 'a b c' );
 	} );
 
 	it( 'request args join slice(1) with single spaces', () => {
 		const { shell, filled } = makeShell( { path: '' } );
-		shell.fill( 'request n a   b' );
+		send( shell, 'request n a   b' );
 		expect( filled[ 0 ][ VALUE ] ).toBe( 'a b' );
 	} );
 
@@ -774,10 +765,10 @@ describe( 'Shell node — want_reply / TM_NOREPLY (script/topology mode)', () =>
 		expect( m[ TYPE ] ).toBe( TM_INFO );
 	} );
 
-	it( 'sendCommand respects want_reply(false) and stamps TM_NOREPLY', () => {
+	it( 'a command respects want_reply(false) and stamps TM_NOREPLY', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		shell.wantReply( false );
-		shell.sendCommand( '', 'connect_node', [ 'a', 'b' ] );
+		send( shell, 'connect_node a b' );
 		expect( filled ).toHaveLength( 1 );
 		expect( filled[ 0 ][ TYPE ] & TM_NOREPLY ).toBeTruthy();
 	} );
@@ -791,40 +782,36 @@ describe( 'Shell node — name guard', () => {
 } );
 
 describe( 'Shell node — undocumented skin builtins', () => {
-	it( 'list_skins → a local signal, never a filled message', () => {
+	it( 'list_skins calls the host, never a filled message', () => {
 		const { shell, filled } = makeShell();
-		expect( shell.parse( 'list_skins' ) ).toEqual( {
-			kind: 'local',
-			name: 'list_skins',
-		} );
+		let listed = 0;
+		shell.host.listSkins = () => listed++;
+		send( shell, 'list_skins' );
+		expect( listed ).toBe( 1 );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
-	it( 'set_skin <name> → a local signal carrying the joined raw name', () => {
+	it( 'set_skin hands the host the joined raw name', () => {
 		const { shell, filled } = makeShell();
-		expect( shell.parse( 'set_skin CRT Phosphor' ) ).toEqual( {
-			kind: 'local',
-			name: 'set_skin',
-			skin: 'CRT Phosphor',
-		} );
+		const skins = [];
+		shell.host.setSkin = ( n ) => skins.push( n );
+		send( shell, 'set_skin CRT Phosphor' );
+		expect( skins ).toEqual( [ 'CRT Phosphor' ] );
 		expect( filled ).toHaveLength( 0 );
 	} );
 
 	it( 'set_skin with a single-word name carries that word', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'set_skin Newspack' ) ).toEqual( {
-			kind: 'local',
-			name: 'set_skin',
-			skin: 'Newspack',
-		} );
+		const skins = [];
+		shell.host.setSkin = ( n ) => skins.push( n );
+		send( shell, 'set_skin Newspack' );
+		expect( skins ).toEqual( [ 'Newspack' ] );
 	} );
 
-	it( 'set_skin with no argument is a usage error', () => {
+	it( 'set_skin with no argument prints the usage', () => {
 		const { shell, filled } = makeShell();
-		expect( shell.parse( 'set_skin' ) ).toEqual( {
-			kind: 'error',
-			text: 'usage: set_skin <name>',
-		} );
+		send( shell, 'set_skin' );
+		expect( printedText() ).toContain( 'usage: set_skin <name>' );
 		expect( filled ).toHaveLength( 0 );
 	} );
 } );
@@ -891,23 +878,17 @@ describe( 'Shell node — message.from / message.key / message.id vars', () => {
 describe( 'Shell node — Tachikoma var semantics (Shell3 parity)', () => {
 	it( 'bare `var` lists every var as name=value, sorted', () => {
 		const { shell } = makeShell();
-		shell.parse( 'var zebra = last' );
-		shell.parse( 'var apple = first' );
-		expect( shell.parse( 'var' ) ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'apple=first\nzebra=last\n',
-		} );
+		send( shell, 'var zebra = last' );
+		send( shell, 'var apple = first' );
+		send( shell, 'var' );
+		expect( printedText() ).toBe( 'apple=first\nzebra=last\n' );
 	} );
 
 	it( '`var <name>` prints the value verbatim', () => {
 		const { shell } = makeShell();
-		shell.parse( 'var foo = bar' );
-		expect( shell.parse( 'var foo' ) ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'bar',
-		} );
+		send( shell, 'var foo = bar' );
+		send( shell, 'var foo' );
+		expect( printedText() ).toBe( 'bar' );
 	} );
 
 	it( 'reading an unset var defines it as empty (Shell3.pm:2715)', () => {
@@ -1121,15 +1102,12 @@ describe( 'Shell node — var value/print edges (Shell3 parity)', () => {
 
 	it( 'prints a read value verbatim, so an empty one prints nothing', () => {
 		const { shell } = makeShell();
-		shell.parse( 'var foo = bar' );
-		expect( shell.parse( 'var foo' ) ).toEqual( {
-			kind: 'local',
-			name: 'print',
-			text: 'bar',
-		} );
+		send( shell, 'var foo = bar' );
+		send( shell, 'var foo' );
+		expect( printedText() ).toBe( 'bar' );
 
-		shell.parse( 'var hollow' );
-		expect( shell.parse( 'var hollow' ) ).toBeNull();
+		send( shell, 'var hollow' );
+		expect( printedText() ).toBe( 'bar' );
 	} );
 
 	it( 'prints nothing for a bare `var` with an empty store', () => {

@@ -95,8 +95,15 @@ function buildDebugHeader1( message ) {
 	}:`;
 }
 
-// debug_level 2 header: full positional-envelope dump.
-function buildDebugHeader2( message ) {
+/**
+ * The full positional-envelope dump — `debug_level 2`, and what the REPL
+ * prints. Exported so any surface showing one message renders it identically
+ * rather than inventing its own shape.
+ *
+ * @param {Array} message Positional Message array.
+ * @return {string} The `Message { … }` block.
+ */
+export function formatMessageEnvelope( message ) {
 	const ts = message[ TIMESTAMP ] ?? '';
 	const tsHuman =
 		typeof ts === 'number' && Number.isFinite( ts )
@@ -212,8 +219,9 @@ export class DumperNode extends Node {
 		this._flushHandle = null;
 		this._schedule = scheduleFrame;
 		this._cancelSchedule = cancelFrame;
-		// React subscribes to this via useNodeState( '_output', 'transcript' ).
+		// React subscribes to these via useNodeState( '_output', <event> ).
 		this.registrations.transcript = {};
+		this.registrations.debug_level = {};
 		// One-shot command-reply capture: { verb, callback } or null.
 		this._captureReply = null;
 	}
@@ -234,7 +242,10 @@ export class DumperNode extends Node {
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
 			// Level 2 replaces the render with the full envelope dump.
-			this._write( { kind: 'info', text: buildDebugHeader2( message ) } );
+			this._write( {
+				kind: 'info',
+				text: formatMessageEnvelope( message ),
+			} );
 		} else {
 			if ( level >= 1 ) {
 				this._write( {
@@ -319,6 +330,27 @@ export class DumperNode extends Node {
 	 */
 	append( entry ) {
 		this._write( entry );
+		this._flushNow();
+	}
+
+	/**
+	 * Append a written text chunk as one `recv` entry per line — what the
+	 * browser's `_stdout` stream hands over. A terminal takes bytes; the
+	 * transcript takes lines, so this is where the two meet.
+	 *
+	 * @param {string} text Chunk as written, trailing newline included.
+	 */
+	appendText( text ) {
+		if ( '' === text || 'string' !== typeof text ) {
+			return;
+		}
+		const lines = text.split( '\n' );
+		if ( '' === lines[ lines.length - 1 ] ) {
+			lines.pop();
+		}
+		lines.forEach( ( line ) =>
+			this._write( { kind: 'recv', text: line } )
+		);
 		this._flushNow();
 	}
 
@@ -482,6 +514,18 @@ export class DumperNode extends Node {
 			this._flushScheduled = false;
 			this._flushHandle = null;
 		}
+	}
+
+	/**
+	 * Move the verbosity dial and publish it, so the ref `_render` reads and the
+	 * React toggle that displays it can never disagree. The Shell's
+	 * `debug_level` builtin is the only caller.
+	 *
+	 * @param {number} level New debug level (0/1/2).
+	 */
+	setDebugLevel( level ) {
+		this.debugLevelRef.current = level;
+		this.setState( 'debug_level', level );
 	}
 
 	/**
