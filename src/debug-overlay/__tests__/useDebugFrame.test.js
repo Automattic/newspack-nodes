@@ -1,6 +1,7 @@
 import { renderHook, render, act } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
 import { useDebugFrame } from '../useDebugFrame';
+import { lockPageScroll, unlockPageScroll } from '../pageScrollLock';
 
 const KEY = 'newspack-nodes:debug:test-frame';
 
@@ -309,6 +310,24 @@ describe( 'useDebugFrame', () => {
 			w: 600,
 			h: 400,
 		} );
+	} );
+
+	it( 'leaves the page scrollable after a maximized panel is closed from outside', () => {
+		// The Safari order: pointer enter locks, maximize holds, pointer
+		// leaves, then Ctrl+` unmounts the panel.
+		document.documentElement.style.overflow = 'auto';
+		document.body.style.overflow = 'scroll';
+		const { result, unmount } = renderHook( () => useDebugFrame( KEY ) );
+		lockPageScroll();
+		act( () => result.current.toggleMaximize() );
+		unlockPageScroll();
+		expect( document.body.style.overflow ).toBe( 'hidden' );
+
+		unmount();
+		expect( document.body.style.overflow ).toBe( 'scroll' );
+		expect( document.documentElement.style.overflow ).toBe( 'auto' );
+		document.documentElement.style.overflow = '';
+		document.body.style.overflow = '';
 	} );
 
 	it( 'resize from the SE corner adjusts width + height', () => {

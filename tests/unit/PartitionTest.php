@@ -580,6 +580,19 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	public function test_dump_config_quotes_a_spaced_name_in_the_config_verb_path(): void {
+		// `<name>:config` is ONE token. A spaced name emitted bare splits the
+		// path in two and the verb line addresses a node that doesn't exist.
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), "2", "4", "0", "0", "86400", "0" ] );
+		$p->name( 'spaced part' );
+		$p->allow_large_writes();
+		$this->assertStringContainsString(
+			"command_node 'spaced part:config' allow_large_writes",
+			$p->dump_config()
+		);
+	}
+
 	public function test_allow_large_writes_throws_if_already_held(): void {
 		// allow_large_writes is a single-writer claim: only one Partition can
 		// hold the lock for a given partition_dir at a time. A second writer
@@ -1260,6 +1273,39 @@ class PartitionTest extends TestCase {
 		// Second entry's offset is the length of the first (packed) line.
 		$this->assertSame( $first['length'], $second['offset'] );
 		$this->assertGreaterThan( 0, $first['length'] );
+	}
+
+	public function test_a_large_write_updates_the_warm_segment_cache(): void {
+		// allow_large_writes() pins the segment cache warm forever, so a large
+		// write that skips touch_segments_cache() misreports the live segment.
+		$p = new Partition_Node();
+		$p->name( 'bigwriter' );
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), '2', '4', '0', '0', '86400', '0' ] );
+		$p->allow_large_writes();
+		$this->produce_into( $p, 'primer' );
+		$primed = $p->get_segments();
+
+		$p->fill( $this->produce( str_repeat( 'L', 6000 ) ) );
+
+		$after = $p->get_segments();
+		$this->assertGreaterThan( $primed[0]['size'] + 6000, $after[0]['size'] );
+		$p->remove_node();
+	}
+
+	public function test_with_index_on_a_live_partition_starts_indexing_at_once(): void {
+		// The `with_index` verb runs against a RUNNING node, whose .log handle is
+		// already open for the current segment — the .idx has to open anyway.
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
+		$this->produce_into( $p, 'written-before-the-verb' );
+
+		$p->with_index( fn ( array $message, array $pos ) => 'indexed:' . $message[ Message::VALUE ] );
+		$this->produce_into( $p, 'written-after-the-verb' );
+
+		$this->assertSame(
+			[ 'indexed:written-after-the-verb' ],
+			array_values( array_filter( explode( "\n", (string) @file_get_contents( "{$this->tmp}.p0/0.idx" ) ) ) )
+		);
 	}
 
 	public function test_with_index_callback_returning_null_skips_entry(): void {

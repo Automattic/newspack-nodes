@@ -58,6 +58,25 @@ class MessageTest extends TestCase {
 		$this->assertSame( 512, Message::TM_NOREPLY );
 	}
 
+	public function test_type_labels_names_every_flag_set_in_a_composite(): void {
+		// The ONE flags-to-names map lives here, beside the constants it names,
+		// so a renderer cannot carry a copy that forgot a flag.
+		$this->assertSame(
+			[ 'TM_COMMAND', 'TM_ERROR', 'TM_NOREPLY' ],
+			Message::type_labels( Message::TM_COMMAND | Message::TM_ERROR | Message::TM_NOREPLY )
+		);
+	}
+
+	public function test_type_labels_names_the_untyped_mint_default(): void {
+		// A stray TM_UNTYPED is a bug the drop audit and the Dumper must name.
+		$this->assertSame( [ 'TM_UNTYPED' ], Message::type_labels( Message::TM_UNTYPED ) );
+	}
+
+	public function test_type_labels_is_empty_when_no_known_flag_matches(): void {
+		// Empty, not a label: each renderer names the no-match case its own way.
+		$this->assertSame( [], Message::type_labels( 0 ) );
+	}
+
 	public function test_new_message_returns_seven_element_array(): void {
 		$m = Message::new_message();
 		$this->assertCount( 7, $m );

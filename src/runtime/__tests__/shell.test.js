@@ -7,6 +7,7 @@
 
 import {
 	ShellNode,
+	parseStatements,
 	splitStatements,
 	tokenize,
 	quoteToken,
@@ -191,6 +192,57 @@ describe( 'tokenizer escape round-trip', () => {
 			"'/logs/firehose.p<partition>'"
 		);
 	} );
+
+	// The same deferral for a token serializeArg had to ESCAPE: it writes `'` as
+	// `\'`, and interpolate() runs before tokenize() — a literal span closing on
+	// the escape inverts quote parity and expands every later `<…>`.
+	// Parity-pinned to the PHP test of the same name.
+	it( 'defers a marker following an escaped quote', () => {
+		const { shell } = makeShell( {} );
+		const tokens = [ "Don't use <partition>", '/logs/x.p<partition>' ];
+		const line = 'X Y ' + tokens.map( serializeArg ).join( ' ' );
+		expect( tokenize( shell.interpolate( line ) ).slice( 2 ) ).toEqual(
+			tokens
+		);
+	} );
+
+	// A name is as much a token as an argument — `make Echo 'foo bar'` really
+	// does register a node named "foo bar". Emitted bare, every dumped line
+	// replays as one token too many and rebuilds a DIFFERENT graph.
+	// Parity-pinned to the PHP test of the same name.
+	it( 'quotes spaced node, sink and target names so each line round-trips', () => {
+		const sink = new Node();
+		sink.name = 'sink node';
+		const node = new Node();
+		node.name = 'foo bar';
+		node.sink = sink;
+		node.target = 'down stream';
+
+		const [ make, setSink, connect ] = node.dumpConfig().split( '\n' );
+		expect( tokenize( make ).slice( 2 ) ).toEqual( [ 'foo bar' ] );
+		expect( tokenize( setSink ) ).toEqual( [
+			'set_sink',
+			'foo bar',
+			'sink node',
+		] );
+		expect( tokenize( connect ) ).toEqual( [
+			'connect_node',
+			'foo bar',
+			'down stream',
+		] );
+	} );
+
+	it( 'quotes each spaced target in a fan-out list', () => {
+		const node = new Node();
+		node.name = 'fan out';
+		node.target = [ 'left leg', 'right leg' ];
+
+		const lines = node.dumpConfig().split( '\n' ).slice( 1, 3 );
+		expect( lines.map( ( l ) => tokenize( l ) ) ).toEqual( [
+			[ 'connect_node', 'fan out', 'left leg' ],
+			[ 'connect_node', 'fan out', 'right leg' ],
+		] );
+	} );
 } );
 
 describe( 'Shell node — cd navigation', () => {
@@ -312,6 +364,26 @@ describe( 'Shell node — fill() reply path + TO', () => {
 		send( shell, 'ls' );
 		send( shell, 'ls' );
 		expect( shell.counter ).toBe( 2 );
+	} );
+
+	// TYPE is a bitmask (ADR-2): a composite EOF must still drain, matching
+	// PHP `$type & Message::TM_EOF`.
+	it( 'drains a composite TM_EOF|TM_NOREPLY like a bare TM_EOF', () => {
+		const { shell, filled } = makeShell( { path: 'depot.p7' } );
+		expect( shell.parse( 'print half a statement\\' ) ).toBeNull();
+		const m = [];
+		m[ TYPE ] = TM_EOF | TM_NOREPLY;
+		m[ FROM ] = 'stdin/9137';
+		m[ TO ] = 'somewhere/else';
+		m[ ID ] = '';
+		m[ KEY ] = '';
+		m[ TIMESTAMP ] = 0;
+		m[ VALUE ] = '';
+		shell.fill( m );
+		expect( printedText() ).toMatch( /got EOF while waiting for tokens/ );
+		expect( filled ).toHaveLength( 1 );
+		expect( filled[ 0 ][ FROM ] ).toBe( '_output' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'depot.p7' );
 	} );
 } );
 
@@ -1113,5 +1185,92 @@ describe( 'Shell node — var value/print edges (Shell3 parity)', () => {
 	it( 'prints nothing for a bare `var` with an empty store', () => {
 		const { shell } = makeShell();
 		expect( shell.parse( 'var' ) ).toBeNull();
+	} );
+} );
+
+/**
+ * The static front-end must MEAN what the runtime means: replaying a canonical
+ * statement at the root cwd mints the Message parse() minted at the live cwd.
+ * Mirrors PHP tests/unit/StatementRuntimeParityTest.php.
+ */
+describe( 'parseStatements — static statements replay to runtime messages', () => {
+	const SCRIPT = [
+		'cd depot',
+		'tell_node beacon status ok',
+		'tell beacon short form',
+		'ping beacon',
+		'send_node beacon payload bytes',
+		'send beacon short bytes',
+		'send_struct_node beacon \'{"depth":9}\'',
+		'request_node beacon fetch 7',
+		'send_eof beacon',
+		'command_node beacon ping',
+		'cmd beacon set_retention --segments=41',
+		'pwd',
+		'rotate_now --after=13',
+		'print holding at depot',
+		'var depot_hint = 4271',
+		'cd ..',
+		'tell_node beacon top level',
+		'command_node beacon ping',
+		'ping beacon',
+		'pwd',
+		'rotate_now --after=13',
+	];
+
+	// TYPE/TO/VALUE — what the message says. `ping` carries the mint clock as
+	// its VALUE, which no two runs share; normalize it.
+	const meaning = ( m ) => {
+		let value = m[ TYPE ] & TM_PING ? '<mint-clock>' : m[ VALUE ];
+		if ( value && 'object' === typeof value ) {
+			// commandAuth signs with a per-message nonce; drop it.
+			const { auth, ...rest } = value;
+			value = rest;
+		}
+		return { type: m[ TYPE ], to: m[ TO ], value };
+	};
+
+	const runLines = ( lines ) => {
+		// makeShell registers `_stdout`; each run needs the graph to itself.
+		Core.reset();
+		const { shell, filled } = makeShell( { path: '' } );
+		lines.forEach( ( line ) => send( shell, line ) );
+		return filled.map( meaning );
+	};
+
+	it( 'replays every minting verb, at a cwd and at the root', () => {
+		const statements = parseStatements( SCRIPT.join( '\n' ) );
+		expect( runLines( statements.map( ( s ) => s.raw ) ) ).toEqual(
+			runLines( SCRIPT )
+		);
+	} );
+
+	// The skin builtins are the browser REPL's alone. A statement list reads a
+	// TOPOLOGY, which the PHP loader runs, so it must read them as PHP will —
+	// modelling this parse()'s extra verbs would misreport a real `.tsl`.
+	it( 'reads the browser-only skin verbs as the cwd commands PHP sends', () => {
+		const statements = parseStatements(
+			'cd depot\nset_skin midnight\nlist_skins'
+		);
+		expect( statements.map( ( s ) => s.values ) ).toEqual( [
+			[ 'command_node', 'depot', 'set_skin', 'midnight' ],
+			[ 'command_node', 'depot', 'list_skins' ],
+		] );
+	} );
+
+	it( 'reads `ping` as a command NAME after command_node, not the verb', () => {
+		const statements = parseStatements(
+			'command_node _command_interpreter ping\ncd depot\ncommand_node beacon ping'
+		);
+		expect( statements[ 0 ].values ).toEqual( [
+			'command_node',
+			'_command_interpreter',
+			'ping',
+		] );
+		expect( statements[ 1 ].values ).toEqual( [
+			'command_node',
+			'depot/beacon',
+			'ping',
+		] );
 	} );
 } );

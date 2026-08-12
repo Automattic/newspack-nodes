@@ -28,6 +28,7 @@ import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
 import { deltaFromAutofit, viewportFromDelta } from '../utils/autofitDelta';
 import { hullGeometry } from '../utils/hullPath';
+import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { edgeHasConnectRole } from '../utils/consoleGraph';
 import { useCatalog } from '../CatalogContext';
 
@@ -38,13 +39,16 @@ export const PORT_R = 4.5;
 // Movement (SVG units) before a pointer-down counts as a drag, not a click.
 const DRAG_THRESHOLD = 3;
 
+// Hull palette size; mirrors `@for $i from 0 through 5` in graph-view.scss.
+const HULL_COLORS = 6;
+
 // Stable per-include color; a paint-index color would shuffle on drag.
 function hullColorIndex( include ) {
 	let h = 0;
 	for ( let i = 0; i < include.length; i++ ) {
 		h = ( h * 31 + include.charCodeAt( i ) ) >>> 0;
 	}
-	return h % 6;
+	return h % HULL_COLORS;
 }
 
 // Convert pointer (viewport) coords to SVG coords via the CTM scale.
@@ -69,11 +73,39 @@ function compactCount( count ) {
 	return count.toLocaleString();
 }
 
+// The two port anchors on a card, in world units. Five call sites had them.
+const outPort = ( n ) => ( {
+	x: n.position.x + NODE_W,
+	y: n.position.y + NODE_H / 2,
+} );
+const inPort = ( n ) => ( { x: n.position.x, y: n.position.y + NODE_H / 2 } );
+
+/**
+ * Whether a node draws an IN port — and so whether a wire may land on it.
+ * Per-node flag first, then its class's, defaulting to the base Node contract.
+ *
+ * @param {Object} n       Graph node.
+ * @param {Object} catalog Class catalog keyed by shell name.
+ * @return {boolean} True when the node accepts fill.
+ */
+function acceptsFill( n, catalog ) {
+	return n.accepts_fill ?? catalog?.[ n.class ]?.accepts_fill ?? true;
+}
+
+/**
+ * Whether a node draws an OUT port — the wire-drag source.
+ *
+ * @param {Object} n       Graph node.
+ * @param {Object} catalog Class catalog keyed by shell name.
+ * @return {boolean} True when the node has a target.
+ */
+function hasTarget( n, catalog ) {
+	return n.has_target ?? catalog?.[ n.class ]?.has_target ?? true;
+}
+
 function edgePath( a, b ) {
-	const x1 = a.position.x + NODE_W;
-	const y1 = a.position.y + NODE_H / 2;
-	const x2 = b.position.x;
-	const y2 = b.position.y + NODE_H / 2;
+	const { x: x1, y: y1 } = outPort( a );
+	const { x: x2, y: y2 } = inPort( b );
 	// Cubic bezier S-curve so edge source/destination read clearly.
 	const dx = Math.max( 60, Math.abs( x2 - x1 ) * 0.5 );
 	const c1x = x1 + dx;
@@ -173,12 +205,81 @@ const SCALE_MAX = 3;
 const MIN_NODE_PX = 2;
 // Overscan fraction of off-screen nodes each side so panning stays smooth.
 const NODE_OVERSCAN = 0.5;
-// LOD scale below which cards drop to bare rects — MUST match detailScale.
+// LOD scale below which cards drop to bare rects; passed to viewportCull.
 const LOD_DETAIL_SCALE = 0.35;
 // Floor a hair ABOVE the LOD threshold so rounding can't tip cards into LOD.
 const LOD_FLOOR_SCALE = LOD_DETAIL_SCALE * 1.2;
 // A near-covering transcript counts as "full": frame as if it were CLOSED.
 const TRANSCRIPT_FULL_FRACTION = 0.9;
+
+// Window in which a pointerdown's paired mousedown counts as the same press.
+const DOWN_DEDUPE_MS = 50;
+
+/**
+ * A card and a port both listen to pointerdown AND mousedown, because Safari
+ * drops the pointer stream after a drag. This makes the pair ONE press:
+ * `shouldHandle` admits the first and swallows the second.
+ *
+ * @return {{shouldHandle: (e: Object) => boolean}} The press filter.
+ */
+function makeDownGuard() {
+	let armed = false;
+	return {
+		shouldHandle( e ) {
+			if ( armed ) {
+				// Swallow the duplicate; it must start no second gesture.
+				e.stopPropagation();
+				return false;
+			}
+			armed = true;
+			setTimeout( () => {
+				armed = false;
+			}, DOWN_DEDUPE_MS );
+			return true;
+		},
+	};
+}
+
+/**
+ * The bottom band the graph must clear, after the full-transcript rule: a
+ * transcript covering nearly the whole canvas frames as if it were closed,
+ * because fitting into the remaining sliver is unreadable.
+ *
+ * @param {number} canvasH       Canvas height in px.
+ * @param {number} obstructionPx Raw bottom obstruction in px.
+ * @return {number} The inset autofit should honour.
+ */
+function effectiveInset( canvasH, obstructionPx ) {
+	const inset = Math.max( 0, obstructionPx || 0 );
+	return inset >= canvasH * TRANSCRIPT_FULL_FRACTION ? 0 : inset;
+}
+
+/**
+ * THE autofit box. Every site that asks "what does fit-all look like?" asks
+ * here, so a delta persisted against one basis is re-derived against the same
+ * one — a resize, a background click and the rendered fallback agree by
+ * construction rather than by three copies of the same arithmetic.
+ *
+ * @param {Array}   nodes         Positioned nodes.
+ * @param {?Object} canvasPx      Measured canvas `{ w, h }`; null before measurement.
+ * @param {number}  obstructionPx Raw bottom obstruction in px.
+ * @return {string} A `"x y w h"` viewBox.
+ */
+function autofitFor( nodes, canvasPx, obstructionPx ) {
+	const size = canvasPx?.w ? canvasPx : null;
+	const canvasH = size?.h || AUTOFIT_FALLBACK_H;
+	// Floor the band above LOD: it can't shrink past card-readable.
+	const inset = Math.min(
+		effectiveInset( canvasH, obstructionPx ),
+		maxInsetBeforeLOD( {
+			canvasH,
+			bboxH: nodesBBox( nodes )?.h ?? 0,
+			detailScale: LOD_FLOOR_SCALE,
+			fill: AUTOFIT_FILL,
+		} )
+	);
+	return tightViewBoxFor( nodes, size, inset );
+}
 
 // Arrow-key pan: viewport fraction per keypress; shift pans faster.
 const PAN_STEP = 0.08;
@@ -206,7 +307,7 @@ function bloomStdDev( px, scale ) {
 function parseViewBox( str ) {
 	const parts = str.split( /\s+/ ).map( Number );
 	if ( parts.length !== 4 || parts.some( Number.isNaN ) ) {
-		return { x: 0, y: 0, w: 1280, h: 720 };
+		return { x: 0, y: 0, w: AUTOFIT_FALLBACK_W, h: AUTOFIT_FALLBACK_H };
 	}
 	return { x: parts[ 0 ], y: parts[ 1 ], w: parts[ 2 ], h: parts[ 3 ] };
 }
@@ -214,18 +315,16 @@ function parseViewBox( str ) {
 // Sparkline area inside each node card, auto-scaled to the window's max.
 const SPARK_X = 11;
 const SPARK_Y = 48;
-const SPARK_W = 174; // NODE_W (196) - 11 - 11
+const SPARK_W = NODE_W - 2 * SPARK_X;
 const SPARK_H = 16;
-// Must equal useGraphRates.js's RATE_HISTORY_MAX — drives the per-sample step.
-const SPARK_HISTORY_MAX = 60;
 function sparklinePath( history ) {
 	if ( ! history || history.length < 2 ) {
 		return null;
 	}
 	const max = Math.max( ...history, 1e-9 );
-	const step = SPARK_W / ( SPARK_HISTORY_MAX - 1 );
+	const step = SPARK_W / ( RATE_HISTORY_MAX - 1 );
 	// Right-align: newest sample at the right edge, earlier ones walk left.
-	const startIdx = SPARK_HISTORY_MAX - history.length;
+	const startIdx = RATE_HISTORY_MAX - history.length;
 	return history
 		.map( ( v, i ) => {
 			// Clamp negatives (counter reset) so they don't plot below the box.
@@ -239,6 +338,9 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
+// Below this msg/s a node reads as idle: no rate label, and a dimmed card.
+const IDLE_RATE_FLOOR = 0.05;
+
 /**
  * Whether a node reads as idle: its message rate sits below the same display
  * floor that hides the per-card rate label, so nothing about it is moving.
@@ -248,12 +350,12 @@ function sparklinePath( history ) {
  * @return {boolean} True when the card should be dimmed as idle.
  */
 export function isIdleRate( rate ) {
-	return ! rate || rate < 0.05;
+	return ! rate || rate < IDLE_RATE_FLOOR;
 }
 
-// Per-node rate label; null below threshold so dead nodes don't show "0 /s".
+// Per-node rate label; null below the idle floor, so a dead node shows none.
 function formatNodeRate( rate ) {
-	if ( ! rate || rate < 0.05 ) {
+	if ( isIdleRate( rate ) ) {
 		return null;
 	}
 	if ( rate >= 100 ) {
@@ -374,6 +476,8 @@ export default function SchematicCanvas( {
 	const [ hullDrag, setHullDrag ] = useState( null );
 	// Set when the pointer-down crossed the threshold; suppresses selection.
 	const draggedRef = useRef( false );
+	// The same, for a hull drag: a plain click must not commit a reposition.
+	const hullDraggedRef = useRef( false );
 
 	const displayNodes = useMemo( () => {
 		if ( ! drag ) {
@@ -410,8 +514,11 @@ export default function SchematicCanvas( {
 	// Pointer-over gate: only steal arrow keys while the canvas is hovered.
 	const canvasHoverRef = useRef( false );
 
-	// Debounce flag for beginDrag — see comment in beginDrag below.
-	const beginDragGuardRef = useRef( false );
+	// One press per pointerdown/mousedown pair, for cards and for ports.
+	const dragDownGuard = useRef( null );
+	dragDownGuard.current ||= makeDownGuard();
+	const portDownGuard = useRef( null );
+	portDownGuard.current ||= makeDownGuard();
 
 	// SVG ref for projecting HTML drop coords back into viewBox space.
 	const svgRef = useRef( null );
@@ -440,17 +547,19 @@ export default function SchematicCanvas( {
 				return;
 			}
 			const local = screenToSvg( svg, e.clientX, e.clientY );
-			// Snap to nearest IN port within PORT_HIT_R (never the source).
+			// Nearest DRAWN IN port within PORT_HIT_R, never the source.
 			let snapTargetId = null;
 			let bestDist = PORT_HIT_R;
 			for ( const n of nodes ) {
-				if ( n.id === current.fromId ) {
+				if (
+					n.id === current.fromId ||
+					! acceptsFill( n, classCatalog )
+				) {
 					continue;
 				}
-				const px = n.position.x;
-				const py = n.position.y + NODE_H / 2;
-				const dx = local.x - px;
-				const dy = local.y - py;
+				const port = inPort( n );
+				const dx = local.x - port.x;
+				const dy = local.y - port.y;
 				const d = Math.sqrt( dx * dx + dy * dy );
 				if ( d <= bestDist ) {
 					bestDist = d;
@@ -464,7 +573,7 @@ export default function SchematicCanvas( {
 				hoveredId: snapTargetId,
 			} );
 		},
-		[ nodes, updateWireDrag ]
+		[ nodes, classCatalog, updateWireDrag ]
 	);
 
 	const handleWindowWireUp = useCallback( () => {
@@ -479,23 +588,14 @@ export default function SchematicCanvas( {
 		}
 	}, [ onConnect, updateWireDrag ] );
 
-	// Same pointerdown/mousedown dedupe as beginDrag (Safari post-drop).
-	const portDownGuardRef = useRef( false );
-
 	const handlePortPointerDown = useCallback(
 		( nodeId, e ) => {
 			if ( ! interactive || ! onConnect || e.button !== 0 ) {
 				return;
 			}
-			if ( portDownGuardRef.current ) {
-				// Stop the deduped duplicate; don't also start a node drag.
-				e.stopPropagation();
+			if ( ! portDownGuard.current.shouldHandle( e ) ) {
 				return;
 			}
-			portDownGuardRef.current = true;
-			setTimeout( () => {
-				portDownGuardRef.current = false;
-			}, 50 );
 			e.stopPropagation();
 			const svg = svgRef.current;
 			if ( ! svg ) {
@@ -515,8 +615,7 @@ export default function SchematicCanvas( {
 			if ( ! node ) {
 				return;
 			}
-			const x1 = node.position.x + NODE_W;
-			const y1 = node.position.y + NODE_H / 2;
+			const { x: x1, y: y1 } = outPort( node );
 			updateWireDrag( {
 				fromId: nodeId,
 				x1,
@@ -535,15 +634,6 @@ export default function SchematicCanvas( {
 			handleWindowWireUp,
 		]
 	);
-
-	// SVG pixel size as the autofit minimum so a small graph stays native zoom.
-	const canvasSize = () => {
-		const el = svgRef.current;
-		if ( ! el ) {
-			return null;
-		}
-		return { w: el.clientWidth, h: el.clientHeight };
-	};
 
 	// Track canvas px reactively so autofit + cull recompute on panel resize.
 	const [ canvasPx, setCanvasPx ] = useState( { w: 0, h: 0 } );
@@ -564,12 +654,7 @@ export default function SchematicCanvas( {
 	}, [] );
 
 	const defaultViewBox = useMemo(
-		() =>
-			tightViewBoxFor(
-				displayNodes,
-				canvasPx.w ? canvasPx : null,
-				bottomObstructionPx
-			),
+		() => autofitFor( displayNodes, canvasPx, bottomObstructionPx ),
 		[ displayNodes, canvasPx, bottomObstructionPx ]
 	);
 	const viewBox = viewport
@@ -584,6 +669,7 @@ export default function SchematicCanvas( {
 				nodeW: NODE_W,
 				nodeH: NODE_H,
 				overscan: NODE_OVERSCAN,
+				detailScale: LOD_DETAIL_SCALE,
 			} ),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ viewport, defaultViewBox, displayNodes, canvasPx ]
@@ -596,11 +682,7 @@ export default function SchematicCanvas( {
 	// Cache autofit so persist + freeze share one basis.
 	useEffect( () => {
 		autofitBoxRef.current = parseViewBox(
-			tightViewBoxFor(
-				nodesRef.current,
-				canvasSize(),
-				bottomObstructionPx
-			)
+			autofitFor( nodesRef.current, canvasPx, bottomObstructionPx )
 		);
 	}, [ nodes, canvasPx, bottomObstructionPx ] );
 	// MEMBERSHIP, not array identity: a drag moves the autofit box too.
@@ -645,11 +727,7 @@ export default function SchematicCanvas( {
 		if ( ! canvasPx.w || ! canvasPx.h ) {
 			return; // unmeasured — keep the baseline for the first real measure
 		}
-		// Near-full transcript frames as CLOSED (inset 0); un-max reflows back.
-		const effInset =
-			bottomObstructionPx >= canvasPx.h * TRANSCRIPT_FULL_FRACTION
-				? 0
-				: bottomObstructionPx;
+		const effInset = effectiveInset( canvasPx.h, bottomObstructionPx );
 		const cur = { px: canvasPx, inset: effInset };
 		if (
 			! prev?.px?.w ||
@@ -670,32 +748,12 @@ export default function SchematicCanvas( {
 		prevSurfaceRef.current = cur;
 		// Committed nodes so a resize mid-drag fits the settled layout.
 		const currentNodes = nodesRef.current;
-		// Floor the reflow above LOD (band can't shrink past readable).
-		const bboxH = nodesBBox( currentNodes )?.h ?? 0;
-		const clampInset = ( inset, pxH ) =>
-			Math.min(
-				inset,
-				maxInsetBeforeLOD( {
-					canvasH: pxH,
-					bboxH,
-					detailScale: LOD_FLOOR_SCALE,
-					fill: AUTOFIT_FILL,
-				} )
-			);
 		// Re-derive the viewport against the new autofit, holding its delta.
 		const oldBox = parseViewBox(
-			tightViewBoxFor(
-				currentNodes,
-				prev.px,
-				clampInset( prev.inset, prev.px.h )
-			)
+			autofitFor( currentNodes, prev.px, prev.inset )
 		);
 		const newBox = parseViewBox(
-			tightViewBoxFor(
-				currentNodes,
-				canvasPx,
-				clampInset( effInset, canvasPx.h )
-			)
+			autofitFor( currentNodes, canvasPx, effInset )
 		);
 		const delta = deltaFromAutofit( vp, oldBox );
 		const next = delta ? viewportFromDelta( delta, newBox ) : vp;
@@ -718,11 +776,10 @@ export default function SchematicCanvas( {
 		const svg = e.currentTarget;
 		const world = screenToSvg( svg, e.clientX, e.clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
-		const measured = canvasSize();
 		// Unmeasured: fall back to the viewBox size (keeps aspect + factor).
 		const cs =
-			measured && measured.w && measured.h
-				? measured
+			canvasPx.w && canvasPx.h
+				? canvasPx
 				: { w: current.w, h: current.h };
 		const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
 		// Work in scale-space (px/world) so zoom limits are ABSOLUTE.
@@ -867,9 +924,9 @@ export default function SchematicCanvas( {
 			} else {
 				setViewport(
 					parseViewBox(
-						tightViewBoxFor(
+						autofitFor(
 							displayNodes,
-							canvasSize(),
+							canvasPx,
 							bottomObstructionPx
 						)
 					)
@@ -883,17 +940,9 @@ export default function SchematicCanvas( {
 		if ( e.button !== 0 ) {
 			return;
 		}
-		// Listen to pointerdown + mousedown (Safari post-drop); guard dedupes.
-		if ( beginDragGuardRef.current ) {
-			// Stop the deduped duplicate so it doesn't bubble and start a pan.
-			e.stopPropagation();
+		if ( ! dragDownGuard.current.shouldHandle( e ) ) {
 			return;
 		}
-		beginDragGuardRef.current = true;
-		// Reset next tick: after the paired event, before the next interaction.
-		setTimeout( () => {
-			beginDragGuardRef.current = false;
-		}, 50 );
 		e.stopPropagation();
 		draggedRef.current = false;
 		const svg = e.currentTarget.ownerSVGElement;
@@ -969,10 +1018,16 @@ export default function SchematicCanvas( {
 	// A hull drag moves EVERY member by one delta; the cluster keeps shape.
 	const beginHullDrag = ( ev, include ) => {
 		const hull = hulls.find( ( h ) => h.include === include );
-		if ( ! hull || ! onPositionChange ) {
+		if (
+			! hull ||
+			! onPositionChange ||
+			! interactive ||
+			ev.button !== 0
+		) {
 			return;
 		}
 		ev.stopPropagation();
+		hullDraggedRef.current = false;
 		const svg = ev.currentTarget.ownerSVGElement;
 		const start = screenToSvg( svg, ev.clientX, ev.clientY );
 		try {
@@ -998,18 +1053,30 @@ export default function SchematicCanvas( {
 		const at = screenToSvg( svg, ev.clientX, ev.clientY );
 		const dx = at.x - hullDrag.start.x;
 		const dy = at.y - hullDrag.start.y;
+		if (
+			Math.abs( dx ) > DRAG_THRESHOLD ||
+			Math.abs( dy ) > DRAG_THRESHOLD
+		) {
+			hullDraggedRef.current = true;
+		}
 		setHullDrag( ( d ) => ( d ? { ...d, dx, dy } : d ) );
 	};
+	// A click SELECTS a hull; only a real drag commits a reposition.
 	const endHullDrag = () => {
 		if ( ! hullDrag ) {
 			return;
 		}
 		const { origin } = hullDrag;
+		const dragged = hullDraggedRef.current;
+		hullDraggedRef.current = false;
+		setHullDrag( null );
+		if ( ! dragged ) {
+			return;
+		}
 		const { dx, dy } = hullDragDelta( hullDrag );
 		for ( const [ id, pos ] of Object.entries( origin ) ) {
 			onPositionChange( id, { x: pos.x + dx, y: pos.y + dy } );
 		}
-		setHullDrag( null );
 	};
 
 	// One node card; all visible cards share the single bloom-filtered group.
@@ -1169,9 +1236,7 @@ export default function SchematicCanvas( {
 								{ compactCount( n.count ) }
 							</text>
 						</g>
-						{ ( n.accepts_fill ??
-							classCatalog[ n.class ]?.accepts_fill ??
-							true ) && (
+						{ acceptsFill( n, classCatalog ) && (
 							<circle
 								className={ `topology-port topology-port--in${
 									wireDrag && wireDrag.hoveredId === n.id
@@ -1183,9 +1248,7 @@ export default function SchematicCanvas( {
 								r={ PORT_R }
 							/>
 						) }
-						{ ( n.has_target ??
-							classCatalog[ n.class ]?.has_target ??
-							true ) && (
+						{ hasTarget( n, classCatalog ) && (
 							<circle
 								className={ `topology-port topology-port--out${
 									editMode ? ' is-edit' : ''
@@ -1426,24 +1489,8 @@ export default function SchematicCanvas( {
 						if ( fromVis && toVis ) {
 							d = edgePath( a, b );
 						} else {
-							const visP = fromVis
-								? {
-										x: a.position.x + NODE_W,
-										y: a.position.y + NODE_H / 2,
-								  }
-								: {
-										x: b.position.x,
-										y: b.position.y + NODE_H / 2,
-								  };
-							const offP = fromVis
-								? {
-										x: b.position.x,
-										y: b.position.y + NODE_H / 2,
-								  }
-								: {
-										x: a.position.x + NODE_W,
-										y: a.position.y + NODE_H / 2,
-								  };
+							const visP = fromVis ? outPort( a ) : inPort( b );
+							const offP = fromVis ? inPort( b ) : outPort( a );
 							const exit = clipSegmentExit(
 								visP.x,
 								visP.y,

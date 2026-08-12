@@ -39,6 +39,37 @@ describe( 'consoleGraph', () => {
 		);
 	} );
 
+	it( 'ignores a token in a verb that is not a target setter', () => {
+		// Broader, the guard fires on ordinary `<config:…>` arguments — which
+		// no runtime resolves into an edge, so nothing is being hidden.
+		const parsed = graphFromTsl(
+			'make_node Echo src\ncommand_node src:config set_window <config:w>'
+		);
+
+		expect( () =>
+			withResolvedConfigEdges( parsed, undefined )
+		).not.toThrow();
+	} );
+
+	it( 'is satisfied by a resolved list, even an empty one', () => {
+		const parsed = graphFromTsl(
+			'make_node Echo src\n' +
+				'command_node src:config set_stats_target <wombat:sink>'
+		);
+
+		expect( () => withResolvedConfigEdges( parsed, [] ) ).not.toThrow();
+	} );
+
+	it( 'says nothing when no argument carries a token', () => {
+		const parsed = graphFromTsl(
+			'make_node Echo src\ncommand_node src:config set_x plain'
+		);
+
+		expect( () =>
+			withResolvedConfigEdges( parsed, undefined )
+		).not.toThrow();
+	} );
+
 	describe( 'draftIsDirty', () => {
 		it( 'returns false when draft equals baseline', () => {
 			const g = graphFromTsl( 'make_node Echo a' );

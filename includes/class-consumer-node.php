@@ -267,7 +267,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * footprint the overview graphs. 0 for an ephemeral reader (no offsetlog) or
 	 * before the first checkpoint writes a segment.
 	 */
-	private function offsetlog_cache_size(): int {
+	protected function offsetlog_cache_size(): int {
 		if ( null === $this->offsetlog ) {
 			return 0;
 		}
@@ -279,8 +279,14 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $last['size'];
 	}
 
-	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int} */
-	private function compute_lag(): array {
+	/**
+	 * How far behind this reader is. THE lag seam: `GET_LAG`, `probe_stats()`
+	 * and `idle_since()` all read it, so a subclass substituting one byte-source
+	 * for another overrides this alone and the three can never disagree.
+	 *
+	 * @return array{bytes_behind: int, segments_behind: int, caught_up: bool, end_segment: int, end_size: int, end_bytes: int, cursor_segment: int, cursor_offset: int}
+	 */
+	protected function compute_lag(): array {
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
@@ -761,8 +767,13 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return ( Core::$now - $this->seal_since ) >= self::SEAL_GRACE_SECONDS;
 	}
 
-	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
-	private function source(): Partition_Node {
+	/**
+	 * Source Partition, materialized by arguments(). Throws if a read runs
+	 * before configuration. Protected so a subclass reading a source the
+	 * segment model cannot express (File_Tail's single inode) can say so by
+	 * name rather than leaving the parent's invariant quietly violated.
+	 */
+	protected function source(): Partition_Node {
 		if ( null === $this->source ) {
 			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
 		}
@@ -861,7 +872,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 */
 	public function dump_config(): string {
 		$out  = parent::dump_config();
-		$out .= $this->dump_time_travel_config( $this->name );
+		$out .= $this->dump_time_travel_config();
 		$out .= $this->dump_toggles();
 		return $out;
 	}

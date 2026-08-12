@@ -17,7 +17,7 @@
  *            the whole topology's token-resolved config routing for the seed.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
  *            restarted_fleets}`. 1 MiB cap; dry-run validation via
- *            Shell::validate_line, plus include resolution (Topology_Registry::expand
+ *            Shell_Node::parse_statements, plus include resolution (Topology_Registry::expand
  *            rejects an unknown include, a cycle, or a make_node the body and an
  *            include declare differently — all of which would otherwise save clean
  *            and kill the worker at its next spawn); restarts the matching active fleet.
@@ -183,36 +183,19 @@ class Topologies_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( 'invalid arguments: tsl (topology body) is required' );
 		}
 
-		// Dry-run validation; report the 1-based offending line for the editor.
-		$shell = new Shell_Node();
-		foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
-			try {
-				$shell->validate_line( $stmt );
-			} catch ( \RuntimeException $e ) {
-				// validate_line throws a fixed error; no escaping needed.
-				$line_no = $i + 1;
-				$message     = $e->getMessage();
-				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $message is a fixed Shell::validate_line string.
-				throw new \RuntimeException( "validation failed at line $line_no: $message" );
-			}
-		}
-
-		// Resolve includes too; a bad one must not save clean and die at boot.
+		// The loader's own front-end validates, and names the PHYSICAL line.
 		try {
+			Shell_Node::parse_statements( $tsl );
 			$borrowed = Topology_Analyzer::expand( self::direct_includes_from_tsl( $tsl ) );
 			self::assert_no_borrowed_node_conflict( $tsl, $borrowed['nodes'] );
 		} catch ( \RuntimeException $e ) {
-			// Topology_Registry::expand already esc_html's its thrown messages.
+			// Topology_Analyzer::expand already esc_html's its thrown messages.
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			throw new \RuntimeException( "validation failed: {$e->getMessage()}" );
 		}
 
+		$path     = self::user_path( $name );
 		$user_dir = Topology_Registry::user_dir();
-		if ( '' === $user_dir ) {
-			throw new \RuntimeException(
-				'Topology_Registry has no writable user dir'
-			);
-		}
 		if ( ! \is_dir( $user_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			$made = @\mkdir( $user_dir, 0700, true );
@@ -230,9 +213,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 				\esc_html( "refusing to write \"$name\": a stock topology owns that name. Save under a new name and `include $name`." )
 			);
 		}
-		$shadows = false;
-
-		$path = $user_dir . '/' . $name . '.tsl';
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
 		$bytes = @\file_put_contents( $path, $tsl );
 		if ( false === $bytes ) {
@@ -249,7 +229,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 		return [
 			'name'             => $name,
 			'path'             => $path,
-			'shadows_stock'    => $shadows,
+			// Always false: a stock name is refused above, so nothing shadows.
+			'shadows_stock'    => false,
 			'restarted_fleets' => $restarted,
 		];
 	}
@@ -303,14 +284,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_delete( array $args ): array {
 		$name = self::require_valid_name( $args[0] ?? '' );
-
-		$user_dir = Topology_Registry::user_dir();
-		if ( '' === $user_dir ) {
-			throw new \RuntimeException(
-				'Topology_Registry has no user dir configured'
-			);
-		}
-		$path = $user_dir . '/' . $name . '.tsl';
+		$path = self::user_path( $name );
 		if ( ! \is_file( $path ) ) {
 			throw new \RuntimeException(
 				\esc_html( "no user-saved topology named: $name (stock copies are protected)" )
@@ -352,6 +326,23 @@ class Topologies_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * The writable `<user_dir>/<name>.tsl` path save and delete both operate on.
+	 *
+	 * One resolution, one refusal: the two verbs previously each concatenated
+	 * the path and each phrased "no user dir" its own way, so one
+	 * misconfiguration read as two different faults.
+	 *
+	 * @throws \RuntimeException When no user dir is configured.
+	 */
+	private static function user_path( string $name ): string {
+		$user_dir = Topology_Registry::user_dir();
+		if ( '' === $user_dir ) {
+			throw new \RuntimeException( 'Topology_Registry has no user dir configured' );
+		}
+		return $user_dir . '/' . $name . '.tsl';
+	}
+
+	/**
 	 * Restart every registered topology whose graph this one is part of.
 	 *
 	 * A topology's content is its own statements PLUS its includes', so saving
@@ -364,10 +355,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 	 * @return list<string> Fleet names restarted, in catalog order.
 	 */
 	private static function restart_affected_fleets( string $name ): array {
-		// Keyed off the catalog filter, not the overlay.
-		$resolved = \function_exists( 'apply_filters' )
-			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-			: [];
+		// Catalog filter, not the overlay; the accessor latches global wiring.
+		$resolved  = (array) \apply_filters( 'newspack_nodes/topologies', [] );
 		$restarted = [];
 		foreach ( \array_keys( $resolved ) as $fleet ) {
 			$fleet = (string) $fleet;

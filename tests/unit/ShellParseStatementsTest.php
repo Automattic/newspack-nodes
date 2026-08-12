@@ -62,6 +62,25 @@ class ShellParseStatementsTest extends TestCase {
 		$this->assertSame( [ 'include', 'other' ], $statements[1]['values'] );
 	}
 
+	/** Every verb parse() short-circuits is a BUILTIN: shell state, never a message. */
+	public function test_shell_state_builtins_are_never_cwd_routed(): void {
+		$statements = Shell_Node::parse_statements(
+			"cd deep\nprint hello\nclear\nstatus\nshow_parse\ndebug_level 2"
+		);
+
+		$this->assertSame(
+			[
+				[ 'print', 'hello' ],
+				[ 'clear' ],
+				[ 'status' ],
+				[ 'show_parse' ],
+				[ 'debug_level', '2' ],
+			],
+			\array_column( $statements, 'values' ),
+			'a builtin acts on the shell wherever it appears; it never becomes command_node'
+		);
+	}
+
 	/** A bare verb inside a cd'd path becomes `command_node <path> <verb> <args>`. */
 	public function test_cwd_wraps_a_bare_verb_into_a_command_node(): void {
 		$statements = $this->summarize(

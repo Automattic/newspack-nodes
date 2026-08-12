@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 
-// 60 samples at ~1s = ~1 minute of trailing rate history.
-const RATE_HISTORY_MAX = 60;
+/**
+ * 60 samples at ~1s = ~1 minute of trailing rate history. Exported because the
+ * card sparkline right-aligns against this same window: a second copy shifts
+ * every plotted point the moment one of them moves.
+ *
+ * @type {number}
+ */
+export const RATE_HISTORY_MAX = 60;
 
 /**
  * Per-node msg/s + byte/s rate tracking, one tick per graph object. Negative

@@ -47,7 +47,11 @@ import { useNodeState } from '../runtime/react';
 import { topicChartSeries, fillModeForMetric } from './topicProbeSeries';
 import { TopicsChart } from './TopicsChart';
 import { consoleHref, TopologyRow } from './TopologyRow';
-import { formatBytes, formatByteRate, formatMsgRate } from './formatters';
+import {
+	formatBytes,
+	formatByteRate,
+	formatMsgRate,
+} from '@newspack-nodes/shared/utils/formatters';
 import {
 	orderTopologies,
 	dragReorder,

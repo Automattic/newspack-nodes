@@ -4,7 +4,14 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
 import { ShellNode } from '../../runtime/shell-node';
-import { KEY, VALUE } from '../../runtime/message';
+import {
+	newMessage,
+	FROM,
+	KEY,
+	TYPE,
+	VALUE,
+	TM_BYTESTREAM,
+} from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell like DebugOverlay does: empty cwd, sinks into the page CI.
@@ -488,6 +495,29 @@ describe( 'useDebugRepl', () => {
 
 		expect( seen ).toHaveLength( 1 );
 		expect( seen[ 0 ][ KEY ] ).toBe( 'k-9182' );
+		teardown();
+	} );
+
+	it( 'spends the compose fields on their own statement, leaving a later mint addressed as minted', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const seen = [];
+		Core.node( names.COMMAND_INTERPRETER ).fill = ( m ) => seen.push( m );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		act( () =>
+			result.current.sendLine( 'send_eof _router', {
+				from: '_output/7734',
+			} )
+		);
+		// The invoke path mints into the gate itself, already addressed.
+		const later = newMessage();
+		later[ TYPE ] = TM_BYTESTREAM;
+		later[ FROM ] = '_overlay:receiver';
+		act( () => shell.sink.fill( later ) );
+
+		expect( seen[ 0 ][ FROM ] ).toBe( '_output/7734' );
+		expect( seen[ 1 ][ FROM ] ).toBe( '_overlay:receiver' );
 		teardown();
 	} );
 } );

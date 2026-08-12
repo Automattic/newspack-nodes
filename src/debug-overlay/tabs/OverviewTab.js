@@ -8,7 +8,7 @@ import {
 	formatMsgRate,
 	formatCount,
 	formatAge,
-} from '../../event-dashboards/formatters';
+} from '@newspack-nodes/shared/utils/formatters';
 import { useOverviewStats } from '../useOverviewStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
 // Ship the hub's card/overview layout styles so the overlay is self-contained.

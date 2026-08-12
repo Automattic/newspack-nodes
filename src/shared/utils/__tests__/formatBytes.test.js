@@ -1,5 +1,6 @@
 /**
- * formatBytes tests — the log-browser meta formatter: one decimal, B/KB/MB.
+ * The default-export entry: the same scaler `./formatters` exports by name,
+ * reached through the import path the event-logger plugin still uses.
  */
 
 import formatBytes from '../formatBytes';
@@ -15,12 +16,13 @@ it( 'renders sub-KB sizes as whole bytes', () => {
 	expect( formatBytes( 1023 ) ).toBe( '1023 B' );
 } );
 
-it( 'renders KB and MB with one decimal place', () => {
-	expect( formatBytes( 2048 ) ).toBe( '2.0 KB' );
-	expect( formatBytes( 881_869 ) ).toBe( '861.2 KB' );
-	expect( formatBytes( 3 * 1024 * 1024 ) ).toBe( '3.0 MB' );
+it( 'renders KB and MB in the compact convention', () => {
+	expect( formatBytes( 2048 ) ).toBe( '2 KB' );
+	expect( formatBytes( 881_869 ) ).toBe( '861 KB' );
+	expect( formatBytes( 3 * 1024 * 1024 ) ).toBe( '3 MB' );
 } );
 
-it( 'caps the unit at MB (no GB tier)', () => {
-	expect( formatBytes( 4.5 * 1024 * 1024 * 1024 ) ).toBe( '4608.0 MB' );
+it( 'carries the GB and TB tiers', () => {
+	expect( formatBytes( 4.5 * 1024 * 1024 * 1024 ) ).toBe( '4.5 GB' );
+	expect( formatBytes( 2 ** 40 ) ).toBe( '1 TB' );
 } );

@@ -47,9 +47,9 @@ class Capabilities {
 		}
 	}
 
-	/** Whether the current user holds the role (true outside a WP user context). */
+	/** Whether the current user holds the role — false outside a WP runtime. */
 	public static function can( string $role ): bool {
-		return ! \function_exists( 'current_user_can' ) || \current_user_can( self::cap_for( $role ) );
+		return \function_exists( 'current_user_can' ) && \current_user_can( self::cap_for( $role ) );
 	}
 
 	/**

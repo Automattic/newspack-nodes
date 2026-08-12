@@ -11,9 +11,11 @@
  * not-yet-due remainder back to the tail. The delay log is a circulating
  * buffer — restart-safe, no new storage, no new timers.
  *
- * Granularity = the fleet sweep (~15s). Delivery is at-least-once: a
- * crash between deliver/re-append and checkpoint re-plays that sweep's
- * entries, the same guarantee the rest of the substrate gives.
+ * Granularity = the reconciliation pass (~60s), the one place
+ * `newspack_nodes/periodic` fires. Late is correct — `not_before` means not
+ * before, so firing early is the bug. Delivery is at-least-once: a crash
+ * between deliver/re-append and checkpoint re-plays that sweep's entries, the
+ * same guarantee the rest of the substrate gives.
  *
  * @package Newspack_Nodes
  */
@@ -75,14 +77,11 @@ class Job_Delay {
 		$deliver = static function ( array $entry, array $options ) use ( $intake ): bool {
 			$key = Core::as_string( $entry['key'] ?? '', '' );
 			$id  = Core::as_string( $entry['id'] ?? '', '' );
-			foreach ( [ 'retries', 'attempt' ] as $field ) {
-				if ( isset( $entry[ $field ] ) ) {
-					$options[ $field ] = Core::as_int( $entry[ $field ], 0 );
+			// Canonical list; `key` rides as an argument, not an option.
+			foreach ( Job_Intake::DISPATCH_FIELDS as $field ) {
+				if ( 'key' !== $field && isset( $entry[ $field ] ) ) {
+					$options[ $field ] = $entry[ $field ];
 				}
-			}
-			$batch = Core::as_string( $entry['batch'] ?? '', '' );
-			if ( '' !== $batch ) {
-				$options['batch'] = $batch;
 			}
 			/** @var array<string,mixed> $parameters */
 			$parameters = Core::arr( $entry['parameters'] ?? [], [] );
@@ -120,6 +119,8 @@ class Job_Delay {
 								// Permanent; drop loud, don't circulate.
 								Core::stderr( '[Nodes] JobDelay: dropped undeliverable due entry for handler: ' . Core::as_string( $entry['handler'] ?? '', '' ) );
 							}
+						} catch ( Worker_Should_Stop $e ) {
+							throw $e; // ADR-14: a cooperative stop is not a write failure.
 						} catch ( \RuntimeException $e ) {
 							// Lock contention: circulate it.
 							$held[] = $entry;

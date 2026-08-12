@@ -12,6 +12,9 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Timer_Node;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
 
 #[\PHPUnit\Framework\Attributes\CoversClass( Settings_Event_Writer::class )]
@@ -282,6 +285,42 @@ class SettingsEventWriterTest extends TestCase {
 		$writer->invoke( null, $m );
 
 		$this->assertTrue( true, 'the throw is swallowed; reaching here is the assertion' );
+	}
+
+	/**
+	 * ADR-14: a cooperative stop is not a write failure. A command handler
+	 * inside a worker drain calls update_option (Settings_CI `set`, Alerts),
+	 * and the Partition's maybe_stop() raises mid-append — swallowing it loses
+	 * the stop until the next drain tick.
+	 */
+	public function test_a_cooperative_stop_is_not_swallowed_by_the_append(): void {
+		Settings_Event_Writer::$append_seam = null;
+		$this->use_base_dir( $this->make_temp_dir() );
+		Event_Framework::reset();
+		$ef = Event_Framework::instance();
+
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class() extends Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = static function () use ( $state ) {
+			$state->stop = true;
+			Settings_Event_Writer::on_update( 'newspack_nodes_stop_probe', 'before', 'after' );
+		};
+		$timer->set_timer( 1, true );
+
+		$this->expectException( Worker_Should_Stop::class );
+		$ef->drain(
+			static function () use ( $state ): bool {
+				Core::$now = \microtime( true );
+				return ! $state->stop && ++$state->ticks < 1000;
+			},
+			cooperative_stop: true
+		);
 	}
 
 	/**

@@ -3,7 +3,7 @@
  * through the harness, which can only run as jest's own setup module.
  */
 
-const { createTimerHazardGuard } = require( '../timer-hazard' );
+const { createTimerHazardGuard, firstFrame } = require( '../timer-hazard' );
 
 // A site string distinct from anything the default extractor would produce, so
 // a guard that ignored the injected describer would fail rather than coincide.
@@ -102,12 +102,14 @@ describe( 'createTimerHazardGuard', () => {
 		expect( () => guard.assertClean() ).not.toThrow();
 	} );
 
-	it( 'clears once reported, so the next test starts clean', () => {
+	it( 'leaves the verdict standing when read — onClear is the one reset', () => {
 		const guard = createTimerHazardGuard( site );
 		guard.onArm( {}, REAL );
 		guard.onTimerSwap( FAKING_SETINTERVAL );
 
 		expect( () => guard.assertClean() ).toThrow();
+		expect( () => guard.assertClean() ).toThrow();
+		guard.onClear();
 		expect( () => guard.assertClean() ).not.toThrow();
 	} );
 
@@ -142,6 +144,30 @@ describe( 'createTimerHazardGuard', () => {
 		guard.onDispose( dropped );
 
 		expect( () => guard.assertClean() ).toThrow( /1 runtime timer\(s\)/ );
+	} );
+
+	// One extractor, two needles: the harness's leak reporter wants runtime
+	// frames where the guard wants test frames.
+	describe( 'firstFrame — the extractor both halves of the guard share', () => {
+		const stack = [
+			'Error',
+			'    at TimerNode.setTimer (/x/src/runtime/timer-node.js:9:1)',
+			'    at Object.mount (/x/src/vault/__tests__/Zed.test.js:77:3)',
+		].join( '\n' );
+
+		it( 'returns the first frame matching the needle, trimmed', () => {
+			expect( firstFrame( { stack }, '/src/runtime/' ) ).toBe(
+				'at TimerNode.setTimer (/x/src/runtime/timer-node.js:9:1)'
+			);
+			expect( firstFrame( { stack }, '__tests__' ) ).toBe(
+				'at Object.mount (/x/src/vault/__tests__/Zed.test.js:77:3)'
+			);
+		} );
+
+		it( 'returns an empty string when nothing matches, or there is no stack', () => {
+			expect( firstFrame( { stack }, 'no-such-needle' ) ).toBe( '' );
+			expect( firstFrame( {}, '__tests__' ) ).toBe( '' );
+		} );
 	} );
 
 	describe( 'the default site extractor (what the harness actually uses)', () => {

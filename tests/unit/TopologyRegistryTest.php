@@ -331,6 +331,30 @@ class TopologyRegistryTest extends TestCase {
 		$this->rmdir_recursive( $user );
 	}
 
+	/**
+	 * One walk, two views. `list()` is the API and `array_keys( describe() )` is
+	 * what several callers actually use, so any dir-precedence or file-filtering
+	 * rule that reaches one must reach the other.
+	 */
+	public function test_list_is_exactly_the_keys_describe_reports(): void {
+		$stock = $this->make_temp_dir( 'one-walk-stock-' );
+		$user  = $this->make_temp_dir( 'one-walk-user-' );
+		\file_put_contents( "{$stock}/stock-only.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$stock}/shadowed.tsl", "make_node Echo s\n" );
+		\file_put_contents( "{$user}/user-only.tsl", "make_node Echo u\n" );
+		\file_put_contents( "{$user}/shadowed.tsl", "make_node Echo o\n" );
+		\mkdir( "{$stock}/a-directory.tsl" );
+
+		Topology_Registry::reset();
+		Topology_Registry::register_stock_dir( $stock );
+		Topology_Registry::register_user_dir( $user );
+
+		$this->assertSame( \array_keys( Topology_Registry::describe() ), Topology_Registry::list() );
+
+		$this->rmdir_recursive( $stock );
+		$this->rmdir_recursive( $user );
+	}
+
 	public function test_describe_ignores_tsl_named_directories(): void {
 		\mkdir( "{$this->stock}/stock-directory.tsl" );
 		\mkdir( "{$this->user}/user-directory.tsl" );
@@ -368,7 +392,7 @@ class TopologyRegistryTest extends TestCase {
 		Topology_Registry::register_stock_dir( $this->stock );
 
 		$this->assertSame(
-			[ 'requests' => 4096 ],
+			[ 'requests.p0' => 4096 ],
 			Topology_Analyzer::segment_size_overrides_for( 'segments' )
 		);
 
@@ -378,14 +402,14 @@ class TopologyRegistryTest extends TestCase {
 		);
 
 		$this->assertSame(
-			[ 'requests' => 4096 ],
+			[ 'requests.p0' => 4096 ],
 			Topology_Analyzer::segment_size_overrides_for( 'segments' ),
 			'segment-size overrides are memoized until reset_basename_cache()'
 		);
 
 		Topology_Registry::reset_basename_cache();
 		$this->assertSame(
-			[ 'changed' => 8192 ],
+			[ 'changed.p0' => 8192 ],
 			Topology_Analyzer::segment_size_overrides_for( 'segments' )
 		);
 	}
@@ -403,10 +427,74 @@ class TopologyRegistryTest extends TestCase {
 
 		$this->assertSame(
 			[
-				'pinned' => 1048576,
-				'quoted' => 8192,
+				'pinned.p0' => 1048576,
+				'quoted.p0' => 8192,
 			],
 			Topology_Analyzer::segment_size_overrides_for( 'vicuna-layouts' )
+		);
+	}
+
+	/**
+	 * A NESTED layout puts `<partition>` below the first level. The
+	 * `.p(?:<partition>|\d+)$` suffix regex — sitting under a comment claiming
+	 * the method is layout-agnostic — matched nothing there, so the override was
+	 * dropped and the dashboard reported the global default. The key is the
+	 * concrete first-level dir under logs_dir, the SAME reduction
+	 * `resolved_resource_dirs()` and `Log_Cleaner` name their dirs by.
+	 */
+	public function test_segment_size_overrides_cover_a_nested_partition_layout(): void {
+		\file_put_contents(
+			"{$this->stock}/vicuna-nested.tsl",
+			"make_node Partition nested:p <config:logs_dir>/burrow/<partition> 32768 2\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'burrow' => 32768 ],
+			Topology_Analyzer::segment_size_overrides_for( 'vicuna-nested', 3 )
+		);
+	}
+
+	/** Every partition's concrete dir carries the override, not just p0. */
+	public function test_segment_size_overrides_span_every_partition(): void {
+		\file_put_contents(
+			"{$this->stock}/vicuna-fanned.tsl",
+			"make_node Partition fanned:p <config:logs_dir>/fanned.p<partition> 16384 2\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[
+				'fanned.p0' => 16384,
+				'fanned.p1' => 16384,
+				'fanned.p2' => 16384,
+			],
+			Topology_Analyzer::segment_size_overrides_for( 'vicuna-fanned', 3 )
+		);
+	}
+
+	/**
+	 * `make` is the documented alias for `make_node`, and every other reader in
+	 * the analyzer sees the canonical verb because `Shell_Node::build_statement()`
+	 * resolves it. This method re-tokenized the RAW line and compared against the
+	 * literal `make_node`, so an aliased declaration — and a `Partition` SUBCLASS
+	 * — silently yielded no override.
+	 */
+	public function test_segment_size_overrides_honor_the_make_alias_and_partition_subclasses(): void {
+		\file_put_contents(
+			"{$this->stock}/vicuna-aliased.tsl",
+			"make Partition aliased:p <config:logs_dir>/aliased.p<partition> 2048 2\n"
+			. "make_node Log journal:l <config:logs_dir>/journal.p<partition> 65536 2\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+
+		$this->assertSame(
+			[
+				'aliased.p0' => 2048,
+				'journal.p0' => 65536,
+			],
+			Topology_Analyzer::segment_size_overrides_for( 'vicuna-aliased' )
 		);
 	}
 

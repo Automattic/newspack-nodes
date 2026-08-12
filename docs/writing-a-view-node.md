@@ -76,8 +76,10 @@ The base `SliceViewNode.fill()` already gives you this — preserve it if you
 override:
 
 - **`TM_ERROR` first.** A transport error (e.g. the Router's `NOT_AVAILABLE`)
-  arrives as a bare *string* `VALUE`. Surface it as `{ ...emptySlice(), error }`
-  and `return` — don't fall through and blank the widget.
+  arrives as a bare *string* `VALUE`. Surface it as
+  `{ ...this.model, error, loading: false }` and `return` — keep the slice
+  already on screen, and stop the spinner, so one transient failure neither
+  blanks a working widget nor leaves it loading forever.
 - **Garbage keeps the prior slice.** A non-object `VALUE`, or a payload that fails
   `JSON.parse`, must `return` and leave the last good model in place — a transient
   bad reply must never blank a working widget. `_parse` returns `null` for this,

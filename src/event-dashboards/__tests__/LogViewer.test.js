@@ -224,7 +224,7 @@ describe( 'LogViewer', () => {
 		render( <LogViewer /> );
 		expect( logBrowserProps.itemKey( { id: 9, size: 1 } ) ).toBe( 9 );
 		expect( logBrowserProps.itemLabel( { id: 9 } ) ).toBe( 'Segment 9' );
-		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2.0 KB' );
+		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2 KB' );
 	} );
 
 	it( 'browsing a segment enters pause mode (time-travel)', () => {

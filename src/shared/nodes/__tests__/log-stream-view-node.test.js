@@ -110,6 +110,23 @@ test( 'browse clears the ring (rewinds start clean); follow keeps it', () => {
 	expect( v.linesCount ).toBe( 1 );
 } );
 
+test( 'clearing resets the ring, the id stamp AND the rate window', () => {
+	const nowSpy = jest.spyOn( Date, 'now' ).mockReturnValue( 800000 );
+	const v = makeView();
+	for ( let i = 0; i < 7; i++ ) {
+		v.fill( rowMsg( `before-${ i }` ) );
+	}
+	expect( v.lps ).toBeGreaterThan( 0 );
+
+	v.lines = [];
+
+	expect( v.linesCount ).toBe( 0 );
+	expect( v.lps ).toBe( 0 );
+	v.fill( rowMsg( 'after' ) );
+	expect( v.lineAt( 0 ).id ).toBe( 1 );
+	nowSpy.mockRestore();
+} );
+
 test( 'lps decays to zero when the stream goes quiet', () => {
 	const nowSpy = jest.spyOn( Date, 'now' ).mockReturnValue( 700000 );
 	const v = makeView();

@@ -35,6 +35,43 @@ export const TM_NOREPLY = 512;
 export const TM_UNTYPED = 1024;
 
 /**
+ * The ONE flags-to-names map, beside the constants it names. Renderers read it
+ * through typeLabels() and supply their own separator and no-match label; a
+ * private copy is how a renderer ends up omitting a flag. Mirror of PHP
+ * Message::TYPE_NAMES.
+ *
+ * @type {Array<[number, string]>}
+ */
+const TYPE_NAMES = [
+	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
+	[ TM_EOF, 'TM_EOF' ],
+	[ TM_PING, 'TM_PING' ],
+	[ TM_COMMAND, 'TM_COMMAND' ],
+	[ TM_RESPONSE, 'TM_RESPONSE' ],
+	[ TM_ERROR, 'TM_ERROR' ],
+	[ TM_INFO, 'TM_INFO' ],
+	[ TM_STRUCT, 'TM_STRUCT' ],
+	[ TM_REQUEST, 'TM_REQUEST' ],
+	[ TM_NOREPLY, 'TM_NOREPLY' ],
+	[ TM_UNTYPED, 'TM_UNTYPED' ],
+];
+
+/**
+ * Names of every flag set in `type`, in TYPE_NAMES order. Empty when no known
+ * flag matches — the caller names that case (the drop audit says TYPE_UNKNOWN,
+ * the Dumper prints the unmatched bits in hex). Mirror of PHP
+ * Message::type_labels().
+ *
+ * @param {number} type The TYPE bitmask.
+ * @return {string[]} Label per set flag.
+ */
+export function typeLabels( type ) {
+	return TYPE_NAMES.filter( ( [ flag ] ) => 0 !== ( type & flag ) ).map(
+		( [ , label ] ) => label
+	);
+}
+
+/**
  * A fresh 7-field positional message. The slots are heterogeneous — VALUE
  * carries a string, a struct, or a command object — so the array is untyped
  * on purpose; `Message::*` constants are what say which index means what.

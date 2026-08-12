@@ -26,6 +26,7 @@ import {
 	TM_PING,
 	TM_RESPONSE,
 	TM_STRUCT,
+	TM_UNTYPED,
 } from '../message';
 
 // Build a positional Message with the given type/value (+ optional from).
@@ -176,6 +177,14 @@ describe( 'debug headers (positional)', () => {
 	it( 'level 1 renders an unknown type as a hex fallback', () => {
 		expect( entryFor( msg( 0, 'noflag' ), 1 ).text ).toBe(
 			'TM_UNKNOWN(0x0) from worker:'
+		);
+	} );
+
+	// One labels table, shared with Node's drop audit: TM_UNTYPED is what
+	// newMessage() stamps, so a copy that omits it mislabels the common case.
+	it( 'level 1 labels a minted-but-never-typed message TM_UNTYPED', () => {
+		expect( entryFor( msg( TM_UNTYPED, 'unstamped' ), 1 ).text ).toBe(
+			'TM_UNTYPED from worker:'
 		);
 	} );
 
@@ -426,99 +435,6 @@ describe( 'Dumper node — append / clear', () => {
 		expect(
 			dumper.setStateCache.transcript[ TRANSCRIPT_MAX - 1 ].text
 		).toBe( `n${ TRANSCRIPT_MAX + 24 }` );
-	} );
-} );
-
-describe( 'Dumper — captureNextReply (one-shot command-reply capture)', () => {
-	it( 'lets an unanswered arm expire instead of firing on a later reply', () => {
-		// With no expiry, a verb that never replied left the slot armed, and the
-		// NEXT matching reply — possibly minutes later, belonging to a different
-		// user action — fired the stale callback.
-		jest.useFakeTimers();
-		try {
-			const dumper = new DumperNode();
-			let fired = 0;
-			dumper.captureNextReply( 'dump_config', () => fired++ );
-
-			jest.advanceTimersByTime( DumperNode.CAPTURE_TTL_MS + 1 );
-
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-			m[ VALUE ] = { name: 'dump_config', payload: 'late' };
-			dumper.fill( m );
-
-			expect( fired ).toBe( 0 );
-			// And the expired slot does not block a fresh arm.
-			expect( () =>
-				dumper.captureNextReply( 'dump_config', () => {} )
-			).not.toThrow();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	it( 'refuses a second arm while one is pending, instead of dropping it', () => {
-		// The slot is a single field. Silently superseding meant a caller that
-		// dispatched two verbs lost the first reply with no signal at all.
-		const dumper = new DumperNode();
-		dumper.captureNextReply( 'dump_config', () => {} );
-		expect( () =>
-			dumper.captureNextReply( 'other_verb', () => {} )
-		).toThrow( /still pending/ );
-	} );
-
-	const reply = ( name, payload, kind = TM_RESPONSE ) =>
-		msg( TM_COMMAND | kind, { name, payload } );
-
-	it( 'captures the next matching command reply payload via the callback', () => {
-		const { dumper } = makeDumper();
-		const seen = [];
-		dumper.captureNextReply( 'dump_config', ( payload, isError ) =>
-			seen.push( { payload, isError } )
-		);
-		dumper.fill( reply( 'dump_config', 'make_node Echo captured_e\n' ) );
-		expect( seen ).toEqual( [
-			{ payload: 'make_node Echo captured_e\n', isError: false },
-		] );
-	} );
-
-	it( 'is one-shot — a later reply does not re-fire the callback', () => {
-		const { dumper } = makeDumper();
-		let calls = 0;
-		dumper.captureNextReply( 'dump_config', () => calls++ );
-		dumper.fill( reply( 'dump_config', 'first\n' ) );
-		dumper.fill( reply( 'dump_config', 'second\n' ) );
-		expect( calls ).toBe( 1 );
-	} );
-
-	it( 'ignores replies whose command name differs from the requested verb', () => {
-		const { dumper } = makeDumper();
-		let fired = false;
-		dumper.captureNextReply( 'dump_config', () => ( fired = true ) );
-		dumper.fill( reply( 'ls', 'node-a\nnode-b\n' ) );
-		expect( fired ).toBe( false );
-	} );
-
-	it( 'surfaces a matching TM_ERROR reply with isError=true', () => {
-		const { dumper } = makeDumper();
-		const seen = [];
-		dumper.captureNextReply( 'dump_config', ( payload, isError ) =>
-			seen.push( { payload, isError } )
-		);
-		dumper.fill( reply( 'dump_config', 'boom', TM_ERROR ) );
-		expect( seen ).toEqual( [ { payload: 'boom', isError: true } ] );
-	} );
-
-	it( 'still renders the captured reply into the transcript (non-invasive)', () => {
-		const { dumper } = makeDumper();
-		dumper.captureNextReply( 'dump_config', () => {} );
-		dumper.fill( reply( 'dump_config', 'make_node Echo captured_e\n' ) );
-		expect( dumper.setStateCache.transcript ).toEqual( [
-			expect.objectContaining( {
-				kind: 'recv',
-				text: 'make_node Echo captured_e',
-			} ),
-		] );
 	} );
 } );
 

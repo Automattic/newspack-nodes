@@ -47,6 +47,13 @@ class CLI_Command {
 	public static ?\Closure $stdin = null;
 
 	/**
+	 * Resolved terminal policy: `[ stdin stream, is_tty, has_readline ]`.
+	 *
+	 * @var array{0:resource,1:bool,2:bool}|null
+	 */
+	private ?array $terminal = null;
+
+	/**
 	 * Open an interactive REPL — bare mode (local graph) or attached mode (IPC to a worker).
 	 *
 	 * ## OPTIONS
@@ -73,10 +80,7 @@ class CLI_Command {
 	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
 	 */
 	private function run_repl( Shell_Node $shell, Dumper_Node $dumper, TTY_Out_Node $stdout ): void {
-		// readline only on a real TTY; pipes fall to fgets (EOF-terminating).
-		$stdin        = ( self::$stdin ?? static fn () => \STDIN )();
-		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
-		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
+		[ $stdin, $is_tty, $has_readline ] = $this->terminal();
 
 		// Skip prompts when stdin is piped; they break `... | grep` consumers.
 		$reader = new TTY_In_Node( $shell, $stdout, $has_readline, $stdin, $is_tty );
@@ -121,7 +125,7 @@ class CLI_Command {
 		// Refuse root: root cli makes IPC dirs root-owned, locks out non-root.
 		CLI::refuse_root( 'cli' );
 
-		$cli = new CLI( $this->base_dir() );
+		$cli = new CLI( Bootstrap::base_dir() );
 
 		$attached = ! empty( $args );
 		$ipc     = null;
@@ -197,10 +201,8 @@ class CLI_Command {
 
 		$dumper->set_shell( $shell );
 		$stdout->set_shell( $shell );
-		// readline only works on a real TTY; on a pipe it spins at 100% CPU.
-		$stdin  = ( self::$stdin ?? static fn () => \STDIN )();
-		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
-		$stdout->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
+		[ , , $has_readline ] = $this->terminal();
+		$stdout->set_readline_mode( $has_readline );
 
 		if ( $attached && null !== $ipc ) {
 			// 1-partition IPC; skip allow_large_writes for concurrent appends.
@@ -228,8 +230,22 @@ class CLI_Command {
 		return [ $shell, $dumper, $stdout ];
 	}
 
-	private function base_dir(): string {
-		return Config::get_base_directory();
+	/**
+	 * The stdin stream and the readline policy it implies, derived ONCE.
+	 *
+	 * The `$stdin` seam is documented as reassignable and hands back a FRESH
+	 * stream per call, so a second derivation probes a resource nobody drains —
+	 * the graph and the reader would then disagree about prompts and readline.
+	 *
+	 * @return array{0:resource,1:bool,2:bool} `[ stdin, is_tty, has_readline ]`.
+	 */
+	private function terminal(): array {
+		if ( null === $this->terminal ) {
+			// readline only on a real TTY; on a pipe it spins at 100% CPU.
+			$stdin          = ( self::$stdin ?? static fn () => \STDIN )();
+			$is_tty         = \function_exists( 'posix_isatty' ) && @\posix_isatty( $stdin );
+			$this->terminal = [ $stdin, $is_tty, $is_tty && \function_exists( 'readline_callback_handler_install' ) ];
+		}
+		return $this->terminal;
 	}
-
 }

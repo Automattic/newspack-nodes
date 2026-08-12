@@ -1,13 +1,29 @@
 /**
- * Shared presentation formatters for the event dashboards (bytes, rates, age, ETA).
+ * The dashboards' presentation formatters: byte sizes, byte/message rates,
+ * compact counts, worker age, consumer ETA. One home for all of them — the
+ * event dashboards, the debug overlay and the topology console render every
+ * number through this module, so no two surfaces can disagree about what
+ * 881869 bytes reads as.
  */
 
 import { __ } from '@wordpress/i18n';
 
 /**
+ * A rate ladder is derived from its base ladder, so the two cannot drift.
+ *
+ * @param {string[]} units Rung labels.
+ * @return {string[]} The same rungs, per second.
+ */
+const perSecond = ( units ) => units.map( ( unit ) => `${ unit }/s` );
+const BYTE_UNITS = [ ' B', ' KB', ' MB', ' GB', ' TB' ];
+const COUNT_UNITS = [ '', 'K', 'M', 'B' ];
+const BYTE_RATE_UNITS = perSecond( BYTE_UNITS );
+const MSG_RATE_UNITS = perSecond( COUNT_UNITS );
+
+/**
  * Compact decimals for a unit-scaled value: one decimal place under 10, none
- * at/above. Keeps the number to at most 3 characters ("4.1", "46" — never
- * "46.4") so the rate/byte cards don't jitter their width as the value changes.
+ * at or above it. `parseFloat` then drops a trailing ".0", so 2 KB reads "2 KB"
+ * rather than "2.0 KB".
  *
  * @param {number} value Unit-scaled value (e.g. bytes / 1024^i).
  * @return {number} The value rounded to the compact precision.
@@ -17,91 +33,75 @@ function compactFixed( value ) {
 }
 
 /**
- * Format bytes to human readable string.
+ * The one unit scaler: pick the ladder rung a value belongs on, divide, round
+ * compactly, append the rung's label.
+ *
+ * Anything that is not a positive finite number reads as the ladder's zero form
+ * ("0 B", "0/s", "0") — a dashboard cell is no place to surface a NaN, and the
+ * callers' inputs are aggregates that can arrive absent or clock-skewed.
+ *
+ * @param {number}   value Raw value.
+ * @param {number}   base  Ladder base: 1024 for bytes, 1000 for counts.
+ * @param {string[]} units Rung labels, smallest first, each carrying its own
+ *                         separator and suffix.
+ * @return {string} The formatted value.
+ */
+function scaleUnits( value, base, units ) {
+	if ( ! Number.isFinite( value ) || value <= 0 ) {
+		return `0${ units[ 0 ] }`;
+	}
+	const top = units.length - 1;
+	let i = Math.min(
+		top,
+		Math.max( 0, Math.floor( Math.log( value ) / Math.log( base ) ) )
+	);
+	let scaled = compactFixed( value / base ** i );
+	// Rounding can reach the base (999999 → "1000K"); promote a rung instead.
+	if ( scaled >= base && i < top ) {
+		i++;
+		scaled = compactFixed( value / base ** i );
+	}
+	return `${ scaled }${ units[ i ] }`;
+}
+
+/**
+ * Format a byte count, e.g. 1536 → "1.5 KB".
  *
  * @param {number} bytes Byte count.
- * @return {string} Formatted string.
+ * @return {string} Formatted size.
  */
 export function formatBytes( bytes ) {
-	if ( ! bytes || bytes === 0 ) {
-		return '0 B';
-	}
-	const k = 1024;
-	const sizes = [ 'B', 'KB', 'MB', 'GB' ];
-	const i = Math.floor( Math.log( bytes ) / Math.log( k ) );
-	return compactFixed( bytes / Math.pow( k, i ) ) + ' ' + sizes[ i ];
+	return scaleUnits( bytes, 1024, BYTE_UNITS );
 }
 
 /**
- * Format bytes per second to human readable string.
+ * Format bytes per second, e.g. 47514 → "46 KB/s".
  *
  * @param {number} bytesPerSec Bytes per second.
- * @return {string} Formatted string.
+ * @return {string} Formatted rate.
  */
 export function formatByteRate( bytesPerSec ) {
-	if ( ! bytesPerSec || bytesPerSec === 0 ) {
-		return '0 B/s';
-	}
-	const k = 1024;
-	const sizes = [ 'B/s', 'KB/s', 'MB/s', 'GB/s' ];
-	// Clamp to [0, sizes-1]: out-of-range rates would index undefined → "NaN".
-	const i = Math.max(
-		0,
-		Math.min(
-			sizes.length - 1,
-			Math.floor( Math.log( bytesPerSec ) / Math.log( k ) )
-		)
-	);
-	return compactFixed( bytesPerSec / Math.pow( k, i ) ) + ' ' + sizes[ i ];
+	return scaleUnits( bytesPerSec, 1024, BYTE_RATE_UNITS );
 }
 
 /**
- * Compact count (K/M/B) for a message rate — e.g. 2996 → "3.0K/s".
+ * Format a message rate, e.g. 2996 → "3K/s".
  *
  * @param {number} perSec Messages per second.
  * @return {string} Formatted rate.
  */
 export function formatMsgRate( perSec ) {
-	if ( ! perSec || perSec === 0 ) {
-		return '0/s';
-	}
-	const units = [ '', 'K', 'M', 'B' ];
-	// Clamp low end too: a fractional rate → units[-1] undefined → "NaN/s".
-	const i = Math.max(
-		0,
-		Math.min(
-			units.length - 1,
-			Math.floor( Math.log( perSec ) / Math.log( 1000 ) )
-		)
-	);
-	return compactFixed( perSec / Math.pow( 1000, i ) ) + units[ i ] + '/s';
+	return scaleUnits( perSec, 1000, MSG_RATE_UNITS );
 }
 
 /**
- * Compact whole-count (K/M/B) for a 24h total — e.g. 1500 → "1.5K", 2000 → "2K".
+ * Format a count, e.g. 1500 → "1.5K".
  *
  * @param {number} n A count.
  * @return {string} Compacted count.
  */
 export function formatCount( n ) {
-	if ( ! Number.isFinite( n ) || n <= 0 ) {
-		return '0';
-	}
-	if ( n < 1000 ) {
-		return String( Math.round( n ) );
-	}
-	const units = [ '', 'K', 'M', 'B' ];
-	let i = Math.min(
-		units.length - 1,
-		Math.floor( Math.log( n ) / Math.log( 1000 ) )
-	);
-	let value = compactFixed( n / Math.pow( 1000, i ) );
-	// Rounding can push value to 1000 (999999); promote to the next unit.
-	if ( value >= 1000 && i < units.length - 1 ) {
-		i++;
-		value = compactFixed( n / Math.pow( 1000, i ) );
-	}
-	return value + units[ i ];
+	return scaleUnits( n, 1000, COUNT_UNITS );
 }
 
 /**

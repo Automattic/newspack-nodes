@@ -26,6 +26,17 @@ class CountsView extends SliceViewNode {
 	}
 }
 
+// A subclass whose empty slice carries the usual `loading` spinner flag.
+class LoadingCountsView extends SliceViewNode {
+	emptySlice() {
+		return { sources: {}, loading: true, error: null };
+	}
+	_parse( payload ) {
+		const slice = super._parse( payload );
+		return slice && { ...slice, loading: false, error: null };
+	}
+}
+
 function makeView() {
 	const node = new CountsView();
 	node.name = 'counts:view';
@@ -56,7 +67,28 @@ describe( 'SliceViewNode', () => {
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		v.fill( m );
 		expect( v.setStateCache.view.error ).toMatch( /counts read failed/ );
-		expect( v.setStateCache.view.sources ).toEqual( {} );
+	} );
+
+	test( 'a TM_ERROR keeps the slice already on screen and stops loading', () => {
+		const v = new LoadingCountsView();
+		v.name = 'counts:view';
+		v.fill( reply( JSON.stringify( { sources: { releases: 7 } } ) ) );
+		const m = reply( 'counts read failed' );
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+
+		v.fill( m );
+
+		expect( v.setStateCache.view.sources ).toEqual( { releases: 7 } );
+		expect( v.setStateCache.view.loading ).toBe( false );
+	} );
+
+	test( 'counts every message it absorbs, errors included', () => {
+		const v = makeView();
+		const m = reply( 'counts read failed' );
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+		v.fill( m );
+		v.fill( reply( JSON.stringify( { sources: { releases: 3 } } ) ) );
+		expect( v.counter ).toBe( 2 );
 	} );
 
 	test( 'surfaces a TM_ERROR with an OBJECT { message } VALUE as a slice error', () => {
@@ -67,6 +99,11 @@ describe( 'SliceViewNode', () => {
 		m[ VALUE ] = { payload: { message: 'NOT_AVAILABLE' } };
 		v.fill( m );
 		expect( v.setStateCache.view.error ).toMatch( /NOT_AVAILABLE/ );
+	} );
+
+	test( 'declares `view` in the schema, so help and the palette list it', () => {
+		expect( CountsView.nodeSchema().registrations ).toEqual( [ 'view' ] );
+		expect( makeView().registrations.view ).toEqual( {} );
 	} );
 
 	test( 'the base emptySlice is an empty object', () => {

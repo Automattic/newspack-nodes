@@ -6,6 +6,10 @@
  */
 
 import { __, sprintf } from '@wordpress/i18n';
+import {
+	formatByteRate,
+	formatBytes,
+} from '@newspack-nodes/shared/utils/formatters';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
 import { FieldRow, Section } from './InspectorFields';
 
@@ -34,55 +38,6 @@ export function formatRate( rate ) {
 		return `${ rate.toFixed( 1 ) } /s`;
 	}
 	return `${ rate.toFixed( 2 ) } /s`;
-}
-
-/**
- * Byte-rate label with the B/K/M/G suffix its magnitude calls for. Anything
- * under 1 B/s floors to "0 B/s" — a sub-byte rate is noise, not information.
- *
- * @param {number|null|undefined} rate Bytes per second; nullish reads "—".
- * @return {string} The rate, suffixed "/s".
- */
-export function formatByteRate( rate ) {
-	if ( rate === undefined || rate === null ) {
-		return '— /s';
-	}
-	if ( rate < 1 ) {
-		return '0 B/s';
-	}
-	if ( rate < 1024 ) {
-		return `${ Math.round( rate ) } B/s`;
-	}
-	if ( rate < 1024 * 1024 ) {
-		return `${ ( rate / 1024 ).toFixed( 1 ) } K/s`;
-	}
-	if ( rate < 1024 * 1024 * 1024 ) {
-		return `${ ( rate / ( 1024 * 1024 ) ).toFixed( 1 ) } M/s`;
-	}
-	return `${ ( rate / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G/s`;
-}
-
-/**
- * Cumulative byte count with a K/M/G suffix, for glanceable totals. A
- * non-number or a negative reads "—" rather than inventing a value.
- *
- * @param {number|null|undefined} n Byte count.
- * @return {string} The formatted size.
- */
-export function formatBytes( n ) {
-	if ( typeof n !== 'number' || n < 0 ) {
-		return '—';
-	}
-	if ( n < 1024 ) {
-		return `${ n } B`;
-	}
-	if ( n < 1024 * 1024 ) {
-		return `${ ( n / 1024 ).toFixed( 1 ) } K`;
-	}
-	if ( n < 1024 * 1024 * 1024 ) {
-		return `${ ( n / ( 1024 * 1024 ) ).toFixed( 1 ) } M`;
-	}
-	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
 }
 
 /**

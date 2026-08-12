@@ -12,9 +12,9 @@
  * So the fix is not a retry at the failing call site. It is to stop modelling
  * "loaded" as an event and start modelling it as a state that must hold: while
  * unsettled, keep attempting; on success, stop. Then a refused session, a
- * renewed nonce, an expired key and a restarted worker stop being four error
- * paths and become one word — invalidated — and every consumer recovers because
- * it must, not because someone remembered to add a retry.
+ * renewed nonce, an expired key, a rebuilt graph and a restarted worker stop
+ * being five error paths and become one word — invalidated — and every consumer
+ * recovers because it must, not because someone remembered to add a retry.
  *
  * Mutations must NOT use this. Replaying a save or a delete is a worse bug than
  * the stale read it would fix.
@@ -27,7 +27,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { authGeneration } from '@newspack-nodes/runtime';
+import { Core, authGeneration } from '@newspack-nodes/runtime';
 import usePageVisibility from './usePageVisibility';
 
 /**
@@ -64,22 +64,40 @@ export default function useReconcile( { load, enabled = true, deps = [] } ) {
 	const nextAttemptAt = useRef( 0 );
 	const backoffMs = useRef( BACKOFF_START_MS );
 	const seenGeneration = useRef( authGeneration() );
+	// @longform
+	// Which invalidation an attempt was started under. Without it, an
+	// invalidation landing mid-flight is erased by the stale attempt's
+	// success: the loop settles on state established under inputs — or a
+	// session, or a graph — that are already gone, and never reconsiders.
+	const epoch = useRef( 0 );
 
 	const isPageVisible = usePageVisibility();
 	const depsKey = JSON.stringify( deps );
+
+	/** Reopen the convergence window: attempt on the next tick, no backoff. */
+	const openWindow = useCallback( () => {
+		backoffMs.current = BACKOFF_START_MS;
+		nextAttemptAt.current = 0;
+	}, [] );
 
 	const attempt = useCallback( async () => {
 		if ( inFlight.current ) {
 			return;
 		}
 		inFlight.current = true;
+		const startedAt = epoch.current;
 		try {
 			await loadRef.current();
-			backoffMs.current = BACKOFF_START_MS;
-			nextAttemptAt.current = 0;
+			if ( startedAt !== epoch.current ) {
+				return;
+			}
+			openWindow();
 			setError( null );
 			setSettled( true );
 		} catch ( e ) {
+			if ( startedAt !== epoch.current ) {
+				return;
+			}
 			// Stay unsettled: the next tick past the window tries again.
 			nextAttemptAt.current = Date.now() + backoffMs.current;
 			backoffMs.current = Math.min(
@@ -91,27 +109,32 @@ export default function useReconcile( { load, enabled = true, deps = [] } ) {
 		} finally {
 			inFlight.current = false;
 		}
-	}, [] );
+	}, [ openWindow ] );
 
 	/** Drop what we believe and converge again — the one entry point. */
 	const reconcileNow = useCallback( () => {
-		backoffMs.current = BACKOFF_START_MS;
-		nextAttemptAt.current = 0;
+		epoch.current += 1;
+		openWindow();
 		setSettled( false );
-	}, [] );
+	}, [ openWindow ] );
 
 	// A change of inputs invalidates what settled under the old ones.
 	useEffect( () => {
 		reconcileNow();
 	}, [ depsKey, reconcileNow ] );
 
+	// A rebuilt graph invalidates a load that pushed into a replaced node.
+	useEffect(
+		() => Core.subscribeGraphGeneration( reconcileNow ),
+		[ reconcileNow ]
+	);
+
 	// A fresh chance: don't wait out a backoff earned while the tab slept.
 	useEffect( () => {
 		if ( isPageVisible ) {
-			backoffMs.current = BACKOFF_START_MS;
-			nextAttemptAt.current = 0;
+			openWindow();
 		}
-	}, [ isPageVisible ] );
+	}, [ isPageVisible, openWindow ] );
 
 	useEffect( () => {
 		if ( ! enabled || ! isPageVisible ) {
@@ -122,9 +145,7 @@ export default function useReconcile( { load, enabled = true, deps = [] } ) {
 			const generation = authGeneration();
 			if ( generation !== seenGeneration.current ) {
 				seenGeneration.current = generation;
-				backoffMs.current = BACKOFF_START_MS;
-				nextAttemptAt.current = 0;
-				setSettled( false );
+				reconcileNow();
 				void attempt();
 				return;
 			}
@@ -137,7 +158,7 @@ export default function useReconcile( { load, enabled = true, deps = [] } ) {
 		tick();
 		const id = setInterval( tick, TICK_MS );
 		return () => clearInterval( id );
-	}, [ enabled, isPageVisible, settled, attempt ] );
+	}, [ enabled, isPageVisible, settled, attempt, reconcileNow ] );
 
 	return { settled, error, reconcileNow };
 }

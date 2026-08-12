@@ -12,10 +12,9 @@ namespace Newspack_Nodes;
 class Echo_Node extends Node {
 
 	public function fill( array $message ): void {
-		$raw_type = $message[ Message::TYPE ];
-		$type     = Core::int( $raw_type );
-		$to       = Core::as_string( $message[ Message::TO ] );
-		$target   = $this->target;
+		$type   = Core::as_int( $message[ Message::TYPE ] );
+		$to     = Core::as_string( $message[ Message::TO ] );
+		$target = $this->target;
 		if ( ( $type & Message::TM_ERROR ) && '' === $to ) {
 			return;
 		}

@@ -42,15 +42,15 @@ class Topology_Registry {
 	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
 	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
 	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
-	 * operator-overridable substrate option (clamped 1..16); a topology's own
-	 * `var num_partitions` frontmatter overrides via synthesize_entry.
+	 * operator-overridable substrate option, read through the ONE accessor that
+	 * clamps it; a topology's own `var num_partitions` frontmatter overrides via
+	 * synthesize_entry.
 	 *
 	 * @param array<string,array<string,mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
 	 * @return array<string,array<string,mixed>>
 	 */
 	public static function publish_catalog( array $topologies ): array {
-		$cfg_np       = \Newspack_Nodes\Config::value( 'num_partitions' );
-		$default_np   = \max( 1, \min( 16, Core::as_int( $cfg_np, 1 ) ) );
+		$default_np   = \Newspack_Nodes\Bootstrap::global_num_partitions();
 		$default_idle = \Newspack_Nodes\Bootstrap::config_on_demand_idle();
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {
@@ -76,6 +76,10 @@ class Topology_Registry {
 	 * to the caller's default. `on_demand_idle` is exempt: 0 is its meaningful
 	 * "stay resident" value.
 	 *
+	 * Every field is read with the VALIDATED `Core::num_int`, matching what
+	 * `Bootstrap` does with the same values: a raw `(int)` cast turns
+	 * `var num_partitions = "12abc"` into 12 here and into the default there.
+	 *
 	 * @return array<string,mixed>|null
 	 */
 	public static function synthesize_entry(
@@ -87,15 +91,14 @@ class Topology_Registry {
 		if ( null === self::resolve( $name ) ) {
 			return null;
 		}
-		$front       = Topology_Analyzer::frontmatter( $name );
-		$partitions  = isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions;
-		$stale       = isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout;
-		$idle        = isset( $front['on_demand_idle'] ) ? (int) $front['on_demand_idle'] : $default_on_demand_idle;
+		$front      = Topology_Analyzer::frontmatter( $name );
+		$partitions = Core::num_int( $front['num_partitions'] ?? null, $default_num_partitions );
+		$stale      = Core::num_int( $front['stale_timeout'] ?? null, $default_stale_timeout );
 		return [
 			'topology'       => $name,
 			'num_partitions' => $partitions > 0 ? $partitions : $default_num_partitions,
 			'stale_timeout'  => $stale > 0 ? $stale : $default_stale_timeout,
-			'on_demand_idle' => \max( 0, $idle ),
+			'on_demand_idle' => \Newspack_Nodes\Bootstrap::on_demand_idle_of( $front, $default_on_demand_idle ),
 		];
 	}
 
@@ -115,7 +118,8 @@ class Topology_Registry {
 	 * report a uniform error.
 	 *
 	 * @param string $name Topology name (already validated by the caller).
-	 * @return array{name: string, active: true, spawned: int}
+	 * @return array{name: string, active: true, spawned: int} `spawned` counts
+	 *         spawn POSTs REQUESTED — a fire-and-forget POST reports no outcome.
 	 * @throws \RuntimeException When the name is unknown or activating it would
 	 *                           put two fleets on one log/offsetlog.
 	 */
@@ -258,24 +262,55 @@ class Topology_Registry {
 	 * @return array<int,string>
 	 */
 	public static function list(): array {
-		$names = [];
-		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
-			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
-			}
+		return \array_keys( self::scan_dirs() );
+	}
+
+	/**
+	 * Per-name source breakdown across user + stock dirs (powers the REST list `source` field).
+	 *
+	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 */
+	public static function describe(): array {
+		return self::scan_dirs();
+	}
+
+	/**
+	 * The ONE dir walk. `list()` and `describe()` are both views of it, so dir
+	 * precedence and file filtering are stated once — four copies of this loop
+	 * is how the catalog and the `source` field drift apart.
+	 *
+	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 */
+	private static function scan_dirs(): array {
+		$out = [];
+		foreach ( self::scan_dir( self::$user_dir ) as $name => $path ) {
+			$out[ $name ] = [ 'user' => $path, 'stock' => [] ];
 		}
 		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$names[ \basename( $path, '.tsl' ) ] = true;
+			foreach ( self::scan_dir( $dir ) as $name => $path ) {
+				$out[ $name ]          ??= [ 'user' => null, 'stock' => [] ];
+				$out[ $name ]['stock'][] = $path;
 			}
 		}
-		return \array_keys( $names );
+		return $out;
+	}
+
+	/**
+	 * Every `.tsl` in one dir as `name => path`; empty when it is not a dir.
+	 *
+	 * @return array<string,string>
+	 */
+	private static function scan_dir( string $dir ): array {
+		if ( '' === $dir || ! \is_dir( $dir ) ) {
+			return [];
+		}
+		$found = [];
+		foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+			if ( \is_file( $path ) ) {
+				$found[ \basename( $path, '.tsl' ) ] = $path;
+			}
+		}
+		return $found;
 	}
 
 	/**
@@ -303,37 +338,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Per-name source breakdown across user + stock dirs (powers the REST list `source` field).
-	 *
-	 * @return array<string,array{user:?string,stock:array<int,string>}>
-	 */
-	public static function describe(): array {
-		$out = [];
-		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
-			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$name                    = \basename( $path, '.tsl' );
-				$out[ $name ]['user']    = $path;
-				$out[ $name ]['stock'] ??= [];
-			}
-		}
-		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$name                      = \basename( $path, '.tsl' );
-				$out[ $name ]['user']    ??= null;
-				$out[ $name ]['stock']   ??= [];
-				$out[ $name ]['stock'][]   = $path;
-			}
-		}
-		return $out;
-	}
-
-	/**
 	 * `newspack_nodes/spawn_worker` handler: spawn the {type, partition} worker iff
 	 * it is in the active set (`Bootstrap::expand_workers()`) — ungated by plugin
 	 * ownership. Runs the `$spawn_runner` seam (which defaults to a real
@@ -347,7 +351,8 @@ class Topology_Registry {
 			}
 			$runner = self::$spawn_runner ?? static function ( array $descriptor ): void {
 				$base_dir      = \Newspack_Nodes\Bootstrap::base_dir();
-				$coordinator   = new \Newspack_Nodes\Spawn_Coordinator( $base_dir );
+				// The seam accessor, so the HMAC salt matches the runtime.
+				$coordinator   = \Newspack_Nodes\Bootstrap::spawn_coordinator();
 				$topology_name = Core::as_string( $descriptor['topology'] );
 				$wb            = new \Newspack_Nodes\Worker_Base(
 					$base_dir,

@@ -90,6 +90,25 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
+	/**
+	 * One policy, one derivation. The seam hands back a FRESH stream per call,
+	 * so a second probe judges a different resource than the reader drains.
+	 */
+	public function test_the_stdin_seam_is_resolved_once_per_invocation(): void {
+		CLI::$uid_provider  = static fn (): int => 1000;
+		$calls              = 0;
+		CLI_Command::$stdin = static function () use ( &$calls ) {
+			++$calls;
+			return \fopen( 'php://memory', 'r' );
+		};
+
+		( new CLI_Command() )->cli( [], [] );
+
+		$this->assertSame( 1, $calls, 'the stdin/TTY/readline policy is derived once' );
+
+		Core::cleanup_all_nodes();
+	}
+
 	public function test_prepare_repl_bare_mode_sets_local_status_lines(): void {
 		CLI::$uid_provider = static fn (): int => 1000;
 		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );

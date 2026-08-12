@@ -602,7 +602,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * dump_config → replay round-trips this source's snapshot node.
 	 */
 	public function dump_config(): string {
-		return parent::dump_config() . $this->dump_time_travel_config( $this->name ) . $this->dump_toggles();
+		return parent::dump_config() . $this->dump_time_travel_config() . $this->dump_toggles();
 	}
 
 	public static function node_schema(): array {

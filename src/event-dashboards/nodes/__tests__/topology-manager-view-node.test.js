@@ -32,6 +32,16 @@ function listReply( payload ) {
 	return m;
 }
 
+test( 'publishes the pre-reply model, so a first render reads loading', () => {
+	const v = makeView( 'topologymanager:view' );
+	expect( v.setStateCache.view ).toEqual( {
+		topologies: [],
+		userDir: null,
+		error: null,
+		loading: true,
+	} );
+} );
+
 test( 'stores the list reply payload as the published model', () => {
 	const v = makeView( 'topologymanager:view' );
 	v.fill( listReply( { topologies: [ { name: 'a' } ], user_dir: '/u' } ) );

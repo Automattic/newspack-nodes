@@ -40,6 +40,34 @@ function restErrorCode( text ) {
 }
 
 /**
+ * Split a response body into the routable replies it carries.
+ *
+ * `unpack()` mints a TM_UNTYPED message for anything that is not a 7-field
+ * array, which is what tells JSONL from a REST error object — so this runs on
+ * EVERY body, whatever the status.
+ *
+ * @param {string} text The raw response body.
+ * @return {{messages: Array<Array>, dropped: number}} Replies, and the count of
+ *   lines that were not messages.
+ */
+function unpackLines( text ) {
+	const messages = [];
+	let dropped = 0;
+	for ( const line of String( text ).split( '\n' ) ) {
+		if ( '' === line.trim() ) {
+			continue;
+		}
+		const message = unpack( line );
+		if ( message[ TYPE ] & TM_UNTYPED ) {
+			dropped++;
+			continue;
+		}
+		messages.push( message );
+	}
+	return { messages, dropped };
+}
+
+/**
  * The TM_ERROR a refused command earns, addressed back to whoever minted it.
  *
  * @param {Array}  sent   The posted command Message.
@@ -98,46 +126,22 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 			},
 			body,
 		} );
-		// JSONL: unpack each line — NEVER JSON.parse the multi-message body.
 		const text = await r.text();
-		// A non-2xx body is a REST error OBJECT, not JSONL. Say so.
-		if ( false === r.ok ) {
-			// A 401 refused our session; we return before the body is parsed.
-			if ( 401 === r.status ) {
-				renewSession();
-			}
-			const code = restErrorCode( text );
-			if (
-				mayRenewNonce &&
-				renewNonce &&
-				'rest_cookie_invalid_nonce' === code
-			) {
-				currentNonce = await renewNonce();
-				// A renewed nonce invalidates what the old one derived.
-				invalidateAuth();
-				return post( body, outCount, false );
-			}
+		// @longform
+		// Unpack FIRST, whatever the status: Http_In sets the response status
+		// from the refusal latch on the FIRST reply it writes, so a batch with
+		// one refused command answers non-2xx with a JSONL body carrying the
+		// server's real replies — the refusal's diagnosis, and every reply that
+		// succeeded beside it. Only a body that unpacks to nothing is the REST
+		// error object the fabricated refusal below stands in for.
+		const { messages, dropped } = unpackLines( text );
+		const restErrorBody = false === r.ok && 0 === messages.length;
+		// That error object is ONE unreadable line by design; say nothing.
+		if ( 0 < dropped && ! restErrorBody ) {
 			Core.printLessOften(
-				`ERROR: /command failed - HTTP ${ r.status } ${ code }`
+				'ERROR: dropped an unparseable /command response line'
 			);
-			return { messages: [], refusal: { status: r.status, code } };
 		}
-		const unpacked = text
-			? text
-					.split( '\n' )
-					.filter( ( line ) => '' !== line.trim() )
-					.map( ( line ) => unpack( line ) )
-			: [];
-		// A line unpack() cannot read mints a blank — never route that.
-		const messages = unpacked.filter( ( m ) => {
-			if ( m[ TYPE ] & TM_UNTYPED ) {
-				Core.printLessOften(
-					'ERROR: dropped an unparseable /command response line'
-				);
-				return false;
-			}
-			return true;
-		} );
 		// Inbound boundary accounting: response bytes, replies, error tally.
 		IoTelemetry.recordIn( byteLength( text ), messages.length );
 		for ( const message of messages ) {
@@ -161,6 +165,27 @@ export function commandTransport( { baseUrl, nonce, renewNonce = null } ) {
 					}`
 				);
 			}
+		}
+		if ( false === r.ok ) {
+			// A 401 refused our session.
+			if ( 401 === r.status ) {
+				renewSession();
+			}
+			const code = restErrorCode( text );
+			if (
+				mayRenewNonce &&
+				renewNonce &&
+				'rest_cookie_invalid_nonce' === code
+			) {
+				currentNonce = await renewNonce();
+				// A renewed nonce invalidates what the old one derived.
+				invalidateAuth();
+				return post( body, outCount, false );
+			}
+			Core.printLessOften(
+				`ERROR: /command failed - HTTP ${ r.status } ${ code }`
+			);
+			return { messages, refusal: { status: r.status, code } };
 		}
 		return { messages, refusal: null };
 	};

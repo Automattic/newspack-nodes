@@ -55,6 +55,27 @@ class Message {
 	 */
 	public const TM_UNTYPED = 1024;
 
+	/**
+	 * The ONE flags-to-names map, beside the constants it names. Renderers read
+	 * it through type_labels() and supply their own separator and no-match
+	 * label; a private copy is how a renderer ends up omitting a flag.
+	 *
+	 * @var array<int,string>
+	 */
+	private const TYPE_NAMES = [
+		self::TM_BYTESTREAM => 'TM_BYTESTREAM',
+		self::TM_EOF        => 'TM_EOF',
+		self::TM_PING       => 'TM_PING',
+		self::TM_COMMAND    => 'TM_COMMAND',
+		self::TM_RESPONSE   => 'TM_RESPONSE',
+		self::TM_ERROR      => 'TM_ERROR',
+		self::TM_INFO       => 'TM_INFO',
+		self::TM_STRUCT     => 'TM_STRUCT',
+		self::TM_REQUEST    => 'TM_REQUEST',
+		self::TM_NOREPLY    => 'TM_NOREPLY',
+		self::TM_UNTYPED    => 'TM_UNTYPED',
+	];
+
 	/** Bound a logged/exception excerpt so a huge payload can't flood the log. */
 	private const EXCERPT_LENGTH = 200;
 
@@ -122,6 +143,23 @@ class Message {
 		return \strlen( $data ) > self::EXCERPT_LENGTH
 			? \substr( $data, 0, self::EXCERPT_LENGTH ) . '…'
 			: $data;
+	}
+
+	/**
+	 * Names of every flag set in $type, in TYPE_NAMES order. Empty when no
+	 * known flag matches — the caller names that case (the drop audit says
+	 * TYPE_UNKNOWN, the Dumper prints the unmatched bits in hex).
+	 *
+	 * @return list<string>
+	 */
+	public static function type_labels( int $type ): array {
+		$labels = [];
+		foreach ( self::TYPE_NAMES as $flag => $name ) {
+			if ( $type & $flag ) {
+				$labels[] = $name;
+			}
+		}
+		return $labels;
 	}
 
 	/**

@@ -11,11 +11,13 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Ingest_CLI_Command;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Tests\Counting_Stream_Wrapper;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-ingest-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
+require_once \dirname( __DIR__ ) . '/Helpers/CountingStreamWrapper.php';
 
 #[CoversClass( Ingest_CLI_Command::class )]
 class IngestCliCommandTest extends TestCase {
@@ -323,6 +325,40 @@ class IngestCliCommandTest extends TestCase {
 		$this->assertFalse( \is_dir( "{$this->tmp}/dest/firehose.p0" ), 'dry run wrote nothing' );
 	}
 
+	/**
+	 * A replay of a whole packed log (`wp nodes ingest firehose logs/firehose.p0/*.log`)
+	 * hands this command a few hundred segments. Opening them all up front exhausts
+	 * `ulimit -n` and dies with "Cannot open file", which reads as a permissions
+	 * problem; each handle must instead open as the previous one closes.
+	 */
+	public function test_ingest_opens_one_source_file_at_a_time(): void {
+		Counting_Stream_Wrapper::reset();
+		$wrapped = [];
+		for ( $i = 0; $i < 7; ++$i ) {
+			$src = "{$this->tmp}/src-{$i}.log";
+			$this->write_packed_records( $src, [ [ "k{$i}", "value-{$i}" ] ] );
+			$wrapped[] = Counting_Stream_Wrapper::wrap( $src );
+		}
+
+		try {
+			( new Ingest_CLI_Command() )->ingest(
+				\array_merge( [ "{$this->tmp}/dest/firehose.p{partition}" ], $wrapped ),
+				[ 'num_partitions' => 1 ]
+			);
+		} finally {
+			Counting_Stream_Wrapper::unregister();
+		}
+
+		$this->assertSame( 1, Counting_Stream_Wrapper::$max_open, 'only one source file open at a time' );
+		$this->assertSame( 0, Counting_Stream_Wrapper::$open, 'every source handle closed' );
+		$values = $this->collect_destination_values( "{$this->tmp}/dest", 'firehose', 1 );
+		\sort( $values );
+		$this->assertSame(
+			[ 'value-0', 'value-1', 'value-2', 'value-3', 'value-4', 'value-5', 'value-6' ],
+			$values
+		);
+	}
+
 	// -------------------------------------------------------------------------
 	// validation — don't suppress errors
 	// -------------------------------------------------------------------------
@@ -369,6 +405,68 @@ class IngestCliCommandTest extends TestCase {
 		$values = $this->collect_destination_values( "{$this->tmp}/dest", 'firehose', 2 );
 		\sort( $values );
 		$this->assertSame( [ 'first', 'second' ], $values );
+	}
+
+	/**
+	 * `zcat big.gz | wp nodes ingest …` — the usage this command's own docblock
+	 * advertises — hands the reader a PIPE, and a pipe delivers whatever bytes
+	 * happen to be buffered. A packed record straddling that boundary must still
+	 * ingest as ONE record; read non-blocking it arrives as two fragments,
+	 * `Message::unpacked()` throws on each, and both are counted `unparseable`
+	 * and dropped. Silent data loss, reported only as a line count.
+	 *
+	 * The child writes the first record in two halves with a gap between them,
+	 * so the reader is guaranteed to see the split.
+	 */
+	public function test_ingest_reassembles_a_record_split_across_two_pipe_reads(): void {
+		$packed = [];
+		foreach ( [ [ 'k1', 'straddler' ], [ 'k2', 'follower' ] ] as [ $key, $value ] ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::KEY ]   = $key;
+			$message[ Message::VALUE ] = $value;
+			$packed[]                  = Message::packed( $message );
+		}
+		$payload = \implode( "\n", $packed ) . "\n";
+		$split   = \intdiv( \strlen( $packed[0] ), 2 );
+		$source  = "{$this->tmp}/piped.log";
+		\file_put_contents( $source, $payload );
+
+		$writer = [
+			\PHP_BINARY,
+			'-r',
+			'$d = file_get_contents( $argv[1] ); echo substr( $d, 0, (int) $argv[2] );'
+				. ' flush(); usleep( 300000 ); echo substr( $d, (int) $argv[2] );',
+			$source,
+			(string) $split,
+		];
+		$pipes   = [];
+		$process = \proc_open( $writer, [ 1 => [ 'pipe', 'w' ] ], $pipes );
+		$this->assertIsResource( $process, 'proc_open must be available for this test' );
+
+		Ingest_CLI_Command::$stdin_provider = static fn () => $pipes[1];
+		try {
+			( new Ingest_CLI_Command() )->ingest(
+				[ "{$this->tmp}/dest/firehose.p{partition}" ],
+				[ 'num_partitions' => 2 ]
+			);
+		} finally {
+			Ingest_CLI_Command::$stdin_provider = null;
+			\fclose( $pipes[1] );
+			\proc_close( $process );
+		}
+
+		$values = $this->collect_destination_values( "{$this->tmp}/dest", 'firehose', 2 );
+		\sort( $values );
+		$this->assertSame(
+			[ 'follower', 'straddler' ],
+			$values,
+			'the record spanning the pipe-read boundary must land intact'
+		);
+		$this->assertEmpty(
+			$GLOBALS['_test_wp_cli_warns'],
+			'a split record is not an unparseable line'
+		);
 	}
 
 	public function test_ingest_errors_on_unreadable_file(): void {
@@ -458,6 +556,91 @@ class IngestCliCommandTest extends TestCase {
 
 		$segments = \glob( "{$this->tmp}/dest/firehose.p0/*.log" ) ?: [];
 		$this->assertCount( 3, $segments, '--num_segments prunes the oldest back to the requested count' );
+	}
+
+	/**
+	 * One command, one source of geometry defaults. `num_partitions` fell back to
+	 * the global config while `segment_size` / `num_segments` fell back to the
+	 * `Partition_Node::DEFAULT_*` constants — and those two answers have already
+	 * diverged: `Topic_Node::node_schema()` defaults `num_segments` to
+	 * `<config:num_segments>` (8), while the constant is 4. So every Topic built
+	 * through `make_node` honoured the operator's setting and `wp nodes ingest`
+	 * ignored it.
+	 */
+	public function test_ingest_num_segments_defaults_to_the_config_key_not_the_class_constant(): void {
+		// 5 is neither the config default (8) nor Partition_Node's constant (4).
+		$this->use_base_dir( $this->tmp, [ 'num_segments' => 5 ] );
+		\Newspack_Nodes\Config::reset();
+
+		$src     = "{$this->tmp}/src.log";
+		$records = [];
+		for ( $i = 0; $i < 9; ++$i ) {
+			$records[] = [ "k{$i}", \str_repeat( 'x', 5000 ) ];
+		}
+		$this->write_packed_records( $src, $records );
+
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => 1, 'segment_size' => 5000, 'void_warranty' => true ]
+		);
+
+		$segments = \glob( "{$this->tmp}/dest/firehose.p0/*.log" ) ?: [];
+		$this->assertCount( 5, $segments, 'retention followed the configured num_segments' );
+	}
+
+	/**
+	 * `Options_Overlay` treats a stored '' as PRESENT and overriding, so a
+	 * cleared admin field reaches the geometry read as an empty string. A
+	 * lenient `as_int` casts that to 0, `Partition_Node::arguments()` clamps it
+	 * to 1, and the destination rotates a segment per record.
+	 */
+	public function test_ingest_segment_size_ignores_a_blank_config_value(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_segment_size'] = '';
+		\Newspack_Nodes\Config::reset();
+
+		$src = "{$this->tmp}/src.log";
+		$this->write_packed_records( $src, [ [ 'k1', 'aaa' ], [ 'k2', 'bbb' ], [ 'k3', 'ccc' ] ] );
+
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => 1 ]
+		);
+
+		unset( $GLOBALS['_wp_options']['newspack_nodes_segment_size'] );
+		$this->assertStringContainsString(
+			'(1 partition(s), 67108864-byte segments)',
+			\implode( "\n", $GLOBALS['_test_wp_cli_logs'] ),
+			'a blank segment_size falls back to the 64 MiB default, not 0'
+		);
+	}
+
+	/**
+	 * The validated `Core::num_int` read: '900x' is not a number, so the
+	 * per-key default applies. The lenient `as_int` cast took the 900 prefix
+	 * and re-segmented the destination every 900 bytes.
+	 */
+	public function test_ingest_segment_size_ignores_a_partly_numeric_config_value(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_segment_size'] = '900x';
+		\Newspack_Nodes\Config::reset();
+
+		$src     = "{$this->tmp}/src.log";
+		$records = [];
+		for ( $i = 0; $i < 4; ++$i ) {
+			$records[] = [ "k{$i}", \str_repeat( 'y', 900 ) ];
+		}
+		$this->write_packed_records( $src, $records );
+
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => 1 ]
+		);
+
+		unset( $GLOBALS['_wp_options']['newspack_nodes_segment_size'] );
+		$this->assertStringContainsString(
+			'(1 partition(s), 67108864-byte segments)',
+			\implode( "\n", $GLOBALS['_test_wp_cli_logs'] ),
+			'a non-numeric segment_size falls back to the default, not its 900 prefix'
+		);
 	}
 
 	public function test_ingest_rejects_non_numeric_segment_size(): void {

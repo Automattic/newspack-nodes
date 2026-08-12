@@ -47,7 +47,7 @@ class LogStreamOutNodeTest extends TestCase {
 		$tail = $tails[0];
 		$this->assertInstanceOf( Tail_Node::class, $tail );
 		$this->assertSame( 'gyro', $tail->stamped_as() );
-		$this->assertSame( Tail_Node::MODE_FILE, $this->read_private( $tail, 'source_mode' ) );
+		$this->assertInstanceOf( \Newspack_Nodes\File_Tail_Node::class, $tail );
 		$this->assertSame( $path, $this->read_private( $tail, 'source_file' ) );
 		// Ephemeral SSE reader: the browser holds the cursor, no durable state.
 		$this->assertSame( '', $this->read_private( $tail, 'offsetlog_dir' ) );
@@ -207,7 +207,7 @@ class LogStreamOutNodeTest extends TestCase {
 
 		$this->assertCount( 1, $tails );
 		$tail = $tails[0];
-		$this->assertSame( Tail_Node::MODE_SEGMENTED, $this->read_private( $tail, 'source_mode' ) );
+		$this->assertNotInstanceOf( \Newspack_Nodes\File_Tail_Node::class, $tail );
 		$this->assertSame( "{$this->tmp}/logs/beacon-7e.p1/beacon-7e", $this->read_private( $tail, 'source_file' ) );
 		$this->assertSame( 'beacon-7e.p1', $tail->stamped_as() );
 		// Segmented seek seeds the cursor directly (Consumer's array branch).

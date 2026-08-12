@@ -1,4 +1,4 @@
-import { Node } from '../node';
+import { Node, targetsOf } from '../node';
 import { Core } from '../core';
 import { FROM, TO, KEY, VALUE, newMessage } from '../message';
 
@@ -124,6 +124,19 @@ test( 'counter increments on each fill', () => {
 	expect( n.counter ).toBe( 2 );
 } );
 
+// `target` is string|string[]; ONE reader, so no caller invents its own.
+describe( 'targetsOf', () => {
+	it( 'reads both shapes as a list, dropping the unset one', () => {
+		expect( targetsOf( { target: 'zulu' } ) ).toEqual( [ 'zulu' ] );
+		expect( targetsOf( { target: [ 'zulu', 'yankee' ] } ) ).toEqual( [
+			'zulu',
+			'yankee',
+		] );
+		expect( targetsOf( { target: '' } ) ).toEqual( [] );
+		expect( targetsOf( {} ) ).toEqual( [] );
+	} );
+} );
+
 test( 'stampMessage prepends name to FROM', () => {
 	const n = new Node();
 	const m = newMessage();
@@ -148,6 +161,20 @@ test( 'stampMessage with FROM exceeding MAX_FROM_SIZE returns false', () => {
 	m[ FROM ] = 'x'.repeat( 1024 );
 	expect( n.stampMessage( m, 'c' ) ).toBe( false );
 	expect( spy ).toHaveBeenCalledTimes( 1 );
+	spy.mockRestore();
+} );
+
+// The path is unique by construction; keying on it would suppress nothing.
+test( 'stampMessage keys the over-long-path drop on the reason, not the path', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const n = new Node();
+	for ( const filler of [ 'z', 'y', 'x' ] ) {
+		const m = newMessage();
+		m[ FROM ] = filler.repeat( 1024 );
+		expect( n.stampMessage( m, 'c' ) ).toBe( false );
+	}
+	expect( spy ).toHaveBeenCalledTimes( 1 );
+	expect( Core.recentLog[ 0 ] ).toContain( 'z'.repeat( 32 ) );
 	spy.mockRestore();
 } );
 

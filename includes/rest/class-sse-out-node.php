@@ -949,7 +949,7 @@ class SSE_Out_Node extends Node {
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		return \function_exists( 'current_user_can' ) && Capabilities::can( Capabilities::READ );
+		return Capabilities::can( Capabilities::READ );
 	}
 
 	public function register_routes(): void {

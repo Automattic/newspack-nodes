@@ -926,16 +926,16 @@ class Admin {
 			Core::print_less_often( 'Cache flush: restart_workers failed — ', $e->getMessage() );
 		}
 
-		$redirect = \function_exists( 'admin_url' )
-			? \add_query_arg(
+		// options-general.php: MENU_SLUG is an add_options_page() submenu.
+		\wp_safe_redirect(
+			\add_query_arg(
 				[
 					'page'    => self::MENU_SLUG,
 					'flushed' => '1',
 				],
-				\admin_url( 'admin.php' )
+				\admin_url( 'options-general.php' )
 			)
-			: '';
-		\wp_safe_redirect( $redirect );
+		);
 		exit;
 	}
 
@@ -959,19 +959,15 @@ class Admin {
 			}
 		}
 
-		$redirect = \function_exists( 'admin_url' )
-			? \add_query_arg(
+		\wp_safe_redirect(
+			\add_query_arg(
 				[
 					'page'  => self::MENU_SLUG,
 					'reset' => '1',
 				],
 				\admin_url( 'options-general.php' )
 			)
-			: '';
-		if ( '' !== $redirect ) {
-			\wp_safe_redirect( $redirect );
-			exit;
-		}
+		);
 		exit;
 	}
 
@@ -987,9 +983,6 @@ class Admin {
 	 * @return bool True if user is allowed.
 	 */
 	public static function current_user_allowed(): bool {
-		if ( ! \function_exists( 'current_user_can' ) ) {
-			return true; // CLI / no user context — don't lock out CLI tools.
-		}
 		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
@@ -999,11 +992,7 @@ class Admin {
 			return true;
 		}
 
-		if ( ! \function_exists( 'wp_get_current_user' ) ) {
-			return true; // No user context — don't lock out CLI tools.
-		}
-		$current_user = \wp_get_current_user();
-		return \in_array( $current_user->user_login, $allowed_users, true );
+		return \in_array( \wp_get_current_user()->user_login, $allowed_users, true );
 	}
 
 	/**
@@ -1089,22 +1078,6 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize integer option, preserving empty string for "use default".
-	 *
-	 * @param mixed $input Input value.
-	 * @return string|int Empty string or sanitized integer.
-	 */
-	public static function sanitize_int_or_empty( $input ) {
-		if ( '' === $input || null === $input ) {
-			return '';
-		}
-		if ( ! \is_scalar( $input ) && ! \is_array( $input ) ) {
-			return '';
-		}
-		return \absint( $input );
-	}
-
-	/**
 	 * Sanitize memcache servers (newline-separated host:port; underscores allowed in hostnames).
 	 *
 	 * Stores the typed (array) shape so the raw option overlay in Config::load_config()
@@ -1156,76 +1129,6 @@ class Admin {
 		return $sanitized_lines;
 	}
 
-	/**
-	 * Sanitize the remote num_segments count target: clamp to [2, 16], or '' when unset.
-	 *
-	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
-	 * @return int|string Clamped segment count, or '' when blank/unset.
-	 */
-	public static function sanitize_remote_num_segments( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 2, \min( 16, \absint( $value ) ) );
-	}
-
-	/** Sanitize the remote min_segments floor: clamp to [2, 16], or '' when unset. */
-	public static function sanitize_remote_min_segments( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 2, \min( 16, \absint( $value ) ) );
-	}
-
-	/** Sanitize the remote lifetime age rule: clamp to [0, 604800], or '' when unset. */
-	public static function sanitize_remote_lifetime( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 0, \min( 604800, \absint( $value ) ) );
-	}
-
-	/**
-	 * Sanitize the remote max_segments hard cap: clamp to [0, 64], or '' when unset.
-	 * 0 = automatic (spoke derives twice remote num_segments), matching the local hard cap.
-	 *
-	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
-	 * @return int|string Clamped hard cap, or '' when blank/unset.
-	 */
-	public static function sanitize_remote_max_segments( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 0, \min( 64, \absint( $value ) ) );
-	}
-
-	/**
-	 * Sanitize the remote segment_size setting: clamp to [1MB, 256MB], or '' when unset.
-	 *
-	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
-	 * @return int|string Clamped byte size, or '' when blank/unset.
-	 */
-	public static function sanitize_remote_segment_size( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 1024 * 1024, \min( 256 * 1024 * 1024, \absint( $value ) ) );
-	}
-
-	/**
-	 * Sanitize the remote min_lifetime setting: clamp to [0, 604800] seconds, or '' when unset.
-	 * 0 = disabled (pure count-based), matching the hub min_lifetime.
-	 *
-	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
-	 * @return int|string Clamped lifetime in seconds, or '' when blank/unset.
-	 */
-	public static function sanitize_remote_min_lifetime( int|string|null $value ): int|string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
-		return \max( 0, \min( 604800, \absint( $value ) ) );
-	}
-
 	public static function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
 	}
@@ -1252,17 +1155,7 @@ class Admin {
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		// Guarded: the planner re-enters Config::load_config() via Bootstrap.
-		try {
-			$locks_dir = Config::get_locks_directory();
-			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );
-			// @longform Every live worker's option cache is frozen at boot, so
-			// the ones this save does not recycle must be told to re-read.
-			Restart_Planner::request_reloads( $locks_dir );
-		} catch ( \Throwable $e ) {
-			// Best-effort: the next worker generation loads the new config.
-			return;
-		}
+		Restart_Planner::plan( Settings_Schema::get()->restart_for( $short ) );
 	}
 
 }

@@ -128,7 +128,7 @@ class AdminTest extends TestCase {
 		}
 	}
 
-	public function test_register_settings_uses_sanitize_int_or_empty_for_int_options(): void {
+	public function test_register_settings_sanitizes_every_int_option_through_its_own_field(): void {
 		$admin = new Admin();
 		$admin->register_settings();
 
@@ -143,13 +143,54 @@ class AdminTest extends TestCase {
 		];
 		foreach ( $int_options as $option ) {
 			$cb = $GLOBALS['_registered_settings'][ $option ]['args']['sanitize_callback'];
-			$this->assertIsArray( $cb );
-			$this->assertSame( 'sanitize_int_or_empty', $cb[1] );
-			// Empty stays empty.
+			$this->assertIsCallable( $cb );
+			// Empty stays empty — a blank means "use the file default".
 			$this->assertSame( '', \call_user_func( $cb, '' ) );
-			// Coerces numeric.
-			$this->assertSame( 42, \call_user_func( $cb, '42' ) );
+			$this->assertSame( '', \call_user_func( $cb, null ) );
 		}
+	}
+
+	/**
+	 * The save path must enforce the SAME bounds the `settings` verb does —
+	 * 4177 partitions is refused there and used to be stored here.
+	 */
+	public function test_register_settings_clamps_an_int_option_to_its_declared_bounds(): void {
+		( new Admin() )->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_num_partitions']['args']['sanitize_callback'];
+
+		$this->assertSame( 16, \call_user_func( $cb, '4177' ), 'above max must clamp to the declared max' );
+		$this->assertSame( 1, \call_user_func( $cb, '0' ), 'below min must clamp to the declared min' );
+		$this->assertSame( 1, \call_user_func( $cb, '-9' ) );
+		$this->assertSame( 9, \call_user_func( $cb, '9' ), 'an in-range value passes through' );
+	}
+
+	public function test_register_settings_clamps_the_remote_options_from_the_same_declaration(): void {
+		( new Admin() )->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_remote_segment_size']['args']['sanitize_callback'];
+
+		$this->assertSame( 1048576, \call_user_func( $cb, '4177' ) );
+		$this->assertSame( 268435456, \call_user_func( $cb, (string) ( 512 * 1024 * 1024 ) ) );
+		$this->assertSame( 3145728, \call_user_func( $cb, '3145728' ) );
+		$this->assertSame( '', \call_user_func( $cb, '' ) );
+		$this->assertSame( '', \call_user_func( $cb, null ) );
+
+		$cap = $GLOBALS['_registered_settings']['newspack_nodes_remote_max_segments']['args']['sanitize_callback'];
+		// The hard cap keeps its own band (0 = auto, up to 64), not the count target's.
+		$this->assertSame( 0, \call_user_func( $cap, '0' ) );
+		$this->assertSame( 64, \call_user_func( $cap, '4177' ) );
+		$this->assertSame( 21, \call_user_func( $cap, '21' ) );
+	}
+
+	public function test_register_settings_rejects_non_numeric_input_for_an_int_option(): void {
+		( new Admin() )->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_segment_size']['args']['sanitize_callback'];
+
+		// Junk falls back to the file default rather than storing a coerced 0.
+		$this->assertSame( '', \call_user_func( $cb, 'not-a-number' ) );
+		$this->assertSame( '', \call_user_func( $cb, [ 4177 ] ) );
 	}
 
 	public function test_sanitize_memcache_servers_strips_invalid_entries(): void {
@@ -400,6 +441,37 @@ class AdminTest extends TestCase {
 		}
 
 		$this->assertSame( [ 'combined' ], \get_option( 'newspack_nodes_topologies' ), 'reset must NOT touch the active topology set' );
+	}
+
+	// ---- handle_flush_cache ----------------------------------------------
+
+	public function test_handle_flush_cache_redirects_to_the_page_it_is_registered_on(): void {
+		// MENU_SLUG is registered with add_options_page, so the page lives at
+		// options-general.php; admin.php?page=newspack-nodes is a WP error screen.
+		$GLOBALS['_wp_test_valid_nonces'][ Admin::FLUSH_ACTION ] = 'nonce_' . Admin::FLUSH_ACTION;
+		$_POST = [ Admin::FLUSH_NONCE => 'nonce_' . Admin::FLUSH_ACTION ];
+
+		try {
+			( new Admin() )->handle_flush_cache();
+			$this->fail( 'expected RedirectException from wp_safe_redirect()' );
+		} catch ( RedirectException $e ) {
+			// Expected — the handler completes via redirect.
+		}
+
+		$redirect = (string) $GLOBALS['_last_redirect'];
+		$this->assertStringContainsString( 'options-general.php', $redirect );
+		$this->assertStringContainsString( 'page=' . Admin::MENU_SLUG, $redirect );
+		$this->assertStringContainsString( 'flushed=1', $redirect );
+	}
+
+	public function test_handle_flush_cache_rejects_an_unauthorized_user(): void {
+		$GLOBALS['_wp_test_valid_nonces'][ Admin::FLUSH_ACTION ]  = 'nonce_' . Admin::FLUSH_ACTION;
+		$_POST                                                    = [ Admin::FLUSH_NONCE => 'nonce_' . Admin::FLUSH_ACTION ];
+		$GLOBALS['_wp_test_current_user_can']['manage_options']   = false;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'You do not have permission' );
+		( new Admin() )->handle_flush_cache();
 	}
 
 	// ---- maybe_request_worker_restart ------------------------------------
@@ -776,52 +848,32 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- remote_* sanitizers ---------------------------------------------
 
-	public function test_sanitize_remote_num_segments_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_num_segments( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_num_segments( null ) );
+	public function test_the_remote_bounds_come_from_the_field_not_a_hand_written_method(): void {
+		// The six sanitize_remote_* methods restated bounds the Field declares;
+		// Schema derives them now, so a resurrected copy is a second definition.
+		foreach ( [ 'num_segments', 'min_segments', 'max_segments', 'segment_size', 'min_lifetime', 'lifetime' ] as $axis ) {
+			$this->assertFalse(
+				\method_exists( Admin::class, "sanitize_remote_{$axis}" ),
+				"sanitize_remote_{$axis} duplicates its Field's declared bounds"
+			);
+		}
+		$this->assertFalse( \method_exists( Admin::class, 'sanitize_int_or_empty' ) );
 	}
 
-	public function test_sanitize_remote_num_segments_clamps_to_range(): void {
-		$this->assertSame( 2, Admin::sanitize_remote_num_segments( '1' ) );
-		$this->assertSame( 16, Admin::sanitize_remote_num_segments( '500' ) );
-		$this->assertSame( 8, Admin::sanitize_remote_num_segments( '8' ) );
-	}
+	public function test_registered_remote_sanitizers_clamp_each_axis_to_its_own_band(): void {
+		( new Admin() )->register_settings();
+		$sanitizer = static fn ( string $option ): callable =>
+			$GLOBALS['_registered_settings'][ $option ]['args']['sanitize_callback'];
 
-	public function test_sanitize_remote_max_segments_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_max_segments( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_max_segments( null ) );
-	}
+		$count = $sanitizer( 'newspack_nodes_remote_num_segments' );
+		$this->assertSame( 2, \call_user_func( $count, '1' ) );
+		$this->assertSame( 16, \call_user_func( $count, '4177' ) );
+		$this->assertSame( 9, \call_user_func( $count, '9' ) );
 
-	public function test_sanitize_remote_max_segments_hard_cap_clamps_to_range(): void {
-		// The hard cap allows the 0 = auto sentinel and reaches 64 — distinct from
-		// the count target's [2, 16] band so a wrong-sanitizer wiring is caught.
-		$this->assertSame( 0, Admin::sanitize_remote_max_segments( '0' ) );
-		$this->assertSame( 64, Admin::sanitize_remote_max_segments( '500' ) );
-		$this->assertSame( 21, Admin::sanitize_remote_max_segments( '21' ) );
-	}
-
-	public function test_sanitize_remote_segment_size_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_segment_size( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_segment_size( null ) );
-	}
-
-	public function test_sanitize_remote_segment_size_clamps_to_range(): void {
-		$this->assertSame( 1024 * 1024, Admin::sanitize_remote_segment_size( '100' ) );
-		$this->assertSame( 256 * 1024 * 1024, Admin::sanitize_remote_segment_size( (string) ( 512 * 1024 * 1024 ) ) );
-		$this->assertSame( 10 * 1024 * 1024, Admin::sanitize_remote_segment_size( (string) ( 10 * 1024 * 1024 ) ) );
-	}
-
-	public function test_sanitize_remote_min_lifetime_returns_empty_for_empty_and_null(): void {
-		$this->assertSame( '', Admin::sanitize_remote_min_lifetime( '' ) );
-		$this->assertSame( '', Admin::sanitize_remote_min_lifetime( null ) );
-	}
-
-	public function test_sanitize_remote_min_lifetime_clamps_to_range(): void {
-		// 0 = disabled (pure count-based), matching the hub max_lifetime; no 60s floor.
-		$this->assertSame( 0, Admin::sanitize_remote_min_lifetime( '0' ) );
-		$this->assertSame( 10, Admin::sanitize_remote_min_lifetime( '10' ) );
-		$this->assertSame( 604800, Admin::sanitize_remote_min_lifetime( '999999999' ) );
-		$this->assertSame( 3600, Admin::sanitize_remote_min_lifetime( '3600' ) );
+		$lifetime = $sanitizer( 'newspack_nodes_remote_min_lifetime' );
+		$this->assertSame( 0, \call_user_func( $lifetime, '0' ) );
+		$this->assertSame( 4177, \call_user_func( $lifetime, '4177' ) );
+		$this->assertSame( 604800, \call_user_func( $lifetime, '999999999' ) );
 	}
 
 	// ---- remote_* section + field callbacks ------------------------------

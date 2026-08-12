@@ -7,6 +7,24 @@ const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
 const RECENT_LOG_MAX = 100;
 
+/**
+ * Mirrors PHP `Core::SECRET_NAME_PATTERNS`. Ask `Core.isSecretProperty()`; the
+ * list itself is only for the cross-language pin.
+ *
+ * @testonly Exported so `secretPatternsParity` pins it against the PHP list.
+ * @type {string[]}
+ */
+export const SECRET_NAME_PATTERNS = [
+	'password',
+	'passwd',
+	'secret',
+	'token',
+	'credential',
+	'api_key',
+	'apikey',
+	'private_key',
+];
+
 class CoreImpl {
 	constructor() {
 		this.reset();
@@ -32,15 +50,25 @@ class CoreImpl {
 		this._backboneListeners = new Set();
 	}
 
-	// At most one print per identical message per 60s window.
-	printLessOften( msg ) {
+	/**
+	 * At most one print per category per 60s window (PHP print_less_often).
+	 *
+	 * The key is `text` — the stable FIRST argument — ONLY. `extra` is variable
+	 * payload printed on the occurrence that gets through but never folded into
+	 * the key, so a flood of one category with differing values collapses to one
+	 * line instead of one per distinct value.
+	 *
+	 * @param {string}    text  The throttle key, and the head of the line.
+	 * @param {...string} extra Tail printed with the head; never keyed.
+	 */
+	printLessOften( text, ...extra ) {
 		const now = Date.now();
-		const last = this._lastPrint.get( msg ) ?? 0;
+		const last = this._lastPrint.get( text ) ?? 0;
 		if ( now - last < PRINT_LESS_OFTEN_WINDOW_MS ) {
 			return;
 		}
-		this._lastPrint.set( msg, now );
-		this.stderr( msg );
+		this._lastPrint.set( text, now );
+		this.stderr( text + extra.join( '' ) );
 	}
 
 	// stderr → JS console (warn) + the bounded recentLog tail dmesg reads.
@@ -123,6 +151,20 @@ class CoreImpl {
 
 	now() {
 		return Date.now() / 1000;
+	}
+
+	/**
+	 * True if a property or argument name reads as a credential (PHP
+	 * Core::is_secret_property). The ONE rule every redactor asks.
+	 *
+	 * @param {string} name Property, key or `--flag` name.
+	 * @return {boolean} Whether its value must be masked before display.
+	 */
+	isSecretProperty( name ) {
+		const lower = String( name ).toLowerCase();
+		return SECRET_NAME_PATTERNS.some( ( needle ) =>
+			lower.includes( needle )
+		);
 	}
 
 	// Callers iterate this Map directly; keep it reachable.

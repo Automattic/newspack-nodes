@@ -68,6 +68,38 @@ describe( 'useDraftInterpreter', () => {
 		] );
 	} );
 
+	/**
+	 * The editor guard used to scan only the DOCUMENT's own verbs, while the
+	 * live seed's `withResolvedConfigEdges` scans the composed graph — so an
+	 * include seeding `set_stats_target <config:…>` was refused live and
+	 * accepted in the editor, and a save wrote routing never shown.
+	 */
+	it( 'refuses an unresolved token target seeded by an include', () => {
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.load( 'include shared-stats', {
+				nodes: [
+					{
+						name: 'meerkat',
+						class: 'Job_Worker',
+						origin: [ 'shared-stats' ],
+						verbs: [
+							{
+								verb: 'set_stats_target',
+								args: [ '<wombat:sink>' ],
+							},
+						],
+					},
+				],
+				edges: [],
+			} );
+		} );
+
+		expect( () => result.current.assertResolved( undefined ) ).toThrow(
+			/Missing resolved_config_edges/
+		);
+	} );
+
 	it( 'keeps one door identity across renders so consumers do not churn', () => {
 		const { result, rerender } = renderHook( () => useDraftInterpreter() );
 		const first = result.current.run;

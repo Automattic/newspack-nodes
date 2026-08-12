@@ -259,6 +259,39 @@ class CliTest extends TestCase {
 		);
 	}
 
+	/**
+	 * `marmot-ondemand.p007` is not the worker `marmot-ondemand.p7`. The ipc
+	 * tree the caller then attaches to is spelled with the padding, so waking
+	 * p7 posts a spawn for a worker nobody is listening to and hands back a
+	 * path no worker reads. The wake matches on the id the fleet spells.
+	 */
+	public function test_attach_refuses_a_zero_padded_id_instead_of_waking_another_partition(): void {
+		$posts                           = [];
+		\Newspack_Nodes\Core::$curl_exec = static function ( \CurlHandle $ch, array $body ) use ( &$posts ) {
+			$posts[] = $body;
+			return '';
+		};
+		\add_filter(
+			'newspack_nodes/topologies',
+			static fn ( array $t ): array => $t + [
+				'marmot-ondemand' => [
+					'topology'       => 'marmot-ondemand',
+					'num_partitions' => 8,
+					'on_demand_idle' => 23,
+				],
+			]
+		);
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'marmot-ondemand' ];
+
+		try {
+			( new CLI( $this->tmp ) )->attach_to_worker( 'marmot-ondemand.p007' );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->assertStringContainsString( 'marmot-ondemand.p007', $e->getMessage() );
+		}
+		$this->assertSame( [], $posts, 'no spawn for a partition the caller is not attaching to' );
+	}
+
 	public function test_no_worker_message_uses_literal_quotes_not_html_entities(): void {
 		// This is a terminal error, so it must read  no worker 'x.p0'  — not the
 		// HTML-escaped  no worker &#039;x.p0&#039;  that esc_html() produced.

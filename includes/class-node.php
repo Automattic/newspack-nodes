@@ -19,25 +19,6 @@ class Node {
 	/** Message types whose payload is included in the drop_message() audit line. */
 	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
 
-	/**
-	 * Human-readable message-type labels.
-	 *
-	 * @var array<int,string>
-	 */
-	private static array $type_names = [
-		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
-		Message::TM_EOF        => 'TM_EOF',
-		Message::TM_PING       => 'TM_PING',
-		Message::TM_COMMAND    => 'TM_COMMAND',
-		Message::TM_RESPONSE   => 'TM_RESPONSE',
-		Message::TM_ERROR      => 'TM_ERROR',
-		Message::TM_INFO       => 'TM_INFO',
-		Message::TM_STRUCT     => 'TM_STRUCT',
-		Message::TM_REQUEST    => 'TM_REQUEST',
-		Message::TM_NOREPLY    => 'TM_NOREPLY',
-		Message::TM_UNTYPED    => 'TM_UNTYPED',
-	];
-
 	/** @var list<string> Constructor argument tokens (Tachikoma's raw `arguments`). */
 	protected array $arguments = [];
 
@@ -251,12 +232,7 @@ class Node {
 	public function drop_message( array $message, string $error ): void {
 		$type_raw = $message[ Message::TYPE ];
 		$type     = Core::num_int( $type_raw );
-		$labels   = [];
-		foreach ( self::$type_names as $bit => $label ) {
-			if ( $type & $bit ) {
-				$labels[] = $label;
-			}
-		}
+		$labels   = Message::type_labels( $type );
 		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
 
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
@@ -285,35 +261,6 @@ class Node {
 		$head = \array_shift( $parts );
 		$tail = empty( $parts ) ? '' : ' ' . \implode( ' ', $parts );
 		$this->print_less_often( $head, $tail );
-	}
-
-	/**
-	 * Mask credentials in a dropped message's VALUE, by the same rule
-	 * `dump_node()` uses — `Core::is_secret_property()`. Two shapes carry them:
-	 * a secret-named array key, and a `--auth_password=…` argument token, which
-	 * is how the Vault admin UI sends them. The key survives; only the value
-	 * goes, because the drop line is a diagnostic.
-	 *
-	 * @param mixed $value Message VALUE, any depth.
-	 * @return mixed The same shape with secrets masked.
-	 */
-	private static function redact_secrets( $value ) {
-		if ( \is_array( $value ) ) {
-			$out = [];
-			foreach ( $value as $key => $item ) {
-				$out[ $key ] = \is_string( $key ) && Core::is_secret_property( $key )
-					? self::REDACTED
-					: self::redact_secrets( $item );
-			}
-			return $out;
-		}
-		if ( \is_string( $value ) && \str_starts_with( $value, '--' ) ) {
-			$eq = \strpos( $value, '=' );
-			if ( false !== $eq && Core::is_secret_property( \substr( $value, 2, $eq - 2 ) ) ) {
-				return \substr( $value, 0, $eq + 1 ) . self::REDACTED;
-			}
-		}
-		return $value;
 	}
 
 	/**
@@ -380,59 +327,140 @@ class Node {
 	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
 	public function dump_config(): string {
 		$short = Command_Interpreter_Node::shell_name_for( $this );
-		$out   = "make_node $short {$this->name}";
-		if ( ! empty( $this->arguments ) ) {
-			$out .= ' ' . self::serialize_args( $this->arguments );
-		}
-		$out .= "\n";
+		$out   = self::command_line( 'make_node', $short, $this->name, ...$this->arguments );
 
 		if ( null !== $this->sink ) {
 			$sink_name = $this->sink->name();
 			if ( '' !== $sink_name && Node_Names::COMMAND_INTERPRETER !== $sink_name ) {
-				$out .= "set_sink {$this->name} $sink_name\n";
+				$out .= self::command_line( 'set_sink', $this->name, $sink_name );
 			}
 		}
 
 		if ( \is_array( $this->target ) ) {
 			foreach ( $this->target as $owner ) {
-				$out .= "connect_node {$this->name} $owner\n";
+				$out .= self::command_line( 'connect_node', $this->name, $owner );
 			}
 		} elseif ( '' !== $this->target ) {
-			$out .= "connect_node {$this->name} {$this->target}\n";
+			$out .= self::command_line( 'connect_node', $this->name, $this->target );
 		}
 
 		// Verb-configured nodes override dump_config() to emit their own lines.
 		return $out;
 	}
 
+	/** A `command_node <name>:config …` line addressed to this node's own sibling interpreter. */
+	protected function config_line( string ...$tokens ): string {
+		return self::command_line( 'command_node', $this->name . ':config', ...$tokens );
+	}
+
 	/**
-	 * Serialize argument tokens back to a single line, single-quoting any token
-	 * that contains whitespace so it re-parses as one token (mirrors the JS
-	 * serializeArg + the Shell's quote-aware tokenizer). The one place tokens
-	 * are re-joined — every other layer carries them as a list.
+	 * One replayable TSL line from its tokens. A command line IS an argv — the
+	 * verb, the type, the name and the arguments are all just tokens, so every
+	 * one of them goes through the same quoting. `make_node Echo echo foo bar`
+	 * reads as if `echo` were the name and `foo bar` the arguments; the command's
+	 * actual arguments are all four.
+	 */
+	public static function command_line( string ...$tokens ): string {
+		return self::serialize_args( \array_values( $tokens ) ) . "\n";
+	}
+
+	/**
+	 * Serialize argument tokens back to a single line. The one place tokens are
+	 * re-joined — every other layer carries them as a list.
+	 *
+	 * @param list<string> $tokens
+	 */
+	public static function serialize_args( array $tokens ): string {
+		return \implode( ' ', \array_map( [ self::class, 'serialize_arg' ], $tokens ) );
+	}
+
+	/**
+	 * Snapshot of this node's state for the REPL `dump_node` verb. Credentials
+	 * are masked by the same one rule the drop audit uses — redact_secrets(),
+	 * which reaches a secret nested inside an ordinary property (an
+	 * `--auth_password=…` token in $arguments) as well as a secret-named one.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function dump_node(): array {
+		$ref      = new \ReflectionObject( $this );
+		$snapshot = [];
+		foreach ( $ref->getProperties() as $prop ) {
+			$key   = $prop->getName();
+			if ( $prop->isInitialized( $this ) ) {
+				$value = $prop->getValue( $this );
+			} else {
+				$value = 'null';
+			}
+			if ( 'sink' === $key && $value instanceof Node ) {
+				$value = $value->name();
+			}
+			// Mask a non-empty credential whole; an empty one stays visible.
+			if ( Core::is_secret_property( $key )
+				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
+				$value = self::REDACTED;
+			} else {
+				$value = self::redact_secrets( $value );
+			}
+			if ( \is_object( $value ) ) {
+				$value = '(' . \get_class( $value ) . ')';
+			}
+			// Resources aren't JSON-encodable; coerce so encode won't fail.
+			if ( \is_resource( $value ) ) {
+				$value = '(resource:' . \get_resource_type( $value ) . ')';
+			}
+			$snapshot[ $key ] = $value;
+		}
+		// Subclass-aware class name; cmd_dump_node surfaces it as dump header.
+		$snapshot['class'] = $ref->getShortName();
+		return $snapshot;
+	}
+
+	/**
+	 * Mask credentials in a dropped message's VALUE, by the same rule
+	 * `dump_node()` uses — `Core::is_secret_property()`. Two shapes carry them:
+	 * a secret-named array key, and a `--auth_password=…` argument token, which
+	 * is how the Vault admin UI sends them. The key survives; only the value
+	 * goes, because the drop line is a diagnostic.
+	 *
+	 * @param mixed $value Message VALUE, any depth.
+	 * @return mixed The same shape with secrets masked.
+	 */
+	private static function redact_secrets( $value ) {
+		if ( \is_array( $value ) ) {
+			$out = [];
+			foreach ( $value as $key => $item ) {
+				$out[ $key ] = \is_string( $key ) && Core::is_secret_property( $key )
+					? self::REDACTED
+					: self::redact_secrets( $item );
+			}
+			return $out;
+		}
+		if ( \is_string( $value ) && \str_starts_with( $value, '--' ) ) {
+			$eq = \strpos( $value, '=' );
+			if ( false !== $eq && Core::is_secret_property( \substr( $value, 2, $eq - 2 ) ) ) {
+				return \substr( $value, 0, $eq + 1 ) . self::REDACTED;
+			}
+		}
+		return $value;
+	}
+
+	/**
+	 * Quote+escape ONE token so the Shell's tokenizer recovers it exactly.
+	 * Mirror of the JS serializeArg; the inverse of tokenize().
 	 *
 	 * `<` is a metachar here for a reason that is not about tokenizing: a
 	 * stored argument may hold an UNEXPANDED `<…>`, which is what the deferred
 	 * idiom (`<config:logs_dir>/jobs.p'<partition>'`) hands a node. Emitted
 	 * bare it would be expanded on the next load, because `interpolate()` runs
 	 * before `tokenize()` — so quoting is what preserves the deferral.
-	 *
-	 * @param list<string> $tokens
 	 */
-	public static function serialize_args( array $tokens ): string {
-		return \implode(
-			' ',
-			\array_map(
-				static function ( string $t ): string {
-					// Quote empty or any metachar; `#`/`;` end the LINE.
-					if ( '' !== $t && ! \preg_match( '/[\s\'"`\\\\#;<]/', $t ) ) {
-						return $t;
-					}
-					return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $t ) . "'";
-				},
-				$tokens
-			)
-		);
+	public static function serialize_arg( string $token ): string {
+		// Quote empty or any metachar; `#`/`;` end the LINE.
+		if ( '' !== $token && ! \preg_match( '/[\s\'"`\\\\#;<]/', $token ) ) {
+			return $token;
+		}
+		return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $token ) . "'";
 	}
 
 	/** Patron getter/setter. */
@@ -555,44 +583,6 @@ class Node {
 			Core::unregister_node( $this->name );
 			$this->name = '';
 		}
-	}
-
-	/**
-	 * Snapshot of this node's state for the REPL `dump_node` verb. Secret-named
-	 * properties are redacted for every node (see SECRET_NAME_PATTERNS).
-	 *
-	 * @return array<string,mixed>
-	 */
-	public function dump_node(): array {
-		$ref      = new \ReflectionObject( $this );
-		$snapshot = [];
-		foreach ( $ref->getProperties() as $prop ) {
-			$key   = $prop->getName();
-			if ( $prop->isInitialized( $this ) ) {
-				$value = $prop->getValue( $this );
-			} else {
-				$value = 'null';
-			}
-			if ( 'sink' === $key && $value instanceof Node ) {
-				$value = $value->name();
-			}
-			// Redact a non-empty credential; an empty one stays visible.
-			if ( Core::is_secret_property( $key )
-				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
-				$value = '[REDACTED]';
-			}
-			if ( \is_object( $value ) ) {
-				$value = '(' . \get_class( $value ) . ')';
-			}
-			// Resources aren't JSON-encodable; coerce so encode won't fail.
-			if ( \is_resource( $value ) ) {
-				$value = '(resource:' . \get_resource_type( $value ) . ')';
-			}
-			$snapshot[ $key ] = $value;
-		}
-		// Subclass-aware class name; cmd_dump_node surfaces it as dump header.
-		$snapshot['class'] = $ref->getShortName();
-		return $snapshot;
 	}
 
 	/**

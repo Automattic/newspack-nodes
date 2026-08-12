@@ -39,14 +39,9 @@ class Log_Stream_Out_Node extends SSE_Out_Node {
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$registry = Log_Sources::registry();
 		if ( ! isset( $registry[ $sub ] ) ) {
-			$known = \implode( ', ', \array_keys( $registry ) );
-			throw new \InvalidArgumentException( \esc_html(
-				"unknown log source: \"{$sub}\" (known: " . ( '' === $known ? 'none' : $known ) . ')'
-			) );
+			throw new \InvalidArgumentException( \esc_html( \rtrim( Log_Sources::unknown_source( $registry, $sub ), "\n" ) ) );
 		}
-		$entry = $registry[ $sub ];
-		$tail  = new Tail_Node();
-		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
+		$tail = Log_Sources::open_tail( $registry[ $sub ] );
 		$tail->next_offset(
 			isset( $positions[ $sub ] ) ? self::position_arg( $positions[ $sub ] ) : 'end'
 		);

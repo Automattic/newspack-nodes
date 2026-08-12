@@ -250,7 +250,12 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		const line = newMessage();
 		line[ TYPE ] = TM_BYTESTREAM;
 		line[ VALUE ] = statement;
-		s.fill( line );
+		try {
+			s.fill( line );
+		} finally {
+			// One-shot: this statement's fields, never a later mint's.
+			fieldsRef.current = null;
+		}
 	}, [] );
 
 	const sendLine = useCallback(

@@ -47,7 +47,7 @@ class Dumper_Node extends Node {
 	public function fill( array $message ): void {
 		// Drop messages addressed to a different cli session; empty TO renders.
 		if ( '' !== $this->to_filter ) {
-			$to = self::coerce_string( $message[ Message::TO ] );
+			$to = Core::as_string( $message[ Message::TO ] );
 			if ( '' !== $to
 				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
 			) {
@@ -60,13 +60,13 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		$type = self::coerce_int( $message[ Message::TYPE ] );
+		$type = Core::as_int( $message[ Message::TYPE ] );
 
 		if ( $this->debug_level >= 2 ) {
 			$this->emit( $this->format_envelope_dump( $message ) );
 		} elseif ( $this->debug_level >= 1 ) {
 			$flags = self::format_type_flags( $type );
-			$from  = self::coerce_string( $message[ Message::FROM ] ?? '' );
+			$from  = Core::as_string( $message[ Message::FROM ] ?? '' );
 			$this->emit( $flags . ' from ' . $from . ":\n" );
 		}
 
@@ -87,7 +87,7 @@ class Dumper_Node extends Node {
 			if ( $type & Message::TM_RESPONSE ) {
 				$cmd = $message[ Message::VALUE ];
 				if ( \is_array( $cmd ) ) {
-					$name    = self::coerce_string( $cmd['name'] ?? '' );
+					$name    = Core::as_string( $cmd['name'] ?? '' );
 					$payload = self::render_payload( $cmd['payload'] ?? '' );
 
 					if ( 'prompt' === $name && null !== $this->shell
@@ -101,7 +101,7 @@ class Dumper_Node extends Node {
 				}
 			} elseif ( $type & Message::TM_ERROR ) {
 				$cmd     = $message[ Message::VALUE ];
-				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : self::coerce_string( $cmd );
+				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : Core::as_string( $cmd );
 				$this->emit( $payload );
 				return;
 			}
@@ -109,7 +109,7 @@ class Dumper_Node extends Node {
 
 		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
 		if ( $type & Message::TM_PING ) {
-			$sent = self::coerce_float( $message[ Message::VALUE ] );
+			$sent = Core::num_float( $message[ Message::VALUE ] );
 			$rtt  = ( Core::$now - $sent ) * 1000.0;
 			$this->emit( \sprintf( "round trip time: %.2f ms\n", $rtt ) );
 			return;
@@ -122,7 +122,7 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		$this->emit( self::coerce_string( $message[ Message::VALUE ] ) );
+		$this->emit( Core::as_string( $message[ Message::VALUE ] ) );
 	}
 
 	/**
@@ -142,36 +142,14 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Coerce a mixed Message field to float, reproducing PHP's `(float)` cast
-	 * (null→0.0, scalar→its float form, non-empty array→1.0) without a mixed-cast.
-	 *
-	 * @param mixed $v Raw Message field.
-	 */
-	private static function coerce_float( $v ): float {
-		if ( null === $v ) {
-			return 0.0;
-		}
-		if ( \is_array( $v ) ) {
-			return empty( $v ) ? 0.0 : 1.0;
-		}
-		if ( \is_object( $v ) ) {
-			return 1.0;
-		}
-		if ( \is_scalar( $v ) ) {
-			return (float) $v;
-		}
-		return 0.0;
-	}
-
-	/**
 	 * Level-2 dump: full envelope as a structural multi-line render.
 	 *
 	 * @param array<int,mixed> $message The Message to render.
 	 */
 	private function format_envelope_dump( array $message ): string {
-		$type     = self::coerce_int( $message[ Message::TYPE ] ?? 0 );
+		$type     = Core::as_int( $message[ Message::TYPE ] ?? 0 );
 		$flags    = self::format_type_flags( $type );
-		$ts       = self::coerce_string( $message[ Message::TIMESTAMP ] ?? '' );
+		$ts       = Core::as_string( $message[ Message::TIMESTAMP ] ?? '' );
 		$ts_human = '' !== $ts && \is_numeric( $ts )
 			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
 			: '';
@@ -182,10 +160,10 @@ class Dumper_Node extends Node {
 			'Message {',
 			'    type:      ' . $flags,
 			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
-			'    from:      ' . self::coerce_string( $message[ Message::FROM ] ?? '' ),
-			'    to:        ' . self::coerce_string( $message[ Message::TO ] ?? '' ),
-			'    id:        ' . self::coerce_string( $message[ Message::ID ] ?? '' ),
-			'    key:       ' . self::coerce_string( $message[ Message::KEY ] ?? '' ),
+			'    from:      ' . Core::as_string( $message[ Message::FROM ] ?? '' ),
+			'    to:        ' . Core::as_string( $message[ Message::TO ] ?? '' ),
+			'    id:        ' . Core::as_string( $message[ Message::ID ] ?? '' ),
+			'    key:       ' . Core::as_string( $message[ Message::KEY ] ?? '' ),
 			'    value:     ' . self::indent_following_lines( $value, '               ' ),
 			'}',
 		];
@@ -193,50 +171,12 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Coerce a mixed Message field to int, reproducing PHP's `(int)` cast
-	 * (null→0, scalar→its int form, non-empty array→1) without a mixed-cast.
-	 *
-	 * @param mixed $v Raw Message field.
-	 */
-	private static function coerce_int( $v ): int {
-		if ( null === $v ) {
-			return 0;
-		}
-		if ( \is_array( $v ) ) {
-			return empty( $v ) ? 0 : 1;
-		}
-		if ( \is_object( $v ) ) {
-			return 1;
-		}
-		if ( \is_scalar( $v ) ) {
-			return (int) $v;
-		}
-		return 0;
-	}
-
-	/**
-	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
-	 * Public: the dead-letter `dl_show` verb reuses it as the ONE flags-to-names map.
+	 * Render a TM-flag bitmask for display, naming the unmatched bits in hex.
+	 * Public: the dead-letter `dl_show` verb renders through it too. The names
+	 * come from Message::type_labels(), the one flags-to-names map.
 	 */
 	public static function format_type_flags( int $type ): string {
-		/** @var array<int,string> $map */
-		static $map = [
-			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
-			Message::TM_EOF        => 'TM_EOF',
-			Message::TM_PING       => 'TM_PING',
-			Message::TM_COMMAND    => 'TM_COMMAND',
-			Message::TM_RESPONSE   => 'TM_RESPONSE',
-			Message::TM_ERROR      => 'TM_ERROR',
-			Message::TM_INFO       => 'TM_INFO',
-			Message::TM_STRUCT     => 'TM_STRUCT',
-			Message::TM_REQUEST    => 'TM_REQUEST',
-		];
-		$flags = [];
-		foreach ( $map as $flag => $name ) {
-			if ( $type & $flag ) {
-				$flags[] = $name;
-			}
-		}
+		$flags = Message::type_labels( $type );
 		return $flags ? \implode( ' | ', $flags ) : \sprintf( 'TM_UNKNOWN(0x%x)', $type );
 	}
 
@@ -261,32 +201,7 @@ class Dumper_Node extends Node {
 		if ( \is_array( $payload ) ) {
 			return (string) \wp_json_encode( $payload, \JSON_UNESCAPED_SLASHES | \JSON_PRETTY_PRINT ) . "\n";
 		}
-		return self::coerce_string( $payload );
-	}
-
-	/**
-	 * Coerce a mixed Message field to string, reproducing PHP's `(string)` cast
-	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
-	 *
-	 * @param mixed $v Raw Message field.
-	 */
-	private static function coerce_string( $v ): string {
-		if ( \is_string( $v ) ) {
-			return $v;
-		}
-		if ( null === $v ) {
-			return '';
-		}
-		if ( \is_array( $v ) ) {
-			return 'Array';
-		}
-		if ( \is_object( $v ) ) {
-			return $v instanceof \Stringable ? (string) $v : '';
-		}
-		if ( \is_scalar( $v ) ) {
-			return (string) $v;
-		}
-		return '';
+		return Core::as_string( $payload );
 	}
 
 	/**

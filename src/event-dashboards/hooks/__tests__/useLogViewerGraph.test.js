@@ -402,6 +402,26 @@ describe( 'useLogViewerGraph', () => {
 		expect( Core.node( VIEW ).mode ).toBe( 'live' );
 	} );
 
+	test( 'clear() empties the ring through the view control, resetting the counter', async () => {
+		installWire( { taillog: sourcesReply() } );
+		const { result } = mountGraph();
+		await act( async () => {} );
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ FROM ] = 'access';
+		env[ ID ] = '5:900:60';
+		env[ VALUE ] = 'a raw log line';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		const view = Core.node( VIEW );
+		expect( view.lines.length ).toBe( 1 );
+
+		act( () => result.current.clear() );
+
+		expect( view.lines ).toEqual( [] );
+		// The whole reset, not just the rows a direct write would blank.
+		expect( view.lineCounter ).toBe( 0 );
+	} );
+
 	test( 'setPaused toggles the view paused flag', async () => {
 		installWire( { taillog: sourcesReply() } );
 		const { result } = mountGraph();
@@ -510,6 +530,27 @@ describe( 'useLogViewerGraph', () => {
 			act( () => setVisibility( 'visible' ) );
 			expect( FakeEventSource.instances.length ).toBe( afterPause );
 			expect( FakeEventSource.last.closed ).toBe( true );
+		} );
+
+		test( 'Reset Graph re-establishes the catalog and re-opens the source', async () => {
+			// The rebuild mints a FRESH view with selected=''; nothing but the
+			// reconcile loop puts the dashboard back on the air.
+			mountExospine();
+			installWire( { taillog: sourcesReply() } );
+			const { result } = mountGraph();
+			await act( async () => {} );
+			const before = FakeEventSource.instances.length;
+
+			await act( async () => {
+				Core.bumpGraphGeneration();
+			} );
+
+			expect( result.current.sources ).toEqual( sourcesReply() );
+			expect( Core.node( VIEW ).selected ).toBe( 'access' );
+			expect( FakeEventSource.instances.length ).toBeGreaterThan(
+				before
+			);
+			expect( FakeEventSource.last.url ).toContain( 'subscribe=access' );
 		} );
 
 		test( 'reinit while paused re-publishes paused:true and does NOT reopen the stream', async () => {

@@ -7,7 +7,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { renewSession, forgetSession } from '@newspack-nodes/runtime';
+import { Core, renewSession, forgetSession } from '@newspack-nodes/runtime';
 import useReconcile from '../useReconcile';
 
 const flush = async () => {
@@ -95,6 +95,55 @@ describe( 'useReconcile', () => {
 			jest.advanceTimersByTime( 1200 );
 		} );
 
+		expect( load ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 're-attempts when the graph is rebuilt under it', async () => {
+		// A load that PUSHES into a graph node is undone by Reset Graph, so a
+		// rebuild invalidates what settled exactly as an expired session does.
+		const load = jest.fn().mockResolvedValue( undefined );
+
+		renderHook( () => useReconcile( { load } ) );
+		await flush();
+		expect( load ).toHaveBeenCalledTimes( 1 );
+
+		act( () => {
+			Core.bumpGraphGeneration();
+		} );
+		await act( async () => {
+			jest.advanceTimersByTime( 1200 );
+		} );
+
+		expect( load ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 'discards an attempt that resolves after its inputs changed', async () => {
+		let release;
+		const load = jest.fn(
+			() =>
+				new Promise( ( resolve ) => {
+					release = resolve;
+				} )
+		);
+
+		const { result, rerender } = renderHook(
+			( { partition } ) => useReconcile( { load, deps: [ partition ] } ),
+			{ initialProps: { partition: 'firehose.p7' } }
+		);
+		await flush();
+		expect( load ).toHaveBeenCalledTimes( 1 );
+
+		// The invalidation lands while the first attempt is still in flight.
+		rerender( { partition: 'errors.p3' } );
+		await act( async () => {
+			release();
+			await Promise.resolve();
+		} );
+
+		expect( result.current.settled ).toBe( false );
+		await act( async () => {
+			jest.advanceTimersByTime( 1200 );
+		} );
 		expect( load ).toHaveBeenCalledTimes( 2 );
 	} );
 

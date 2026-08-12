@@ -14,8 +14,9 @@ class CLI {
 	/**
 	 * uid-source seam shared by the root-refusing verbs (`cli`, `run`) and
 	 * `doctor`'s ownership check (uid vs base-dir owner). Lazily-defaulted to
-	 * the real `posix_getuid()` (-1 when the extension is absent); tests
-	 * reassign to simulate any uid without the runner holding it.
+	 * the real `posix_geteuid()` — EFFECTIVE, for the reason uid() states —
+	 * (-1 when the extension is absent); tests reassign to simulate any uid
+	 * without the runner holding it.
 	 * Signature: `function (): int`.
 	 *
 	 * @var \Closure|null
@@ -38,7 +39,9 @@ class CLI {
 	public function attach_to_worker( string $worker_id ): array {
 		[ $type, $partition ] = self::parse_worker_id( $worker_id );
 		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
-		if ( ! \is_dir( $lock_dir ) && ! $this->wake_sleeping_worker( $type, $partition ) ) {
+		// This class is base-dir scoped; the shared coordinator may not be.
+		if ( ! \is_dir( $lock_dir )
+			&& ! ( new Spawn_Coordinator( $this->base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() ) ) {
 			throw new \InvalidArgumentException(
 				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- terminal message, not HTML; cli_safe() strips control chars, and esc_html() would render the quotes as &#039;.
 				"no worker '" . self::cli_safe( $worker_id ) . "' (run `wp nodes status` to list active workers)"
@@ -50,35 +53,6 @@ class CLI {
 			'type'      => $type,
 			'partition' => $partition,
 		];
-	}
-
-	/**
-	 * Wake an on-demand worker that is cleanly absent, so an attach can proceed.
-	 *
-	 * A sleeping on-demand worker has no lock dir BY DESIGN, and the cli is the
-	 * only writer of its IPC input — so refusing on a missing lock dir is what
-	 * kept an attach from ever waking one. A resident worker with no lock dir is
-	 * still a typo or a dead fleet, and still refused.
-	 *
-	 * @param string $type      Topology name.
-	 * @param int    $partition Partition index.
-	 * @return bool True when a wake was posted and the attach may continue.
-	 */
-	private function wake_sleeping_worker( string $type, int $partition ): bool {
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( Core::as_string( $worker['type'] ) !== $type
-				|| Core::as_int( $worker['partition'] ) !== $partition
-				|| 0 === Bootstrap::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			// This class is base-dir scoped; the shared coordinator may not be.
-			( new Spawn_Coordinator( $this->base_dir ) )->wake_on_demand(
-				"{$this->base_dir}/ipc/{$type}.p{$partition}/input",
-				Core::right_now()
-			);
-			return true;
-		}
-		return false;
 	}
 
 	/**

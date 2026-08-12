@@ -7,7 +7,7 @@
  */
 
 import { render } from '@testing-library/react';
-import { SparklineRow } from '../ProcessStats';
+import { ProcessStatsView, SparklineRow } from '../ProcessStats';
 
 const fmt = ( v ) => String( v );
 
@@ -17,6 +17,26 @@ function xs( d ) {
 		Number( m[ 1 ] )
 	);
 }
+
+describe( 'ProcessStatsView throughput', () => {
+	it( 'renders byte totals in the dashboard-wide units', () => {
+		const { container } = render(
+			<ProcessStatsView
+				windowMeta="last ~60s"
+				activity={ [] }
+				totals={ {
+					msgsIn: 1,
+					msgsOut: 2,
+					bytesRead: 1536,
+					bytesWritten: 2 ** 40,
+				} }
+			/>
+		);
+		// Bare "K"/"G" suffixes were this component's own third scaler.
+		expect( container.textContent ).toContain( '1.5 KB' );
+		expect( container.textContent ).toContain( '1 TB' );
+	} );
+} );
 
 describe( 'SparklineRow geometry', () => {
 	it( 'draws a 720-sample ring entirely inside the viewBox', () => {

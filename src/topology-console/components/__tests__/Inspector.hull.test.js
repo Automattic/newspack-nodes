@@ -242,8 +242,8 @@ describe( 'Inspector — hull stats', () => {
 		const stats = screen.getByTestId( 'hull-stats' ).textContent;
 		expect( stats ).toContain( '71' );
 		expect( stats ).toContain( '33' );
-		expect( stats ).toContain( '2.0 K' );
-		expect( stats ).toContain( '3.0 K' );
+		expect( stats ).toContain( '2 KB' );
+		expect( stats ).toContain( '3 KB' );
 	} );
 
 	it( 'counts ONLY the members — a non-member node is another scope', () => {

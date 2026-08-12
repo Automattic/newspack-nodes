@@ -1,4 +1,5 @@
 import {
+	typeLabels,
 	TYPE,
 	TIMESTAMP,
 	FROM,
@@ -208,4 +209,20 @@ test( 'applyComposeFields returns the same message it mutated', () => {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
 	expect( applyComposeFields( m, { response: true } ) ).toBe( m );
+} );
+
+// The ONE flags-to-names map lives beside the constants it names, as in PHP
+// Message::type_labels(). Two renderers (the drop audit, the Dumper header)
+// each filtered a private copy — which is how one ends up omitting a flag.
+describe( 'typeLabels', () => {
+	it( 'names every set flag of a composite type, in table order', () => {
+		expect( typeLabels( TM_COMMAND | TM_ERROR ) ).toEqual( [
+			'TM_COMMAND',
+			'TM_ERROR',
+		] );
+	} );
+
+	it( 'returns nothing when no known flag matches, so callers name that case', () => {
+		expect( typeLabels( 0 ) ).toEqual( [] );
+	} );
 } );

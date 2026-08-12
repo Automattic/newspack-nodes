@@ -778,13 +778,34 @@ class NodeTest extends TestCase {
 
 		$snap = $node->dump_node();
 
-		$this->assertSame( '[REDACTED]', $snap['auth_token'], 'a non-empty token must be redacted' );
-		$this->assertSame( '[REDACTED]', $snap['auth_password'], 'a non-empty password must be redacted' );
-		$this->assertSame( '[REDACTED]', $snap['api_tokens'], 'a non-empty array of secrets must be redacted, not dumped raw' );
+		$this->assertSame( Node::REDACTED, $snap['auth_token'], 'a non-empty token must be redacted' );
+		$this->assertSame( Node::REDACTED, $snap['auth_password'], 'a non-empty password must be redacted' );
+		$this->assertSame( Node::REDACTED, $snap['api_tokens'], 'a non-empty array of secrets must be redacted, not dumped raw' );
 		$this->assertSame( 'admin', $snap['auth_username'], 'a username is not a secret' );
 		$this->assertTrue( $snap['authorize'], 'an authorize flag is not a secret' );
-		$this->assertSame( '', $snap['secret'], 'an empty secret stays empty, not [REDACTED]' );
-		$this->assertSame( [], $snap['credentials'], 'an empty credential stays empty, not [REDACTED]' );
+		$this->assertSame( '', $snap['secret'], 'an empty secret stays empty, not redacted' );
+		$this->assertSame( [], $snap['credentials'], 'an empty credential stays empty, not redacted' );
+	}
+
+	public function test_dump_node_redacts_a_secret_nested_in_an_ordinary_property(): void {
+		// dump_node() and drop_message() mask by ONE rule. The shape that
+		// matters is the `--auth_password=…` argument token the Vault admin UI
+		// sends: it sits in $arguments, whose own name is not a secret, so a
+		// top-level-name-only test prints the credential in full.
+		$node = new class() extends Node {
+			public array $settings = [ 'endpoint' => 'https://example.test', 'api_key' => 'sk-live-9f3c' ];
+		};
+		$node->arguments( [ 'server1', '--auth_password=hunter2' ] );
+
+		$snap = $node->dump_node();
+
+		$this->assertSame( Node::REDACTED, $snap['settings']['api_key'], 'a nested credential must be masked' );
+		$this->assertSame( 'https://example.test', $snap['settings']['endpoint'], 'its siblings survive' );
+		$this->assertSame(
+			[ 'server1', '--auth_password=' . Node::REDACTED ],
+			$snap['arguments'],
+			'a secret argument token keeps its key and loses its value'
+		);
 	}
 
 	public function test_dump_node_collapses_sink_to_node_name_string(): void {

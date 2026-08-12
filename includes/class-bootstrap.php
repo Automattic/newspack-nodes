@@ -22,6 +22,8 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 
 /**
  * @phpstan-import-type HealthResult from Health_Checks
+ *
+ * @phpstan-type Worker_Descriptor array{type: string, partition: int, topology: mixed, stale_timeout: mixed, on_demand_idle: int}
  */
 class Bootstrap {
 
@@ -88,67 +90,6 @@ class Bootstrap {
 	private const ON_DEMAND_WAKE_TTL_S = 60;
 
 	/**
-	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
-	 *
-	 * @return bool True iff the partition is now mounted.
-	 */
-	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
-			return false;
-		}
-		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
-			return true;
-		}
-		// A live worker holds a lock dir; a sleeping on-demand one holds none.
-		$sleeping = false;
-		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
-			$sleeping = self::wake_sleeping_worker( $worker_id, $base_dir );
-			if ( ! $sleeping ) {
-				return false;
-			}
-		}
-		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
-		if ( ! $sleeping && ! \is_dir( $input_dir ) ) {
-			return false;
-		}
-		$part = new Partition_Node();
-		$part->name( $worker_id );
-		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $ci ) {
-			$part->patron( $ci );
-			$part->sink( $ci );
-		}
-		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
-		return true;
-	}
-
-	/**
-	 * Wake the on-demand worker behind `$worker_id`, or false when it is not one.
-	 *
-	 * Shares CLI::attach_to_worker()'s rule: a cleanly absent on-demand worker
-	 * is asleep by design, while a resident one with no lock dir is a dead
-	 * fleet and stays refused.
-	 *
-	 * @param string $worker_id `{type}.p{N}`.
-	 * @param string $base_dir  Runtime state root.
-	 */
-	private static function wake_sleeping_worker( string $worker_id, string $base_dir ): bool {
-		foreach ( self::expand_workers() as $worker ) {
-			$id = Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] );
-			if ( $id !== $worker_id || 0 === self::on_demand_idle_of( $worker ) ) {
-				continue;
-			}
-			( new Spawn_Coordinator( $base_dir ) )->wake_on_demand(
-				"{$base_dir}/ipc/{$worker_id}/input",
-				Core::right_now()
-			);
-			return true;
-		}
-		return false;
-	}
-
-	/**
 	 * Resolved partition directory => the on-demand workers that TAIL it.
 	 *
 	 * The answer to "did this write land somewhere an absent worker is waiting
@@ -206,16 +147,14 @@ class Bootstrap {
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
-	 * @return array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed,on_demand_idle: int}>
+	 * @return array<int,Worker_Descriptor>
 	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
 		$workers    = [];
 		foreach ( $topologies as $type => $config ) {
-			$config   = Core::arr( $config );
-			$np_raw   = $config['num_partitions'] ?? 1;
-			$count    = Core::num_int( $np_raw, 1 );
-			$count    = \min( Spawn_Coordinator::MAX_PARTITIONS, \max( 1, $count ) );
+			$config = Core::arr( $config );
+			$count  = self::partitions_of( $config );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
 					'type'           => $type,
@@ -236,9 +175,10 @@ class Bootstrap {
 	 * has to read as 0, or every deployment predating it would scale to zero.
 	 *
 	 * @param array<array-key,mixed> $descriptor Topology entry or worker descriptor.
+	 * @param int                    $default    Fleet-wide window when the descriptor declares none.
 	 */
-	public static function on_demand_idle_of( array $descriptor ): int {
-		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? 0, 0 ) );
+	public static function on_demand_idle_of( array $descriptor, int $default = 0 ): int {
+		return \max( 0, Core::num_int( $descriptor['on_demand_idle'] ?? null, $default ) );
 	}
 
 	/**
@@ -379,8 +319,7 @@ class Bootstrap {
 		if ( ! \is_array( $active_names ) ) {
 			$active_names = [];
 		}
-		$np_raw       = Config::value( 'num_partitions' );
-		$default_np   = Core::num_int( $np_raw, 1 );
+		$default_np   = self::global_num_partitions();
 		$default_idle = self::config_on_demand_idle();
 		$active       = [];
 		foreach ( $active_names as $name ) {
@@ -432,38 +371,70 @@ class Bootstrap {
 
 	/**
 	 * Canonical partition count for a topology: the catalog entry's count, else
-	 * the TSL frontmatter (`var num_partitions`), else the config default —
-	 * clamped to [1, MAX_PARTITIONS] exactly like expand_workers, so the count
-	 * the Path menu shows can never disagree with what the fleet SPAWNS.
-	 * This is the SINGLE derivation the admin localizer and the `topologies.list`
-	 * verb both call.
+	 * the TSL frontmatter (`var num_partitions`), else the global default. Runs
+	 * through the same `partitions_of()` derivation `expand_workers()` uses, so
+	 * the count the Path menu shows can never disagree with what the fleet
+	 * SPAWNS. This is the SINGLE derivation the admin localizer and the
+	 * `topologies.list` verb both call.
 	 *
 	 * @param string $name Topology name.
 	 * @return int Partition count in [1, MAX_PARTITIONS].
 	 */
 	public static function num_partitions_for( string $name ): int {
-		$default_np = self::global_num_partitions();
-		$count      = $default_np;
-
-		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;
-		if (
-			\is_array( $catalog_entry ) &&
-			isset( $catalog_entry['num_partitions'] ) &&
-			\is_scalar( $catalog_entry['num_partitions'] )
-		) {
-			$count = (int) $catalog_entry['num_partitions'];
-		} else {
-			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT, self::config_on_demand_idle() );
-			if (
-				null !== $synth &&
-				isset( $synth['num_partitions'] ) &&
-				\is_scalar( $synth['num_partitions'] )
-			) {
-				$count = (int) $synth['num_partitions'];
-			}
+		$entry = self::get_topology_catalog()[ $name ] ?? null;
+		if ( ! \is_array( $entry ) || ! isset( $entry['num_partitions'] ) ) {
+			$entry = Topology_Registry::synthesize_entry(
+				$name,
+				self::global_num_partitions(),
+				Lock_Node::STALE_TIMEOUT,
+				self::config_on_demand_idle()
+			);
 		}
+		return self::partitions_of( \is_array( $entry ) ? $entry : [] );
+	}
 
-		return \min( Spawn_Coordinator::MAX_PARTITIONS, \max( 1, $count ) );
+	/**
+	 * One topology entry's partition count: its own `num_partitions`, else the
+	 * global default. THE per-topology derivation — `expand_workers()` (what the
+	 * fleet spawns) and `num_partitions_for()` (what every reader asks) both
+	 * route through it, so a catalog entry that omits the key can no longer
+	 * spawn 1 while every reader sees N.
+	 *
+	 * @param array<array-key,mixed> $entry Topology catalog entry or worker descriptor.
+	 * @return int Partition count in [1, MAX_PARTITIONS].
+	 */
+	private static function partitions_of( array $entry ): int {
+		return self::clamp_partitions( $entry['num_partitions'] ?? null, self::global_num_partitions() );
+	}
+
+	/**
+	 * The global `num_partitions` option, clamped to the range a worker will
+	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
+	 *
+	 * THE accessor for that option. Six call sites spelled this clamp six ways
+	 * and two producers applied no upper bound at all, so an option above the
+	 * cap made `Job_Intake` / `Log_Manager` write `firehose.p16`+ that no worker
+	 * consumed and `Log_Cleaner` then swept as orphans — live-data deletion past
+	 * both of the GC's fail-closed gates. Writing beyond the cap is never right:
+	 * `partitions_of()` bounds the workers by the same constant, so a partition
+	 * past it has no reader.
+	 *
+	 * @return int The clamped partition count.
+	 */
+	public static function global_num_partitions(): int {
+		return self::clamp_partitions( Config::value( 'num_partitions' ) );
+	}
+
+	/**
+	 * Clamp a raw partition count into `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
+	 * Validated numeric read, so junk (`'9abc'`, `true`, `''`) takes $default
+	 * rather than the lenient cast's leading digits.
+	 *
+	 * @param mixed $raw     Declared count, from an option or TSL frontmatter.
+	 * @param int   $default Count to use when $raw declares nothing numeric.
+	 */
+	private static function clamp_partitions( mixed $raw, int $default = 1 ): int {
+		return \min( Spawn_Coordinator::MAX_PARTITIONS, \max( 1, Core::num_int( $raw, $default ) ) );
 	}
 
 	/** The operator's fleet-wide idle window; every synthesize_entry caller injects it. */
@@ -479,27 +450,6 @@ class Bootstrap {
 	public static function get_topology_catalog(): array {
 		self::ensure_runtime_wired();
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
-	}
-
-	/**
-	 * The global `num_partitions` option, clamped to the range a worker will
-	 * actually consume: `[1, Spawn_Coordinator::MAX_PARTITIONS]`.
-	 *
-	 * THE accessor for that option. Four call sites spelled this clamp four
-	 * ways and two producers applied no upper bound at all, so an option above
-	 * the cap made `Job_Intake` / `Log_Manager` write `firehose.p16`+ that no
-	 * worker consumed and `Log_Cleaner` then swept as orphans — live-data
-	 * deletion past both of the GC's fail-closed gates. Writing beyond the cap
-	 * is never right: `num_partitions_for()` bounds the workers by the same
-	 * constant, so a partition past it has no reader.
-	 *
-	 * @return int The clamped partition count.
-	 */
-	public static function global_num_partitions(): int {
-		return \min(
-			Spawn_Coordinator::MAX_PARTITIONS,
-			\max( 1, Core::num_int( Config::value( 'num_partitions' ), 1 ) )
-		);
 	}
 
 	/**
@@ -757,13 +707,17 @@ class Bootstrap {
 	 * dependencies, while node-graph/storage entry points call this method and
 	 * still fail loudly on an unusable base. A plain frontend page view touches
 	 * neither tier.
+	 *
+	 * The flag is set LAST, as in ensure_diagnostics_wired(): base_dir() throws
+	 * on an unusable base and Fleet_Node swallows that, so flagging first would
+	 * leave a worker half-wired for its whole life with no second chance. Every
+	 * step is idempotent, which is what makes the retry safe.
 	 */
 	public static function ensure_runtime_wired(): void {
 		self::ensure_diagnostics_wired();
 		if ( self::$runtime_wired ) {
 			return;
 		}
-		self::$runtime_wired = true;
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
@@ -781,6 +735,7 @@ class Bootstrap {
 		// ...and the workers holding its credentials must re-read them.
 		\add_action( 'newspack_nodes/vault/changed', [ self::class, 'reload_vault_consumers' ] );
 		// Footgun: don't wire SSE_Slot_Pool here; force-loads SSE REST routes.
+		self::$runtime_wired = true;
 	}
 
 	/**
@@ -894,6 +849,43 @@ class Bootstrap {
 	/** Extract an event object's hook field, if present. */
 	private static function event_hook( mixed $event ): string {
 		return \is_object( $event ) && isset( $event->hook ) && \is_string( $event->hook ) ? $event->hook : '';
+	}
+
+	/**
+	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
+	 *
+	 * @return bool True iff the partition is now mounted.
+	 */
+	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
+			return false;
+		}
+		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
+			return true;
+		}
+		// A live worker holds a lock dir; a sleeping on-demand one holds none.
+		$sleeping = false;
+		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
+			// Scoped to the caller's base_dir, not the request-scope seam's.
+			$sleeping = ( new Spawn_Coordinator( $base_dir ) )->wake_sleeping_worker( $worker_id, Core::right_now() );
+			if ( ! $sleeping ) {
+				return false;
+			}
+		}
+		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
+		if ( ! $sleeping && ! \is_dir( $input_dir ) ) {
+			return false;
+		}
+		$part = new Partition_Node();
+		$part->name( $worker_id );
+		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $ci ) {
+			$part->patron( $ci );
+			$part->sink( $ci );
+		}
+		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );
+		return true;
 	}
 
 	/** Drop the request-static half of the wake map. Topology activation, and tests. */

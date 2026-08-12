@@ -9,7 +9,8 @@
  * nothing ever asked again.
  */
 
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useRef, useState } from '@wordpress/element';
+import { authGeneration } from '@newspack-nodes/runtime';
 import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 
@@ -26,10 +27,14 @@ import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 export function useClassCatalog( { enabled = false } = {} ) {
 	const [ classes, setClasses ] = useState( [] );
 	const [ formatters, setFormatters ] = useState( [] );
-	const [ loading, setLoading ] = useState( false );
-	const [ error, setError ] = useState( null );
 
-	// Resolved catalog; a caller awaiting load() mid-flow reuses it.
+	// @longform
+	// Resolved catalog, stamped with the auth generation it was fetched
+	// under. The stamp IS the invalidation check, because it is read HERE —
+	// on the same synchronous tick the reconcile loop invalidates on. An
+	// effect that cleared the cache would run a render too late for this
+	// read, which is how a successfully-loaded catalog outlived its session
+	// and was never re-fetched.
 	const cached = useRef( null );
 	// In-flight request, so concurrent callers share ONE round trip.
 	const inflight = useRef( null );
@@ -37,15 +42,18 @@ export function useClassCatalog( { enabled = false } = {} ) {
 	const request = useRequestNode( 'classes:list', 'classes' );
 
 	const load = useCallback( () => {
-		if ( cached.current ) {
-			return Promise.resolve( cached.current );
+		if (
+			cached.current &&
+			cached.current.generation === authGeneration()
+		) {
+			return Promise.resolve( cached.current.value );
 		}
 		if ( inflight.current ) {
 			return inflight.current;
 		}
 
-		setLoading( true );
-		setError( null );
+		// Stamped from the REQUEST: a mid-flight turnover leaves it stale.
+		const generation = authGeneration();
 		inflight.current = request( 'list' )
 			.then( ( body ) => {
 				if (
@@ -54,35 +62,29 @@ export function useClassCatalog( { enabled = false } = {} ) {
 				) {
 					throw new Error( 'Invalid classes.list response.' );
 				}
-				const loaded = {
+				const value = {
 					classes: body.classes,
 					formatters: body.formatters,
 				};
-				cached.current = loaded;
-				setClasses( loaded.classes );
-				setFormatters( loaded.formatters );
-				return loaded;
-			} )
-			.catch( ( e ) => {
-				setError( e );
-				throw e;
+				cached.current = { generation, value };
+				setClasses( value.classes );
+				setFormatters( value.formatters );
+				return value;
 			} )
 			.finally( () => {
 				// Cleared either way: a failure must not be cached as one.
 				inflight.current = null;
-				setLoading( false );
 			} );
 		return inflight.current;
 	}, [ request ] );
 
-	const { settled } = useReconcile( { load, enabled } );
+	const { settled, error } = useReconcile( { load, enabled } );
 
-	// Unsettled means the cache is no longer trustworthy — drop it.
-	useEffect( () => {
-		if ( ! settled ) {
-			cached.current = null;
-		}
-	}, [ settled ] );
-
-	return { classes, formatters, loading, error, load };
+	return {
+		classes,
+		formatters,
+		loading: enabled && ! settled && ! error,
+		error,
+		load,
+	};
 }

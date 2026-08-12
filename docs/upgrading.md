@@ -4,6 +4,31 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`Tail`'s `source_mode` argument is gone; single-file follow is its own class.**
+  The two source shapes are now two classes, the way every other "same spine,
+  different source" pair in the substrate already is (`Log extends Partition`,
+  `Tap extends Tee`). Nine methods opened with the same
+  `if ( MODE_FILE !== $this->source_mode )` preamble, and file mode left the
+  inherited `$source` Partition null — a Consumer quietly violating its parent's
+  invariant, survivable only because the three parent methods that read it
+  happened to be overridden.
+
+  ```tsl
+  # before
+  make_node Tail debugtail /var/log/debug.log <offsetlog> "" file
+  # after
+  make_node File_Tail debugtail /var/log/debug.log <offsetlog>
+  ```
+
+  Segmented `make_node Tail <name> <source_file> [offsetlog_dir]
+  [deadletter_dir]` is unchanged — only the 4th argument is dropped.
+  `Tail_Node::MODE_SEGMENTED` / `MODE_FILE` remain as the `Log_Sources` registry's
+  mode tokens; `Log_Sources::open_tail( $entry )` is the ONE place a token
+  becomes a reader class. In-tree callers (the `taillog read` builtin and the
+  `/log/stream` SSE controller) already route through it.
+
 ## 2.24.0
 
 - **The browser `ShellNode` has ONE entry point, `fill( message )`.**

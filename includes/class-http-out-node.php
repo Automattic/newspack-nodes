@@ -104,6 +104,10 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Reply bodies accumulated by the write callback, keyed by easy-handle id.
 	 *
+	 * Cleared wherever the handle is dropped, never where the body is read: a
+	 * transport error never reads one, and a buffer outliving its handle is
+	 * appended to by whichever new handle inherits that reused id.
+	 *
 	 * @var array<int,string>
 	 */
 	private static array $bodies = [];
@@ -346,7 +350,7 @@ class HTTP_Out_Node extends Timer_Node {
 		}
 
 		$this->detach( $easy );
-		unset( $this->inflight[ $id ] );
+		unset( $this->inflight[ $id ], self::$bodies[ $id ] );
 	}
 
 	/**
@@ -361,9 +365,7 @@ class HTTP_Out_Node extends Timer_Node {
 			$this->print_less_often( 'auth refused by spoke: HTTP ', (string) $code );
 			return;
 		}
-		$issued = \json_decode( $body, true, 8 );
-		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
-		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		[ $handle, $key ] = self::session_from_body( $body );
 		if ( '' === $handle || '' === $key ) {
 			$this->print_less_often( 'spoke returned a malformed session' );
 			return;
@@ -433,6 +435,7 @@ class HTTP_Out_Node extends Timer_Node {
 	 * Read a completed handle's HTTP code + body. Routes through the $curl_result
 	 * seam when set (tests inject a synthetic result); otherwise reads libcurl
 	 * directly. The typed return narrows the seam's mixed result at this boundary.
+	 * Reads the buffer without clearing it; the caller owns that lifetime.
 	 *
 	 * @return array{code:int, body:string}
 	 */
@@ -450,7 +453,6 @@ class HTTP_Out_Node extends Timer_Node {
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_getinfo, WordPress.WP.AlternativeFunctions.curl_curl_multi_getcontent
 		$key  = \spl_object_id( $easy );
 		$body = self::$bodies[ $key ] ?? (string) \curl_multi_getcontent( $easy );
-		unset( self::$bodies[ $key ] );
 		return [
 			'code' => \curl_getinfo( $easy, \CURLINFO_HTTP_CODE ),
 			'body' => $body,
@@ -467,7 +469,7 @@ class HTTP_Out_Node extends Timer_Node {
 		$this->batch = [];
 		foreach ( $this->inflight as $id => $context ) {
 			$this->detach( $context['handle'] );
-			unset( $this->inflight[ $id ] );
+			unset( $this->inflight[ $id ], self::$bodies[ $id ] );
 		}
 		parent::remove_node();
 	}
@@ -592,13 +594,27 @@ class HTTP_Out_Node extends Timer_Node {
 		if ( $response instanceof \WP_Error || 200 !== \wp_remote_retrieve_response_code( $response ) ) {
 			throw new \RuntimeException( 'server refused to issue a command session' );
 		}
-		$issued = \json_decode( \wp_remote_retrieve_body( $response ), true, 8 );
-		$handle = \is_array( $issued ) ? Core::as_string( $issued['handle'] ?? '' ) : '';
-		$key    = \is_array( $issued ) ? Core::as_string( $issued['key'] ?? '' ) : '';
+		[ $handle, $key ] = self::session_from_body( Core::as_string( \wp_remote_retrieve_body( $response ) ) );
 		if ( '' === $handle || '' === $key ) {
 			throw new \RuntimeException( 'server returned a malformed command session' );
 		}
 		Command_Auth::remember_session( $dest, $handle, $key );
+	}
+
+	/**
+	 * The `[ handle, key ]` a `/auth` body issued, both '' when it issued none.
+	 * One reading for both transports — the async half logs and holds its batch,
+	 * the blocking half throws, and only that disposition differs.
+	 *
+	 * @param string $body Raw `/auth` response body.
+	 * @return array{0:string,1:string}
+	 */
+	private static function session_from_body( string $body ): array {
+		$issued = \json_decode( $body, true, 8 );
+		if ( ! \is_array( $issued ) ) {
+			return [ '', '' ];
+		}
+		return [ Core::as_string( $issued['handle'] ?? '' ), Core::as_string( $issued['key'] ?? '' ) ];
 	}
 
 	/**

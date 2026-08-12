@@ -1,0 +1,43 @@
+# Parser fixture — per-verb dispatch inside and outside a cwd. Not meant to run.
+# It pins the static front-end against Shell_Node::parse(): a builtin stays bare
+# wherever it sits, a minting verb resolves arg[0] against the cwd, `pwd` targets
+# the cwd itself and echoes it, and every other bare verb becomes a command to
+# the cwd node. At the root cwd every form is bare, so only the cd block
+# discriminates.
+
+make_node Tee fanout
+
+cd depot
+	# Builtins act on shell state and never become a message.
+	var   retention_hint = 4271
+	print holding at depot
+	status
+	show_parse
+	debug_level 2
+	clear
+	include topic-probe
+
+	# The minting family: arg[0] is a node path, joined onto the cwd.
+	tell_node beacon status ok
+	tell beacon short form
+	ping beacon
+	send_node beacon payload bytes
+	send beacon short bytes
+	send_struct_node beacon '{"depth":9}'
+	request_node beacon fetch 7
+	send_eof beacon
+
+	# `ping` here is a verb on the REMOTE node, not the Shell's ping builtin.
+	command_node beacon ping
+	cmd beacon set_retention --segments=41
+
+	pwd
+	set_retention --segments=17
+cd ..
+
+status
+tell_node beacon top level
+command_node _command_interpreter ping
+ping beacon
+pwd
+set_retention --segments=17

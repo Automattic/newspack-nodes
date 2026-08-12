@@ -480,6 +480,75 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		expect( IoTelemetry.snapshot().errors ).toBe( 0 );
 	} );
 
+	/**
+	 * `Http_In_Node::fill()` sets the status from the refusal latch on the
+	 * FIRST reply written, so a batch holding ONE refused command answers 401
+	 * with a JSONL body carrying the server's real replies — the refused one's
+	 * diagnosis AND the successful ones. Fabricating refusals over that throws
+	 * away both.
+	 */
+	it( 'routes the JSONL replies a 401 body carries, not a fabricated refusal', async () => {
+		// The transport-level line is throttled per category; clear the window.
+		Core.reset();
+		expectConsoleWarn( 'ERROR: /command failed - HTTP 401' );
+		const refused = newMessage();
+		refused[ TYPE ] = TM_COMMAND | TM_ERROR;
+		refused[ TO ] = 'topologies:list';
+		refused[ VALUE ] = {
+			name: 'list',
+			payload: 'command signature invalid',
+		};
+		const served = newMessage();
+		served[ TYPE ] = TM_COMMAND;
+		served[ TO ] = 'topologies:get';
+		served[ VALUE ] = { name: 'get', payload: 'combined.tsl' };
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: false,
+			status: 401,
+			text: () =>
+				Promise.resolve(
+					[ pack( refused ), pack( served ) ].join( '\n' )
+				),
+		} );
+		IoTelemetry.clear();
+		const client = commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
+
+		const replies = await client.postBatch( [
+			posted( 'topologies:list' ),
+			posted( 'topologies:get' ),
+		] );
+
+		expect( replies ).toHaveLength( 2 );
+		expect( String( replies[ 0 ][ VALUE ].payload ) ).toBe(
+			'command signature invalid'
+		);
+		expect( String( replies[ 1 ][ VALUE ].payload ) ).toBe(
+			'combined.tsl'
+		);
+		// The body crossed the boundary, so its bytes are accounted for.
+		expect( IoTelemetry.snapshot().bytesIn ).toBeGreaterThan( 0 );
+	} );
+
+	it( 'still fabricates a refusal when the body is a REST error object', async () => {
+		expectConsoleWarn( 'ERROR: /command failed - HTTP 403' );
+		global.fetch = jest.fn().mockResolvedValue( {
+			ok: false,
+			status: 403,
+			text: () =>
+				Promise.resolve( JSON.stringify( { code: 'rest_forbidden' } ) ),
+		} );
+		const client = commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
+
+		const replies = await client.postBatch( [
+			posted( 'topologies:list' ),
+		] );
+
+		expect( replies ).toHaveLength( 1 );
+		expect( String( replies[ 0 ][ VALUE ].payload ) ).toMatch(
+			/Command refused \(HTTP 403 rest_forbidden\)/
+		);
+	} );
+
 	it( 'says nothing for a 202 the server routed onward', async () => {
 		global.fetch = jest.fn().mockResolvedValue( {
 			ok: true,

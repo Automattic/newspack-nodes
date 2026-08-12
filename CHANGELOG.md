@@ -7,6 +7,436 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`Capabilities::can()` fails CLOSED.** It answered `true` when
+  `current_user_can` was undefined, so four security call sites hand-negated
+  the same `function_exists` test to reverse it (`HTTP_In_Node`,
+  `Spawn_Controller`, `Auth_Controller`, `SSE_Out_Node`) while
+  `Admin::current_user_allowed()` reached the opposite conclusion — six copies
+  of one predicate, two answers, on the authorization path. `can()` is now
+  `function_exists( … ) && current_user_can( … )` and the five hand-written
+  inversions are gone. The fail-open branch was unreachable in production (the
+  file exits without `ABSPATH`, and WordPress loads capabilities before
+  plugins), so no gate changes its answer in a WordPress runtime.
+
+- **The browser's drop audit redacts credentials, as PHP's already did.**
+  `Node#dropMessage()` `JSON.stringify`'d the raw VALUE, and `DROP_PAYLOAD_TYPES`
+  includes `TM_COMMAND` — so one `NOT_AVAILABLE` drop of the Vault UI's
+  `--auth_password=…` command wrote the password to `console.warn`, into
+  `Core.recentLog` (what `dmesg` renders) and to the `_repl`/`_output` sink.
+  `Core.isSecretProperty()` and `REDACTED` now live in the runtime, mirroring
+  `Core::SECRET_NAME_PATTERNS` / `Node::REDACTED`, and the console's
+  localStorage redactor reads them instead of re-declaring its own list.
+
+- **`Shell_Node` signs what it MINTS, never what passes through.** The
+  non-BYTESTREAM branch had been made to call `Command_Auth::sign()` on a
+  pre-built `TM_COMMAND`. That is the ingress conferring authority, which
+  ADR-15 forbids, and `Command_Auth::stamp()` replaces `auth` unconditionally
+  with no `handle` — so a command already signed under a remote session key was
+  re-signed to the local site and lost its destination binding. The arm now
+  forwards untouched, matching the JS twin.
+
+### Fixed
+
+- **`dump_config` quotes every name it emits, because a command line IS an argv.**
+  It assembled each line from three differently-treated parts — the class raw, the
+  name raw, the arguments through `serialize_args()` — so a node whose name held a
+  space emitted `set_sink baz ok foo bar`, a four-token line that replays as a
+  different graph. `make Echo 'foo bar'` really does register a node named
+  `foo bar`, and it survived `cd`, `ls`, `ping` and `send`; only serialization
+  dropped it. The verb, the type, the name and the arguments are all just tokens,
+  so `Node::command_line()` (JS `commandLine()`) serializes the whole token list
+  and `Node::config_line()` addresses a node's own `:config` sibling. Fifteen
+  hand-built line constructions across the substrate, event-logger-nodes and
+  intelligence now call those; `dump_time_travel_config()` also lost a `$name`
+  parameter every caller filled with `$this->name`. Dump output emits the
+  canonical `command_node`; `cmd` remains a valid input alias.
+
+- **`interpolate()` no longer ends a quoted span on an escaped quote.** It copied
+  characters inside a literal span without consuming `\X` pairs, so the `\'` that
+  `serialize_arg()` itself writes closed the span, inverted quote parity, and
+  expanded every later `<…>` on the line: `'Don\'t use <partition>'` reloaded as
+  `Don't use `, and the NEXT token lost its marker too. `scan_tokens()` and
+  `split_statements_indexed()` both already skipped escape pairs — `interpolate()`
+  was the outlier, and it runs FIRST, so it decided what the tokenizer ever saw.
+  Fixed in both language twins.
+
+- **A statement's `raw` re-parses to the statement it came from.** `build_statement()`
+  spliced RESOLVED values — the prefixed path, the cwd — into `spans`, which hold
+  source text, so `raw` (what `Topology_Analyzer` stores as the statement line) was
+  corrupt for any spaced name: `tell depot floor/beacon hello`. The command family,
+  the bare-verb default and `pwd` now requote what they splice, in both twins.
+
+- **One flags-to-names map in the browser runtime too.** `TYPE_NAMES` sat in
+  `node.js` and both renderers that name a type — `Node#dropMessage`'s audit line
+  and the Dumper's `debug_level` header — filtered their own copy of it, which is
+  how one ends up omitting a flag. It now lives in `message.js` beside the `TM_*`
+  constants behind `typeLabels()`, mirroring PHP's `Message::type_labels()`.
+
+- **The browser Shell drains a composite EOF.** `ShellNode#fill()` tested
+  `TM_EOF === type` where PHP had moved to `$type & Message::TM_EOF`, so a
+  `TM_EOF|TM_NOREPLY` fell past the drain arm and was handed to the sink
+  unparsed: the pending statement never flushed and the message kept its
+  inbound FROM/TO instead of the reply address. TYPE is a bitmask (ADR-2) —
+  the file's own bytestream arm two lines down already read it as one.
+
+- **The cross-language statement pin covers every golden.** Its JS half
+  iterated a hand-maintained fixture map while the PHP half globbed the
+  directories, so a fixture PHP generated a golden for was silently skipped on
+  the JS side — the same hole that had let the two front-ends drift. JS now
+  discovers sources from those directories and pins the two sets against each
+  other: an unmatched golden and an ungoldened source each fail.
+  It cast its argument, so `debug_level abc` read as 0 and quietly turned
+  rendering OFF while reporting `debug_level: 0` as though that had been asked
+  for — where Tachikoma `Shell.pm:158` refuses anything but `^\d+$` and the JS
+  twin prints `usage: debug_level [0|1|2]`. It also returned "handled" while
+  doing nothing whenever `_output` was absent or not a `Dumper_Node`, which is
+  the normal case for a Shell driving a TSL in worker or request scope: a verb
+  the user typed now reports `unknown node: _output` rather than answering with
+  silence.
+
+- **The static TSL front-end reads a minting verb the way the runtime does.**
+  `build_statement()` discriminated on one `BUILTIN_VERBS` membership test, so
+  every verb that mints its own message — `ping`, `tell`/`tell_node`,
+  `send`/`send_node`, `send_struct`/`send_struct_node`, `send_eof`,
+  `request`/`request_node`, `pwd` — was rewritten inside a cwd as
+  `command_node <cwd> <verb> …`. Inside `/bar`, `tell_node foo hi` therefore
+  MEANT `TM_INFO` to `bar/foo` at runtime and a `TM_COMMAND` to `bar` to the
+  topology console, the analyzer and every static reader. Both front-ends now
+  mirror `parse()` verb for verb (Tachikoma `Shell.pm:94` — a builtin runs,
+  anything else becomes a command at the cwd), so replaying a statement at the
+  root cwd mints the very message `parse()` minted at the live cwd. Dispatch
+  reads token[0] only: `command_node foo ping` still names a verb on `foo`.
+  The JS list had drifted the other way — two verbs where PHP had grown to nine,
+  so `cd firehose-workers.p0` then `status` parsed to a bare `status` in the
+  topology loader and to `command_node firehose-workers.p0 status` in the
+  console editor: one text, two graphs. `BUILTIN_VERBS` is gone from both
+  languages — `run_builtin()`'s own switch reports whether it handled the verb,
+  which is the one list — and `tests/fixtures/statements/cwd-dispatch.json` fails
+  either side the moment the two front-ends diverge again.
+
+- **A Compose field stops at the statement it was composed for.** The console
+  and the debug overlay parked the Compose modal's `from`/`id`/`key`/`timestamp`
+  in a ref the outgoing gate read on every send, and nothing cleared it — so the
+  next message the console minted for itself inherited them. With Compose *From*
+  set to `_output/1`, live Save's `dump_config` reply was routed there instead of
+  to the `_console:dump_config` receiver that minted it (ADR-7): no modal, no
+  toast, and an orphaned receiver left registered. The fields are now spent on
+  the statement that carried them.
+
+- **The 24h Messages/Bytes cards no longer double-count co-readers.** A probe
+  sample is one consumer's account of one window, and `probe24hTotals` merged a
+  source's readers on an exact float `ts` — which only ever collides inside ONE
+  worker's sweep. Two topologies tailing one partition live in two processes on
+  independent timers, so both readers' samples survived the merge and the total
+  came out a multiple of the reader count. Each source is now integrated over
+  the UNION of its readers' `[ts - elapsed, ts]` windows: co-readers collapse, a
+  newer-but-shorter reader still widens the span, and every instant is counted
+  from exactly one reader. The old test seeded both readers with the SAME `ts`
+  array — the one arrangement that was never at risk.
+
+- **The Log Viewer recovers from a refused catalog, not just its dropdown.** The
+  reconciled loader only called `setSources`; the `select` and the `resubscribe`
+  that put the dashboard on the air lived in a second fetch inside the graph
+  build, whose failure was swallowed. A refusal at mount (or a session that
+  expired while the tab slept) therefore filled the picker and left the viewer
+  dead — no stream, and Live/Replay inert behind the stale-seek guard. Catalog,
+  selection and stream are now ONE reconciled loader, which also drops the
+  duplicate `taillog sources` every mount was issuing. A selection is
+  established only when there is none, so re-establishing never overrides a
+  user's pick or yanks a Replay back to the live tail (the same guard now
+  applies to the Partition Viewer).
+
+- **Aggregator probe nodes die with the graph.** `aggregator:probe:<id>` is
+  raised from a click, so it fell outside `mountExospine`'s build snapshot and
+  nothing ever removed it: every spoke ever probed leaked a node for the life of
+  the page, each left sunk into a torn-down interpreter after a Reset Graph. The
+  poll build's cleanup now removes them, on teardown AND on rebuild.
+
+- **`WorkerStatusViewNode` owns its own destructor.** `close()` is now
+  `removeNode()`, which the graph teardown already calls on every node it built,
+  so `useTopologyManager` no longer reaches into a view node to run it.
+
+- **`wp nodes ingest` no longer drops records piped on stdin.** The stdin branch
+  drove a NON-BLOCKING `Stdin_Node` through a hand-rolled `while ( ! $src->exit )
+  { $src->fire(); }` loop. On a pipe `fgets` returns whatever bytes are buffered,
+  so a packed record straddling a pipe-buffer boundary — `zcat big.gz | wp nodes
+  ingest …`, the usage its own docblock advertises — arrived as two fragments,
+  both counted `unparseable` and dropped. Silent data loss, reported only as a
+  line count. Both branches are now one blocking `fgets` loop over open handles,
+  with stdin as the single-element case; that also stops the loop spinning a core
+  by ignoring the timer re-arm it had just made. Sources open one at a time — a
+  generator hands the loop each handle as the previous one closes — so replaying
+  a few hundred packed segments (`wp nodes ingest firehose
+  logs/firehose.p0/*.log`) cannot exhaust `ulimit -n`.
+
+- **`Topologies_CI` `save` reports the physical source line.** `split_statements()`
+  drops blank lines and collapses a quoted run spanning several physical lines, so
+  the statement index it reported as "line N" put the editor's cursor on the wrong
+  line — the one thing that validation exists to get right. It also rejected every
+  legal trailing-backslash continuation. Validation now runs through
+  `Shell_Node::parse_statements()`, the same front-end the loader uses, which
+  already names the 1-based physical line.
+
+- **`Topology_Analyzer` classifies node kinds by LINEAGE, in one place.** Three
+  policies lived in the file and two string-matched the raw token, so a
+  `Partition` subclass read as `logic` — missing from the log catalog, the probe
+  sweep, the restart planner and the aggregator — and a `Consumer` subclass was
+  invisible to `consumer_positions()`, which is what reports reader lag. All of
+  them now resolve through `type_is()`, which also carries the ONE
+  unresolvable-token policy, replacing the literal `'Tee' === $type` escape
+  hatches two display predicates each kept.
+
+- **Per-Partition `segment_size` overrides survive a nested layout.** The reader
+  re-tokenized the RAW statement line and matched a `.p(?:<partition>|\d+)$`
+  regex — directly under a comment claiming it was layout-agnostic — so a nested
+  `logs_dir/<name>/<partition>` layout yielded no override and the dashboard
+  showed the global default. It now reads the canonicalized statements, honours
+  Partition subclasses, and keys by the concrete first-level dir through the same
+  `Core::resolve_partition_template()` + `Core::first_level_dir()` reduction
+  `resolved_resource_dirs()` and `Log_Cleaner` name their dirs by.
+
+- **`Log_Sources::is_available()` ignores an orphaned `.idx` companion.** It asked
+  the raw glob while every other segmented read filtered to a purely-numeric
+  suffix, so an index file left behind after retention swept its data segment
+  reported `AVAILABLE yes` for a source whose tail then answered `log
+  unavailable`. Segment listing is now asked of the writer — an ephemeral
+  `Log_Node`'s own `get_segments()` — so the naming rule is declared once, by the
+  class that writes the files. Every listing caller walks the WHOLE registry, so
+  an entry that cannot be listed degrades to no segments (available `no`, bytes
+  `-`) with one rate-limited line rather than blanking `taillog sources`, the way
+  the topology scan already degrades a broken topology; a cooperative stop still
+  propagates.
+
+- **`wp nodes ingest` honours the configured `num_segments` / `segment_size`.**
+  They fell back to the `Partition_Node::DEFAULT_*` constants while
+  `num_partitions` read the global config — and those two answers had already
+  diverged: `Topic_Node`'s schema defaults `num_segments` to
+  `<config:num_segments>`, which ships as 8, while the constant is 4. So every
+  Topic built through `make_node` honoured the operator's setting and `wp nodes
+  ingest` ignored it. All three now read the config key the Topic schema names.
+  Each read is the VALIDATED `Core::num_int` against that key's own default: a
+  cleared admin field stores `''`, which `Options_Overlay` treats as present and
+  overriding, and a lenient cast turned it into a `0` that `Partition_Node`
+  clamped to a 1-BYTE segment — a segment rotation per record.
+  The large-write help also said the lifted cap was 10MB; it is 32 MiB.
+
+- **The REPL's command history stored the passphrase its transcript masked.**
+  `saveHistory()` wrote the verbatim typed line, so `--auth_password=hunter2`
+  sat unredacted under `newspack-nodes:console:history` while the same
+  keystroke's transcript echo was masked. History now goes through the same
+  mask, and the mask no longer eats its own output: the three chained
+  `replace` passes are one alternation, so a value quoted by
+  `serialize_args()` keeps its closing quote and a recalled line is still
+  replayable.
+
+- **The console's outgoing gate reached its consumer.** `useConsoleGraph`
+  returned the gate as a permanently-stable ref while returning the Shell
+  assigned three lines later as state, so a graph rebuild left the NEW gate
+  with `sseGuard` / `beforeSend` / `onRefused` null: a worker-addressed
+  command went out with no SSE session instead of being refused, and Compose
+  reply-flag fields were dropped. It is state now, like the Shell.
+
+- **A successfully-loaded class catalog is re-fetched on auth invalidation.**
+  `useClassCatalog` read its cache on the same synchronous tick the reconcile
+  loop invalidated on, before the effect that cleared it could run — so the
+  overnight-tab session expiry its docblock is written for was a no-op once
+  the first load succeeded. The cache carries the generation it was fetched
+  under, checked in `load()`. `loading`/`error` now come from the loop, as
+  `useVaults` and `useTopologyList` already did.
+
+- **The JS class catalog emits `fans_out` and `is_interpreter`.** Both were
+  missing though the docblock promised `useClassCatalog`'s shape, so
+  `draft-interpreter-node`'s `entry ? !! entry.fans_out : 'Tee' === className`
+  read `undefined` as false and skipped its own `'Tee'` fallback — wiring a
+  JS Tee as single-target and dropping every edge past the first. Both are
+  derived from the class, as PHP derives them, and a `hidden` schema flag now
+  skips a class the way `Classes_CI` does.
+
+- **A wire no longer snaps to a card that draws no IN port**, and a plain
+  click on a hull no longer commits a snapped reposition of every member: the
+  hull gesture takes the button / `interactive` / drag-threshold gates a node
+  drag already had.
+
+- **The editor and the live seed apply ONE config-edge guard.**
+  `draftToGraph.assertResolvedConfigEdges` was a second copy of
+  `consoleGraph.withResolvedConfigEdges` scanning a narrower set, so an
+  include seeding `set_stats_target <config:x>` was refused live and accepted
+  in the editor.
+
+- **`printLessOften` suppresses the flood it was built for.** It took one
+  argument and keyed the throttle on the whole line, but `dropMessage()` and
+  `stampMessage()` interpolate FROM/TO/payload — unique every time — so the
+  drop path never suppressed anything and `Core._lastPrint` grew an entry per
+  distinct dropped message for the life of the tab. It now takes PHP's
+  `( text, ...extra )`: `text` keys, `extra` only prints. `Node#stderr()` also
+  stops re-testing and pre-applying the date prefix `Core.stderr()` applies.
+
+- **A refused `/command` batch no longer discards the server's replies.**
+  `Http_In_Node` sets the response status from the refusal latch on the FIRST
+  reply written, so a batch holding one refused command answers 401 with a
+  JSONL body — the refusal's real diagnosis, plus the replies of the commands
+  that succeeded. The transport returned before parsing it and fabricated
+  `Command refused (HTTP 401)` for every command instead. The body is now
+  unpacked first, whatever the status; the fabricated refusal is the fallback
+  for a body that unpacks to nothing.
+
+- **A bare `secure` survives a console save.** `DraftInterpreterNode` stored it
+  as `secure 1`, which is a different statement — `cmd_secure()` reads a bare
+  `secure` as a climb (`current + 1`, capped) and `secure <n>` as an absolute
+  set — so opening any stock topology and saving rewrote the line. The level is
+  now kept exactly as written, and a level `cmd_secure()` would refuse
+  (non-digit, or `< 1`) is refused here too.
+
+- **`var num += 1` no longer coins a junk frontmatter key.** The draft
+  interpreter kept `num +` as the name and dumped `var num + = 1`;
+  `Topology_Analyzer::frontmatter()` refuses any key that is not
+  `^[A-Za-z_]\w*$`, and now so does this.
+
+### Changed
+
+- **Clear travels as a control on both log dashboards.** `usePartitionViewerGraph`
+  and `useLogViewerGraph` return a `clear()` that fills the view's `clear` verb,
+  passed to `LogStreamViewer` as `onClear` — so the view's one reset runs (rows,
+  line counter, rate window) instead of the chrome blanking `lines` behind it.
+
+- **One tee-contraction, one partition-token substituter.** `reconstructWorkers`
+  carried a statement-for-statement copy of `topologyGraph.collapseGraph`'s tee
+  contraction, and its own token substituter handling `<partition>`/`<topology>`
+  while the sibling handled `<partition>`/`{partition}` — mirror-image blind
+  spots on a rewrite whose whole job is to land on the same vertices.
+  `contractTees()` and `substituteTokens()` are exported from `topologyGraph`
+  and consumed by both; a Topic-written `{partition}` path now resolves in the
+  worker join too.
+
+- **One probe-log tail hook.** `useTopicProbeStream` and `useJobstatsStream` were
+  byte-identical, comments included, differing in five strings. Both are now
+  wrappers over `useLogTailStream( { name, subscribe, viewType, mode } )`, which
+  derives `<name>:link`/`:stream`/`:view` and REFUSES an unrecognised `mode`
+  rather than silently tail-seeking away the retention replay.
+
+- **Single-file follow is `File_Tail_Node`, not a `source_mode` flag on `Tail`.**
+  Nine methods opened with the identical
+  `if ( self::MODE_FILE !== $this->source_mode )` preamble — one file holding two
+  classes, where this codebase answers "same spine, different source" with a
+  subclass every other time (`Log extends Partition`, `Tap extends Tee`). File
+  mode also left the inherited `$source` Partition null, a Consumer violating its
+  parent's invariant, survivable only because the three parent methods that reach
+  it happened to be overridden; `File_Tail` now refuses `source()` by name.
+  `Consumer_Node::compute_lag()` became the ONE lag seam (`GET_LAG`,
+  `probe_stats()` and `idle_since()` all read it), which deleted a hand-copied
+  reply envelope and reconciled three disagreeing answers to "how far behind is
+  this reader": the probe's `DISTANCE` and the `GET_LAG` reply differed by the
+  buffer, `END_SEGMENT` reported the inode on one path and 0 on the other, and
+  `CACHE_SIZE` was hardcoded to 0 for a reader with a real offsetlog. See
+  [docs/upgrading.md](docs/upgrading.md) for the TSL change.
+
+- **One single-step read model.** `Raw_Logs_CI::cmd_read_message()` was a
+  near-verbatim second copy of `Log_Sources::taillog_read()` — same magic tokens,
+  same validation, same wording, same capture-and-step, differing in the reader
+  class and one reply key. `Log_Sources::read_at()` is now the one implementation
+  both drive, and both reply with `source` rather than one saying `log_id`.
+  Its reader arrives ARMED — the caller's `arguments()` has already run
+  `set_timer()` and registered it with the Event_Framework — so the whole body
+  sits inside the `finally`, rejected positions included; an early return there
+  leaked a sinkless reader that fired forever inside the worker's drain loop.
+
+- **`Aggregator_CI`'s file docblock documents the class that exists.** It
+  specified five verbs where `node_schema()` declares three, named
+  `Topology_Registry::graph_for` and `Core::$memd` where the code calls
+  `Topology_Analyzer::graph_for` and `Cache_Backend::shared_first()`, told the
+  next reader to preserve an array shape for a deleted verb, and described `probe`
+  — the only verb with a remote-call surface — nowhere.
+
+- **One rate pipeline feeds the graph panel and the hull panel.**
+  `useAggregateRateSeries` re-derived from the aggregate totals what
+  `aggregateSeries()` already produces from `useGraphRates`' per-node
+  histories — so one worker's respawn was netted against every other node's
+  growth and the whole fleet reported a wrong-but-positive rate for that tick,
+  and the graph series accumulated from zero on every selection change. The
+  hook and its duplicate `RATE_HISTORY_MAX` are deleted; the canvas sparkline
+  imports the window from `useGraphRates` instead of restating it.
+
+- **`includeConsoleNodes.js` is deleted.** All eight registrations already
+  existed verbatim in `CommandInterpreterNode.includeNodes`, importing the
+  same classes from the same modules, so the module was a no-op that invited
+  the next node to be registered for the console alone.
+
+- **Every autofit in `SchematicCanvas` is one box.** Four `tightViewBoxFor()`
+  call sites computed three different "fit-all" answers — a delta persisted
+  against one basis and re-derived against another — so a resize could shift a
+  view nobody panned and a background click framed differently from the resize
+  path. `autofitFor()` applies the full-transcript rule and the LOD inset
+  clamp for all of them, and `LOD_DETAIL_SCALE` is now passed to
+  `viewportCull` rather than restated there as a literal.
+
+- **`DumperNode.captureNextReply()` is gone**, with `CAPTURE_TTL_MS` and the
+  `_maybeCapture` machinery: a single-slot pending-reply map keyed by command
+  name on the shared `_output` node is the shape ADR-7 rules out. Its one
+  caller — the console's live SAVE — now mints `dump_config` FROM its own
+  receiver node, so the addressing correlates the reply; a click during a
+  re-auth window, when there is no signing session to mint under, toasts like
+  every other failure in that flow instead of reading as a dead button. The
+  Dumper's private
+  `TM_LABELS` is gone too; it had already drifted (no `TM_UNTYPED`, the type
+  `newMessage()` stamps) and both surfaces now read `Node`'s `TYPE_NAMES`.
+
+- **The settings page enforces the bounds it displays.** All 16 bounded `int`
+  Fields declared `min`/`max` and then sanitized through `absint()` with no
+  clamp, so a POST of `newspack_nodes_num_partitions=4177` stored 4177 — and
+  spawned 4177 fleets — while `wp nodes settings set` refused that exact value
+  from the same declaration. `Field::sanitize_callback()` now derives the
+  clamp from the Field, `Schema::register_options()` registers it, and the
+  seven hand-written `Admin::sanitize_*` copies (six of which restated bounds
+  the Field already declares) are deleted. A blank or non-numeric submission
+  answers `''` and hands off to `Reset_Gate`, which deletes the row on the
+  next filter so the config-file default resurfaces — where `absint()` used
+  to store a coerced `0`, which no gate matches and which reads back as a
+  1-byte segment size. `BoundedIntBlankSaveTest` walks the composed save.
+
+- **Flush Caches redirected to a WordPress error screen.** The handler built
+  `admin_url( 'admin.php' )`, but the settings page is registered with
+  `add_options_page`, so it lives at `options-general.php` — where
+  `handle_reset_settings()` already pointed.
+
+- **Seven `Field::$default` declarations disagreed with
+  `newspack-nodes-config.php`**, the file the runtime actually reads:
+  `min_lifetime`, `lifetime`, `remote_segment_size`, `remote_num_segments`,
+  `remote_min_lifetime`, `remote_lifetime` and `sse_idle_timeout` (5 vs the
+  shipped 15). They now agree, and a schema test holds the line.
+
+- **One settings-save planner.** `Restart_Planner::plan()` owns the
+  resolve-locks-dir → classified restart → fleet-wide reload recipe that
+  `Admin::maybe_request_worker_restart()` and `Settings_CI_Node::cmd_set()`
+  each carried verbatim, `@longform` comment included, disagreeing only on
+  what the catch did (silent `return` vs a rate-limited log; the log wins).
+  `request_restarts()` and `request_reloads()` share one `fan_out()` helper
+  rather than two copies of the partition loop.
+
+- **One unit scaler for every dashboard number.** `formatBytes` /
+  `formatByteRate` / `formatMsgRate` / `formatCount` were four copies of
+  `log(v)/log(base)` → floor → divide → fix → append, with guard sets that had
+  drifted apart, plus a fifth copy in `shared/utils/formatBytes.js` and a sixth
+  in the topology console's `ProcessStats`. They now share `scaleUnits( value,
+  base, units )`, which carries the finite/positive guard, the index clamp, the
+  compact-decimal step and the round-up promotion.
+
+  Three shipping bugs go with it: `formatBytes` clamped neither end, so a value
+  past GB rendered `"1 undefined"`, a sub-byte value `"512 undefined"` and a
+  negative `"NaN undefined"`; and only `formatCount` promoted on round-up, so
+  `formatMsgRate( 999999 )` read `"1000K/s"` instead of `"1M/s"` and
+  `formatByteRate( 1023.99 * 2**30 )` read `"1024 GB/s"` instead of `"1 TB/s"`.
+
+- **`src/event-dashboards/formatters.js` moved to
+  `src/shared/utils/formatters.js`**, the surface every consumer can import —
+  the debug overlay was already reaching across bundles for it by relative
+  path. Byte sizes now read the same everywhere (`881869` → `861 KB`, formerly
+  `861.2 KB` from the shared module and `861.2 K` in the topology console), and
+  the ladder gains GB and TB tiers where it stopped at MB.
+  `shared/utils/formatBytes.js` remains as the default-export entry
+  `newspack-event-logger-nodes` imports.
+
 ## [2.24.0] - 2026-08-11
 
 ### Fixed

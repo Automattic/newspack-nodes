@@ -462,6 +462,51 @@ describe( 'VaultAdmin', () => {
 		);
 	} );
 
+	it( 'shows the per-row failure message when removeServer rejects', async () => {
+		removeServer.mockRejectedValue( new Error( 'vault write refused' ) );
+		registerViewFixture( {
+			servers: [ SAMPLE_SERVERS[ 0 ] ],
+			loading: false,
+		} );
+		const { container } = mount();
+		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
+		await act( async () => {
+			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		await act( async () => {
+			dialogButton( 'Remove' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		expect( row.querySelector( '.test-status' ).textContent ).toContain(
+			'vault write refused'
+		);
+		// The row stays put, so the failure must be visible on it.
+		expect(
+			container.querySelector( 'tr[data-server-id="spoke-01"]' )
+		).toBeTruthy();
+	} );
+
+	it( 'renders a bare-string rejection verbatim, like every other surface', async () => {
+		testServer.mockRejectedValue( 'vault sealed' );
+		registerViewFixture( {
+			servers: [ SAMPLE_SERVERS[ 0 ] ],
+			loading: false,
+		} );
+		const { container } = mount();
+		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
+		await act( async () => {
+			row.querySelector( '.event-aggregator-test' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		expect( row.querySelector( '.test-status' ).textContent ).toContain(
+			'vault sealed'
+		);
+	} );
+
 	it( 'renders modal Cancel buttons with the canonical .button class, not the inert button-tertiary', () => {
 		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();

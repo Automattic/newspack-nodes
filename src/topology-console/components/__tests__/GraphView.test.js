@@ -51,6 +51,19 @@ const twoNodeGraph = {
 	edges: [],
 };
 
+// Freeze the clock and hand the body a `tick()` that advances it one second:
+// useGraphRates records a sample only once time has actually moved.
+const withClock = ( body ) => {
+	let t = 1_700_000_000_000;
+	const real = Date.now;
+	Date.now = () => t;
+	try {
+		body( () => ( t += 1000 ) );
+	} finally {
+		Date.now = real;
+	}
+};
+
 describe( 'GraphView', () => {
 	it( 'renders the canvas and forwards a connect gesture to onConnect', () => {
 		const onConnect = jest.fn();
@@ -363,31 +376,34 @@ describe( 'GraphView', () => {
 		// g0 seeds the baseline WITH data; g1 yields a real In-rate delta.
 		const g0 = { nodes: [ src( 5 ) ], edges: [] };
 		const g1 = { nodes: [ src( 10 ) ], edges: [] };
-		const { rerender } = renderWithCatalog(
-			<GraphView graph={ g0 } frame={ Frame } resetKey="k" />
-		);
-		// A second poll (new graph identity) accumulates one In-rate sample.
-		rerender( <GraphView graph={ g1 } frame={ Frame } resetKey="k" /> );
-		const len = global.__inspectorProps.rateSeries.in.length;
-		expect( len ).toBeGreaterThan( 0 );
-		// Collapse→expand (same graph) keeps the GraphView-held series intact.
-		rerender(
-			<GraphView
-				graph={ g1 }
-				frame={ Frame }
-				resetKey="k"
-				inspectorCollapsed
-			/>
-		);
-		rerender(
-			<GraphView
-				graph={ g1 }
-				frame={ Frame }
-				resetKey="k"
-				inspectorCollapsed={ false }
-			/>
-		);
-		expect( global.__inspectorProps.rateSeries.in.length ).toBe( len );
+		withClock( ( tick ) => {
+			const { rerender } = renderWithCatalog(
+				<GraphView graph={ g0 } frame={ Frame } resetKey="k" />
+			);
+			// A second poll, one second on, accumulates one In-rate sample.
+			tick();
+			rerender( <GraphView graph={ g1 } frame={ Frame } resetKey="k" /> );
+			const len = global.__inspectorProps.rateSeries.in.length;
+			expect( len ).toBeGreaterThan( 0 );
+			// Collapse→expand (same graph) keeps the GraphView-held series.
+			rerender(
+				<GraphView
+					graph={ g1 }
+					frame={ Frame }
+					resetKey="k"
+					inspectorCollapsed
+				/>
+			);
+			rerender(
+				<GraphView
+					graph={ g1 }
+					frame={ Frame }
+					resetKey="k"
+					inspectorCollapsed={ false }
+				/>
+			);
+			expect( global.__inspectorProps.rateSeries.in.length ).toBe( len );
+		} );
 	} );
 } );
 
@@ -416,17 +432,6 @@ describe( 'GraphView — hull selection', () => {
 
 	// useGraphRates only records a sample once a full second has elapsed, so a
 	// poll has to advance the clock the way a real one does.
-	const withClock = ( body ) => {
-		let t = 1_700_000_000_000;
-		const real = Date.now;
-		Date.now = () => t;
-		try {
-			body( () => ( t += 1000 ) );
-		} finally {
-			Date.now = real;
-		}
-	};
-
 	const hullNodesGraph = ( a, b ) => ( {
 		nodes: [
 			{ id: 'inside', count: a, has_target: true, accepts_fill: false },
@@ -463,6 +468,29 @@ describe( 'GraphView — hull selection', () => {
 			const graphIn = global.__inspectorProps.rateSeries.in;
 			expect( hullIn[ hullIn.length - 1 ] ).toBe( 30 );
 			expect( graphIn[ graphIn.length - 1 ] ).toBe( 430 );
+		} );
+	} );
+
+	/**
+	 * The graph-wide series used to be differenced from the AGGREGATE totals,
+	 * so one worker's respawn (its cumulative counter back to zero) was netted
+	 * against every other node's growth and the whole fleet reported a
+	 * wrong-but-positive rate for that tick. Per-node deltas clamp only the
+	 * node that reset.
+	 */
+	it( 'charges a counter reset to the node that reset, not to the fleet', () => {
+		withClock( ( tick ) => {
+			const { rerender } = renderWithCatalog(
+				hullView( hullNodesGraph( 10, 100 ) )
+			);
+			tick();
+			rerender( hullView( hullNodesGraph( 40, 500 ) ) );
+			tick();
+			// `inside` respawned to 0; `outside` kept climbing by 400/s.
+			rerender( hullView( hullNodesGraph( 0, 900 ) ) );
+
+			const graphIn = global.__inspectorProps.rateSeries.in;
+			expect( graphIn[ graphIn.length - 1 ] ).toBe( 400 );
 		} );
 	} );
 

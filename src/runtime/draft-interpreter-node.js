@@ -39,6 +39,7 @@
  */
 
 import { CommandInterpreterNode } from './command-interpreter-node';
+import { targetsOf } from './node';
 import { NodeRegistry } from './node-registry';
 import { StubNode } from './stub-node';
 import { markLocal } from './command-auth';
@@ -66,6 +67,12 @@ import names from './reserved-node-names.json';
 function unquoteAll( args ) {
 	return args.map( ( span ) => tokenize( String( span ) )[ 0 ] ?? '' );
 }
+
+/** A bare `secure`: a CLIMB, distinct from any absolute `secure <n>`. */
+const SECURE_BARE = 'secure';
+
+/** The config-sidecar suffix a `command_node` path may carry. */
+const CONFIG_SUFFIX = ':config';
 
 /**
  * The console's edit buffer: a CommandInterpreterNode over a draft document.
@@ -236,9 +243,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const seeded = this.childRegistry.node( name );
 		const claimed = seeded && true === seeded.borrowed ? seeded : null;
 		// COPY, and keep them: an identical redeclaration is legal TSL.
-		const inherited = claimed
-			? [].concat( claimed.target ?? [] ).filter( Boolean )
-			: [];
+		const inherited = claimed ? targetsOf( claimed ) : [];
 		const seededVerbs = this._seeded.get( name );
 		claimed?.removeNode();
 		this._seeded.delete( name );
@@ -261,7 +266,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		for ( const target of inherited ) {
 			built.connectNode( target );
 		}
-		const kept = [].concat( built.target ?? [] ).filter( Boolean );
+		const kept = targetsOf( built );
 		const lost = inherited.filter( ( t ) => ! kept.includes( t ) );
 		if ( lost.length ) {
 			this.stderr(
@@ -523,10 +528,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 			for ( const inv of this.declaredInvocationsFor( name ) ) {
 				lines.push( DraftInterpreterNode._verbLine( name, inv ) );
 			}
-			const targets = Array.isArray( node.target )
-				? node.target
-				: [ node.target ].filter( Boolean );
-			for ( const t of targets ) {
+			for ( const t of targetsOf( node ) ) {
 				edges.push( `connect_node ${ name } ${ t }` );
 			}
 		}
@@ -559,8 +561,9 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		lines.push( ...edges.filter( ( e ) => ! base.has( e ) ) );
 		if ( this.secureLevel ) {
 			lines.push(
-				'insecure' === this.secureLevel
-					? 'insecure'
+				'insecure' === this.secureLevel ||
+					SECURE_BARE === this.secureLevel
+					? this.secureLevel
 					: `secure ${ this.secureLevel }`
 			);
 		}
@@ -652,8 +655,10 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 				'usage: command_node <node>[:config] <verb> [<args>...]'
 			);
 		}
-		const viaConfig = String( path ).endsWith( ':config' );
-		const name = viaConfig ? String( path ).slice( 0, -7 ) : path;
+		const viaConfig = String( path ).endsWith( CONFIG_SUFFIX );
+		const name = viaConfig
+			? String( path ).slice( 0, -CONFIG_SUFFIX.length )
+			: path;
 		// No node yet ≠ wrong line; dropping it would strip the file's own.
 		const list = this._invocations.get( name ) ?? [];
 		list.push( { verb, args: rest, viaConfig } );
@@ -713,7 +718,7 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 * @return {string} The statement.
 	 */
 	static _verbLine( name, inv ) {
-		const target = inv.viaConfig ? `${ name }:config` : name;
+		const target = inv.viaConfig ? `${ name }${ CONFIG_SUFFIX }` : name;
 		return [
 			'command_node',
 			target,
@@ -777,7 +782,8 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 		const assignment = args.join( ' ' );
 		const eq = assignment.indexOf( '=' );
 		const name = -1 === eq ? '' : assignment.slice( 0, eq ).trim();
-		if ( '' === name ) {
+		// A compound operator leaves its head on the key; refuse, never coin.
+		if ( ! /^[A-Za-z_]\w*$/.test( name ) ) {
 			throw new Error( 'usage: var <name> = <value>' );
 		}
 		const tail = assignment.slice( eq + 1 );
@@ -810,7 +816,12 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	}
 
 	/**
-	 * `secure [<level>]` / `insecure` — set the document's secure level.
+	 * `secure [<level>]` / `insecure` — set the document's secure declaration.
+	 *
+	 * Stored EXACTLY as written, because the two spellings are not synonyms:
+	 * `cmd_secure()` reads a bare `secure` as a CLIMB (current + 1, capped 3)
+	 * and `secure <n>` as an absolute set. Every stock topology writes the bare
+	 * form, so rewriting it would diff every file a save touches.
 	 *
 	 * Freely reversible here, both directions: this edits a line. Live it is a
 	 * one-way ratchet, because that irreversibility is the security property.
@@ -818,16 +829,22 @@ export class DraftInterpreterNode extends CommandInterpreterNode {
 	 *
 	 * @param {string[]} args Token array after the verb, unquoted.
 	 * @return {string} The reply line.
+	 * @throws {Error} On a level `cmd_secure()` would refuse.
 	 */
 	_cmdDraftSecure( args ) {
-		// A bare `secure` IS `secure 1` — what the stock topologies write.
-		this.secureLevel = args[ 0 ] || '1';
+		const level = args[ 0 ] ?? '';
+		if ( '' !== level && SECURE_BARE !== level && 'insecure' !== level ) {
+			if ( ! /^\d+$/.test( level ) || 1 > Number( level ) ) {
+				throw new Error( 'invalid secure level' );
+			}
+		}
+		this.secureLevel = '' === level ? SECURE_BARE : level;
 		return 'ok';
 	}
 
 	/**
-	 * Undeclare `secure` entirely. See divergence 3: a bare `secure` means 1,
-	 * so "no level" has no TSL spelling.
+	 * Undeclare `secure` entirely. See divergence 3: every spelling of the verb
+	 * DECLARES something, so "no line at all" has no TSL spelling.
 	 */
 	clearSecureLevel() {
 		this.secureLevel = '';

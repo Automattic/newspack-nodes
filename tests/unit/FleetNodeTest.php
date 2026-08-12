@@ -425,6 +425,30 @@ class FleetNodeTest extends TestCase {
 		$this->assertSame( [ '1730000731', '1730004297' ], $seen );
 	}
 
+	/**
+	 * A reload must drop EVERY memo keyed off the active set, not the two of the
+	 * four Topology_Registry::invalidate_config_cache() names. A worker lives
+	 * ~595s, so a probe that keeps its old cadence and a stale on-demand reader
+	 * map outlive the settings save by ten minutes.
+	 */
+	public function test_a_reload_drops_every_memo_keyed_off_the_active_set(): void {
+		$this->with_topology( $this->ledger( 1 ) );
+		$this->make_lock( 'ledger-workers.p0' );
+		$fleet = $this->mount_fleet();
+
+		$wake_ref = new \ReflectionProperty( Bootstrap::class, 'on_demand_wake_map' );
+		$wake_ref->setValue( null, [ '/marmot/stale-partition' => [] ] );
+		$probe_ref = new \ReflectionProperty( \Newspack_Nodes\Topic_Probe_Node::class, 'interval_s' );
+		$probe_ref->setValue( null, 8264 );
+
+		$this->signal_reload( 1730000731 );
+		Core::right_now();
+		$fleet->fire_cb();
+
+		$this->assertNull( $wake_ref->getValue(), 'the on-demand reader map is keyed off the active set' );
+		$this->assertNull( $probe_ref->getValue(), 'so is the probe cadence, read out of topic-probe.tsl' );
+	}
+
 	public function test_a_reload_subscriber_reads_the_new_config_synchronously(): void {
 		// Notify-before-reset leaves Config holding boot values at delivery, so
 		// a subscriber that reads inline gets the value the reload exists to

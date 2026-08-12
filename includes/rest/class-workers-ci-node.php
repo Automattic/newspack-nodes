@@ -327,15 +327,15 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Union the per-Partition `segment_size` overrides across every active
-	 * topology (last-write-wins on basename collision).
+	 * topology (last-write-wins on dir collision).
 	 *
-	 * @return array<string,int> `{basename => int}` (basename without `.log`).
+	 * @return array<string,int> `{concrete first-level log dir => int}`.
 	 */
 	private static function collect_segment_size_overrides(): array {
 		$out = [];
 		foreach ( self::active_topologies() as $name => $_cfg ) {
 			try {
-				$overrides = Topology_Analyzer::segment_size_overrides_for( $name );
+				$overrides = Topology_Analyzer::segment_size_overrides_for( $name, Bootstrap::num_partitions_for( $name ) );
 			} catch ( \RuntimeException $e ) {
 				// Dormant provider: skip, do not fatal every admin page.
 				Core::print_less_often( "segment-size overrides skipped for {$name}: ", $e->getMessage() );

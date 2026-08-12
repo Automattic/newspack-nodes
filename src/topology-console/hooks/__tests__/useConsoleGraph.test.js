@@ -279,6 +279,31 @@ describe( 'useConsoleGraph — graph topology', () => {
 		);
 	} );
 
+	/**
+	 * The gate came back as a permanently-stable ref, so a rebuild replaced it
+	 * without the consumer's configure-effect re-running: the NEW gate kept
+	 * sseGuard / beforeSend / onRefused null, and a worker-addressed command
+	 * went out with no SSE session instead of being refused.
+	 */
+	it( 'hands back the LIVE gate, so a rebuild is visible to the consumer', () => {
+		const { result, rerender } = renderGraph( { topology: 'demo' } );
+		const first = result.current.outgoing;
+		expect( first ).toBe( result.current.shell.sink );
+
+		act( () => {
+			rerender( {
+				topology: 'other',
+				partition: 0,
+				enabled: true,
+				debugLevelRef: { current: 0 },
+				loadCatalog: loadEmptyCatalog,
+			} );
+		} );
+
+		expect( result.current.outgoing ).not.toBe( first );
+		expect( result.current.outgoing ).toBe( result.current.shell.sink );
+	} );
+
 	it( 'subscribes the active connector to {topology}.p{N} with baseUrl + nonce', () => {
 		renderGraph( { topology: 'demo', partition: 3 } );
 		// First poll/connect boots the session worker's stream.

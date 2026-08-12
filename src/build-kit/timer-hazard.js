@@ -75,6 +75,9 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
 		 * A test that disposes the old graph before re-mounting under fake
 		 * timers has fixed the problem and must not be reported.
 		 *
+		 * Reads without resetting; `onClear()` is the one reset, so the caller
+		 * decides when the verdict is spent.
+		 *
 		 * @throws {Error} When the test faked setInterval over a live arming.
 		 */
 		assertClean() {
@@ -85,8 +88,6 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
 			const sites = [ ...armedUnderReal.values() ]
 				.map( describeSite )
 				.filter( Boolean );
-			armedUnderReal.clear();
-			sawFakeInstall = false;
 			throw new Error(
 				`jest.useFakeTimers() faked setInterval with ${ count } runtime ` +
 					'timer(s) left armed on the REAL clock.\n' +
@@ -103,14 +104,27 @@ function createTimerHazardGuard( describeSite = defaultSite ) {
 }
 
 /**
+ * The first stack frame naming `needle`. Both halves of the guard report a
+ * site — the arming's test frame here, the leaked interval's runtime frame in
+ * `jest-node-timers.js` — from this one extractor.
+ *
+ * @param {Error}  err    Error captured at arming time.
+ * @param {string} needle Path fragment the wanted frame contains.
+ * @return {string} The trimmed frame, or ''.
+ */
+function firstFrame( err, needle ) {
+	const line = ( err.stack || '' )
+		.split( '\n' )
+		.find( ( l ) => l.includes( needle ) );
+	return line ? line.trim() : '';
+}
+
+/**
  * @param {Error} err Error captured at arming time.
  * @return {string} The first test-file frame, or ''.
  */
 function defaultSite( err ) {
-	const line = ( err.stack || '' )
-		.split( '\n' )
-		.find( ( l ) => l.includes( '__tests__' ) );
-	return line ? line.trim() : '';
+	return firstFrame( err, '__tests__' );
 }
 
-module.exports = { createTimerHazardGuard };
+module.exports = { createTimerHazardGuard, firstFrame };

@@ -97,7 +97,7 @@ export class LogStreamViewNode extends Node {
 			this.connectionError = !! value.connectionError;
 		} else if ( 'browse' === action ) {
 			// Replaying: capture the live boundary to detect catch-up against.
-			this.seek.browse( value.endSegment ?? null, value.endOffset ?? 0 );
+			this.seek.browse( value.endSegment, value.endOffset );
 			// A rewind starts clean: replays must not mix into the live tail.
 			this._clear();
 		} else if ( 'follow' === action ) {
@@ -211,16 +211,6 @@ export class LogStreamViewNode extends Node {
 	}
 
 	/**
-	 * Drop every buffered row and reset the line counter and the rate window
-	 * — what `select`, `browse`, and `clear` all fall back to.
-	 */
-	_clear() {
-		this.lines = [];
-		this.lineCounter = 0;
-		this.lpsSmoother.reset();
-	}
-
-	/**
 	 * The whole buffer newest-first, O(n) — the filter path and the tests
 	 * read this; a render frame reads `lineAt()` instead.
 	 *
@@ -235,22 +225,40 @@ export class LogStreamViewNode extends Node {
 	}
 
 	/**
-	 * Replace the buffer wholesale. Anything but an array empties the ring,
-	 * which is how `_clear()` resets it.
+	 * Replace the buffer wholesale, on a fully `_clear()`ed view — so the id
+	 * stamp and the rate window never survive a caller that meant to empty it.
 	 *
 	 * @param {Object[]} value Rows newest-first; they are seeded oldest-first
 	 *                         so the newest one lands at the head.
 	 */
 	set lines( value ) {
-		this._ring = [];
-		this._head = 0;
-		this._count = 0;
+		this._clear();
 		if ( Array.isArray( value ) ) {
 			// Seed oldest-first so the newest row lands last (at head-1).
 			for ( let i = value.length - 1; i >= 0; i-- ) {
 				this._writeRow( value[ i ] );
 			}
 		}
+	}
+
+	/**
+	 * Drop every buffered row and reset the line counter and the rate window
+	 * — the ONE reset `select`, `browse`, the `clear` verb and assigning
+	 * `lines` all land on, so no caller can half-clear the view.
+	 */
+	_clear() {
+		this._emptyRing();
+		this.lineCounter = 0;
+		this.lpsSmoother.reset();
+	}
+
+	/**
+	 * Drop the ring's storage; the counters `_clear()` owns are separate.
+	 */
+	_emptyRing() {
+		this._ring = [];
+		this._head = 0;
+		this._count = 0;
 	}
 
 	/**

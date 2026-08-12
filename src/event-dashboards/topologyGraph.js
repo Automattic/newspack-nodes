@@ -15,8 +15,35 @@
 
 // Paths carry `<partition>` or a Topic's `{partition}` — match either.
 const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
+const TOPOLOGY_TOKEN = '<topology>';
 const partitionTokenIn = ( vertex ) =>
 	PARTITION_TOKENS.find( ( t ) => vertex.includes( t ) ) ?? null;
+
+/**
+ * Bind a `.tsl` path template the way Topology_Loader does: every partition
+ * token, plus `<topology>` when a fleet name is supplied.
+ *
+ * ONE substituter over ONE token list. An offsetlog is a reader's cursor and
+ * the reader is the FLEET, so reader templates carry `<topology>`: binding only
+ * the partition left `firehose.<topology>.p0` never matching the live
+ * `firehose.combined.p0`, which cost every segment bar its cursor.
+ *
+ * @param {string}        template            Path template.
+ * @param {Object}        bindings            What to bind.
+ * @param {number|string} bindings.partition  Partition index.
+ * @param {string}        [bindings.topology] Fleet name; omitted leaves the token.
+ * @return {string} The concrete path.
+ */
+export function substituteTokens( template, { partition, topology } ) {
+	let out = String( template );
+	PARTITION_TOKENS.forEach( ( token ) => {
+		out = out.split( token ).join( String( partition ) );
+	} );
+	if ( topology ) {
+		out = out.split( TOPOLOGY_TOKEN ).join( String( topology ) );
+	}
+	return out;
+}
 
 /**
  * Concrete catalog entries a log VERTEX resolves to, with each match's partition
@@ -99,13 +126,37 @@ function logicalLogName( vertex ) {
 // @longform Resolve a graph log vertex for one worker partition. Worker rows
 // carry the concrete probe source, while a tree branch keeps the TSL tokenized
 // vertex.
-const concreteLogForPartition = ( vertex, partition ) => {
-	let concrete = vertex;
-	PARTITION_TOKENS.forEach( ( token ) => {
-		concrete = concrete.split( token ).join( String( partition ) );
-	} );
-	return concrete;
-};
+const concreteLogForPartition = ( vertex, partition ) =>
+	substituteTokens( vertex, { partition } );
+
+/**
+ * Contract every `tee` out of an edge list: the pair x→T, T→y becomes the
+ * direct edge x→y, repeated until no edge touches a tee.
+ *
+ * Both readers of a `.tsl` graph must land on the same collapsed vertices —
+ * `collapseGraph` renders them and `reconstructWorkers.consumerHandlers`
+ * attributes worker rows to them — so the rewrite has ONE implementation.
+ *
+ * @param {Array<Array<string>>}        rawEdges `[ from, to ]` pairs; never mutated.
+ * @param {( name: string ) => boolean} isTee    True for a tee vertex.
+ * @return {Array<Array<string>>} The contracted edge list.
+ */
+export function contractTees( rawEdges, isTee ) {
+	let edges = rawEdges.map( ( e ) => [ e[ 0 ], e[ 1 ] ] );
+	while ( edges.some( ( [ a, b ] ) => isTee( a ) || isTee( b ) ) ) {
+		const tee = edges.flatMap( ( [ a, b ] ) => [ a, b ] ).find( isTee );
+		const ins = edges
+			.filter( ( [ , b ] ) => b === tee )
+			.map( ( [ a ] ) => a );
+		const outs = edges
+			.filter( ( [ a ] ) => a === tee )
+			.map( ( [ , b ] ) => b );
+		const rest = edges.filter( ( [ a, b ] ) => a !== tee && b !== tee );
+		ins.forEach( ( a ) => outs.forEach( ( b ) => rest.push( [ a, b ] ) ) );
+		edges = rest;
+	}
+	return edges;
+}
 
 const lc = ( s ) => String( s ).toLowerCase();
 const byLower = ( a, b ) => {
@@ -289,22 +340,7 @@ function collapseGraph( graphTopo ) {
 		isLog.set( vertex, 'logic' !== n.kind );
 	} );
 
-	// Contract tees: replace x→T, T→y with x→y until no edge touches a tee.
-	let edges = rawEdges.map( ( e ) => [ e[ 0 ], e[ 1 ] ] );
-	while ( edges.some( ( [ a, b ] ) => isTee.has( a ) || isTee.has( b ) ) ) {
-		const tee = edges
-			.flatMap( ( [ a, b ] ) => [ a, b ] )
-			.find( ( name ) => isTee.has( name ) );
-		const ins = edges
-			.filter( ( [ , b ] ) => b === tee )
-			.map( ( [ a ] ) => a );
-		const outs = edges
-			.filter( ( [ a ] ) => a === tee )
-			.map( ( [ , b ] ) => b );
-		const rest = edges.filter( ( [ a, b ] ) => a !== tee && b !== tee );
-		ins.forEach( ( a ) => outs.forEach( ( b ) => rest.push( [ a, b ] ) ) );
-		edges = rest;
-	}
+	const edges = contractTees( rawEdges, ( name ) => isTee.has( name ) );
 
 	const outAdj = new Map();
 	const inDegree = new Map();

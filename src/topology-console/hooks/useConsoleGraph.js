@@ -71,8 +71,8 @@ export function useConsoleGraph( {
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
-	// The console's unnamed outgoing gate, handed back by reference.
-	const outgoingRef = useRef( null );
+	// The unnamed outgoing gate; STATE, so a rebuild reaches its consumer.
+	const [ outgoing, setOutgoing ] = useState( null );
 	const [ seedError, setSeedError ] = useState( null );
 
 	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
@@ -107,8 +107,7 @@ export function useConsoleGraph( {
 
 	useEffect( () => {
 		if ( ! enabled ) {
-			setSsePid( null );
-			setShell( null );
+			// Cleanup nulls the graph state; a seed error has no other owner.
 			setSeedError( null );
 			return undefined;
 		}
@@ -186,7 +185,6 @@ export function useConsoleGraph( {
 
 		const outgoingGate = new OutgoingGateNode();
 		outgoingGate.sink = shellTap;
-		outgoingRef.current = outgoingGate;
 
 		// Anonymous React Shell; sinks into the gate → Tap → interpreter.
 		const consoleShell = new ShellNode();
@@ -305,7 +303,7 @@ export function useConsoleGraph( {
 		}
 
 		setShell( consoleShell );
-		// The stream-gating effect owns the EventSource; cd-off can quiet it.
+		setOutgoing( outgoingGate );
 
 		return () => {
 			seedCancelled = true;
@@ -325,6 +323,7 @@ export function useConsoleGraph( {
 			teardownSpine();
 			setSsePid( null );
 			setShell( null );
+			setOutgoing( null );
 		};
 		// `workersKey` is the stable projection of `workers` (id churn).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,5 +381,5 @@ export function useConsoleGraph( {
 		status = 'connecting';
 	}
 
-	return { status, ssePid, shell, seedError, outgoing: outgoingRef };
+	return { status, ssePid, shell, seedError, outgoing };
 }

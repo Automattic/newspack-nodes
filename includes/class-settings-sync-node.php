@@ -208,7 +208,7 @@ class Settings_Sync_Node extends Timer_Node {
 		$out = parent::dump_config();
 		foreach ( $this->registry as $local => $specs ) {
 			foreach ( $specs as $spec ) {
-				$out .= "command_node {$this->name}:config add_setting {$local} {$spec['to']} {$spec['remote']}\n";
+				$out .= $this->config_line( 'add_setting', $local, $spec['to'], $spec['remote'] );
 			}
 		}
 		return $out;

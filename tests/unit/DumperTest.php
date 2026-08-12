@@ -304,10 +304,13 @@ class DumperTest extends TestCase {
 		$this->assertStringContainsString( "\"ok\": true", $rendered );
 	}
 
-	public function test_default_renderer_coerces_non_string_values_like_php_casts(): void {
+	public function test_default_renderer_reads_non_scalar_values_as_empty(): void {
+		// The canonical scalar read: only scalars stringify, everything else
+		// renders empty. A struct VALUE has its own branch above that JSON
+		// encodes it, so the fallback never needs to print the word `Array`.
 		[ $dumper, $cap ] = $this->fresh();
 
-		$object = new class {
+		$object = new class implements \Stringable {
 			public function __toString(): string {
 				return 'stringable-object';
 			}
@@ -323,12 +326,27 @@ class DumperTest extends TestCase {
 			}
 		}
 
-		$this->assertSame( "\nArray\nstringable-object\n\n", $this->rendered( $cap ) );
+		$this->assertSame( "\n\n\n\n", $this->rendered( $cap ) );
 	}
 
-	public function test_ping_renderer_coerces_non_scalar_timestamps(): void {
+	public function test_default_renderer_stringifies_a_scalar_value(): void {
 		[ $dumper, $cap ] = $this->fresh();
-		Core::$now = 2.0;
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 42;
+		$dumper->fill( $message );
+
+		$this->assertSame( "42\n", $this->rendered( $cap ) );
+	}
+
+	public function test_ping_renderer_reads_a_non_numeric_send_stamp_as_zero(): void {
+		// RTT is arithmetic, so the send stamp reads through the VALIDATED
+		// numeric family: a non-numeric VALUE contributes exactly 0 and the
+		// line reports the full elapsed clock. A cast-style read would turn a
+		// non-empty array into 1.0 and print a plausible, wrong round trip.
+		[ $dumper, $cap ] = $this->fresh();
+		Core::$now = 3.25;
 
 		foreach ( [ null, [], [ 'x' ], new \stdClass(), \fopen( 'php://memory', 'r+' ) ] as $value ) {
 			$message                   = Message::new_message();
@@ -342,8 +360,39 @@ class DumperTest extends TestCase {
 
 		$rendered = $this->rendered( $cap );
 		$this->assertSame( 5, \substr_count( $rendered, 'round trip time:' ) );
-		$this->assertStringContainsString( '2000.00 ms', $rendered );
-		$this->assertStringContainsString( '1000.00 ms', $rendered );
+		$this->assertSame( 5, \substr_count( $rendered, '3250.00 ms' ) );
+		$this->assertStringNotContainsString( '2250.00 ms', $rendered );
+	}
+
+	public function test_ping_renderer_reads_a_numeric_string_send_stamp(): void {
+		// The wire carries the stamp as the '%.6F' string parse() writes.
+		[ $dumper, $cap ] = $this->fresh();
+		Core::$now = 3.25;
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_PING;
+		$message[ Message::VALUE ] = '3.000000';
+		$dumper->fill( $message );
+
+		$this->assertStringContainsString( '250.00 ms', $this->rendered( $cap ) );
+	}
+
+	public function test_debug_header_reads_an_array_TYPE_as_no_flags(): void {
+		// TYPE reads through the canonical scalar family: a malformed array
+		// TYPE has no flags. A cast-style read makes a non-empty array 1 and
+		// labels the message TM_BYTESTREAM, inventing a type it never had.
+		[ $dumper, $cap ] = $this->fresh();
+		$dumper->set_debug_level( 1 );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = [ 'not', 'a', 'type' ];
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::VALUE ] = 'hello';
+		$dumper->fill( $message );
+
+		$rendered = $this->rendered( $cap );
+		$this->assertStringContainsString( 'TM_UNKNOWN(0x0) from producer:', $rendered );
+		$this->assertStringNotContainsString( 'TM_BYTESTREAM', $rendered );
 	}
 
 	public function test_type_coercion_accepts_array_object_and_resource_fields(): void {
@@ -553,6 +602,22 @@ class DumperTest extends TestCase {
 		// NOT see `{"name":"ls"...}`.
 		$this->assertStringNotContainsString( '"name":"ls"', $rendered );
 		$this->assertStringNotContainsString( '\\n', $rendered );
+	}
+
+	public function test_format_type_flags_names_the_reply_suppression_flag(): void {
+		// TM_NOREPLY rides on every command a script/topology load mints, so a
+		// renderer that omits it silently mislabels the commonest composite.
+		$this->assertSame(
+			'TM_COMMAND | TM_NOREPLY',
+			Dumper_Node::format_type_flags( Message::TM_COMMAND | Message::TM_NOREPLY )
+		);
+	}
+
+	public function test_format_type_flags_names_the_untyped_mint_default(): void {
+		// A message that reached a sink still carrying the mint default is a
+		// bug — and debug_level is the mode you'd be in to find it, so it must
+		// read TM_UNTYPED, not an anonymous hex bitmask.
+		$this->assertSame( 'TM_UNTYPED', Dumper_Node::format_type_flags( Message::TM_UNTYPED ) );
 	}
 
 	public function test_debug_level_2_emits_full_envelope_dump(): void {

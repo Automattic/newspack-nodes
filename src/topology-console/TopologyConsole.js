@@ -72,16 +72,23 @@ import { Core } from '../runtime/core';
 import {
 	newMessage,
 	TYPE,
+	FROM,
+	TO,
 	VALUE,
 	TM_BYTESTREAM,
+	TM_ERROR,
 	applyComposeFields,
 } from '../runtime/message';
+import { CallbackNode } from '../runtime/callback-node';
 import names from '../runtime/reserved-node-names.json';
 import {
 	initSkin,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
+
+/** Receiver for the live-save `dump_config` round trip; one node, one reply. */
+const SAVE_REPLY_NODE = '_console:dump_config';
 
 // Pure derivations over a topology catalog, shared by the seed and live menu.
 
@@ -941,13 +948,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// The gate is a node, so the console configures it by reference.
 	const fieldsRef = useRef( null );
 	useEffect( () => {
-		const gate = outgoing?.current;
-		if ( ! gate ) {
+		if ( ! outgoing ) {
 			return;
 		}
-		gate.sseGuard = ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid );
-		gate.beforeSend = ( m ) => applyComposeFields( m, fieldsRef.current );
-		gate.onRefused = () =>
+		outgoing.sseGuard = ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid );
+		outgoing.beforeSend = ( m ) =>
+			applyComposeFields( m, fieldsRef.current );
+		outgoing.onRefused = () =>
 			appendTranscript( {
 				kind: 'error',
 				text: __(
@@ -977,7 +984,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			const line = newMessage();
 			line[ TYPE ] = TM_BYTESTREAM;
 			line[ VALUE ] = statement;
-			shell.fill( line );
+			try {
+				shell.fill( line );
+			} finally {
+				// One-shot: this statement's fields, never a later mint's.
+				fieldsRef.current = null;
+			}
 			// cd mutates shell.path; route the new path like a Path-menu pick.
 			handlePathChange( shell.path );
 		},
@@ -1509,9 +1521,27 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		if ( ! shell || ! dumper ) {
 			return;
 		}
-		dumper.captureNextReply( 'dump_config', ( payload, isError ) => {
+		const command = dumper.command( 'dump_config', [] );
+		if ( ! command ) {
+			// Re-auth is under way; say so, or the button reads as dead.
+			setToast( {
+				kind: 'error',
+				text: __(
+					'Still authenticating. Try Save again in a moment.',
+					'newspack-nodes'
+				),
+			} );
+			return;
+		}
+		// One node per round trip (ADR-7); an unanswered save left its own.
+		Core.node( SAVE_REPLY_NODE )?.removeNode();
+		const receiver = new CallbackNode( ( reply ) => {
+			receiver.removeNode();
+			const value = reply[ VALUE ];
+			const payload =
+				value && 'object' === typeof value ? value.payload : value;
 			const tsl = String( payload ?? '' );
-			if ( isError || '' === tsl.trim() ) {
+			if ( reply[ TYPE ] & TM_ERROR || '' === tsl.trim() ) {
 				setToast( {
 					kind: 'error',
 					text: __(
@@ -1527,8 +1557,16 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				initialName: scope.isWorker ? scope.label : '',
 			} );
 		} );
-		sendLine( 'dump_config' );
-	}, [ mode, shell, sendLine, scope ] );
+		receiver.name = SAVE_REPLY_NODE;
+		command[ FROM ] = shell.replyFrom( SAVE_REPLY_NODE );
+		command[ TO ] = shell.prefix( '' );
+		appendTranscript( {
+			kind: 'sent',
+			text: 'dump_config',
+			prompt: `/${ shell.path }`,
+		} );
+		shell.sink?.fill( command );
+	}, [ mode, shell, scope, appendTranscript ] );
 
 	const handleOpen = useCallback( () => {
 		setOpenModalShown( true );

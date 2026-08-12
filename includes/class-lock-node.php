@@ -20,10 +20,9 @@ class Lock_Node extends Node {
 	/** Grace period (s) before stealing an orphan dir (no heartbeat) — holder may be mid-acquire. */
 	public const ORPHAN_GRACE_S = 1;
 	/**
-	 * Config-changed watermark. Read by MTIME and never unlinked by its
-	 * consumer — an unlink-after-consume loses a touch that lands mid-reload,
-	 * and a comparison survives a lock steal where a removal does not. Distinct
-	 * from RESTART_FLAG on purpose: this says "re-read", never "exit".
+	 * Config-changed watermark: a token its CONTENT carries, compared rather
+	 * than consumed (see request_reload_at()). Distinct from RESTART_FLAG on
+	 * purpose — this says "re-read", never "exit".
 	 */
 	public const RELOAD_FLAG    = 'reload';
 	public const RESTART_FLAG   = 'restart';
@@ -94,15 +93,7 @@ class Lock_Node extends Node {
 		do {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			if ( @\mkdir( $this->lock_path, 0755, true ) ) {
-				if ( $this->write_acquire_files() ) {
-					$this->is_held = true;
-					$this->set_state( 'HELD', $this->lock_path );
-					return true;
-				}
-				// Write failed; roll back the dir so we don't orphan it.
-				self::force_release_at( $this->lock_path );
-				$this->acquire_failure = "lock dir unwritable at {$this->lock_path}";
-				return false;
+				return $this->claim( 'HELD' );
 			}
 
 			if ( ! \is_dir( $this->lock_path ) ) {
@@ -120,15 +111,8 @@ class Lock_Node extends Node {
 
 			// The dir exists — contention. Decide whether to steal it.
 			if ( $this->try_steal_orphan_or_stale() ) {
-				if ( $this->write_acquire_files() ) {
-					$this->is_held = true;
-					// stolen=true so dashboards can badge the takeover.
-					$this->set_state( 'STOLEN', $this->lock_path );
-					return true;
-				}
-				self::force_release_at( $this->lock_path );
-				$this->acquire_failure = "lock dir unwritable at {$this->lock_path}";
-				return false;
+				// STOLEN so dashboards can badge the takeover.
+				return $this->claim( 'STOLEN' );
 			}
 
 			if ( 0 === $max_wait_ms || Core::right_now() >= $deadline ) {
@@ -137,6 +121,24 @@ class Lock_Node extends Node {
 			}
 			\usleep( 100_000 );
 		} while ( true );
+	}
+
+	/**
+	 * Take ownership of a lock dir this call just created or stole: write the
+	 * acquire files, or roll the dir back so a half-written one is not orphaned.
+	 *
+	 * @param string $state The state event to publish — 'HELD' or 'STOLEN'.
+	 * @return bool True when the lock is ours.
+	 */
+	private function claim( string $state ): bool {
+		if ( $this->write_acquire_files() ) {
+			$this->is_held = true;
+			$this->set_state( $state, $this->lock_path );
+			return true;
+		}
+		self::force_release_at( $this->lock_path );
+		$this->acquire_failure = "lock dir unwritable at {$this->lock_path}";
+		return false;
 	}
 
 	/**
@@ -307,15 +309,6 @@ class Lock_Node extends Node {
 		@\rmdir( $lock_dir );
 	}
 
-	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
-	public function acquire_failure(): string {
-		return $this->acquire_failure;
-	}
-
-	public function is_held(): bool {
-		return $this->is_held;
-	}
-
 	/**
 	 * Static politely request restart: create a file inside the lock dir.
 	 *
@@ -323,12 +316,7 @@ class Lock_Node extends Node {
 	 * @return bool True if the flag file was created.
 	 */
 	public static function request_restart_at( string $lock_dir ): bool {
-		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'restart flag' ) ) {
-			return false;
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		return false !== @\file_put_contents( $lock_dir . '/' . self::RESTART_FLAG, (string) \time() );
+		return self::write_flag_at( $lock_dir, self::RESTART_FLAG, 'restart flag', (string) \time() );
 	}
 
 	/**
@@ -338,12 +326,54 @@ class Lock_Node extends Node {
 	 * @return bool True if the flag file was created.
 	 */
 	public static function request_stop_at( string $lock_dir ): bool {
+		return self::write_flag_at( $lock_dir, self::STOP_FLAG, 'stop flag', (string) \time() );
+	}
+
+	/**
+	 * Signal the lock's holder that its config is stale — re-read, do not exit.
+	 *
+	 * The file's CONTENT is the whole signal: a fresh watermark per request, which
+	 * the holder acts on whenever it differs from the one it last acted on.
+	 * MTIME cannot carry it — the filesystem resolves to a second and a settings
+	 * save writes several options in one request, so a second request inside that
+	 * second would be lost rather than merely late. Rewriting an existing flag is
+	 * the intended repeat path, so this never checks for absence first.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 * @return bool True if the watermark was written.
+	 */
+	public static function request_reload_at( string $lock_dir ): bool {
+		$watermark = \time() . '.' . \bin2hex( \random_bytes( 6 ) );
+		return self::write_flag_at( $lock_dir, self::RELOAD_FLAG, 'reload flag', $watermark );
+	}
+
+	/**
+	 * Write one signal file into a lock dir the caller does not hold. The three
+	 * flags differ only in name, diagnostic and contents; the refusal to write
+	 * into a missing dir or under a write-denied config is one rule.
+	 *
+	 * @param string $lock_dir The lock directory path.
+	 * @param string $flag     Flag filename constant.
+	 * @param string $what     Diagnostic label for Config::write_denied().
+	 * @param string $contents The signal itself.
+	 * @return bool True if the flag file was written.
+	 */
+	private static function write_flag_at( string $lock_dir, string $flag, string $what, string $contents ): bool {
 		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'stop flag' ) ) {
+		if ( ! \is_dir( $lock_dir ) || Config::write_denied( $what ) ) {
 			return false;
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		return false !== @\file_put_contents( $lock_dir . '/' . self::STOP_FLAG, (string) \time() );
+		return false !== @\file_put_contents( $lock_dir . '/' . $flag, $contents );
+	}
+
+	/** Why the last acquire() failed ('' after success): 'lock_held' = contention; anything else is an I/O diagnosis. */
+	public function acquire_failure(): string {
+		return $this->acquire_failure;
+	}
+
+	public function is_held(): bool {
+		return $this->is_held;
 	}
 
 	/**
@@ -364,29 +394,6 @@ class Lock_Node extends Node {
 	public function stop_requested(): bool {
 		\clearstatcache( true, $this->lock_path . '/' . self::STOP_FLAG );
 		return \is_file( $this->lock_path . '/' . self::STOP_FLAG );
-	}
-
-	/**
-	 * Signal the lock's holder that its config is stale — re-read, do not exit.
-	 *
-	 * The file's CONTENT is the whole signal: a fresh watermark per request, which
-	 * the holder acts on whenever it differs from the one it last acted on.
-	 * MTIME cannot carry it — the filesystem resolves to a second and a settings
-	 * save writes several options in one request, so a second request inside that
-	 * second would be lost rather than merely late. Rewriting an existing flag is
-	 * the intended repeat path, so this never checks for absence first.
-	 *
-	 * @param string $lock_dir The lock directory path.
-	 * @return bool True if the watermark was written.
-	 */
-	public static function request_reload_at( string $lock_dir ): bool {
-		$lock_dir = \rtrim( $lock_dir, '/' );
-		if ( ! \is_dir( $lock_dir ) || Config::write_denied( 'reload flag' ) ) {
-			return false;
-		}
-		$watermark = \time() . '.' . \bin2hex( \random_bytes( 6 ) );
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-		return false !== @\file_put_contents( $lock_dir . '/' . self::RELOAD_FLAG, $watermark );
 	}
 
 	/**
@@ -448,7 +455,10 @@ class Lock_Node extends Node {
 	 * @return bool True when the worker reads as down.
 	 */
 	public static function heartbeat_is_stale( string $lock_dir, int $now, int $stale_timeout ): bool {
-		$mtime = @\filemtime( "{$lock_dir}/heartbeat" );
+		$beat = \rtrim( $lock_dir, '/' ) . '/' . self::HEARTBEAT_FILE;
+		// Per-process stat cache: a long worker freezes every peer's mtime.
+		\clearstatcache( true, $beat );
+		$mtime = @\filemtime( $beat );
 		return false === $mtime || ( $now - $mtime ) > $stale_timeout;
 	}
 

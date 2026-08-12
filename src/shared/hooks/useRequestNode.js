@@ -64,7 +64,12 @@ function assertRequestNode( existing, node ) {
 }
 
 /**
- * Mount a `Request` node on the CURRENT backbone if it is not there already.
+ * Mount a `Request` node on the CURRENT backbone, or re-point the one already
+ * mounted under that name at it. THE mount sequence — the hook calls it too.
+ *
+ * Adoption re-points as well as returns: a graph rebuild replaces the
+ * interpreter and the Tap under a surviving node, and one left sunk into the
+ * torn-down interpreter drops every command it is handed.
  *
  * For a concern whose membership is only known at call time — one probe node
  * per remote server, say. A hook cannot mount those, and one shared node would
@@ -78,13 +83,14 @@ export function ensureRequestNode( node, ci ) {
 	const existing = Core.node( node );
 	if ( existing ) {
 		assertRequestNode( existing, node );
-		return existing;
 	}
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	if ( ! interpreter ) {
-		return null;
+		return existing ?? null;
 	}
-	const request = interpreter.makeNode( 'Request', node );
+	const request = existing ?? interpreter.makeNode( 'Request', node );
+	// A new backbone means a new interpreter and Tap; re-derive both.
+	request.sink = interpreter;
 	request.target = targetFor( ci );
 	return request;
 }
@@ -120,20 +126,7 @@ export default function useRequestNode( node, ci, enabled = true ) {
 			return undefined;
 		}
 		const { teardown } = mountExospine( undefined, { passenger: true } );
-		// Re-point at the NEW interpreter; a torn-down one drops commands.
-		const attach = () => {
-			const interpreter = Core.node( names.COMMAND_INTERPRETER );
-			const existing = Core.node( node );
-			if ( existing ) {
-				assertRequestNode( existing, node );
-				// A new backbone means a new Tap; re-derive the path.
-				existing.sink = interpreter;
-				existing.target = targetFor( ci );
-				return;
-			}
-			const request = interpreter.makeNode( 'Request', node );
-			request.target = targetFor( ci );
-		};
+		const attach = () => ensureRequestNode( node, ci );
 		attach();
 		// The count lives ON the node, so Core.reset() discards both.
 		const held = Core.node( node );

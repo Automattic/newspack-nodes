@@ -7,16 +7,19 @@
  * Presentational + local UI state only. The consumer mounts its own node graph
  * and passes the differing pieces: the picker catalog, the fully-configured
  * `LogBrowser` sidebar element, the row renderer, and the `getViewNode`
- * accessor (the ring `LogRowList` reads and Clear empties) — so this
- * component stays runtime-free like its `LogRowList` sibling.
+ * accessor (the ring `LogRowList` reads) — so this component stays
+ * runtime-free like its `LogRowList` sibling.
  */
 
-import { useState, useCallback, createPortal } from '@wordpress/element';
+import { useState, createPortal } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
+
+// What the toolbar shows before the first frame, and after a Clear.
+const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
 
 // Pretty-print a struct row's raw JSON; anything else renders verbatim.
 const debugValue = ( row ) => {
@@ -30,8 +33,8 @@ const debugValue = ( row ) => {
 	return row.raw ?? row.content;
 };
 
-// Module-scope: a stable identity keeps LogRowList's row memoization live.
-const renderDebugRow = ( row ) => (
+// One debug row; the KEY column is what the two variants differ by.
+const debugRow = ( hasKey ) => ( row ) => (
 	<div
 		key={ row.id }
 		className={ `newspack-nodes-table__row newspack-nodes-log-row is-debug ${
@@ -42,32 +45,21 @@ const renderDebugRow = ( row ) => (
 		<span className="newspack-nodes-table__cell is-muted newspack-nodes-log-row__id">
 			{ row.msgId || '?' }
 		</span>
-		<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
-			{ row.key || '' }
-		</span>
+		{ hasKey && (
+			<span className="newspack-nodes-table__cell is-secondary newspack-nodes-log-row__key">
+				{ row.key || '' }
+			</span>
+		) }
 		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
 			{ debugValue( row ) }
 		</span>
 	</div>
 );
 
+// Module-scope: a stable identity keeps LogRowList's row memoization live.
+const renderDebugRow = debugRow( true );
 // Log Viewer variant: raw lines carry no KEY — two columns only.
-const renderDebugRowNoKey = ( row ) => (
-	<div
-		key={ row.id }
-		className={ `newspack-nodes-table__row newspack-nodes-log-row is-debug ${
-			row.isEven ? 'row-even' : 'row-odd'
-		}` }
-		data-p={ row.partition }
-	>
-		<span className="newspack-nodes-table__cell is-muted newspack-nodes-log-row__id">
-			{ row.msgId || '?' }
-		</span>
-		<span className="newspack-nodes-table__cell newspack-nodes-log-row__value">
-			{ debugValue( row ) }
-		</span>
-	</div>
-);
+const renderDebugRowNoKey = debugRow( false );
 
 // The debug-mode column header (ID [· Key] · Value), shared cell classes.
 const debugHeader = ( hasKeyColumn ) => (
@@ -112,7 +104,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}     props.className            Root class; the body wrapper is `${className}__body`.
  * @param {string}     props.ariaLabel            The region's accessible name.
  * @param {string}     [props.title]              Inline page heading (adopters without a hub header).
- * @param {Element}    [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
+ * @param {?Element}   [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
  * @param {?Array}     props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
  * @param {string}     [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}   [props.onPick]             `(key) => void` — switch the source; required only with a picker.
@@ -122,7 +114,8 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {() => void} props.onTogglePause        Pause/resume the stream.
  * @param {() => void} [props.onStep]             Step one message (paused-only); absent = no step button.
  * @param {Function}   [props.onJump]             Jump handler for the offset input; absent = no input.
- * @param {Function}   props.getViewNode          `() => node` — the live ring node (rows + Clear).
+ * @param {Function}   props.getViewNode          `() => node` — the live ring node `LogRowList` reads.
+ * @param {() => void} [props.onClear]            Send the view's `clear` control; absent clears the ring directly.
  * @param {*}          props.sidebar              The configured `LogBrowser` element.
  * @param {RenderRow}  props.renderRow            One-row renderer, forwarded to `LogRowList`.
  * @param {number}     props.rowHeight            Fixed row height (px).
@@ -152,6 +145,7 @@ export default function LogStreamViewer( {
 	onStep,
 	onJump,
 	getViewNode,
+	onClear,
 	sidebar,
 	renderRow,
 	rowHeight,
@@ -188,18 +182,21 @@ export default function LogStreamViewer( {
 	const [ debug, setDebug ] = useState( false );
 	const [ jumpText, setJumpText ] = useState( '' );
 	// Counts LogRowList reports up (row DATA never becomes React state).
-	const [ stats, setStats ] = useState( { total: 0, visible: 0, lps: 0 } );
-	const handleStats = useCallback( ( next ) => setStats( next ), [] );
+	const [ stats, setStats ] = useState( EMPTY_STATS );
 	// Bumped to rebase the list on Clear (also re-reads the emptied ring).
 	const [ resetSignal, setResetSignal ] = useState( 0 );
 
-	// Clear all lines — empties the node ring; the next frame reflects 0 lines.
+	// Clear travels as a message where the consumer wired the `clear` control.
 	const handleClear = () => {
-		const node = getViewNode();
-		if ( node ) {
-			node.lines = [];
+		if ( onClear ) {
+			onClear();
+		} else {
+			const node = getViewNode();
+			if ( node ) {
+				node.lines = [];
+			}
 		}
-		setStats( { total: 0, visible: 0, lps: 0 } );
+		setStats( EMPTY_STATS );
 		setResetSignal( ( n ) => n + 1 );
 	};
 
@@ -373,7 +370,7 @@ export default function LogStreamViewer( {
 			filter={ filter }
 			matchRow={ matchRow }
 			emptyLabel={ emptyLabel }
-			onStats={ handleStats }
+			onStats={ setStats }
 			resetSignal={ resetSignal }
 			listClassName={ listClassName }
 		/>

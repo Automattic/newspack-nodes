@@ -31,7 +31,7 @@ import {
 	TM_INFO,
 	TM_STRUCT,
 	TM_REQUEST,
-	TM_NOREPLY,
+	typeLabels,
 } from './message';
 
 export const TRANSCRIPT_MAX = 200;
@@ -51,23 +51,8 @@ const cancelFrame =
 
 const has = ( type, flag ) => ( type & flag ) !== 0;
 
-const TM_LABELS = [
-	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
-	[ TM_EOF, 'TM_EOF' ],
-	[ TM_PING, 'TM_PING' ],
-	[ TM_COMMAND, 'TM_COMMAND' ],
-	[ TM_RESPONSE, 'TM_RESPONSE' ],
-	[ TM_ERROR, 'TM_ERROR' ],
-	[ TM_INFO, 'TM_INFO' ],
-	[ TM_STRUCT, 'TM_STRUCT' ],
-	[ TM_REQUEST, 'TM_REQUEST' ],
-	[ TM_NOREPLY, 'TM_NOREPLY' ],
-];
-
 function formatTypeLabel( type ) {
-	const flags = TM_LABELS.filter( ( [ flag ] ) => has( type, flag ) ).map(
-		( [ , label ] ) => label
-	);
+	const flags = typeLabels( type );
 	return flags.length
 		? flags.join( ' | ' )
 		: `TM_UNKNOWN(0x${ type.toString( 16 ) })`;
@@ -187,15 +172,6 @@ function renderMessage( message ) {
  */
 export class DumperNode extends Node {
 	/**
-	 * How long a `captureNextReply` arm stays live. A dispatched verb that
-	 * never replies — dropped, wrong worker, error swallowed upstream — used to
-	 * leave the slot armed forever, so the next matching reply fired the stale
-	 * callback. Generous enough for a slow worker, short enough that it cannot
-	 * outlive the user action that armed it.
-	 */
-	static CAPTURE_TTL_MS = 30000;
-
-	/**
 	 * Tachikoma-parity: no-arg ctor. The `debugLevelRef` is a programmatic
 	 * dependency (a React useRef object) — callers assign it as a public
 	 * property after construction: `const d = new DumperNode(); d.debugLevelRef = ref;`
@@ -222,8 +198,6 @@ export class DumperNode extends Node {
 		// React subscribes to these via useNodeState( '_output', <event> ).
 		this.registrations.transcript = {};
 		this.registrations.debug_level = {};
-		// One-shot command-reply capture: { verb, callback } or null.
-		this._captureReply = null;
 	}
 
 	/**
@@ -237,7 +211,6 @@ export class DumperNode extends Node {
 	 */
 	fill( message ) {
 		this.counter++;
-		this._maybeCapture( message );
 		const type = message[ TYPE ];
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
@@ -282,41 +255,6 @@ export class DumperNode extends Node {
 			this._flushScheduled = false;
 			this._flush();
 		} );
-	}
-
-	/**
-	 * Fork a matching command reply to the pending one-shot capture, then clear
-	 * it. A match is TM_COMMAND carrying TM_RESPONSE or TM_ERROR whose
-	 * `VALUE.name` equals the captured verb; the callback receives the unwrapped
-	 * payload and whether the reply was an error.
-	 *
-	 * @param {Array} message The 7-field positional message.
-	 */
-	_maybeCapture( message ) {
-		const cap = this._captureReply;
-		if ( ! cap ) {
-			return;
-		}
-		// A stale arm must not fire on another action's reply.
-		if ( Date.now() > cap.expiresAt ) {
-			this._captureReply = null;
-			return;
-		}
-		const type = message[ TYPE ];
-		const isResponse = has( type, TM_RESPONSE );
-		const isError = has( type, TM_ERROR );
-		if ( ! has( type, TM_COMMAND ) || ( ! isResponse && ! isError ) ) {
-			return;
-		}
-		const value = message[ VALUE ];
-		const name = value && typeof value === 'object' ? value.name : null;
-		if ( name !== cap.verb ) {
-			return;
-		}
-		this._captureReply = null;
-		const payload =
-			value && typeof value === 'object' ? value.payload : value;
-		cap.callback( payload, isError );
 	}
 
 	/**
@@ -526,38 +464,6 @@ export class DumperNode extends Node {
 	setDebugLevel( level ) {
 		this.debugLevelRef.current = level;
 		this.setState( 'debug_level', level );
-	}
-
-	/**
-	 * Grab the NEXT command reply whose VALUE.name matches `verb` — the live-save
-	 * flow reuses the transcript round-trip to snapshot `dump_config` output. The
-	 * reply still renders into the transcript; this only forks a copy to `callback`.
-	 *
-	 * A SINGLE slot, matched by command name. That makes it usable only where
-	 * the caller drives the round trip alone: a second arm while one is pending
-	 * throws rather than silently discarding the first callback, which is what
-	 * it used to do. Anything dispatching more than one verb should mint its
-	 * commands FROM its own receiver node and let the addressing correlate the
-	 * replies (ADR-7), as `TriageView` does.
-	 *
-	 * @param {string}   verb     Command name to match (e.g. 'dump_config').
-	 * @param {Function} callback (payload, isError) invoked once on the match.
-	 * @return {void}
-	 */
-	captureNextReply( verb, callback ) {
-		if (
-			this._captureReply &&
-			Date.now() <= this._captureReply.expiresAt
-		) {
-			throw new Error(
-				`captureNextReply: ${ this._captureReply.verb } is still pending; use a per-verb reply node`
-			);
-		}
-		this._captureReply = {
-			verb,
-			callback,
-			expiresAt: Date.now() + DumperNode.CAPTURE_TTL_MS,
-		};
 	}
 
 	/**

@@ -391,6 +391,26 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
 	} );
 
+	test( 'clear() empties the ring through the view control, resetting the counter', async () => {
+		installWire( { list_logs: oneLogReply() } );
+		const { result } = mountGraph();
+		await act( async () => {} );
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ FROM ] = 'firehose.p0';
+		env[ VALUE ] = 'to be cleared';
+		act( () => FakeEventSource.last.dispatch( 'msg', pack( env ) ) );
+		const view = Core.node( VIEW );
+		expect( view.lines ).toHaveLength( 1 );
+
+		act( () => result.current.clear() );
+
+		expect( view.lines ).toEqual( [] );
+		// The whole reset, not just the rows a direct write would blank.
+		expect( view.lineCounter ).toBe( 0 );
+	} );
+
 	test( 'fetchLogStatus resolves a log_status reply addressed to raw-logs', async () => {
 		const wire = installWire( {
 			list_logs: oneLogReply(),
@@ -490,6 +510,27 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 			freshView.setState( 'view', { selected: 'sentinel' } );
 		} );
 		expect( result.current.view ).toEqual( { selected: 'sentinel' } );
+	} );
+
+	test( 'Reset Graph re-establishes the catalog and re-opens the stream', async () => {
+		// The rebuild mints a FRESH view with logs=[] / selected='', so without a
+		// re-fetch the picker stays blank until a page reload.
+		mountExospine();
+		installWire( { list_logs: oneLogReply() } );
+		mountGraph();
+		await act( async () => {} );
+		expect( Core.node( VIEW ).selected ).toBe( 'firehose.p0' );
+		const before = FakeEventSource.instances.length;
+
+		await act( async () => {
+			Core.bumpGraphGeneration();
+		} );
+
+		const fresh = Core.node( VIEW );
+		expect( fresh.logs ).toEqual( oneLogReply() );
+		expect( fresh.selected ).toBe( 'firehose.p0' );
+		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
 } );
 

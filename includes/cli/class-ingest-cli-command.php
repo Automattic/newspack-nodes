@@ -44,16 +44,16 @@ class Ingest_CLI_Command {
 	 *   (or 1 for an explicit dir-template).
 	 *
 	 * [--segment_size=<bytes>]
-	 * : Destination segment size in bytes. Defaults to the Partition default.
+	 * : Destination segment size in bytes. Defaults to the global config segment_size.
 	 *
 	 * [--num_segments=<n>]
-	 * : Destination segment-retention count target (the COUNT rule). Defaults to the Partition default.
+	 * : Destination segment-retention count target (the COUNT rule). Defaults to the global config num_segments.
 	 *
 	 * [--allow_large_writes]
-	 * : Lift the 4KB PIPE_BUF cap to 10MB via a held per-partition write lock.
+	 * : Lift the 4KB PIPE_BUF cap to 32 MiB via a held per-partition write lock.
 	 *
 	 * [--void_warranty]
-	 * : Lift the 4KB cap to 10MB with NO lock (caller asserts single-writer).
+	 * : Lift the 4KB cap to 32 MiB with NO lock (caller asserts single-writer).
 	 *
 	 * [--dry-run]
 	 * : Sample record sizes and report whether a large-write flag is needed; write nothing.
@@ -101,20 +101,16 @@ class Ingest_CLI_Command {
 			}
 		}
 
-		$np_raw = $assoc_args['num_partitions'] ?? null;
-		if ( null !== $np_raw && ! \is_numeric( $np_raw ) ) {
-			\WP_CLI::error( '--num_partitions must be an integer.' );
-		}
-		$requested = \is_numeric( $np_raw ) ? (int) $np_raw : null;
+		$requested                = $this->int_flag( $assoc_args, 'num_partitions', null );
 		[ $tpl, $num_partitions ] = $this->resolve_destination( $topic_arg, $requested );
 
-		// Geometry defaults to Partition's; retention is by COUNT alone.
-		$segment_size = $this->int_flag( $assoc_args, 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE );
-		$num_segments = $this->int_flag( $assoc_args, 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS );
+		// Every geometry default is the config key the Topic schema names.
+		$segment_size = (int) $this->int_flag( $assoc_args, 'segment_size', self::config_int( 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE ) );
+		$num_segments = (int) $this->int_flag( $assoc_args, 'num_segments', self::config_int( 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS ) );
 
 		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
 
-		// >4KB records hit PIPE_BUF; the cap rises to 10MB only on opt-in.
+		// >4KB records hit PIPE_BUF; the cap rises to 32 MiB only on opt-in.
 		$cap = ( $lock || $void ) ? Partition_Node::MAX_LARGE_LINE_SIZE : Partition_Node::MAX_LINE_SIZE;
 
 		$topic = null;
@@ -127,9 +123,9 @@ class Ingest_CLI_Command {
 				$segment_size,
 				Partition_Node::DEFAULT_MIN_SEGMENTS,
 				$num_segments,
-				0,
-				0,
-				0,
+				Partition_Node::DEFAULT_MAX_SEGMENTS,
+				Partition_Node::DEFAULT_MIN_LIFETIME,
+				Partition_Node::DEFAULT_LIFETIME,
 			] ) );
 			if ( $lock ) {
 				$topic->allow_large_writes();
@@ -144,28 +140,11 @@ class Ingest_CLI_Command {
 			'oversize'    => 0,
 			'max_size'    => 0,
 		];
-		if ( $stdin_mode ) {
-			// Batch replay: eof_deadline 0 → self-exits when stdin closes.
-			$src = new Stdin_Node( $stdin, 0.0 );
-			$src->sink( new Callback_Node(
-				function ( array $message ) use ( $topic, $cap, &$stats ): void {
-					$this->ingest_record( Core::as_string( $message[ Message::VALUE ] ), $topic, $cap, $stats );
-				}
-			) );
-			while ( ! $src->exit ) {
-				$src->fire();
+		foreach ( $this->open_sources( $stdin_mode, $stdin, $files ) as [ $fh, $owned ] ) {
+			while ( false !== ( $line = \fgets( $fh ) ) ) {
+				$this->ingest_record( $line, $topic, $cap, $stats );
 			}
-		} else {
-			foreach ( $files as $file ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-				$fh = \fopen( $file, 'r' );
-				if ( false === $fh ) {
-					\WP_CLI::error( "Cannot open file: {$file}" );
-					continue; // WP_CLI::error exits; narrows $fh below.
-				}
-				while ( false !== ( $line = \fgets( $fh ) ) ) {
-					$this->ingest_record( $line, $topic, $cap, $stats );
-				}
+			if ( $owned ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
 				\fclose( $fh );
 			}
@@ -254,20 +233,39 @@ class Ingest_CLI_Command {
 	}
 
 	/**
-	 * Parse an optional integer flag, defaulting when absent and erroring on a non-numeric value.
+	 * The handles to replay, each paired with whether this command owns it,
+	 * yielded one at a time so a file opens only as the previous one closes —
+	 * a whole-log replay (`wp nodes ingest firehose logs/firehose.p0/*.log`) is
+	 * a few hundred segments, and opening them all up front exhausts `ulimit -n`
+	 * and dies as a "Cannot open file" that reads like a permissions problem.
 	 *
-	 * @param array<string,mixed> $assoc_args
+	 * Stdin is the single-element case of the file list, read the same blocking
+	 * way. That matters: a pipe (`zcat big.gz | wp nodes ingest …`) hands out
+	 * whatever bytes are buffered, so a non-blocking `fgets` returns a record
+	 * straddling the boundary as two fragments — both unparseable, both dropped.
+	 * Blocking, `fgets` waits for the newline. Stdin belongs to the caller, so
+	 * it is never closed here.
+	 *
+	 * @param list<string> $files Packed segment files, empty in stdin mode.
+	 * @param resource     $stdin The stdin stream.
+	 *
+	 * @return \Generator<int,array{0:resource,1:bool}> Handle + whether to fclose it.
 	 */
-	private function int_flag( array $assoc_args, string $key, int $default ): int {
-		$raw = $assoc_args[ $key ] ?? null;
-		if ( null === $raw ) {
-			return $default;
+	private function open_sources( bool $stdin_mode, $stdin, array $files ): \Generator {
+		if ( $stdin_mode ) {
+			\stream_set_blocking( $stdin, true );
+			yield [ $stdin, false ];
+			return;
 		}
-		if ( ! \is_numeric( $raw ) ) {
-			\WP_CLI::error( "--{$key} must be an integer." );
+		foreach ( $files as $file ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = \fopen( $file, 'r' );
+			if ( false === $fh ) {
+				\WP_CLI::error( "Cannot open file: {$file}" );
+				continue; // WP_CLI::error exits; narrows $fh below.
+			}
+			yield [ $fh, true ];
 		}
-		// is_scalar narrows the cast; is_numeric already rejected non-nums.
-		return Core::as_int( $raw );
 	}
 
 	/**
@@ -288,14 +286,39 @@ class Ingest_CLI_Command {
 			return [ $tpl, \max( 1, $requested ?? 1 ) ];
 		}
 
-		$count = \max( 1, $requested ?? self::config_num_partitions() );
+		$count = \max( 1, $requested ?? self::config_int( 'num_partitions', 1 ) );
 		$logs  = Core::resolve_config_tokens( '<config:logs_dir>' );
 		return [ "{$logs}/{$topic_arg}.p{partition}", $count ];
 	}
 
-	/** Global config num_partitions (the operator default), clamped to >= 1. */
-	private static function config_num_partitions(): int {
-		$raw = Config::value( 'num_partitions' );
-		return \max( 1, Core::as_int( $raw, 1 ) );
+	/**
+	 * One operator default per geometry key — the same key Topic_Node's schema
+	 * names, falling back to $default when the stored value is not a number.
+	 * The validated `num_int` read is what that guard needs: a cleared admin
+	 * field stores '', which `Options_Overlay` treats as PRESENT and
+	 * overriding, and a lenient cast turns it into a 0 that `Partition_Node`
+	 * clamps to a 1-BYTE segment — one segment per record.
+	 */
+	private static function config_int( string $key, int $default ): int {
+		return Core::num_int( Config::value( $key ), $default );
+	}
+
+	/**
+	 * Parse an optional integer flag, defaulting when absent and erroring on a
+	 * non-numeric value. A null default means "the operator didn't say", which
+	 * `resolve_destination` distinguishes from an explicit count.
+	 *
+	 * @param array<string,mixed> $assoc_args
+	 */
+	private function int_flag( array $assoc_args, string $key, ?int $default ): ?int {
+		$raw = $assoc_args[ $key ] ?? null;
+		if ( null === $raw ) {
+			return $default;
+		}
+		if ( ! \is_numeric( $raw ) ) {
+			\WP_CLI::error( "--{$key} must be an integer." );
+		}
+		// is_scalar narrows the cast; is_numeric already rejected non-nums.
+		return Core::as_int( $raw );
 	}
 }

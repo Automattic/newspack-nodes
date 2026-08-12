@@ -33,11 +33,13 @@ import { mountExospine } from '../../runtime/exospine';
 import { TO } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import names from '../../runtime/reserved-node-names.json';
 import '../nodes/register';
 
-const HTTP = '_http';
 const LIST_RECV = 'vault:listIn';
-const LIST_VIEW = 'vault:list';
+
+/** The credential-list view node the table reads its model from. */
+export const LIST_VIEW = 'vault:list';
 
 /**
  * Ask the `vault` CI to re-list, FROM the table's own receiver Tee.
@@ -52,7 +54,7 @@ function fireList( shell ) {
 	if ( null === m ) {
 		return; // unauthenticated, or the receiver is gone
 	}
-	m[ TO ] = `${ HTTP }/vault`;
+	m[ TO ] = `${ names.HTTP }/vault`;
 	shell.fill( m );
 }
 
