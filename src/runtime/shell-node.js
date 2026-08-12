@@ -12,6 +12,7 @@
 
 import { markLocal } from './command-auth';
 import { Core } from './core';
+import { MAX_DEBUG_LEVEL } from './dumper-node';
 import { Node, serializeArg } from './node';
 import {
 	newMessage,
@@ -707,23 +708,28 @@ export class ShellNode extends Node {
 
 		if ( 'debug_level' === verb ) {
 			const arg = args[ 0 ] ?? '';
-			const level = '' === arg ? null : parseInt( arg, 10 );
+			// Digits only — parseInt would read `2abc` as 2 (PHP: ctype_digit).
 			if (
-				null !== level &&
-				( Number.isNaN( level ) || level < 0 || level > 2 )
+				'' !== arg &&
+				( ! /^\d+$/.test( arg ) || Number( arg ) > MAX_DEBUG_LEVEL )
 			) {
-				this.stdout( 'usage: debug_level [0|1|2]\n' );
+				const usage = Array.from(
+					{ length: MAX_DEBUG_LEVEL + 1 },
+					( _, i ) => i
+				).join( '|' );
+				this.stdout( `usage: debug_level [${ usage }]\n` );
 				return null;
 			}
+			const level = '' === arg ? null : Number( arg );
 			const dumper = Core.node( names.OUTPUT );
-			if ( dumper?.setDebugLevel ) {
-				// No argument toggles; PHP's `debug_level` does the same.
-				const toggled = dumper.debugLevelRef.current > 0 ? 0 : 1;
-				dumper.setDebugLevel( null !== level ? level : toggled );
-				this.stdout(
-					`debug_level: ${ dumper.debugLevelRef.current }\n`
-				);
+			if ( ! dumper?.setDebugLevel ) {
+				this.stdout( `debug_level: unknown node: ${ names.OUTPUT }\n` );
+				return null;
 			}
+			// No argument toggles; PHP's `debug_level` does the same.
+			const toggled = dumper.debugLevelRef.current > 0 ? 0 : 1;
+			dumper.setDebugLevel( null !== level ? level : toggled );
+			this.stdout( `debug_level: ${ dumper.debugLevelRef.current }\n` );
 			return null;
 		}
 

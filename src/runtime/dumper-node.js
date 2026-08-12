@@ -14,6 +14,9 @@
  */
 
 import { Node } from './node';
+
+/** Highest debug-render level. The Shell validates against it; the setter clamps to it. Mirror of PHP Dumper_Node::MAX_DEBUG_LEVEL. */
+export const MAX_DEBUG_LEVEL = 2;
 import {
 	TYPE,
 	TIMESTAMP,
@@ -462,8 +465,11 @@ export class DumperNode extends Node {
 	 * @param {number} level New debug level (0/1/2).
 	 */
 	setDebugLevel( level ) {
-		this.debugLevelRef.current = level;
-		this.setState( 'debug_level', level );
+		this.debugLevelRef.current = Math.max(
+			0,
+			Math.min( MAX_DEBUG_LEVEL, level )
+		);
+		this.setState( 'debug_level', this.debugLevelRef.current );
 	}
 
 	/**

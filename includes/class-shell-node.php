@@ -676,8 +676,10 @@ class Shell_Node extends Node {
 	 * Dumper at all, and says so rather than reporting a dial it never moved.
 	 */
 	private function debug_level_command( string $level ): void {
-		if ( '' !== $level && ( ! \ctype_digit( $level ) || (int) $level > 2 ) ) {
-			$this->stdout( "usage: debug_level [0|1|2]\n" );
+		$max   = Dumper_Node::MAX_DEBUG_LEVEL;
+		$usage = \implode( '|', \range( 0, $max ) );
+		if ( '' !== $level && ( ! \ctype_digit( $level ) || (int) $level > $max ) ) {
+			$this->stdout( "usage: debug_level [$usage]\n" );
 			return;
 		}
 		$dumper = Core::node( Node_Names::OUTPUT );

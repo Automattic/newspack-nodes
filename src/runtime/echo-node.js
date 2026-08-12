@@ -20,7 +20,7 @@ export class EchoNode extends Node {
 	fill( message ) {
 		const to = message[ TO ];
 		// Symlink (target/to) + loopback (TO=FROM); pathless TM_ERROR dropped.
-		if ( message[ TYPE ] === TM_ERROR && '' === to ) {
+		if ( message[ TYPE ] & TM_ERROR && '' === to ) {
 			return;
 		}
 		if (

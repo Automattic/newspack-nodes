@@ -23,6 +23,7 @@
  */
 
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
+import { targetsOf } from '../../runtime/node';
 import { CONFIG_TARGET_VERB_RE, withConfigEdges } from './consoleGraph';
 
 /**
@@ -36,17 +37,6 @@ function invocation( inv ) {
 		args: ( inv.args ?? [] ).slice(),
 		viaConfig: inv.viaConfig,
 	};
-}
-
-/**
- * @param {Object} node A node from the draft's registry.
- * @return {string[]} Its outgoing targets, whatever shape `target` is in.
- */
-function targetsOf( node ) {
-	if ( Array.isArray( node.target ) ) {
-		return node.target;
-	}
-	return node.target ? [ node.target ] : [];
 }
 
 /**

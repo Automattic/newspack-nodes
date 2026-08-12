@@ -100,3 +100,19 @@ describe( 'verb rows carry their provenance', () => {
 		] );
 	} );
 } );
+
+describe( 'targetsOf — one owner', () => {
+	// This file kept a private copy of the runtime's targetsOf, and the two had
+	// already drifted: the runtime filters falsy entries, this one did not. A
+	// fan-out node carrying an empty slot therefore drew an edge to nowhere.
+	it( 'draws no edge for an empty entry in a fan-out target list', () => {
+		const d = new DraftInterpreterNode();
+		d.catalog = [];
+		d.load( 'make_node Tee fanout\nmake_node Echo catcher\n', null );
+		d.childRegistry.node( 'fanout' ).target = [ 'catcher', '' ];
+
+		const { edges } = draftToGraph( d );
+
+		expect( edges.map( ( e ) => e.to ) ).toEqual( [ 'catcher' ] );
+	} );
+} );

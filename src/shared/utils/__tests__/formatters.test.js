@@ -22,6 +22,19 @@ describe( 'formatters', () => {
 	it( 'formatBytes rejects non-finite and negative input', () => {
 		expect( formatBytes( NaN ) ).toBe( '0 B' );
 		expect( formatBytes( -4096 ) ).toBe( '0 B' );
+		expect( formatBytes( null ) ).toBe( '0 B' );
+		expect( formatBytes( undefined ) ).toBe( '0 B' );
+	} );
+	// Absorbed from the deleted formatBytes shim's suite: the log-browser size
+	// column's own cases, which this ladder now renders.
+	it( 'formatBytes renders whole bytes below the KB rung', () => {
+		expect( formatBytes( 512 ) ).toBe( '512 B' );
+		expect( formatBytes( 1023 ) ).toBe( '1023 B' );
+	} );
+	it( 'formatBytes drops a bare .0 on an exact rung', () => {
+		expect( formatBytes( 2048 ) ).toBe( '2 KB' );
+		expect( formatBytes( 881_869 ) ).toBe( '861 KB' );
+		expect( formatBytes( 3 * 1024 * 1024 ) ).toBe( '3 MB' );
 	} );
 	it( 'formatByteRate', () => {
 		expect( formatByteRate( 0 ) ).toBe( '0 B/s' );
