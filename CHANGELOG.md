@@ -106,8 +106,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now `Newspack_Nodes\Line_Fitter`, `Job_Probe_Node` uses it, and its
   `$fields` accept an int key so a POSITIONAL record (`Jobstats_Record`) works
   alongside ELN's named ones. `Settings_Event_Writer` deliberately keeps its own
-  loop: it halves `old` and `new` together to keep both sides of an audit record
-  visible, where `Line_Fitter` drains one field before opening the next.
+  loop. An option's `old` and `new` are usually the same shape, and at equal
+  sizes `Line_Fitter`'s sacrifice order empties `old` outright (8000/8000 in →
+  0/4000 out) where halving both together keeps a sample of each (2000/2000) —
+  and the record exists to show what changed FROM what. The reverse holds for a
+  lopsided pair, where `Line_Fitter` leaves a short `new` intact rather than
+  halving it for no size win; that trade is taken knowingly.
 
 - **One localStorage kernel, one sparkline ring.** Three modules wrapped
   `window.localStorage` in their own window-guard-plus-swallow before decoding;
