@@ -345,7 +345,19 @@ class Workers_CI_Node extends Service_CI_Node {
 				$out[ $basename ] = $size;
 			}
 		}
-		return $out;
+		/**
+		 * Segment sizes for partitions no topology declares. A Partition built
+		 * in PHP — Job_Intake's `jobfeed`, at FEED_SEGMENT_SIZE — has no
+		 * `make_node Partition|Topic|Log … <literal size>` statement to read a
+		 * size off, so the catalog reported the fleet default and the Overview
+		 * bar scaled a full 1 MiB segment to ~1.6% of the 64 MiB it assumed.
+		 * The two sources are disjoint by construction: whatever builds a
+		 * partition sets its geometry, and only one thing builds each.
+		 *
+		 * @param array<string,int> $out basename => segment size in bytes.
+		 */
+		// Union keeps the LEFT side: the filter fills gaps, never restates.
+		return $out + \apply_filters( 'newspack_nodes/segment_size_overrides', $out );
 	}
 
 	/**
