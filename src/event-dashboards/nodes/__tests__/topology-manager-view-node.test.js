@@ -72,3 +72,15 @@ test( 'uncorrelated errors publish the global model error', () => {
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {
 	expect( TopologyManagerViewNode.nodeSchema().has_target ).toBe( false );
 } );
+
+// The base keeps the prior slice when `_parse()` rejects a payload — the guard
+// the collapse onto SliceViewNode introduced and nothing exercised.
+test( 'an unparseable reply keeps the slice it already published', () => {
+	const v = makeView( 'topologymanager:view' );
+	v.fill( listReply( { topologies: [ { name: 'a' } ], user_dir: '/u' } ) );
+
+	v.fill( listReply( 'not-an-object' ) );
+
+	expect( v.model.topologies ).toEqual( [ { name: 'a' } ] );
+	expect( v.model.userDir ).toBe( '/u' );
+} );

@@ -99,3 +99,19 @@ describe( 'AggregatorServersViewNode', () => {
 		expect( schema.category ).toBe( 'Hidden' );
 	} );
 } );
+
+// The base returns null for a payload it cannot decode, and the subclass passes
+// that through so the prior slice stands — the guard the collapse onto
+// SliceViewNode introduced and nothing exercised.
+test( 'an undecodable payload keeps the slice it already published', () => {
+	const v = makeView();
+	v.fill( reply( [ { id: 'a' } ] ) );
+
+	const broken = newMessage();
+	broken[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	broken[ VALUE ] = { name: 'servers_status', payload: '{not json' };
+	v.fill( broken );
+
+	expect( v.model.servers ).toEqual( [ { id: 'a' } ] );
+	expect( v.model.loading ).toBe( false );
+} );
