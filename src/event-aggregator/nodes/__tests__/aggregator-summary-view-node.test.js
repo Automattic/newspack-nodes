@@ -87,3 +87,17 @@ describe( 'AggregatorSummaryViewNode', () => {
 		expect( schema.category ).toBe( 'Hidden' );
 	} );
 } );
+
+// Same guard on the summary slice: an undecodable payload must not blank it.
+test( 'an undecodable payload keeps the slice it already published', () => {
+	const v = makeView();
+	v.fill( reply( { connected: 3, idle: 1, total: 4 } ) );
+
+	const broken = newMessage();
+	broken[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	broken[ VALUE ] = { name: 'summary', payload: '{not json' };
+	v.fill( broken );
+
+	expect( v.model.connected ).toBe( 3 );
+	expect( v.model.total ).toBe( 4 );
+} );
