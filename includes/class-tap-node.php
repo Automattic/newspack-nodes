@@ -18,12 +18,9 @@ namespace Newspack_Nodes;
 class Tap_Node extends Tee_Node {
 
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		++$this->counter;
 
-		$sink  = $this->sink;
 		$alive = $this->live_targets();
 		$to    = Core::as_string( $message[ Message::TO ] );
 

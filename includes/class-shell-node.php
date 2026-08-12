@@ -136,16 +136,13 @@ class Shell_Node extends Node {
 	 * another destination under a session key (ADR-15). The minter signs.
 	 */
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
 		if ( ! \is_integer( $type ) ) {
 			throw new \RuntimeException( 'Shell::fill requires a valid message' );
 		}
 		if ( $type & Message::TM_EOF ) {
-			$sink = $this->sink;
 			// Stdin closed mid-statement: report before draining.
 			$this->flush_pending();
 			$message[ Message::FROM ] = $this->reply_from();
@@ -155,7 +152,7 @@ class Shell_Node extends Node {
 		}
 		if ( ! ( $type & Message::TM_BYTESTREAM ) || ! \is_string( $value ) ) {
 			// Not REPL input: nothing to parse, so sink it rather than drop it.
-			$this->sink->fill( $message );
+			$sink->fill( $message );
 			return;
 		}
 		if ( empty( $this->include_stack ) ) {
@@ -170,7 +167,7 @@ class Shell_Node extends Node {
 					$parsed[ Message::KEY ] = $message[ Message::KEY ];
 				}
 				Command_Auth::sign( $parsed );
-				$this->sink->fill( $parsed );
+				$sink->fill( $parsed );
 			}
 		}
 	}

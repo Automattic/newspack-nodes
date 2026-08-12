@@ -29,9 +29,7 @@ class HTTP_Filter_Node extends Node {
 	}
 
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		++$this->counter;
 		[ $head, $reply_node ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
 		// Match this session's `_sse:<pid>` head; drop others silently.
@@ -40,7 +38,7 @@ class HTTP_Filter_Node extends Node {
 		}
 		// The remainder (e.g. `_output`) is the browser-side reply-node.
 		$message[ Message::TO ] = $reply_node;
-		$this->sink->fill( $message );
+		$sink->fill( $message );
 	}
 
 	public static function node_schema(): array {

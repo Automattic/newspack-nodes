@@ -76,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One sink guard, one midfix rule.** `if ( null === $this->sink ) throw 'fill
+  requires a wired sink'` was written out in ten files; it is now
+  `Node::require_sink()`, which returns the sink so callers keep a non-null
+  binding instead of re-reading a nullable property. Separately, `Core` and
+  `Node` each spelled out the same midfix application — chomp, prefix every line,
+  re-append one newline — behind two deliberately different prefixes (the process
+  vs the node); that tail is now `Core::apply_midfix()` and both call it.
+
 - **One `controlMsg`, one `targetsOf`, one byte ladder.** Six private copies of the
   dashboard control minter (three here, three in event-logger-nodes) each closed
   over a module constant and stamped FROM from it; they agreed only because every

@@ -145,9 +145,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 	/** @param array<int,mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		$value_raw = $message[ Message::VALUE ];
 		$value     = Core::as_string( $value_raw );
 		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
@@ -164,7 +162,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$reply[ Message::ID ]    = $message[ Message::ID ];
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$this->sink->fill( $reply );
+		$sink->fill( $reply );
 	}
 
 	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */

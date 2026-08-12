@@ -410,9 +410,7 @@ class Job_Worker_Node extends Node {
 	 * @param array<int,mixed> $message
 	 */
 	private function handle_request( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		/** @var int|float|string|bool|null $raw_value */
 		$raw_value = $message[ Message::VALUE ];
 		$value     = (string) $raw_value;
@@ -441,7 +439,7 @@ class Job_Worker_Node extends Node {
 		$reply[ Message::ID ]    = $message[ Message::ID ];
 		$reply[ Message::KEY ]   = $message[ Message::KEY ];
 		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$this->sink->fill( $reply );
+		$sink->fill( $reply );
 	}
 
 	private function memory_limit_bytes(): int {

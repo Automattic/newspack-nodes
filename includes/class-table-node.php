@@ -149,9 +149,7 @@ class Table_Node extends Node {
 	 * @throws \RuntimeException With no wired sink to reply through.
 	 */
 	private function handle_request( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		$request       = \trim( Core::as_string( $message[ Message::VALUE ], '' ) );
 		[ $cmd, $key ] = \array_pad( \explode( ' ', $request, 2 ), 2, '' );
 		if ( 'GET' !== $cmd ) {
@@ -172,7 +170,7 @@ class Table_Node extends Node {
 		$reply[ Message::FROM ] = $this->name;
 		$reply[ Message::TO ]   = Core::as_string( $message[ Message::FROM ], '' );
 		$reply[ Message::KEY ]  = $key;
-		$this->sink->fill( $reply );
+		$sink->fill( $reply );
 	}
 
 	/**
