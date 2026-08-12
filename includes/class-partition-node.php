@@ -1202,34 +1202,57 @@ class Partition_Node extends Timer_Node {
 	 *      in-substrate caller, so this is marked API to keep the deadcode gate honest.
 	 *
 	 * @param string $offsetlog_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
-	 * @return array<string,mixed>|null The newest record's VALUE, or null.
+	 * @return array<array-key,mixed>|null The newest record's VALUE, or null.
 	 */
 	public static function read_latest_value_at( string $offsetlog_dir ): ?array {
 		try {
 			$offsetlog = new self();
 			$offsetlog->arguments( [ $offsetlog_dir ] );
-			$segments = $offsetlog->get_segments( true );
-			if ( empty( $segments ) ) {
-				return null;
-			}
-			$newest = \end( $segments );
-			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-			if ( '' === $bytes ) {
-				return null;
-			}
-			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-			if ( empty( $lines ) ) {
-				return null;
-			}
-			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
-			if ( ! \is_array( $value ) ) {
-				return null;
-			}
-			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
-			return $value;
+			return self::last_frame_of( $offsetlog );
 		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'ignoring unreadable offsetlog: ', $e->getMessage() );
 			return null;
 		}
+	}
+
+	/**
+	 * The newest committed frame's VALUE, or null when there is nothing to
+	 * resume from. When the newest segment is rotated-but-unwritten the cursor
+	 * is still in the one before it, so an empty tail falls back a segment —
+	 * the difference that made a freshly-rotated offsetlog read as "no data".
+	 *
+	 * @param self|null $offsetlog Offsetlog partition, or null.
+	 * @return array<array-key,mixed>|null
+	 */
+	public static function last_frame_of( ?self $offsetlog ): ?array {
+		if ( null === $offsetlog ) {
+			return null;
+		}
+		$segments = $offsetlog->get_segments( true );
+		if ( empty( $segments ) ) {
+			return null;
+		}
+		$last    = \end( $segments );
+		$content = $offsetlog->read_at( $last['id'], 0, $last['size'] );
+		if ( '' === $content && \count( $segments ) > 1 ) {
+			$prev    = $segments[ \count( $segments ) - 2 ];
+			$content = $offsetlog->read_at( $prev['id'], 0, $prev['size'] );
+		}
+		if ( '' === $content ) {
+			return null;
+		}
+		$lines = \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l );
+		if ( empty( $lines ) ) {
+			return null;
+		}
+		try {
+			$message = Message::unpacked( \end( $lines ) );
+		} catch ( \InvalidArgumentException $e ) {
+			Core::print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
+			return null;
+		}
+		$value = $message[ Message::VALUE ];
+		return \is_array( $value ) ? $value : null;
 	}
 
 	/**

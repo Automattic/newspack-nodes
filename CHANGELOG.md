@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A freshly-rotated offsetlog no longer reads as "no data".**
+  `Partition_Node::read_latest_value_at()` and `Durable_Reader::last_frame_of()`
+  were the same read written twice, and they had drifted: only the second fell
+  back to the previous segment when the newest one is rotated-but-unwritten. So
+  a live reader resumed correctly while every dashboard consumer of the same
+  offsetlog saw null. `Partition_Node::last_frame_of()` is now the one
+  implementation, with the fallback, and the trait delegates to it.
+
 - **A zero `segment_size` fails loud instead of becoming a 1-byte segment.**
   `max( 1, … )` turned a missing or zero required byte count into a segment that
   every single write exceeds, so every write rotated. Required config fails loud.
