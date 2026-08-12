@@ -84,6 +84,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One localStorage kernel, one sparkline ring.** Three modules wrapped
+  `window.localStorage` in their own window-guard-plus-swallow before decoding;
+  the guard and the swallow now live in `shared/utils/storage`, and each caller
+  keeps only its own decoding (JSON array, `'0'`/`'1'`, raw string). Separately,
+  `ProcessStats` carried a private `INSP_SPARK_HISTORY_MAX = 60` beside
+  `useGraphRates`' `RATE_HISTORY_MAX = 60` — the label describes the sparkline's
+  span, so it now derives from the ring the sparkline actually keeps, and the
+  test computes its expectation from that constant rather than restating 60.
+
 - **One sink guard, one midfix rule.** `if ( null === $this->sink ) throw 'fill
   requires a wired sink'` was written out in ten files; it is now
   `Node::require_sink()`, which returns the sink so callers keep a non-null

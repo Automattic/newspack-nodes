@@ -10,6 +10,8 @@ import { Node } from '../../../runtime/node';
 import { IoTelemetry } from '../../../runtime/io-telemetry';
 import names from '../../../runtime/reserved-node-names.json';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
+import { RATE_HISTORY_MAX } from '../../hooks/useGraphRates';
+import { computePollIntervalMs } from '../../../runtime/metadata-node';
 
 const baseProps = {
 	selectedId: null,
@@ -2307,5 +2309,13 @@ describe( 'formatActivityWindow', () => {
 		expect( formatActivityWindow( 500 ) ).toBe( 'last ~5m' );
 		// 3000 nodes -> 30s poll -> 60 * 30s = 1800s = 30m.
 		expect( formatActivityWindow( 3000 ) ).toBe( 'last ~30m' );
+	} );
+
+	// The label describes the SPARKLINE's span, so it has to be derived from the
+	// ring the sparkline actually keeps — this file held its own `60`.
+	it( 'derives its span from the rate-history ring, not a private copy', () => {
+		const minutes =
+			( RATE_HISTORY_MAX * computePollIntervalMs( 3000 ) ) / 60000;
+		expect( formatActivityWindow( 3000 ) ).toBe( `last ~${ minutes }m` );
 	} );
 } );

@@ -11,10 +11,8 @@ import {
 	formatBytes,
 } from '@newspack-nodes/shared/utils/formatters';
 import { computePollIntervalMs } from '../../runtime/metadata-node';
+import { RATE_HISTORY_MAX } from '../hooks/useGraphRates';
 import { FieldRow, Section } from './InspectorFields';
-
-/** Graph-scope poller ring size; only `formatActivityWindow` reads it. */
-const INSP_SPARK_HISTORY_MAX = 60;
 
 /**
  * Message-rate label whose precision shrinks as the rate grows: whole numbers
@@ -50,7 +48,7 @@ export function formatRate( rate ) {
  */
 export function formatActivityWindow( nodeCount ) {
 	const windowSec =
-		( INSP_SPARK_HISTORY_MAX * computePollIntervalMs( nodeCount ) ) / 1000;
+		( RATE_HISTORY_MAX * computePollIntervalMs( nodeCount ) ) / 1000;
 	if ( windowSec < 120 ) {
 		return sprintf(
 			// translators: %d: trailing activity window length in seconds.
@@ -69,8 +67,8 @@ export function formatActivityWindow( nodeCount ) {
  * The curve for one sample series, spread across the full width.
  *
  * The geometry is sized by the DATA, not by a module constant. It used to step
- * by `width / ( INSP_SPARK_HISTORY_MAX - 1 )` and start at
- * `INSP_SPARK_HISTORY_MAX - history.length`, an undocumented 60-sample cap on
+ * by `width / ( RATE_HISTORY_MAX - 1 )` and start at
+ * `RATE_HISTORY_MAX - history.length`, an undocumented 60-sample cap on
  * the `history` prop that the browser scope violates by 12x — `IoTelemetry`'s
  * ring holds 720. That put the first 660 points at negative x where the viewBox
  * clips them, so an hour-long ring drew only its last five minutes while `max`
