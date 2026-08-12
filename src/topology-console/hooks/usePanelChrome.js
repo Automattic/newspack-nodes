@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useState } from '@wordpress/element';
 import { INSPECTOR_COLLAPSED_STORAGE_KEY } from '../themes';
+import { readStorage, writeStorage } from '../../shared/utils/storage';
 
 // Stored '0' = open, '1' = collapsed; absent/disabled storage uses the default.
 function readStoredPaletteCollapsed( key, def ) {
-	try {
-		const stored = window.localStorage.getItem( key );
-		if ( '0' === stored ) {
-			return false;
-		}
-		if ( '1' === stored ) {
-			return true;
-		}
-		return def;
-	} catch ( _err ) {
-		return def;
+	const stored = readStorage( key );
+	if ( '0' === stored ) {
+		return false;
 	}
+	if ( '1' === stored ) {
+		return true;
+	}
+	return def;
 }
 
 // Boolean collapse-state persisted to localStorage ('0' open / '1' collapsed).
@@ -25,11 +22,7 @@ function usePersistedCollapse( key, def ) {
 	const toggle = useCallback( () => {
 		setValue( ( prev ) => {
 			const next = ! prev;
-			try {
-				window.localStorage.setItem( key, next ? '1' : '0' );
-			} catch ( _err ) {
-				// localStorage disabled/quota'd; in-session only.
-			}
+			writeStorage( key, next ? '1' : '0' );
 			return next;
 		} );
 	}, [ key ] );

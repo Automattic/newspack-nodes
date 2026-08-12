@@ -12,6 +12,7 @@
 import { TRANSCRIPT_MAX } from '../../runtime/dumper-node';
 import { Core } from '../../runtime/core';
 import { REDACTED } from '../../runtime/node';
+import { readStorage, writeStorage } from '../../shared/utils/storage';
 
 const NS = 'newspack-nodes:console:';
 const TRANSCRIPT_KEY = `${ NS }transcript`;
@@ -24,28 +25,8 @@ const DEBUG_STATE_KEY = `${ NS }debug-state`;
 // The transcript's own cap is Dumper's TRANSCRIPT_MAX, so a restore agrees.
 const MAX_PERSISTED_HISTORY = 100;
 
-function read( key ) {
-	try {
-		return typeof window === 'undefined'
-			? null
-			: window.localStorage.getItem( key );
-	} catch ( e ) {
-		return null;
-	}
-}
-
-function write( key, value ) {
-	try {
-		if ( typeof window !== 'undefined' ) {
-			window.localStorage.setItem( key, value );
-		}
-	} catch ( e ) {
-		// Storage unavailable / full — persistence is best-effort, never fatal.
-	}
-}
-
 function readArray( key ) {
-	const raw = read( key );
+	const raw = readStorage( key );
 	if ( null === raw ) {
 		return [];
 	}
@@ -58,7 +39,7 @@ function readArray( key ) {
 }
 
 function readInt( key ) {
-	const n = parseInt( read( key ) ?? '', 10 );
+	const n = parseInt( readStorage( key ) ?? '', 10 );
 	return Number.isFinite( n ) ? n : 0;
 }
 
@@ -117,7 +98,7 @@ function saveTranscriptTo( key, entries ) {
 				? { ...e, text: redactSecrets( e.text ) }
 				: e
 		);
-	write( key, JSON.stringify( safe ) );
+	writeStorage( key, JSON.stringify( safe ) );
 }
 
 /**
@@ -181,7 +162,7 @@ export function loadHistory() {
  * @param {string[]} entries Command lines, oldest first.
  */
 export function saveHistory( entries ) {
-	write(
+	writeStorage(
 		HISTORY_KEY,
 		JSON.stringify(
 			( entries || [] )
@@ -207,7 +188,7 @@ export function loadDebugLevel() {
  * @param {number} level Debug level; anything non-numeric stores 0.
  */
 export function saveDebugLevel( level ) {
-	write( DEBUG_LEVEL_KEY, String( Number( level ) || 0 ) );
+	writeStorage( DEBUG_LEVEL_KEY, String( Number( level ) || 0 ) );
 }
 
 /**
@@ -226,5 +207,5 @@ export function loadDebugState() {
  * @param {number} state Debug state; anything non-numeric stores 0.
  */
 export function saveDebugState( state ) {
-	write( DEBUG_STATE_KEY, String( Number( state ) || 0 ) );
+	writeStorage( DEBUG_STATE_KEY, String( Number( state ) || 0 ) );
 }
