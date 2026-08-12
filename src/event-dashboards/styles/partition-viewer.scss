@@ -39,10 +39,18 @@
 	text-overflow: ellipsis;
 }
 
-.newspack-nodes-log-row__type { width: 24ch; }
-.newspack-nodes-log-row__ts { width: 24ch; }
-.newspack-nodes-log-row__from { width: 26ch; }
-.newspack-nodes-log-row__to { width: 20ch; }
+.newspack-nodes-log-row__type {
+	width: 24ch;
+}
+.newspack-nodes-log-row__ts {
+	width: 24ch;
+}
+.newspack-nodes-log-row__from {
+	width: 26ch;
+}
+.newspack-nodes-log-row__to {
+	width: 20ch;
+}
 
 // Responsive: the canonical search input is flex:1, so only the gap narrows.
 @media (max-width: 1200px) {
