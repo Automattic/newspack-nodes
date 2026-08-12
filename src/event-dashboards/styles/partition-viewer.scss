@@ -26,32 +26,23 @@
 	min-height: 0;
 }
 
-// The column header sits above the gutter-padded rows; match their inset.
-.newspack-nodes-partition-viewer .newspack-nodes-log-header {
-	padding-left: 52px;
+// Message-field cells the Cols picker can enable. `__id`, `__key` and
+// `__value` come from LogRowList.scss, which every log pane shares; these four
+// are the fields only this viewer offers, sized to their content.
+.newspack-nodes-log-row__type,
+.newspack-nodes-log-row__ts,
+.newspack-nodes-log-row__from,
+.newspack-nodes-log-row__to {
+	flex: 0 0 auto;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
-// The partition column: a `P<n>` gutter drawn from each row's data-p attribute.
-.newspack-nodes-partition-rows .newspack-nodes-log-row {
-	position: relative;
-	padding: 0 12px 0 40px;
-
-	&::before {
-		content: "P" attr(data-p);
-		position: absolute;
-		left: 0;
-		top: 0;
-		bottom: 0;
-		width: 32px;
-		padding-right: 8px;
-		box-sizing: border-box;
-		text-align: right;
-		color: var(--ink-3, #949494);
-		font-size: 10px;
-		user-select: none;
-		border-right: 1px solid var(--paper-shadow, #3a3a3a);
-	}
-}
+.newspack-nodes-log-row__type { width: 24ch; }
+.newspack-nodes-log-row__ts { width: 24ch; }
+.newspack-nodes-log-row__from { width: 26ch; }
+.newspack-nodes-log-row__to { width: 20ch; }
 
 // Responsive: the canonical search input is flex:1, so only the gap narrows.
 @media (max-width: 1200px) {

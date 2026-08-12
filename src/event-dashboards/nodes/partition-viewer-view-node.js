@@ -1,9 +1,20 @@
-import { FROM, KEY, VALUE, ID } from '../../runtime/message';
+import {
+	FROM,
+	KEY,
+	VALUE,
+	ID,
+	TYPE,
+	TIMESTAMP,
+	TO,
+} from '../../runtime/message';
 import { LogStreamViewNode } from '../../shared/nodes/log-stream-view-node';
 
 const MAX_LINE_LENGTH = 1000;
-// Debug-mode raw retention per row (pretty-printable); ~PIPE_BUF x2.
-const MAX_RAW_LENGTH = 8192;
+// @longform Debug-mode raw retention per row. Well past PIPE_BUF on purpose: a
+// non-lifted partition caps at 4096 bytes, so this only ever clips large-write
+// records — the ones debug mode is the only way to read. The ring holds `raw`
+// per row, so this is a per-row ceiling on that memory, not a typical size.
+const MAX_RAW_LENGTH = 262144;
 const PARTITION_RE = /\.p(\d+)$/;
 
 /**
@@ -48,7 +59,7 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 	 * arrives JSON-encoded). All three are clipped.
 	 *
 	 * @param {Array} message The 7-field positional message.
-	 * @return {?{partition: number, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
+	 * @return {?{partition: number, type: number, timestamp: number, from: string, to: string, msgId: string, key: string, struct: boolean, raw: string, value: string, content: string}} The row, or null when the VALUE is empty.
 	 */
 	shapeRow( message ) {
 		const value = message[ VALUE ];
@@ -75,6 +86,11 @@ export class PartitionViewerViewNode extends LogStreamViewNode {
 		}
 		return {
 			partition: this._partitionFor( message ),
+			// All seven positional fields; the picker chooses which show.
+			type: message[ TYPE ],
+			timestamp: message[ TIMESTAMP ],
+			from: 'string' === typeof message[ FROM ] ? message[ FROM ] : '',
+			to: 'string' === typeof message[ TO ] ? message[ TO ] : '',
 			msgId: 'string' === typeof message[ ID ] ? message[ ID ] : '',
 			key: 'string' === typeof key ? key : '',
 			struct,
