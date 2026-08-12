@@ -47,6 +47,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The bundled example writes inside the runtime base.**
+  `example-ai-newsletter.tsl` hardcoded `/tmp/example-ai-newsletter/digest.md`,
+  which the Log path guard now refuses whenever the configured base differs. It
+  resolves `<config:logs_dir>/digest.md`, like every other stock topology — and
+  as a teaching example it should have been showing that in the first place.
+
 - **A path-taking Shell verb without a path is refused, not minted.** `send`,
   `send_node`, `request`, `tell`, `send_struct`, `send_eof` and `cmd` printed no
   usage in PHP and minted the message anyway — with no cwd that is `TO=''`, which

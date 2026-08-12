@@ -97,7 +97,7 @@
             "make_node",
             "Log",
             "digest:log",
-            "/tmp/example-ai-newsletter/digest.md",
+            "<config:logs_dir>/digest.md",
             "1",
             "2",
             "7",
@@ -109,7 +109,7 @@
             "make_node",
             "Log",
             "digest:log",
-            "/tmp/example-ai-newsletter/digest.md",
+            "<config:logs_dir>/digest.md",
             "1",
             "2",
             "7",
@@ -117,7 +117,7 @@
             "0",
             "0"
         ],
-        "raw": "make_node Log digest:log /tmp/example-ai-newsletter/digest.md 1 2 7 0 0 0",
+        "raw": "make_node Log digest:log <config:logs_dir>/digest.md 1 2 7 0 0 0",
         "line": 22
     },
     {
