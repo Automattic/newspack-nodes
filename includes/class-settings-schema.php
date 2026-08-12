@@ -177,7 +177,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_segment_size_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				new Field(
 					key: 'remote_min_segments',
@@ -189,7 +189,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_min_segments_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				new Field(
 					key: 'remote_num_segments',
@@ -201,7 +201,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_num_segments_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				// Remote hard cap for spokes; 0 = spoke derives 2x its count.
 				new Field(
@@ -214,7 +214,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_max_segments_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				new Field(
 					key: 'remote_min_lifetime',
@@ -226,7 +226,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_min_lifetime_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				new Field(
 					key: 'remote_lifetime',
@@ -238,7 +238,7 @@ class Settings_Schema {
 					section: $remote,
 					restart: [],
 					render: [ Admin::class, 'remote_lifetime_callback' ],
-					register_args: [ 'type' => 'string' ],
+					register_args: [ 'type' => 'integer' ],
 				),
 				// Fleet-alert thresholds; read live by Alerts, no restart.
 				new Field(

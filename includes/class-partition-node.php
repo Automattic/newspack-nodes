@@ -157,8 +157,14 @@ class Partition_Node extends Timer_Node {
 		}
 		$this->parse_schema_args( $args );
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
-		Config::assert_within_base( $this->partition_dir );
-		$this->segment_size   = \max( 1, $this->segment_size );
+		// Guard the seam: Log fills `file`, so partition_dir was never checked.
+		Config::assert_within_base( $this->segment_dir() );
+		// Fail LOUD: 0 floored to 1 is a ONE-BYTE segment; every write rotates.
+		if ( $this->segment_size < 1 ) {
+			throw new \InvalidArgumentException(
+				\esc_html( 'segment_size must be a positive byte count, got ' . $this->segment_size )
+			);
+		}
 		$this->min_segments   = \max( self::MIN_SEGMENTS_FLOOR, $this->min_segments );
 		$this->num_segments   = \max( $this->min_segments, $this->num_segments );
 		$this->min_lifetime   = \max( 0, $this->min_lifetime );

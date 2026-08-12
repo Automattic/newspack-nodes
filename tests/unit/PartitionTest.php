@@ -346,14 +346,15 @@ class PartitionTest extends TestCase {
 
 	/**
 	 * arguments() override re-normalizes after the base walker — dir gets
-	 * trailing slashes stripped, segment_size clamped to ≥1, min/num_segments to
-	 * ≥2, min_lifetime/lifetime to ≥0; partition_dir is the resolved dir.
+	 * trailing slashes stripped, min/num_segments clamped to ≥2,
+	 * min_lifetime/lifetime to ≥0; partition_dir is the resolved dir.
+	 * segment_size is NOT clamped: 0 throws (see the zero-segment-size test).
 	 */
 	public function test_arguments_setter_normalizes_and_rederives_partition_dir(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p1/", "0", "2", "1", "0", "-5", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p1/", "4096", "2", "1", "0", "-5", "0" ] );
 		$ref = new \ReflectionClass( $p );
-		$this->assertSame( 1,                 $ref->getProperty( 'segment_size' )->getValue( $p ) );
+		$this->assertSame( 4096,              $ref->getProperty( 'segment_size' )->getValue( $p ) );
 		$this->assertSame( 2,                 $ref->getProperty( 'num_segments' )->getValue( $p ) );
 		$this->assertSame( 0,                 $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
 		$this->assertSame( "{$this->tmp}.p1", $p->partition_dir() );
@@ -3423,6 +3424,23 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	/**
+	 * A required storage parameter arriving as 0 was floored to 1, which is a
+	 * ONE-BYTE segment: every write exceeds it, so every write rotates. Required
+	 * config fails LOUD rather than limping on a silently-substituted value.
+	 */
+	public function test_a_zero_segment_size_throws_instead_of_flooring_to_one_byte(): void {
+		$p = new Partition_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'segment_size must be a positive byte count' );
+		$p->arguments( [ "{$this->tmp}.p0", '0', '2', '4', '0', '0', '86400', '0' ] );
+	}
+
+	public function test_a_segment_size_of_one_is_allowed_the_offsetlog_uses_it(): void {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", '1', '2', '4', '0', '0', '86400', '0' ] );
+		$this->assertStringContainsString( "{$this->tmp}.p0 1 ", $p->dump_config() );
+	}
 }
 
 /**

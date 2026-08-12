@@ -261,4 +261,27 @@ class LogTest extends TestCase {
 			\restore_error_handler();
 		}
 	}
+	/**
+	 * Log inherits Partition::arguments(), which validates `$this->partition_dir`
+	 * — a property Log's schema never fills, because its first argument is named
+	 * `file`. assert_within_base() then returns early on '' and a Log node's path
+	 * was never checked against the runtime base on ANY path, including a
+	 * `make_node Log … /etc/whatever` from a topology.
+	 */
+	public function test_arguments_refuses_a_file_outside_the_runtime_base(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$log = new Log_Node();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'outside the runtime base directory' );
+		$log->arguments( [ '/var/www/html/wp-content/uploads/evil.log' ] );
+	}
+
+	public function test_arguments_allows_a_file_inside_the_runtime_base(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$log = new Log_Node();
+		$log->arguments( [ $this->tmp . '/inside.log' ] );
+		$this->assertSame( [ $this->tmp . '/inside.log' ], $log->arguments() );
+	}
 }
