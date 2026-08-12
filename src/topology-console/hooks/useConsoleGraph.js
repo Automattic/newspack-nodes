@@ -141,6 +141,8 @@ export function useConsoleGraph( {
 			write: ( text ) => dumper.appendText( text ),
 		} );
 		stdout.name = names.STDOUT;
+		// Rule #2: terminal, but sunk like PHP's TTY_Out_Node.
+		stdout.sink = interpreter;
 		// Substrate soft-nodes via make_node: name + sink + args in one.
 		const metadata =
 			/** @type {import('../../runtime/metadata-node').MetadataNode} */ (
