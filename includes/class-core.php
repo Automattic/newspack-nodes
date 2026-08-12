@@ -264,15 +264,10 @@ class Core {
 	 */
 	public static function log_midfix( ?string $text = null ): string {
 		$uptime = (int) ( Core::$now - Core::$init_time );
-		$midfix = self::log_host() . ' '
-			. self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ';
-		if ( null === $text ) {
-			return $midfix;
-		}
-		$text = \rtrim( $text, "\n" );
-		// Prepend the midfix to the start of every line (Perl m///mg).
-		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
-		return $text . "\n";
+		return self::apply_midfix(
+			self::log_host() . ' ' . self::argv0() . '[' . \getmypid() . '][' . $uptime . 's]: ',
+			$text
+		);
 	}
 
 	/** Process identity for log_midfix: worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
@@ -304,6 +299,20 @@ class Core {
 		}
 		self::$log_host = '' !== $host ? $host : ( \gethostname() ?: 'unknown' );
 		return self::$log_host;
+	}
+
+	/**
+	 * Stamp $midfix on the start of every LINE of $text (Perl m///mg), chomped
+	 * and re-terminated with exactly one newline; null $text yields the bare
+	 * midfix. The ONE application rule — Core names the process and Node names
+	 * the node, but they format the result identically.
+	 */
+	public static function apply_midfix( string $midfix, ?string $text ): string {
+		if ( null === $text ) {
+			return $midfix;
+		}
+		$text = \rtrim( $text, "\n" );
+		return $midfix . \str_replace( "\n", "\n" . $midfix, $text ) . "\n";
 	}
 
 	public static function reset(): void {

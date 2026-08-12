@@ -13,9 +13,7 @@ class Tee_Node extends Node {
 	use Fanout_Targets;
 
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		++$this->counter;
 
 		$to    = Core::as_string( $message[ Message::TO ] );
@@ -26,7 +24,7 @@ class Tee_Node extends Node {
 		foreach ( $alive as $t ) {
 			$message[ Message::TO ] = $this->target_path( $t, $to );
 			try {
-				$this->sink->fill( $message );
+				$sink->fill( $message );
 			} catch ( \Throwable $e ) {
 				if ( $this->outranks( $e, $deferred ) ) {
 					$deferred = $e;

@@ -706,6 +706,21 @@ class CoreTest extends TestCase {
 		$this->assertFalse( $opts[ \CURLOPT_SSL_VERIFYPEER ] );
 	}
 
+	/**
+	 * Core and Node both prefix every LINE of a multi-line message, then chomp
+	 * and re-append one newline. The midfixes differ on purpose — Core names the
+	 * process, Node names the node — but that application rule was written twice.
+	 */
+	public function test_apply_midfix_prefixes_every_line_and_ends_with_one_newline(): void {
+		$this->assertSame(
+			"zebra: one\nzebra: two\n",
+			Core::apply_midfix( 'zebra: ', "one\ntwo\n\n" )
+		);
+	}
+
+	public function test_apply_midfix_with_no_text_returns_the_bare_midfix(): void {
+		$this->assertSame( 'zebra: ', Core::apply_midfix( 'zebra: ', null ) );
+	}
 }
 
 /**
@@ -742,5 +757,4 @@ class CoreTest_SelfUnregisteringNode extends \Newspack_Nodes\Node {
 		self::$log[] = $this->tag;
 		Core::unregister_node( $this->tag );
 	}
-
 }

@@ -87,14 +87,23 @@ class Node {
 	 * @param array<int,mixed> $message Message reference.
 	 */
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
 		++$this->counter;
-		$this->sink->fill( $message );
+		$sink->fill( $message );
+	}
+
+	/**
+	 * The wired sink, or a loud refusal. A node with no sink cannot emit, and
+	 * every node that emits asked the same question in the same words — this is
+	 * where that question lives.
+	 *
+	 * @throws \RuntimeException When no sink is wired.
+	 */
+	protected function require_sink(): Node {
+		return $this->sink ?? throw new \RuntimeException( 'fill requires a wired sink' );
 	}
 
 	public function name( ?string $name = null ): string {
@@ -299,12 +308,7 @@ class Node {
 			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
 			$midfix = $this->name . ': ';
 		}
-		if ( null === $text ) {
-			return $midfix;
-		}
-		$text = \rtrim( $text, "\n" );
-		$text = $midfix . \str_replace( "\n", "\n" . $midfix, $text );
-		return $text . "\n";
+		return Core::apply_midfix( $midfix, $text );
 	}
 
 	/**

@@ -128,9 +128,7 @@ class Command_Interpreter_Node extends Node {
 	protected ?array $commands = null;
 
 	public function fill( array $message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 		++$this->counter;
 
 		$type_raw = $message[ Message::TYPE ];
@@ -139,7 +137,7 @@ class Command_Interpreter_Node extends Node {
 		// TM_PING / TM_EOF with empty TO: bounce along FROM (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
-			$this->sink->fill( $message );
+			$sink->fill( $message );
 			return;
 		}
 
@@ -148,7 +146,7 @@ class Command_Interpreter_Node extends Node {
 			$this->interpret( $message );
 			return;
 		}
-		$this->sink->fill( $message );
+		$sink->fill( $message );
 	}
 
 	/** @param array<int,mixed> $message Incoming command Message to interpret. */
@@ -193,9 +191,7 @@ class Command_Interpreter_Node extends Node {
 			$result .= "\n";
 		}
 
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
+		$sink = $this->require_sink();
 
 		// TM_NOREPLY: suppress the reply, but still surface errors via stderr.
 		$in_type = $message[ Message::TYPE ];
@@ -219,7 +215,7 @@ class Command_Interpreter_Node extends Node {
 				'arguments' => $cmd_args,
 				'payload'   => $result,
 			];
-			$this->sink->fill( $response );
+			$sink->fill( $response );
 		}
 	}
 
