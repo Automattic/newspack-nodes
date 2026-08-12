@@ -2747,6 +2747,27 @@ class PartitionTest extends TestCase {
 		$this->assertSame( $value, Partition_Node::read_latest_value_at( $this->tmp ) );
 	}
 
+	/**
+	 * An offsetlog whose NEWEST segment is rotated-but-unwritten still has its
+	 * cursor in the previous one. Durable_Reader::last_frame_of() falls back to
+	 * it; this reader did not, so a freshly-rotated offsetlog read as "no data"
+	 * to every dashboard consumer — the same read, two answers.
+	 */
+	public function test_read_latest_value_at_falls_back_to_the_previous_segment(): void {
+		$this->write_value_record( $this->tmp, [ 'k' => 'cursor' ] );
+
+		// Rotate: an empty segment newer than the one holding the record.
+		$segments = ( static function ( string $dir ): array {
+			$p = new Partition_Node();
+			$p->arguments( [ $dir ] );
+			return $p->get_segments( true );
+		} )( $this->tmp );
+		$newest = (int) \end( $segments )['id'];
+		\file_put_contents( $this->tmp . '/' . ( $newest + 1 ) . '.log', '' );
+
+		$this->assertSame( [ 'k' => 'cursor' ], Partition_Node::read_latest_value_at( $this->tmp ) );
+	}
+
 	public function test_read_latest_value_at_returns_newest_of_many(): void {
 		$this->write_value_record( $this->tmp, [ 'k' => 'first' ] );
 		$this->write_value_record( $this->tmp, [ 'k' => 'second' ] );

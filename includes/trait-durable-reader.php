@@ -165,34 +165,7 @@ trait Durable_Reader {
 	 * @return array<array-key,mixed>|null
 	 */
 	public static function last_frame_of( ?Partition_Node $offsetlog ): ?array {
-		if ( null === $offsetlog ) {
-			return null;
-		}
-		$segments = $offsetlog->get_segments( true );
-		if ( empty( $segments ) ) {
-			return null;
-		}
-		$last    = \end( $segments );
-		$content = $offsetlog->read_at( $last['id'], 0, $last['size'] );
-		if ( '' === $content && \count( $segments ) > 1 ) {
-			$prev    = $segments[ \count( $segments ) - 2 ];
-			$content = $offsetlog->read_at( $prev['id'], 0, $prev['size'] );
-		}
-		if ( '' === $content ) {
-			return null;
-		}
-		$lines = \array_filter( \explode( "\n", $content ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return null;
-		}
-		try {
-			$message = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			Core::print_less_often( 'ignoring unparseable offsetlog entry: ', $e->getMessage() );
-			return null;
-		}
-		$value = $message[ Message::VALUE ];
-		return \is_array( $value ) ? $value : null;
+		return Partition_Node::last_frame_of( $offsetlog );
 	}
 
 	/**
