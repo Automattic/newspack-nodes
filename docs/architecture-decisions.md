@@ -39,6 +39,20 @@ special-case, and a node can no longer be swapped without touching them.
 **Decision:** Every node has exactly one entry point: `fill( array $message )`. No parallel
 `write()` / `read()` / `process()` API, no convenience wrappers.
 
+The test is not what a method is *named*. It is whether anything outside the node can reach
+the node's work without going through `fill()`. Splitting that work into halves and letting
+the caller sequence them — a `parse()` that returns the parsed result, a `dispatch()` that
+sends it — is the same parallel API with the pieces renamed, and it is worse than a single
+`process()`: the caller now knows this node has two stages and in which order to run them.
+Helper methods are fine as `fill()`'s own internals. Nothing outside the node calls them to
+get a message in.
+
+A node whose natural input is not a Message — a typed REPL line, a raw wire frame, a file
+chunk — does not widen its signature to accept one. The producer wraps it, and `fill()`
+unwraps: a line arrives as a `TM_BYTESTREAM` whose VALUE is the line. `Shell_Node::fill()`
+is the worked example — it takes a Message like every other node and reads the statement out
+of the VALUE.
+
 By VALUE — **never `fill( array &$message )`**. The copy (PHP copy-on-write) is an ownership
 boundary in both directions: a message handed to your `fill()` is yours (mutate freely; the
 caller never sees it), and a message you've forwarded belongs to the downstream (hold no
@@ -50,6 +64,11 @@ Nodes compose because no node can reach back through a `fill()` call.
 **Alternatives considered:** Per-node typed methods (`enqueue()`, `publish()`, `handle()`) —
 rejected: they break uniform composition, and testing any node is "construct a message, call
 `fill()`, inspect the sink."
+
+Keep `fill()` but also expose its stages, so a caller that wants the parsed result can take
+it — rejected, and worth naming because it arrives disguised as cleanup. It reads as removing
+a wrapper; it is adding the parallel API this ADR exists to forbid, and it drags ADR-13 down
+with it, since the stage a caller reaches for hands its result back as a return value.
 
 **Consequences:** Every behavior is "a message arrived." Richer control surfaces are message
 types / verbs through an interpreter, not new methods.
@@ -568,6 +587,11 @@ about what happens next: it does not care what other nodes do with its messages,
 permitted to care. No node's `fill()` produces a value; no caller reads, assigns, or branches
 on a `fill()` return. PHP enforces this with the `: void` return type; JS keeps it by
 convention — `fill()` bodies use a bare `return;` for early-exit only, never `return <expr>`.
+
+This covers *any* value, not only a disposition read back from the sink. A result the node
+computed itself before its sink was ever touched — a parse, a validation, a lookup — is still
+a `fill()` return, and still couples the caller to this node's internals. It leaves as a
+message: a `TO=FROM` reply, a `TM_ERROR`, or a send to a target.
 
 **Alternatives considered:** Return a delivery status/ack from `fill()` — rejected: it
 reintroduces callee-coupling, has no meaning at a fan-out node, and duplicates a reply channel
