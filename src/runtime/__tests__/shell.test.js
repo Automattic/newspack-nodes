@@ -333,6 +333,27 @@ describe( 'Shell node — local builtins', () => {
 		expect( printedText() ).toContain( 'usage: debug_level [0|1|2]' );
 		expect( filled ).toHaveLength( 0 );
 	} );
+
+	// parseInt stops at the first non-digit, so `2abc` read as 2 and silently
+	// turned rendering ON at a level nobody asked for. PHP uses ctype_digit and
+	// Tachikoma Shell.pm:158 refuses anything but ^\d+$.
+	it( 'debug_level refuses a trailing-garbage argument', () => {
+		const { shell, out } = makeShell();
+		send( shell, 'debug_level 2abc' );
+		expect( printedText() ).toContain( 'usage: debug_level [0|1|2]' );
+		expect( out.debugLevelRef.current ).toBe( 0 );
+	} );
+
+	// Without a Dumper the verb did nothing AND said nothing — the normal case
+	// for a Shell driving a TSL in worker scope. PHP names the missing node.
+	it( 'debug_level reports the missing output node instead of going quiet', () => {
+		const { shell } = makeShell();
+		Core.unregisterNode( '_output' );
+		send( shell, 'debug_level 1' );
+		expect( printedText() ).toContain(
+			'debug_level: unknown node: _output'
+		);
+	} );
 } );
 
 describe( 'Shell node — fill() reply path + TO', () => {

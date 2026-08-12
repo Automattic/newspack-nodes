@@ -507,3 +507,27 @@ test( 'dumpNode filters out ANY reference to another node, generically', () => {
 	// And the snapshot is JSON-serializable (no circular live node leaked).
 	expect( () => JSON.stringify( snap ) ).not.toThrow();
 } );
+
+// PHP's dump_node masks credentials two ways — a secret-NAMED property whole,
+// and a secret nested inside an ordinary one (an `--auth_password=…` token in
+// arguments) — using the same one rule the drop audit uses. The browser REPL's
+// dump_node printed both verbatim.
+test( 'dumpNode masks a secret-named property and a secret nested in arguments', () => {
+	const n = new Node();
+	n.auth_password = 'hunter2';
+	n.arguments = [ '--auth_password=hunter2', '--host=example.test' ];
+
+	const snap = n.dumpNode();
+
+	expect( snap.auth_password ).toBe( '<redacted>' );
+	expect( snap.arguments ).toEqual( [
+		'--auth_password=<redacted>',
+		'--host=example.test',
+	] );
+} );
+
+test( 'dumpNode leaves an EMPTY credential visible, as the PHP twin does', () => {
+	const n = new Node();
+	n.auth_password = '';
+	expect( n.dumpNode().auth_password ).toBe( '' );
+} );

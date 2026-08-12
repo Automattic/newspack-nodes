@@ -14,6 +14,9 @@ namespace Newspack_Nodes;
 
 class Dumper_Node extends Node {
 
+	/** Highest debug-render level. The Shells validate against it; the setter clamps to it. */
+	public const MAX_DEBUG_LEVEL = 2;
+
 	/**
 	 * Tab-completion intercept. Gets first crack at every inbound message; if it
 	 * returns true the message is consumed (a completion reply) and rendered as
@@ -257,10 +260,11 @@ class Dumper_Node extends Node {
 	}
 
 	/**
-	 * Set the debug-render level (clamped to [0, 2]); returns the applied value.
+	 * Set the debug-render level (clamped to [0, MAX_DEBUG_LEVEL]); returns the
+	 * applied value.
 	 */
 	public function set_debug_level( int $level ): int {
-		$this->debug_level = \max( 0, \min( 2, $level ) );
+		$this->debug_level = \max( 0, \min( self::MAX_DEBUG_LEVEL, $level ) );
 		return $this->debug_level;
 	}
 

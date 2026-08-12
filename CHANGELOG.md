@@ -39,6 +39,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The browser REPL's `dump_node` redacts credentials, as PHP's does.** PHP masks
+  a secret-NAMED property whole and runs `redact_secrets()` over everything else,
+  so an `--auth_password=…` token nested in `arguments` is caught too. The JS twin
+  did neither and printed both verbatim.
+
+- **`EchoNode` drops a COMPOSITE `TM_ERROR`.** It tested `type === TM_ERROR` where
+  PHP reads `$type & TM_ERROR`, so a `TM_COMMAND|TM_ERROR` with no return path was
+  forwarded in the browser and dropped in PHP. TYPE is a bitmask (ADR-2).
+
+- **`debug_level` refuses garbage and names a missing output node.** The JS twin
+  used `parseInt`, so `debug_level 2abc` read as 2 and turned rendering on at a
+  level nobody asked for, where PHP uses `ctype_digit` and Tachikoma's
+  `Shell.pm:158` refuses anything but `^\d+$`; and with no Dumper it did nothing
+  AND said nothing — the normal case for a Shell driving a TSL in worker scope.
+  The maximum level is now `Dumper_Node::MAX_DEBUG_LEVEL` in one place instead of
+  a literal `2` in three, with the usage line derived from it.
+
+### Changed
+
+- **One `controlMsg`, one `targetsOf`, one byte ladder.** Six private copies of the
+  dashboard control minter (three here, three in event-logger-nodes) each closed
+  over a module constant and stamped FROM from it; they agreed only because every
+  hook also assigned that same constant to `view.controlFrom`, and nothing
+  enforced it. They now share `shared/helpers/controlMsg`, which reads
+  `view.controlFrom` and throws when a view declares none. `draftToGraph` kept a
+  private `targetsOf` that had already drifted from the runtime's — it did not
+  filter falsy entries, so a fan-out node with an empty slot drew an edge to
+  nowhere. And `shared/utils/formatBytes` (a one-decimal scaler capped at MB) is
+  deleted in favour of the `formatters` ladder, which guards both ends and carries
+  GB/TB; its unique cases moved into the ladder's suite.
+
+- **`LogStreamViewer` requires `onClear`.** Its fallback reached past the graph and
+  assigned `node.lines = []` — the exact thing the control was introduced to stop —
+  and existed only because two event-logger dashboards passed no handler. They wire
+  it now, so the fallback is gone. Two dashboard tests were pinning that fallback.
+
 - **`dump_config` quotes every name it emits, because a command line IS an argv.**
   It assembled each line from three differently-treated parts — the class raw, the
   name raw, the arguments through `serialize_args()` — so a node whose name held a

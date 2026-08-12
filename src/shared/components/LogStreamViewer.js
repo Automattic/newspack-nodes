@@ -115,7 +115,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {() => void} [props.onStep]             Step one message (paused-only); absent = no step button.
  * @param {Function}   [props.onJump]             Jump handler for the offset input; absent = no input.
  * @param {Function}   props.getViewNode          `() => node` — the live ring node `LogRowList` reads.
- * @param {() => void} [props.onClear]            Send the view's `clear` control; absent clears the ring directly.
+ * @param {() => void} props.onClear              Send the view's `clear` control. Required.
  * @param {*}          props.sidebar              The configured `LogBrowser` element.
  * @param {RenderRow}  props.renderRow            One-row renderer, forwarded to `LogRowList`.
  * @param {number}     props.rowHeight            Fixed row height (px).
@@ -186,16 +186,9 @@ export default function LogStreamViewer( {
 	// Bumped to rebase the list on Clear (also re-reads the emptied ring).
 	const [ resetSignal, setResetSignal ] = useState( 0 );
 
-	// Clear travels as a message where the consumer wired the `clear` control.
+	// Clear travels as a message; the viewer never reaches into the node.
 	const handleClear = () => {
-		if ( onClear ) {
-			onClear();
-		} else {
-			const node = getViewNode();
-			if ( node ) {
-				node.lines = [];
-			}
-		}
+		onClear();
 		setStats( EMPTY_STATS );
 		setResetSignal( ( n ) => n + 1 );
 	};

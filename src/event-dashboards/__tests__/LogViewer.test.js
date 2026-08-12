@@ -120,6 +120,7 @@ describe( 'LogViewer', () => {
 	let seek;
 	let step;
 	let fetchSources;
+	let clearGraph;
 
 	function mockGraph( sources = SOURCES ) {
 		useLogViewerGraph.mockReturnValue( {
@@ -129,6 +130,7 @@ describe( 'LogViewer', () => {
 			sources,
 			step,
 			fetchSources,
+			clear: clearGraph,
 		} );
 	}
 
@@ -141,6 +143,7 @@ describe( 'LogViewer', () => {
 		seek = jest.fn();
 		step = jest.fn();
 		fetchSources = jest.fn().mockResolvedValue( SOURCES );
+		clearGraph = jest.fn();
 		useLogViewerGraph.mockClear();
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
@@ -315,7 +318,12 @@ describe( 'LogViewer', () => {
 			( b ) => 'Clear' === b.textContent
 		);
 		fireEvent.click( clear );
-		expect( node.lines ).toEqual( [] );
+		// Clear travels as the view's control, so the ring empties in the NODE's
+		// handler — the viewer never reaches in and blanks `lines` itself.
+		expect( clearGraph ).toHaveBeenCalledTimes( 1 );
+		expect( node.lines ).toEqual( [
+			{ id: 1, content: 'x', isEven: false },
+		] );
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 

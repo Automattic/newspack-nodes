@@ -32,15 +32,9 @@ import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	VALUE,
-	TM_STRUCT,
-} from '../../runtime/message';
 import '../nodes/register';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { controlMsg } from '../../shared/helpers/controlMsg';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'partition:link';
@@ -53,15 +47,6 @@ const STATUS_NODE = 'partition:status';
 const RAW_LOGS_CI = 'raw-logs';
 // Placeholder subscription the catalog repoints; NOT RAW_LOGS_CI.
 const SUBSCRIBE_PLACEHOLDER = 'raw-logs';
-
-// A control the view applies on FROM, never on payload shape; FROM=VIEW.
-const controlMsg = ( value ) => {
-	const m = newMessage();
-	m[ TYPE ] = TM_STRUCT;
-	m[ FROM ] = VIEW;
-	m[ VALUE ] = value;
-	return m;
-};
 
 /**
  * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void, clear: () => void }}
@@ -126,7 +111,9 @@ export function usePartitionViewerGraph() {
 
 			// Re-publish a surviving pause to the fresh view on reinit.
 			if ( isPausedRef.current ) {
-				view.fill( controlMsg( { action: 'pause', paused: true } ) );
+				view.fill(
+					controlMsg( view, { action: 'pause', paused: true } )
+				);
 			}
 
 			// Re-render so useNodeState re-subscribes to the new view.
@@ -149,7 +136,9 @@ export function usePartitionViewerGraph() {
 	// selectLog: view records the pick; resubscribe re-opens (tail) if active.
 	const selectLog = useCallback(
 		( log ) => {
-			viewRef.current?.fill( controlMsg( { action: 'select', log } ) );
+			viewRef.current?.fill(
+				controlMsg( viewRef.current, { action: 'select', log } )
+			);
 			resubscribe( [ log ], null );
 		},
 		[ resubscribe ]
@@ -174,7 +163,7 @@ export function usePartitionViewerGraph() {
 			}
 			const hadSelection = Boolean( view.selected );
 			// Push the catalog into the view (defaults selected).
-			view.fill( controlMsg( { action: 'logs', logs } ) );
+			view.fill( controlMsg( view, { action: 'logs', logs } ) );
 			// Only the DEFAULT opens: re-establishing must not yank a Replay.
 			if ( ! hadSelection && view.selected ) {
 				resubscribe( [ view.selected ], null );
@@ -187,7 +176,9 @@ export function usePartitionViewerGraph() {
 
 	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
 	const clear = useCallback( () => {
-		viewRef.current?.fill( controlMsg( { action: 'clear' } ) );
+		viewRef.current?.fill(
+			controlMsg( viewRef.current, { action: 'clear' } )
+		);
 	}, [] );
 
 	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
@@ -208,6 +199,7 @@ export function usePartitionViewerGraph() {
 		( log, positions, source = {} ) => {
 			viewRef.current?.fill(
 				controlMsg(
+					viewRef.current,
 					positions ? browseControl( source ) : { action: 'follow' }
 				)
 			);

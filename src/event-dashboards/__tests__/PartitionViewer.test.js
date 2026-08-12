@@ -93,6 +93,7 @@ describe( 'PartitionViewer', () => {
 	let fetchLogStatus;
 	let seek;
 	let step;
+	let clearGraph;
 
 	// Wrap render in act so the async log_status fetch effect settles inside it.
 	async function renderViewer( props = {} ) {
@@ -112,6 +113,7 @@ describe( 'PartitionViewer', () => {
 		fetchLogStatus = jest.fn().mockResolvedValue( { segments: [] } );
 		seek = jest.fn();
 		step = jest.fn();
+		clearGraph = jest.fn();
 		usePartitionViewerGraph.mockClear();
 		usePartitionViewerGraph.mockReturnValue( {
 			selectLog,
@@ -119,6 +121,7 @@ describe( 'PartitionViewer', () => {
 			fetchLogStatus,
 			seek,
 			step,
+			clear: clearGraph,
 		} );
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
@@ -234,7 +237,11 @@ describe( 'PartitionViewer', () => {
 			( b ) => 'Clear' === b.textContent
 		);
 		fireEvent.click( clear );
-		expect( node.lines ).toEqual( [] );
+		// Clear travels as the view's control; the viewer never blanks `lines`.
+		expect( clearGraph ).toHaveBeenCalledTimes( 1 );
+		expect( node.lines ).toEqual( [
+			{ id: 1, partition: 0, content: 'a', isEven: false },
+		] );
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 

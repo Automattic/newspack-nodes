@@ -26,15 +26,9 @@ import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	VALUE,
-	TM_STRUCT,
-} from '../../runtime/message';
 import '../nodes/register';
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { controlMsg } from '../../shared/helpers/controlMsg';
 
 const LINK = 'logviewer:link';
 const TEE = 'logviewer:stream';
@@ -42,15 +36,6 @@ const VIEW = 'logviewer:view';
 const READ_NODE = 'logviewer:read';
 const SOURCES_NODE = 'logviewer:list';
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
-
-// A control the view applies on FROM, never on payload shape; FROM=VIEW.
-const controlMsg = ( value ) => {
-	const m = newMessage();
-	m[ TYPE ] = TM_STRUCT;
-	m[ FROM ] = VIEW;
-	m[ VALUE ] = value;
-	return m;
-};
 
 // Prefer the first available source; else fall back to the first listed.
 function defaultSourceName( sources ) {
@@ -115,7 +100,9 @@ export function useLogViewerGraph() {
 
 			// Re-publish a surviving pause to the fresh view on reinit.
 			if ( isPausedRef.current ) {
-				view.fill( controlMsg( { action: 'pause', paused: true } ) );
+				view.fill(
+					controlMsg( view, { action: 'pause', paused: true } )
+				);
 			}
 
 			bumpBuild( ( n ) => n + 1 );
@@ -166,7 +153,9 @@ export function useLogViewerGraph() {
 			}
 			const chosen = defaultSourceName( catalog );
 			if ( chosen ) {
-				view.fill( controlMsg( { action: 'select', log: chosen } ) );
+				view.fill(
+					controlMsg( view, { action: 'select', log: chosen } )
+				);
 				// Record the default; open only while active.
 				resubscribe( [ chosen ], null );
 			}
@@ -186,7 +175,10 @@ export function useLogViewerGraph() {
 	const selectSource = useCallback(
 		( name ) => {
 			viewRef.current?.fill(
-				controlMsg( { action: 'select', log: name } )
+				controlMsg( viewRef.current, {
+					action: 'select',
+					log: name,
+				} )
 			);
 			resubscribe( [ name ], null );
 			fetchSources();
@@ -196,7 +188,9 @@ export function useLogViewerGraph() {
 
 	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
 	const clear = useCallback( () => {
-		viewRef.current?.fill( controlMsg( { action: 'clear' } ) );
+		viewRef.current?.fill(
+			controlMsg( viewRef.current, { action: 'clear' } )
+		);
 	}, [] );
 
 	/**
@@ -228,6 +222,7 @@ export function useLogViewerGraph() {
 			}
 			viewRef.current?.fill(
 				controlMsg(
+					viewRef.current,
 					positions ? browseControl( source ) : { action: 'follow' }
 				)
 			);

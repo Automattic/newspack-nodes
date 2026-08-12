@@ -5,6 +5,7 @@ import {
 	FROM,
 	TO,
 	TM_BYTESTREAM,
+	TM_COMMAND,
 	TM_ERROR,
 } from '../message';
 
@@ -67,4 +68,19 @@ test( 'counter bumps per message', () => {
 	e.fill( m1 );
 	e.fill( m2 );
 	expect( e.counter ).toBe( 2 );
+} );
+
+// TYPE is a bitmask (ADR-2). PHP's twin reads `$type & TM_ERROR`, so a composite
+// TM_COMMAND|TM_ERROR drops there; exact equality here let it through, and an
+// error with no return path is exactly what bounces to a producer not expecting it.
+test( 'drops a COMPOSITE TM_ERROR with empty TO, as the PHP twin does', () => {
+	const e = new EchoNode();
+	const sent = [];
+	e.sink = { fill: ( m ) => sent.push( m ) };
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_ERROR;
+	m[ FROM ] = 'alpha';
+	m[ TO ] = '';
+	e.fill( m );
+	expect( sent ).toHaveLength( 0 );
 } );
