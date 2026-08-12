@@ -14,6 +14,9 @@ class SpawnFleetTest extends TestCase {
 		parent::setUp();
 		$this->tmp                              = $this->make_temp_dir();
 		$GLOBALS['_test_outbound_posts']        = [];
+		// The spawn throttle persists; TestCase resets options but not transients.
+		$GLOBALS['_wp_test_transients']         = [];
+		\Newspack_Nodes\Core::$memd             = null;
 		Bootstrap::$fleet_enabled_override = null;
 		Bootstrap::$spawn_coordinator_factory          = null;
 		$this->use_base_dir( $this->tmp );
@@ -28,6 +31,7 @@ class SpawnFleetTest extends TestCase {
 	protected function tearDown(): void {
 		$this->rmdir_recursive( $this->tmp );
 		$GLOBALS['_test_outbound_posts'] = [];
+		$GLOBALS['_wp_test_transients']  = [];
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
@@ -66,6 +70,23 @@ class SpawnFleetTest extends TestCase {
 			$pairs,
 			'one spawn per partition of the named fleet, none for other fleets'
 		);
+	}
+
+	/**
+	 * The count is spawn POSTs REQUESTED, not partitions started. Skipping the
+	 * shared throttle told the operator N came up while the endpoint 429'd every
+	 * one of them, and the transport error was discarded on top.
+	 */
+	public function test_spawn_fleet_honors_the_shared_spawn_throttle(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 3, 'topology' => '/x.php' ],
+		] );
+		$s = new Spawn_Coordinator( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$this->assertSame( 3, $s->spawn_fleet( 'firehose-workers' ) );
+		$this->assertSame( 0, $s->spawn_fleet( 'firehose-workers' ), 'a re-activation inside the window posts nothing' );
+
+		$this->assertCount( 3, $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
 	public function test_spawn_fleet_uses_a_valid_spawn_token(): void {

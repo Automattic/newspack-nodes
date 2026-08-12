@@ -207,6 +207,52 @@ describe( 'useJsCatalog', () => {
 		CommandInterpreterNode.includeNodes = before;
 	} );
 
+	/**
+	 * `draft-interpreter-node`'s `_catalogFansOut` reads `entry.fans_out` and
+	 * only falls back to the `'Tee'` name when there is NO entry — a
+	 * present-but-flagless entry reads `undefined` as false and wires a
+	 * fan-out node single-target, dropping every edge past the first.
+	 */
+	it( 'derives fans_out from the class, so Tee and its subclasses carry it', () => {
+		const { result } = renderHook( () => useJsCatalog() );
+		const byName = Object.fromEntries(
+			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
+		);
+		expect( byName.Tee.fans_out ).toBe( true );
+		expect( byName.Tap.fans_out ).toBe( true );
+		expect( byName.Timer.fans_out ).toBe( false );
+	} );
+
+	it( 'derives is_interpreter from the class (bare target vs <name>:config)', () => {
+		const before = { ...CommandInterpreterNode.includeNodes };
+		class FakeCI extends CommandInterpreterNode {
+			static nodeSchema() {
+				return { category: 'Control' };
+			}
+		}
+		CommandInterpreterNode.includeNodes.FakeCI = FakeCI;
+		const { result } = renderHook( () => useJsCatalog() );
+		const byName = Object.fromEntries(
+			result.current.classes.map( ( c ) => [ c.shell_name, c ] )
+		);
+		expect( byName.FakeCI.is_interpreter ).toBe( true );
+		expect( byName.Timer.is_interpreter ).toBe( false );
+		CommandInterpreterNode.includeNodes = before;
+	} );
+
+	it( 'skips a schema carrying the hidden flag (PHP skips ! empty( hidden ))', () => {
+		const before = { ...CommandInterpreterNode.includeNodes };
+		CommandInterpreterNode.includeNodes.FakeFlagged = class {
+			static nodeSchema() {
+				return { category: 'Routing', hidden: true };
+			}
+		};
+		const { result } = renderHook( () => useJsCatalog() );
+		const names = result.current.classes.map( ( c ) => c.shell_name );
+		expect( names ).not.toContain( 'FakeFlagged' );
+		CommandInterpreterNode.includeNodes = before;
+	} );
+
 	it( 'defaults both port flags to true when the schema omits them (PHP base default + GUI ?? true)', () => {
 		const before = { ...CommandInterpreterNode.includeNodes };
 		// Real category, no port flags declared → both flags default to true.

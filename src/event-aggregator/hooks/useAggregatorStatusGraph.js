@@ -27,16 +27,18 @@
  * same principle decides the shape: each spoke gets its OWN `aggregator:probe:<id>`
  * Request node. One shared node would have to tell N roll-ups apart — which is
  * the correlator this design does not have — so it is a node each, and the reply
- * that lands on one IS that spoke's answer. They ride `_http` directly (unlocked
- * between poll ticks → immediate POST; during a tick they batch with the poll).
+ * that lands on one IS that spoke's answer. They take the same
+ * `_shell/_http/<ci>` path as the slices (unlocked between poll ticks →
+ * immediate POST; during a tick they batch with the poll), and the build's
+ * cleanup removes them, so a click-raised node still dies with the graph.
  *
  * Returns the refresh control (`setRefreshInterval` / `refreshInterval`), the
  * `probe(id)` dispatch, and the per-spoke `probes` map it fills. React reads each
  * polled slice via its own useNodeState('<slice>:view','view').
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element';
-import { formatCommandArgs } from '@newspack-nodes/runtime';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { Core, formatCommandArgs } from '@newspack-nodes/runtime';
 import { ensureRequestNode } from '@newspack-nodes/shared/hooks/useRequestNode';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
@@ -106,6 +108,9 @@ export function useAggregatorStatusGraph() {
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
 
+	// The probe nodes raised since this build, so they die with it.
+	const probeNames = useRef( new Set() );
+
 	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
 	useBatchedPoll( {
 		build: ( { interpreter, tee } ) => {
@@ -116,7 +121,18 @@ export function useAggregatorStatusGraph() {
 					target: TARGET,
 				} )
 			);
-			// On-demand fleet-probe reply edge: receiver Tee → result view.
+			// @longform
+			// A probe node is raised from a click, so it is outside the build
+			// snapshot `mountExospine` removes — left to itself it outlives
+			// the interpreter it sinks into, and every spoke ever probed
+			// leaks one for the life of the page. Removing them here puts
+			// them back on the graph's lifecycle: teardown AND rebuild.
+			return () => {
+				probeNames.current.forEach( ( node ) =>
+					Core.node( node )?.removeNode()
+				);
+				probeNames.current.clear();
+			};
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
@@ -131,10 +147,12 @@ export function useAggregatorStatusGraph() {
 
 	// On-demand deep probe of one spoke, through that spoke's own node.
 	const probe = useCallback( async ( id ) => {
-		const node = ensureRequestNode( `${ PROBE_PREFIX }:${ id }`, SERVER );
+		const name = `${ PROBE_PREFIX }:${ id }`;
+		const node = ensureRequestNode( name, SERVER );
 		if ( ! node ) {
 			return Promise.reject( new Error( 'graph not mounted' ) );
 		}
+		probeNames.current.add( name );
 		try {
 			const rollup = await node.request(
 				'probe',

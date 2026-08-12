@@ -23,7 +23,7 @@ import {
 	formatCount,
 	formatMsgRate,
 	formatAge,
-} from './formatters';
+} from '@newspack-nodes/shared/utils/formatters';
 import './styles/jobs.scss';
 
 // The jobs Topic's concrete dirs are `jobs.p<N>`; bare `jobs` tolerated.

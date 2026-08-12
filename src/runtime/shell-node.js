@@ -46,15 +46,6 @@ const VERB_ALIASES = {
 	cmd: 'command_node',
 };
 
-/**
- * Shell BUILTINS: `var` sets shell state and `include` evals a file through
- * this same shell — neither ever becomes a message, so the static front-end
- * returns them as bare statements wherever they appear. Any other bare verb
- * inside a cwd is a command to that node, `make_node` included. Mirrors PHP
- * Shell_Node::BUILTIN_VERBS.
- */
-const BUILTIN_VERBS = new Set( [ 'include', 'var' ] );
-
 // `<name> [ <op> [ <value> ] ]` — the operator set of Shell3's `$H{'var'}`.
 const VAR_GRAMMAR =
 	/^([^\s=+\-*/.|]+(?:\.[^\s=+\-*/.|]+)*)\s*(\/\/=|\|\|=|[.+\-*/]=|\+\+|--|=)?([\s\S]*)$/;
@@ -384,6 +375,17 @@ function joinStatementContinuations( indexed ) {
  * (which only mutates the throwaway shell's cwd). Reuses the ShellNode's own
  * cd()/prefix() so the static and runtime paths route identically.
  *
+ * The switch mirrors PHP's verb for verb, because the record has to MEAN what
+ * the runtime that executes the statement means: replaying `raw` at the root
+ * cwd mints the very Message parse() minted at the live cwd. Dispatch reads
+ * token[0] and nothing else — `command_node foo ping` names a verb on foo, not
+ * the Shell's `ping`.
+ *
+ * PHP's, not this file's parse(): every caller reads a TOPOLOGY, and a topology
+ * runs on the PHP loader. So the two builtins parse() owns alone —
+ * `list_skins`/`set_skin`, which style the browser host — are deliberately NOT
+ * modelled here; a `.tsl` naming one gets the cwd command PHP will really send.
+ *
  * @param {ShellNode} shell The shared throwaway shell carrying the cwd.
  * @param {string}    text  One joined statement.
  * @param {number}    line  1-based first physical source line.
@@ -402,33 +404,69 @@ function buildStatement( shell, text, line ) {
 	if ( 0 === scanned.tokens.length ) {
 		return null;
 	}
-	const tokenValues = scanned.tokens.map( ( t ) => t.value );
+	let [ tokenValues, tokenSpans ] = [
+		scanned.tokens.map( ( t ) => t.value ),
+		scanned.tokens.map( ( t ) => t.raw ),
+	];
 	const verb = VERB_ALIASES[ tokenValues[ 0 ] ] ?? tokenValues[ 0 ];
-
-	if ( 'cd' === verb || 'chdir' === verb ) {
-		shell.path = shell.cd( shell.path, tokenValues[ 1 ] ?? '' );
-		return null;
-	}
-	const tokenSpans = scanned.tokens.map( ( t ) => t.raw );
 	let values;
 	let spans;
-	if ( 'command_node' === verb ) {
-		const path = shell.prefix( tokenValues[ 1 ] ?? '' );
-		values = [ 'command_node', path, ...tokenValues.slice( 2 ) ];
-		spans = [ 'command_node', path, ...tokenSpans.slice( 2 ) ];
-	} else if ( BUILTIN_VERBS.has( verb ) || '' === shell.path ) {
-		// Builtins and root-level bare verbs are not cwd-routed.
-		values = [ verb, ...tokenValues.slice( 1 ) ];
-		spans = [ verb, ...tokenSpans.slice( 1 ) ];
-	} else {
-		// A bare verb inside a cwd is a command to that node.
-		values = [
-			'command_node',
-			shell.path,
-			verb,
-			...tokenValues.slice( 1 ),
-		];
-		spans = [ 'command_node', shell.path, verb, ...tokenSpans.slice( 1 ) ];
+	switch ( verb ) {
+		case 'cd':
+		case 'chdir':
+			// RESOLVES against the cwd and mutates it; emits nothing.
+			shell.path = shell.cd( shell.path, tokenValues[ 1 ] ?? '' );
+			return null;
+		case 'include':
+		case 'var':
+		case 'print':
+		case 'clear':
+		case 'debug_level':
+		case 'status':
+		case 'show_parse':
+			// Builtin verbs: shell state, never a message.
+			values = [ verb, ...tokenValues.slice( 1 ) ];
+			spans = [ verb, ...tokenSpans.slice( 1 ) ];
+			break;
+		case 'command_node':
+		case 'ping':
+		case 'request':
+		case 'request_node':
+		case 'send':
+		case 'send_node':
+		case 'send_struct':
+		case 'send_struct_node':
+		case 'send_eof':
+		case 'tell':
+		case 'tell_node': {
+			// parse() PREFIXES arg[0]; the tail stays opaque.
+			const path = shell.prefix( tokenValues[ 1 ] ?? '' );
+			values = [ verb, path, ...tokenValues.slice( 2 ) ];
+			// path is a resolved VALUE; spans hold source text, so requote it.
+			spans = [ verb, serializeArg( path ), ...tokenSpans.slice( 2 ) ];
+			break;
+		}
+		case 'pwd':
+			// parse() ignores pwd's tokens; the cwd IS the argument.
+			tokenValues = '' === shell.path ? [ 'pwd' ] : [ 'pwd', shell.path ];
+			tokenSpans =
+				'' === shell.path
+					? [ 'pwd' ]
+					: [ 'pwd', serializeArg( shell.path ) ];
+		// falls through to the cwd routing every bare verb takes
+		default: {
+			// parse()'s default: TM_COMMAND at the cwd, named by verb.
+			const head =
+				'' === shell.path ? [] : [ 'command_node', shell.path ];
+			// The cwd is a VALUE; spans hold source text, so requote it.
+			const headSpans =
+				'' === shell.path
+					? []
+					: [ 'command_node', serializeArg( shell.path ) ];
+			values = [ ...head, verb, ...tokenValues.slice( 1 ) ];
+			spans = [ ...headSpans, verb, ...tokenSpans.slice( 1 ) ];
+			break;
+		}
 	}
 	return {
 		verb: values[ 0 ],
@@ -558,7 +596,7 @@ export class ShellNode extends Node {
 		}
 		const type = message[ TYPE ];
 		const value = message[ VALUE ];
-		if ( TM_EOF === type ) {
+		if ( type & TM_EOF ) {
 			// Input closed mid-statement: report before draining.
 			this.flushPending();
 			message[ FROM ] = this.replyFrom( names.OUTPUT );
@@ -972,6 +1010,12 @@ export class ShellNode extends Node {
 		while ( i < line.length ) {
 			const ch = line[ i ];
 			if ( null !== literal ) {
+				// `\'` is an escaped quote, not the span's end.
+				if ( '\\' === ch && i + 1 < line.length ) {
+					out += ch + line[ i + 1 ];
+					i += 2;
+					continue;
+				}
 				out += ch;
 				if ( ch === literal ) {
 					literal = null;

@@ -31,6 +31,7 @@ import {
 import names from '../../runtime/reserved-node-names.json';
 import { RequestNode } from '../../runtime/request-node';
 import { Core } from '../../runtime/core';
+import { forgetSession } from '../../runtime/command-auth';
 import {
 	answerBatch,
 	installFakeCommandWire,
@@ -52,7 +53,7 @@ globalThis.__httpPosts = [];
 // {topology}.p{N} the mock graph is built for; a change rebuilds a fresh graph.
 globalThis.__graphKey = null;
 globalThis.__shell = null;
-globalThis.__outgoing = { current: null };
+globalThis.__outgoing = null;
 // The reader the current mock RemoteIpc is registered under (for teardown).
 globalThis.__reader = null;
 // A no-op EventSource so the composed SseIn can start() offline.
@@ -191,7 +192,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// The console's UNNAMED outgoing gate, as the real hook builds.
 				const gate = new OutgoingGateNode();
 				gate.sink = interpreter;
-				globalThis.__outgoing.current = gate;
+				globalThis.__outgoing = gate;
 				shell.sink = gate;
 				// `_cwd` indirection node: a plain Node whose target IS cwd.
 				const cwdNode = new Node();
@@ -1044,10 +1045,11 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
-		// Simulate the worker's dump_config reply landing at the Dumper.
+		// The reply lands on the node that MINTED it (TO=FROM, ADR-7) — not on
+		// the shared `_output` Dumper matched by command name.
 		await fireMsg( {
 			type: TM_COMMAND | TM_RESPONSE,
-			to: names.OUTPUT,
+			to: '_console:dump_config',
 			value: {
 				name: 'dump_config',
 				payload: 'make_node Echo captured_echo\n',
@@ -1062,6 +1064,23 @@ describe( 'TopologyConsole boot', () => {
 			name: 'newname',
 			tsl: 'make_node Echo captured_echo\n',
 		} );
+	} );
+
+	it( 'live SAVE toasts instead of dying silently while unauthenticated', async () => {
+		const { container, getByText, queryByTestId } = render(
+			<TopologyConsole />
+		);
+		await publishMeta();
+		// No signing session: dumper.command() mints nothing, so the click
+		// must say so rather than leave a dead button.
+		forgetSession();
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		expect( queryByTestId( 'prompt-modal' ) ).toBeNull();
+		const toast = container.querySelector( '.topology-toast--error' );
+		expect( toast ).not.toBeNull();
+		expect( toast.textContent ).toMatch( /again/i );
 	} );
 
 	it( 'DOWNLOAD saves the editor topology as <name>.tsl', async () => {
@@ -3129,6 +3148,62 @@ describe( 'TopologyConsole boot', () => {
 		expect( posted[ TYPE ] & TM_COMMAND ).toBeTruthy();
 		expect( posted[ TYPE ] & TM_RESPONSE ).toBeTruthy();
 		expect( posted[ TYPE ] & TM_ERROR ).toBeTruthy();
+	} );
+
+	it( 'handleInspectorAction cmd with a Compose From stamps that reply path on the posted FROM', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await publishMeta();
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onAction( 'cmd', 'request-builder', 'GET_LAG', {
+				from: '_output/7734',
+			} );
+		} );
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ FROM ] ).toBe( `${ names.SSE }:1234/_output/7734` );
+	} );
+
+	it( 'live SAVE keeps its own reply address after a Compose From redirected an earlier message', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, getByTestId } = render( <TopologyConsole /> );
+		await publishMeta();
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		// Compose owns the message it composes, not the console's own mints.
+		await act( async () => {
+			lastInspectorProps.onAction( 'cmd', 'request-builder', 'GET_LAG', {
+				from: '_output/7734',
+			} );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'dump_config'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ FROM ] ).toBe(
+			`${ names.SSE }:1234/_console:dump_config`
+		);
+		// The reply lands on the receiver, so the Save modal opens (ADR-7).
+		await fireMsg( {
+			type: TM_COMMAND | TM_RESPONSE,
+			to: '_console:dump_config',
+			value: {
+				name: 'dump_config',
+				payload: 'make_node Echo captured_echo\n',
+			},
+		} );
+		expect( getByTestId( 'prompt-modal' ) ).not.toBeNull();
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {

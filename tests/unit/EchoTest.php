@@ -103,6 +103,42 @@ class EchoTest extends TestCase {
 		$this->assertCount( 0, $sink->captured );
 	}
 
+	public function test_composite_command_error_with_empty_TO_is_dropped(): void {
+		// TYPE is a bitmask: the interpreter mints its refusals as
+		// TM_COMMAND|TM_ERROR, so an exact-equality guard would let the
+		// commonest error shape in the substrate bounce back to a producer
+		// that never asked for the error trail.
+		$echo = new Echo_Node();
+		$sink = new Capture_Sink_Node();
+		$echo->sink( $sink );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'unknown command: frobnicate';
+		$echo->fill( $message );
+
+		$this->assertCount( 0, $sink->captured );
+	}
+
+	public function test_TM_ERROR_arriving_as_a_numeric_string_is_still_dropped(): void {
+		// An off-process message decodes TYPE from JSON; a wire producer that
+		// wrote it as a string must not silently disable the error drop.
+		$echo = new Echo_Node();
+		$sink = new Capture_Sink_Node();
+		$echo->sink( $sink );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = (string) Message::TM_ERROR;
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'oops';
+		$echo->fill( $message );
+
+		$this->assertCount( 0, $sink->captured );
+	}
+
 	public function test_TM_ERROR_with_TO_passes_through(): void {
 		// Error WITH a TO is still routed (e.g. an explicit error response
 		// addressed at a known handler).

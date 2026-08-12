@@ -64,8 +64,9 @@ class Settings_CI_Node extends Service_CI_Node {
 		// Positional: set <option> <value>; <option> is the full option key.
 		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
 
-		$short = \is_string( $option ) && \str_starts_with( $option, 'newspack_nodes_' )
-			? \substr( $option, \strlen( 'newspack_nodes_' ) )
+		$prefix = Settings_Schema::get()->prefix();
+		$short  = \is_string( $option ) && \str_starts_with( $option, $prefix )
+			? \substr( $option, \strlen( $prefix ) )
 			: $option;
 		$field = \is_string( $short )
 			? Settings_Schema::get()->field_for_short( $short )
@@ -84,23 +85,14 @@ class Settings_CI_Node extends Service_CI_Node {
 		// sweep whether or not it moved, so acting on an unchanged push
 		// recycles the whole fleet every sweep. The admin path is gated
 		// for free: `updated_option` never fires.
-		$stored = \get_option( "newspack_nodes_{$short}", null );
+		$stored = \get_option( $prefix . $short, null );
 		if ( null !== $stored && $sanitized === Core::as_int( $stored ) ) {
 			return self::snapshot();
 		}
 
-		\update_option( "newspack_nodes_{$short}", $sanitized, true );
+		\update_option( $prefix . $short, $sanitized, true );
 		RuntimeConfig::reset();
-		// Best-effort; the next worker generation reads it regardless.
-		try {
-			$locks_dir = RuntimeConfig::get_locks_directory();
-			Restart_Planner::request_restarts( Settings_Schema::get()->restart_for( $short ), $locks_dir );
-			// @longform Every live worker's option cache is frozen at boot, so
-			// the ones this save does not recycle must be told to re-read.
-			Restart_Planner::request_reloads( $locks_dir );
-		} catch ( \Throwable $e ) {
-			Core::print_less_often( 'settings: restart planning failed: ', $e->getMessage() );
-		}
+		Restart_Planner::plan( Settings_Schema::get()->restart_for( $short ) );
 
 		return self::snapshot();
 	}

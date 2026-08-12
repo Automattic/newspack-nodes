@@ -48,6 +48,35 @@ describe( 'useClassCatalog', () => {
 		);
 	} );
 
+	// The overnight tab that loaded SUCCESSFULLY is the case the docblock is
+	// written for: the cache outlived the session, and load() was read on the
+	// same synchronous tick that invalidated it, before any effect could clear.
+	it( 're-fetches a successfully-loaded catalog after an auth invalidation', async () => {
+		const { result } = renderHook( () =>
+			useClassCatalog( { enabled: true } )
+		);
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
+		);
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+
+		replyFor.mockImplementation( () => ( {
+			classes: [ 'Grep', 'Tail' ],
+			formatters: [ 'Bytes' ],
+		} ) );
+
+		act( () => {
+			renewSession();
+		} );
+
+		await waitFor(
+			() =>
+				expect( result.current.classes ).toEqual( [ 'Grep', 'Tail' ] ),
+			{ timeout: 4000 }
+		);
+		expect( result.current.formatters ).toEqual( [ 'Bytes' ] );
+	} );
+
 	// A failure used to be memoised forever, so even an explicit retry got the
 	// same rejected promise back.
 	it( 'does not cache a failure permanently', async () => {

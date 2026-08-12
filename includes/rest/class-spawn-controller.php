@@ -57,7 +57,7 @@ class Spawn_Controller {
 		}
 
 		// Capability->nonce->rate-limit: rate-limiting first poisons the table.
-		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return new \WP_Error(
 				'invalid_token',
 				'Invalid spawn token',

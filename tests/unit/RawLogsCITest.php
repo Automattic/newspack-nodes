@@ -297,6 +297,30 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 7, $result['cursor']['segment'] );
 	}
 
+	/**
+	 * `read_message` and `taillog read` are ONE single-step read model — same
+	 * position grammar, same ephemeral reader, same post-step cursor. They were
+	 * two verbatim copies whose only divergence was the reply's identity key
+	 * (`log_id` here, `source` there), so a browser consuming both debuggers
+	 * needed two readers for one concept. One shape, one key.
+	 */
+	public function test_read_message_speaks_the_same_reply_shape_as_taillog_read(): void {
+		$this->seed_two_records();
+
+		$result = VerbHarness::fire(
+			new Raw_Logs_CI_Node(),
+			'raw-logs',
+			'read_message',
+			[ 'firehose.p0', '0:0' ]
+		);
+
+		$this->assertSame(
+			[ 'source', 'message', 'cursor', 'at_eof' ],
+			\array_keys( $result )
+		);
+		$this->assertSame( 'firehose.p0', $result['source'] );
+	}
+
 	public function test_read_message_reports_a_missing_record_as_an_error_string(): void {
 		\mkdir( $this->tmp . '/logs/firehose.p0', 0755, true );
 

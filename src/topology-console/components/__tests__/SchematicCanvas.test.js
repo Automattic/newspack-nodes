@@ -1262,6 +1262,58 @@ describe( 'SchematicCanvas', () => {
 		expect( onViewportChange ).toHaveBeenCalled();
 	} );
 
+	/**
+	 * A near-covering transcript frames as CLOSED — the resize path's
+	 * TRANSCRIPT_FULL_FRACTION rule. The background-click autofit computed its
+	 * box from the RAW inset instead, so clicking the background "fit" the
+	 * graph into the 50px strip above a maximised transcript, and a later
+	 * resize re-derived a different box from the same delta.
+	 */
+	it( 'frames a near-full transcript as closed, as the resize path does', () => {
+		const measured = ( container ) => {
+			const svg = container.querySelector( 'svg' );
+			Object.defineProperty( svg, 'clientWidth', { value: 1000 } );
+			Object.defineProperty( svg, 'clientHeight', { value: 1000 } );
+			return svg;
+		};
+		const clickBackground = ( svg ) => {
+			fireEvent.pointerDown( svg, {
+				button: 0,
+				pointerId: 3,
+				clientX: 10,
+				clientY: 10,
+			} );
+			fireEvent.pointerUp( svg, {
+				button: 0,
+				pointerId: 3,
+				clientX: 10,
+				clientY: 10,
+			} );
+		};
+		const fitWith = ( bottomObstructionPx ) => {
+			const onViewportChange = jest.fn();
+			const { container } = renderWithCatalog(
+				<SchematicCanvas
+					{ ...baseProps }
+					bottomObstructionPx={ bottomObstructionPx }
+				/>,
+				{
+					classCatalog: baseProps.classCatalog,
+					positionOverrides: baseProps.positionOverrides,
+					onPositionChange: baseProps.onPositionChange,
+					viewport: { x: 0, y: 0, w: 100, h: 100 },
+					onViewportChange,
+					bottomObstructionPx,
+				}
+			);
+			clickBackground( measured( container ) );
+			return onViewportChange.mock.calls.pop()[ 0 ];
+		};
+
+		// 950 of a 1000px canvas is past TRANSCRIPT_FULL_FRACTION (0.9).
+		expect( fitWith( 950 ) ).toEqual( fitWith( 0 ) );
+	} );
+
 	it( 'pan-click without drag with selection only deselects', () => {
 		const onDeselect = jest.fn();
 		const onViewportChange = jest.fn();
@@ -1619,6 +1671,85 @@ describe( 'SchematicCanvas', () => {
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
 		).toBe( 0 );
+	} );
+
+	/**
+	 * The card draws an IN port only when the node accepts fill; the snap loop
+	 * tested every node regardless, so a wire dropped onto a card showing no
+	 * target and `onConnect` fired for a connection the graph says can't exist.
+	 */
+	it( 'refuses to snap a wire onto a node that renders no IN port', () => {
+		const onConnect = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'a', class: 'Echo' },
+						{ id: 'b', class: 'Source' },
+					],
+					edges: [],
+				} }
+				onConnect={ onConnect }
+			/>,
+			{
+				classCatalog: {
+					Echo: { accepts_fill: true, has_target: true },
+					Source: { accepts_fill: false, has_target: true },
+				},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
+		);
+		const outPort = container.querySelector(
+			'.topology-port.topology-port--out'
+		);
+
+		fireEvent.mouseDown( outPort, { button: 0, clientX: 0, clientY: 0 } );
+		// Dead centre of where b's IN port would be (300, 80 + NODE_H / 2).
+		fireEvent.mouseMove( window, { clientX: 300, clientY: 122 } );
+		fireEvent.mouseUp( window, { clientX: 300, clientY: 122 } );
+
+		expect( onConnect ).not.toHaveBeenCalled();
+	} );
+
+	it( 'snaps a wire onto a node that DOES render an IN port', () => {
+		const onConnect = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'a', class: 'Echo' },
+						{ id: 'b', class: 'Echo' },
+					],
+					edges: [],
+				} }
+				onConnect={ onConnect }
+			/>,
+			{
+				classCatalog: {
+					Echo: { accepts_fill: true, has_target: true },
+				},
+				positionOverrides: baseProps.positionOverrides,
+				onPositionChange: baseProps.onPositionChange,
+				viewport: baseProps.viewport,
+				onViewportChange: baseProps.onViewportChange,
+				bottomObstructionPx: baseProps.bottomObstructionPx,
+			}
+		);
+		const outPort = container.querySelector(
+			'.topology-port.topology-port--out'
+		);
+
+		fireEvent.mouseDown( outPort, { button: 0, clientX: 0, clientY: 0 } );
+		fireEvent.mouseMove( window, { clientX: 300, clientY: 122 } );
+		fireEvent.mouseUp( window, { clientX: 300, clientY: 122 } );
+
+		expect( onConnect ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
 
 	it( 'classCatalog with has_target=false hides OUT port', () => {
@@ -3355,6 +3486,91 @@ describe( 'SchematicCanvas — hull interaction', () => {
 		// ...and the cluster's internal offset survives intact.
 		expect( moved[ 'inner-b' ].x - moved[ 'inner-a' ].x ).toBe( 200 );
 		expect( moved[ 'inner-a' ].y ).toBe( moved[ 'inner-b' ].y );
+	} );
+
+	/**
+	 * A node drag needs a button, `interactive`, and DRAG_THRESHOLD of travel
+	 * before it commits. A hull drag needed none of the three, so selecting a
+	 * hull by clicking it rewrote every member's saved position — snapping an
+	 * off-grid cluster the operator never moved, and marking the layout dirty.
+	 */
+	it( 'a click on a hull selects it without repositioning its members', () => {
+		const onPositionChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...hullProps } />,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				// Off-grid, so a snapped commit is visible as a move.
+				positionOverrides: {
+					...hullProps.positionOverrides,
+					'inner-a': { x: 107, y: 103 },
+					'inner-b': { x: 307, y: 103 },
+				},
+				onPositionChange,
+			}
+		);
+		const hull = container.querySelector( '.topology-hull' );
+
+		fireEvent.pointerDown( hull, {
+			button: 0,
+			clientX: 40,
+			clientY: 20,
+			pointerId: 1,
+		} );
+		fireEvent.pointerUp( hull, {
+			button: 0,
+			clientX: 40,
+			clientY: 20,
+			pointerId: 1,
+		} );
+
+		expect( onPositionChange ).not.toHaveBeenCalled();
+	} );
+
+	it( 'ignores a right-button press on a hull', () => {
+		const onPositionChange = jest.fn();
+		const { container } = renderWithCatalog(
+			<SchematicCanvas { ...hullProps } />,
+			{
+				classes: hullProps.catalog,
+				formatters: hullProps.formatters,
+				vaults: hullProps.vaults,
+				composeTargets: hullProps.composeTargets,
+				classCatalog: hullProps.classCatalog,
+				positionOverrides: hullProps.positionOverrides,
+				viewport: hullProps.viewport,
+				onViewportChange: hullProps.onViewportChange,
+				bottomObstructionPx: hullProps.bottomObstructionPx,
+				onPositionChange,
+			}
+		);
+		const hull = container.querySelector( '.topology-hull' );
+
+		fireEvent.pointerDown( hull, {
+			button: 2,
+			clientX: 0,
+			clientY: 0,
+			pointerId: 1,
+		} );
+		fireEvent.pointerMove( hull, {
+			clientX: 190,
+			clientY: 90,
+			pointerId: 1,
+		} );
+		fireEvent.pointerUp( hull, {
+			clientX: 190,
+			clientY: 90,
+			pointerId: 1,
+		} );
+
+		expect( onPositionChange ).not.toHaveBeenCalled();
 	} );
 } );
 

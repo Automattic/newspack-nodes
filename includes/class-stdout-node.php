@@ -24,7 +24,7 @@ class Stdout_Node extends Node {
 
 	public function fill( array $message ): void {
 		++$this->counter;
-		$this->write( self::coerce_string( $message[ Message::VALUE ] ) );
+		$this->write( Core::as_string( $message[ Message::VALUE ] ) );
 	}
 
 	/**
@@ -34,31 +34,6 @@ class Stdout_Node extends Node {
 	protected function write( string $text ): void {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->stdout, $text );
-	}
-
-	/**
-	 * Coerce a mixed Message field to string, reproducing PHP's `(string)` cast
-	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
-	 *
-	 * @param mixed $v Raw Message field.
-	 */
-	private static function coerce_string( $v ): string {
-		if ( \is_string( $v ) ) {
-			return $v;
-		}
-		if ( null === $v ) {
-			return '';
-		}
-		if ( \is_array( $v ) ) {
-			return 'Array';
-		}
-		if ( \is_object( $v ) ) {
-			return $v instanceof \Stringable ? (string) $v : '';
-		}
-		if ( \is_scalar( $v ) ) {
-			return (string) $v;
-		}
-		return '';
 	}
 
 	public static function node_schema(): array {

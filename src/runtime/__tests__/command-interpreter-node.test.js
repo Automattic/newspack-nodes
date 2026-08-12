@@ -543,6 +543,8 @@ test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => 
 // Built-in verb table — 1:1 parity with PHP $C, dispatched + asserted directly.
 
 import { TeeNode } from '../tee-node';
+import { MetadataNode } from '../metadata-node';
+import { RemoteIpcNode } from '../remote-ipc-node';
 
 // Dispatch a built-in verb by name and return its raw result. Args are the
 // pre-split token array the interpreter hands verbs; a string convenience is
@@ -1591,6 +1593,26 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 					CommandInterpreterNode.includeNodes[ t ]
 				).toBeDefined();
 			}
+		} );
+
+		it( 'make_node builds a registered class and sinks it to the interpreter', () => {
+			const interpreter = makeInterpreter();
+			dispatch( interpreter, 'make_node', 'Metadata mymeta' );
+			const node = Core.node( 'mymeta' );
+			expect( node ).toBeInstanceOf( MetadataNode );
+			expect( node.sink ).toBe( interpreter );
+		} );
+
+		it( 'make_node resolves RemoteIpc (the per-worker command channel)', () => {
+			const interpreter = makeInterpreter();
+			dispatch(
+				interpreter,
+				'make_node',
+				'RemoteIpc violet-ipc-947 aggregator.p13'
+			);
+			const node = Core.node( 'violet-ipc-947' );
+			expect( node ).toBeInstanceOf( RemoteIpcNode );
+			expect( node.reader ).toBe( 'aggregator.p13' );
 		} );
 
 		it( 'registerNodeClasses merges plugin classes into includeNodes', () => {

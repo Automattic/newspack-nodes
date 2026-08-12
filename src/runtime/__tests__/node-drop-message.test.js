@@ -62,7 +62,7 @@ describe( 'Node.dropMessage', () => {
 		m[ TO ] = 'beta';
 		m[ VALUE ] = '';
 		n.dropMessage( m, 'X' );
-		const line = spy.mock.calls[ 0 ][ 0 ];
+		const line = spy.mock.calls[ 0 ].join( '' );
 		expect( line ).toContain( 'from: alpha' );
 		expect( line ).toContain( 'to: beta' );
 	} );
@@ -78,7 +78,9 @@ describe( 'Node.dropMessage', () => {
 		m[ TO ] = '';
 		m[ VALUE ] = { a: 1 };
 		n.dropMessage( m, 'X' );
-		expect( spy.mock.calls[ 0 ][ 0 ] ).toContain( 'payload: {"a":1}' );
+		expect( spy.mock.calls[ 0 ].join( '' ) ).toContain(
+			'payload: {"a":1}'
+		);
 	} );
 
 	it( 'omits payload for a pure control type (TM_BYTESTREAM)', () => {
@@ -125,6 +127,86 @@ describe( 'Node.dropMessage', () => {
 		m[ VALUE ] = '';
 		n.dropMessage( m, 'NOT_AVAILABLE' );
 		expect( less ).toHaveBeenCalledTimes( 1 );
+	} );
+} );
+
+/**
+ * The drop path is the one place flooding is expected, so the throttle has to
+ * key on the stable category — PHP splits the line into a keyed head and an
+ * unkeyed tail (`print_less_often( $head, $tail )`) for exactly this.
+ */
+describe( 'Node.dropMessage rate limiting', () => {
+	it( 'collapses a flood of one category with differing tails to one line', () => {
+		const spy = jest
+			.spyOn( console, 'warn' )
+			.mockImplementation( () => {} );
+		const n = new Node();
+		n.name = 'flooded';
+		for ( const to of [ 'zulu', 'yankee', 'xray' ] ) {
+			const m = newMessage();
+			m[ TYPE ] = TM_INFO;
+			m[ TO ] = to;
+			m[ VALUE ] = `payload-${ to }`;
+			n.dropMessage( m, 'NOT_AVAILABLE' );
+		}
+		expect( Core.recentLog ).toHaveLength( 1 );
+		expect( Core.recentLog[ 0 ] ).toContain( 'to: zulu' );
+		expect( Core.recentLog[ 0 ] ).toContain( 'payload: payload-zulu' );
+		spy.mockRestore();
+	} );
+
+	it( 'still separates two different drop categories', () => {
+		const spy = jest
+			.spyOn( console, 'warn' )
+			.mockImplementation( () => {} );
+		const n = new Node();
+		const m = newMessage();
+		m[ TYPE ] = TM_INFO;
+		m[ TO ] = 'zulu';
+		n.dropMessage( m, 'NOT_AVAILABLE' );
+		n.dropMessage( m, 'sink refused' );
+		expect( Core.recentLog ).toHaveLength( 2 );
+		spy.mockRestore();
+	} );
+} );
+
+// PHP redacts the VALUE at this line: the Vault UI ships credentials as a
+// `--auth_password=…` token, and one NOT_AVAILABLE drop would print it.
+describe( 'Node.dropMessage secret redaction', () => {
+	it( 'masks a credential argument token', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			name: 'save',
+			arguments: [ '--host=db1', '--auth_password=zulu-swordfish' ],
+		};
+		n.dropMessage( m, 'NOT_AVAILABLE' );
+		const line = spy.mock.calls[ 0 ].join( '' );
+		expect( line ).not.toContain( 'zulu-swordfish' );
+		expect( line ).toContain( '--auth_password=<redacted>' );
+		expect( line ).toContain( '--host=db1' );
+	} );
+
+	it( 'masks a credential-named key at any depth', () => {
+		const n = new Node();
+		const spy = jest
+			.spyOn( n, 'printLessOften' )
+			.mockImplementation( () => {} );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			name: 'save',
+			payload: { label: 'spoke7', api_key: 'zulu-swordfish' },
+		};
+		n.dropMessage( m, 'NOT_AVAILABLE' );
+		const line = spy.mock.calls[ 0 ].join( '' );
+		expect( line ).not.toContain( 'zulu-swordfish' );
+		expect( line ).toContain( '"api_key":"<redacted>"' );
+		expect( line ).toContain( '"label":"spoke7"' );
 	} );
 } );
 

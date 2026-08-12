@@ -15,6 +15,10 @@
  * The rows are raw log-file lines (a `logviewer:view` `LogViewerViewNode` ring),
  * not packed partition envelopes. EVERY node sinks into the interpreter; flow is
  * steered ONLY by each node's `target`.
+ *
+ * The catalog, the selection and the open stream are ONE reconciled loader
+ * (`establish`), so a refusal at mount and a Reset Graph rebuild both recover
+ * through the same path — the graph build fetches nothing for itself.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
@@ -55,10 +59,11 @@ function defaultSourceName( sources ) {
 }
 
 /**
- * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void }}
+ * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void, clear: () => void }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
  *   for the picker and segment sidebar; fetchSources refreshes that catalog,
- *   and step (paused only) delivers one record from the cursor.
+ *   step (paused only) delivers one record from the cursor, and clear empties
+ *   the ring.
  */
 export function useLogViewerGraph() {
 	const linkRef = useRef( null );
@@ -115,30 +120,6 @@ export function useLogViewerGraph() {
 
 			bumpBuild( ( n ) => n + 1 );
 
-			// Fetch the source catalog; its reply opens the default source.
-			fetchSources()
-				.then( ( catalog ) => {
-					if ( ! Array.isArray( catalog ) || 0 === catalog.length ) {
-						return;
-					}
-					const logs = catalog.map( ( s ) => ( {
-						key: s.name,
-						label: s.name,
-					} ) );
-					view.fill( controlMsg( { action: 'logs', logs } ) );
-					const chosen = defaultSourceName( catalog );
-					if ( chosen ) {
-						view.fill(
-							controlMsg( { action: 'select', log: chosen } )
-						);
-						// Record the default; open only while active.
-						resubscribe( [ chosen ], null );
-					}
-				} )
-				.catch( () => {
-					// taillog-sources failure is silent; picker stays empty.
-				} );
-
 			return () => {
 				link.removeNode();
 				linkRef.current = null;
@@ -152,15 +133,8 @@ export function useLogViewerGraph() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// Record the pick, re-open if active, re-catalog for fresh segments.
-	const selectSource = ( name ) => {
-		viewRef.current?.fill( controlMsg( { action: 'select', log: name } ) );
-		resubscribe( [ name ], null );
-		fetchSources().catch( () => {} );
-	};
-
-	// Fetch a FRESH catalog + republish, so segments track rotation.
-	const fetchSources = useCallback(
+	// Read a FRESH catalog + republish, so segments track rotation.
+	const readCatalog = useCallback(
 		() =>
 			readSources( 'taillog', [ 'sources' ] ).then( ( catalog ) => {
 				if ( Array.isArray( catalog ) ) {
@@ -172,14 +146,58 @@ export function useLogViewerGraph() {
 	);
 
 	// @longform
-	// The catalog used to be fetched once inside the graph build, and its
-	// failure was swallowed with "picker stays empty" — so a refusal at mount,
-	// or a session that expired while the tab slept, left the source list blank
-	// with no way back but a reload. Holding it as reconciled state means the
-	// same refusal re-establishes itself, and fetchSources' own not-ready
-	// rejection doubles as the gate: the loop simply keeps trying until the
-	// exospine graph has mounted.
-	useReconcile( { load: fetchSources } );
+	// The DESIRED STATE, in one loader: a catalog, a selection, and a stream
+	// open on it. The catalog half used to be fetched inside the graph build
+	// with its failure swallowed as "picker stays empty", so a refusal at
+	// mount — or a session that expired while the tab slept — left the
+	// dashboard dead with no way back but a reload; the reconciled half that
+	// replaced it restored only the picker, which is the same dead dashboard
+	// with a populated dropdown. Selection is established ONLY when there is
+	// none, so re-establishing never overrides the user's pick.
+	const establish = useCallback( () => {
+		const view = viewRef.current;
+		if ( ! view ) {
+			// The gate: keep trying until the exospine graph has mounted.
+			return Promise.reject( new Error( 'graph not ready' ) );
+		}
+		return readCatalog().then( ( catalog ) => {
+			if ( ! Array.isArray( catalog ) || view.selected ) {
+				return catalog;
+			}
+			const chosen = defaultSourceName( catalog );
+			if ( chosen ) {
+				view.fill( controlMsg( { action: 'select', log: chosen } ) );
+				// Record the default; open only while active.
+				resubscribe( [ chosen ], null );
+			}
+			return catalog;
+		} );
+	}, [ readCatalog, resubscribe ] );
+
+	const { reconcileNow } = useReconcile( { load: establish } );
+
+	// Rail maintenance; a failure re-opens the convergence window.
+	const fetchSources = useCallback(
+		() => readCatalog().catch( () => reconcileNow() ),
+		[ readCatalog, reconcileNow ]
+	);
+
+	// Record the pick, re-open if active, re-catalog for fresh segments.
+	const selectSource = useCallback(
+		( name ) => {
+			viewRef.current?.fill(
+				controlMsg( { action: 'select', log: name } )
+			);
+			resubscribe( [ name ], null );
+			fetchSources();
+		},
+		[ resubscribe, fetchSources ]
+	);
+
+	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
+	const clear = useCallback( () => {
+		viewRef.current?.fill( controlMsg( { action: 'clear' } ) );
+	}, [] );
 
 	/**
 	 * Reposition the source + set the view mode. Live tail (null positions)
@@ -218,5 +236,13 @@ export function useLogViewerGraph() {
 		[ resubscribe ]
 	);
 
-	return { selectSource, setPaused, seek, sources, fetchSources, step };
+	return {
+		selectSource,
+		setPaused,
+		seek,
+		sources,
+		fetchSources,
+		step,
+		clear,
+	};
 }

@@ -12,7 +12,11 @@
 import { memo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { SegmentBar } from './SegmentBar';
-import { formatByteRate, formatBytes, formatEta } from './formatters';
+import {
+	formatByteRate,
+	formatBytes,
+	formatEta,
+} from '@newspack-nodes/shared/utils/formatters';
 
 /**
  * Props for the worker row of a `node` entity.

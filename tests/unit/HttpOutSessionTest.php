@@ -190,6 +190,28 @@ class HttpOutSessionTest extends TestCase {
 		$this->assertCount( 2, $captured, 'the command still ships once a session exists' );
 	}
 
+	/**
+	 * Pins the async half of the session-adopt rule against the blocking half's
+	 * `test_a_session_missing_its_key_is_malformed_not_usable`: a 200 carrying a
+	 * handle but no key is not a session on either transport.
+	 */
+	public function test_a_session_missing_its_key_is_not_adopted(): void {
+		$this->seed_vault( self::SPOKE, [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture( $captured );
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $easy ): array => [
+			'code' => 200,
+			'body' => '{"handle":"handle-without-a-key"}',
+		];
+
+		$node = $this->make_node( self::SPOKE );
+		$node->fill( $this->a_command() );
+		$node->fire();
+		$node->on_curl_message( [ 'msg' => \CURLMSG_DONE, 'handle' => $this->last_handle( $node ), 'result' => \CURLE_OK ] );
+
+		$this->assertFalse( Command_Auth::has_session( self::SPOKE ) );
+	}
+
 	/** Permanent misconfiguration still drops — that is not the same as unauthed. */
 	public function test_a_missing_vault_entry_still_drops_the_batch(): void {
 		$captured = [];

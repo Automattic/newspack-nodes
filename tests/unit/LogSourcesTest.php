@@ -5,6 +5,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Log_Sources;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
@@ -262,16 +263,33 @@ class LogSourcesTest extends TestCase {
 		$path = "{$this->tmp}/live-31.log";
 		\file_put_contents( $path, "x\n" );
 
-		$this->assertTrue( Log_Sources::is_available( $path, Tail_Node::MODE_FILE ) );
-		$this->assertFalse( Log_Sources::is_available( "{$this->tmp}/absent-31.log", Tail_Node::MODE_FILE ) );
+		$this->assertTrue( Log_Sources::is_available( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] ) );
+		$this->assertFalse( Log_Sources::is_available( [ 'path' => "{$this->tmp}/absent-31.log", 'mode' => Tail_Node::MODE_FILE ] ) );
 	}
 
 	public function test_is_available_checks_for_any_segment_in_segmented_mode(): void {
 		// Segments are {file}.{seg}; retention may leave only a later segment.
 		\file_put_contents( "{$this->tmp}/seg-base.7", "x\n" );
 
-		$this->assertTrue( Log_Sources::is_available( "{$this->tmp}/seg-base", Tail_Node::MODE_SEGMENTED ) );
-		$this->assertFalse( Log_Sources::is_available( "{$this->tmp}/no-segments", Tail_Node::MODE_SEGMENTED ) );
+		$this->assertTrue( Log_Sources::is_available( [ 'path' => "{$this->tmp}/seg-base", 'mode' => Tail_Node::MODE_SEGMENTED ] ) );
+		$this->assertFalse( Log_Sources::is_available( [ 'path' => "{$this->tmp}/no-segments", 'mode' => Tail_Node::MODE_SEGMENTED ] ) );
+	}
+
+	/**
+	 * "Has segments" had two definitions in one file: `is_available()` asked the
+	 * RAW glob, which matches the companion `{file}.{seg}.idx` a Log writes,
+	 * while every other segmented read filtered to a purely-numeric suffix. So
+	 * an orphaned `.idx` left behind after retention swept its data segment
+	 * printed `AVAILABLE yes` / `BYTES -` for a source whose tail then answered
+	 * `log unavailable`.
+	 */
+	public function test_is_available_ignores_an_orphaned_index_companion(): void {
+		\file_put_contents( "{$this->tmp}/idx-only.4.idx", "0 0\n" );
+
+		$this->assertFalse(
+			Log_Sources::is_available( [ 'path' => "{$this->tmp}/idx-only", 'mode' => Tail_Node::MODE_SEGMENTED ] ),
+			'an index companion is not a readable data segment'
+		);
 	}
 
 	public function test_tail_path_resolves_the_newest_segment_for_segmented_mode(): void {
@@ -389,6 +407,39 @@ class LogSourcesTest extends TestCase {
 		$this->assertSame( 233, $rows[0]['bytes'], 'bytes = the newest segment size' );
 	}
 
+	/**
+	 * `taillog sources` lists the whole registry, so a listing that throws for ONE
+	 * entry must cost that entry its segments, never the entire reply — the whole
+	 * point of a debugging surface is to survive the broken thing being debugged.
+	 */
+	public function test_a_source_whose_segment_listing_throws_degrades_to_no_segments(): void {
+		$present                      = $this->write_fixed_width_log( 2, 59 );
+		Log_Sources::$builtin_sources = static fn (): array => [ 'php' => $present ];
+		$this->activate_topology(
+			'lsrc-broken-listing',
+			"var num_partitions = 1\n"
+			. "make_node Log gate:log <config:logs_dir>/gate-decisions.jsonl 1 2 7\n"
+		);
+		\mkdir( "{$this->tmp}/logs", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/gate-decisions.jsonl.4", \str_repeat( 'c', 431 ) );
+		Partition_Node::$scandir = static function ( string $dir ): array {
+			throw new \RuntimeException( "listing failed for {$dir}" );
+		};
+
+		try {
+			$rows = Log_Sources::taillog( [ 'sources' ] );
+		} finally {
+			Partition_Node::$scandir = null;
+		}
+
+		$by_name = \array_column( $rows, null, 'name' );
+		$this->assertSame( [], $by_name['gate-decisions.jsonl']['segments'] );
+		$this->assertFalse( $by_name['gate-decisions.jsonl']['available'] );
+		$this->assertNull( $by_name['gate-decisions.jsonl']['bytes'] );
+		$this->assertTrue( $by_name['php']['available'], 'the healthy entry still lists' );
+		$this->assertSame( \filesize( $present ), $by_name['php']['bytes'] );
+	}
+
 	public function test_taillog_read_returns_the_line_at_a_position_in_a_segment(): void {
 		Log_Sources::$builtin_sources = static fn (): array => [];
 		$this->activate_topology(
@@ -467,6 +518,25 @@ class LogSourcesTest extends TestCase {
 		);
 	}
 
+	/**
+	 * `read_at()` receives an ALREADY-armed reader: `open_tail()` has run
+	 * `arguments()`, which calls `set_timer()` and registers the node with the
+	 * Event_Framework. Returning the invalid-position error before the
+	 * `finally` left that reader in the timer table forever, and its next fire
+	 * reached `Node::fill()` with a null sink inside the worker's drain loop.
+	 */
+	public function test_read_at_removes_the_armed_reader_when_the_position_is_invalid(): void {
+		$path = "{$this->tmp}/armed-8823.log";
+		\file_put_contents( $path, "only line 8823\n" );
+		$reader = Log_Sources::open_tail( [ 'path' => $path, 'mode' => Tail_Node::MODE_FILE ] );
+		$this->assertTrue( $reader->timer_is_active(), 'open_tail arms the reader' );
+
+		$out = Log_Sources::read_at( $reader, 'armed', 'not-a-position', 'taillog read' );
+
+		$this->assertStringStartsWith( 'taillog read: invalid position', $out );
+		$this->assertFalse( $reader->timer_is_active(), 'a rejected reader must not stay armed' );
+	}
+
 	public function test_taillog_read_reports_no_line_on_an_empty_file(): void {
 		// A past-EOF offset resumes from 0 (crash-resume forgiveness, the
 		// cursor tells the truth); only a genuinely empty file has no line.
@@ -476,7 +546,7 @@ class LogSourcesTest extends TestCase {
 
 		$inode = (int) \fileinode( $path );
 		$this->assertSame(
-			"taillog read: no line at php {$inode}:0\n",
+			"taillog read: no record at php {$inode}:0\n",
 			Log_Sources::taillog( [ 'read', 'php', "{$inode}:0" ] )
 		);
 	}

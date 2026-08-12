@@ -4,7 +4,6 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
-import { useAggregateRateSeries } from '../hooks/useAggregateRateSeries';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
 
@@ -108,16 +107,19 @@ export default function GraphView( {
 	}, [ selection ] );
 
 	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
-	// Aggregate rate series, kept here so it survives the header remounting.
-	const rateSeries = useAggregateRateSeries( graph.nodes, resetKey );
-	// Derived from the per-node history: selecting a hull reveals the past.
+	// One derivation for both scopes, off the per-node rate histories.
+	const rateSeries = useMemo(
+		() => aggregateSeries( rateRef.current, graph.nodes ),
+		// rateVersion ticks on every poll; rateRef itself is stable.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ graph.nodes, rateRef, rateVersion ]
+	);
 	const hullRateSeries = useMemo(
 		() =>
 			aggregateSeries(
 				rateRef.current,
 				hullNodes( graph.nodes, hulls, selectedHull )
 			),
-		// rateVersion ticks on every poll; rateRef itself is stable.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ graph.nodes, hulls, selectedHull, rateRef, rateVersion ]
 	);

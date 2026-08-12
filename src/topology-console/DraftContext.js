@@ -36,7 +36,8 @@ import {
 	useState,
 } from '@wordpress/element';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
-import { assertResolvedConfigEdges, draftToGraph } from './utils/draftToGraph';
+import { draftToGraph } from './utils/draftToGraph';
+import { withResolvedConfigEdges } from './utils/consoleGraph';
 
 const DraftContext = createContext( null );
 
@@ -129,13 +130,15 @@ export function useDraftInterpreter() {
 	}, [] );
 
 	/**
-	 * Throw when a `<ns:key>` config target has no resolved edge to name.
+	 * Throw when a `<ns:key>` config target has no resolved edge to name — the
+	 * SAME guard the live seed applies, over the same composed graph, so the
+	 * editor and the canvas cannot disagree about which file is loadable.
 	 *
 	 * Only a load that HAD a server response can check this; an uploaded file
 	 * carries tokens nothing client-side can resolve, and always did.
 	 */
 	const assertResolved = useCallback( ( configEdges ) => {
-		assertResolvedConfigEdges( ref.current, configEdges );
+		withResolvedConfigEdges( draftToGraph( ref.current ), configEdges );
 	}, [] );
 
 	/**

@@ -141,6 +141,18 @@ test( 'printLessOften rate-limits identical messages and routes via stderr', () 
 	spy.mockRestore();
 } );
 
+// Mirrors PHP Core::print_less_often( string $text, string ...$extra ).
+test( 'printLessOften keys on the first arg only; extra prints but never keys', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	Core.printLessOften( 'WARNING: sink refused - ', 'payload: zulu' );
+	Core.printLessOften( 'WARNING: sink refused - ', 'payload: yankee' );
+	expect( spy ).toHaveBeenCalledTimes( 1 );
+	expect( Core.recentLog[ 0 ] ).toContain(
+		'WARNING: sink refused - payload: zulu'
+	);
+	spy.mockRestore();
+} );
+
 test( 'recentLog is an array that reset() clears', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	expect( Array.isArray( Core.recentLog ) ).toBe( true );

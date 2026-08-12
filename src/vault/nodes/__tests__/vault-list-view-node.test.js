@@ -1,9 +1,8 @@
 /**
  * vault:list tests — the credential-LIST view node (de-god split). It owns ONLY
- * the server table slice (`servers` / `loading` / `error`) and a `replies`
- * registry so the hook can await `list` / `add` / `update` / `delete`
- * dispatches that re-list into it. The TEST-result concern lives in a SEPARATE
- * view node (`vault:test`) — this node knows nothing about test probes.
+ * the server table slice (`servers` / `loading` / `error`). The TEST-result
+ * concern lives in a SEPARATE view node (`vault:test`) — this node knows
+ * nothing about test probes.
  *
  * `fill()` receives the raw reply Messages HttpOutNode feeds back from POST
  * /command: the router peels the reply's TO (= `vault:list`) and delivers them
@@ -11,10 +10,9 @@
  *
  * On a `list` reply the node turns the raw `{ vault_id:{} }` map into the
  * render model — `servers` (Object.values → array), clears `loading` + `error`.
- * On an un-correlated TM_ERROR it surfaces the error string (table banner) and
- * keeps the prior servers. A pending-matched reply (a mutation the caller is
- * awaiting) settles the Promise; a TM_ERROR there is owned by the caller's
- * catch and must NOT paint the table banner.
+ * A TM_ERROR surfaces the error string (table banner) and keeps the prior
+ * servers. A mutation the caller awaits is minted from its own `Request` node,
+ * so its failure is owned by that caller's catch and never lands here.
  */
 
 import {
@@ -90,6 +88,19 @@ describe( 'vault:list — list reply updates the render model', () => {
 		const v = makeView();
 		v.fill( replyMsg( { name: 'list', payload: null } ) );
 		expect( v.setStateCache.view.servers ).toEqual( [] );
+	} );
+
+	test( 'a payload that is not a map keeps the servers already on screen', () => {
+		const v = makeView();
+		v.fill( replyMsg( { name: 'list', payload: SAMPLE } ) );
+
+		// Object.values( 'abc' ) would paint three fabricated rows.
+		v.fill( replyMsg( { name: 'list', payload: 'abc' } ) );
+
+		expect( v.setStateCache.view.servers.map( ( s ) => s.id ) ).toEqual( [
+			'spoke-01',
+			'spoke-02',
+		] );
 	} );
 } );
 

@@ -584,6 +584,32 @@ class LockTest extends TestCase {
 		$this->assertSame( [], $schema['commands'] );
 	}
 
+	// ── heartbeat_is_stale() ───────────────────────────────────────────────
+
+	public function test_heartbeat_is_stale_reads_a_beat_written_by_another_process(): void {
+		// Its hot caller is a ~595s worker scanning peers every 15s. PHP's stat
+		// cache is per-process, so a peer that beats after the first read still
+		// reads DOWN until the cache is cleared — and the peer is respawned.
+		$dir = "{$this->tmp}/peer-workers.p3.lock.d";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		\mkdir( $dir, 0755, true );
+		$beat = "{$dir}/heartbeat";
+		\file_put_contents( $beat, (string) \getmypid() );
+		\touch( $beat, 1000 );
+
+		// Assert nothing until both reads are taken: PHP caches one stat at a
+		// time, and an assertion's own autoload evicts it. proc_open leaves the
+		// cache alone the way a real peer's write does; touch() would clear it.
+		$cold  = Lock_Node::heartbeat_is_stale( $dir, 1400, 60 );
+		$touch = \proc_open( \sprintf( 'touch -m -d @1400 %s', \escapeshellarg( $beat ) ), [], $pipes );
+		$rc    = \proc_close( $touch );
+		$after = Lock_Node::heartbeat_is_stale( $dir, 1420, 60 );
+
+		$this->assertTrue( $cold, 'a 400s-old beat is stale' );
+		$this->assertSame( 0, $rc, 'external beat landed' );
+		$this->assertFalse( $after, 'a beat 20s old must read live, whatever this process cached' );
+	}
+
 	// ── acquire_failure() ──────────────────────────────────────────────────
 
 	public function test_acquire_failure_reports_contention_as_lock_held(): void {

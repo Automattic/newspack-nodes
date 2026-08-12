@@ -241,6 +241,50 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'tee', $by_name['firehose:tap']['kind'] );
 	}
 
+	/**
+	 * Kind classification must ask the type system, not string-match the token.
+	 * `Tail_Node extends Consumer_Node`, so a Tail IS a durable reader with a
+	 * source + offsetlog — but the literal `match` called it 'logic', which drops
+	 * it out of `consumer_positions()`, the list `Bootstrap` reads to report
+	 * reader lag. A Partition subclass fell out the same way, so its real log was
+	 * invisible to the console, the GC's declared set and the conflict gate.
+	 */
+	public function test_graph_for_classifies_consumer_and_partition_subclasses_by_lineage(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl(
+			'vicuna-subclasses',
+			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n"
+			. "make_node Log giraffe:log /var/vicuna/giraffe.p<partition> 4096\n"
+		);
+
+		$by_name = [];
+		foreach ( Topology_Analyzer::graph_for( 'vicuna-subclasses' )['nodes'] as $node ) {
+			$by_name[ $node['name'] ] = $node;
+		}
+
+		$this->assertSame( 'consumer', $by_name['zebra:tail']['kind'] );
+		$this->assertSame( 'log', $by_name['giraffe:log']['kind'], 'Log stays Log, not its Partition base' );
+	}
+
+	/** A Consumer subclass reports its source + offsetlog like any other reader. */
+	public function test_consumer_positions_include_a_consumer_subclass(): void {
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		$this->write_tsl(
+			'vicuna-tail-reader',
+			"make_node Tail zebra:tail /var/vicuna/zebra.log /var/vicuna/zebra-offset.p<partition>\n"
+		);
+
+		$this->assertSame(
+			[
+				[
+					'source'    => '/var/vicuna/zebra.log',
+					'offsetlog' => '/var/vicuna/zebra-offset.p<partition>',
+				],
+			],
+			Topology_Analyzer::consumer_positions( 'vicuna-tail-reader' )
+		);
+	}
+
 	public function test_graph_for_one_arg_disconnect_removes_included_edges_before_rewire(): void {
 		$this->write_tsl(
 			'wombat-base',

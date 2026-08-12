@@ -1,4 +1,9 @@
-import { lockPageScroll, unlockPageScroll } from '../pageScrollLock';
+import {
+	holdPageScroll,
+	lockPageScroll,
+	releasePageScroll,
+	unlockPageScroll,
+} from '../pageScrollLock';
 
 describe( 'pageScrollLock', () => {
 	const html = () => document.documentElement;
@@ -6,6 +11,7 @@ describe( 'pageScrollLock', () => {
 
 	afterEach( () => {
 		unlockPageScroll();
+		releasePageScroll( 'maximize' );
 		html().style.overflow = '';
 		html().style.paddingRight = '';
 		body().style.overflow = '';
@@ -36,6 +42,35 @@ describe( 'pageScrollLock', () => {
 		unlockPageScroll();
 		expect( html().style.overflow ).toBe( 'visible' );
 		expect( body().style.overflow ).toBe( 'visible' );
+	} );
+
+	it( 'holds the lock until every reason has released it', () => {
+		html().style.overflow = 'auto';
+		body().style.overflow = 'scroll';
+		lockPageScroll(); // pointer enters the panel
+		holdPageScroll( 'maximize' );
+		unlockPageScroll(); // pointer leaves, but the panel is maximized
+		expect( html().style.overflow ).toBe( 'hidden' );
+		expect( body().style.overflow ).toBe( 'hidden' );
+		releasePageScroll( 'maximize' );
+		expect( html().style.overflow ).toBe( 'auto' );
+		expect( body().style.overflow ).toBe( 'scroll' );
+	} );
+
+	it( 'ignores a gutter measured against a bogus clientWidth', () => {
+		const inner = Object.getOwnPropertyDescriptor( window, 'innerWidth' );
+		Object.defineProperty( window, 'innerWidth', {
+			value: 30,
+			writable: true,
+			configurable: true,
+		} );
+		try {
+			// jsdom reports clientWidth 0, so the whole 30px reads as gutter.
+			lockPageScroll();
+			expect( html().style.paddingRight ).toBe( '' );
+		} finally {
+			Object.defineProperty( window, 'innerWidth', inner );
+		}
 	} );
 
 	it( 'does not set a runaway paddingRight when the gutter reads bogus', () => {

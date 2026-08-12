@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
@@ -72,6 +73,19 @@ class ShellTest extends TestCase {
 	public function test_serialize_args_defers_an_unexpanded_interpolation_marker(): void {
 		$shell  = new Shell_Node();
 		$tokens = [ '/logs/firehose.p<partition>', '/offsets/x.<topology>' ];
+		$line   = 'X Y ' . Node::serialize_args( $tokens );
+		$back   = \array_slice( $shell->tokenize( $shell->interpolate( $line ) ), 2 );
+		$this->assertSame( $tokens, $back );
+	}
+
+	/**
+	 * The same deferral, for a token serialize_arg had to ESCAPE. It writes `'`
+	 * as `\'`, and interpolate() runs before tokenize() — so a literal span that
+	 * closes on the escape inverts quote parity and expands every later `<…>`.
+	 */
+	public function test_serialize_arg_defers_a_marker_following_an_escaped_quote(): void {
+		$shell  = new Shell_Node();
+		$tokens = [ "Don't use <partition>", '/logs/x.p<partition>' ];
 		$line   = 'X Y ' . Node::serialize_args( $tokens );
 		$back   = \array_slice( $shell->tokenize( $shell->interpolate( $line ) ), 2 );
 		$this->assertSame( $tokens, $back );
@@ -833,6 +847,46 @@ class ShellTest extends TestCase {
 		$this->assertSame( "debug_level: 2\n", $capture->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_parse_debug_level_refuses_a_non_numeric_argument(): void {
+		// Tachikoma Shell.pm:158 refuses anything but `^\d+$`; a cast would read
+		// `frobnicate` as 0 and silently turn the dial off.
+		$capture = $this->register_output_capture();
+		$capture->dumper->set_debug_level( 2 );
+
+		$shell = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'debug_level frobnicate' ) );
+		$this->assertSame( 2, $capture->dumper->debug_level(), 'a refusal changes nothing' );
+		$this->assertSame( "usage: debug_level [0|1|2]\n", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_parse_debug_level_refuses_a_level_above_the_maximum(): void {
+		// The JS twin refuses `> 2` rather than clamping it; so does this one.
+		$capture = $this->register_output_capture();
+		$capture->dumper->set_debug_level( 1 );
+
+		$shell = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'debug_level 7' ) );
+		$this->assertSame( 1, $capture->dumper->debug_level(), 'a refusal changes nothing' );
+		$this->assertSame( "usage: debug_level [0|1|2]\n", $capture->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_parse_debug_level_reports_a_missing_output_dumper(): void {
+		// A Shell driving a TSL in worker or request scope has no `_output`
+		// Dumper to dial. Silence reads as success for a verb the user typed.
+		$capture = new Capture_Stdout_Node();
+		$capture->name( Node_Names::STDOUT );
+
+		$shell = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'debug_level 2' ) );
+		$this->assertSame(
+			'debug_level: unknown node: ' . Node_Names::OUTPUT . "\n",
+			$capture->captured[0][ Message::VALUE ] ?? ''
+		);
+	}
+
 	public function test_parse_show_parse_toggles_and_dumps_tokens(): void {
 		// `show_parse` is a Shell-local toggle. When on, every parse() routes the
 		// post-interpolation line + tokens through the `_output` Dumper BEFORE the
@@ -976,19 +1030,106 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( 'test', (string) $out[ Message::VALUE ] );
 	}
 
-	public function test_fill_throws_on_non_bytestream_non_eof_message(): void {
-		// fill() only accepts bytestream input + TM_EOF (mirrors Tachikoma's
-		// _stdin → _responder, which only ever feeds those two). A stray
-		// command/info/error is a wiring mistake, surfaced rather than sprayed
-		// through the graph.
+	public function test_an_escaped_trailing_backslash_is_a_complete_statement(): void {
+		// One grammar rule, ONE definition: a line continues only on an ODD run
+		// of trailing backslashes. `tell n1 back\\` ends in an escaped literal,
+		// so the loader parses it whole and the topology `save` verb must not
+		// reject it as unterminated. parse_statements() is that one definition —
+		// the second copy (validate_line) was deleted, not the rule.
+		$line  = 'tell n1 back\\\\';
 		$shell = new Shell_Node();
-		$shell->sink( new Capture_Sink_Node() );
+		$this->assertCount( 1, Shell_Node::parse_statements( $line ) );
+		$this->assertNotNull( $shell->parse( $line ), 'the loader parses it as a complete statement' );
+	}
 
-		$message              = Message::new_message();
-		$message[ Message::TYPE ] = Message::TM_COMMAND;
-
+	public function test_an_odd_trailing_backslash_run_is_an_unterminated_continuation(): void {
+		$line  = 'tell n1 back\\\\\\';
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( $line ), 'the loader holds it as a continuation' );
 		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'got EOF while waiting for tokens at line 1' );
+		Shell_Node::parse_statements( $line );
+	}
+
+	public function test_fill_passes_a_non_bytestream_message_through_to_the_sink(): void {
+		// Not REPL input, so there is nothing to parse — Tachikoma
+		// Shell::fill sinks any non-TM_BYTESTREAM message rather than
+		// dropping it, and the JS twin does the same.
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [ 'name' => 'ls', 'arguments' => [] ];
 		$shell->fill( $message );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( Message::TM_COMMAND, $sink->captured[0][ Message::TYPE ] );
+	}
+
+	public function test_fill_forwards_a_pre_signed_command_untouched(): void {
+		// ADR-15: the MINTER signs, never the ingress. A command already bound
+		// to a remote session must cross the Shell byte-identical — re-signing
+		// it here would replace the envelope with a local-secret one and drop
+		// the handle, silently unbinding it from its destination.
+		Command_Auth::remember_session( 'hub-7', 'handle-4b19c2', 'key-77f0a3d6' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [
+			'name'      => 'set_retention',
+			'arguments' => [ '--segments=17' ],
+		];
+		Command_Auth::sign_for( 'hub-7', $message );
+		$signed = $message;
+
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+		$shell->fill( $message );
+
+		Command_Auth::forget_session( 'hub-7' );
+		$this->assertSame( $signed, $sink->captured[0], 'a pre-built command passes through verbatim' );
+		$this->assertSame(
+			'handle-4b19c2',
+			$sink->captured[0][ Message::VALUE ]['auth']['handle'],
+			'the destination binding survives the Shell'
+		);
+	}
+
+	public function test_fill_parses_a_bytestream_carrying_an_extra_flag(): void {
+		// TYPE is a bitmask: a composite TM_BYTESTREAM|TM_NOREPLY line is
+		// still REPL input. An exact-equality test would reject it as
+		// non-input and pass the raw line through unparsed.
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM | Message::TM_NOREPLY;
+		$message[ Message::VALUE ] = 'ls';
+		$shell->fill( $message );
+
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'ls', $sink->captured[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_fill_drains_an_eof_carrying_an_extra_flag(): void {
+		// Same bitmask reading on the drain marker.
+		$shell       = new Shell_Node();
+		$shell->path = 'firehose-workers.p0';
+		$sink        = new Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF | Message::TM_NOREPLY;
+		$message[ Message::FROM ] = 'upstream';
+		$shell->fill( $message );
+
+		$this->assertCount( 1, $sink->captured );
+		$out = $sink->captured[0];
+		$this->assertSame( '_output/' . \getmypid(), $out[ Message::FROM ] );
+		$this->assertSame( 'firehose-workers.p0', $out[ Message::TO ] );
 	}
 
 	public function test_fill_tm_eof_restamps_from_to_session_identity_and_forwards(): void {

@@ -796,4 +796,44 @@ class HttpOutTest extends TestCase {
 		$this->assertSame( 'good', $sink->captured[0][ Message::VALUE ] );
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
 	}
+
+	/** The process-static reply buffers, keyed by easy-handle id. */
+	private function reply_buffers(): array {
+		return ( new \ReflectionProperty( HTTP_Out_Node::class, 'bodies' ) )->getValue();
+	}
+
+	/** Drive one in-flight handle with $bytes already buffered by the write callback. */
+	private function inflight_with_buffered_body( string $bytes ): array {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$node->fill( $this->command_message( 'settings', 'set', 'newspack_nodes_max_segments 9' ) );
+		$node->fire();
+
+		$inflight = $this->read_private( $node, 'inflight' );
+		$easy     = \reset( $inflight )['handle'];
+		$write    = $captured[0][ \CURLOPT_WRITEFUNCTION ];
+		$write( $easy, $bytes );
+		$this->assertSame( $bytes, $this->reply_buffers()[ \spl_object_id( $easy ) ] ?? '' );
+		return [ $node, $easy ];
+	}
+
+	public function test_transport_error_does_not_orphan_the_reply_buffer(): void {
+		// A freed handle's spl_object_id is reused, so bytes left behind by a
+		// failed transfer prefix the next handle's reply.
+		[ $node, $easy ] = $this->inflight_with_buffered_body( 'half-a-reply-then-the-wire-died' );
+
+		$node->on_curl_message( $this->done_info( $easy, \CURLE_COULDNT_CONNECT ) );
+
+		$this->assertArrayNotHasKey( \spl_object_id( $easy ), $this->reply_buffers() );
+	}
+
+	public function test_remove_node_does_not_orphan_reply_buffers(): void {
+		[ $node, $easy ] = $this->inflight_with_buffered_body( 'partial-body-at-teardown' );
+
+		$node->remove_node();
+
+		$this->assertArrayNotHasKey( \spl_object_id( $easy ), $this->reply_buffers() );
+	}
 }

@@ -195,6 +195,63 @@ class JobDelayTest extends TestCase {
 		$this->assertSame( [ 'midsweep_h' ], array_column( $this->read_all_jobintake_lines(), 'handler' ) );
 	}
 
+	/**
+	 * ADR-14: Worker_Should_Stop extends RuntimeException, so the delivery
+	 * catch that circulates on lock contention must let a cooperative stop
+	 * through — Job_Intake::queue()'s identical construct carves it out.
+	 */
+	public function test_a_cooperative_stop_is_not_treated_as_lock_contention(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'stop_probe_h', $now + 30.0 );
+
+		\Newspack_Nodes\Event_Framework::reset();
+		// The intake's write lock arms a heartbeat Timer, which hitchhikes _router.
+		( new \Newspack_Nodes\Router_Node() )->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$ef    = \Newspack_Nodes\Event_Framework::instance();
+		$state = (object) [ 'stop' => false, 'ticks' => 0 ];
+		$timer = new class() extends \Newspack_Nodes\Timer_Node {
+			/** @var callable */
+			public $on_fire;
+			public function fire_cb(): void {
+				( $this->on_fire )();
+			}
+		};
+		$timer->on_fire = function () use ( $state, $now ) {
+			$state->stop = true;
+			Job_Delay::sweep( $this->tmp, 2, $now + 60.0 );
+		};
+		$timer->set_timer( 1, true );
+
+		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
+		$ef->drain(
+			static function () use ( $state ): bool {
+				\Newspack_Nodes\Core::$now = \microtime( true );
+				return ! $state->stop && ++$state->ticks < 1000;
+			},
+			cooperative_stop: true
+		);
+	}
+
+	/**
+	 * Every dispatch field Job_Worker reads back must survive the delay hop.
+	 * Driven off the constant so a fifth field fails here rather than being
+	 * silently shorn off every delayed job.
+	 */
+	public function test_every_dispatch_field_survives_the_delay_hop(): void {
+		$now = \microtime( true );
+		$this->seed_delayed( 'dispatch_h', $now + 30.0, 'affkey-Z', 'id-7', [ 'retries' => 6, 'attempt' => 3, 'batch' => 'bZ' ] );
+
+		$this->assertSame( 1, Job_Delay::sweep( $this->tmp, 2, $now + 60.0 ) );
+
+		$delivered = $this->read_all_jobintake_lines();
+		$this->assertCount( 1, $delivered );
+		$expected = [ 'retries' => 6, 'attempt' => 3, 'batch' => 'bZ', 'key' => 'affkey-Z' ];
+		foreach ( Job_Intake::DISPATCH_FIELDS as $field ) {
+			$this->assertArrayHasKey( $field, $expected, "seed this test for the new dispatch field '{$field}'" );
+			$this->assertSame( $expected[ $field ], $delivered[0][ $field ] ?? null, "dispatch field '{$field}' was shorn off" );
+		}
+	}
+
 	public function test_short_delay_is_not_blocked_by_long_delay_ahead_of_it(): void {
 		$now = \microtime( true );
 		$this->seed_delayed( 'later_h', $now + 3600.0 );

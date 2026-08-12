@@ -224,15 +224,14 @@ class Topic_Node extends Node {
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		if ( 'void' === $this->large_write_mode ) {
-			$out .= "command_node {$this->name}:config void_warranty\n";
+			$out .= $this->config_line( 'void_warranty' );
 		} elseif ( 'lock' === $this->large_write_mode ) {
-			$verb = $this->large_write_debounce_ms > 0
-				? "allow_large_writes {$this->large_write_debounce_ms}"
-				: 'allow_large_writes';
-			$out .= "command_node {$this->name}:config {$verb}\n";
+			$out .= $this->large_write_debounce_ms > 0
+				? $this->config_line( 'allow_large_writes', (string) $this->large_write_debounce_ms )
+				: $this->config_line( 'allow_large_writes' );
 		}
 		if ( null !== $this->index_formatter_name ) {
-			$out .= "command_node {$this->name}:config with_index {$this->index_formatter_name}\n";
+			$out .= $this->config_line( 'with_index', $this->index_formatter_name );
 		}
 		return $out;
 	}

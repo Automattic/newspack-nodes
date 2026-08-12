@@ -108,6 +108,32 @@ class LruCacheTest extends TestCase {
 		$this->assertSame( 2, $cache->get( 'b' ) );
 	}
 
+	public function test_delete_removes_the_shadowed_copy_too(): void {
+		// Table_Node's L1 shape: no promotion, so a re-set leaves the older
+		// copy in an older bucket and delete() must take both.
+		$cache = ( new LRU_Cache( 2, 3 ) )->without_promotion();
+		$cache->set( 'shadowed', 'stale-v1' );
+		$cache->set( 'filler', 'pad' );
+		$cache->set( 'shadowed', 'fresh-v2' );
+
+		$cache->delete( 'shadowed' );
+
+		$this->assertNull( $cache->get( 'shadowed' ) );
+	}
+
+	public function test_iterate_yields_a_shadowed_key_once(): void {
+		$cache = ( new LRU_Cache( 2, 3 ) )->without_promotion();
+		$cache->set( 'shadowed', 'stale-v1' );
+		$cache->set( 'filler', 'pad' );
+		$cache->set( 'shadowed', 'fresh-v2' );
+
+		$seen = \iterator_to_array( $cache->iterate(), false );
+		$keys = \array_keys( \iterator_to_array( $cache->iterate() ) );
+
+		$this->assertCount( 2, $seen );
+		$this->assertSame( [ 'shadowed', 'filler' ], $keys );
+	}
+
 	// ── Bucket rotation + LRU eviction ─────────────────────────────────────
 
 	public function test_lru_eviction_evicts_oldest_bucket_first(): void {

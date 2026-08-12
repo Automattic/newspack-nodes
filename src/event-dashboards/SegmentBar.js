@@ -8,7 +8,7 @@
 
 import { memo, useState, useEffect } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { formatBytes } from './formatters';
+import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
 
 /**
  * One segment of a partition or log, as the worker-status payload carries it.

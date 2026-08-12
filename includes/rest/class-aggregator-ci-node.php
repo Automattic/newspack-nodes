@@ -2,50 +2,37 @@
 /**
  * Aggregator_CI: command-dispatch for the hub-side aggregator dashboards.
  *
- * Command-dispatch for the hub-side aggregator verbs — `status`, `servers`,
- * `health`, plus the de-god slices `summary` / `servers_status`. The dashboard
- * reaches them via a command addressed `TO = _http/aggregator`. Mounts at
- * priority 11 alongside the rest of the M2 service CIs.
+ * The dashboard reaches these verbs via a command addressed
+ * `TO = _http/aggregator`. Mounts on `newspack_nodes/request_graph_ready`
+ * alongside the rest of the substrate service CIs.
  *
- * Verbs:
- *   status  — per-node partition snapshot keyed by the wired Remote_Source
- *             NODE NAME. Discovers every Remote_Source wired into ANY active
- *             topology (`Topology_Registry::graph_for` per active name,
- *             filtered on node `type === 'Remote_Source'`), then for every
- *             configured partition reads that node's substrate status snapshot
- *             from memcache under `Remote_Source_Node::status_key_for()` —
- *             the exact key Remote_Link writes. The `<vault-id>` and the
- *             `<remote_partition>` template come from the 2-arg make_node line;
- *             the `<partition>` token is substituted 0..num_partitions-1. The
- *             spoke URL is resolved from the Vault by the node's vault-id arg.
- *             Cache misses default to an empty array, not null.
- *   summary — de-god header slice: { connected, total, server_now } derived
- *             server-side from the SAME snapshot `status` builds. The dashboard
- *             header reads this tiny blob instead of recomputing the connected
- *             rollup from the full partition payload. `connected` counts servers
- *             with >=1 connected partition; `server_now` is the snapshot clock.
- *   servers_status — de-god server-cards slice: the snapshot `status` builds,
- *             re-indexed as a SEQUENTIAL ARRAY (the React card list maps over
- *             it). Both slice verbs return a JSON STRING (the substrate
- *             SliceViewNode contract) via Service_CI_Node::slice_verb().
- *   health  — cache reachability + wall-clock timestamp. Returns the stable
- *             {healthy, cache, timestamp} shape. Cache probe is
- *             wrapped in a Throwable catch so the endpoint never fails
- *             — a cache outage reports `cache=false`, not 500.
- *   servers — sequential array of registered servers with public-safe
- *             shape (id, url, has_credentials, is_config),
- *             matching the substrate Vault_CI public shape, but RETURNED
- *             AS A SEQUENTIAL ARRAY rather than a map keyed by id. The
- *             React aggregator tree relies on the array shape; don't switch
- *             to a keyed map here.
+ * Verbs — the three `node_schema()` declares, and only those:
+ *   summary        — polled header slice: `{connected, idle, total, server_now}`
+ *                    counted from `build_snapshot()`. The header reads this tiny
+ *                    blob rather than re-deriving the rollup from the full
+ *                    partition payload. `server_now` is the snapshot clock.
+ *   servers_status — polled server-cards slice: the SAME snapshot, re-indexed as
+ *                    a SEQUENTIAL ARRAY (the React card list maps over it).
+ *                    Both slices go out as a JSON STRING — the substrate
+ *                    SliceViewNode contract — via `Service_CI_Node::slice_verb()`.
+ *   probe          — button-triggered deep probe of ONE spoke: POST its
+ *                    `workers/dump_graph` through `HTTP_Out_Node::probe_command()`
+ *                    and roll the reply into a whitelisted shape (worker
+ *                    live/stale/dead, worst consumer lag, dead-letter total).
+ *                    Never proxies raw remote JSON. The only verb here with a
+ *                    remote-call surface.
  *
- * Auth: every verb requires `manage_options`.
+ * `build_snapshot()` is the single source both slices read, so they can never
+ * disagree about what they saw. It discovers every `Remote_Source` wired into
+ * ANY active topology (`Topology_Analyzer::graph_for` per active name), and for
+ * each configured partition reads that node's status snapshot from the cache
+ * under `Remote_Source_Node::status_key_for()` — the exact key Remote_Link
+ * writes. Cache reads go through `Cache_Backend::shared_first()`; a miss is an
+ * empty array, not null. The spoke URL comes from the `Vault` singleton, keyed
+ * by the node's vault-id argument.
  *
- * Memcache reads go through the shared `Core::$memd` handle: the `status`
- * verb reads `Remote_Source_Node::status_key_for()` per partition; the
- * `health` verb reports whether the handle is configured. The `status`/`servers` verbs
- * read the substrate `Newspack_Nodes\Vault` singleton directly — there is
- * no injected registry dependency.
+ * Auth is the `Capabilities` role each verb declares, resolved through the
+ * filterable `newspack_nodes/capability_map` — not a hardcoded capability.
  *
  * @package Newspack_Nodes
  */
@@ -53,13 +40,14 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
+use Newspack_Nodes\Remote_Source_Node;
 use Newspack_Nodes\Topology_Analyzer;
-use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Vault;
 
 \defined( 'ABSPATH' ) || exit;
@@ -134,6 +122,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			'deadletter_segments' => Core::num_int( $payload['deadletter_segments'] ?? 0 ),
 		];
 	}
+
 	/**
 	 * Build the per-node partition snapshot, keyed by the wired Remote_Source
 	 * NODE NAME. The single source of truth the `summary` and `servers_status`
@@ -173,9 +162,8 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				// The writer's own builder, so the two cannot drift.
 				$partitions = [];
 				for ( $p = 0; $p < $num_partitions; $p++ ) {
-					$concrete         = Core::resolve_partition_template( $template, $p );
-					$val              = \Newspack_Nodes\Cache_Backend::shared_first()?->get( \Newspack_Nodes\Remote_Source_Node::status_key_for( $name, $concrete ) );
-					$partitions[ $p ] = Core::arr( $val );
+					$key              = Remote_Source_Node::status_key_for( $name, Core::resolve_partition_template( $template, $p ) );
+					$partitions[ $p ] = Core::arr( Cache_Backend::shared_first()?->get( $key ) );
 				}
 
 				$entry = '' !== $vault_id ? $registry->get( $vault_id ) : null;

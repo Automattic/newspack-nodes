@@ -97,4 +97,33 @@ class NodeArgumentsTest extends TestCase {
 		$n->arguments( [ 'a b', 'c' ] );
 		$this->assertStringContainsString( "make_node Test_Args zebra 'a b' c", $n->dump_config() );
 	}
+
+	public function test_dump_config_quotes_spaced_node_sink_and_target_names(): void {
+		// A name is as much a token as an argument: `make Echo 'foo bar'` really
+		// does register a node named "foo bar", so every emitted name is quoted
+		// or the dumped line replays as two tokens and rebuilds a DIFFERENT graph.
+		$sink = new Test_Args_Node();
+		$sink->name( 'sink node' );
+		$n = new Test_Args_Node();
+		$n->name( 'foo bar' );
+		$n->arguments( [ 'zebra' ] );
+		$n->sink( $sink );
+		$n->target( 'down stream' );
+
+		$out = $n->dump_config();
+		$this->assertStringContainsString( "make_node Test_Args 'foo bar' zebra", $out );
+		$this->assertStringContainsString( "set_sink 'foo bar' 'sink node'", $out );
+		$this->assertStringContainsString( "connect_node 'foo bar' 'down stream'", $out );
+	}
+
+	public function test_dump_config_quotes_each_spaced_target_in_a_fan_out_list(): void {
+		$n = new Test_Args_Node();
+		$n->name( 'fan out' );
+		$n->arguments( [ 'zebra' ] );
+		$n->target( [ 'left leg', 'right leg' ] );
+
+		$out = $n->dump_config();
+		$this->assertStringContainsString( "connect_node 'fan out' 'left leg'", $out );
+		$this->assertStringContainsString( "connect_node 'fan out' 'right leg'", $out );
+	}
 }

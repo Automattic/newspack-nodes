@@ -74,8 +74,7 @@ class Log_Sources {
 			return self::taillog_list( $registry );
 		}
 		if ( ! isset( $registry[ $source ] ) ) {
-			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$source\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
+			return self::unknown_source( $registry, $source );
 		}
 		// Segmented sources tail their NEWEST {path}.{seg}; file mode the path.
 		$path = self::tail_path( $registry[ $source ] );
@@ -142,11 +141,12 @@ class Log_Sources {
 	private static function taillog_list( array $registry ): string {
 		$rows = [];
 		foreach ( $registry as $name => $entry ) {
-			// BYTES sizes what a tail reads: newest segment if segmented.
-			$size   = self::tail_bytes( $entry );
-			$rows[] = [
+			// One listing per row: AVAILABLE and BYTES are two reads of it.
+			$segments = self::source_segments( $entry );
+			$size     = self::tail_bytes( $entry, $segments );
+			$rows[]   = [
 				$name,
-				self::is_available( $entry['path'], $entry['mode'] ) ? 'yes' : 'no',
+				self::is_available( $entry, $segments ) ? 'yes' : 'no',
 				null === $size ? '-' : (string) $size,
 				$entry['path'],
 			];
@@ -176,40 +176,81 @@ class Log_Sources {
 	 * @return array<string,mixed>|string The line + cursor, or a teaching error.
 	 */
 	private static function taillog_read( array $registry, string $name, string $position ): array|string {
-		// A magic token rides through to next_offset(), which speaks them.
-		$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
-		$tokens = \explode( ':', $position );
-		if ( ! $magic
-				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
-					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-			return "taillog read: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
-		}
 		if ( ! isset( $registry[ $name ] ) ) {
-			$known = \implode( ', ', \array_keys( $registry ) );
-			return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
+			return self::unknown_source( $registry, $name );
 		}
-		$entry    = $registry[ $name ];
+		return self::read_at( self::open_tail( $registry[ $name ] ), $name, $position, 'taillog read' );
+	}
+
+	/**
+	 * Open a registry entry as a durable reader — the ONE place a `mode` token
+	 * becomes a class. No offsetlog or deadletter: these readers are ephemeral
+	 * (the single-step debugger) or client-cursored (the SSE stream).
+	 *
+	 * @param array{path: string, mode: string} $entry A registry() entry.
+	 */
+	public static function open_tail( array $entry ): Tail_Node {
+		$tail = Tail_Node::MODE_FILE === $entry['mode'] ? new File_Tail_Node() : new Tail_Node();
+		$tail->arguments( [ $entry['path'] ] );
+		return $tail;
+	}
+
+	/**
+	 * Single-step ONE configured durable reader to the record at `$position` —
+	 * the read model behind every paused single-step debugger.
+	 *
+	 * The reader arrives already ARMED — the caller's `arguments()` has run
+	 * `set_timer()` and registered it with the Event_Framework — so every exit
+	 * from here, a rejected position included, runs `remove_node()` in the
+	 * `finally`. A reader left armed with no sink fires forever inside the
+	 * worker's drain loop.
+	 *
+	 * Position grammar is the seek transport's — a `MAGIC_POSITIONS` token, or
+	 * `<segment>:<offset>` with an optional trailing `:<length>` that is
+	 * tolerated and IGNORED (the reader knows the record's real length). The
+	 * `cursor` returned is the POST-step position, i.e. exactly where the next
+	 * step resumes.
+	 *
+	 * `Tail_Node extends Consumer_Node`, so the segmented, file-follow and
+	 * partition readers all drive identically; only construction and the verb
+	 * name in the teaching errors differ. Two copies of this subtlety — segment
+	 * rolls, torn records, length-blindness, the post-step cursor — meant a fix
+	 * to one silently missed the other.
+	 *
+	 * @param Consumer_Node $reader   A configured, unsunk durable reader.
+	 * @param string        $label    Source name; stamped as FROM and echoed back.
+	 * @param string        $position Magic token, or `<segment>:<offset>[:<length>]`.
+	 * @param string        $verb     Verb name for the teaching errors.
+	 *
+	 * @return array{source:string,message:array<array-key,mixed>,cursor:array{segment:int,offset:int},at_eof:bool}|string
+	 */
+	public static function read_at( Consumer_Node $reader, string $label, string $position, string $verb ): array|string {
 		$captured = null;
-		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
-			$captured = $message;
-		} );
-		$tail = new Tail_Node();
-		$tail->sink( $capture );
-		$tail->arguments( [ $entry['path'], '', '', $entry['mode'] ] );
-		$tail->set_stamp_as( $name );
-		$tail->next_offset(
-			$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
-		);
 		try {
-			$cursor = $tail->step();
+			// A magic token rides through to next_offset(), which speaks them.
+			$magic  = \in_array( $position, self::MAGIC_POSITIONS, true );
+			$tokens = \explode( ':', $position );
+			if ( ! $magic
+					&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
+						|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
+				return "{$verb}: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
+			}
+			$reader->sink( new Callback_Node( static function ( array $message ) use ( &$captured ): void {
+				$captured = $message;
+			} ) );
+			$reader->set_stamp_as( $label );
+			$reader->next_offset(
+				$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
+			);
+			$cursor = $reader->step();
 		} finally {
-			$tail->remove_node();
+			$reader->remove_node();
 		}
 		if ( null === $captured ) {
-			return "taillog read: no line at {$name} {$position}\n";
+			return "{$verb}: no record at {$label} {$position}\n";
 		}
 		return [
-			'source'  => $name,
+			'source'  => $label,
 			'message' => $captured,
 			'cursor'  => [
 				'segment' => $cursor['segment'],
@@ -217,6 +258,17 @@ class Log_Sources {
 			],
 			'at_eof'  => $cursor['at_eof'],
 		];
+	}
+
+	/**
+	 * The ONE teaching error for a name the registry does not carry — the REPL,
+	 * the single-step read and the SSE stream all phrase it identically.
+	 *
+	 * @param array<string,array{path: string,mode: string}> $registry Name → entry.
+	 */
+	public static function unknown_source( array $registry, string $name ): string {
+		$known = \implode( ', ', \array_keys( $registry ) );
+		return "unknown log source: \"$name\" (known: " . ( '' === $known ? 'none' : $known ) . ")\n";
 	}
 
 	/**
@@ -238,7 +290,7 @@ class Log_Sources {
 				'name'      => $name,
 				'path'      => $entry['path'],
 				'mode'      => $entry['mode'],
-				'available' => self::is_available( $entry['path'], $entry['mode'] ),
+				'available' => self::is_available( $entry, $segments ),
 				'bytes'     => self::tail_bytes( $entry, $segments ),
 				'segments'  => $segments,
 			];
@@ -272,12 +324,35 @@ class Log_Sources {
 	}
 
 	/**
+	 * Whether a source currently has bytes to offer: file mode checks the file
+	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
+	 * may have pruned the early ones).
+	 *
+	 * @param array{path: string, mode: string}   $entry    A registry() entry.
+	 * @param list<array{id: int,size: int}>|null $segments A source_segments() list, or null to list here.
+	 */
+	public static function is_available( array $entry, ?array $segments = null ): bool {
+		if ( Tail_Node::MODE_SEGMENTED === $entry['mode'] ) {
+			return [] !== ( $segments ?? self::source_segments( $entry ) );
+		}
+		return \is_file( $entry['path'] ) && \is_readable( $entry['path'] );
+	}
+
+	/**
 	 * The on-disk `{path}.{seg}` segments of a segmented entry as a `{id, size}`
 	 * list sorted by id — the shape the Log Viewer's segment browser renders,
-	 * matching `log_status.segments`. Companion files (`.idx`) whose suffix is
-	 * not purely numeric are excluded — the same rule as
-	 * `Workers_CI_Node::build_log_sink_entry()` (which also stats mtime, hence
-	 * its own loop); keep the two in step. File mode has no segments: [].
+	 * matching `log_status.segments`.
+	 *
+	 * Asked of the WRITER: an ephemeral `Log_Node` on the same path already
+	 * exposes exactly this list through `Partition_Node::get_segments()`, using
+	 * its own `segment_pattern()` seam — so the naming rule is declared once, by
+	 * the class that writes the files, and a companion `.idx` can never read as
+	 * a data segment. (The sibling `Raw_Logs_CI_Node::cmd_log_status` builds an
+	 * ephemeral Partition for the same reason.) File mode has no segments: [].
+	 *
+	 * Every listing caller walks the WHOLE registry, so one entry that cannot be
+	 * listed degrades to no segments rather than blanking the reply — a
+	 * debugging surface has to survive the broken thing being debugged.
 	 *
 	 * @param array{path: string, mode: string} $entry A registry() entry.
 	 * @return list<array{id: int,size: int}>
@@ -286,38 +361,18 @@ class Log_Sources {
 		if ( Tail_Node::MODE_SEGMENTED !== $entry['mode'] ) {
 			return [];
 		}
-		$segments = [];
-		foreach ( self::segment_files( $entry['path'] ) as $file ) {
-			$suffix = \substr( $file, \strlen( $entry['path'] ) + 1 );
-			if ( ! \ctype_digit( $suffix ) ) {
-				continue;
-			}
-			$size       = \filesize( $file );
-			$segments[] = [
-				'id'   => (int) $suffix,
-				'size' => false === $size ? 0 : $size,
-			];
+		$log = new Log_Node();
+		try {
+			$log->arguments( [ $entry['path'] ] );
+			return \array_values( $log->get_segments( true ) );
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // ADR-14: cooperative stop is never a skippable error.
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'log_sources: cannot list segments of ', $entry['path'] . ': ' . $e->getMessage() );
+			return [];
+		} finally {
+			$log->remove_node();
 		}
-		\usort( $segments, static fn ( array $a, array $b ): int => $a['id'] <=> $b['id'] );
-		return $segments;
-	}
-
-	/**
-	 * Whether a source currently has bytes to offer: file mode checks the file
-	 * itself; segmented mode checks for ANY `{path}.{seg}` segment (retention
-	 * may have pruned the early ones).
-	 */
-	public static function is_available( string $path, string $mode ): bool {
-		if ( Tail_Node::MODE_SEGMENTED === $mode ) {
-			return [] !== self::segment_files( $path );
-		}
-		return \is_file( $path ) && \is_readable( $path );
-	}
-
-	/** @return array<int,string> The on-disk `{path}.{seg}` segment files. */
-	private static function segment_files( string $path ): array {
-		$segments = \glob( $path . '.[0-9]*' );
-		return \is_array( $segments ) ? $segments : [];
 	}
 
 	/**

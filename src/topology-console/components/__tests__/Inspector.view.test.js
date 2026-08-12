@@ -171,7 +171,7 @@ describe( 'Inspector (view mode)', () => {
 		// Current rate = the last sample of each series, formatted /s.
 		expect( stats ).toContain( '5.0 /s' ); // msgs in
 		expect( stats ).toContain( '2.0 /s' ); // msgs out
-		expect( stats ).toContain( '2.0 K/s' ); // bytes read (2048 B/s)
+		expect( stats ).toContain( '2 KB/s' ); // bytes read (2048 B/s)
 		expect( stats ).toContain( '512 B/s' ); // bytes written
 		for ( const current of header.querySelectorAll(
 			'.topology-insp__spark-val'
@@ -1266,8 +1266,8 @@ describe( 'Inspector (view mode)', () => {
 
 			expect( container.textContent ).toMatch( /150 \/s/ );
 			expect( container.textContent ).toMatch( /0 B\/s/ );
-			expect( container.textContent ).toMatch( /1\.0 G\/s/ );
-			expect( container.textContent ).toMatch( /1\.0 G/ );
+			expect( container.textContent ).toMatch( /1 GB\/s/ );
+			expect( container.textContent ).toMatch( /1 GB/ );
 			expect( container.textContent ).toMatch( /1h ago/ );
 		} finally {
 			jest.useRealTimers();
@@ -1311,10 +1311,10 @@ describe( 'Inspector (view mode)', () => {
 
 	it( 'renders bytes formatters in Throughput rows', () => {
 		const { container } = renderNode();
-		// lgstMsg = 4096 → "4.0 K"
-		expect( container.textContent ).toMatch( /4\.0 K/ );
+		// lgstMsg = 4096 → "4 KB"
+		expect( container.textContent ).toMatch( /4 KB/ );
 		// bytesWritten = 3 MB
-		expect( container.textContent ).toMatch( /3\.0 M/ );
+		expect( container.textContent ).toMatch( /3 MB/ );
 	} );
 
 	it( 'formats counter with locale separators', () => {

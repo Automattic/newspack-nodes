@@ -18,13 +18,64 @@ namespace Newspack_Nodes\Config_System;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Worker_Should_Stop;
 
 \defined( 'ABSPATH' ) || exit;
 
 class Restart_Planner {
+
+	/**
+	 * The whole settings-save recipe, for every door a setting comes through:
+	 * recycle the workers the classification names, then tell every live worker
+	 * to re-read the config cache it froze at boot.
+	 *
+	 * Best-effort by contract — resolving the locks dir re-enters
+	 * `Config::load_config()` via Bootstrap, and the next worker generation
+	 * reads the new config whatever happens here.
+	 *
+	 * @param array<int,string>|string $restart Restart classification (see topologies_for()).
+	 * @return array<int,string> Topology names restarted.
+	 */
+	public static function plan( array|string $restart ): array {
+		try {
+			$locks_dir = Config::get_locks_directory();
+			$restarted = self::request_restarts( $restart, $locks_dir );
+			self::request_reloads( $locks_dir );
+			return $restarted;
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // ADR-14: a cooperative stop is not a planning failure.
+		} catch ( \Throwable $e ) {
+			Core::print_less_often( 'settings: restart planning failed: ', $e->getMessage() );
+			return [];
+		}
+	}
+
+	/**
+	 * Touch the reload flag in every partition lock dir of every ACTIVE topology;
+	 * return the topology names touched.
+	 *
+	 * Unclassified by design, and the counterpart to `request_restarts()`: a
+	 * restart classification says which workers must RECYCLE, while every worker
+	 * alive holds a Config cache frozen at boot and so must re-read whatever
+	 * changed. Without this, a field classified `[]` waits
+	 * out a whole ~595s worker lifetime instead of landing on the next 15s
+	 * window. Reload costs no process recycle, so the broad fan-out is cheap.
+	 *
+	 * @param string $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @return array<int,string>
+	 */
+	public static function request_reloads( string $locks_dir ): array {
+		return self::fan_out(
+			self::topologies_for( 'all' ),
+			$locks_dir,
+			Lock_Node::request_reload_at( ... )
+		);
+	}
 
 	/**
 	 * Touch the restart flag in every partition lock dir of each topology a save
@@ -35,17 +86,11 @@ class Restart_Planner {
 	 * @return array<int,string>
 	 */
 	public static function request_restarts( array|string $restart, string $locks_dir ): array {
-		if ( ! Bootstrap::fleet_site() ) {
-			return [];
-		}
-		$topologies = self::topologies_for( $restart );
-		foreach ( $topologies as $name ) {
-			$count = Bootstrap::num_partitions_for( $name );
-			for ( $p = 0; $p < $count; $p++ ) {
-				Lock_Node::request_restart_at( "{$locks_dir}/{$name}.p{$p}.lock.d" );
-			}
-		}
-		return $topologies;
+		return self::fan_out(
+			self::topologies_for( $restart ),
+			$locks_dir,
+			Lock_Node::request_restart_at( ... )
+		);
 	}
 
 	/**
@@ -117,28 +162,23 @@ class Restart_Planner {
 	}
 
 	/**
-	 * Touch the reload flag in every partition lock dir of every ACTIVE topology;
-	 * return the topology names touched.
+	 * Signal every partition lock dir of $topologies; return the names signalled.
+	 * Off the fleet site nothing is touched — the fleet is network-global, so a
+	 * subsite must never reach the main site's lock dirs.
 	 *
-	 * Unclassified by design, and the counterpart to `request_restarts()`: a
-	 * restart classification says which workers must RECYCLE, while every worker
-	 * alive holds a Config cache frozen at boot and so must re-read whatever
-	 * changed. Without this, a field classified `[]` waits
-	 * out a whole ~595s worker lifetime instead of landing on the next 15s
-	 * window. Reload costs no process recycle, so the broad fan-out is cheap.
-	 *
-	 * @param string $locks_dir Locks directory holding the per-partition lock dirs.
+	 * @param array<int,string>          $topologies Topology names.
+	 * @param string                     $locks_dir  Locks directory.
+	 * @param callable(string):bool      $signal     Per-lock-dir signal.
 	 * @return array<int,string>
 	 */
-	public static function request_reloads( string $locks_dir ): array {
+	private static function fan_out( array $topologies, string $locks_dir, callable $signal ): array {
 		if ( ! Bootstrap::fleet_site() ) {
 			return [];
 		}
-		$topologies = \array_map( 'strval', \array_keys( Bootstrap::get_topologies() ) );
 		foreach ( $topologies as $name ) {
 			$count = Bootstrap::num_partitions_for( $name );
 			for ( $p = 0; $p < $count; $p++ ) {
-				Lock_Node::request_reload_at( "{$locks_dir}/{$name}.p{$p}.lock.d" );
+				$signal( "{$locks_dir}/{$name}.p{$p}.lock.d" );
 			}
 		}
 		return $topologies;

@@ -25,7 +25,6 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Command_Interpreter_Node;
-use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
@@ -39,13 +38,12 @@ class Status_CI_Node extends Service_CI_Node {
 	 */
 	public static function cmd_get(): array {
 		$cache_available = null !== Cache_Backend::shared_first();
-		/** @var int|float|string|bool|null $num_partitions */
-		$num_partitions = RuntimeConfig::value( 'num_partitions' );
 
 		return [
 			'status'          => 'ok',
 			'runtime_version' => \defined( 'NEWSPACK_NODES_VERSION' ) ? \NEWSPACK_NODES_VERSION : 'unknown',
-			'num_partitions'  => (int) $num_partitions,
+			// The ONE clamped accessor; raw reports a count nobody runs.
+			'num_partitions'  => Bootstrap::global_num_partitions(),
 			'topologies'      => \array_keys( Bootstrap::get_topologies() ),
 			'cache_available' => $cache_available,
 			'timestamp'       => \time(),

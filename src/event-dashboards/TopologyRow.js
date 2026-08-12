@@ -16,7 +16,10 @@ import TopologySection from './TopologySection';
 import TopologyControls from './TopologyControls';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
-import { formatAge, formatEtaSeconds } from './formatters';
+import {
+	formatAge,
+	formatEtaSeconds,
+} from '@newspack-nodes/shared/utils/formatters';
 import './styles/topology-row.scss';
 
 // Opens the hub Console tab; name/edit/isNew add ?topology/?edit/?new params.

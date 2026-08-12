@@ -133,6 +133,7 @@ class Settings_Event_Writer {
 	 * guarantees teardown even if fill/flush throws).
 	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
+	 * @throws Worker_Should_Stop When a cooperative stop lands mid-append.
 	 */
 	private static function default_append( array $message ): void {
 		// Runs on EVERY update_option; never fatal the caller we observe.
@@ -144,6 +145,8 @@ class Settings_Event_Writer {
 			$writer->arguments( self::partition_args( $dir ) );
 			$writer->fill( $message );
 			$writer->flush();
+		} catch ( Worker_Should_Stop $e ) {
+			throw $e; // ADR-14: a cooperative stop is not a write failure.
 		} catch ( \Throwable $e ) {
 			Core::print_less_often( 'settings-writer: ' . $e->getMessage() );
 		} finally {

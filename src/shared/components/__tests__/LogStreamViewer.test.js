@@ -40,6 +40,55 @@ beforeEach( () => {
 	logRowListProps = undefined;
 } );
 
+// Every other toolbar control travels as a message through the consumer's
+// graph; Clear used to poke the node's ring, which left the id stamp and the
+// rate smoother loaded and was overwritten within 250ms by the next frame.
+it( 'sends Clear through the consumer, not into the node', () => {
+	const onClear = jest.fn();
+	const node = { lines: [ { id: 1 } ] };
+	const { getByText } = render(
+		<LogStreamViewer
+			{ ...BASE }
+			getViewNode={ () => node }
+			onClear={ onClear }
+		/>
+	);
+
+	fireEvent.click( getByText( 'Clear' ) );
+
+	expect( onClear ).toHaveBeenCalledTimes( 1 );
+	expect( node.lines ).toEqual( [ { id: 1 } ] );
+} );
+
+it( 'renders the debug row with a KEY column, and drops it when keyless', () => {
+	const row = {
+		id: 9,
+		msgId: '3:120:44',
+		key: 'jobstats',
+		content: 'jobstats: {"n":4}',
+	};
+	const keyed = render( <LogStreamViewer { ...BASE } /> );
+	fireEvent.click( keyed.getByText( 'Debug' ) );
+	const withKey = render( logRowListProps.renderRow( row ) ).container;
+	keyed.unmount();
+
+	const bare = render(
+		<LogStreamViewer { ...BASE } hasKeyColumn={ false } />
+	);
+	fireEvent.click( bare.getByText( 'Debug' ) );
+	const keyless = render( logRowListProps.renderRow( row ) ).container;
+
+	expect(
+		withKey.querySelector( '.newspack-nodes-log-row__key' ).textContent
+	).toBe( 'jobstats' );
+	expect(
+		keyless.querySelector( '.newspack-nodes-log-row__key' )
+	).toBeNull();
+	expect(
+		keyless.querySelector( '.newspack-nodes-log-row__id' ).textContent
+	).toBe( '3:120:44' );
+} );
+
 it( 'renders a title heading when given one', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } title="Request Log" />

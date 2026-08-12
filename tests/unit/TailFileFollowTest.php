@@ -2,17 +2,19 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\File_Tail_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 /**
- * Single-file follow mode (`tail -F` with logrotate semantics): the SECOND source
- * shape of Tail_Node. Follows one filename across rotation/truncation, tracking the
- * generation identity by inode. Segmented `{file}.{seg}` mode is exercised by TailTest.
+ * `File_Tail_Node` — single-file follow (`tail -F` with logrotate semantics), the
+ * sibling of segmented `Tail_Node`. Follows one filename across
+ * rotation/truncation, tracking the generation identity by inode. Segmented
+ * `{file}.{seg}` reading is exercised by TailTest.
  */
-#[CoversClass( Tail_Node::class )]
+#[CoversClass( File_Tail_Node::class )]
 class TailFileFollowTest extends TestCase {
 	private string $tmp;
 
@@ -37,10 +39,10 @@ class TailFileFollowTest extends TestCase {
 		return \array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
 	}
 
-	/** File-mode Tail following $path, with an optional offsetlog dir for durable-resume tests. */
-	private function follow( string $path, string $offsetlog = '' ): Tail_Node {
-		$t = new Tail_Node();
-		$t->arguments( [ $path, $offsetlog, '', Tail_Node::MODE_FILE ] );
+	/** File_Tail following $path, with an optional offsetlog dir for durable-resume tests. */
+	private function follow( string $path, string $offsetlog = '' ): File_Tail_Node {
+		$t = new File_Tail_Node();
+		$t->arguments( [ $path, $offsetlog ] );
 		return $t;
 	}
 
@@ -498,37 +500,45 @@ class TailFileFollowTest extends TestCase {
 		$this->assertSame( [ "blue\n" ], $this->values( $cap ), 'only bytes appended after the resume emit' );
 	}
 
-	public function test_unknown_source_mode_throws_errors_as_docs(): void {
-		$t = new Tail_Node();
-		$this->expectException( \InvalidArgumentException::class );
-		$this->expectExceptionMessageMatches( '/segmented.*file|file.*segmented/s' );
-		$t->arguments( [ "{$this->tmp}/x.log", '', '', 'bogus' ] );
-	}
-
-	public function test_dump_config_round_trips_mode_and_path(): void {
+	public function test_dump_config_round_trips_the_followed_path(): void {
 		$path = "{$this->tmp}/debug.log";
 		$t    = $this->follow( $path );
 		$t->name( 'debugtail' );
 
 		$dump = $t->dump_config();
-		$this->assertStringContainsString( 'make_node Tail debugtail', $dump );
+		$this->assertStringContainsString( 'make_node File_Tail debugtail', $dump );
 		$this->assertStringContainsString( $path, $dump );
-		$this->assertStringContainsString( Tail_Node::MODE_FILE, $dump );
 
-		// Replaying the serialized args reconstructs a file-mode Tail.
-		$t2 = new Tail_Node();
+		// Replaying the serialized args reconstructs the same follower.
+		$t2 = new File_Tail_Node();
 		$t2->arguments( $t->arguments() );
-		$ref = new \ReflectionObject( $t2 );
-		$this->assertSame( Tail_Node::MODE_FILE, $ref->getProperty( 'source_mode' )->getValue( $t2 ) );
+		$this->assertSame( $path, $t2->arguments()[0] );
 	}
 
-	public function test_segmented_mode_is_the_default_when_mode_omitted(): void {
+	/**
+	 * The two source shapes are two CLASSES, not one class with a mode flag —
+	 * so a File_Tail owns no source Partition and says so by name. The parent's
+	 * bare "not initialized" sent a reader hunting for a missing arguments()
+	 * call; worse, nothing enforced the invariant at all, so the next
+	 * Consumer_Node method to read source() would have fataled in a worker.
+	 */
+	public function test_a_file_follower_has_no_source_partition_and_refuses_by_name(): void {
+		$t = $this->follow( "{$this->tmp}/debug.log" );
+
+		$source = ( new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class ) )
+			->getProperty( 'source' )->getValue( $t );
+		$this->assertNull( $source, 'a single inode is not a segment list' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/File_Tail.*no source Partition/' );
+		( new \ReflectionMethod( $t, 'source' ) )->invoke( $t );
+	}
+
+	public function test_the_segmented_sibling_keeps_its_log_source(): void {
 		$t = new Tail_Node();
 		$t->arguments( [ "{$this->tmp}/data.log", "{$this->tmp}/off" ] );
-		$ref = new \ReflectionObject( $t );
-		$this->assertSame( Tail_Node::MODE_SEGMENTED, $ref->getProperty( 'source_mode' )->getValue( $t ) );
 		$src = ( new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class ) )->getProperty( 'source' )->getValue( $t );
-		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $src, 'omitted mode keeps the segmented Log source' );
+		$this->assertInstanceOf( \Newspack_Nodes\Log_Node::class, $src, 'segmented Tail reads a Log' );
 	}
 
 	public function test_file_mode_GET_LAG_reports_bytes_behind_from_live_file_size(): void {

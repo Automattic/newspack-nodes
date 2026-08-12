@@ -78,20 +78,23 @@ class StdoutNodeTest extends TestCase {
 		$this->assertSame( '', $this->fill_value( null ) );
 	}
 
-	public function test_fill_coerces_array_value_to_the_word_Array(): void {
-		$this->assertSame( 'Array', $this->fill_value( [ 'a', 'b' ] ) );
+	public function test_fill_writes_nothing_for_an_array_value(): void {
+		// The canonical scalar read every terminal sink shares (Stderr_Node
+		// already used it): a non-scalar VALUE is not this sink's to render,
+		// so it writes nothing rather than the useless word `Array`.
+		$this->assertSame( '', $this->fill_value( [ 'a', 'b' ] ) );
 	}
 
-	public function test_fill_coerces_stringable_object_via_to_string(): void {
+	public function test_fill_writes_nothing_for_a_stringable_object(): void {
 		$obj = new class() implements \Stringable {
 			public function __toString(): string {
 				return 'stringy';
 			}
 		};
-		$this->assertSame( 'stringy', $this->fill_value( $obj ) );
+		$this->assertSame( '', $this->fill_value( $obj ) );
 	}
 
-	public function test_fill_coerces_non_stringable_object_to_empty(): void {
+	public function test_fill_writes_nothing_for_a_non_stringable_object(): void {
 		$this->assertSame( '', $this->fill_value( new \stdClass() ) );
 	}
 

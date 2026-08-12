@@ -6,18 +6,12 @@ import {
 	TYPE,
 	KEY,
 	VALUE,
-	TM_BYTESTREAM,
-	TM_EOF,
-	TM_PING,
 	TM_COMMAND,
-	TM_RESPONSE,
 	TM_ERROR,
 	TM_INFO,
-	TM_STRUCT,
 	TM_REQUEST,
-	TM_NOREPLY,
-	TM_UNTYPED,
 	newMessage,
+	typeLabels,
 } from './message';
 import names from './reserved-node-names.json';
 
@@ -60,26 +54,54 @@ import names from './reserved-node-names.json';
 /** Longest FROM path `stampMessage()` builds before it drops the message. */
 export const MAX_FROM_SIZE = 1024;
 
-/**
- * Human-readable type labels for the dropMessage audit (PHP type_names).
- *
- * @type {Array<[number, string]>}
- */
-const TYPE_NAMES = [
-	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
-	[ TM_EOF, 'TM_EOF' ],
-	[ TM_PING, 'TM_PING' ],
-	[ TM_COMMAND, 'TM_COMMAND' ],
-	[ TM_RESPONSE, 'TM_RESPONSE' ],
-	[ TM_ERROR, 'TM_ERROR' ],
-	[ TM_INFO, 'TM_INFO' ],
-	[ TM_STRUCT, 'TM_STRUCT' ],
-	[ TM_REQUEST, 'TM_REQUEST' ],
-	[ TM_NOREPLY, 'TM_NOREPLY' ],
-	[ TM_UNTYPED, 'TM_UNTYPED' ],
-];
 // Types whose VALUE is included in the dropMessage audit line.
 const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
+
+/**
+ * A node's outgoing targets as a list, whichever shape `target` is in —
+ * `Node.target` is `string|string[]`, so every reader needs this and only one
+ * should own it.
+ *
+ * @param {Object} node Any node (or node-shaped record).
+ * @return {string[]} Its targets; empty when unset.
+ */
+export function targetsOf( node ) {
+	return [].concat( node?.target ?? [] ).filter( Boolean );
+}
+
+/** What a redacted credential renders as (PHP Node::REDACTED). */
+export const REDACTED = '<redacted>';
+
+/**
+ * Mask credentials in a value, mirroring PHP `Node::redact_secrets()` by the
+ * one rule `Core.isSecretProperty()` owns. Two shapes carry them: a
+ * secret-named key, and a `--auth_password=…` argument token, which is how the
+ * Vault admin UI sends them. The name survives; only the value goes.
+ *
+ * @param {*} value Any VALUE, at any depth.
+ * @return {*} The same shape with credential values masked.
+ */
+function redactSecrets( value ) {
+	if ( Array.isArray( value ) ) {
+		return value.map( redactSecrets );
+	}
+	if ( null !== value && 'object' === typeof value ) {
+		const out = {};
+		for ( const [ key, item ] of Object.entries( value ) ) {
+			out[ key ] = Core.isSecretProperty( key )
+				? REDACTED
+				: redactSecrets( item );
+		}
+		return out;
+	}
+	if ( 'string' === typeof value && value.startsWith( '--' ) ) {
+		const eq = value.indexOf( '=' );
+		if ( -1 !== eq && Core.isSecretProperty( value.slice( 2, eq ) ) ) {
+			return value.slice( 0, eq + 1 ) + REDACTED;
+		}
+	}
+	return value;
+}
 
 /**
  * The base contract every runtime node honors: `fill( message )`.
@@ -297,7 +319,8 @@ export class Node {
 		const next = '' === from ? name : `${ name }/${ from }`;
 		if ( next.length > MAX_FROM_SIZE ) {
 			this.printLessOften(
-				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
+				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: `,
+				next
 			);
 			return false;
 		}
@@ -313,12 +336,7 @@ export class Node {
 	 */
 	dropMessage( message, error ) {
 		const type = message[ TYPE ];
-		const labels = [];
-		for ( const [ bit, label ] of TYPE_NAMES ) {
-			if ( type & bit ) {
-				labels.push( label );
-			}
-		}
+		const labels = typeLabels( type );
 		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
 
 		const prefix =
@@ -334,42 +352,41 @@ export class Node {
 		}
 		const value = message[ VALUE ];
 		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
+			const redacted = redactSecrets( value );
 			const valueStr =
-				null !== value && 'object' === typeof value
-					? JSON.stringify( value )
-					: String( value );
+				null !== redacted && 'object' === typeof redacted
+					? JSON.stringify( redacted )
+					: String( redacted );
 			parts.push( `payload: ${ valueStr }` );
 		}
-		const line = parts.join( ' ' );
 
-		this.printLessOften( line );
+		// Key on parts[0] (stable category); the tail prints once, unkeyed.
+		const head = parts.shift();
+		const tail = parts.length ? ' ' + parts.join( ' ' ) : '';
+		this.printLessOften( head, tail );
 	}
 
 	/**
 	 * Emit a stderr line tagged with this node's midfix, via Core's stderr.
 	 *
-	 * @param {?string} text Line to emit; one that already opens with a date
-	 *                       is passed through untouched, nothing at all when
-	 *                       empty or nullish.
+	 * @param {?string} text Line to emit; nothing at all when empty or nullish.
 	 */
 	stderr( text ) {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
 		}
-		if ( /^\d{4}-\d\d-\d\d/.test( text ) ) {
-			Core.stderr( text );
-			return;
-		}
-		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
+		Core.stderr( this.log_midfix( text ) );
 	}
 
 	/**
-	 * Node-keyed rate-limited logging (per-node via log_midfix).
+	 * Node-keyed rate-limited logging (per-node via log_midfix). Only `text`
+	 * keys the throttle — see `Core.printLessOften`.
 	 *
-	 * @param {string} text Line to log; Core collapses the repeats.
+	 * @param {string}    text  Line to log; Core collapses the repeats.
+	 * @param {...string} extra Variable tail printed beside it, never keyed.
 	 */
-	printLessOften( text ) {
-		Core.printLessOften( this.log_midfix( text ) );
+	printLessOften( text, ...extra ) {
+		Core.printLessOften( this.log_midfix( text ), ...extra );
 	}
 
 	/**
@@ -404,26 +421,27 @@ export class Node {
 	 * @return {string} TSL that rebuilds this node, each line newline-terminated.
 	 */
 	dumpConfig() {
-		let out = `make_node ${ this.shellClassName() } ${ this.name }`;
-		if ( this.arguments.length ) {
-			out += ` ${ serializeArgs( this.arguments ) }`;
-		}
-		out += '\n';
+		let out = commandLine(
+			'make_node',
+			this.shellClassName(),
+			this.name,
+			...this.arguments
+		);
 
 		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
 		const implicit = names.COMMAND_INTERPRETER === sinkName;
 		if ( '' !== sinkName && ! implicit ) {
-			out += `set_sink ${ this.name } ${ sinkName }\n`;
+			out += commandLine( 'set_sink', this.name, sinkName );
 		}
 
 		if ( Array.isArray( this.target ) ) {
 			for ( const owner of this.target ) {
 				if ( owner ) {
-					out += `connect_node ${ this.name } ${ owner }\n`;
+					out += commandLine( 'connect_node', this.name, owner );
 				}
 			}
 		} else if ( 'string' === typeof this.target && '' !== this.target ) {
-			out += `connect_node ${ this.name } ${ this.target }\n`;
+			out += commandLine( 'connect_node', this.name, this.target );
 		}
 
 		return out;
@@ -736,6 +754,21 @@ export function serializeArg( token ) {
  */
 function serializeArgs( tokens ) {
 	return tokens.map( serializeArg ).join( ' ' );
+}
+
+/**
+ * One replayable TSL line from its tokens. A command line IS an argv — the verb,
+ * the type, the name and the arguments are all just tokens, so every one of them
+ * goes through the same quoting. `make_node Echo echo foo bar` reads as if `echo`
+ * were the name and `foo bar` the arguments; the command's actual arguments are
+ * all four. Mirror of PHP Node::command_line (public there: subclass
+ * dump_config overrides call it; no JS node emits verb lines).
+ *
+ * @param {...string} tokens Tokens of the line, verb first.
+ * @return {string} The quoted line, newline-terminated.
+ */
+function commandLine( ...tokens ) {
+	return serializeArgs( tokens ) + '\n';
 }
 
 /**

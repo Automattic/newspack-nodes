@@ -23,8 +23,21 @@
 if ( 'undefined' !== typeof window ) {
 	const { SseInNode } = require( '../runtime/sse-in-node' );
 	const { TimerNode } = require( '../runtime/timer-node' );
-	const { createTimerHazardGuard } = require( './timer-hazard' );
+	const { createTimerHazardGuard, firstFrame } = require( './timer-hazard' );
 	const guard = createTimerHazardGuard();
+
+	// @longform
+	// Registered BEFORE the dispose hooks below, because jest-circus runs
+	// same-block afterEach hooks in declaration order and every dispose tells
+	// the guard to forget that node. Read the verdict first, then reset: a
+	// dispose loop running ahead of it erases the evidence it is about to read.
+	afterEach( () => {
+		try {
+			guard.assertClean();
+		} finally {
+			guard.onClear();
+		}
+	} );
 
 	// @longform
 	// Interval accounting, and the standing guard the teardown below is
@@ -72,11 +85,9 @@ if ( 'undefined' !== typeof window ) {
 	afterAll( () => {
 		const sites = [];
 		live.forEach( ( err ) => {
-			const site = ( err.stack || '' )
-				.split( '\n' )
-				.find( ( line ) => line.includes( '/src/runtime/' ) );
+			const site = firstFrame( err, '/src/runtime/' );
 			if ( site ) {
-				sites.push( site.trim() );
+				sites.push( site );
 			}
 		} );
 		live.clear();
@@ -100,24 +111,31 @@ if ( 'undefined' !== typeof window ) {
 	const realClearInterval = global.clearInterval;
 
 	/**
-	 * Track every instance that arms a timer, and dispose it after each test.
+	 * Track every instance that arms a timer, report the arming to the guard,
+	 * and disarm it after each test — on the REAL clock, since the node's own
+	 * dispose reaches for whichever clearInterval is currently installed.
 	 *
 	 * @param {Object} proto   Prototype to instrument.
 	 * @param {string} arm     Method that arms the timer.
 	 * @param {string} dispose Method that releases it.
 	 * @param {string} handle  Property holding the raw interval id.
 	 */
-	const disposeAfterEach = ( proto, arm, dispose, handle ) => {
+	const disarmAfterEach = ( proto, arm, dispose, handle ) => {
 		const armed = new Set();
 		const original = proto[ arm ];
 		proto[ arm ] = function ( ...args ) {
 			armed.add( this );
-			guard.onArm( this, currentSetInterval !== accounting );
-			return original.apply( this, args );
+			const result = original.apply( this, args );
+			// Only an OWN slot strands a timer; a hitchhiker holds no handle.
+			if ( null !== this[ handle ] ) {
+				guard.onArm( this, currentSetInterval !== accounting );
+			}
+			return result;
 		};
-		// A disposed node strands nothing, so it clears the standing record.
+		// Clears both records here, since a FAKE clearInterval clears neither.
 		const originalDispose = proto[ dispose ];
 		proto[ dispose ] = function ( ...args ) {
+			live.delete( this[ handle ] );
 			guard.onDispose( this );
 			return originalDispose.apply( this, args );
 		};
@@ -130,15 +148,32 @@ if ( 'undefined' !== typeof window ) {
 				}
 			} );
 			armed.clear();
-			// Verdict BEFORE the reset: onClear discards it by design.
-			try {
-				guard.assertClean();
-			} finally {
-				guard.onClear();
-			}
 		} );
 	};
 
-	disposeAfterEach( SseInNode.prototype, 'start', 'close', '_watchdog' );
-	disposeAfterEach( TimerNode.prototype, 'setTimer', 'stopTimer', '_handle' );
+	/**
+	 * Close after each test whatever a test opened. No timer accounting: the
+	 * SSE watchdog is a TimerNode timer, disarmed by `disarmAfterEach` above,
+	 * and close() is wanted here for the REST of a live stream — the reopen
+	 * timeout and the visibility listener.
+	 *
+	 * @param {Object} proto Prototype to instrument.
+	 * @param {string} open  Method that opens the stream.
+	 * @param {string} close Method that closes it.
+	 */
+	const closeAfterEach = ( proto, open, close ) => {
+		const opened = new Set();
+		const original = proto[ open ];
+		proto[ open ] = function ( ...args ) {
+			opened.add( this );
+			return original.apply( this, args );
+		};
+		afterEach( () => {
+			opened.forEach( ( node ) => node[ close ]() );
+			opened.clear();
+		} );
+	};
+
+	disarmAfterEach( TimerNode.prototype, 'setTimer', 'stopTimer', '_handle' );
+	closeAfterEach( SseInNode.prototype, 'start', 'close' );
 }

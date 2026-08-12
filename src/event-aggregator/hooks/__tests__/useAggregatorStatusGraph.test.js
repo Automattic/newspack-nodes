@@ -287,6 +287,35 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		expect( result.current.probes.spoke1 ).toEqual( { ok: true, rollup } );
 	} );
 
+	test( 'unmount removes every probe node it raised (they ride the build)', async () => {
+		const { result, unmount } = renderHook( () =>
+			useAggregatorStatusGraph( {} )
+		);
+		await act( async () => {
+			await result.current.probe( 'spokeQ' );
+		} );
+		expect( Core.node( 'aggregator:probe:spokeQ' ) ).toBeTruthy();
+
+		unmount();
+
+		// Left behind, it outlives the interpreter it was sunk into and the
+		// next mount hands the same dead node back.
+		expect( Core.node( 'aggregator:probe:spokeQ' ) ).toBeNull();
+	} );
+
+	test( 'a Reset Graph rebuild starts from no probe nodes', async () => {
+		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
+		await act( async () => {
+			await result.current.probe( 'spokeR' );
+		} );
+
+		await act( async () => {
+			Core.bumpGraphGeneration();
+		} );
+
+		expect( Core.node( 'aggregator:probe:spokeR' ) ).toBeNull();
+	} );
+
 	test( 'probe rejects after unmount (graph gone)', async () => {
 		const { result, unmount } = renderHook( () =>
 			useAggregatorStatusGraph( {} )

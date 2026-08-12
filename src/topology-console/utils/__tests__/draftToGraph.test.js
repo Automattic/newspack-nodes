@@ -6,11 +6,7 @@
  * the canvas but is not the document's to declare.
  */
 
-import {
-	assertResolvedConfigEdges,
-	draftToGraph,
-	graphFromTsl,
-} from '../draftToGraph';
+import { draftToGraph, graphFromTsl } from '../draftToGraph';
 import { DraftInterpreterNode } from '../../../runtime/draft-interpreter-node';
 
 describe( 'graphFromTsl', () => {
@@ -102,47 +98,5 @@ describe( 'verb rows carry their provenance', () => {
 			[ 'set_a', undefined ],
 			[ 'set_b', undefined ],
 		] );
-	} );
-} );
-
-describe( 'assertResolvedConfigEdges', () => {
-	const withToken = () => {
-		const d = new DraftInterpreterNode();
-		d.load(
-			'make_node Echo src\ncommand_node src:config set_stats_target <wombat:sink>'
-		);
-		return d;
-	};
-
-	it( 'throws when a token target has no resolved list', () => {
-		// Unresolved, the edge is simply ABSENT from the canvas — and a save
-		// then writes routing the operator was never shown.
-		expect( () =>
-			assertResolvedConfigEdges( withToken(), undefined )
-		).toThrow( /Missing resolved_config_edges/ );
-	} );
-
-	it( 'ignores a token in a verb that is not a target setter', () => {
-		// The guard mirrors `withResolvedConfigEdges`, which scans only
-		// `set_*target`. Broader, it fires on ordinary `<config:…>` args.
-		const d = new DraftInterpreterNode();
-		d.load(
-			'make_node Echo src\ncommand_node src:config set_window <config:w>'
-		);
-
-		expect( () => assertResolvedConfigEdges( d, undefined ) ).not.toThrow();
-	} );
-
-	it( 'is satisfied by a resolved list, even an empty one', () => {
-		expect( () =>
-			assertResolvedConfigEdges( withToken(), [] )
-		).not.toThrow();
-	} );
-
-	it( 'says nothing when no argument carries a token', () => {
-		const d = new DraftInterpreterNode();
-		d.load( 'make_node Echo src\ncommand_node src:config set_x plain' );
-
-		expect( () => assertResolvedConfigEdges( d, undefined ) ).not.toThrow();
 	} );
 } );

@@ -18,7 +18,8 @@ import { useEffect, useRef, useState, createPortal } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '../runtime/react';
-import { useVaultGraph } from './hooks/useVaultGraph';
+import { LIST_VIEW, useVaultGraph } from './hooks/useVaultGraph';
+import { errorMessage } from '../shared/errorMessage';
 import './vault-admin.scss';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 
@@ -28,16 +29,6 @@ const EMPTY_MODEL = {
 	loading: true,
 	error: null,
 };
-
-/**
- * Pull a human-readable message off a thrown verb error.
- *
- * @param {Error} err Thrown error from a CRUD callback.
- * @return {string} Display message.
- */
-function errorMessage( err ) {
-	return ( err && err.message ) || __( 'Error', 'newspack-nodes' );
-}
 
 /**
  * Substrate plain-DOM modal shell (no @wordpress/components): a backdrop + a
@@ -129,7 +120,8 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 
 /**
  * A single server row — id / url / status + Test / Remove actions. Owns its own
- * per-row test-status string (set on Test).
+ * per-row status string: both actions report their outcome through it, since a
+ * failed one leaves the row on screen with nothing else to say so.
  *
  * @param {Object}   props          Component props.
  * @param {Object}   props.server   Public server shape from the view model.
@@ -139,24 +131,24 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
  */
 function ServerRow( { server, onRemove, onTest } ) {
 	const { id, url } = server;
-	const [ testStatus, setTestStatus ] = useState( { text: '', tone: '' } );
+	const [ status, setStatus ] = useState( { text: '', tone: '' } );
 	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 
 	const handleTest = async () => {
 		setBusy( true );
-		setTestStatus( {
+		setStatus( {
 			text: __( 'Testing…', 'newspack-nodes' ),
 			tone: '',
 		} );
 		try {
 			await onTest( id );
-			setTestStatus( {
+			setStatus( {
 				text: __( 'Connected!', 'newspack-nodes' ),
 				tone: 'is-success',
 			} );
 		} catch ( err ) {
-			setTestStatus( {
+			setStatus( {
 				text: sprintf(
 					// translators: %s: connection error message.
 					__( 'Failed: %s', 'newspack-nodes' ),
@@ -177,6 +169,16 @@ function ServerRow( { server, onRemove, onTest } ) {
 		setBusy( true );
 		try {
 			await onRemove( id );
+		} catch ( err ) {
+			// The row is still here; the row is where the failure belongs.
+			setStatus( {
+				text: sprintf(
+					// translators: %s: removal error message.
+					__( 'Remove failed: %s', 'newspack-nodes' ),
+					errorMessage( err )
+				),
+				tone: 'is-error',
+			} );
 		} finally {
 			setBusy( false );
 		}
@@ -192,9 +194,9 @@ function ServerRow( { server, onRemove, onTest } ) {
 			<td>{ url }</td>
 			<td>
 				<span
-					className={ `newspack-nodes-status test-status ${ testStatus.tone }` }
+					className={ `newspack-nodes-status test-status ${ status.tone }` }
 				>
-					{ testStatus.text }
+					{ status.text }
 				</span>
 			</td>
 			<td>
@@ -477,7 +479,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 	const { addServer, removeServer, testServer } = useVaultGraph();
 
 	// The table reads the vault:list view model (probes live in vault:test).
-	const model = useNodeState( 'vault:list', 'view' ) ?? EMPTY_MODEL;
+	const model = useNodeState( LIST_VIEW, 'view' ) ?? EMPTY_MODEL;
 	const { servers, error } = model;
 
 	const [ isAddOpen, setIsAddOpen ] = useState( false );

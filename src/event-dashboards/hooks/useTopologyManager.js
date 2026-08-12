@@ -54,7 +54,7 @@ import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher'
 import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
-import { etaSeconds } from '../formatters';
+import { etaSeconds } from '@newspack-nodes/shared/utils/formatters';
 import { partitionSummaries } from '../partitionSummaries';
 import '../nodes/register';
 
@@ -258,8 +258,6 @@ export function useTopologyManager( opts = {} ) {
 			SLICES.forEach( ( slice ) =>
 				addSliceFetcher( interpreter, { ...slice, tee } )
 			);
-			const workerView = Core.node( WORKER_VIEW );
-			return () => workerView?.close();
 		},
 		timerName: 'topologymanager:timer',
 		teeName: 'topologymanager:tee',

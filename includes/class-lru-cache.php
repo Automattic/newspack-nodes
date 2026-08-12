@@ -147,6 +147,23 @@ class LRU_Cache {
 	}
 
 	/**
+	 * The newest live bucket holding the key, or null when it is absent.
+	 *
+	 * The one probe every read goes through, so a lookup walks the bucket list
+	 * once — a found/fetch pair walked it twice, and a batch paid that per key.
+	 *
+	 * @param string $key Cache key.
+	 */
+	private function bucket_of( string $key ): ?int {
+		foreach ( $this->live_indices() as $i ) {
+			if ( \array_key_exists( $key, $this->buckets[ $i ] ) ) {
+				return $i;
+			}
+		}
+		return null;
+	}
+
+	/**
 	 * Store many items, each under the same rules as set().
 	 *
 	 * Keys are `array-key` for the reason iterate() gives: a PHP array turns an
@@ -164,8 +181,10 @@ class LRU_Cache {
 	 * Store an item in the newest bucket, rotating once that bucket fills.
 	 *
 	 * Re-setting a key that still sits in an older bucket leaves that copy in
-	 * place, shadowed by this newer one. get() returns the newer copy, but
-	 * delete() removes only that copy and the shadowed one resurfaces.
+	 * place, shadowed by this newer one — cleaning it here would put a bucket
+	 * walk on every write. get() returns the newer copy, delete() takes both,
+	 * and iterate() yields the key once; a read with promotion on retires the
+	 * shadow as it goes.
 	 *
 	 * @param string $key   Cache key.
 	 * @param mixed  $value Value to store.
@@ -294,7 +313,12 @@ class LRU_Cache {
 	}
 
 	/**
-	 * Delete an item, newest copy first. Silent when the key is absent.
+	 * Delete every copy of an item. Silent when the key is absent.
+	 *
+	 * Every copy, not the newest: set() leaves an older copy shadowed, and
+	 * dropping only the newest resurrects a value the caller retired. The walk
+	 * is num_buckets long on an operation that is rare, so the hot set() path
+	 * stays as it is.
 	 *
 	 * on_evict does not fire for a delete — eviction means the cache dropped
 	 * the entry, not that a caller retired it.
@@ -302,32 +326,18 @@ class LRU_Cache {
 	 * @param string $key Cache key.
 	 */
 	public function delete( string $key ): void {
-		$i = $this->bucket_of( $key );
-		if ( null !== $i ) {
+		foreach ( $this->live_indices() as $i ) {
 			unset( $this->buckets[ $i ][ $key ] );
 		}
 	}
 
 	/**
-	 * The newest live bucket holding the key, or null when it is absent.
-	 *
-	 * The one probe every read goes through, so a lookup walks the bucket list
-	 * once — a found/fetch pair walked it twice, and a batch paid that per key.
-	 *
-	 * @param string $key Cache key.
-	 */
-	private function bucket_of( string $key ): ?int {
-		foreach ( $this->live_indices() as $i ) {
-			if ( \array_key_exists( $key, $this->buckets[ $i ] ) ) {
-				return $i;
-			}
-		}
-		return null;
-	}
-
-	/**
 	 * Iterate every item, newest bucket first and insertion order within a
 	 * bucket. Mutating the cache mid-iteration is unsupported.
+	 *
+	 * Each key is yielded once, with the value get() would return: a key
+	 * re-set across a rotation still has its shadowed older copy, and yielding
+	 * both made a sweep process a retired value and a count over-report.
 	 *
 	 * Keys are `array-key`, not `string`: buckets are PHP arrays, so a key that
 	 * is an all-digit string comes back an int. A `url_hash` is 12 hex chars,
@@ -338,8 +348,13 @@ class LRU_Cache {
 	 * @return \Generator<array-key,mixed> Yields value keyed by cache key.
 	 */
 	public function iterate(): \Generator {
+		$seen = [];
 		foreach ( $this->live_indices() as $i ) {
 			foreach ( $this->buckets[ $i ] as $key => $value ) {
+				if ( isset( $seen[ $key ] ) ) {
+					continue;
+				}
+				$seen[ $key ] = true;
 				yield $key => $value;
 			}
 		}

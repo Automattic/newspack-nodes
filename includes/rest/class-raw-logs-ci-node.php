@@ -3,27 +3,31 @@
  * Raw_Logs_CI: command-dispatch for the Raw Logs dashboard.
  *
  * Verbs:
- *   list_logs  — args `{}`. Sorted catalog of subscribable concrete partition
- *                dirs (flat layout, e.g. `firehose.p0`), via `Log_Discovery::on_disk`.
- *   log_status — args `{log:string?}`. Single concrete dir's segment metadata
- *                (size, count); unknown keys fall through to the
- *                firehose-ish-when-present, else first-discovered dir.
+ *   list_logs    — args `{}`. Sorted catalog of subscribable concrete partition
+ *                  dirs (flat layout, e.g. `firehose.p0`), via `Log_Discovery::on_disk`.
+ *   log_status   — args `{log:string?}`. Single concrete dir's segment metadata
+ *                  (size, count); unknown keys fall through to the
+ *                  firehose-ish-when-present, else first-discovered dir.
+ *   read_message — args `{log:string, position:string}`. The single decoded
+ *                  record AT a position, through `Log_Sources::read_at()` — the
+ *                  same single-step read model `taillog read` drives, so both
+ *                  debuggers share one position grammar and one reply shape.
+ *                  An unknown log key falls through the same way `log_status`'s
+ *                  does.
  *
- * Both read substrate state only; live SSE tailing happens via SSE_Out.
+ * All three read substrate state only; live SSE tailing happens via SSE_Out.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes\Rest;
 
-use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
 use Newspack_Nodes\Log_Sources;
-use Newspack_Nodes\Message;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
@@ -59,10 +63,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_log_status( Command_Interpreter_Node $self, array $args ): array {
-		$log_key             = self::resolve_log_key( $args[0] ?? '' );
-		$base_dir            = RuntimeConfig::get_base_directory();
-		[ $group, $dir_key ] = self::split_group( $log_key );
-		$log_base            = "{$base_dir}/{$group}";
+		$log_key = self::resolve_log_key( $args[0] ?? '' );
 
 		// Sibling plumbing: name + patron + sink the probe, read, remove.
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
@@ -73,7 +74,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			$partition->sink( $ci );
 		}
 		// Flat layout: the concrete dir IS one partition — stat it directly.
-		$partition->arguments( [ "{$log_base}/{$dir_key}" ] );
+		$partition->arguments( [ self::dir_for( $log_key ) ] );
 		// finally: a throw can't leave the node registered (would collide).
 		try {
 			if ( null !== self::$on_probe ) {
@@ -111,47 +112,11 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>|string The record + cursor, or a teaching error.
 	 */
 	public static function cmd_read_message( Command_Interpreter_Node $self, array $args ): array|string {
-		$log_key = self::resolve_log_key( $args[0] ?? '' );
-		$position = Core::as_string( $args[1] ?? '' );
-		// A magic token rides through to next_offset(), which speaks them.
-		$magic   = \in_array( $position, Log_Sources::MAGIC_POSITIONS, true );
-		$tokens  = \explode( ':', $position );
-		if ( ! $magic
-				&& ( \count( $tokens ) < 2 || \count( $tokens ) > 3
-					|| ! \ctype_digit( $tokens[0] ) || ! \ctype_digit( $tokens[1] ) ) ) {
-			return "read_message: invalid position (want <segment>:<offset>[:<length>], start, recent or end)\n";
-		}
-		$base_dir            = RuntimeConfig::get_base_directory();
-		[ $group, $dir_key ] = self::split_group( $log_key );
-
-		$captured = null;
-		$capture  = new Callback_Node( static function ( array $message ) use ( &$captured ): void {
-			$captured = $message;
-		} );
+		$log_key  = self::resolve_log_key( $args[0] ?? '' );
 		$consumer = new Consumer_Node();
-		$consumer->sink( $capture );
-		$consumer->arguments( [ "{$base_dir}/{$group}/{$dir_key}" ] );
-		$consumer->set_stamp_as( $log_key );
-		$consumer->next_offset(
-			$magic ? $position : [ 'segment' => (int) $tokens[0], 'offset' => (int) $tokens[1] ]
-		);
-		try {
-			$cursor = $consumer->step();
-		} finally {
-			$consumer->remove_node();
-		}
-		if ( null === $captured ) {
-			return "read_message: no record at {$log_key} {$position}\n";
-		}
-		return [
-			'log_id'  => $log_key,
-			'message' => $captured,
-			'cursor'  => [
-				'segment' => $cursor['segment'],
-				'offset'  => $cursor['offset'],
-			],
-			'at_eof'  => $cursor['at_eof'],
-		];
+		$consumer->arguments( [ self::dir_for( $log_key ) ] );
+
+		return Log_Sources::read_at( $consumer, $log_key, Core::as_string( $args[1] ?? '' ), 'read_message' );
 	}
 
 	/**
@@ -179,16 +144,14 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Split a catalog key into its root group + dir basename (bare = logs).
-	 *
-	 * @return array{0: string, 1: string}
+	 * The absolute dir a catalog key names. Bare keys live under `logs`; a
+	 * `{group}/{name}` key names its own root (`offsets`, `deadletter`).
+	 * Both handlers resolve it here rather than splitting and re-joining.
 	 */
-	private static function split_group( string $key ): array {
+	private static function dir_for( string $key ): string {
+		$base  = RuntimeConfig::get_base_directory();
 		$slash = \strpos( $key, '/' );
-		if ( false === $slash ) {
-			return [ 'logs', $key ];
-		}
-		return [ \substr( $key, 0, $slash ), \substr( $key, $slash + 1 ) ];
+		return false === $slash ? "{$base}/logs/{$key}" : "{$base}/{$key}";
 	}
 
 	/**
@@ -236,7 +199,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'read_message',
-					'description' => 'The single decoded record at <segment>:<offset> (a trailing :<length> is ignored); replies with the record + its consumed length.',
+					'description' => 'The single decoded record at <segment>:<offset> (a trailing :<length> is ignored); replies with the record, the post-step cursor and at_eof.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'position', 'type' => 'string', 'required' => true ],

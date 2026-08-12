@@ -42,6 +42,25 @@ describe( 'dumpDocument — statement order', () => {
 		);
 	} );
 
+	// A draft carries SPANS, so a quoted name survives quoting-intact and the
+	// document re-evaluates to itself. Statements group per node, so the
+	// declaration order here is the emitted one, not the authored one.
+	it( 'round-trips a spaced name through its sink and target lines', () => {
+		const d = draft(
+			"make_node Tee 'fan out'\n" +
+				'make_node Echo catcher\n' +
+				"set_sink 'fan out' catcher\n" +
+				"connect_node 'fan out' catcher\n"
+		);
+
+		expect( d.dumpDocument() ).toBe(
+			"make_node Tee 'fan out'\n" +
+				"set_sink 'fan out' catcher\n" +
+				'make_node Echo catcher\n' +
+				"connect_node 'fan out' catcher\n"
+		);
+	} );
+
 	it( 'emits includes before the nodes that connect to them', () => {
 		const d = draft( 'include wombat-base\nmake_node Echo aardvark\n', {
 			nodes: [],

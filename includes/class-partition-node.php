@@ -40,6 +40,16 @@ class Partition_Node extends Timer_Node {
 	public const DEFAULT_LOCK_WAIT_MS = 15000;
 
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
+
+	/** Retention floor: no rule prunes below this, whatever min_segments says. */
+	public const MIN_SEGMENTS_FLOOR = 2;
+
+	/** Write-lock heartbeat age past which another writer may steal the lock. */
+	public const LOCK_STALE_TIMEOUT_SECONDS = 60;
+
+	/** Heartbeats per stale window; beats at STALE_TIMEOUT / this. */
+	public const LOCK_HEARTBEAT_DIVISOR = 3;
+
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
 	public const MAX_LINE_SIZE        = 4096;
 
@@ -149,7 +159,7 @@ class Partition_Node extends Timer_Node {
 		$this->partition_dir  = \rtrim( $this->partition_dir, '/' );
 		Config::assert_within_base( $this->partition_dir );
 		$this->segment_size   = \max( 1, $this->segment_size );
-		$this->min_segments   = \max( 2, $this->min_segments );
+		$this->min_segments   = \max( self::MIN_SEGMENTS_FLOOR, $this->min_segments );
 		$this->num_segments   = \max( $this->min_segments, $this->num_segments );
 		$this->min_lifetime   = \max( 0, $this->min_lifetime );
 		$this->lifetime       = \max( 0, $this->lifetime );
@@ -180,7 +190,7 @@ class Partition_Node extends Timer_Node {
 		if ( $this->allow_large_writes && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
 			// Staleness needs a REAL clock: no drain refreshes the cache here.
 			$hb_now = Core::right_now();
-			if ( $hb_now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
+			if ( $hb_now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / self::LOCK_HEARTBEAT_DIVISOR ) {
 				if ( ! $this->write_lock->heartbeat() ) {
 					throw new \RuntimeException(
 						\esc_html(
@@ -214,28 +224,17 @@ class Partition_Node extends Timer_Node {
 
 		$this->maybe_rescan_segments( $now );
 
-		// Large messages bypass the batch; flush it first to preserve ordering.
+		// Large messages bypass the batch: drain it, then ride flush() as one.
 		if ( $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
-			if ( $this->current_size + $size > $this->segment_size ) {
-				$this->rotate_segment();
-			}
-			$fh = $this->get_handle();
-			if ( null === $fh ) {
-				$this->quarantine_unwritten( [ [ 'message' => $message, 'size' => $size ] ], 0, 'segment open failed' );
-				return;
-			}
-			$offset              = $this->current_size;
-			$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
-			$this->current_size += $wrote;
-			if ( $wrote < $size ) {
-				$this->recover_write_stall( $fh, $offset, [ [ 'message' => $message, 'size' => $size ] ], $wrote );
-				return;
-			}
-			if ( null !== $this->index_callback ) {
-				$this->write_index_entry( $message, $offset, $size );
-			}
-			$this->touch_segments_cache();
+			$this->batch            = $record;
+			$this->batch_index_args = [
+				[
+					'message' => $message,
+					'size'    => $size,
+				],
+			];
+			$this->flush();
 			// Durable write done; honor a pending stop (flush no-ops here).
 			$this->maybe_stop();
 			return;
@@ -309,7 +308,7 @@ class Partition_Node extends Timer_Node {
 	 * actually enforces.
 	 */
 	public static function derive_max_segments( int $num_segments, int $max_segments ): int {
-		$num_segments = \max( 2, $num_segments ); // mirror arguments()' floor
+		$num_segments = \max( self::MIN_SEGMENTS_FLOOR, $num_segments );
 		$cap          = $max_segments > 0 ? $max_segments : 2 * $num_segments;
 		return \max( $num_segments, $cap );
 	}
@@ -476,8 +475,7 @@ class Partition_Node extends Timer_Node {
 	 * @return self
 	 */
 	public function allow_large_writes( int $max_wait_ms = self::DEFAULT_LOCK_WAIT_MS, int $debounce_ms = 0 ): self {
-		$stale_timeout = 60;
-		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
+		$lock = new Lock_Node( $this->write_lock_path(), self::LOCK_STALE_TIMEOUT_SECONDS );
 
 		// Sibling lock: name it, share our sink, patron-link to hide it.
 		if ( '' !== $this->name ) {
@@ -488,7 +486,7 @@ class Partition_Node extends Timer_Node {
 
 		$this->allow_large_writes = true;
 		$this->write_lock         = $lock;
-		$this->lock_stale_timeout = $stale_timeout;
+		$this->lock_stale_timeout = self::LOCK_STALE_TIMEOUT_SECONDS;
 		$this->lock_max_wait_ms   = $max_wait_ms;
 
 		if ( $debounce_ms > 0 ) {
@@ -514,10 +512,10 @@ class Partition_Node extends Timer_Node {
 		$this->last_lock_heartbeat = Core::right_now();
 
 		if ( $ef_running ) {
-			// Heartbeat cadence = stale_timeout/3 ms; 3 ticks per stale window.
+			// LOCK_HEARTBEAT_DIVISOR beats per stale window, in ms.
 			$this->heartbeat_timer = new Timer_Node();
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-			$this->heartbeat_timer->arguments( [ (string) \intdiv( $stale_timeout * 1000, 3 ) ] );
+			$this->heartbeat_timer->arguments( [ (string) \intdiv( self::LOCK_STALE_TIMEOUT_SECONDS * 1000, self::LOCK_HEARTBEAT_DIVISOR ) ] );
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->key( 'heartbeat' );
 			$this->heartbeat_timer->patron( $this );
@@ -775,7 +773,7 @@ class Partition_Node extends Timer_Node {
 		$initial_count  = $count;
 		$now            = \time();
 
-		while ( $count > 2 ) {
+		while ( $count > self::MIN_SEGMENTS_FLOOR ) {
 			$oldest = $segments[0];
 			$path   = $this->get_segment_path( $oldest['id'] );
 			// The hard cap needs no age: it must fire even on unreadable mtime.
@@ -858,18 +856,18 @@ class Partition_Node extends Timer_Node {
 			if ( $this->allow_large_writes ) {
 				\stream_set_write_buffer( $this->fh, 0 );
 			}
+		}
 
-			// Open .idx only when a with_index() formatter is set; else none.
-			if ( null !== $this->index_callback ) {
-				$prev_umask = \umask( 0077 );
-				try {
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-					$idx_fh = @\fopen( $idx_path, 'a' );
-				} finally {
-					\umask( $prev_umask );
-				}
-				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
+		// Own guard: with_index arms a formatter while the log handle is open.
+		if ( null !== $this->index_callback && ! \is_resource( $this->idx_fh ) ) {
+			$prev_umask = \umask( 0077 );
+			try {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+				$idx_fh = @\fopen( $idx_path, 'a' );
+			} finally {
+				\umask( $prev_umask );
 			}
+			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 		}
 		return $this->fh;
 	}
@@ -914,9 +912,14 @@ class Partition_Node extends Timer_Node {
 		];
 		try {
 			$entry = $callback( $message, $position );
-			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
-				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
+			if ( null === $entry || '' === $entry ) {
+				return;
 			}
+			if ( ! \is_resource( $this->idx_fh ) ) {
+				$this->print_less_often( 'WARNING: no index handle; dropping entry for ', (string) $this->current_idx_path );
+				return;
+			}
+			$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 		} catch ( \Throwable $e ) {
 			$this->print_less_often( 'WARNING: index callback threw: ', $e->getMessage() );
 		}
@@ -1345,16 +1348,15 @@ class Partition_Node extends Timer_Node {
 		$out = parent::dump_config();
 		if ( $this->allow_large_writes ) {
 			if ( $this->warranty_voided ) {
-				$verb = 'void_warranty';
+				$out .= $this->config_line( 'void_warranty' );
 			} elseif ( $this->debounce_lock_ms > 0 ) {
-				$verb = "allow_large_writes {$this->debounce_lock_ms}";
+				$out .= $this->config_line( 'allow_large_writes', (string) $this->debounce_lock_ms );
 			} else {
-				$verb = 'allow_large_writes';
+				$out .= $this->config_line( 'allow_large_writes' );
 			}
-			$out .= "command_node {$this->name}:config {$verb}\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
-			$out .= "command_node {$this->name}:config with_index {$this->index_formatter_name}\n";
+			$out .= $this->config_line( 'with_index', $this->index_formatter_name );
 		}
 		return $out;
 	}

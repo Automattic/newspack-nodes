@@ -202,4 +202,69 @@ describe( 'transcript redaction', () => {
 
 		expect( stored() ).not.toContain( 'yes' );
 	} );
+
+	/**
+	 * The bare-token pass ran last and unguarded, so it re-ate the quoted
+	 * redaction the first pass had just produced and swallowed the closing
+	 * quote. Only an exact-output assertion sees it; `not.toContain` cannot.
+	 */
+	it( 'leaves the quoting balanced when the whole token was quoted', () => {
+		saveTranscript( [
+			{
+				kind: 'sent',
+				text: "vault:add prod '--auth_password=correct horse battery'",
+			},
+		] );
+
+		expect( JSON.parse( stored() )[ 0 ].text ).toBe(
+			"vault:add prod '--auth_password=<redacted>'"
+		);
+	} );
+
+	it( 'leaves the quoting balanced when only the value was quoted', () => {
+		saveTranscript( [
+			{ kind: 'sent', text: 'vault:add prod --auth_password="a b"' },
+		] );
+
+		expect( JSON.parse( stored() )[ 0 ].text ).toBe(
+			'vault:add prod --auth_password="<redacted>"'
+		);
+	} );
+} );
+
+/**
+ * History is written from the same keystroke as the transcript echo, and
+ * ReplFooter hands it the verbatim typed line — so the passphrase masked under
+ * `:transcript` sat in cleartext under `:history`, with no expiry.
+ */
+describe( 'history redaction', () => {
+	beforeEach( () => window.localStorage.clear() );
+
+	const storedHistory = () =>
+		window.localStorage.getItem( 'newspack-nodes:console:history' ) ?? '';
+
+	it( 'masks a secret argument token before persisting the typed line', () => {
+		saveHistory( [ 'vault:add prod --auth_password=swordfish9000' ] );
+
+		expect( storedHistory() ).not.toContain( 'swordfish9000' );
+		expect( storedHistory() ).toContain( 'auth_password' );
+		expect( loadHistory() ).toEqual( [
+			'vault:add prod --auth_password=<redacted>',
+		] );
+	} );
+
+	it( 'masks a quoted passphrase and leaves the line replayable', () => {
+		saveHistory( [ "vault:add prod '--auth_password=gilded rutabaga'" ] );
+
+		expect( storedHistory() ).not.toContain( 'rutabaga' );
+		expect( loadHistory() ).toEqual( [
+			"vault:add prod '--auth_password=<redacted>'",
+		] );
+	} );
+
+	it( 'leaves an ordinary command line alone', () => {
+		saveHistory( [ 'ls firehose.p0' ] );
+
+		expect( loadHistory() ).toEqual( [ 'ls firehose.p0' ] );
+	} );
 } );

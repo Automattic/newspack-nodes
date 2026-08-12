@@ -312,15 +312,31 @@ describe( 'a stub standing for a single-target class', () => {
  * not announce itself: the canvas looks right and the file on disk is wrong.
  */
 describe( 'what a save must not lose', () => {
-	it( 'keeps a bare `secure`, which is what the stock topologies write', () => {
-		// Every stock topology ends with a bare `secure`. Dropping it on save
-		// takes the process's security ratchet with it.
+	it( 'keeps a bare `secure` BARE, which is what the stock topologies write', () => {
+		// A bare `secure` is a CLIMB (cmd_secure: current + 1, capped 3); a
+		// level is an absolute set. Rewriting one as the other is a semantic
+		// change, and a gratuitous diff on every stock topology's save.
 		const d = draft( 'make_node Echo aardvark\nsecure\n' );
 
-		expect( d.secureLevel ).toBe( '1' );
-		expect( d.dumpDocument() ).toBe(
-			'make_node Echo aardvark\nsecure 1\n'
-		);
+		expect( d.secureLevel ).toBe( 'secure' );
+		expect( d.dumpDocument() ).toBe( 'make_node Echo aardvark\nsecure\n' );
+	} );
+
+	it( 'refuses a level the runtime would refuse', () => {
+		// cmd_secure throws `invalid secure level` for a non-digit or < 1; an
+		// editor that accepts `secure banana` writes a file nothing can load.
+		const d = draft( 'secure banana' );
+
+		expect( reported.join( '\n' ) ).toContain( 'invalid secure level' );
+		expect( d.secureLevel ).toBe( '' );
+		expect( d.dumpDocument() ).toBe( '' );
+	} );
+
+	it( 'refuses secure 0 — the runtime floor is 1', () => {
+		const d = draft( 'secure 0' );
+
+		expect( reported.join( '\n' ) ).toContain( 'invalid secure level' );
+		expect( d.secureLevel ).toBe( '' );
 	} );
 
 	it( 'quotes a verb argument containing whitespace', () => {
@@ -477,6 +493,23 @@ describe( 'var follows the canonical frontmatter grammar', () => {
 		const d = draft( 'var query = a=b&c=d' );
 
 		expect( d.frontmatter ).toEqual( { query: 'a=b&c=d' } );
+	} );
+
+	it( 'refuses a compound operator instead of coining a junk key', () => {
+		// `Topology_Analyzer::frontmatter()` reaches the same string through
+		// the same tokenizer and skips a key that is not `^[A-Za-z_]\w*$` —
+		// "a compound operator leaves its head on the key; never coin".
+		const d = draft( 'var retention_grace += 17' );
+
+		expect( reported.join( '\n' ) ).toContain( 'usage: var' );
+		expect( d.frontmatter ).toEqual( {} );
+		expect( d.dumpDocument() ).toBe( '' );
+	} );
+
+	it( 'refuses a key with a space in it', () => {
+		const d = draft( 'var "retention grace" = 17' );
+
+		expect( d.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'round-trips a spaced assignment unchanged', () => {

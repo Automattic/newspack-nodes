@@ -30,7 +30,7 @@ class Field {
 	/** @var callable|null add_settings_field render callback (required for rendered fields). */
 	public readonly mixed $render;
 
-	/** @var callable|null register_setting sanitize_callback (required for option fields). */
+	/** @var callable|null Declared sanitizer; a bounded int derives one instead (see sanitize_callback()). */
 	public readonly mixed $sanitize;
 
 	/**
@@ -103,6 +103,32 @@ class Field {
 		}
 		// Inline (not Core::str): Config_System stays Core-free for consumers.
 		return \is_string( $label ) ? $label : '';
+	}
+
+	/**
+	 * The sanitizer `register_setting()` gets. A bounded `int` field derives its
+	 * own clamp from the declared min/max, so the settings page and the
+	 * `settings` service CI cannot disagree about what is valid; every other
+	 * field uses the callable it declared.
+	 *
+	 * A blank (or non-numeric) value answers `''`, which is NOT a value this
+	 * sanitizer may store: presence is override (see Options_Overlay), and a
+	 * stored `''` reads back as a 1-byte segment size. `''` is the hand-off to
+	 * {@see Reset_Gate}, which runs next on `pre_update_option_{$option}` and
+	 * deletes the row so the config-file default resurfaces — every blank-
+	 * deletable field, which by derivation is every bounded int. Registering
+	 * this sanitizer without that gate stores the `''`.
+	 *
+	 * @return callable|null
+	 */
+	public function sanitize_callback(): mixed {
+		if ( 'int' !== $this->type || null === $this->min ) {
+			return $this->sanitize;
+		}
+		$min = $this->min;
+		$max = $this->max ?? \PHP_INT_MAX;
+		return static fn ( mixed $value ): int|string =>
+			\is_numeric( $value ) ? \max( $min, \min( $max, (int) $value ) ) : '';
 	}
 
 	/** A rendered option (register_setting, option_names, reset set, restart class). */

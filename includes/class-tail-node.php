@@ -1,22 +1,19 @@
 <?php
 /**
- * Tail: durable file follower with two source shapes.
+ * Tail: durable follower of a Log's `{file}.{seg}` segments.
  *
- * Segmented mode (the default) reads a Log's {file}.{seg} segments through the inherited
- * Consumer/Log/Partition read model — resume, snapshot co-commit, segment-roll and all.
- * File mode follows a SINGLE filename (e.g. wp-content/debug.log) with `tail -F` logrotate
- * semantics: within a run it holds the open handle, drains a rotated-away file to EOF before
- * reopening the path from 0, resets on in-place truncation, and tolerates a missing path. It
- * reuses the SAME cursor shape as the segmented shape — the inode simply occupies the container
- * slot where a segment id sits, so `<inode>:<offset>:<length>` rides the existing offsetlog
- * frame and DLQ machinery with no new field. A resume validates the persisted cursor against
- * the current file: a foreign, zero or absent generation reads it whole, and a mid-line offset in
- * the RIGHT generation syncs forward onto the next newline — never cross-generation hunting. Both shapes share the
- * Buffered_Pump line-assembly spine (partial-line buffering, per-line emit) and the durable
- * offsetlog cursor; only the byte-source differs. Mode is declared explicitly by the
- * `source_mode` argument (default 'segmented') and fails loud on anything else. Each mode
- * emits every complete line's raw bytes as a TM_BYTESTREAM via forward_line(). A fresh Tail
- * with no durable cursor defaults to END.
+ * Reads through the inherited Consumer/Log/Partition read model — resume,
+ * snapshot co-commit, segment-roll and all — differing from Consumer only in
+ * three seams it declares below: it reads a `Log` (`{file}.{seg}`) rather than a
+ * `Partition` (`{dir}/{seg}.log`), its first argument is a source FILE base
+ * rather than a dir, and a fresh Tail with no durable cursor starts at END.
+ * Each complete line's raw bytes are emitted as a TM_BYTESTREAM by
+ * `forward_line()`.
+ *
+ * `File_Tail_Node` is the sibling that follows a SINGLE filename with `tail -F`
+ * logrotate semantics. It is a subclass rather than a mode flag on this class:
+ * the two share the Buffered_Pump line-assembly spine and the durable offsetlog
+ * cursor, and differ only in the byte source.
  *
  * @package Newspack_Nodes
  */
@@ -27,542 +24,23 @@ namespace Newspack_Nodes;
 
 class Tail_Node extends Consumer_Node {
 
-	/** Read a Log's {file}.{seg} segments through the Consumer segment model. */
+	/**
+	 * Registry mode tokens `Log_Sources` entries carry, and the reader class
+	 * each resolves to. They describe a SOURCE, not a flag on this node —
+	 * `Log_Sources::open_tail()` is what turns one into a reader.
+	 */
 	public const MODE_SEGMENTED = 'segmented';
-
-	/** Follow a single filename with `tail -F` logrotate semantics (inode + byte offset). */
-	public const MODE_FILE = 'file';
+	public const MODE_FILE      = 'file';
 
 	/** Source log base path; segments are {source_file}.0, {source_file}.1, … */
 	protected string $source_file = '';
 
-	/** Which source shape this Tail follows; set from the schema arg, validated fail-loud. */
-	protected string $source_mode = self::MODE_SEGMENTED;
-
-	/**
-	 * File mode: the open read handle for the currently-followed generation, or null when the
-	 * path is absent. A rotated-away generation stays open here until drained to EOF.
-	 *
-	 * In file mode the inode of this generation lives in the inherited $cursor_segment — the
-	 * SAME container slot the segmented shape uses for the segment id. That reuse is what makes
-	 * `<inode>:<offset>:<length>` ride the existing machinery (offsetlog frame, DLQ ID) with no
-	 * new field: slot one just means "which container" — a segment id for segments, an inode for
-	 * a single file. 0 = no open container.
-	 *
-	 * @var resource|null
-	 */
-	protected $follow_handle = null;
-
-	/**
-	 * File mode: an explicit array-form next_offset() seek {inode, offset} made BEFORE the file
-	 * opens (build time), awaiting validation on the first poll once the live inode is known. A
-	 * runtime seek (handle already open) validates immediately and leaves this null. null = none.
-	 * A null `inode` named no generation, so its offset says nothing about this file: read whole.
-	 *
-	 * @var array{inode:int|null,offset:int}|null
-	 */
-	private ?array $file_seek_candidate = null;
-
-	/**
-	 * Set when the seated cursor is NOT a line boundary. The bytes up to the
-	 * next newline are the tail of a line this reader never saw the start of,
-	 * so they are dropped rather than emitted as though they were a line.
-	 *
-	 * @var bool
-	 */
-	private bool $pending_line_sync = false;
-
-	/**
-	 * Store the token array, validate the mode, then arm the reader. File mode skips the
-	 * segmented source Partition entirely (its segment model can't identify a single inode)
-	 * and arms the shared Buffered_Pump spine directly. The segmented branch delegates to
-	 * parent::arguments(), which re-runs parse_schema_args() — idempotent, so that one double-parse
-	 * is harmless; the file branch parses exactly once.
-	 *
-	 * @param list<string>|null $args
-	 * @return list<string>
-	 */
-	public function arguments( ?array $args = null ): array {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$this->parse_schema_args( $args );
-		$this->assert_valid_source_mode();
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			return parent::arguments( $args );
-		}
-		$this->offsetlog_dir = \rtrim( $this->offsetlog_dir, '/' );
-		$this->ensure_offsetlog();
-		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
-		$this->ensure_deadletter();
-		// No I/O at construction; first poll opens + seats the cursor (ADR-5).
-		$this->poll_cb = $this->poll_init( ... );
-		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
-		$this->set_state( 'POLLING', 'ACTIVE' );
-		return $args;
-	}
-
-	/**
-	 * File mode has no segmented source to compute lag against, so answer the GET_LAG request
-	 * from the live file size here; segmented mode defers to Consumer's handler. The reply
-	 * envelope mirrors Consumer::handle_request (which is private, hence the small repeat).
-	 *
-	 * @param array<int,mixed> $message
-	 */
-	public function fill( array $message ): void {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			parent::fill( $message );
-			return;
-		}
-		$type = Core::num_int( $message[ Message::TYPE ] );
-		if ( ! ( $type & Message::TM_REQUEST ) ) {
-			parent::fill( $message );
-			return;
-		}
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'fill requires a wired sink' );
-		}
-		$verb    = \strtoupper( \explode( ' ', \trim( Core::as_string( $message[ Message::VALUE ] ) ), 2 )[0] );
-		$payload = 'GET_LAG' === $verb ? $this->file_lag() : [ 'error' => "unknown request verb: {$verb}" ];
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$this->sink->fill( $reply );
-	}
-
-	/** Refill seam: segmented reads a Partition segment; file mode reads the followed inode. */
-	protected function get_batch(): void {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			parent::get_batch();
-			return;
-		}
-		$this->get_file_batch();
-	}
-
-	/**
-	 * Boot seam. File mode: open the current generation (its inode into $cursor_segment), then seat
-	 * the byte cursor with Consumer's precedence — durable-resume-wins:
-	 *   1. a durable offsetlog frame (its `segment` slot is the stored inode), validated;
-	 *   2. else an explicit build-time next_offset() hint — an array {inode,offset} seek is
-	 *      validated the SAME way, a magic 'start'/'end' seek already seated cursor_offset;
-	 *   3. else default to END.
-	 * A build-time hint must LOSE to a durable checkpoint, or every respawn re-reads the whole file.
-	 */
-	protected function init_position(): void {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			parent::init_position();
-			return;
-		}
-		$this->open_follow_file();
-		$frame = $this->read_last_offsetlog_frame();
-		if ( null !== $frame && isset( $frame['segment'], $frame['offset'] ) ) {
-			$this->cursor_offset       = $this->validate_resume_offset( Core::num_int( $frame['segment'] ), Core::num_int( $frame['offset'] ) );
-			$this->file_seek_candidate = null;
-			return;
-		}
-		if ( $this->offset_set ) {
-			if ( null !== $this->file_seek_candidate ) {
-				$this->cursor_offset       = $this->validate_resume_offset( $this->file_seek_candidate['inode'], $this->file_seek_candidate['offset'] );
-				$this->file_seek_candidate = null;
-			}
-			return;
-		}
-		$this->next_offset( 'end' );
-	}
-
-	/**
-	 * Reposition the read cursor. File mode has no segments: 'end' is the file size, 'start'/'recent'
-	 * are 0, and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated through
-	 * the same validate_resume_offset() path as a durable frame (a foreign/absent generation or a
-	 * shrunk file reads from 0; a mid-line offset syncs forward). A runtime seek (handle already open) validates now; a build-time one defers to the
-	 * first poll. Segmented defers to Consumer.
-	 *
-	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
-	 */
-	public function next_offset( $position ): void {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			parent::next_offset( $position );
-			return;
-		}
-		$this->offset_set          = true;
-		$this->buffer              = '';
-		$this->at_eof              = false;
-		$this->file_seek_candidate = null;
-		$this->pending_line_sync   = false;
-		if ( \is_array( $position ) ) {
-			// Absent stays absent: coerced, a closed handle stores inode 0.
-			$inode  = isset( $position['segment'] ) ? Core::num_int( $position['segment'] ) : null;
-			$offset = \max( 0, Core::num_int( $position['offset'] ?? 0 ) );
-			if ( null !== $this->follow_handle ) {
-				$this->cursor_offset = $this->validate_resume_offset( $inode, $offset );
-			} else {
-				$this->file_seek_candidate = [ 'inode' => $inode, 'offset' => $offset ];
-			}
-			return;
-		}
-		if ( 'end' !== $position ) {
-			$this->cursor_offset = 0;
-			return;
-		}
-		// EOF on a live log is mid-line as often as not; sync, don't ship it.
-		$this->cursor_offset     = $this->file_current_size();
-		$this->pending_line_sync = $this->cursor_offset > 0
-			&& "\n" !== $this->read_byte_at( $this->cursor_offset - 1 );
-	}
-
-	/**
-	 * Probe snapshot. File mode reports lag as file-size − read-position (no segments); segmented
-	 * defers to Consumer. Draining, like the parent: counters ride as the work done since the
-	 * previous sweep. Topic_Probe already try/catches, but a clean record beats a skipped one.
-	 *
-	 * @return array<int,int|string>
-	 */
-	public function probe_stats(): array {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			return parent::probe_stats();
-		}
-		$size                                   = $this->file_current_size();
-		$window                                 = $this->drain_probe_window();
-		$record                                 = [];
-		$record[ Probe_Record::SOURCE ]         = '' !== $this->source_file ? \basename( $this->source_file ) : '';
-		$record[ Probe_Record::READER ]         = '' !== $this->offsetlog_dir ? \basename( $this->offsetlog_dir ) : '';
-		$record[ Probe_Record::CURSOR_SEGMENT ] = $this->cursor_segment;
-		$record[ Probe_Record::CURSOR_OFF ]     = $this->cursor_offset;
-		$record[ Probe_Record::END_SEGMENT ]    = $this->cursor_segment;
-		$record[ Probe_Record::END_SIZE ]       = $size;
-		$record[ Probe_Record::DISTANCE ]       = \max( 0, $size - ( $this->cursor_offset + \strlen( $this->buffer ) ) );
-		$record[ Probe_Record::MSGS_DELTA ]     = $window['msgs'];
-		$record[ Probe_Record::END_BYTES ]      = $size;
-		$record[ Probe_Record::CACHE_SIZE ]     = 0;
-		$record[ Probe_Record::BYTES_READ_DELTA ] = $window['bytes'];
-		$record[ Probe_Record::ELAPSED_MS ]     = $window['elapsed_ms'];
-		return $record;
-	}
-
-	public function remove_node(): void {
-		$this->close_follow_handle();
-		parent::remove_node();
-	}
-
-	/**
-	 * File-mode refill (one block per tick, yielding the event loop). First drains the currently
-	 * open generation — reading appended bytes, resetting on an in-place truncation. Only once
-	 * that handle is at EOF does it consult the PATH: a same-inode path means caught up, a missing
-	 * path is a rotation gap (keep polling), and a different inode is a rotation — the drained old
-	 * handle closes and the new generation opens at offset 0. Draining-before-switching is what
-	 * guarantees a rotated file's tail-end emits before the new file's first line.
-	 *
-	 * Self-contained because Consumer's segment read model (get_segments / read_at over
-	 * {file}.{seg}) cannot express single-inode identity, in-place truncation, or reopen-on-rotate.
-	 */
-	private function get_file_batch(): void {
-		$path = $this->source_file;
-		\clearstatcache( true, $path );
-		if ( null !== $this->follow_handle ) {
-			$read_pos = $this->cursor_offset + \strlen( $this->buffer );
-			$stat     = \fstat( $this->follow_handle );
-			$size     = false === $stat ? 0 : $stat['size'];
-			if ( $size < $read_pos ) {
-				// Truncated in place (copytruncate): reset to the new start.
-				$this->cursor_offset     = 0;
-				$this->buffer            = '';
-				$read_pos                = 0;
-				$this->pending_line_sync = false;
-			}
-			$available = $size - $read_pos;
-			if ( $available > 0 ) {
-				$length = \min( self::READ_BLOCK_BYTES, $available );
-				\fseek( $this->follow_handle, $read_pos );
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-				$bytes = \fread( $this->follow_handle, $length );
-				if ( \is_string( $bytes ) && '' !== $bytes ) {
-					$this->buffer     .= $bytes;
-					$this->bytes_read += \strlen( $bytes );
-					$this->at_eof      = false;
-					$this->drop_partial_line();
-					return;
-				}
-			}
-			// Open generation drained; fall through to the rotation check.
-		}
-
-		// One targeted stat; false === $stat doubles as the existence check.
-		$path_stat  = @\stat( $path );
-		$path_inode = false === $path_stat ? 0 : $path_stat['ino'];
-
-		if ( null !== $this->follow_handle && 0 !== $path_inode && $path_inode === $this->cursor_segment ) {
-			$this->at_eof = false === \strpos( $this->buffer, "\n" );
-			return;
-		}
-		if ( 0 === $path_inode ) {
-			// Path missing (rotation gap): keep polling, not an error.
-			$this->at_eof = false === \strpos( $this->buffer, "\n" );
-			return;
-		}
-		$this->open_new_generation( $path );
-	}
-
-	/** Open the followed path (if present); its inode goes into the container slot. Silent when absent (missing-file grace). */
-	private function open_follow_file(): void {
-		$this->close_follow_handle();
-		$this->cursor_segment = 0;
-		$path                 = $this->source_file;
-		if ( '' === $path || ! \is_file( $path ) ) {
-			return;
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-		$handle = @\fopen( $path, 'rb' );
-		if ( false === $handle ) {
-			return;
-		}
-		$this->follow_handle  = $handle;
-		$stat                 = \fstat( $handle );
-		$this->cursor_segment = false === $stat ? 0 : $stat['ino'];
-	}
-
-	/**
-	 * Switch to a freshly-rotated generation: close the drained old handle, drop its residual
-	 * partial (a dead file's incomplete last line, mirroring Tachikoma's note_fh line_buffer
-	 * clear), open the new inode into the container slot and reset the byte cursor to 0.
-	 */
-	private function open_new_generation( string $path ): void {
-		$this->close_follow_handle();
-		$this->buffer = '';
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-		$handle = @\fopen( $path, 'rb' );
-		if ( false === $handle ) {
-			// Reappeared then vanished (race): treat as missing and poll again.
-			$this->cursor_segment = 0;
-			$this->at_eof         = true;
-			return;
-		}
-		$this->follow_handle     = $handle;
-		$stat                    = \fstat( $handle );
-		$this->cursor_segment    = false === $stat ? 0 : $stat['ino'];
-		$this->cursor_offset     = 0;
-		$this->at_eof            = false;
-		$this->pending_line_sync = false;
-	}
-
-	private function close_follow_handle(): void {
-		if ( null !== $this->follow_handle ) {
-			\fclose( $this->follow_handle );
-			$this->follow_handle = null;
-		}
-	}
-
-	/**
-	 * Validate a persisted cursor against the CURRENT file and return the offset to resume at. The
-	 * frame's container slot is the stored inode. An absent, zero or foreign generation, or a file
-	 * that shrank below the cursor, reads the current file from 0 (no cross-generation hunting). A
-	 * cursor in the RIGHT generation that is not just past a newline is mid-line: resume there and
-	 * sync forward onto the next one. cursor == size (the file ends exactly on the last emitted
-	 * newline) is valid and simply reads nothing until it grows.
-	 */
-	private function validate_resume_offset( ?int $stored_inode, int $cursor ): int {
-		// Offset 0 IS a boundary; a flag left armed would eat the first line.
-		$this->pending_line_sync = false;
-		if ( $cursor <= 0 || 0 === $this->cursor_segment ) {
-			return 0;
-		}
-		// Another file's offset means nothing here: read this one whole.
-		if ( null === $stored_inode || 0 === $stored_inode
-			|| $stored_inode !== $this->cursor_segment ) {
-			return 0;
-		}
-		$size = $this->file_current_size();
-		if ( $size < $cursor ) {
-			return 0;
-		}
-		if ( "\n" === $this->read_byte_at( $cursor - 1 ) ) {
-			return $cursor;
-		}
-		// Right generation, mid-line: resume and sync onto the next newline.
-		$this->pending_line_sync = true;
-		return $cursor;
-	}
-
-	/**
-	 * Discard the buffered fragment that precedes the first newline, once.
-	 *
-	 * Advancing cursor_offset by what is dropped keeps it the file position of
-	 * buffer[0], which is what the next read_pos and every emitted line offset
-	 * are computed from. Until the newline arrives there is nothing to sync on,
-	 * so the fragment simply keeps buffering and nothing is emitted.
-	 */
-	private function drop_partial_line(): void {
-		if ( ! $this->pending_line_sync ) {
-			return;
-		}
-		$nl = \strpos( $this->buffer, "\n" );
-		if ( false === $nl ) {
-			return;
-		}
-		$this->cursor_offset     += $nl + 1;
-		$this->buffer             = \substr( $this->buffer, $nl + 1 );
-		$this->pending_line_sync  = false;
-	}
-
-	/** Read the single byte at $pos — from the open handle, else the path; '' when unreadable. */
-	private function read_byte_at( int $pos ): string {
-		if ( null === $this->follow_handle ) {
-			// 'end' asks before the handle opens; the path answers.
-			$path = $this->source_file;
-			if ( '' === $path || ! \is_file( $path ) ) {
-				return '';
-			}
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$handle = @\fopen( $path, 'rb' );
-			if ( false === $handle ) {
-				return '';
-			}
-			\fseek( $handle, $pos );
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-			$byte = \fread( $handle, 1 );
-			\fclose( $handle );
-			return \is_string( $byte ) ? $byte : '';
-		}
-		\fseek( $this->follow_handle, $pos );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
-		$byte = \fread( $this->follow_handle, 1 );
-		return \is_string( $byte ) ? $byte : '';
-	}
-
-	/**
-	 * File-mode override: one followed path, so its own mtime is the answer.
-	 * Segmented mode keeps the parent's newest-segment walk.
-	 *
-	 * @return float|null Epoch seconds the followed file last grew.
-	 */
-	public function idle_since(): ?float {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			return parent::idle_since();
-		}
-		$path = $this->source_file;
-		if ( ! $this->file_lag()['caught_up'] || '' === $path || ! \is_file( $path ) ) {
-			return null;
-		}
-		\clearstatcache( true, $path );
-		$mtime = @\filemtime( $path );
-		return \is_int( $mtime ) ? (float) $mtime : null;
-	}
-
-	/** @return array{bytes_behind:int, segments_behind:int, caught_up:bool, end_segment:int, end_size:int, end_bytes:int} */
-	private function file_lag(): array {
-		$size         = $this->file_current_size();
-		$bytes_behind = \max( 0, $size - $this->lag_cursor_offset() );
-		return [
-			'bytes_behind'    => $bytes_behind,
-			'segments_behind' => 0,
-			'caught_up'       => 0 === $bytes_behind,
-			'end_segment'     => 0,
-			'end_size'        => $size,
-			'end_bytes'       => $size,
-		];
-	}
-
-	/**
-	 * Offset the lag read may trust: a queued seek counts only while it still
-	 * describes the file that is there — same generation, not past its end.
-	 *
-	 * @longform A candidate is not yet validated; `validate_resume_offset()`
-	 * runs at the first poll and cannot run here, with no follow handle open.
-	 * Honouring a stale one lets a client echo a pre-rotation position and have
-	 * the new generation declared caught up, so SSE_Out closes on the first
-	 * tick and never delivers it. Falling back to the raw cursor reads as
-	 * behind, which keeps the stream open long enough to validate and rewind.
-	 * An unnamed generation is one of those stale cases — the poll will read
-	 * the file whole — so only a candidate naming THIS one may be trusted.
-	 */
-	private function lag_cursor_offset(): int {
-		$candidate = $this->file_seek_candidate;
-		if ( null === $candidate ) {
-			return $this->cursor_offset;
-		}
-		$inode = $candidate['inode'] ?? null;
-		if ( null === $inode || $inode !== $this->file_current_inode() ) {
-			return $this->cursor_offset;
-		}
-		return $candidate['offset'] > $this->file_current_size()
-			? $this->cursor_offset
-			: $candidate['offset'];
-	}
-
-	/** Current byte size of the followed path, or 0 when it is absent. */
-	private function file_current_size(): int {
-		$path = $this->source_file;
-		if ( '' === $path || ! \is_file( $path ) ) {
-			return 0;
-		}
-		\clearstatcache( true, $path );
-		$size = \filesize( $path );
-		return false === $size ? 0 : $size;
-	}
-
-	/** Fail loud on an unknown mode token (errors-as-docs). */
-	private function assert_valid_source_mode(): void {
-		if ( self::MODE_SEGMENTED === $this->source_mode || self::MODE_FILE === $this->source_mode ) {
-			return;
-		}
-		throw new \InvalidArgumentException( \esc_html(
-			"Tail: unknown source_mode '{$this->source_mode}'. The 4th argument must be '"
-			. self::MODE_SEGMENTED . "' (read a Log's {file}.{seg} segments) or '"
-			. self::MODE_FILE . "' (follow a single filename with logrotate semantics); it defaults to '"
-			. self::MODE_SEGMENTED . "' when omitted."
-		) );
-	}
-
-	/**
-	 * File-mode override: always name the generation this offset belongs to.
-	 *
-	 * @longform The inode reaches cursor_segment only when the handle opens on
-	 * the first poll, and a stream that seeks to EOF and hangs up never polls —
-	 * so ask the path, which next_offset() already stats for its size. An
-	 * unnamed generation is indistinguishable from a foreign one and reads the
-	 * whole file back on every reconnect. The offset is named even when it is
-	 * mid-line; the resume syncs forward from there.
-	 *
-	 * @return string `{inode}:{offset}`, or `:{offset}` when there is no file.
-	 */
-	public function cursor_position(): string {
-		if ( self::MODE_FILE !== $this->source_mode ) {
-			return parent::cursor_position();
-		}
-		// A candidate's offset belongs to the generation the CLIENT named.
-		if ( null !== $this->file_seek_candidate ) {
-			$inode = $this->file_seek_candidate['inode'] ?? 0;
-			return ( 0 === $inode ? '' : (string) $inode ) . ':'
-				. $this->file_seek_candidate['offset'];
-		}
-		// Always named; this offset came from that same path.
-		$inode = 0 !== $this->cursor_segment
-			? $this->cursor_segment
-			: $this->file_current_inode();
-		return ( 0 === $inode ? '' : (string) $inode ) . ':' . $this->cursor_offset;
-	}
-
-	/** Inode of the followed path right now, or 0 when it is absent. */
-	private function file_current_inode(): int {
-		$path = $this->source_file;
-		if ( '' === $path || ! \is_file( $path ) ) {
-			return 0;
-		}
-		\clearstatcache( true, $path );
-		$inode = \fileinode( $path );
-		return false === $inode ? 0 : $inode;
-	}
-
-	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). Segmented mode only. */
+	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). */
 	protected function make_source(): Partition_Node {
 		return new Log_Node();
 	}
 
-	/** Seam: Tail's segmented args are source_file + offsetlog_dir. */
+	/** Seam: Tail's args are source_file + offsetlog_dir. */
 	protected function resolve_args(): array {
 		return [ $this->source_file, $this->offsetlog_dir ];
 	}
@@ -577,8 +55,8 @@ class Tail_Node extends Consumer_Node {
 	 * raw bytes — newline restored — as a TM_BYTESTREAM, FROM-stamped at this I/O boundary.
 	 * The buffer/cursor scan that hands us each line stays in Buffered_Pump::drain_buffer(),
 	 * so both source shapes reuse it (and both get line_mode for free). The ID carries this
-	 * Tail's OWN position breadcrumb — `segment:offset:length` (the inode rides the segment
-	 * slot in file mode) — which the browser seek tracker reads for its Replay→Live flip;
+	 * Tail's OWN position breadcrumb — `segment:offset:length` (in File_Tail the inode rides
+	 * the segment slot) — which the browser seek tracker reads for its Replay→Live flip;
 	 * the empty default silently disabled that flip for every Tail-fed stream.
 	 *
 	 * @param string $line       One complete line (without its trailing newline).
@@ -599,31 +77,19 @@ class Tail_Node extends Consumer_Node {
 		parent::fill( $message );
 	}
 
-	/**
-	 * Frame extras. File mode has no source_dir, so the inherited source_log would be blank —
-	 * label the frame by the followed filename instead so dashboards aren't blank. The inode is
-	 * NOT added here: it already rides the frame's `segment` container slot.
-	 *
-	 * @return array<array-key,mixed>
-	 */
-	protected function checkpoint_frame_extra(): array {
-		$extra = parent::checkpoint_frame_extra();
-		if ( self::MODE_FILE === $this->source_mode ) {
-			$extra['source_log'] = '' !== $this->source_file ? \basename( $this->source_file ) : '';
-		}
-		return $extra;
-	}
-
 	public static function node_schema(): array {
-		return \array_merge( parent::node_schema(), [
-			'description' => 'Tails a Log\'s {file}.{seg} segments, or follows a single filename with logrotate semantics; emits each line as raw TM_BYTESTREAM bytes to its sink.',
-			// source_dir renamed source_file; adds the explicit mode arg.
-			'arguments'   => [
-				[ 'name' => 'source_file',    'type' => 'string', 'required' => true, 'description' => 'Segmented mode: base path of the Log to poll ({source_file}.0, .1, …). File mode: the single filename to follow (e.g. wp-content/debug.log). Each complete line is emitted.' ],
-				[ 'name' => 'offsetlog_dir',  'type' => 'string', 'default' => '', 'description' => 'Directory for the durable read-cursor offsetlog (resume-after-restart); empty disables checkpointing.' ],
-				[ 'name' => 'deadletter_dir', 'type' => 'string', 'default' => '', 'description' => 'Directory where poison/dead-letter records are quarantined; empty disables the dead-letter queue.' ],
-				[ 'name' => 'source_mode',    'type' => 'string', 'default' => self::MODE_SEGMENTED, 'description' => 'Source shape: "segmented" (default) reads a Log\'s {file}.{seg} segments; "file" follows a single filename with tail -F logrotate semantics (inode + byte offset).' ],
-			],
+		$schema = parent::node_schema();
+		// Only the source argument differs; the rest are Consumer's verbatim.
+		$arguments      = Core::arr( $schema['arguments'] ?? [] );
+		$arguments[0]   = [
+			'name'        => 'source_file',
+			'type'        => 'string',
+			'required'    => true,
+			'description' => 'Base path of the Log to poll ({source_file}.0, .1, …). Each complete line is emitted.',
+		];
+		return \array_merge( $schema, [
+			'description' => 'Tails a Log\'s {file}.{seg} segments; emits each line as raw TM_BYTESTREAM bytes to its sink.',
+			'arguments'   => \array_values( $arguments ),
 		] );
 	}
 }

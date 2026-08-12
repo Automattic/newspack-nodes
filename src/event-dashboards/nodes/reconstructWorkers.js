@@ -14,35 +14,11 @@
  * the untrimmed live segments through plus each consumer's recorded (end_segment,
  * end_size) — the bar derives the regions itself per tree, never a global trim.
  *
- * PARTITION token substitution mirrors `topologyGraph.concreteLogNames`: a
+ * PARTITION token substitution is `topologyGraph.substituteTokens`, so a
  * `<partition>` in the consumer's `reads` template becomes the partition NUMBER.
  */
 
-const PARTITION_TOKEN = '<partition>';
-const TOPOLOGY_TOKEN = '<topology>';
-
-/**
- * Resolve a path template the way Topology_Loader binds it: `<partition>` AND
- * `<topology>`. An offsetlog is a reader's cursor and the reader is the FLEET, so
- * reader templates carry `<topology>` — substituting only the partition left
- * `firehose.<topology>.p0` never matching the live `firehose.combined.p0`, which
- * cost every segment bar its cursor and painted the lot grey.
- *
- * @param {string} template   Path template.
- * @param {number} partition  Partition index.
- * @param {string} [topology] Fleet name; omitted leaves `<topology>` alone.
- * @return {string} Concrete path.
- */
-const concreteSource = ( template, partition, topology ) => {
-	let out = template;
-	if ( out.includes( PARTITION_TOKEN ) ) {
-		out = out.split( PARTITION_TOKEN ).join( String( partition ) );
-	}
-	if ( topology && out.includes( TOPOLOGY_TOKEN ) ) {
-		out = out.split( TOPOLOGY_TOKEN ).join( String( topology ) );
-	}
-	return out;
-};
+import { contractTees, substituteTokens } from '../topologyGraph';
 
 // reader === name, or name followed by a separator suffix (prereq.p0/-0).
 const readerIsHandler = ( reader, name ) =>
@@ -69,22 +45,12 @@ function consumerHandlers( graphTopo ) {
 	const nodes = Array.isArray( graphTopo?.nodes ) ? graphTopo.nodes : [];
 	const rawEdges = Array.isArray( graphTopo?.edges ) ? graphTopo.edges : [];
 	const kindOf = new Map( nodes.map( ( n ) => [ n.name, n.kind ] ) );
-	const isTee = ( name ) => 'tee' === kindOf.get( name );
 
-	// Contract tees: replace x→T, T→y with x→y (as collapseGraph, raw names).
-	let edges = rawEdges.map( ( e ) => [ e[ 0 ], e[ 1 ] ] );
-	while ( edges.some( ( [ a, b ] ) => isTee( a ) || isTee( b ) ) ) {
-		const tee = edges.flatMap( ( [ a, b ] ) => [ a, b ] ).find( isTee );
-		const ins = edges
-			.filter( ( [ , b ] ) => b === tee )
-			.map( ( [ a ] ) => a );
-		const outs = edges
-			.filter( ( [ a ] ) => a === tee )
-			.map( ( [ , b ] ) => b );
-		const rest = edges.filter( ( [ a, b ] ) => a !== tee && b !== tee );
-		ins.forEach( ( a ) => outs.forEach( ( b ) => rest.push( [ a, b ] ) ) );
-		edges = rest;
-	}
+	// Same collapsed vertices `buildTopologySections` renders (raw names).
+	const edges = contractTees(
+		rawEdges,
+		( name ) => 'tee' === kindOf.get( name )
+	);
 
 	const outAdj = new Map();
 	edges.forEach( ( [ a, b ] ) => {
@@ -122,19 +88,12 @@ function consumerHandlers( graphTopo ) {
 const liveTotal = ( segments ) =>
 	segments.reduce( ( acc, seg ) => acc + ( seg.size || 0 ), 0 );
 
-// Absolute byte position of a cursor: full segments behind it + offset.
-const cursorBytes = ( segments, cursorSegment, cursorOffset ) =>
+// Absolute byte position: whole segments behind `segment`, plus the offset.
+const bytePosition = ( segments, segment, offset ) =>
 	segments.reduce(
-		( acc, seg ) => ( seg.id < cursorSegment ? acc + seg.size : acc ),
+		( acc, seg ) => ( seg.id < segment ? acc + seg.size : acc ),
 		0
-	) + cursorOffset;
-
-// Partition HEAD position; does NOT cap endSize (it lags, stuck W at 0).
-const endPosition = ( segments, endSegment, endSize ) =>
-	segments.reduce(
-		( acc, seg ) => ( seg.id < endSegment ? acc + seg.size : acc ),
-		0
-	) + endSize;
+	) + offset;
 
 /**
  * Probe-cadence rate step. The cursor/end byte positions come from the 15s
@@ -215,7 +174,8 @@ export function reconstructWorkers( data, prior ) {
 	consumers.forEach( ( row ) => {
 		const live =
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
-		const total = endPosition( live, row.end_segment, row.end_size );
+		// HEAD position; end_size is NOT capped (it lags, stuck W at 0).
+		const total = bytePosition( live, row.end_segment, row.end_size );
 		const prevMax = writeTotals.get( row.source );
 		if ( prevMax === undefined || total > prevMax ) {
 			writeTotals.set( row.source, total );
@@ -227,11 +187,7 @@ export function reconstructWorkers( data, prior ) {
 			if ( writeTotals.has( log.name ) ) {
 				return;
 			}
-			const head = ( p.segments || [] ).reduce(
-				( acc, seg ) => acc + ( seg.size || 0 ),
-				0
-			);
-			writeTotals.set( log.name, head );
+			writeTotals.set( log.name, liveTotal( p.segments || [] ) );
 		} );
 	} );
 	writeTotals.forEach( ( total, source ) => {
@@ -250,7 +206,7 @@ export function reconstructWorkers( data, prior ) {
 			liveByName.get( `${ row.source }#${ row.partition }` ) || [];
 		const step = steppedRate(
 			priorRead[ row.reader ],
-			cursorBytes( live, row.cursor_segment, row.cursor_offset ),
+			bytePosition( live, row.cursor_segment, row.cursor_offset ),
 			ts
 		);
 		readStepByReader.set( row.reader, step );
@@ -269,18 +225,13 @@ export function reconstructWorkers( data, prior ) {
 		// One worker per probe row; resolve handler by its reads-template.
 		consumers.forEach( ( row ) => {
 			// Match by READER (unique); fall back to source when no reader.
+			const bindings = { partition: row.partition, topology };
 			const matching = handlers.filter( ( h ) =>
 				h.readerTemplate
-					? concreteSource(
-							h.readerTemplate,
-							row.partition,
-							topology
-					  ) === row.reader
-					: concreteSource(
-							h.sourceTemplate,
-							row.partition,
-							topology
-					  ) === row.source
+					? substituteTokens( h.readerTemplate, bindings ) ===
+					  row.reader
+					: substituteTokens( h.sourceTemplate, bindings ) ===
+					  row.source
 			);
 			if ( 0 === matching.length ) {
 				return;

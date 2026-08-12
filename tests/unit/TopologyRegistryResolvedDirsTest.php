@@ -234,19 +234,6 @@ class TopologyRegistryResolvedDirsTest extends TestCase {
 		);
 	}
 
-	public function test_the_omitted_count_default_tracks_the_topic_schema(): void {
-		// One source of truth: if Topic's schema default ever changes, the
-		// registry's assumption must move with it.
-		$args = \Newspack_Nodes\Topic_Node::node_schema()['arguments'];
-		$num  = null;
-		foreach ( $args as $arg ) {
-			if ( 'num_partitions' === ( $arg['name'] ?? '' ) ) {
-				$num = $arg['default'] ?? null;
-			}
-		}
-		$this->assertSame( Topology_Analyzer::TOPIC_PARTITIONS_DEFAULT, $num );
-	}
-
 	public function test_a_nested_layout_does_not_report_a_failed_expansion(): void {
 		// Nested layouts are supported and documented: several partitions collapse
 		// to ONE first-level dir. Counting first-level names would call that a

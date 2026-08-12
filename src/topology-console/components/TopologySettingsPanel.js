@@ -96,13 +96,17 @@ export default function TopologySettingsPanel( {
 		replaceFrontmatter( map );
 	};
 
-	// "Undeclared" has no TSL spelling: a bare `secure` means level 1.
+	// "Undeclared" has no TSL spelling; a bare `secure` climbs one level.
 	const setSecure = ( level ) => {
 		if ( '' === level ) {
 			clearSecure();
 			return;
 		}
-		run( 'insecure' === level ? 'insecure' : `secure ${ level }` );
+		run(
+			'insecure' === level || 'secure' === level
+				? level
+				: `secure ${ level }`
+		);
 	};
 
 	// Set a key (recognized or generic). Preserves position if present.
@@ -285,6 +289,9 @@ export default function TopologySettingsPanel( {
 					</option>
 					<option value="insecure">
 						{ __( 'insecure — no restrictions', 'newspack-nodes' ) }
+					</option>
+					<option value="secure">
+						{ __( 'secure — climb one level', 'newspack-nodes' ) }
 					</option>
 					<option value="1">
 						{ __( '1 — no graph construction', 'newspack-nodes' ) }

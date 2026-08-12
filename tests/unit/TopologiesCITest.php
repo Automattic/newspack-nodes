@@ -453,10 +453,10 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_rejects_invalid_tsl_with_line_number(): void {
-		// Line 3 ends with a trailing backslash — a structural error
-		// Shell::validate_line throws on. The interpreter must report the line index
-		// (1-based) so the editor can position the cursor. (Unknown verbs are NOT
-		// a save-time error — they surface at runtime as `unknown command`.)
+		// Line 3 ends with a trailing backslash and nothing follows it, so the
+		// statement never terminates. The interpreter must report the 1-based
+		// PHYSICAL line so the editor can position the cursor. (Unknown verbs are
+		// NOT a save-time error — they surface at runtime as `unknown command`.)
 		$tsl = "make_node Echo e\nmake_node Tee t\nmake_node Echo x\\\n";
 
 		$result = VerbHarness::fire(
@@ -469,7 +469,52 @@ class TopologiesCITest extends TestCase {
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'validation failed', $result );
 		$this->assertStringContainsString( 'line 3', $result );
-		$this->assertStringContainsString( 'backslash continuation', $result );
+	}
+
+	/**
+	 * The reported line must be the SOURCE line, not the statement index.
+	 * `split_statements()` drops blank lines and collapses a quoted run spanning
+	 * several physical lines, so counting statements puts the editor's cursor on
+	 * the wrong line — the one thing this validation exists to get right. Here
+	 * the fault is on physical line 7 and is only the 3rd statement.
+	 */
+	public function test_save_reports_the_physical_source_line_not_the_statement_index(): void {
+		$tsl = "make_node Echo e\n"          // line 1, statement 1
+			. "\n"                           // line 2 (dropped)
+			. "make_node Grep g \"multi\n"   // line 3, statement 2 starts
+			. "line\n"                       // line 4
+			. "quoted\"\n"                   // line 5 — statement 2 ends
+			. "\n"                           // line 6 (dropped)
+			. "make_node Echo x\\\n";        // line 7, statement 3 — unterminated
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'off-by-lines', $tsl ]
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'validation failed', $result );
+		$this->assertStringContainsString( 'line 7', $result );
+		$this->assertStringNotContainsString( 'line 3', $result );
+	}
+
+	/**
+	 * A trailing backslash mid-file is a legal continuation the runtime joins;
+	 * only an unterminated one at EOF is an error. Rejecting every continuation
+	 * made a body the Shell executes fine unsaveable.
+	 */
+	public function test_save_accepts_a_backslash_continuation_that_terminates(): void {
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'save',
+			[ 'continued-top', "make_node Grep g \\\n    zebra-pattern\n" ]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'continued-top', $result['name'] );
 	}
 
 	public function test_save_rejects_body_too_large(): void {
@@ -1063,18 +1108,28 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'failed to read topology file', $result );
 	}
 
-	public function test_save_rejects_when_no_writable_user_dir(): void {
+	/**
+	 * One condition, one message. save and delete each resolve the same
+	 * `<user_dir>/<name>.tsl`, and each carried its own wording for "there is no
+	 * user dir" — so an operator hitting the identical misconfiguration read two
+	 * different errors depending on which verb they reached first.
+	 */
+	public function test_save_and_delete_report_a_missing_user_dir_identically(): void {
 		Topology_Registry::register_user_dir( '' );
 
-		$result = VerbHarness::fire(
+		$saved = VerbHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
 			[ 'orphan', "make_node Echo e\n" ]
 		);
+		VerbHarness::reset();
+		$deleted = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'orphan' );
 
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'no writable user dir', $result );
+		$this->assertIsString( $saved );
+		$this->assertIsString( $deleted );
+		$this->assertSame( $saved, $deleted );
+		$this->assertStringContainsString( 'no user dir configured', $saved );
 	}
 
 	public function test_save_reports_mkdir_failure_when_user_dir_path_is_blocked(): void {
@@ -1110,15 +1165,6 @@ class TopologiesCITest extends TestCase {
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'failed to write topology file', $result );
-	}
-
-	public function test_delete_rejects_when_no_user_dir_configured(): void {
-		Topology_Registry::register_user_dir( '' );
-
-		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'delete', 'whatever' );
-
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'no user dir configured', $result );
 	}
 
 	public function test_delete_reports_unlink_failure_when_user_dir_is_readonly(): void {

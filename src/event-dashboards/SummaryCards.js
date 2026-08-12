@@ -20,7 +20,7 @@ import {
 	formatByteRate,
 	formatMsgRate,
 	formatCount,
-} from './formatters';
+} from '@newspack-nodes/shared/utils/formatters';
 import './styles/summary-cards.scss';
 
 // One card: a big value + a muted label, keyed by `mod` for styling/tests.

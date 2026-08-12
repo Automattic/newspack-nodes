@@ -798,16 +798,15 @@ trait Durable_Reader {
 	 * `saved_line_mode` holds it while a transient STEP session forces line_mode on).
 	 * The imperative verbs (SEEK_FRAME/PAUSE/PLAY/STEP) are runtime, not config.
 	 *
-	 * @param string $name Node name the verbs address.
-	 * @return string Zero or more trailing-newline-terminated `cmd` lines.
+	 * @return string Zero or more trailing-newline-terminated `command_node` lines.
 	 */
-	protected function dump_time_travel_config( string $name ): string {
+	protected function dump_time_travel_config(): string {
 		$out = '';
 		foreach ( $this->snapshot_nodes as $snapshot_name ) {
-			$out .= "command_node {$name}:config add_snapshot_node {$snapshot_name}\n";
+			$out .= $this->config_line( 'add_snapshot_node', $snapshot_name );
 		}
 		if ( $this->saved_line_mode ?? $this->line_mode ) {
-			$out .= "command_node {$name}:config set_line_mode 1\n";
+			$out .= $this->config_line( 'set_line_mode', '1' );
 		}
 		return $out;
 	}

@@ -28,26 +28,19 @@ namespace Newspack_Nodes;
 
 class Topology_Analyzer {
 
-	/**
-	 * What a Topic's `num_partitions` means when the argument is OMITTED —
-	 * Topic_Node's schema default, not the worker count. Pinned to that schema
-	 * by TopologyRegistryResolvedDirsTest so the two cannot drift.
-	 */
-	public const TOPIC_PARTITIONS_DEFAULT = '<config:num_partitions>';
-
-	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
+	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name. */
 	private static array $frontmatter_cache = [];
 
 	/** @var array<string,array{nodes:list<array<string,int|string|list<string>>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name (node entries carry `type` + `args`). */
 	private static array $graph_cache = [];
 
-	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
+	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides, by topology name + partition count. */
 	private static array $segment_size_overrides_cache = [];
 
-	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name; cleared by reset_basename_cache(). */
+	/** @var array<string,array{statements:list<array{line:string,verb:string,values:list<string>,spans:list<string>,origin:?string,origins:list<string>,via:list<string>}>,tree:array<string,mixed>}> Memoized flattened statements by topology name. */
 	private static array $statements_cache = [];
 
-	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
+	/** @var array<string,array<string>> Memoized write-set by topology name. */
 	private static array $write_set_cache = [];
 
 	/**
@@ -282,21 +275,6 @@ class Topology_Analyzer {
 				'edges' => [],
 			];
 		}
-		$kind_of  = static function ( string $cls ): string {
-			$kind = match ( $cls ) {
-				'Consumer'  => 'consumer',
-				'Partition' => 'partition',
-				'Topic'     => 'topic',
-				'Tee'       => 'tee',
-				'Log'       => 'log',
-				default     => 'logic',
-			};
-			// Tee subclasses only: 'tee' is contracted out of the graph.
-			if ( 'logic' === $kind && self::type_is_tee( $cls ) ) {
-				return 'tee';
-			}
-			return $kind;
-		};
 		$basename = static function ( string $arg ): string {
 			$slash = \strrpos( $arg, '/' );
 			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
@@ -321,7 +299,7 @@ class Topology_Analyzer {
 			if ( 'make_node' === $verb ) {
 				$class          = $values[1] ?? '';
 				$node_name      = $values[2] ?? '';
-				$kind           = $kind_of( $class );
+				$kind           = self::node_kind( $class );
 				$types[ $node_name ] = $class;
 				// Spans 3.. = positional args; a CI reads the node's config.
 				$path   = $spans[3] ?? null;
@@ -375,14 +353,6 @@ class Topology_Analyzer {
 				\array_values( $edges )
 			),
 		];
-	}
-
-	private static function type_is_tee( string $type ): bool {
-		if ( 'Tee' === $type ) {
-			return true;
-		}
-		$fqcn = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $fqcn && \is_a( $fqcn, Tee_Node::class, true );
 	}
 
 	/**
@@ -558,13 +528,38 @@ class Topology_Analyzer {
 
 	/**
 	 * True when a TSL class token resolves to a class that keeps a target LIST.
+	 *
+	 * Fan-out is the `Fanout_Targets` trait, not the Tee class — Settings_Sync
+	 * and ELN's Discovery_Collector keep a target list without a Tee ancestor.
 	 */
 	private static function type_fans_out( string $type ): bool {
-		if ( 'Tee' === $type ) {
+		if ( self::type_is( $type, Tee_Node::class ) ) {
 			return true;
 		}
 		$fqcn = Command_Interpreter_Node::resolve_class( $type );
 		return null !== $fqcn && Core::class_fans_out( $fqcn );
+	}
+
+	/**
+	 * A make_node class token's layout kind, by LINEAGE — one classification
+	 * policy for the whole file.
+	 *
+	 * Most-derived first, since `Log_Node extends Partition_Node`. String
+	 * matching the token was the bug: a plugin subclassing Partition wrote a
+	 * real log that read as `logic`, so it was missing from the log catalog, the
+	 * probe sweep and the restart planner; a Consumer subclass fell out of
+	 * `consumer_positions()`, which is what reports reader lag.
+	 */
+	private static function node_kind( string $type ): string {
+		return match ( true ) {
+			self::type_is( $type, Log_Node::class )       => 'log',
+			self::type_is( $type, Partition_Node::class ) => 'partition',
+			self::type_is( $type, Topic_Node::class )     => 'topic',
+			self::type_is( $type, Consumer_Node::class )  => 'consumer',
+			// 'tee' marks a pass-through hop the dashboard contracts out.
+			self::type_is( $type, Tee_Node::class )       => 'tee',
+			default                                       => 'logic',
+		};
 	}
 
 	/**
@@ -652,7 +647,7 @@ class Topology_Analyzer {
 			// above the worker count (aggregator fan-in) or below it
 			// (deliberate narrowing). An unresolvable token falls back
 			// rather than declaring nothing — the GC deletes undeclared.
-			$declared = self::declared_partition_count( $meta[ $entry ]['partitions'] ?? '' );
+			$declared = self::declared_partition_count( Core::as_string( $meta[ $entry ]['partitions'] ?? '' ) );
 			$count    = $declared > 0 ? $declared : $num_partitions;
 			// Explicit kind→root map; a new entry can't hit offsets.
 			$root = match ( $kind ) {
@@ -663,15 +658,13 @@ class Topology_Analyzer {
 			if ( '' === $root ) {
 				continue;
 			}
-			$produced = [];
-			for ( $p = 0; $p < $count; $p++ ) {
-				$concrete = Core::resolve_partition_template( $token, $p, $name );
-				// @longform Distinct CONCRETE paths, before the root filter:
-				// a nested layout collapses to one first-level dir while
-				// still expanding, and a path outside the root produces
-				// none. Neither is a failed expansion.
-				$produced[ $concrete ] = true;
-				$first                 = Core::first_level_dir( $concrete, $root );
+			// @longform Distinct CONCRETE paths, before the root filter: a
+			// nested layout collapses to one first-level dir while still
+			// expanding, and a path outside the root produces none. Neither
+			// is a failed expansion.
+			$produced = self::expand_template( $token, $name, $count );
+			foreach ( $produced as $p => $concrete ) {
+				$first = Core::first_level_dir( $concrete, $root );
 				if ( '' === $first ) {
 					continue;
 				}
@@ -722,18 +715,9 @@ class Topology_Analyzer {
 		}
 		$meta     = self::$write_meta_cache[ $topology ][ $entry ] ?? [];
 		$declared = self::declared_partition_count( Core::as_string( $meta['partitions'] ?? '' ) );
-		$count    = $declared > 0 ? $declared : \max( 1, $num_partitions );
-		$dirs     = [];
+		$count    = $declared > 0 ? $declared : $num_partitions;
 		[ , $template ] = \explode( ':', $entry, 2 );
-		for ( $p = 0; $p < $count; $p++ ) {
-			$concrete = Core::resolve_partition_template( $template, $p, $topology );
-			// Tokenless (or nested) template: keep the FIRST partition seen.
-			if ( \in_array( $concrete, $dirs, true ) ) {
-				continue;
-			}
-			$dirs[ $p ] = $concrete;
-		}
-		return $dirs;
+		return self::expand_template( $template, $topology, $count );
 	}
 
 	/**
@@ -795,8 +779,8 @@ class Topology_Analyzer {
 				// @longform A Topic re-partitions on its OWN count, whatever
 				// the worker count. Partition has no such argument — its
 				// 4th value is segment_size.
-				$declared_partitions = 'Topic' === $class
-					? Core::as_string( $values[4] ?? self::TOPIC_PARTITIONS_DEFAULT )
+				$declared_partitions = self::type_is( $class, Topic_Node::class )
+					? Core::as_string( $values[4] ?? self::topic_partitions_default() )
 					: '';
 				$meta[ $entry ]      = [
 					'sig'        => (string) \preg_replace( '/\s+/', ' ', \trim( \str_replace( '<topology>', $name, $statement['line'] ) ) ),
@@ -846,21 +830,18 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Whether a TSL class token resolves to $fqcn (or a subclass).
-	 *
-	 * The write set is a SAFETY gate — it feeds `find_conflicts` and
-	 * `Log_Cleaner`'s declared-dir set — and it used to string-compare the raw
-	 * token, while the layout code beside it resolved the token and asked the
-	 * type system. A plugin subclassing Partition therefore wrote a real log
-	 * that no conflict check saw and the GC did not know was declared.
-	 *
-	 * @param string $type TSL class token.
-	 * @param string $fqcn Fully-qualified base class.
-	 * @return bool True when the token is that class or a subclass.
+	 * What a Topic's `num_partitions` means when the argument is OMITTED, read
+	 * off the ONE place that declares it — `Topic_Node::node_schema()`. A copy
+	 * here, however carefully pinned by a test, is a second declaration.
 	 */
-	private static function type_is( string $type, string $fqcn ): bool {
-		$resolved = Command_Interpreter_Node::resolve_class( $type );
-		return null !== $resolved && \is_a( $resolved, $fqcn, true );
+	private static function topic_partitions_default(): string {
+		foreach ( Core::arr( Topic_Node::node_schema()['arguments'] ?? [] ) as $argument ) {
+			$argument = Core::arr( $argument );
+			if ( 'num_partitions' === ( $argument['name'] ?? '' ) ) {
+				return Core::as_string( $argument['default'] ?? '' );
+			}
+		}
+		return '';
 	}
 
 	/** Whether `$topology` declares a node named `$node` — including nodes that write nothing. */
@@ -884,62 +865,102 @@ class Topology_Analyzer {
 	}
 
 	/**
-	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
+	 * Literal `segment_size` overrides `$name` declares, keyed by the CONCRETE
+	 * first-level dir under logs_dir each one writes. Memoized.
 	 *
-	 * Token-substituted values are omitted; the caller falls back to the global default.
+	 * Layout-agnostic for real: the key comes from expanding the path template
+	 * over `0..$num_partitions-1` through `Core::resolve_partition_template()`
+	 * and reducing with `Core::first_level_dir()` — the same two calls
+	 * `resolved_resource_dirs()` and `Log_Cleaner` name their dirs by, so the
+	 * override and the dir it describes can never be spelled differently. A
+	 * `.p{N}`-suffix regex lost every nested layout, and the token-verbatim
+	 * basename it produced could not match any concrete dir at all.
+	 *
+	 * Partition SUBCLASSES count (`Log` is one), and a template whose size arg
+	 * is itself a token is omitted — the caller falls back to the global default.
+	 *
+	 * @param string $name           Topology name.
+	 * @param int    $num_partitions Caller's worker count; pass Bootstrap::num_partitions_for($name).
 	 *
 	 * @return array<string,int>
 	 */
-	public static function segment_size_overrides_for( string $name ): array {
-		if ( isset( self::$segment_size_overrides_cache[ $name ] ) ) {
-			return self::$segment_size_overrides_cache[ $name ];
+	public static function segment_size_overrides_for( string $name, int $num_partitions = 1 ): array {
+		$memo_key = $name . "\0" . $num_partitions;
+		if ( isset( self::$segment_size_overrides_cache[ $memo_key ] ) ) {
+			return self::$segment_size_overrides_cache[ $memo_key ];
 		}
-		$path = Topology_Registry::resolve( $name );
-		if ( null === $path ) {
-			return self::$segment_size_overrides_cache[ $name ] = [];
+		if ( null === Topology_Registry::resolve( $name ) ) {
+			return self::$segment_size_overrides_cache[ $memo_key ] = [];
 		}
+		$logs_root = Core::resolve_config_token( 'config', 'logs_dir' );
 		$overrides = [];
-		$shell     = new Shell_Node();
-		foreach ( self::flat_lines( $name ) as $line ) {
-			// @longform Layout-agnostic: VALUE tokens (quotes stripped, so a
-			// deferred '<partition>' path reads uniformly), basename from the
-			// path's last component whether the token is .p<partition> or a
-			// pinned .p0, size from the 1st arg after the path, int-filtered.
-			$values = $shell->tokenize( $line );
-			if ( 'make_node' !== ( $values[0] ?? '' ) || 'Partition' !== ( $values[1] ?? '' ) ) {
+		foreach ( self::statements( $name )['statements'] as $statement ) {
+			$values = $statement['values'];
+			if ( 'make_node' !== $statement['verb'] || ! self::type_is( $values[1] ?? '', Partition_Node::class ) ) {
 				continue;
 			}
-			$path = $values[3] ?? '';
 			$size = $values[4] ?? '';
-			if ( ! \preg_match( '{/([A-Za-z0-9_-]+)\.p(?:<partition>|\d+)$}', $path, $m ) ) {
+			if ( ! \ctype_digit( $size ) ) {
 				continue;
 			}
-			if ( \ctype_digit( $size ) ) {
-				$overrides[ $m[1] ] = (int) $size;
+			foreach ( self::expand_template( $values[3] ?? '', $name, $num_partitions ) as $concrete ) {
+				$dir = Core::first_level_dir( $concrete, $logs_root );
+				if ( '' !== $dir ) {
+					$overrides[ $dir ] = (int) $size;
+				}
 			}
 		}
-		return self::$segment_size_overrides_cache[ $name ] = $overrides;
+		return self::$segment_size_overrides_cache[ $memo_key ] = $overrides;
 	}
 
 	/**
-	 * A topology's statements, includes flattened and verbs canonicalized.
+	 * A path template expanded over `0..$count-1`, indexed by partition — the ONE
+	 * expansion every dir resolver in this class shares, so a nested layout, a
+	 * tokenless path and the `<partition>`/`{partition}` spellings are handled
+	 * identically wherever a dir is derived.
 	 *
-	 * EVERY static reader goes through here. Scanning the raw file makes an
-	 * include-only topology (ELN's combined.tsl is two `include` lines) look
-	 * EMPTY — which silently disarmed the write_set conflict gate.
+	 * A template that produces no new path for a partition (tokenless, or a
+	 * nested layout collapsing several onto one dir) keeps the FIRST partition
+	 * that produced it; `alerts.p0` is pinned across every worker on purpose.
 	 *
-	 * THROWS on a broken include. The safety gates read through here: an empty
-	 * write set reads as "no conflict" to find_conflicts and as "every one of its
-	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
-	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
-	 * Workers_CI's override collector at their call sites) so one bad .tsl
-	 * can't take out the dashboard or wp-admin.
-	 *
-	 * @return list<string>
-	 * @throws \RuntimeException On an unknown include, a cycle, or a conflicting make_node.
+	 * @return array<int,string> Partition index => concrete path.
 	 */
-	private static function flat_lines( string $name ): array {
-		return \array_column( self::statements( $name )['statements'], 'line' );
+	private static function expand_template( string $template, string $topology, int $count ): array {
+		$paths = [];
+		for ( $p = 0; $p < \max( 1, $count ); $p++ ) {
+			$concrete = Core::resolve_partition_template( $template, $p, $topology );
+			if ( ! \in_array( $concrete, $paths, true ) ) {
+				$paths[ $p ] = $concrete;
+			}
+		}
+		return $paths;
+	}
+
+	/**
+	 * Whether a TSL class token resolves to $fqcn (or a subclass).
+	 *
+	 * The write set is a SAFETY gate — it feeds `find_conflicts` and
+	 * `Log_Cleaner`'s declared-dir set — and it used to string-compare the raw
+	 * token, while the layout code beside it resolved the token and asked the
+	 * type system. A plugin subclassing Partition therefore wrote a real log
+	 * that no conflict check saw and the GC did not know was declared.
+	 *
+	 * `resolve_class()` returns null whenever no namespace has been registered
+	 * yet, so the token alone has to answer for the base classes themselves —
+	 * ONE rule (`<token>_Node` is the base's short name) where three predicates
+	 * each carried their own literal `'Tee' === $type` escape hatch.
+	 *
+	 * @param string $type TSL class token.
+	 * @param string $fqcn Fully-qualified base class.
+	 * @return bool True when the token is that class or a subclass.
+	 */
+	private static function type_is( string $type, string $fqcn ): bool {
+		$resolved = Command_Interpreter_Node::resolve_class( $type );
+		if ( null !== $resolved ) {
+			return \is_a( $resolved, $fqcn, true );
+		}
+		$slash = \strrpos( $fqcn, '\\' );
+		return $type . '_Node' === ( false === $slash ? $fqcn : \substr( $fqcn, $slash + 1 ) );
 	}
 
 	/**
@@ -987,6 +1008,18 @@ class Topology_Analyzer {
 	 * Mirrors the Shell's include rules statically: registry name resolution,
 	 * `#pragma once` per resolved path, an ancestor-stack cycle guard, and
 	 * make_node dedup-or-conflict. Statement ORDER is the eval order.
+	 *
+	 * EVERY static reader goes through here (`frontmatter()` excepted — see its
+	 * docblock). Scanning the raw file makes an include-only topology (ELN's
+	 * combined.tsl is two `include` lines) look EMPTY, which silently disarmed
+	 * the write_set conflict gate.
+	 *
+	 * THROWS on a broken include. The safety gates read through here: an empty
+	 * write set reads as "no conflict" to find_conflicts and as "every one of its
+	 * logs is an orphan" to Log_Cleaner. Fail loud; the display surfaces catch
+	 * for themselves (graph_for internally; Log_Cleaner::declared_dirs and
+	 * Workers_CI's override collector at their call sites) so one bad .tsl
+	 * can't take out the dashboard or wp-admin.
 	 *
 	 * @param string       $name           Top-level topology; '' walks a synthetic top level.
 	 * @param list<string> $extra_includes Includes to walk as if declared by the top level.

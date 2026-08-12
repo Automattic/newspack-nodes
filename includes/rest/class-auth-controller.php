@@ -38,7 +38,7 @@ class Auth_Controller {
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
 		return true;

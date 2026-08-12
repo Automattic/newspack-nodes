@@ -1,6 +1,4 @@
-import { TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
 import { SliceViewNode } from '@newspack-nodes/shared/nodes/slice-view-node';
-import { errorMessage } from '@newspack-nodes/shared/errorMessage';
 
 /**
  * `summary:view` — owns the de-god HEADER slice of the Aggregator Status
@@ -9,38 +7,13 @@ import { errorMessage } from '@newspack-nodes/shared/errorMessage';
  * an inspectable reply path independent of the servers slice.
  *
  * The `summary` verb computes the connected rollup SERVER-side, so this view
- * just maps its `{ connected, total, server_now }` JSON payload onto the render
- * model the <AggregatorSummary> widget reads (renaming `server_now → serverNow`,
+ * just maps its `{ connected, idle, total, server_now }` JSON payload onto the
+ * render model the aggregator header reads (renaming `server_now → serverNow`,
  * stamping `lastRefresh` from the browser clock, clearing loading/error). The
- * TM_ERROR path is overridden to surface the error and clear loading; the base
- * SliceViewNode keeps the prior slice on transient garbage.
+ * base SliceViewNode owns both failure paths: a TM_ERROR keeps the counts on
+ * screen, and transient garbage keeps the prior slice.
  */
 export class AggregatorSummaryViewNode extends SliceViewNode {
-	/**
-	 * Handles the `summary` verb's reply. A TM_ERROR reply keeps the counts
-	 * already on screen, surfaces the error, and clears `loading` — the base
-	 * class would instead leave the header spinning. Everything else falls
-	 * through to the base parse-and-publish path.
-	 *
-	 * @param {Array} message The 7-field positional message.
-	 */
-	fill( message ) {
-		// TM_ERROR: surface error, clear loading; base leaves header stuck.
-		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			const value = message[ VALUE ];
-			const payload =
-				value && 'object' === typeof value ? value.payload : value;
-			this.model = {
-				...this.model,
-				error: errorMessage( payload ),
-				loading: false,
-			};
-			this.setState( 'view', this.model );
-			return;
-		}
-		super.fill( message );
-	}
-
 	/**
 	 * The shaped-but-empty header slice the widget renders before the first
 	 * reply lands, and the shape the error path falls back to: zero counts, no

@@ -9,15 +9,30 @@
 import {
 	newMessage,
 	pack,
+	unpack,
 	TYPE,
 	FROM,
 	TO,
 	VALUE,
 	TM_COMMAND,
+	TM_ERROR,
 } from '@newspack-nodes/runtime';
 import { makeFakeCommandWire } from '../fakeCommandWire';
 
 function commandLine( name, from = 'caller' ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = from;
+	m[ TO ] = '_http/svc';
+	m[ VALUE ] = {
+		name,
+		arguments: [],
+		auth: { nonce: 'n0', sig: 'signed', handle: 'h0' },
+	};
+	return pack( m );
+}
+
+function unsignedCommandLine( name, from = 'caller' ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = from;
@@ -49,6 +64,30 @@ test( 'a batch carries the whole message, not just the verb name', async () => {
 	const wire = makeFakeCommandWire( () => null );
 	await wire( '/command', { body: commandLine( 'list_logs', 'rules:in' ) } );
 	expect( wire.batches[ 0 ][ 0 ][ FROM ] ).toBe( 'rules:in' );
+} );
+
+// ADR-15: the MINTER signs. A new minter that forgets shipped once already,
+// and the wire double is the one place that catches the next one for free.
+test( 'refuses an unsigned request command the way the interpreter does', async () => {
+	const wire = makeFakeCommandWire( () => 'ok' );
+	const res = await wire( '/command', {
+		body: unsignedCommandLine( 'topologies', 'seed:in' ),
+	} );
+
+	const reply = unpack( ( await res.text() ).split( '\n' )[ 0 ] );
+	expect( reply[ TYPE ] & TM_ERROR ).toBeTruthy();
+	expect( reply[ VALUE ].payload ).toBe( 'unauthorized: topologies' );
+	expect( reply[ TO ] ).toBe( 'seed:in' );
+} );
+
+test( 'a suite testing the pre-auth path can opt the refusal out', async () => {
+	const wire = makeFakeCommandWire( () => 'ok', { requireSignature: false } );
+	const res = await wire( '/command', {
+		body: unsignedCommandLine( 'topologies' ),
+	} );
+
+	const reply = unpack( ( await res.text() ).split( '\n' )[ 0 ] );
+	expect( reply[ VALUE ].payload ).toBe( 'ok' );
 } );
 
 test( 'replies route back TO = FROM, so a caller needs no correlator', async () => {

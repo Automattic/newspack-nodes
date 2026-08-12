@@ -10,6 +10,8 @@
  */
 
 import { TRANSCRIPT_MAX } from '../../runtime/dumper-node';
+import { Core } from '../../runtime/core';
+import { REDACTED } from '../../runtime/node';
 
 const NS = 'newspack-nodes:console:';
 const TRANSCRIPT_KEY = `${ NS }transcript`;
@@ -19,8 +21,7 @@ const HISTORY_KEY = `${ NS }history`;
 const DEBUG_LEVEL_KEY = `${ NS }debug-level`;
 const DEBUG_STATE_KEY = `${ NS }debug-state`;
 
-// Recent-only caps; transcript reuses Dumper TRANSCRIPT_MAX so restore agrees.
-const MAX_PERSISTED_TRANSCRIPT = TRANSCRIPT_MAX;
+// The transcript's own cap is Dumper's TRANSCRIPT_MAX, so a restore agrees.
 const MAX_PERSISTED_HISTORY = 100;
 
 function read( key ) {
@@ -61,73 +62,56 @@ function readInt( key ) {
 	return Number.isFinite( n ) ? n : 0;
 }
 
-// Mirrors PHP Core::SECRET_NAME_PATTERNS; keep the two lists in step.
-const SECRET_NAME_PATTERNS = [
-	'password',
-	'passwd',
-	'secret',
-	'token',
-	'credential',
-	'api_key',
-	'apikey',
-	'private_key',
-];
+// All three token shapes in ONE pass: chained passes ate each other.
+const ARG_TOKEN =
+	/(['"])(--[\w.-]+=)(?:\\.|(?!\1)[^\\])*\1|(--[\w.-]+=)('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\S*)/g;
 
-const REDACTED = '<redacted>';
+const JSON_PAIR = /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g;
 
 /**
- * Mask credential values in a transcript line. Two shapes carry them: a
- * `--auth_password=…` argument token (what the Vault UI sends, and what the
- * REPL echoes verbatim), and a `"password":"…"` pair inside a rendered command
- * payload. The name survives so the line still reads; only the value goes.
+ * Mask credential values in a console line. Two shapes carry them: a
+ * `--auth_password=…` argument token (what the Vault UI sends, what the REPL
+ * echoes verbatim, and what the history recalls), and a `"password":"…"` pair
+ * inside a rendered command payload. The name survives so the line still
+ * reads; only the value goes.
  *
  * A value ends where its QUOTING says it ends, not at the first space. A
  * passphrase makes `Node::serialize_args()` quote the whole token —
  * `'--auth_password=correct horse battery'` — and an earlier value matcher
  * that stopped at whitespace left everything past the first word sitting in
  * localStorage beside the redaction marker. Both quote characters appear:
- * serialize_args emits single quotes, the JSON payload shape double.
+ * serialize_args emits single quotes, the JSON payload shape double. The
+ * masked line stays quoted as it arrived, so history recalls it replayable.
  *
- * @param {string} text A transcript line.
+ * @param {string} text A console line.
  * @return {string} The line with credential values masked.
  */
 function redactSecrets( text ) {
 	if ( 'string' !== typeof text ) {
 		return text;
 	}
-	const secret = ( name ) =>
-		SECRET_NAME_PATTERNS.some( ( n ) => name.toLowerCase().includes( n ) );
-	return (
-		text
-			// Whole token quoted by serialize_args: '--key=value with spaces'.
-			.replace(
-				/(['"])(--[\w.-]+=)(?:\\.|(?!\1)[^\\])*\1/g,
-				( all, quote, lead ) =>
-					secret( lead )
-						? `${ quote }${ lead }${ REDACTED }${ quote }`
-						: all
-			)
-			// Value quoted on its own: --key="value with spaces".
-			.replace(
-				/(--[\w.-]+=)(['"])(?:\\.|(?!\2)[^\\])*\2/g,
-				( all, lead, quote ) =>
-					secret( lead )
-						? `${ lead }${ quote }${ REDACTED }${ quote }`
-						: all
-			)
-			// Bare token: --key=value, ending at whitespace.
-			.replace( /(--[\w.-]+=)\S*/g, ( all, lead ) =>
-				secret( lead ) ? `${ lead }${ REDACTED }` : all
-			)
-			.replace( /("[\w.-]+"\s*:\s*)"(?:\\.|[^"\\])*"/g, ( all, lead ) =>
-				secret( lead ) ? `${ lead }"${ REDACTED }"` : all
-			)
-	);
+	const secret = ( name ) => Core.isSecretProperty( name );
+	return text
+		.replace( ARG_TOKEN, ( all, quote, wrapped, lead, value ) => {
+			if ( wrapped ) {
+				return secret( wrapped )
+					? `${ quote }${ wrapped }${ REDACTED }${ quote }`
+					: all;
+			}
+			if ( ! secret( lead ) ) {
+				return all;
+			}
+			const q = /^['"]/.test( value ) ? value[ 0 ] : '';
+			return `${ lead }${ q }${ REDACTED }${ q }`;
+		} )
+		.replace( JSON_PAIR, ( all, lead ) =>
+			secret( lead ) ? `${ lead }"${ REDACTED }"` : all
+		);
 }
 
 function saveTranscriptTo( key, entries ) {
 	const safe = ( entries || [] )
-		.slice( -MAX_PERSISTED_TRANSCRIPT )
+		.slice( -TRANSCRIPT_MAX )
 		.map( ( e ) =>
 			e && 'string' === typeof e.text
 				? { ...e, text: redactSecrets( e.text ) }
@@ -149,7 +133,7 @@ export function loadTranscript() {
 }
 
 /**
- * Persist the debug overlay's transcript, newest MAX_PERSISTED_TRANSCRIPT
+ * Persist the debug overlay's transcript, newest TRANSCRIPT_MAX
  * entries only, with credential values masked.
  *
  * @param {Object[]} entries Stamped transcript entries, oldest first.
@@ -190,14 +174,20 @@ export function loadHistory() {
 }
 
 /**
- * Persist the REPL's command history, newest MAX_PERSISTED_HISTORY lines only.
+ * Persist the REPL's command history, newest MAX_PERSISTED_HISTORY lines only,
+ * masked the same way the transcript is — the typed line and its transcript
+ * echo are the same keystroke, so one of the two masked was no mask at all.
  *
  * @param {string[]} entries Command lines, oldest first.
  */
 export function saveHistory( entries ) {
 	write(
 		HISTORY_KEY,
-		JSON.stringify( ( entries || [] ).slice( -MAX_PERSISTED_HISTORY ) )
+		JSON.stringify(
+			( entries || [] )
+				.slice( -MAX_PERSISTED_HISTORY )
+				.map( redactSecrets )
+		)
 	);
 }
 

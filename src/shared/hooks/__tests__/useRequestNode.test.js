@@ -12,7 +12,7 @@
 import { renderHook } from '@testing-library/react';
 import { Core, mountExospine } from '@newspack-nodes/runtime';
 import names from '../../../runtime/reserved-node-names.json';
-import useRequestNode from '../useRequestNode';
+import useRequestNode, { ensureRequestNode } from '../useRequestNode';
 
 beforeEach( () => {
 	Core.reset();
@@ -35,12 +35,31 @@ it( 'addresses the bare egress when no console Tap is mounted', () => {
 	// resolve, so the path drops the hop rather than pointing at nothing.
 	renderHook( () => useRequestNode( 'topologies:save', 'topologies' ) );
 	Core.node( names.CONSOLE_TAP )?.removeNode();
-	const { ensureRequestNode } = require( '../useRequestNode' );
 	Core.node( 'topologies:save' )?.removeNode();
 
 	const node = ensureRequestNode( 'vault:probe', 'vault' );
 
 	expect( node.target ).toBe( `${ names.HTTP }/vault` );
+} );
+
+// Reset Graph tears the interpreter down under a node mounted at click time;
+// adopting it again without re-pointing hands back a node sunk into the dead
+// one, and the command goes nowhere.
+it( 'ensureRequestNode re-points an adopted node at the LIVE interpreter', () => {
+	const first = mountExospine();
+	ensureRequestNode( 'aggregator:probe:spoke-91', 'aggregator' );
+	const stale = Core.node( names.COMMAND_INTERPRETER );
+	first.teardown();
+	const second = mountExospine();
+
+	const node = ensureRequestNode( 'aggregator:probe:spoke-91', 'aggregator' );
+
+	expect( node.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+	expect( node.sink ).not.toBe( stale );
+	expect( node.target ).toBe(
+		`${ names.CONSOLE_TAP }/${ names.HTTP }/aggregator`
+	);
+	second.teardown();
 } );
 
 it( 'raises a backbone when there is none, and puts it away again', () => {

@@ -559,9 +559,9 @@ describe( 'PartitionViewer', () => {
 		expect( logBrowserProps.itemLabel( { id: 9 } ) ).toBe( 'Segment 9' );
 		expect( logBrowserProps.itemMeta( { size: 0 } ) ).toBe( '0 B' );
 		expect( logBrowserProps.itemMeta( { size: 512 } ) ).toBe( '512 B' );
-		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2.0 KB' );
+		expect( logBrowserProps.itemMeta( { size: 2048 } ) ).toBe( '2 KB' );
 		expect( logBrowserProps.itemMeta( { size: 3 * 1024 * 1024 } ) ).toBe(
-			'3.0 MB'
+			'3 MB'
 		);
 	} );
 

@@ -218,6 +218,29 @@ class SettingsSchemaTest extends TestCase {
 		}
 	}
 
+	/**
+	 * `Field::$default` and `newspack-nodes-config.php` are two copies of one
+	 * number, and the file is the one the runtime reads — so a Field default
+	 * that disagrees is a lie the settings page prints as its placeholder.
+	 * Seven of them had drifted before this net went up.
+	 */
+	public function test_every_field_default_matches_the_config_file_default(): void {
+		// The SHIPPED file, not load_config_defaults() — the suite's own config
+		// overrides half these keys, which is not the drift under test.
+		$file = require \dirname( __DIR__, 2 ) . '/newspack-nodes-config.php';
+
+		foreach ( Settings_Schema::get()->fields() as $field ) {
+			if ( null === $field->default || ! \array_key_exists( $field->key, $file ) ) {
+				continue;
+			}
+			$this->assertSame(
+				$file[ $field->key ],
+				$field->default,
+				"Field default for '{$field->key}' disagrees with newspack-nodes-config.php"
+			);
+		}
+	}
+
 	public function test_the_sse_stream_knobs_declare_their_defaults_on_the_field(): void {
 		// @longform A default that lives only in the shipped
 		// newspack-nodes-config.php is null on every EXISTING deployment,
@@ -231,7 +254,7 @@ class SettingsSchemaTest extends TestCase {
 			$fields[ $field->key ] = $field;
 		}
 
-		$this->assertSame( 5, $fields['sse_idle_timeout']->default ?? null );
+		$this->assertSame( 15, $fields['sse_idle_timeout']->default ?? null );
 		$this->assertSame( 5000, $fields['sse_retry_ms']->default ?? null );
 		$this->assertSame(
 			0,

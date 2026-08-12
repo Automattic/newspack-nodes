@@ -1142,6 +1142,51 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	/**
+	 * The guard flag must be set LAST, like its twin ensure_diagnostics_wired().
+	 * An unusable base throws from base_dir() mid-wiring and Fleet_Node swallows
+	 * it, so a flag set first leaves the worker HALF-WIRED — no token provider,
+	 * no periodic hooks — for the rest of its life, with no second chance.
+	 */
+	public function test_ensure_runtime_wired_retries_after_an_unusable_base_dir(): void {
+		$prev_env    = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		$tmp         = $this->make_temp_dir( 'half-wired-' );
+		$runtime_ref = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$saved_wired = $runtime_ref->getValue();
+		$saved_token = \Newspack_Nodes\Worker_Base::$token_provider;
+		try {
+			$conf = "{$tmp}/empty-base.php";
+			\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+			\Newspack_Nodes\Config::reset();
+			$runtime_ref->setValue( null, false );
+			\Newspack_Nodes\Worker_Base::$token_provider = null;
+
+			try {
+				Bootstrap::ensure_runtime_wired();
+				$this->fail( 'an unusable base must surface, not wire silently' );
+			} catch ( \RuntimeException $e ) {
+				$this->assertFalse( $runtime_ref->getValue(), 'a throw must leave the wiring un-flagged' );
+			}
+
+			// The operator fixes the base; the next entry point finishes wiring.
+			$this->use_base_dir( $tmp );
+			Bootstrap::ensure_runtime_wired();
+
+			$this->assertNotNull(
+				\Newspack_Nodes\Worker_Base::$token_provider,
+				'the retry must reach the wiring that follows base_dir()'
+			);
+			$this->assertTrue( $runtime_ref->getValue(), 'a completed pass flags itself' );
+		} finally {
+			\Newspack_Nodes\Worker_Base::$token_provider = $saved_token;
+			$runtime_ref->setValue( null, $saved_wired );
+			\putenv( false === $prev_env ? 'LOCAL_NEWSPACK_NODES_CONF' : 'LOCAL_NEWSPACK_NODES_CONF=' . $prev_env );
+			\Newspack_Nodes\Config::reset();
+			$this->rmdir_recursive( $tmp );
+		}
+	}
+
 	// ── deactivate ─────────────────────────────────────────────────────────
 
 	public function test_deactivate_clears_reconcile_cron_hook(): void {

@@ -396,7 +396,7 @@ import { errorMessage } from '@newspack-nodes/shared/pendingReplies';
 export class SliceViewNode extends Node {
 	constructor() {
 		super();
-		this.registrations.view = {};        // React subscribes to the 'view' state
+		// `registrations: [ 'view' ]` in nodeSchema() is what React subscribes to
 		this.model = this.emptySlice();
 		this.setState( 'view', this.model );  // a render before the first reply is valid
 	}
@@ -404,11 +404,12 @@ export class SliceViewNode extends Node {
 	emptySlice() { return {}; }   // subclass supplies the shaped-but-empty slice
 
 	fill( message ) {
+		this.counter += 1;   // terminal node: count here for the overlay's throughput
 		const value = message[ VALUE ];
-		// TM_ERROR first: surface a transport error (string OR { payload }) so the widget never stays stale.
+		// TM_ERROR first: surface a transport error (string OR { payload }) beside the slice already on screen.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			const payload = value && 'object' === typeof value ? value.payload : value;
-			this.model = { ...this.emptySlice(), error: errorMessage( payload ) };
+			this.model = { ...this.model, error: errorMessage( payload ), loading: false };
 			this.setState( 'view', this.model );
 			return;
 		}

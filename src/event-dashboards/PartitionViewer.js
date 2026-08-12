@@ -19,7 +19,7 @@ import { usePartitionViewerGraph } from './hooks/usePartitionViewerGraph';
 import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
 import LogListHeader from '@newspack-nodes/shared/components/LogListHeader';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
-import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
+import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
@@ -86,7 +86,7 @@ const partitionHeader = (
  */
 export default function PartitionViewer( { headerControlsSlot } ) {
 	// Mount the node graph; it returns the thin control callbacks.
-	const { selectLog, setPaused, fetchLogStatus, seek, step } =
+	const { selectLog, setPaused, fetchLogStatus, seek, step, clear } =
 		usePartitionViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
@@ -164,17 +164,8 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			return;
 		}
 		staleSegmentRef.current = lastReceivedSegment;
-		const forLog = selectedLog;
-		fetchLogStatus( forLog )
-			.then( ( status ) => applySegments( forLog, status ) )
-			.catch( () => {} );
-	}, [
-		lastReceivedSegment,
-		segments,
-		selectedLog,
-		fetchLogStatus,
-		applySegments,
-	] );
+		refreshSegments();
+	}, [ lastReceivedSegment, segments, refreshSegments ] );
 
 	// Browse: update seek intent, reposition, and carry the end for catch-up.
 	const handleFollow = () => {
@@ -201,12 +192,11 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		}
 		setPaused( true );
 		browseSegment( position.segment );
-		Promise.resolve(
-			seek( selectedLog, { [ selectedLog ]: position }, { segments } )
-		).then( () => step() );
+		seek( selectedLog, { [ selectedLog ]: position }, { segments } );
+		step();
 	};
 
-	// Re-read the live nodes each frame so a graph reinit is picked up.
+	// Read the view node per call, so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
 
 	return (
@@ -227,6 +217,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			onStep={ step }
 			onJump={ handleJump }
 			getViewNode={ getViewNode }
+			onClear={ clear }
 			sidebar={
 				<LogBrowser
 					mode={ displayMode }

@@ -1,0 +1,382 @@
+[
+    {
+        "verb": "make_node",
+        "values": [
+            "make_node",
+            "Tee",
+            "fanout"
+        ],
+        "spans": [
+            "make_node",
+            "Tee",
+            "fanout"
+        ],
+        "raw": "make_node Tee fanout",
+        "line": 8
+    },
+    {
+        "verb": "var",
+        "values": [
+            "var",
+            "retention_hint",
+            "=",
+            "4271"
+        ],
+        "spans": [
+            "var",
+            "retention_hint",
+            "=",
+            "4271"
+        ],
+        "raw": "var retention_hint = 4271",
+        "line": 12
+    },
+    {
+        "verb": "print",
+        "values": [
+            "print",
+            "holding",
+            "at",
+            "depot"
+        ],
+        "spans": [
+            "print",
+            "holding",
+            "at",
+            "depot"
+        ],
+        "raw": "print holding at depot",
+        "line": 13
+    },
+    {
+        "verb": "status",
+        "values": [
+            "status"
+        ],
+        "spans": [
+            "status"
+        ],
+        "raw": "status",
+        "line": 14
+    },
+    {
+        "verb": "show_parse",
+        "values": [
+            "show_parse"
+        ],
+        "spans": [
+            "show_parse"
+        ],
+        "raw": "show_parse",
+        "line": 15
+    },
+    {
+        "verb": "debug_level",
+        "values": [
+            "debug_level",
+            "2"
+        ],
+        "spans": [
+            "debug_level",
+            "2"
+        ],
+        "raw": "debug_level 2",
+        "line": 16
+    },
+    {
+        "verb": "clear",
+        "values": [
+            "clear"
+        ],
+        "spans": [
+            "clear"
+        ],
+        "raw": "clear",
+        "line": 17
+    },
+    {
+        "verb": "include",
+        "values": [
+            "include",
+            "topic-probe"
+        ],
+        "spans": [
+            "include",
+            "topic-probe"
+        ],
+        "raw": "include topic-probe",
+        "line": 18
+    },
+    {
+        "verb": "tell_node",
+        "values": [
+            "tell_node",
+            "depot/beacon",
+            "status",
+            "ok"
+        ],
+        "spans": [
+            "tell_node",
+            "depot/beacon",
+            "status",
+            "ok"
+        ],
+        "raw": "tell_node depot/beacon status ok",
+        "line": 21
+    },
+    {
+        "verb": "tell",
+        "values": [
+            "tell",
+            "depot/beacon",
+            "short",
+            "form"
+        ],
+        "spans": [
+            "tell",
+            "depot/beacon",
+            "short",
+            "form"
+        ],
+        "raw": "tell depot/beacon short form",
+        "line": 22
+    },
+    {
+        "verb": "ping",
+        "values": [
+            "ping",
+            "depot/beacon"
+        ],
+        "spans": [
+            "ping",
+            "depot/beacon"
+        ],
+        "raw": "ping depot/beacon",
+        "line": 23
+    },
+    {
+        "verb": "send_node",
+        "values": [
+            "send_node",
+            "depot/beacon",
+            "payload",
+            "bytes"
+        ],
+        "spans": [
+            "send_node",
+            "depot/beacon",
+            "payload",
+            "bytes"
+        ],
+        "raw": "send_node depot/beacon payload bytes",
+        "line": 24
+    },
+    {
+        "verb": "send",
+        "values": [
+            "send",
+            "depot/beacon",
+            "short",
+            "bytes"
+        ],
+        "spans": [
+            "send",
+            "depot/beacon",
+            "short",
+            "bytes"
+        ],
+        "raw": "send depot/beacon short bytes",
+        "line": 25
+    },
+    {
+        "verb": "send_struct_node",
+        "values": [
+            "send_struct_node",
+            "depot/beacon",
+            "{\"depth\":9}"
+        ],
+        "spans": [
+            "send_struct_node",
+            "depot/beacon",
+            "'{\"depth\":9}'"
+        ],
+        "raw": "send_struct_node depot/beacon '{\"depth\":9}'",
+        "line": 26
+    },
+    {
+        "verb": "request_node",
+        "values": [
+            "request_node",
+            "depot/beacon",
+            "fetch",
+            "7"
+        ],
+        "spans": [
+            "request_node",
+            "depot/beacon",
+            "fetch",
+            "7"
+        ],
+        "raw": "request_node depot/beacon fetch 7",
+        "line": 27
+    },
+    {
+        "verb": "send_eof",
+        "values": [
+            "send_eof",
+            "depot/beacon"
+        ],
+        "spans": [
+            "send_eof",
+            "depot/beacon"
+        ],
+        "raw": "send_eof depot/beacon",
+        "line": 28
+    },
+    {
+        "verb": "command_node",
+        "values": [
+            "command_node",
+            "depot/beacon",
+            "ping"
+        ],
+        "spans": [
+            "command_node",
+            "depot/beacon",
+            "ping"
+        ],
+        "raw": "command_node depot/beacon ping",
+        "line": 31
+    },
+    {
+        "verb": "command_node",
+        "values": [
+            "command_node",
+            "depot/beacon",
+            "set_retention",
+            "--segments=41"
+        ],
+        "spans": [
+            "command_node",
+            "depot/beacon",
+            "set_retention",
+            "--segments=41"
+        ],
+        "raw": "command_node depot/beacon set_retention --segments=41",
+        "line": 32
+    },
+    {
+        "verb": "command_node",
+        "values": [
+            "command_node",
+            "depot",
+            "pwd",
+            "depot"
+        ],
+        "spans": [
+            "command_node",
+            "depot",
+            "pwd",
+            "depot"
+        ],
+        "raw": "command_node depot pwd depot",
+        "line": 34
+    },
+    {
+        "verb": "command_node",
+        "values": [
+            "command_node",
+            "depot",
+            "set_retention",
+            "--segments=17"
+        ],
+        "spans": [
+            "command_node",
+            "depot",
+            "set_retention",
+            "--segments=17"
+        ],
+        "raw": "command_node depot set_retention --segments=17",
+        "line": 35
+    },
+    {
+        "verb": "status",
+        "values": [
+            "status"
+        ],
+        "spans": [
+            "status"
+        ],
+        "raw": "status",
+        "line": 38
+    },
+    {
+        "verb": "tell_node",
+        "values": [
+            "tell_node",
+            "beacon",
+            "top",
+            "level"
+        ],
+        "spans": [
+            "tell_node",
+            "beacon",
+            "top",
+            "level"
+        ],
+        "raw": "tell_node beacon top level",
+        "line": 39
+    },
+    {
+        "verb": "command_node",
+        "values": [
+            "command_node",
+            "_command_interpreter",
+            "ping"
+        ],
+        "spans": [
+            "command_node",
+            "_command_interpreter",
+            "ping"
+        ],
+        "raw": "command_node _command_interpreter ping",
+        "line": 40
+    },
+    {
+        "verb": "ping",
+        "values": [
+            "ping",
+            "beacon"
+        ],
+        "spans": [
+            "ping",
+            "beacon"
+        ],
+        "raw": "ping beacon",
+        "line": 41
+    },
+    {
+        "verb": "pwd",
+        "values": [
+            "pwd"
+        ],
+        "spans": [
+            "pwd"
+        ],
+        "raw": "pwd",
+        "line": 42
+    },
+    {
+        "verb": "set_retention",
+        "values": [
+            "set_retention",
+            "--segments=17"
+        ],
+        "spans": [
+            "set_retention",
+            "--segments=17"
+        ],
+        "raw": "set_retention --segments=17",
+        "line": 43
+    }
+]

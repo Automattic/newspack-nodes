@@ -101,7 +101,7 @@ trait Schema_Reflection {
 			}
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop && ( $verb['dump'] ?? true ) && ( $this->{$prop} ?? false ) ) {
-				$out .= "command_node {$this->name}:config " . Core::as_string( $verb['name'] ?? '' ) . " 1\n";
+				$out .= $this->config_line( Core::as_string( $verb['name'] ?? '' ), '1' );
 			}
 		}
 		return $out;

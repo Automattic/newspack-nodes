@@ -153,10 +153,16 @@ class Schema {
 		return $this->fields;
 	}
 
-	/** Register every rendered setting via the WP Settings API. */
+	/**
+	 * Register every rendered setting via the WP Settings API, each with the
+	 * sanitizer its Field resolves to — a bounded int derives its clamp from
+	 * the same min/max the `settings` verb enforces, so one save path cannot
+	 * accept what the other refuses.
+	 */
 	public function register_options( string $group ): void {
 		foreach ( $this->fields as $field ) {
-			if ( ! $field->is_setting() || ! \is_callable( $field->sanitize ) ) {
+			$sanitize = $field->sanitize_callback();
+			if ( ! $field->is_setting() || ! \is_callable( $sanitize ) ) {
 				continue;
 			}
 			/** @var array{type?:string,default?:mixed,autoload?:bool,show_in_rest?:bool|array<mixed>} $extra */
@@ -164,7 +170,7 @@ class Schema {
 			\register_setting(
 				$group,
 				$this->prefix . $field->key,
-				[ 'sanitize_callback' => $field->sanitize ] + $extra
+				[ 'sanitize_callback' => $sanitize ] + $extra
 			);
 		}
 	}

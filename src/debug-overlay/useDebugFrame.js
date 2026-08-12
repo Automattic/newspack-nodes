@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { holdPageScroll, releasePageScroll } from './pageScrollLock';
+import { scrollbarWidth } from './scrollbarWidth';
 
 const MIN_W = 200;
 const MIN_H = 120;
+
+// A maximized panel claims the scrollbar gutter, so it holds the lock too.
+const MAXIMIZE = 'maximize';
 
 // Resize handle bit masks: l/r/t/b; corner entries drive both axes.
 const HANDLE_DIRS = {
@@ -32,16 +37,7 @@ function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 	const adminMenu = document.getElementById( 'adminmenuwrap' );
 	const top = adminBar ? adminBar.offsetHeight : 0;
 	const left = adminMenu ? adminMenu.offsetWidth : 0;
-	// innerWidth - clientWidth = scrollbar width; guard jsdom 0 & bogus >40px.
-	let scrollbarW = 0;
-	if ( ! ignoreScrollbar ) {
-		const clientW = document.documentElement.clientWidth;
-		const rawScrollbar = window.innerWidth - clientW;
-		scrollbarW =
-			clientW > 0 && rawScrollbar >= 0 && rawScrollbar <= 40
-				? rawScrollbar
-				: 0;
-	}
+	const scrollbarW = ignoreScrollbar ? 0 : scrollbarWidth();
 	return {
 		left,
 		top,
@@ -106,7 +102,7 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
-		// Maximize claims the scrollbar strip; body-overflow effect hides it.
+		// Maximize claims the scrollbar strip; the lock below hides it.
 		const b = getAvailableBounds( { ignoreScrollbar: true } );
 		setFrame( {
 			x: b.left,
@@ -122,11 +118,8 @@ export function useDebugFrame( storageKey, visible = true, panelRef = null ) {
 		if ( ! maximized || ! visible ) {
 			return undefined;
 		}
-		const prev = document.body.style.overflow;
-		document.body.style.overflow = 'hidden';
-		return () => {
-			document.body.style.overflow = prev;
-		};
+		holdPageScroll( MAXIMIZE );
+		return () => releasePageScroll( MAXIMIZE );
 	}, [ maximized, visible ] );
 
 	// Re-clamp on viewport shrink; while maximized ignore (hidden) scrollbar.

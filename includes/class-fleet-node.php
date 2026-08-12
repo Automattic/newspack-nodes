@@ -17,6 +17,9 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * @phpstan-import-type Worker_Descriptor from Bootstrap
+ */
 class Fleet_Node extends Timer_Node {
 	use Schema_Reflection;
 
@@ -58,7 +61,7 @@ class Fleet_Node extends Timer_Node {
 	/** @var array<string,float> type => earliest timestamp at which a spawn is allowed. */
 	private array $spawn_after = [];
 
-	/** @var array<int,array{type: string,partition: int,topology: mixed,stale_timeout: mixed}> The active fleet, as of the last check. */
+	/** @var array<int,Worker_Descriptor> The active fleet, as of the last check. */
 	private array $workers = [];
 
 	/**
@@ -106,9 +109,12 @@ class Fleet_Node extends Timer_Node {
 
 	/** Spawn every active-fleet worker whose lock reads as down, bounded per pass. */
 	private function scan( float $now ): void {
-		$this->refresh_active_set( $now );
 		$coordinator = $this->coordinator;
-		if ( null === $coordinator || empty( $this->workers ) ) {
+		if ( null === $coordinator ) {
+			return;
+		}
+		$this->refresh_active_set( $coordinator, $now );
+		if ( empty( $this->workers ) ) {
 			return;
 		}
 		$spawned = 0;
@@ -149,9 +155,9 @@ class Fleet_Node extends Timer_Node {
 	/**
 	 * Fire-and-forget spawn POST. Errors are reported: a fleet that cannot spawn must not fail silently.
 	 *
-	 * @param Spawn_Coordinator                                                           $coordinator Spawn coordinator.
-	 * @param array{type: string, partition: int, topology: mixed, stale_timeout: mixed} $worker      Descriptor from expand_workers().
-	 * @param float                                                                     $now         Tick clock.
+	 * @param Spawn_Coordinator $coordinator Spawn coordinator.
+	 * @param Worker_Descriptor $worker      Descriptor from expand_workers().
+	 * @param float             $now         Tick clock.
 	 */
 	private function post_spawn( Spawn_Coordinator $coordinator, array $worker, float $now ): void {
 		$err = $coordinator->post_spawn(
@@ -179,8 +185,11 @@ class Fleet_Node extends Timer_Node {
 	 * on the next recycle rather than within 15s — deploys already end in
 	 * `wp nodes restart`. `expand_workers()` stays unconditional: it is the
 	 * scan's input, not a poll.
+	 *
+	 * @param Spawn_Coordinator $coordinator Owns the locks/ layout drain_all_workers walks.
+	 * @param float             $now         Tick clock.
 	 */
-	private function refresh_active_set( float $now ): void {
+	private function refresh_active_set( Spawn_Coordinator $coordinator, float $now ): void {
 		// @longform Purge, reset, THEN announce: a subscriber reading inline
 		// must see the config the reload delivers, not the boot values.
 		// `notify()`, not `set_state()` — a node built after a reload already
@@ -188,7 +197,8 @@ class Fleet_Node extends Timer_Node {
 		// re-read. String payload: TM_INFO VALUEs are flat strings.
 		$watermark = $this->take_reload_watermark();
 		if ( '' !== $watermark ) {
-			Config::reset();
+			// The shared definition: a hand-rolled subset went stale for ~595s.
+			Topology_Registry::invalidate_config_cache();
 			$this->notify( 'RELOAD', $watermark );
 		}
 
@@ -199,7 +209,7 @@ class Fleet_Node extends Timer_Node {
 
 		if ( empty( $workers ) ) {
 			if ( $had_workers ) {
-				$this->drain_all_workers();
+				$this->drain_all_workers( $coordinator );
 			}
 			$this->workers = [];
 			return;
@@ -226,8 +236,8 @@ class Fleet_Node extends Timer_Node {
 	}
 
 	/**
-	 * Read this worker's reload watermark, purging the SHARED options cache when
-	 * it has moved. Returns the watermark to announce, or '' for nothing to do.
+	 * Read this worker's reload watermark. Returns the watermark to announce, or
+	 * '' for nothing to do; the caller purges through the shared definition.
 	 *
 	 * Consumed by CONTENT, never by mtime and never by unlinking. Mtime resolves
 	 * to a second and a settings save writes several options in one request, so
@@ -247,7 +257,6 @@ class Fleet_Node extends Timer_Node {
 			return '';
 		}
 		$this->last_reload_token = $token;
-		Config::invalidate_options_cache();
 		return $token;
 	}
 
@@ -256,13 +265,11 @@ class Fleet_Node extends Timer_Node {
 	 * restart channel, not force_release: a flagged worker exits on its own
 	 * should_continue(), and its self-respawn is refused because the type is no
 	 * longer in the active set. The `.p<N>` shape is what identifies a worker.
+	 *
+	 * @param Spawn_Coordinator $coordinator Owns the locks/ layout; a hand-rolled walk drifted.
 	 */
-	private function drain_all_workers(): void {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$this->base_dir}/locks/*.p*.lock.d", \GLOB_ONLYDIR ) ?: [] as $path ) {
-			if ( ! \preg_match( '/\.p\d+$/', \basename( $path, '.lock.d' ) ) ) {
-				continue;
-			}
+	private function drain_all_workers( Spawn_Coordinator $coordinator ): void {
+		foreach ( \array_keys( $coordinator->worker_lock_dirs() ) as $path ) {
 			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
 				continue; // Already flagged — avoid disk churn.
 			}

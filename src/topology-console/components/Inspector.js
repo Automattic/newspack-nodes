@@ -18,10 +18,12 @@ import {
 	activityFromSeries,
 	buildActivity,
 	formatActivityWindow,
-	formatBytes,
-	formatByteRate,
 	formatRate,
 } from './ProcessStats';
+import {
+	formatByteRate,
+	formatBytes,
+} from '@newspack-nodes/shared/utils/formatters';
 import { processStats } from '../utils/processStats';
 import { isConfigurableVerb } from '../utils/editorLines';
 import { IoTelemetry } from '../../runtime/io-telemetry';

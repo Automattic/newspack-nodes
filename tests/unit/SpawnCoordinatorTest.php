@@ -564,6 +564,25 @@ class SpawnCoordinatorTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Every spawn loop records its own POST locally. The reconcile pass runs
+	 * spawn then backlog-wake on ONE coordinator, and `fire_and_forget_post`
+	 * never waits, so the endpoint's own record is definitively not in yet — a
+	 * loop that skipped the local record re-posted the workers it just spawned.
+	 */
+	public function test_spawn_due_workers_records_locally_so_a_second_pass_cannot_double_post(): void {
+		$this->with_active_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 3, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		$s   = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
+		$now = 1700000000.0;
+
+		$this->assertSame( 3, $s->spawn_due_workers( $now ) );
+		$this->assertSame( 0, $s->spawn_due_workers( $now ), 'the throttle window is still open' );
+
+		$this->assertCount( 3, $GLOBALS['_test_outbound_posts'] );
+	}
+
 	public function test_spawn_due_workers_skips_a_worker_with_a_fresh_heartbeat(): void {
 		$this->with_active_fleet( [
 			'cold-start-workers' => [ 'num_partitions' => 1, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],

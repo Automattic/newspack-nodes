@@ -8,6 +8,7 @@ use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Restart_Planner;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Worker_Should_Stop;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Restart_Planner::class )]
@@ -116,6 +117,63 @@ class RestartPlannerTest extends TestCase {
 		}
 		$this->assertFileDoesNotExist( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG, 're-read, never recycle' );
 		$this->rmdir_recursive( $locks );
+	}
+
+	public function test_plan_restarts_the_classification_and_reloads_every_live_worker(): void {
+		// The one settings-save recipe: recycle what the classification names,
+		// tell every other live worker to re-read its boot-frozen config cache.
+		$base = $this->make_temp_dir( 'plan-base-' );
+		$this->use_base_dir( $base );
+		$locks = "{$base}/locks";
+		\mkdir( "{$locks}/combined.p0.lock.d", 0777, true );
+		\mkdir( "{$locks}/job-worker.p0.lock.d", 0777, true );
+
+		$restarted = Restart_Planner::plan( [ 'Tee' ] );
+
+		$this->assertSame( [ 'combined' ], $restarted );
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileDoesNotExist( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RESTART_FLAG );
+		$this->assertFileExists( "{$locks}/combined.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->assertFileExists( "{$locks}/job-worker.p0.lock.d/" . Lock_Node::RELOAD_FLAG );
+		$this->rmdir_recursive( $base );
+	}
+
+	public function test_plan_swallows_a_failure_to_resolve_the_locks_directory(): void {
+		// Best-effort by contract: the next worker generation reads the new
+		// config regardless, so a save must not fatal on an unusable locks dir.
+		$base = $this->make_temp_dir( 'plan-base-' );
+		\mkdir( "{$base}/elsewhere", 0777, true );
+		// A symlink AT the leaf is what Config::ensure_path() refuses outright.
+		\symlink( "{$base}/elsewhere", "{$base}/locks" );
+
+		try {
+			$this->use_base_dir( $base );
+			$this->assertSame( [], Restart_Planner::plan( 'all' ) );
+		} finally {
+			// Unlink first: rmdir_recursive walks INTO a symlinked directory.
+			\unlink( "{$base}/locks" );
+			$this->rmdir_recursive( $base );
+		}
+	}
+
+	public function test_plan_lets_a_cooperative_stop_escape_its_best_effort_catch(): void {
+		// ADR-14: `cmd_set` reaches plan() from inside a worker's interpreter,
+		// so the broad catch must not swallow the stop signal.
+		$base = $this->make_temp_dir( 'plan-base-' );
+		$this->use_base_dir( $base );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function (): array {
+				throw new Worker_Should_Stop( 'restart requested' );
+			}
+		);
+
+		try {
+			$this->expectException( Worker_Should_Stop::class );
+			Restart_Planner::plan( 'all' );
+		} finally {
+			$this->rmdir_recursive( $base );
+		}
 	}
 
 	public function test_request_reloads_is_a_no_op_off_the_fleet_site(): void {

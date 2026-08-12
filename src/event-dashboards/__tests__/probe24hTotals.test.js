@@ -2,7 +2,15 @@ import { probe24hTotals } from '../probe24hTotals';
 
 // A topicprobe:view consumer: a source it tails + a per-partition sample series.
 const consumer = ( source, series ) => ( { source, series } );
-const pt = ( ts, msgs, bytes ) => ( { ts, msgs, bytes, backlog: 0 } );
+// One probe record: `elapsed` is the window `ts` closes, as the view publishes.
+const CADENCE_S = 15;
+const pt = ( ts, msgs, bytes ) => ( {
+	ts,
+	elapsed: CADENCE_S,
+	msgs,
+	bytes,
+	backlog: 0,
+} );
 
 it( 'sums each sample’s own delta into produced totals', () => {
 	// Three samples of 30 msgs / 1500 B each.
@@ -37,7 +45,26 @@ it( 'sums DISTINCT sources', () => {
 	expect( t.bytes ).toBe( 4500 );
 } );
 
-it( 'merges readers of one source by ts so a newer-but-shorter reader is not dropped', () => {
+it( 'does NOT double-count co-readers in SEPARATE processes (float ts never collide)', () => {
+	// Two topologies tail one partition in two workers on independent timers,
+	// so their microtime(true) stamps are offset, never equal. Both windows
+	// cover the same 30s of production, plus B's half-cadence overhang.
+	const t = probe24hTotals( {
+		'request-builder.p0': consumer( 'firehose.p0', [
+			pt( 15, 37, 1480 ),
+			pt( 30, 37, 1480 ),
+		] ),
+		'flame-builder.p0': consumer( 'firehose.p0', [
+			pt( 15.5, 37, 1480 ),
+			pt( 30.5, 37, 1480 ),
+		] ),
+	} );
+	// 30.5s covered at 37 msgs / 1480 B per 15s window.
+	expect( t.msgs ).toBe( 75 );
+	expect( t.bytes ).toBe( 3009 );
+} );
+
+it( 'unions readers of one source so a newer-but-shorter reader is not dropped', () => {
 	const t = probe24hTotals( {
 		r1: consumer( 's', [ pt( 0, 30, 1500 ), pt( 15, 30, 1500 ) ] ),
 		r2: consumer( 's', [

@@ -1,4 +1,8 @@
-import { buildTopologySections } from '../topologyGraph';
+import {
+	buildTopologySections,
+	contractTees,
+	substituteTokens,
+} from '../topologyGraph';
 
 // Graph node factory — suffix-free names prove kind/reads/writes collapse.
 const gn = ( name, kind, extra = {} ) => ( { name, kind, ...extra } );
@@ -1131,4 +1135,67 @@ it( 'scopes an entity key by topology, so a shared node name cannot collide', ()
 	expect( probeIn( 'aggregator' ).kind ).toBe( 'node' );
 	expect( probeIn( 'aggregator' ).key ).toBe( 'aggregator>topicprobe' );
 	expect( probeIn( 'job-router' ).key ).toBe( 'job-router>topicprobe' );
+} );
+
+describe( 'contractTees', () => {
+	it( 'replaces every in×out pair through a tee with direct edges', () => {
+		const edges = contractTees(
+			[
+				[ 'consume', 'fan' ],
+				[ 'fan', 'build' ],
+				[ 'fan', 'route' ],
+			],
+			( name ) => 'fan' === name
+		);
+		expect( edges.sort() ).toEqual(
+			[
+				[ 'consume', 'build' ],
+				[ 'consume', 'route' ],
+			].sort()
+		);
+	} );
+
+	it( 'contracts a tee feeding another tee', () => {
+		const edges = contractTees(
+			[
+				[ 'consume', 'fan' ],
+				[ 'fan', 'split' ],
+				[ 'split', 'build' ],
+			],
+			( name ) => 'fan' === name || 'split' === name
+		);
+		expect( edges ).toEqual( [ [ 'consume', 'build' ] ] );
+	} );
+
+	it( 'leaves a tee-free edge list untouched, and never mutates the input', () => {
+		const raw = [ [ 'consume', 'build' ] ];
+		const edges = contractTees( raw, () => false );
+		expect( edges ).toEqual( raw );
+		expect( edges ).not.toBe( raw );
+	} );
+} );
+
+describe( 'substituteTokens', () => {
+	it( 'binds BOTH partition spellings and the topology', () => {
+		expect(
+			substituteTokens( 'firehose.p<partition>', { partition: 3 } )
+		).toBe( 'firehose.p3' );
+		expect(
+			substituteTokens( 'firehose.p{partition}', { partition: 3 } )
+		).toBe( 'firehose.p3' );
+		expect(
+			substituteTokens( 'firehose.<topology>.p<partition>', {
+				partition: 2,
+				topology: 'combined',
+			} )
+		).toBe( 'firehose.combined.p2' );
+	} );
+
+	it( 'leaves <topology> alone when no fleet name is bound', () => {
+		expect(
+			substituteTokens( 'firehose.<topology>.p<partition>', {
+				partition: 0,
+			} )
+		).toBe( 'firehose.<topology>.p0' );
+	} );
 } );

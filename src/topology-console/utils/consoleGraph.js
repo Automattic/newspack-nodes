@@ -23,9 +23,11 @@ export function edgeHasConnectRole( edge ) {
 	return ! Array.isArray( edge?.roles ) || edge.roles.includes( 'connect' );
 }
 
+/** A whole-argument `<ns:key>` token; char classes mirror PHP Core::resolve_config_tokens. */
 const CONFIG_TOKEN_RE = /^<[a-zA-Z_]\w*:[a-zA-Z_]\w*>$/;
 
-const CONFIG_TARGET_VERB_RE = /^set_\w*target$/;
+/** The verbs whose argument names a config TARGET, so it folds into an edge. */
+export const CONFIG_TARGET_VERB_RE = /^set_\w*target$/;
 
 /**
  * Attach the server-resolved config edge contract to a parsed topology.

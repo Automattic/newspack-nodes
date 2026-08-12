@@ -231,8 +231,8 @@ class TailTest extends TestCase {
 		$names  = \array_column( $schema['arguments'], 'name' );
 		// Tail keeps its own source_file naming AND inherits the optional deadletter_dir
 		// so a Tail can quarantine poison (crawl head-sacrifice / cooperative-stop) too.
-		// source_mode picks the source shape (segmented default vs single-file follow).
-		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'deadletter_dir', 'source_mode' ], $names );
+		// The single-file follower is File_Tail_Node, not a 4th argument here.
+		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'deadletter_dir' ], $names );
 		// Pure producer: no IN port, has an OUT target. (Inherited from Consumer.)
 		$this->assertFalse( $schema['accepts_fill'] ?? true );
 		$this->assertTrue( $schema['has_target'] ?? false );
@@ -249,20 +249,20 @@ class TailTest extends TestCase {
 		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $ref->getProperty( 'deadletter' )->getValue( $t ) );
 	}
 	/**
-	 * Tail is deliberately NOT constrained to the runtime tree. Partition, Log
-	 * and Consumer refuse a path outside it — a `/command` caller could
-	 * otherwise write anywhere — but reading /var/log/php.log is Tail's whole
-	 * job, and it only ever reads.
+	 * File_Tail is deliberately NOT constrained to the runtime tree. Partition,
+	 * Log and Consumer refuse a path outside it — a `/command` caller could
+	 * otherwise write anywhere — but reading /var/log/php.log is this reader's
+	 * whole job, and it only ever reads.
 	 */
-	public function test_tail_reads_outside_the_runtime_tree(): void {
+	public function test_a_file_follower_reads_outside_the_runtime_tree(): void {
 		$outside = (string) \realpath( \sys_get_temp_dir() ) . '/outside-' . \uniqid( '', true ) . '.log';
 		\file_put_contents( $outside, "a line\n" );
 
-		$tail = new Tail_Node();
+		$tail = new \Newspack_Nodes\File_Tail_Node();
 		$tail->name( 'php-log' );
-		$tail->arguments( [ $outside, '', '', 'file' ] );
+		$tail->arguments( [ $outside ] );
 
-		$this->assertSame( [ $outside, '', '', 'file' ], $tail->arguments() );
+		$this->assertSame( [ $outside ], $tail->arguments() );
 		@\unlink( $outside );
 	}
 

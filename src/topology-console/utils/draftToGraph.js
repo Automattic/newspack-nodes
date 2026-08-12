@@ -23,10 +23,7 @@
  */
 
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
-import { withConfigEdges } from './consoleGraph';
-
-const CONFIG_TARGET_VERB = /^set_\w*target$/;
-const CONFIG_TOKEN = /<[^>]+:[^>]+>/;
+import { CONFIG_TARGET_VERB_RE, withConfigEdges } from './consoleGraph';
 
 /**
  * @param {Object} inv A verb invocation.
@@ -96,7 +93,7 @@ export function draftToGraph( interpreter ) {
 		// A file line retargeting a borrowed node has no verbInvocation home.
 		if ( borrowed ) {
 			for ( const inv of declared ) {
-				if ( inv.viaConfig && CONFIG_TARGET_VERB.test( inv.verb ) ) {
+				if ( inv.viaConfig && CONFIG_TARGET_VERB_RE.test( inv.verb ) ) {
 					configOverrides.push( {
 						from: name,
 						slot: inv.verb,
@@ -140,36 +137,4 @@ export function graphFromTsl(
 	interpreter.catalog = catalog;
 	interpreter.load( tsl || '', expansion, resolvedConfigEdges );
 	return draftToGraph( interpreter );
-}
-
-/**
- * Throw when a `<ns:key>` config target has no resolved edge to name.
- *
- * The console's own copy of the guard `withResolvedConfigEdges` applies to the
- * live seed. Unresolved, the edge is simply absent from the canvas — and a
- * save then writes routing the operator was never shown.
- *
- * Only a load that HAD a server response can check this — an uploaded file
- * carries token targets nothing client-side can resolve, and always did.
- *
- * @param {Object} interpreter The draft interpreter.
- * @param {?Array} resolved    The server's resolved config edges.
- * @throws {Error} When a token target is unresolved.
- */
-export function assertResolvedConfigEdges( interpreter, resolved ) {
-	if ( Array.isArray( resolved ) ) {
-		return;
-	}
-	for ( const [ name ] of interpreter.childRegistry.nodes ) {
-		for ( const inv of interpreter.declaredInvocationsFor( name ) ) {
-			if ( ! CONFIG_TARGET_VERB.test( inv.verb ) ) {
-				continue;
-			}
-			if ( ( inv.args ?? [] ).some( ( a ) => CONFIG_TOKEN.test( a ) ) ) {
-				throw new Error(
-					'Missing resolved_config_edges in topologies get response.'
-				);
-			}
-		}
-	}
 }

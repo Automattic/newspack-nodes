@@ -14,12 +14,12 @@
  * splitting it would put half a lifecycle in each of two classes. The janitorial
  * pair (`reconcile_lock_dirs()`, `cleanup_orphan_ipc()`) is the same tree read
  * the other way — which dirs the active fleet no longer accounts for — and both
- * consume the staleness rules and the contained delete right here. The directory
- * utilities (`remove_stale_directory`, `delete_directory_recursive`, `is_within`)
- * are generic and shared with `Log_Cleaner` and uninstall — a home of their own
- * is defensible, but they are the jail guard uninstall loads by `require_once`
- * without an autoloader, so moving them buys a new file and a new dependency for
- * the same code.
+ * consume the staleness rules and the contained delete right here. Of the
+ * directory utilities only `delete_directory_recursive` has callers outside this
+ * class (`Log_Cleaner`, uninstall); `remove_stale_directory` and `is_within` are
+ * its neighbours. A home of their own is defensible, but they are the jail guard
+ * uninstall loads by `require_once` without an autoloader, so moving them buys a
+ * new file and a new dependency for the same code.
  *
  * @package Newspack_Nodes
  */
@@ -88,14 +88,9 @@ class Spawn_Coordinator {
 		if ( empty( $active ) ) {
 			return; // No known fleet: every dir would read as an orphan.
 		}
-		$locks_dir = "{$this->base_dir}/locks";
-		$this->reap_steal_scratch_dirs( $locks_dir );
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		foreach ( \glob( "{$locks_dir}/*.lock.d" ) ?: [] as $path ) {
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', \basename( $path, '.lock.d' ), $m ) ) {
-				continue; // Non-partitioned dir — not a worker.
-			}
-			if ( (int) $m[2] < ( $active[ $m[1] ] ?? 0 ) ) {
+		$this->reap_steal_scratch_dirs( "{$this->base_dir}/locks" );
+		foreach ( $this->worker_lock_dirs() as $path => $lock ) {
+			if ( $lock['partition'] < ( $active[ $lock['type'] ] ?? 0 ) ) {
 				continue; // In fleet.
 			}
 			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
@@ -146,6 +141,27 @@ class Spawn_Coordinator {
 	}
 
 	/**
+	 * Every worker lock dir under `locks/`, as `path => {type, partition}`.
+	 *
+	 * The `{type}.p{N}.lock.d` layout, stated ONCE beside `lock_path()` which
+	 * writes it. Hand-written walks elsewhere had drifted to a narrower glob and
+	 * a weaker regex, so a dir one pass retired another pass never saw.
+	 *
+	 * @return array<string,array{type:string,partition:int}>
+	 */
+	public function worker_lock_dirs(): array {
+		$out = [];
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( \glob( "{$this->base_dir}/locks/*.lock.d" ) ?: [] as $path ) {
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', \basename( $path, '.lock.d' ), $m ) ) {
+				continue; // Non-partitioned dir — not a worker.
+			}
+			$out[ $path ] = [ 'type' => $m[1], 'partition' => (int) $m[2] ];
+		}
+		return $out;
+	}
+
+	/**
 	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
 	 * steal. A normal steal removes its scratch in two syscalls; a process killed
 	 * in that window leaks one and nothing else reaps it. Only sweep dirs older
@@ -186,32 +202,15 @@ class Spawn_Coordinator {
 			Core::print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
 			return 0;
 		}
-		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
-		$token     = $this->generate_spawn_token( (int) $now );
-		$spawned   = 0;
-		foreach ( $workers as $worker ) {
-			if ( ! $this->worker_needs_spawn( $worker, $now ) ) {
-				continue;
-			}
-			if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
-				continue;
-			}
-			$err = $this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-			if ( null !== $err ) {
-				Core::print_less_often( "spawn failed for {$worker['type']}.p{$worker['partition']}: ", $err );
-			}
-			++$spawned;
-		}
-		return $spawned;
+		$due = \array_filter( $workers, fn ( array $worker ): bool => $this->worker_needs_spawn( $worker, $now ) );
+		return $this->spawn_each( $due, 'spawn failed', $now );
 	}
 
 	/** @param array<string,mixed> $worker Worker descriptor (type, partition, …). */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
-		$raw_type      = $worker['type'];
-		$raw_partition = $worker['partition'];
-		$type          = Core::as_string( $raw_type );
-		$partition     = Core::as_int( $raw_partition );
-		$stale         = Lock_Node::stale_timeout_of( $worker );
+		$type      = Core::as_string( $worker['type'] );
+		$partition = Core::as_int( $worker['partition'] );
+		$stale     = Lock_Node::stale_timeout_of( $worker );
 
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
@@ -249,17 +248,10 @@ class Spawn_Coordinator {
 	 * @return int Spawns posted.
 	 */
 	public function wake_readers_with_backlog( float $now ): int {
-		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
-		if ( '' === $spawn_url ) {
-			return 0;
-		}
-		$token = $this->generate_spawn_token( (int) $now );
-		$woken = 0;
+		$behind = [];
 		foreach ( Bootstrap::on_demand_wake_map() as $dir => $readers ) {
 			foreach ( $readers as $worker ) {
-				$type      = Core::as_string( $worker['type'] );
-				$partition = Core::as_int( $worker['partition'] );
-				if ( \is_dir( $this->lock_path( $type, $partition ) ) ) {
+				if ( ! $this->is_absent( $worker ) ) {
 					continue;
 				}
 				// No durable cursor is no opinion, not "all of it is behind".
@@ -271,18 +263,58 @@ class Spawn_Coordinator {
 				if ( ! $lag['cursor_known'] || 0 === $lag['bytes_behind'] ) {
 					continue;
 				}
-				if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
-					continue;
-				}
-				$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
-				if ( null !== $err ) {
-					Core::print_less_often( "backlog wake failed for {$type}.p{$partition}: ", $err );
-				}
-				$this->record_spawn_local( $type, $partition, $now );
-				++$woken;
+				$behind[] = $worker;
 			}
 		}
-		return $woken;
+		return $this->spawn_each( $behind, 'backlog wake failed', $now );
+	}
+
+	/**
+	 * True when no lock dir stands for `$worker` — absent, not merely stale. A
+	 * STALE lock is a crash, and the ordinary spawn scan owns crash recovery.
+	 *
+	 * @param array<array-key,mixed> $worker Worker descriptor.
+	 */
+	private function is_absent( array $worker ): bool {
+		return ! \is_dir( $this->lock_path(
+			Core::as_string( $worker['type'] ),
+			Core::as_int( $worker['partition'] )
+		) );
+	}
+
+	public function lock_path( string $type, int $partition ): string {
+		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
+	}
+
+	/**
+	 * Wake the on-demand worker `$worker_id` names; false when it names none.
+	 *
+	 * ONE rule, shared by every entry point that meets an absent worker: a
+	 * cleanly absent on-demand worker is asleep BY DESIGN and holds no lock dir,
+	 * so refusing on the missing lock alone is what kept an attach — and a
+	 * request-scope Partition mount — from ever waking one. A resident worker
+	 * with no lock dir is a typo or a dead fleet, and stays refused.
+	 *
+	 * Matches on the id the FLEET spells (`{type}.p{N}`, unpadded), because that
+	 * is the ipc/ tree the caller goes on to read; a padded id names no worker
+	 * and must refuse rather than wake a different partition.
+	 *
+	 * @param string $worker_id `{type}.p{N}`.
+	 * @param float  $now       Clock, so one pass judges every worker alike.
+	 */
+	public function wake_sleeping_worker( string $worker_id, float $now ): bool {
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			if ( 0 === Bootstrap::on_demand_idle_of( $worker ) ) {
+				continue;
+			}
+			$id = Core::as_string( $worker['type'] ) . '.p' . Core::as_int( $worker['partition'] );
+			if ( $id !== $worker_id ) {
+				continue;
+			}
+			$this->wake_on_demand( "{$this->base_dir}/ipc/{$worker_id}/input", $now );
+			return true;
+		}
+		return false;
 	}
 
 	/**
@@ -308,81 +340,13 @@ class Spawn_Coordinator {
 		$dir     = \rtrim( $dir, '/' );
 		$readers = $this->ipc_reader_of( $dir ) ?? ( Bootstrap::on_demand_wake_map()[ $dir ] ?? [] );
 		if ( [] === $readers ) {
-			return 0;
+			return 0; // A write path: don't mint a token for nobody.
 		}
-		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
-		if ( '' === $spawn_url ) {
-			return 0;
-		}
-		$token = $this->generate_spawn_token( (int) $now );
-		$woken = 0;
-		foreach ( $readers as $worker ) {
-			$type      = Core::as_string( $worker['type'] );
-			$partition = Core::as_int( $worker['partition'] );
-			if ( \is_dir( $this->lock_path( $type, $partition ) ) ) {
-				continue;
-			}
-			if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
-				continue;
-			}
-			$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
-			if ( null !== $err ) {
-				Core::print_less_often( "wake failed for {$type}.p{$partition}: ", $err );
-			}
-			// In-process dedupe: the controller's record is a round-trip away.
-			$this->record_spawn_local( $type, $partition, $now );
-			++$woken;
-		}
-		return $woken;
-	}
-
-	/**
-	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
-	 * here would make the endpoint (which records on accept) reject the very
-	 * POST this record announces.
-	 */
-	public function record_spawn_local( string $type, int $partition, float $when ): void {
-		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
-	}
-
-	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
-		$key  = "{$type}|{$partition}";
-		// In-memory has priority (current process owns the truth).
-		if ( isset( $this->last_spawn_time[ $key ] ) ) {
-			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		// Else consult cross-process state: cron-backstop + self-respawn.
-		$persisted = $this->load_spawn_ts( $key );
-		if ( null !== $persisted ) {
-			$this->last_spawn_time[ $key ] = $persisted;
-			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		return false;
-	}
-
-	/**
-	 * Load a persisted spawn timestamp; null if absent. Reads the same single
-	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
-	 */
-	protected function load_spawn_ts( string $key ): ?float {
-		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
-
-		$backend = Cache_Backend::shared_first();
-		if ( null !== $backend ) {
-			$value = $backend->get( $cache_key );
-			return \is_scalar( $value ) && false !== $value ? (float) $value : null;
-		}
-		if ( \function_exists( 'get_transient' ) ) {
-			$value = \get_transient( $cache_key );
-			if ( false !== $value && \is_scalar( $value ) ) {
-				return (float) $value;
-			}
-		}
-		return null;
-	}
-
-	public function lock_path( string $type, int $partition ): string {
-		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
+		return $this->spawn_each(
+			\array_filter( $readers, fn ( array $worker ): bool => $this->is_absent( $worker ) ),
+			'wake failed',
+			$now
+		);
 	}
 
 	/**
@@ -516,7 +480,7 @@ class Spawn_Coordinator {
 	 * or each worker's self-respawn is refused by Spawn_Controller.
 	 *
 	 * @param string $name Topology / worker type.
-	 * @return int Number of partitions spawned.
+	 * @return int Spawn POSTs requested — never a count of workers started.
 	 */
 	public function spawn_fleet( string $name ): int {
 		$active   = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
@@ -525,17 +489,62 @@ class Spawn_Coordinator {
 			Core::print_less_often( 'refusing to spawn_fleet — topology write-conflict: ', $conflict );
 			return 0;
 		}
-		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
-		$token     = $this->generate_spawn_token( \time() );
-		$count     = 0;
-		foreach ( Bootstrap::expand_workers() as $worker ) {
-			if ( $worker['type'] !== $name ) {
+		$fleet = \array_filter(
+			Bootstrap::expand_workers(),
+			static fn ( array $worker ): bool => $name === $worker['type']
+		);
+		return $this->spawn_each( $fleet, 'fleet spawn failed', (float) \time() );
+	}
+
+	/**
+	 * The ONE spawn loop: resolve the endpoint and mint one token for the pass,
+	 * then per worker honor the shared throttle, POST, report under `$label`,
+	 * and record the POST locally.
+	 *
+	 * Four hand-copied versions of this had drifted — one skipped the local
+	 * record and re-posted what it had just spawned, one discarded the transport
+	 * error and reported a fleet that never came up. Each public entry point now
+	 * differs only in the worker list it computes, which is its actual job.
+	 *
+	 * Counts POSTS REQUESTED, not workers started: `fire_and_forget_post` hangs
+	 * up before any outcome, and the endpoint records accepted spawns only after
+	 * control has returned here — which is why the local record cannot wait.
+	 *
+	 * @param iterable<array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
+	 * @param string                           $label   Failure-report verb, e.g. 'wake failed'.
+	 * @param float                            $now     Pass clock.
+	 * @return int Spawn POSTs fired.
+	 */
+	private function spawn_each( iterable $workers, string $label, float $now ): int {
+		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
+		if ( '' === $spawn_url ) {
+			return 0;
+		}
+		$token   = $this->generate_spawn_token( (int) $now );
+		$spawned = 0;
+		foreach ( $workers as $worker ) {
+			$type      = Core::as_string( $worker['type'] );
+			$partition = Core::as_int( $worker['partition'] );
+			if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
 				continue;
 			}
-			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
-			++$count;
+			$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
+			if ( null !== $err ) {
+				Core::print_less_often( "{$label} for {$type}.p{$partition}: ", $err );
+			}
+			$this->record_spawn_local( $type, $partition, $now );
+			++$spawned;
 		}
-		return $count;
+		return $spawned;
+	}
+
+	/**
+	 * Record a spawn POST in-memory only. The tick loop uses this: persisting
+	 * here would make the endpoint (which records on accept) reject the very
+	 * POST this record announces.
+	 */
+	public function record_spawn_local( string $type, int $partition, float $when ): void {
+		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
 	}
 
 	/**
@@ -555,6 +564,42 @@ class Spawn_Coordinator {
 			'partition' => $partition,
 			'nonce'     => $token,
 		] );
+	}
+
+	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
+		$key  = "{$type}|{$partition}";
+		// In-memory has priority (current process owns the truth).
+		if ( isset( $this->last_spawn_time[ $key ] ) ) {
+			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		// Else consult cross-process state: cron-backstop + self-respawn.
+		$persisted = $this->load_spawn_ts( $key );
+		if ( null !== $persisted ) {
+			$this->last_spawn_time[ $key ] = $persisted;
+			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		return false;
+	}
+
+	/**
+	 * Load a persisted spawn timestamp; null if absent. Reads the same single
+	 * tier persist_spawn_ts wrote — a throttle window must never straddle tiers.
+	 */
+	protected function load_spawn_ts( string $key ): ?float {
+		$cache_key = Cache_Backend::site_key( self::SPAWN_TS_CACHE_KEY . $key );
+
+		$backend = Cache_Backend::shared_first();
+		if ( null !== $backend ) {
+			$value = $backend->get( $cache_key );
+			return \is_scalar( $value ) && false !== $value ? (float) $value : null;
+		}
+		if ( \function_exists( 'get_transient' ) ) {
+			$value = \get_transient( $cache_key );
+			if ( false !== $value && \is_scalar( $value ) ) {
+				return (float) $value;
+			}
+		}
+		return null;
 	}
 
 	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */

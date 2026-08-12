@@ -95,6 +95,18 @@ describe( 'workerstatus:view — model publish', () => {
 	} );
 } );
 
+describe( 'workerstatus:view — pre-poll model', () => {
+	test( 'publishes the empty model, so a render before the first poll is valid', () => {
+		const v = makeView( 'workerstatus:view' );
+		expect( v.setStateCache.view ).toMatchObject( {
+			workers: [],
+			logs: [],
+			segmentSize: 64 * 1024 * 1024,
+			heartbeatIntervalS: 10,
+		} );
+	} );
+} );
+
 describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
 		const v = makeView( 'workerstatus:view' );
@@ -104,9 +116,38 @@ describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 		expect( v.setStateCache.view.error ).toBe( 'broadcast failure' );
 		expect( v.setStateCache.view.loading ).toBe( false );
 	} );
+
+	test( 'a TM_ERROR carrying a bare STRING VALUE still surfaces', () => {
+		const v = makeView( 'workerstatus:view' );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+		m[ VALUE ] = 'NOT_AVAILABLE\n';
+
+		v.fill( m );
+
+		expect( v.setStateCache.view.error ).toContain( 'NOT_AVAILABLE' );
+	} );
 } );
 
 describe( 'workerstatus:view — removing-segment animation', () => {
+	test( 'the slide-out clear arrives as a message, so the overlay counts it', () => {
+		jest.useFakeTimers();
+		try {
+			const v = makeView( 'workerstatus:view' );
+			v.fill(
+				modelMsg(
+					baseModel( {
+						removingSegments: { 'jobs.p2': [ { id: 5, size: 3 } ] },
+					} )
+				)
+			);
+			jest.advanceTimersByTime( 400 );
+			expect( v.counter ).toBe( 2 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
 	test( 'a model with removingSegments schedules a 400ms clear that blanks them', () => {
 		jest.useFakeTimers();
 		try {
@@ -159,7 +200,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 } );
 
 describe( 'workerstatus:view — teardown', () => {
-	test( 'close() clears a pending removing-clear timer (no later setState)', () => {
+	test( 'removeNode() clears a pending removing-clear timer (no later setState)', () => {
 		jest.useFakeTimers();
 		try {
 			const v = makeView( 'workerstatus:view' );
@@ -173,7 +214,7 @@ describe( 'workerstatus:view — teardown', () => {
 				)
 			);
 			const spy = jest.spyOn( v, 'setState' );
-			v.close();
+			v.removeNode();
 			jest.advanceTimersByTime( 400 );
 			expect( spy ).not.toHaveBeenCalled();
 		} finally {
@@ -181,9 +222,9 @@ describe( 'workerstatus:view — teardown', () => {
 		}
 	} );
 
-	test( 'close() is safe when no timer is pending', () => {
+	test( 'removeNode() is safe when no timer is pending', () => {
 		const v = makeView( 'workerstatus:view' );
-		expect( () => v.close() ).not.toThrow();
+		expect( () => v.removeNode() ).not.toThrow();
 	} );
 } );
 

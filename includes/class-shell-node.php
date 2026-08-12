@@ -75,9 +75,12 @@ class Shell_Node extends Node {
 
 	/**
 	 * Verb aliases the interpreter's dispatch table resolves — the ONE table the
-	 * static front-end applies on the tokenized verb (make/connect/disconnect and
-	 * the command family), so a topology written with the short form reads the same
-	 * as the long form to every static analysis.
+	 * static front-end applies, to token[0] and only token[0], so a topology
+	 * written with the short form reads the same as the long form to every static
+	 * analysis. parse() needs no table: duplicate `case` labels are its aliases,
+	 * as duplicate `%BUILTINS` keys are Tachikoma's. This canonicalization is a
+	 * deliberate divergence — `make`/`connect`/`disconnect` are the INTERPRETER's
+	 * aliases, and consumers match `'make_node' === $statement['verb']`.
 	 *
 	 * @var array<string,string>
 	 */
@@ -88,15 +91,6 @@ class Shell_Node extends Node {
 		'command'    => 'command_node',
 		'cmd'        => 'command_node',
 	];
-
-	/**
-	 * Shell BUILTINS: `var` sets shell state and `include` evals a file
-	 * through this same shell (as though piped into the REPL) — neither ever
-	 * becomes a message, so the static front-end returns them as bare
-	 * statements wherever they appear. Any other bare verb inside a cwd is a
-	 * command to that node, `make_node` included.
-	 */
-	private const BUILTIN_VERBS = [ 'include', 'var' ];
 
 	/**
 	 * Per-quote-type escape rules, following Shell3's string1/string2/string3
@@ -130,12 +124,16 @@ class Shell_Node extends Node {
 
 	/**
 	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
-	 * Message and dispatch it. Anything else (a pre-built command from
-	 * dispatch_line, a completion query, an EOF/ping marker) passes straight
-	 * through to the sink. Mirrors Tachikoma::Nodes::Shell::fill, which sinks any
-	 * non-TM_BYTESTREAM message rather than dropping it. Every command leaving the
-	 * Shell is signed here so it carries an HMAC envelope across the IPC boundary
-	 * to a worker (Command_Auth::sign is a no-op on non-command types).
+	 * Message and dispatch it. TM_EOF drains (input closed). Anything else passes
+	 * straight through to the sink, mirroring Tachikoma::Nodes::Shell::fill, which
+	 * sinks any non-TM_BYTESTREAM message rather than dropping it. TYPE is a
+	 * bitmask, so a composite (`TM_BYTESTREAM|TM_NOREPLY`) reads as its flags, not
+	 * as an unrecognized type. The Shell signs what it MINTS — each command it
+	 * parses — so that command crosses the IPC boundary to a worker carrying an
+	 * HMAC envelope (Command_Auth::sign is a no-op on non-command types). A
+	 * pre-built message is forwarded untouched: signing on arrival is the ingress
+	 * conferring authority, and it would overwrite an envelope already bound to
+	 * another destination under a session key (ADR-15). The minter signs.
 	 */
 	public function fill( array $message ): void {
 		if ( null === $this->sink ) {
@@ -146,17 +144,19 @@ class Shell_Node extends Node {
 		if ( ! \is_integer( $type ) ) {
 			throw new \RuntimeException( 'Shell::fill requires a valid message' );
 		}
-		if ( Message::TM_EOF === $type ) {
+		if ( $type & Message::TM_EOF ) {
 			$sink = $this->sink;
 			// Stdin closed mid-statement: report before draining.
 			$this->flush_pending();
-			$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+			$message[ Message::FROM ] = $this->reply_from();
 			$message[ Message::TO ]   = $this->path;
 			$sink->fill( $message );
 			return;
 		}
-		if ( Message::TM_BYTESTREAM !== $type || ! \is_string( $value ) ) {
-			throw new \RuntimeException( 'Shell::fill requires a TM_BYTESTREAM message with a string VALUE' );
+		if ( ! ( $type & Message::TM_BYTESTREAM ) || ! \is_string( $value ) ) {
+			// Not REPL input: nothing to parse, so sink it rather than drop it.
+			$this->sink->fill( $message );
+			return;
 		}
 		if ( empty( $this->include_stack ) ) {
 			// A fresh top-level script (not a recursive include) — new memo.
@@ -363,6 +363,11 @@ class Shell_Node extends Node {
 	 * throwaway shell's cwd). Reuses the Shell's own cd()/prefix() so the static
 	 * and runtime paths route identically.
 	 *
+	 * The switch mirrors parse() verb for verb, because the record has to MEAN
+	 * what parse() means: replaying `raw` at the root cwd mints the very Message
+	 * parse() minted at the live cwd. Dispatch reads token[0] and nothing else —
+	 * `command_node foo ping` names a verb on foo, not the Shell's `ping`.
+	 *
 	 * @return array{verb:string,values:list<string>,spans:list<string>,raw:string,line:int}|null
 	 * @throws \RuntimeException On an unterminated quote at end-of-input.
 	 */
@@ -383,22 +388,57 @@ class Shell_Node extends Node {
 		$token_spans  = \array_column( $scanned, 'raw' );
 		$verb         = self::VERB_ALIASES[ $token_values[0] ] ?? $token_values[0];
 
-		if ( 'cd' === $verb || 'chdir' === $verb ) {
-			$shell->path = $shell->cd( $shell->path, $token_values[1] ?? '' );
-			return null;
-		}
-		if ( 'command_node' === $verb ) {
-			$path   = $shell->prefix( $token_values[1] ?? '' );
-			$values = [ 'command_node', $path, ...\array_slice( $token_values, 2 ) ];
-			$spans  = [ 'command_node', $path, ...\array_slice( $token_spans, 2 ) ];
-		} elseif ( \in_array( $verb, self::BUILTIN_VERBS, true ) || '' === $shell->path ) {
-			// Builtins and root-level bare verbs are not cwd-routed.
-			$values = [ $verb, ...\array_slice( $token_values, 1 ) ];
-			$spans  = [ $verb, ...\array_slice( $token_spans, 1 ) ];
-		} else {
-			// A bare verb inside a cwd is a command to that node.
-			$values = [ 'command_node', $shell->path, $verb, ...\array_slice( $token_values, 1 ) ];
-			$spans  = [ 'command_node', $shell->path, $verb, ...\array_slice( $token_spans, 1 ) ];
+		switch ( $verb ) {
+			case 'cd':
+			case 'chdir':
+				// RESOLVES against the cwd and mutates it; emits nothing.
+				$shell->path = $shell->cd( $shell->path, $token_values[1] ?? '' );
+				return null;
+			case 'include':
+			case 'var':
+			case 'print':
+			case 'clear':
+			case 'debug_level':
+			case 'status':
+			case 'show_parse':
+				// run_builtin() verbs: shell state, never a message.
+				$values = [ $verb, ...\array_slice( $token_values, 1 ) ];
+				$spans  = [ $verb, ...\array_slice( $token_spans, 1 ) ];
+				break;
+			case 'command_node':
+			case 'ping':
+			case 'request':
+			case 'request_node':
+			case 'send':
+			case 'send_node':
+			case 'send_struct':
+			case 'send_struct_node':
+			case 'send_eof':
+			case 'tell':
+			case 'tell_node':
+				// parse() PREFIXES arg[0]; the tail stays opaque.
+				$path   = $shell->prefix( $token_values[1] ?? '' );
+				$values = [ $verb, $path, ...\array_slice( $token_values, 2 ) ];
+				// $path is a VALUE; spans are source text, so requote it.
+				$spans  = [ $verb, Node::serialize_arg( $path ), ...\array_slice( $token_spans, 2 ) ];
+				break;
+			case 'pwd':
+				// parse() ignores pwd's tokens; the cwd IS the argument.
+				$token_values = '' === $shell->path ? [ 'pwd' ] : [ 'pwd', $shell->path ];
+				$token_spans  = '' === $shell->path
+					? [ 'pwd' ]
+					: [ 'pwd', Node::serialize_arg( $shell->path ) ];
+				// Fall through to the cwd routing every bare verb takes.
+			default:
+				// parse()'s default: TM_COMMAND at the cwd, named by verb.
+				$head = '' === $shell->path ? [] : [ 'command_node', $shell->path ];
+				// The cwd is a VALUE; spans are source text, so requote it.
+				$head_spans = '' === $shell->path
+					? []
+					: [ 'command_node', Node::serialize_arg( $shell->path ) ];
+				$values = [ ...$head, $verb, ...\array_slice( $token_values, 1 ) ];
+				$spans  = [ ...$head_spans, $verb, ...\array_slice( $token_spans, 1 ) ];
+				break;
 		}
 		return [
 			'verb'   => $values[0],
@@ -476,56 +516,8 @@ class Shell_Node extends Node {
 		$verb = \array_shift( $tokens );
 		$args = $tokens;
 
-		if ( 'include' === $verb ) {
-			$file = $args[0] ?? '';
-			$this->include_file( $file );
-			return null;
-		}
-
-		if ( 'cd' === $verb || 'chdir' === $verb ) {
-			$this->path = $this->cd( $this->path, $args[0] ?? '' );
-			$this->prompt = '/' . $this->path . '> ';
-			return null;
-		}
-
-		if ( 'print' === $verb ) {
-			$this->stdout( \implode( ' ', $args ) );
-			return null;
-		}
-
-		if ( 'clear' === $verb ) {
-			$this->stdout( "\033[2J\033[H" );
-			return null;
-		}
-
-		if ( 'debug_level' === $verb ) {
-			$dumper = Core::node( Node_Names::OUTPUT );
-			if ( $dumper instanceof Dumper_Node ) {
-				$current = $dumper->debug_level();
-				$next    = ! empty( $args )
-					? (int) $args[0]
-					: ( $current > 0 ? 0 : 1 );
-				$applied = $dumper->set_debug_level( $next );
-				$this->stdout( 'debug_level: ' . $applied . "\n" );
-			}
-			return null;
-		}
-
-		if ( 'status' === $verb ) {
-			foreach ( $this->status_lines as $status_line ) {
-				$this->stdout( $status_line . "\n" );
-			}
-			return null;
-		}
-
-		if ( 'show_parse' === $verb ) {
-			$this->show_parse = ! $this->show_parse;
-			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
-			return null;
-		}
-
-		if ( 'var' === $verb ) {
-			$this->var_command( \implode( ' ', $args ) );
+		// Shell.pm:94 — a builtin runs, anything else becomes a command.
+		if ( $this->run_builtin( $verb, $args ) ) {
 			return null;
 		}
 
@@ -537,7 +529,7 @@ class Shell_Node extends Node {
 			$message[ Message::TIMESTAMP ] = $forged;
 		}
 		$message[ Message::FROM ]  = Core::str( Core::$var['message.from'] ?? '', '' )
-			?: Node_Names::OUTPUT . '/' . \getmypid();
+			?: $this->reply_from();
 		$message[ Message::ID ]    = Core::str( Core::$var['message.id'] ?? '', '' );
 		$message[ Message::KEY ]   = Core::str( Core::$var['message.key'] ?? '', '' );
 		// LOCAL taint: in-proc mint, stripped at wire (packed()); local-only.
@@ -623,12 +615,80 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * A line continues only on an ODD run of trailing backslashes — an even run
-	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
-	 * now that a backslash escapes outside quotes too.
+	 * The Shell's BUILTINS table (Tachikoma Shell.pm:103+): each verb acts on
+	 * shell or session state and produces no message. Returns whether the verb
+	 * was one — false sends parse() on to mint a command, which is Shell.pm's
+	 * `if ( $BUILTINS{$name} ) ... else send_command(...)` in switch form.
+	 *
+	 * @param list<string> $args Tokens after the verb.
 	 */
-	private static function is_continuation( string $line ): bool {
-		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
+	private function run_builtin( string $verb, array $args ): bool {
+		switch ( $verb ) {
+			case 'include':
+				$this->include_file( $args[0] ?? '' );
+				return true;
+			case 'cd':
+			case 'chdir':
+				$this->path   = $this->cd( $this->path, $args[0] ?? '' );
+				$this->prompt = '/' . $this->path . '> ';
+				return true;
+			case 'print':
+				$this->stdout( \implode( ' ', $args ) );
+				return true;
+			case 'clear':
+				$this->stdout( "\033[2J\033[H" );
+				return true;
+			case 'debug_level':
+				$this->debug_level_command( $args[0] ?? '' );
+				return true;
+			case 'status':
+				foreach ( $this->status_lines as $status_line ) {
+					$this->stdout( $status_line . "\n" );
+				}
+				return true;
+			case 'show_parse':
+				$this->show_parse = ! $this->show_parse;
+				$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
+				return true;
+			case 'var':
+				$this->var_command( \implode( ' ', $args ) );
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	/**
+	 * This session's reply address — where a worker's answer comes back to.
+	 * Stamped on every message the Shell mints and on the EOF drain marker.
+	 */
+	private function reply_from(): string {
+		return Node_Names::OUTPUT . '/' . \getmypid();
+	}
+
+	/**
+	 * `debug_level [ 0 | 1 | 2 ]` — dials the `_output` Dumper's rendering,
+	 * after Shell.pm:154. A bare verb toggles 0↔1.
+	 *
+	 * Refuses anything that is not a level, as Shell.pm's `^\d+$` and the JS
+	 * twin's usage line both do: a cast would read `abc` as 0 and quietly turn
+	 * the dial OFF. A Shell driving a TSL in worker or request scope has no
+	 * Dumper at all, and says so rather than reporting a dial it never moved.
+	 */
+	private function debug_level_command( string $level ): void {
+		if ( '' !== $level && ( ! \ctype_digit( $level ) || (int) $level > 2 ) ) {
+			$this->stdout( "usage: debug_level [0|1|2]\n" );
+			return;
+		}
+		$dumper = Core::node( Node_Names::OUTPUT );
+		if ( ! $dumper instanceof Dumper_Node ) {
+			$this->stdout( 'debug_level: unknown node: ' . Node_Names::OUTPUT . "\n" );
+			return;
+		}
+		$next = '' === $level
+			? ( $dumper->debug_level() > 0 ? 0 : 1 )
+			: (int) $level;
+		$this->stdout( 'debug_level: ' . $dumper->set_debug_level( $next ) . "\n" );
 	}
 
 	/**
@@ -766,6 +826,12 @@ class Shell_Node extends Node {
 		for ( $i = 0; $i < $length; ) {
 			$ch = $line[ $i ];
 			if ( null !== $literal ) {
+				// `\'` is an escaped quote, not the span's end.
+				if ( '\\' === $ch && $i + 1 < $length ) {
+					$out .= $ch . $line[ $i + 1 ];
+					$i   += 2;
+					continue;
+				}
 				$out .= $ch;
 				if ( $ch === $literal ) {
 					$literal = null;
@@ -813,6 +879,10 @@ class Shell_Node extends Node {
 
 	/**
 	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 *
+	 * @api The PHP side of the JS `tokenize` parity mirror — three JS docblocks
+	 *      name it as the byte-for-byte anchor, and the round-trip tests read a
+	 *      serialized line back through it.
 	 *
 	 * @return list<string>
 	 */
@@ -1072,6 +1142,15 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * A line continues only on an ODD run of trailing backslashes — an even run
+	 * is escaped literals (`a\\` is one backslash, a complete line). Matters
+	 * now that a backslash escapes outside quotes too.
+	 */
+	private static function is_continuation( string $line ): bool {
+		return 0 !== ( \strlen( $line ) - \strlen( \rtrim( $line, '\\' ) ) ) % 2;
+	}
+
+	/**
 	 * The Shell is the unnamed REPL front-end; naming it would register a command
 	 * surface in the graph. Fatal on any name argument so the rule can't be violated.
 	 */
@@ -1096,21 +1175,6 @@ class Shell_Node extends Node {
 			$this->fatal_errors = $value;
 		}
 		return $this->fatal_errors;
-	}
-
-	/**
-	 * Syntax-check a single TSL statement; throws on an unterminated backslash
-	 * continuation. Unknown verbs are NOT rejected here — they flow through and
-	 * the target CommandInterpreter answers `unknown command: <verb>`.
-	 */
-	public function validate_line( string $line ): void {
-		$line = \trim( $line );
-		if ( '' === $line || '#' === $line[0] ) {
-			return;
-		}
-		if ( \str_ends_with( $line, '\\' ) ) {
-			throw new \RuntimeException( 'unterminated backslash continuation' );
-		}
 	}
 
 	public static function node_schema(): array {

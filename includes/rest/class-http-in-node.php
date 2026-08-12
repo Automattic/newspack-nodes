@@ -126,7 +126,7 @@ class HTTP_In_Node extends Node {
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		if ( ! \function_exists( 'current_user_can' ) || ! Capabilities::can( Capabilities::MANAGE ) ) {
+		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
 			return false;
 		}
 		return $this->check_rate_limit();

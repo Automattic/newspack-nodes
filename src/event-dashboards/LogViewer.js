@@ -18,7 +18,7 @@ import { useNodeState } from '../runtime/react';
 import { useLogViewerGraph } from './hooks/useLogViewerGraph';
 import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
 import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
-import formatBytes from '@newspack-nodes/shared/utils/formatBytes';
+import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
 import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
@@ -32,7 +32,6 @@ const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'logviewer:view';
 
 const EMPTY_VIEW = {
-	logs: [],
 	selected: '',
 	paused: false,
 	connectionError: false,
@@ -60,8 +59,15 @@ const renderRawRow = ( row ) => (
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogViewer( { headerControlsSlot } ) {
-	const { selectSource, setPaused, seek, sources, step, fetchSources } =
-		useLogViewerGraph();
+	const {
+		selectSource,
+		setPaused,
+		seek,
+		sources,
+		step,
+		fetchSources,
+		clear,
+	} = useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
 	const {
@@ -89,12 +95,9 @@ export default function LogViewer( { headerControlsSlot } ) {
 	const segments = useMemo( () => sourceRow.segments ?? [], [ sourceRow ] );
 
 	// Maintain the rail: re-catalog on a cadence while a source streams.
-	const recatalog = useCallback( () => {
-		fetchSources().catch( () => {} );
-	}, [ fetchSources ] );
 	useRouterTick( {
 		name: 'logviewer:refresh',
-		onTick: recatalog,
+		onTick: fetchSources,
 		intervalMs: SEGMENTS_REFRESH_MS,
 		enabled: Boolean( currentSource ),
 	} );
@@ -111,7 +114,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			return;
 		}
 		staleSegmentRef.current = lastReceivedSegment;
-		fetchSources().catch( () => {} );
+		fetchSources();
 	}, [ lastReceivedSegment, segments, fetchSources ] );
 
 	// Seek intent; the DISPLAYED Live/Replay mode comes from the view.
@@ -141,12 +144,11 @@ export default function LogViewer( { headerControlsSlot } ) {
 		}
 		setPaused( true );
 		browseSegment( position.segment );
-		Promise.resolve(
-			seek( currentSource, { [ currentSource ]: position }, sourceRow )
-		).then( () => step() );
+		seek( currentSource, { [ currentSource ]: position }, sourceRow );
+		step();
 	};
 
-	// Re-read the live nodes each frame so a graph reinit is picked up.
+	// Read the view node per call, so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
 
 	return (
@@ -168,6 +170,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			onStep={ step }
 			onJump={ handleJump }
 			getViewNode={ getViewNode }
+			onClear={ clear }
 			sidebar={
 				<LogBrowser
 					mode={ displayMode }
