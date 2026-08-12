@@ -488,9 +488,13 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		// Shell3:1363 — verbatim; the newline is the caller's. No `echo`.
 		if ( 'print' === $verb ) {
 			$this->stdout( \implode( ' ', $args ) );
+			return null;
+		}
+
+		if ( 'clear' === $verb ) {
+			$this->stdout( "\033[2J\033[H" );
 			return null;
 		}
 
@@ -991,9 +995,9 @@ class Shell_Node extends Node {
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = $line;
-		$dumper = Core::node( Node_Names::OUTPUT );
-		if ( $dumper instanceof Dumper_Node ) {
-			$dumper->fill( $message );
+		$stdout = Core::node( Node_Names::STDOUT );
+		if ( $stdout instanceof Stdout_Node ) {
+			$stdout->fill( $message );
 		}
 	}
 
