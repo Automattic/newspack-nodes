@@ -98,6 +98,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Line_Fitter` moved into the substrate.** The PIPE_BUF fitting loop —
+  measure the PACKED line, halve trimmable VALUE fields in sacrifice order until
+  it fits, drop rather than emit oversize — was implemented three times: once
+  generally in `newspack-event-logger-nodes`, and twice by hand in the
+  substrate's own `Job_Probe_Node` and `Settings_Event_Writer`. The general one
+  is now `Newspack_Nodes\Line_Fitter`, `Job_Probe_Node` uses it, and its
+  `$fields` accept an int key so a POSITIONAL record (`Jobstats_Record`) works
+  alongside ELN's named ones. `Settings_Event_Writer` deliberately keeps its own
+  loop: it halves `old` and `new` together to keep both sides of an audit record
+  visible, where `Line_Fitter` drains one field before opening the next.
+
 - **One localStorage kernel, one sparkline ring.** Three modules wrapped
   `window.localStorage` in their own window-guard-plus-swallow before decoding;
   the guard and the swallow now live in `shared/utils/storage`, and each caller
