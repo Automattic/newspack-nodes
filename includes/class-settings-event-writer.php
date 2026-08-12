@@ -176,11 +176,20 @@ class Settings_Event_Writer {
 	}
 
 	/**
-	 * Fit the packed record under the settings log's PIPE_BUF line. Mirrors
-	 * Job_Probe_Node::fit_to_line — the char cap is a proxy (a multibyte char JSON-
-	 * packs to up to 12 bytes), so measure packed_size and halve the old/new excerpts
-	 * until the line fits. When nothing's left to trim, drop to name-only (always
-	 * emits): the change still records, only its values are dropped.
+	 * Fit the packed record under the settings log's PIPE_BUF line. The char cap
+	 * is a proxy (a multibyte char JSON-packs to up to 12 bytes), so measure
+	 * packed_size and halve the old/new excerpts until the line fits. When
+	 * nothing's left to trim, drop to name-only (always emits): the change still
+	 * records, only its values are dropped.
+	 *
+	 * NOT Line_Fitter::fit(), which drains one field before opening the next.
+	 * An option's `old` and `new` are usually the same shape, and at equal sizes
+	 * that sacrifice order empties `old` entirely (8000/8000 in → 0/4000 out)
+	 * where halving both together keeps a sample of each (2000/2000). This record
+	 * exists to show what changed FROM what, so a policy that reliably discards
+	 * one side is the wrong one here. Line_Fitter is better on a LOPSIDED pair —
+	 * it leaves a short `new` intact instead of halving it for no size win — and
+	 * that trade is accepted deliberately.
 	 *
 	 * @param array<int,mixed> $message The minted record message.
 	 * @param string            $option  Option name, for the name-only fallback.
