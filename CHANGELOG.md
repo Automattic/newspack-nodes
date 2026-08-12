@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A path-taking Shell verb without a path is refused, not minted.** `send`,
+  `send_node`, `request`, `tell`, `send_struct`, `send_eof` and `cmd` printed no
+  usage in PHP and minted the message anyway — with no cwd that is `TO=''`, which
+  Router drops as "message not addressed", so the command simply vanished. The JS
+  twin already refused each one, and Tachikoma's CommandInterpreter dies
+  `no path specified`. `cmd` additionally requires its verb name, which the twin
+  also checked: without it the interpreter answered `unknown command: `.
+
 - **A freshly-rotated offsetlog no longer reads as "no data".**
   `Partition_Node::read_latest_value_at()` and `Durable_Reader::last_frame_of()`
   were the same read written twice, and they had drifted: only the second fell

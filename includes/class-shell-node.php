@@ -539,6 +539,10 @@ class Shell_Node extends Node {
 				$cmd_path  = $args[0] ?? '';
 				$cmd_verb  = $args[1] ?? '';
 				$cmd_args  = \array_slice( $args, 2 );
+				if ( '' === $cmd_path || '' === $cmd_verb ) {
+					$this->stdout( "usage: cmd <path> <verb> [<args>]\n" );
+					return null;
+				}
 				$message[ Message::TYPE ]  = Message::TM_COMMAND;
 				$message[ Message::TO ]    = $this->prefix( $cmd_path );
 				$message[ Message::VALUE ] = [
@@ -563,18 +567,30 @@ class Shell_Node extends Node {
 				break;
 			case 'request':
 			case 'request_node':
+				if ( '' === ( $args[0] ?? '' ) ) {
+					$this->stdout( "usage: request <path> <args>\n" );
+					return null;
+				}
 				$message[ Message::TYPE ]  = Message::TM_REQUEST;
-				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TO ]    = $this->prefix( $args[0] );
 				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			case 'send':
 			case 'send_node':
+				if ( '' === ( $args[0] ?? '' ) ) {
+					$this->stdout( "usage: send <path> <bytes>\n" );
+					return null;
+				}
 				$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TO ]    = $this->prefix( $args[0] );
 				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) ) . "\n";
 				break;
 			case 'send_struct':
 			case 'send_struct_node':
+				if ( '' === ( $args[0] ?? '' ) ) {
+					$this->stdout( "usage: send_struct <path> <json>\n" );
+					return null;
+				}
 				// Runs in parse(), before central catch — decode error here.
 				try {
 					$decoded = \json_decode( \implode( ' ', \array_slice( $args, 1 ) ), true, 512, \JSON_THROW_ON_ERROR );
@@ -583,17 +599,25 @@ class Shell_Node extends Node {
 					return null;
 				}
 				$message[ Message::TYPE ]  = Message::TM_STRUCT;
-				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TO ]    = $this->prefix( $args[0] );
 				$message[ Message::VALUE ] = $decoded;
 				break;
 			case 'send_eof':
+				if ( '' === ( $args[0] ?? '' ) ) {
+					$this->stdout( "usage: send_eof <path>\n" );
+					return null;
+				}
 				$message[ Message::TYPE ] = Message::TM_EOF;
-				$message[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TO ]   = $this->prefix( $args[0] );
 				break;
 			case 'tell':
 			case 'tell_node':
+				if ( '' === ( $args[0] ?? '' ) ) {
+					$this->stdout( "usage: tell <path> <bytes>\n" );
+					return null;
+				}
 				$message[ Message::TYPE ]  = Message::TM_INFO;
-				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TO ]    = $this->prefix( $args[0] );
 				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			default:

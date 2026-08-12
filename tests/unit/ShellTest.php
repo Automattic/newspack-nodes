@@ -1541,4 +1541,38 @@ class ShellTest extends TestCase {
 		// Second tell uses the var set by the first statement.
 		$this->assertSame( '3', $sink->captured[1][ Message::VALUE ] );
 	}
+
+	/**
+	 * The JS twin refuses each path-taking verb with a `usage:` line when the
+	 * path argument is missing (Tachikoma's CommandInterpreter dies "no path
+	 * specified"). PHP minted the message anyway: with no cwd that is TO='',
+	 * which Router drops as "message not addressed" — a command that vanishes.
+	 *
+	 * @dataProvider path_taking_verbs
+	 */
+	public function test_a_path_taking_verb_without_a_path_prints_usage( string $verb, string $usage ): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+		$shell->sink( new Capture_Sink_Node() );
+
+		$this->assertNull( $shell->parse( $verb ), "$verb should mint nothing" );
+		$printed = \implode( '', \array_column( $capture->captured, Message::VALUE ) );
+		$this->assertStringContainsString( $usage, $printed );
+	}
+
+	/** @return array<string,array{0:string,1:string}> */
+	public static function path_taking_verbs(): array {
+		return [
+			'send'        => [ 'send', 'usage: send <path> <bytes>' ],
+			'send_node'   => [ 'send_node', 'usage: send <path> <bytes>' ],
+			'request'     => [ 'request', 'usage: request <path> <args>' ],
+			'tell'        => [ 'tell', 'usage: tell <path> <bytes>' ],
+			'send_struct' => [ 'send_struct', 'usage: send_struct <path> <json>' ],
+			'send_eof'    => [ 'send_eof', 'usage: send_eof <path>' ],
+			'cmd'         => [ 'cmd', 'usage: cmd <path> <verb> [<args>]' ],
+			// A path but no verb name mints a command with an empty name, which
+			// the interpreter answers `unknown command: ` — the JS twin refuses.
+			'cmd-no-verb' => [ 'cmd beacon', 'usage: cmd <path> <verb> [<args>]' ],
+		];
+	}
 }
