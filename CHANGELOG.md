@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Backlog card counts only readers still reporting.** It summed each
+  reader's newest sample with no age check, and the probe view keeps an entry
+  alive by INGEST time — so the dashboard's 24h replay re-stamps a long-dead
+  reader as freshly seen. Three `job-hub` readers that died 17 hours earlier,
+  while behind, reported 528 MB of debt nobody was working off, at a moment when
+  `wp nodes status` showed every live reader `0B` behind. Staleness is now judged
+  on the sample's own timestamp. The Topics Backlog chart still plots that
+  history — it is a history; the card is a gauge.
+
 - **`_stdout` sinks into the interpreter, as its PHP twin always has.** The
   console built it by hand and set only its name, where every neighbour either
   assigns `sink = interpreter` or goes through `makeNode()`, which does both.
