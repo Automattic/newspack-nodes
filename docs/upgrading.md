@@ -4,6 +4,41 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## 2.24.0
+
+- **The browser `ShellNode` has ONE entry point, `fill( message )`.**
+  `sendCommand( path, verb, args )` is gone, and `parse()` / `dispatch()` are
+  internals again — a caller that sequenced them (parse, inspect what came
+  back, dispatch) no longer can, because a builtin now acts and prints instead
+  of returning a `{ kind: 'local' | 'error' }` signal. Send a typed line the
+  way the REPLs do:
+
+  ```js
+  const line = newMessage();
+  line[ TYPE ] = TM_BYTESTREAM;
+  line[ VALUE ] = 'connect_node a b';
+  shell.fill( line );
+  ```
+
+  Anything that sends through a Shell must hold its reference or sink into it;
+  the Shell stays unnamed, so no message can reach it by routing. Outbound
+  per-send work — the equivalent of the console's Compose fields — belongs in
+  an unnamed node between the Shell and its sink, not in the caller. Nothing in
+  any sibling plugin used either API.
+
+- **A browser graph needs a `_stdout` node, or builtin output goes nowhere.**
+  `print`, `status`, `show_parse`, `debug_level` and every usage line now emit
+  through `Core.node( '_stdout' )` rather than `_output` — the Dumper renders
+  MESSAGES, and a builtin prints text. Mount a `StdoutNode` whose stream writes
+  into whatever the host shows; both REPLs hand it
+  `{ write: ( text ) => dumper.appendText( text ) }`. Without one, the Shell
+  drops the text silently, exactly as PHP does.
+
+- **`debug_level` is Dumper state, not a caller-held ref.** Read it with
+  `useNodeState( '_output', 'debug_level' )`. The `debugLevelRef` a consumer
+  assigns still drives rendering, but `DumperNode.setDebugLevel()` is the only
+  thing that should move it, so a React mirror updated by hand will drift.
+
 ## 2.12.0
 
 - **`Bootstrap::supervisor()` is renamed to `Bootstrap::spawn_coordinator()`,
