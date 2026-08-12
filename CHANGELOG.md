@@ -47,6 +47,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`_stdout` sinks into the interpreter, as its PHP twin always has.** The
+  console built it by hand and set only its name, where every neighbour either
+  assigns `sink = interpreter` or goes through `makeNode()`, which does both.
+  Nothing broke — `StdoutNode` overrides `fill()` and never reads its sink — and
+  that is exactly why it went unnoticed, until `ls -als` showed the one node with
+  no sink beside `_router`, which is the only node entitled to have none. A new
+  invariant test asserts that: every named node in the console graph has a sink
+  except the router.
+
 - **The bundled example writes inside the runtime base.**
   `example-ai-newsletter.tsl` hardcoded `/tmp/example-ai-newsletter/digest.md`,
   which the Log path guard now refuses whenever the configured base differs. It

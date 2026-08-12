@@ -267,6 +267,21 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( interpreter.sink ).toBe( Core.node( names.ROUTER ) );
 	} );
 
+	// Tachikoma rule #2: everything sinks into the interpreter, which sinks into
+	// the router; ONLY the router has neither. `_stdout` was the exception —
+	// StdoutNode overrides fill() and never reads its sink, so nothing broke and
+	// nothing noticed, while PHP's TTY_Out_Node has been sunk into the
+	// interpreter all along. `ls -als` showed it as the one node out of shape.
+	it( 'sinks every named node into the interpreter; only _router has none', () => {
+		renderGraph();
+
+		const sinkless = [ ...Core.nodes.entries() ]
+			.filter( ( [ name, node ] ) => name && ! node.sink )
+			.map( ( [ name ] ) => name );
+
+		expect( sinkless ).toEqual( [ names.ROUTER ] );
+	} );
+
 	it( 'wires Shell.sink → gate → _command_interpreter → _router', () => {
 		const { result } = renderGraph();
 		const shell = result.current.shell;
