@@ -22,7 +22,7 @@ import ConnectionBanner from './ConnectionBanner';
 const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
 
 // Pretty-print a struct row's raw JSON; anything else renders verbatim.
-const debugValue = ( row ) => {
+export const debugValue = ( row ) => {
 	if ( row.struct && row.raw ) {
 		try {
 			return JSON.stringify( JSON.parse( row.raw ), null, 2 );
@@ -127,6 +127,8 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {*}          [props.toolbarExtras]      Extra toolbar controls (before Clear).
  * @param {*}          [props.belowToolbar]       Panel under the banner (e.g. a column picker).
  * @param {*}          [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
+ * @param {RenderRow}  [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared ID/Key/Value row.
+ * @param {*}          [props.renderDebugHeader]  Debug-mode header; defaults to the shared ID/Key/Value header.
  * @param {boolean}    [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
  * @return {import('react').ReactElement} Rendered component.
  */
@@ -157,6 +159,8 @@ export default function LogStreamViewer( {
 	toolbarExtras,
 	belowToolbar,
 	listHeader,
+	renderDebugRow: renderDebugRowOverride,
+	renderDebugHeader,
 	hasKeyColumn = true,
 } ) {
 	const [ filter, setFilter ] = useState( '' );
@@ -345,11 +349,13 @@ export default function LogStreamViewer( {
 		renderedControls = controls;
 	}
 
-	// The active header row: debug builds its own; normal is consumer-supplied.
+	// Debug builds its own; a column-picking consumer supplies both.
 	const activeHeader = debug
-		? debugHeader( hasKeyColumn )
+		? renderDebugHeader ?? debugHeader( hasKeyColumn )
 		: listHeader ?? null;
-	const activeDebugRow = hasKeyColumn ? renderDebugRow : renderDebugRowNoKey;
+	const activeDebugRow =
+		renderDebugRowOverride ??
+		( hasKeyColumn ? renderDebugRow : renderDebugRowNoKey );
 	const railToggleLabel = railOpen
 		? __( 'Hide the browse rail', 'newspack-nodes' )
 		: __( 'Show the browse rail', 'newspack-nodes' );

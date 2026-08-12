@@ -3,6 +3,9 @@ import {
 	KEY,
 	VALUE,
 	TYPE,
+	TM_RESPONSE,
+	TO,
+	TIMESTAMP,
 	ID,
 	TM_BYTESTREAM,
 	TM_STRUCT,
@@ -77,6 +80,32 @@ test( 'a step control admits exactly one envelope through a pause', () => {
 	expect( v.lines[ 0 ].content ).toBe( 'stepped through' );
 } );
 
+// Every column the Cols picker offers is one of the seven positional message
+// fields (ADR-2). The row kept only three of them, so TYPE / TIMESTAMP / FROM /
+// TO had nowhere to come from.
+test( 'rows carry all seven message fields', () => {
+	const view = makeView( 'partition:view' );
+	const m = envelopeMsg( {
+		from: 'jobs.p3/consumer',
+		key: 'k-31',
+		value: 'v',
+	} );
+	m[ TYPE ] = TM_STRUCT | TM_RESPONSE;
+	m[ TIMESTAMP ] = 1786499281.301584;
+	m[ TO ] = 'somewhere/else';
+	m[ ID ] = '7:120:30';
+	view.fill( m );
+
+	const row = view.lines[ 0 ];
+	expect( row.type ).toBe( TM_STRUCT | TM_RESPONSE );
+	expect( row.timestamp ).toBe( 1786499281.301584 );
+	expect( row.from ).toBe( 'jobs.p3/consumer' );
+	expect( row.to ).toBe( 'somewhere/else' );
+	expect( row.msgId ).toBe( '7:120:30' );
+	expect( row.key ).toBe( 'k-31' );
+	expect( row.value ).toBe( 'v' );
+} );
+
 test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
 	const v = makeView( 'partition:view' );
 	const m = envelopeMsg( {
@@ -94,7 +123,7 @@ test( 'rows carry the debug fields: msgId, key, struct flag, raw value', () => {
 	expect( row.raw ).toBe( '{"deep":{"nested":"struct 977"}}' );
 } );
 
-test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped at 8K', () => {
+test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped at MAX_RAW', () => {
 	const v = makeView( 'partition:view' );
 	const long = 'line one\n' + 'x'.repeat( 3000 ) + '\nline three';
 	v.fill( envelopeMsg( { value: long } ) );
@@ -104,9 +133,11 @@ test( 'raw keeps multi-line bytestreams past the 1000-char content clip, capped 
 	expect( row.raw ).toBe( long );
 	expect( row.struct ).toBe( false );
 
-	const huge = 'y'.repeat( 9000 );
+	// Debug mode is the only way to read a large-write record, so the cap is
+	// well past PIPE_BUF; what matters is that it still clips SOMEWHERE.
+	const huge = 'y'.repeat( 300000 );
 	v.fill( envelopeMsg( { value: huge } ) );
-	expect( v.lines[ 0 ].raw.length ).toBe( 8192 + 3 );
+	expect( v.lines[ 0 ].raw.length ).toBe( 262144 + 3 );
 	expect( v.lines[ 0 ].raw.endsWith( '...' ) ).toBe( true );
 } );
 

@@ -54,7 +54,19 @@ const cancelFrame =
 
 const has = ( type, flag ) => ( type & flag ) !== 0;
 
-function formatTypeLabel( type ) {
+/**
+ *
+ * @param type
+ */
+/**
+ * Human-readable TYPE: every set flag named, joined, with the unmatched bits in
+ * hex when none match. The Dumper's header and the Partition Viewer's TYPE
+ * column are the same rendering.
+ *
+ * @param {number} type The TYPE bitmask.
+ * @return {string} The flag names, or `TM_UNKNOWN(0x…)`.
+ */
+export function formatTypeLabel( type ) {
 	const flags = typeLabels( type );
 	return flags.length
 		? flags.join( ' | ' )

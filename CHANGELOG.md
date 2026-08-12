@@ -107,6 +107,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Partition Viewer gets a Cols picker over all seven message fields.** A
+  partition record IS a Message (ADR-2), but the viewer rendered three of its
+  fields — Key and Value, plus ID in debug — with no way to reach TYPE,
+  TIMESTAMP, FROM or TO. The toolbar now carries the same `Cols` control the
+  Request Log and Gyroscope have, listing the fields in wire order. TYPE renders
+  through the Dumper's own `formatTypeLabel()` (so a composite reads
+  `TM_RESPONSE | TM_STRUCT`, not `272`) and TIMESTAMP through
+  `formatLocalDateTime()`. The selection persists per browser.
+
+  The control itself is shared rather than copied: `useColumnPicker` +
+  `ColumnPicker` own the visible set, the canonical-order toggle, the
+  persistence and the checkbox row. Request Log and Gyroscope each grew their
+  own; this would have been the third.
+
+- **The `P<n>` gutter is gone from Partition Viewer rows.** The viewer streams
+  one partition at a time — `resubscribe( [ log ] )` — so the gutter labelled
+  every row with the only thing on screen. The shared row renderer keeps it for
+  the dashboards that tail a glob across partitions.
+
+- **Debug-mode rows keep far more of the record.** `MAX_RAW_LENGTH` goes from
+  8192 to 262144. A non-lifted partition caps at 4096 bytes, so the old value
+  only ever clipped large-write records — exactly the ones debug mode is the
+  only way to read. The ring holds `raw` per row, so this is a per-row ceiling,
+  not a typical size.
+
 - **`Line_Fitter` moved into the substrate.** The PIPE_BUF fitting loop —
   measure the PACKED line, halve trimmable VALUE fields in sacrifice order until
   it fits, drop rather than emit oversize — was implemented three times: once

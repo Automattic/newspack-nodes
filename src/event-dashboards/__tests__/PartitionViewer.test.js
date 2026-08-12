@@ -8,6 +8,7 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
+import { TM_STRUCT, TM_RESPONSE } from '../../runtime/message';
 import { mountExospine } from '../../runtime/exospine';
 import PartitionViewer from '../PartitionViewer';
 
@@ -245,7 +246,9 @@ describe( 'PartitionViewer', () => {
 		expect( logRowListProps.resetSignal ).toBe( before + 1 );
 	} );
 
-	it( 'renderRow draws the partition gutter and content per envelope row', async () => {
+	// The viewer streams ONE partition at a time (`resubscribe([ log ])`), so a
+	// P<n> gutter on every row named the only thing on screen.
+	it( 'renderRow draws no partition gutter', async () => {
 		registerViewFixture( { logs: [] } );
 		await renderViewer();
 		const { container } = render(
@@ -253,13 +256,14 @@ describe( 'PartitionViewer', () => {
 				id: 7,
 				partition: 3,
 				content: 'GET /x 200',
+				value: 'GET /x 200',
 				isEven: true,
 			} )
 		);
 		const row = container.querySelector( '.newspack-nodes-log-row' );
 		expect( row.classList.contains( 'row-even' ) ).toBe( true );
-		expect( row.getAttribute( 'data-p' ) ).toBe( '3' );
-		expect( row.textContent ).toBe( 'GET /x 200' );
+		expect( row.getAttribute( 'data-p' ) ).toBeNull();
+		expect( row.textContent ).toContain( 'GET /x 200' );
 	} );
 
 	it( 'portals the controls into the hub header slot when given one', async () => {
@@ -369,7 +373,7 @@ describe( 'PartitionViewer', () => {
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
 	} );
 
-	it( 'normal mode shows a Key | Value column header and split row cells', async () => {
+	it( 'normal mode shows the default ID | Key | Value columns and split row cells', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
@@ -378,7 +382,7 @@ describe( 'PartitionViewer', () => {
 		const ths = [
 			...container.querySelectorAll( '.newspack-nodes-log-header__th' ),
 		].map( ( el ) => el.textContent );
-		expect( ths ).toEqual( [ 'Key', 'Value' ] );
+		expect( ths ).toEqual( [ 'ID', 'Key', 'Value' ] );
 
 		const { container: rowc } = render(
 			logRowListProps.renderRow( {
@@ -396,6 +400,54 @@ describe( 'PartitionViewer', () => {
 		expect(
 			rowc.querySelector( '.newspack-nodes-log-row__value' ).textContent
 		).toBe( '{"n":4}' );
+	} );
+
+	// A partition record IS a Message, so its columns are the seven positional
+	// fields. The viewer showed three of them and offered no way to the rest.
+	it( 'the Cols picker offers every message field, and enabling one renders it', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { container, getByText } = await renderViewer();
+
+		fireEvent.click( getByText( 'Cols' ) );
+		const labels = [
+			...container.querySelectorAll(
+				'.newspack-nodes-column-picker label'
+			),
+		].map( ( el ) => el.textContent.trim() );
+		expect( labels ).toEqual( [
+			'Type',
+			'Time',
+			'From',
+			'To',
+			'ID',
+			'Key',
+			'Value',
+		] );
+
+		fireEvent.click( container.querySelector( '#pv-col-type' ) );
+		fireEvent.click( container.querySelector( '#pv-col-timestamp' ) );
+
+		const { container: rowc } = render(
+			logRowListProps.renderRow( {
+				id: 9,
+				type: TM_STRUCT | TM_RESPONSE,
+				timestamp: 1786499281.301584,
+				key: 'jobstats',
+				value: '{"n":4}',
+				isEven: false,
+			} )
+		);
+		// TYPE is a bitmask and TIMESTAMP epoch seconds; neither reads as itself.
+		// Flags render in the canonical TYPE_NAMES order, not the order written.
+		expect(
+			rowc.querySelector( '.newspack-nodes-log-row__type' ).textContent
+		).toBe( 'TM_RESPONSE | TM_STRUCT' );
+		expect(
+			rowc.querySelector( '.newspack-nodes-log-row__ts' ).textContent
+		).toMatch( /^\d{4}-\d{2}-\d{2} / );
 	} );
 
 	it( 'debug mode shows an ID | Key | Value column header', async () => {
