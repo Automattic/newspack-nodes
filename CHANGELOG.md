@@ -47,6 +47,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A partition built in PHP can advertise its segment size.** The dashboard
+  learned geometry only from `make_node Partition|Topic|Log … <literal size>`
+  statements, so `jobfeed.p0` — which `Job_Intake` constructs in code at
+  `FEED_SEGMENT_SIZE` (1 MiB, deliberately small so retention stays cheap) —
+  reported the fleet default, and the Overview bar scaled a FULL segment to
+  ~1.6% of the 64 MiB it assumed. The new `newspack_nodes/segment_size_overrides`
+  filter fills in names the static scan cannot see; `Bootstrap` registers
+  `jobfeed` through it. The two sources are disjoint by construction — whatever
+  builds a partition sets its geometry — so the filter fills gaps and never
+  restates a declaration the scan already found.
+
 - **The Backlog card counts only readers still reporting.** It summed each
   reader's newest sample with no age check, and the probe view keeps an entry
   alive by INGEST time — so the dashboard's 24h replay re-stamps a long-dead

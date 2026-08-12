@@ -1235,4 +1235,77 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 'demo-workers', $result[0]['type'] );
 		$this->assertTrue( $result[0]['live'] );
 	}
+
+	// The filter FILLS IN what the scan could not see. The two sources are
+	// disjoint — whatever builds a partition sets its geometry — so a name the
+	// scan did find is not the filter's to restate.
+	public function test_a_declared_segment_size_is_not_restated_by_the_filter(): void {
+		$base  = $this->arrange_base_dir();
+		$stock = "{$base}/topologies";
+		\is_dir( $stock ) || \mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/demo-workers.tsl",
+			"make_node Partition sized:partition <config:logs_dir>/sized.p<partition> 7311234\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'demo-workers' ];
+		\Newspack_Nodes\Config::reset();
+		$this->seed_log_segment( $base, 'sized', 0, 0, 200 );
+
+		\add_filter(
+			'newspack_nodes/segment_size_overrides',
+			static function ( array $o ): array {
+				$o['sized'] = 999;
+				return $o;
+			}
+		);
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$sized = \array_values( \array_filter(
+			$result['logs'],
+			static fn ( array $l ): bool => 'sized.p0' === $l['name']
+		) );
+		$this->assertNotEmpty( $sized );
+		$this->assertSame( 7311234, $sized[0]['segment_size'] ?? null );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	/**
+	 * A partition BUILT IN CODE has no TSL statement to read a size off, so the
+	 * static scan reported the fleet default and the Overview bar scaled every
+	 * full 1 MiB jobfeed segment to ~1.6%. Job_Intake owns that geometry
+	 * (FEED_SEGMENT_SIZE), so it has to be able to advertise it.
+	 */
+	public function test_a_code_declared_segment_size_reaches_the_log_catalog(): void {
+		$base = $this->arrange_base_dir();
+		// Declared with the `<config:segment_size>` TOKEN, so the static scan
+		// finds no literal override — the same position jobfeed is in.
+		$this->declare_partitions( $base, 'demo-workers', [ 'jobfeed' ] );
+		$this->seed_log_segment( $base, 'jobfeed', 0, 0, 200 );
+
+		\add_filter(
+			'newspack_nodes/segment_size_overrides',
+			static function ( array $o ): array {
+				$o['jobfeed'] = 1048576;
+				return $o;
+			}
+		);
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result           = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$feed = \array_values( \array_filter(
+			$result['logs'],
+			static fn ( array $l ): bool => 'jobfeed.p0' === $l['name']
+		) );
+		$this->assertNotEmpty( $feed, 'jobfeed.p0 should be enumerated' );
+		$this->assertSame( 1048576, $feed[0]['segment_size'] ?? null );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
 }

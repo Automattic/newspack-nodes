@@ -724,6 +724,8 @@ class Bootstrap {
 		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
+		// Geometry the static TSL scan cannot see (Job_Intake builds its own).
+		\add_filter( 'newspack_nodes/segment_size_overrides', [ self::class, 'register_segment_sizes' ] );
 		// Self-respawn tokens must be minted at POST time, not worker boot.
 		Worker_Base::$token_provider ??= static fn (): string => self::spawn_coordinator()->generate_spawn_token( \time() );
 		// Fleet alerting: rate-limited alert emission.
@@ -1017,6 +1019,20 @@ class Bootstrap {
 			\array_values( Job_Intake::log_dir_templates() ),
 			[ Alerts::log_dir_template() ]
 		) ) );
+	}
+
+	/**
+	 * Advertise the segment geometry of partitions built in PHP, which no TSL
+	 * statement declares and the static scan therefore cannot see. Job_Intake's
+	 * feed runs at FEED_SEGMENT_SIZE against Partition's 64 MiB default, so the
+	 * dashboard scaled a full segment to a sliver of the size it assumed.
+	 *
+	 * @param array<string,int> $overrides basename => segment size in bytes.
+	 * @return array<string,int>
+	 */
+	public static function register_segment_sizes( array $overrides ): array {
+		$overrides[ Job_Intake::FEED_BASENAME ] = Job_Intake::FEED_SEGMENT_SIZE;
+		return $overrides;
 	}
 
 	/**
