@@ -89,7 +89,7 @@ test( 'fill on an empty trigger still emits the configured command', () => {
 
 test( 'command_args may be a FUNCTION, called at fire time to get current args', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'urlsIn', 'urls' ];
+	f.arguments = [ 'urls:in', 'urls' ];
 	f.target = '_http/perf';
 	let live = [ '--sort', 'count' ];
 	f.command_args = () => live;
@@ -113,7 +113,7 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 
 test( 'a function command_args returning a non-string coerces to empty args', () => {
 	const f = new FetcherNode();
-	f.arguments = [ 'urlsIn', 'urls' ];
+	f.arguments = [ 'urls:in', 'urls' ];
 	f.command_args = () => null;
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };

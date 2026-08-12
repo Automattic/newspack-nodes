@@ -2114,7 +2114,7 @@ describe( 'Inspector (view mode)', () => {
 		const fetcher = {
 			id: 'f',
 			class: 'Fetcher',
-			arguments: [ 'overviewIn', 'overview', 'a', 'b', 'c' ],
+			arguments: [ 'overview:in', 'overview', 'a', 'b', 'c' ],
 		};
 		const { container } = renderWithCatalog(
 			<Inspector
@@ -2138,7 +2138,7 @@ describe( 'Inspector (view mode)', () => {
 		const vals = [
 			...container.querySelectorAll( '.topology-insp__arg-val' ),
 		].map( ( el ) => el.textContent );
-		expect( vals ).toEqual( [ 'overviewIn', 'overview', 'a b c' ] );
+		expect( vals ).toEqual( [ 'overview:in', 'overview', 'a b c' ] );
 	} );
 
 	it( 'falls back to the schema default (dimmed) for an omitted optional argument', () => {

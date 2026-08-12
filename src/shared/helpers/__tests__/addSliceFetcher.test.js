@@ -116,8 +116,8 @@ describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
 	test( 'sets the Fetcher command_args to the supplied getter', () => {
 		const argsFn = () => '--sort count';
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-urls',
-			receiver: 'urlsIn',
+			fetcher: 'urls:fetch',
+			receiver: 'urls:in',
 			command: 'urls',
 			view: 'urls:view',
 			viewClass: 'FakeView',
@@ -125,7 +125,7 @@ describe( 'addSliceFetcher — optional argsFn (fire-time getter)', () => {
 			target: TARGET,
 			argsFn,
 		} );
-		expect( Core.node( 'fetch-urls' ).command_args ).toBe( argsFn );
+		expect( Core.node( 'urls:fetch' ).command_args ).toBe( argsFn );
 	} );
 
 	test( 'without argsFn, command_args stays the static (empty) token array', () => {
@@ -158,8 +158,8 @@ describe( 'addSliceFetcher — optional transform', () => {
 
 	test( 'with a transform, inserts it on the receiver-Tee → view edge (Tee → transform → view)', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-urls',
-			receiver: 'urlsIn',
+			fetcher: 'urls:fetch',
+			receiver: 'urls:in',
 			command: 'urls',
 			view: 'urls:view',
 			viewClass: 'FakeView',
@@ -172,7 +172,7 @@ describe( 'addSliceFetcher — optional transform', () => {
 		} );
 
 		// The receiver Tee fans to the transform, NOT straight to the view.
-		expect( Core.node( 'urlsIn' ).target ).toEqual( [ 'urls:merge' ] );
+		expect( Core.node( 'urls:in' ).target ).toEqual( [ 'urls:merge' ] );
 		// The transform forwards to the view.
 		const transform = Core.node( 'urls:merge' );
 		expect( transform ).toBeInstanceOf( FakeTransformNode );
@@ -184,8 +184,8 @@ describe( 'addSliceFetcher — optional transform', () => {
 
 	test( 'passes the transform args through to makeNode', () => {
 		addSliceFetcher( interpreter, {
-			fetcher: 'fetch-urls',
-			receiver: 'urlsIn',
+			fetcher: 'urls:fetch',
+			receiver: 'urls:in',
 			command: 'urls',
 			view: 'urls:view',
 			viewClass: 'FakeView',
