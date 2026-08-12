@@ -114,7 +114,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Request Log and Gyroscope have, listing the fields in wire order. TYPE renders
   through the Dumper's own `formatTypeLabel()` (so a composite reads
   `TM_RESPONSE | TM_STRUCT`, not `272`) and TIMESTAMP through
-  `formatLocalDateTime()`. The selection persists per browser.
+  `formatLocalDateTime()`. The selection persists per browser. VALUE renders at
+  full contrast and every other column dimmed (`is-muted`), the treatment the
+  shared debug row already gave ID: the payload is what the eye should land on.
 
   The control itself is shared rather than copied: `useColumnPicker` +
   `ColumnPicker` own the visible set, the canonical-order toggle, the

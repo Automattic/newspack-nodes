@@ -450,6 +450,48 @@ describe( 'PartitionViewer', () => {
 		).toMatch( /^\d{4}-\d{2}-\d{2} / );
 	} );
 
+	// VALUE is the payload; every other column is metadata about it, and reads
+	// dimmer so the eye lands on the record. The shared debug row already did
+	// this for ID — the column-driven cells have to keep it.
+	it( 'dims every non-VALUE column and leaves VALUE at full contrast', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { container, getByText } = await renderViewer();
+		fireEvent.click( getByText( 'Cols' ) );
+		for ( const col of [ 'type', 'timestamp', 'from', 'to' ] ) {
+			fireEvent.click( container.querySelector( `#pv-col-${ col }` ) );
+		}
+
+		const { container: rowc } = render(
+			logRowListProps.renderRow( {
+				id: 11,
+				type: TM_STRUCT,
+				timestamp: 1786499281,
+				from: 'jobs.p0',
+				to: 'sink',
+				msgId: '1:2:3',
+				key: 'k',
+				value: 'v',
+				isEven: true,
+			} )
+		);
+		const dim = [ 'type', 'ts', 'from', 'to', 'id', 'key' ];
+		for ( const cls of dim ) {
+			expect(
+				rowc
+					.querySelector( `.newspack-nodes-log-row__${ cls }` )
+					.classList.contains( 'is-muted' )
+			).toBe( true );
+		}
+		expect(
+			rowc
+				.querySelector( '.newspack-nodes-log-row__value' )
+				.classList.contains( 'is-muted' )
+		).toBe( false );
+	} );
+
 	it( 'debug mode shows an ID | Key | Value column header', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
