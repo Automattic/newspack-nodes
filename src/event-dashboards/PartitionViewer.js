@@ -114,7 +114,7 @@ const cellText = ( col, row, debug ) => {
 	}
 };
 
-// One envelope row: a cell per enabled column, in wire order.
+// A cell per enabled column; VALUE is the payload, the rest is dimmed metadata.
 const makeRenderRow = ( visibleColumns, debug ) => ( row ) => (
 	<div
 		key={ row.id }
@@ -125,7 +125,9 @@ const makeRenderRow = ( visibleColumns, debug ) => ( row ) => (
 		{ visibleColumns.map( ( col ) => (
 			<span
 				key={ col }
-				className={ `newspack-nodes-table__cell ${ COLUMNS[ col ].className }` }
+				className={ `newspack-nodes-table__cell ${
+					'value' === col ? '' : 'is-muted '
+				}${ COLUMNS[ col ].className }` }
 			>
 				{ cellText( col, row, debug ) }
 			</span>
