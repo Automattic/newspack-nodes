@@ -78,7 +78,7 @@ class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 				$message[ Message::FROM ]      = $this->name;
 				$message[ Message::TO ]        = $this->target;
 				$message[ Message::VALUE ]     = $record;
-				$message                       = $this->fit_to_line( $message );
+				$message                       = Line_Fitter::fit( $message, [ Jobstats_Record::LAST_MESSAGE ] );
 				if ( null === $message ) {
 					$key = Core::as_string( $record[ Jobstats_Record::KEY ] ?? '' );
 					$this->print_less_often( 'Job_Probe dropped an unfittable record: ', $key );
@@ -88,32 +88,6 @@ class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 				$sink->fill( $message );
 			}
 		}
-	}
-
-	/**
-	 * Fit a record to the jobstats log's physical boundary: the PACKED line (with
-	 * newline) must stay under PIPE_BUF or the bare Partition drops it. Character
-	 * caps are a proxy — JSON escaping packs a multibyte char as up to 12 bytes —
-	 * so measure packed_size and halve LAST_MESSAGE until the line fits. Null when
-	 * nothing left to cut (a pathological identity key): drop, never emit oversize.
-	 *
-	 * @param array<int,mixed> $message The minted record message.
-	 * @return array<int,mixed>|null The fitting message, or null to drop.
-	 */
-	private function fit_to_line( array $message ): ?array {
-		while ( Message::packed_size( $message ) + 1 > Partition_Node::MAX_LINE_SIZE ) {
-			$value = $message[ Message::VALUE ];
-			if ( ! \is_array( $value ) ) {
-				return null; // Oversize and not a record: nothing to truncate.
-			}
-			$last = Core::as_string( $value[ Jobstats_Record::LAST_MESSAGE ] ?? '' );
-			if ( '' === $last ) {
-				return null;
-			}
-			$value[ Jobstats_Record::LAST_MESSAGE ] = \mb_substr( $last, 0, \intdiv( \mb_strlen( $last ), 2 ) );
-			$message[ Message::VALUE ]              = $value;
-		}
-		return $message;
 	}
 
 	/**
