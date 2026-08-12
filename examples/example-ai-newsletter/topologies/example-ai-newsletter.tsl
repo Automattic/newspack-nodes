@@ -19,7 +19,7 @@ make_node Community_Source_Demo community
 make_node Summarizer_Demo       summarizer
 make_node Digest_Builder_Demo   digest
 make_node Tee                   digest:tee
-make_node Log                   digest:log /tmp/example-ai-newsletter/digest.md 1 2 7 0 0 0
+make_node Log                   digest:log <config:logs_dir>/digest.md 1 2 7 0 0 0
 cmd digest:log:config void_warranty
 # `example-scored` log paths (not bare `scored`) keep this demo's data isolated from a
 # real plugin's `scored` log in the same substrate dir; MUST match Insights_CI_Demo's glob.
