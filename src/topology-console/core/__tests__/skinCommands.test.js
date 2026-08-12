@@ -1,4 +1,4 @@
-import { resolveSkin, formatSkinList } from '../skinCommands';
+import { resolveSkin, formatSkinList, makeSkinHost } from '../skinCommands';
 
 const SKINS = [
 	{ slug: 'newspack', label: 'Newspack' },
@@ -58,5 +58,46 @@ describe( 'formatSkinList', () => {
 		const marked = lines.filter( ( l ) => l.trim().startsWith( '*' ) );
 		expect( marked ).toHaveLength( 1 );
 		expect( marked[ 0 ] ).toContain( 'crt' );
+	} );
+} );
+
+describe( 'makeSkinHost', () => {
+	function harness() {
+		const printed = [];
+		const applied = [];
+		const host = makeSkinHost( {
+			skins: SKINS,
+			currentSkin: () => 'blueprint',
+			applySkin: ( slug ) => applied.push( slug ),
+			print: ( text ) => printed.push( text ),
+		} );
+		return { host, printed, applied };
+	}
+
+	it( 'setSkin resolves the typed name, applies the slug and reports the label', () => {
+		const { host, printed, applied } = harness();
+		host.setSkin( 'CRT Phosphor' );
+		expect( applied ).toEqual( [ 'crt' ] );
+		expect( printed.join( '' ) ).toBe( 'skin: CRT Phosphor Terminal\n' );
+	} );
+
+	it( 'setSkin refuses an unknown name without applying anything', () => {
+		const { host, printed, applied } = harness();
+		host.setSkin( 'vellum' );
+		expect( applied ).toEqual( [] );
+		expect( printed.join( '' ) ).toBe(
+			"set_skin: unknown skin 'vellum' (try list_skins)\n"
+		);
+	} );
+
+	it( 'listSkins prints the registry, marking the active slug', () => {
+		const { host, printed } = harness();
+		host.listSkins();
+		expect( printed.join( '' ) ).toContain(
+			'* blueprint — Cyanotype Blueprint\n'
+		);
+		expect( printed.join( '' ) ).toContain(
+			'  crt — CRT Phosphor Terminal\n'
+		);
 	} );
 } );

@@ -8,6 +8,7 @@ use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\Capture_Stdout_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 #[CoversClass( Shell_Node::class )]
@@ -407,9 +408,11 @@ class ShellTest extends TestCase {
 		$shell->interpolate( 'tell <ghost> hello' );
 
 		// Shell3 writes straight to STDERR: no timestamp, no hostname, no pid.
+		// Core::_stderr is a diagnostic path, so it lands on `_output`, not the
+		// `_stdout` a builtin prints through.
 		$this->assertSame(
 			"WARNING: use of uninitialized value <ghost>\n",
-			$capture->captured[0][ Message::VALUE ]
+			$capture->dumper->captured[0][ Message::VALUE ]
 		);
 	}
 
@@ -704,9 +707,17 @@ class ShellTest extends TestCase {
 	 * Dumper. Capture_Sink_Node extends Dumper_Node, so registering one as
 	 * `_output` captures each emitted bytestream Message for assertion.
 	 */
-	private function register_output_capture(): Capture_Sink_Node {
-		$capture = new Capture_Sink_Node();
-		$capture->name( '_output' );
+	/**
+	 * Mount both halves of the REPL's output: `_stdout`, where a builtin's text
+	 * lands, and the `_output` Dumper the `debug_level` builtin dials. Returns
+	 * the stdout capture; `$capture->dumper` is the Dumper.
+	 */
+	private function register_output_capture(): Capture_Stdout_Node {
+		$dumper = new Capture_Sink_Node();
+		$dumper->name( '_output' );
+		$capture = new Capture_Stdout_Node();
+		$capture->name( '_stdout' );
+		$capture->dumper = $dumper;
 		return $capture;
 	}
 
@@ -787,16 +798,28 @@ class ShellTest extends TestCase {
 	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
 		// `debug_level` with no args toggles between 0 and 1.
 		$capture = $this->register_output_capture();
-		$this->assertSame( 0, $capture->debug_level(), 'default off' );
+		$this->assertSame( 0, $capture->dumper->debug_level(), 'default off' );
 
 		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level' ) );
-		$this->assertSame( 1, $capture->debug_level(), 'toggle 0→1' );
+		$this->assertSame( 1, $capture->dumper->debug_level(), 'toggle 0→1' );
 		$this->assertSame( "debug_level: 1\n", $capture->captured[0][ Message::VALUE ] );
 
 		$this->assertNull( $shell->parse( 'debug_level' ) );
-		$this->assertSame( 0, $capture->debug_level(), 'toggle back 1→0' );
+		$this->assertSame( 0, $capture->dumper->debug_level(), 'toggle back 1→0' );
+	}
+
+	public function test_parse_clear_emits_the_terminal_erase_sequence(): void {
+		// QoL parity with the browser REPL's Ctrl-L. A terminal has no
+		// transcript to wipe, so the wipe is output: erase display, home cursor.
+		$capture = $this->register_output_capture();
+
+		$shell = new Shell_Node();
+
+		$this->assertNull( $shell->parse( 'clear' ), 'clear sends no Message' );
+		$this->assertNotEmpty( $capture->captured, 'clear printed nothing' );
+		$this->assertSame( "\033[2J\033[H", $capture->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_parse_debug_level_with_explicit_argument_sets(): void {
@@ -806,7 +829,7 @@ class ShellTest extends TestCase {
 		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level 2' ) );
-		$this->assertSame( 2, $capture->debug_level() );
+		$this->assertSame( 2, $capture->dumper->debug_level() );
 		$this->assertSame( "debug_level: 2\n", $capture->captured[0][ Message::VALUE ] );
 	}
 

@@ -52,6 +52,7 @@ globalThis.__httpPosts = [];
 // {topology}.p{N} the mock graph is built for; a change rebuilds a fresh graph.
 globalThis.__graphKey = null;
 globalThis.__shell = null;
+globalThis.__outgoing = { current: null };
 // The reader the current mock RemoteIpc is registered under (for teardown).
 globalThis.__reader = null;
 // A no-op EventSource so the composed SseIn can start() offline.
@@ -79,11 +80,16 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { HttpOutNode } = require( '../../runtime/http-out-node' );
 	const { HeartbeatNode } = require( '../../runtime/heartbeat-node' );
 	const { ShellNode } = require( '../../runtime/shell-node' );
+	const { StdoutNode } = require( '../../runtime/stdout-node' );
+	const { OutgoingGateNode } = require( '../core/outgoingGate' );
+	const { makeSkinHost } = require( '../core/skinCommands' );
+	const { THEMES, getStoredTheme, applySkin } = require( '../themes' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	// View nodes only: the backbone is the page's and outlives edit mode,
 	// exactly as the real hook's separate backbone effect leaves it standing.
 	const NAMES = [
 		reserved.OUTPUT,
+		reserved.STDOUT,
 		reserved.METADATA,
 		reserved.UPTIME,
 		reserved.COMPLETION,
@@ -136,6 +142,11 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const dumper = new DumperNode();
 				dumper.debugLevelRef = debugLevelRef;
 				dumper.name = reserved.OUTPUT;
+				// Builtin output bypasses `_output` and lands on `_stdout`.
+				const stdout = new StdoutNode( {
+					write: ( text ) => dumper.appendText( text ),
+				} );
+				stdout.name = reserved.STDOUT;
 				const metadata = new MetadataNode();
 				metadata.name = reserved.METADATA;
 				const uptime = new UptimeNode();
@@ -171,7 +182,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				);
 				const shell = new ShellNode();
 				shell.path = reader;
-				shell.sink = interpreter;
+				shell.host = makeSkinHost( {
+					skins: THEMES,
+					currentSkin: getStoredTheme,
+					applySkin,
+					print: ( text ) => dumper.appendText( text ),
+				} );
+				// The console's UNNAMED outgoing gate, as the real hook builds.
+				const gate = new OutgoingGateNode();
+				gate.sink = interpreter;
+				globalThis.__outgoing.current = gate;
+				shell.sink = gate;
 				// `_cwd` indirection node: a plain Node whose target IS cwd.
 				const cwdNode = new Node();
 				cwdNode.name = reserved.CWD;
@@ -202,8 +223,14 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 						status: 'connecting',
 						ssePid: null,
 						shell: globalThis.__shell,
+						outgoing: globalThis.__outgoing,
 				  }
-				: { status: 'open', ssePid: 1234, shell: globalThis.__shell };
+				: {
+						status: 'open',
+						ssePid: 1234,
+						shell: globalThis.__shell,
+						outgoing: globalThis.__outgoing,
+				  };
 		},
 	};
 } );
@@ -1378,7 +1405,8 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( items.length ).toBe( 2 );
 		expect( items[ 0 ].dataset.kind ).toBe( 'sent' );
-		expect( items[ 1 ].dataset.kind ).toBe( 'info' );
+		// Builtin output arrives as `_stdout` text, so it reads back as recv.
+		expect( items[ 1 ].dataset.kind ).toBe( 'recv' );
 		expect( items[ 1 ].textContent ).toMatch( /debug_level:/ );
 	} );
 

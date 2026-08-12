@@ -449,14 +449,14 @@ export class Node {
 	/**
 	 * Build a TM_COMMAND, mark it LOCAL and sign it. Mirrors
 	 * Tachikoma::Node::command, which likewise signs at build — available on
-	 * every Node so Shell.sendCommand and overlay callers issue commands without
+	 * every Node so the Shell and overlay callers issue commands without
 	 * hand-building messages.
 	 *
 	 * Completing here (rather than leaving a separate mint step) is safe because
 	 * LOCAL cannot leave the process: packed() slices to 7 fields and unpacked()
 	 * rejects 8. The signature covers only the SEMANTICS — ts, name, arguments,
-	 * nonce — so a caller may still rewrite TO/FROM afterwards, which
-	 * Shell.sendCommand and RemoteIpc both do.
+	 * nonce — so a caller may still rewrite TO/FROM afterwards, which the
+	 * Shell and RemoteIpc both do.
 	 *
 	 * Returns null when there is no session yet, and asks for one. Signing is
 	 * synchronous and cannot wait for /auth, so the caller holds instead — a poll

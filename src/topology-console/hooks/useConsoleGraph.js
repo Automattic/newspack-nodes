@@ -21,6 +21,8 @@ import { useGraphGeneration } from '../../runtime/react';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
+import { StdoutNode } from '../../runtime/stdout-node';
+import { OutgoingGateNode } from '../core/outgoingGate';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { useTopology } from './useTopologyList';
@@ -34,6 +36,8 @@ import {
 import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
+import { makeSkinHost } from '../core/skinCommands';
+import { THEMES, getStoredTheme, applySkin } from '../themes';
 import {
 	loadHubTranscript,
 	saveHubTranscript,
@@ -67,6 +71,8 @@ export function useConsoleGraph( {
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
+	// The console's unnamed outgoing gate, handed back by reference.
+	const outgoingRef = useRef( null );
 	const [ seedError, setSeedError ] = useState( null );
 
 	// Hidden tab throttles the heartbeat → slot TTLs out; gate on visibility.
@@ -131,6 +137,11 @@ export function useConsoleGraph( {
 			return true;
 		} );
 		dumper.restore( loadHubTranscript() );
+		// Builtin output bypasses `_output`; `_stdout` makes it lines.
+		const stdout = new StdoutNode( {
+			write: ( text ) => dumper.appendText( text ),
+		} );
+		stdout.name = names.STDOUT;
 		// Substrate soft-nodes via make_node: name + sink + args in one.
 		const metadata =
 			/** @type {import('../../runtime/metadata-node').MetadataNode} */ (
@@ -173,10 +184,21 @@ export function useConsoleGraph( {
 		// Seed cwd to the default path so polls route before the gate runs.
 		cwdNode.target = reader;
 
-		// Anonymous React Shell; sinks into the `_shell` Tap → interpreter.
+		const outgoingGate = new OutgoingGateNode();
+		outgoingGate.sink = shellTap;
+		outgoingRef.current = outgoingGate;
+
+		// Anonymous React Shell; sinks into the gate → Tap → interpreter.
 		const consoleShell = new ShellNode();
 		consoleShell.path = reader;
-		consoleShell.sink = shellTap;
+		consoleShell.sink = outgoingGate;
+		// The skins are the host's: stylesheet and storage both.
+		consoleShell.host = makeSkinHost( {
+			skins: THEMES,
+			currentSkin: getStoredTheme,
+			applySkin,
+			print: ( text ) => dumper.appendText( text ),
+		} );
 
 		setSsePid( null );
 
@@ -290,6 +312,7 @@ export function useConsoleGraph( {
 			// Each node owns teardown; unregister before removeNode.
 			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
+			stdout.removeNode();
 			metadata.removeNode();
 			uptime.removeNode();
 			dmesg.removeNode();
@@ -359,5 +382,5 @@ export function useConsoleGraph( {
 		status = 'connecting';
 	}
 
-	return { status, ssePid, shell, seedError };
+	return { status, ssePid, shell, seedError, outgoing: outgoingRef };
 }

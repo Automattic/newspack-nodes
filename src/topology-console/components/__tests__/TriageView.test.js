@@ -152,7 +152,7 @@ test( 'Requeue dispatches dl_requeue with the row locator, then refetches', () =
 
 const showJson = () =>
 	JSON.stringify( {
-		type: 256,
+		type: 16,
 		type_flags: 'TM_STRUCT',
 		timestamp: 1_777_000_000.5,
 		from: 'origin-node',
@@ -480,15 +480,21 @@ test( 'an unparseable record shows its VALUE alone — that IS the whole message
 	expect( view.getByTestId( 'triage-record' ).textContent ).toBe( raw );
 } );
 
-test( 'any other reason shows the whole message, envelope included', () => {
+test( "any other reason renders the Dumper's Message block, as the REPL does", () => {
 	const view = render( <TriageView node={ node } onAction={ jest.fn() } /> );
 	reply( 'dl_list', listJson( { rows: [ { ...row(), reason: 'throw' } ] } ) );
 	fireEvent.click( view.getByText( 'View' ) );
 	reply( 'dl_show', showJson() );
 	const body = view.getByTestId( 'triage-record' ).textContent;
-	expect( body ).toContain( 'origin-node' );
-	expect( body ).toContain( 'poison-key-909' );
+	expect( body ).toMatch( /^Message \{\n/ );
+	expect( body ).toContain( '    type:      TM_STRUCT' );
+	expect( body ).toContain( '    from:      origin-node' );
+	expect( body ).toContain( '    key:       poison-key-909' );
 	expect( body ).toContain( 'blob-909' );
+	expect( body.trimEnd() ).toMatch( /\}$/ );
+	// The bespoke keyed fields never reach the panel.
+	expect( body ).not.toContain( 'type_flags' );
+	expect( body ).not.toContain( '"size"' );
 } );
 
 test( 'no envelope header is rendered for either kind', () => {

@@ -18,6 +18,7 @@ import {
 	TM_PING,
 	TM_EOF,
 	TM_NOREPLY,
+	TM_BYTESTREAM,
 	newMessage,
 } from '../message';
 
@@ -25,6 +26,14 @@ beforeEach( () => {
 	Core.reset();
 	RouterNode.profiles( null ); // profiling is static process state; clear per test
 } );
+
+// The one door (ADR-1): a typed line rides into the Shell in a TM_BYTESTREAM.
+function typeLine( shell, line ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ VALUE ] = line;
+	shell.fill( m );
+}
 
 test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb handler', () => {
 	// eslint-disable-next-line global-require
@@ -45,7 +54,7 @@ test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb
 	shell.sink = interpreter;
 	// Bare-verb form: TO is the (empty) cwd, so this interpreter interprets it.
 	// The quoted `a b` is ONE token; `--flag` a bare flag; `c` a positional.
-	shell.fill( "verb 'a b' c --flag" );
+	typeLine( shell, "verb 'a b' c --flag" );
 
 	expect( received ).toEqual( [ 'a b', 'c', '--flag' ] );
 
@@ -53,7 +62,7 @@ test( 'keystone: a quoted multi-word Shell arg survives as ONE token to the verb
 	const captured = [];
 	const shell2 = new ShellNode();
 	shell2.sink = { fill: ( m ) => captured.push( m ) };
-	shell2.fill( "cmd x verb 'a b' c" );
+	typeLine( shell2, "cmd x verb 'a b' c" );
 	expect( captured[ 0 ][ VALUE ] ).toMatchObject( {
 		name: 'verb',
 		arguments: [ 'a b', 'c' ],

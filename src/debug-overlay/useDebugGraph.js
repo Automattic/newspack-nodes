@@ -62,7 +62,7 @@ export function useDebugGraph(
 		[]
 	);
 
-	// Inject Shell prefix/replyFrom so invoke honors cwd (skips sendCommand).
+	// Inject Shell prefix/replyFrom so an invoke gesture honors the cwd.
 	const handlers = useGraphHandlers( {
 		shell,
 		graph,

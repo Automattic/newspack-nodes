@@ -82,6 +82,7 @@ unset( $GLOBALS['_wp_record_registrations'] );
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/RedirectException.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
+require_once __DIR__ . '/Helpers/CaptureStdout.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';
 require_once __DIR__ . '/Helpers/VerbHarness.php';
 require_once __DIR__ . '/Helpers/FakeMemcached.php';

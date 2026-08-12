@@ -23,6 +23,7 @@ import {
 import { __, sprintf } from '@wordpress/i18n';
 import { CallbackNode } from '../../runtime/callback-node';
 import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { formatMessageEnvelope } from '../../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
 
@@ -32,7 +33,9 @@ import './triage-view.scss';
  * An `unparseable` record has no envelope of its own: poison_from_line() mints
  * a fresh TM_BYTESTREAM wrapper and puts the raw line in its VALUE, so the
  * VALUE *is* the whole original message and the wrapper is noise. Every other
- * reason preserves the real envelope, which is worth reading in full.
+ * reason preserves the real envelope, rendered by the Dumper exactly as the
+ * REPL prints it — dl_show's keyed reply is regrouped into the positional
+ * message it came from, so there is one message rendering, not two.
  *
  * @param {Object} record Decoded `dl_show` reply.
  * @param {string} reason Quarantine reason from the dl_list row.
@@ -42,7 +45,16 @@ function recordBody( record, reason ) {
 	if ( 'unparseable' === reason ) {
 		return String( record.value );
 	}
-	return JSON.stringify( record, null, 2 );
+	// Rebuilt as the positional array it was on disk (ADR-2), in field order.
+	return formatMessageEnvelope( [
+		record.type,
+		record.timestamp,
+		record.from,
+		record.to,
+		record.id,
+		record.key,
+		record.value,
+	] );
 }
 
 // Parse the dl_list JSON reply; a malformed/shapeless reply flags parseError.

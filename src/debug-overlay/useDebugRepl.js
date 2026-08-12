@@ -7,10 +7,18 @@ import {
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { splitStatements } from '../runtime/shell-node';
-import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
+import { makeSkinHost } from '../topology-console/core/skinCommands';
 import { DumperNode } from '../runtime/dumper-node';
+import { StdoutNode } from '../runtime/stdout-node';
+import { OutgoingGateNode } from '../topology-console/core/outgoingGate';
 import { useGraphGeneration, useNodeState } from '../runtime/react';
-import { FROM, TO, VALUE, applyComposeFields } from '../runtime/message';
+import {
+	newMessage,
+	TYPE,
+	VALUE,
+	TM_BYTESTREAM,
+	applyComposeFields,
+} from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, getStoredTheme } from '../topology-console/themes';
 import {
@@ -24,17 +32,58 @@ import {
 
 const EMPTY_TRANSCRIPT = [];
 
+/**
+ * The gate the overlay's Shell sinks into: the `_shell` Tap when one is up,
+ * else the bare interpreter. It carries the Compose modal's fields out.
+ *
+ * @param {Object} interpreter Fallback sink when no Tap is mounted.
+ * @param {Object} fieldsRef   Ref holding the Compose fields for this statement.
+ * @return {Object} The gate node.
+ */
+function makeGate( interpreter, fieldsRef ) {
+	const gate = new OutgoingGateNode();
+	gate.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
+	gate.beforeSend = ( m ) => applyComposeFields( m, fieldsRef.current );
+	return gate;
+}
+
+/**
+ * Mount `_stdout` and hand the Shell the host references its skin builtins
+ * need. Builtin output bypasses `_output`: the Dumper renders MESSAGES, and a
+ * builtin prints text, so `_stdout` turns that text into transcript lines.
+ *
+ * @param {Object}   shell     Shell owned by DebugOverlay.
+ * @param {Object}   dumper    The `_output` Dumper owning the transcript.
+ * @param {Function} onSetSkin Applies a resolved skin slug.
+ * @return {Object} The mounted `_stdout` node.
+ */
+function wireStdout( shell, dumper, onSetSkin ) {
+	const stdout =
+		Core.node( names.STDOUT ) ||
+		new StdoutNode( { write: ( text ) => dumper.appendText( text ) } );
+	stdout.name = names.STDOUT;
+	shell.host = makeSkinHost( {
+		skins: THEMES,
+		currentSkin: getStoredTheme,
+		applySkin: ( slug ) => onSetSkin( slug ),
+		print: ( text ) => dumper.appendText( text ),
+	} );
+	return stdout;
+}
+
 // Build overlay infra on the backbone render-phase (no dispatch-time race).
-function buildInfra( shell, debugLevelRef ) {
+function buildInfra( shell, debugLevelRef, onSetSkin, fieldsRef ) {
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	// Idempotent under StrictMode's double-invoke: reuse an existing Dumper.
 	const existing = Core.node( names.OUTPUT );
 	if ( existing ) {
-		shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
+		shell.sink = makeGate( interpreter, fieldsRef );
+		wireStdout( shell, existing, onSetSkin );
 		return {
 			dumper: existing,
 			teardown: () => {
 				existing.removeNode();
+				Core.node( names.STDOUT )?.removeNode();
 				Core.node( names.COMPLETION )?.removeNode();
 				Core.node( names.METADATA )?.removeNode();
 				Core.node( names.CWD )?.removeNode();
@@ -46,10 +95,16 @@ function buildInfra( shell, debugLevelRef ) {
 	dumper.debugLevelRef = debugLevelRef;
 	dumper.name = names.OUTPUT;
 	dumper.sink = interpreter;
+	// Publish the restored level so the Verbose toggle reads it like any slice.
+	dumper.setDebugLevel( debugLevelRef.current );
 	// Persist only. The React read is useNodeState below, as in the console.
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {
 		saveTranscript( next || EMPTY_TRANSCRIPT );
+		return true;
+	} );
+	dumper.register( 'debug_level', listenerId, ( next ) => {
+		saveDebugLevel( next );
 		return true;
 	} );
 	// Seed transcript + interpreter debug_state from last session [87].
@@ -73,9 +128,12 @@ function buildInfra( shell, debugLevelRef ) {
 		cwdNode.target = shell.path;
 	}
 	// Bind shell.sink to `_shell` Tap at build so open-and-type can't null it.
-	shell.sink = Core.node( names.CONSOLE_TAP ) || interpreter;
+	shell.sink = makeGate( interpreter, fieldsRef );
+	const stdout = wireStdout( shell, dumper, onSetSkin );
 	const teardown = () => {
 		dumper.unregister( 'transcript', listenerId );
+		dumper.unregister( 'debug_level', listenerId );
+		stdout.removeNode();
 		// metadata.removeNode() -> stop_timer unregisters from _router TIMER.
 		dumper.removeNode();
 		completion?.removeNode();
@@ -86,16 +144,16 @@ function buildInfra( shell, debugLevelRef ) {
 }
 
 /**
- * Mount a Dumper at `_output` for the page's CommandInterpreter, and use the
- * passed-in Shell (owned by DebugOverlay) to parse + dispatch typed REPL lines
- * into the local realm.
+ * Mount a Dumper at `_output` (plus `_stdout`) for the page's
+ * CommandInterpreter, and fill the passed-in Shell (owned by DebugOverlay) with
+ * typed REPL lines, which it turns into messages bound for the local realm.
  *
  * @param {boolean}  active      When false the Dumper is torn down (no transcript).
  * @param {Object}   shell       Shell instance owned by DebugOverlay; sink wired to the local interpreter.
  * @param {Function} [onSetSkin] Apply a skin slug — drives the `set_skin` builtin.
  * @return {{ transcript: Array, sendLine: Function, append: Function, clear: Function, cwd: string, setPath: Function, ready: boolean, debugLevel: number }}
- *   Reactive transcript plus a `sendLine( line )` that runs the line through
- *   Shell and the matching subset of TopologyConsole's local-scope dispatch;
+ *   Reactive transcript plus a `sendLine( line )` that fills each statement
+ *   into the Shell;
  *   `append`/`clear` write the transcript directly, `cwd` mirrors Shell.path
  *   and `setPath` changes it, `ready` is true once the overlay infra nodes are
  *   mounted, and `debugLevel` is the persisted REPL verbosity.
@@ -106,16 +164,19 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	const dumperRef = useRef( null );
 	// Seeded from localStorage so verbosity survives a reload [87].
 	const debugLevelRef = useRef( loadDebugLevel() );
-	// Reactive mirror of the ref so the Verbose toggle reads the live level.
-	const [ debugLevel, setDebugLevel ] = useState( () => loadDebugLevel() );
 	// Last-persisted debug_state; sendLine writes only on change [87].
 	const lastDebugStateRef = useRef( loadDebugState() );
 	// Ref so the []-dep dispatchStatement calls the live skin applier.
 	const onSetSkinRef = useRef( onSetSkin );
 	onSetSkinRef.current = onSetSkin;
+	// Compose fields for the statement in flight, read by the outgoing gate.
+	const fieldsRef = useRef( null );
 	// The Dumper owns the transcript; read it where every other slice is read.
 	const transcript =
 		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
+	// Same for the verbosity dial the `debug_level` builtin moves.
+	const debugLevel =
+		useNodeState( names.OUTPUT, 'debug_level' ) ?? debugLevelRef.current;
 	// cwd mirrors Shell.path; re-rendered so Header + _cwd follow REPL `cd`.
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , bumpRemount ] = useState( 0 );
@@ -127,7 +188,12 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 	// Build-before-render: build infra in this lazy initializer, before paint.
 	const infraRef = useRef( null );
 	const buildNow = useCallback( () => {
-		const infra = buildInfra( shell, debugLevelRef );
+		const infra = buildInfra(
+			shell,
+			debugLevelRef,
+			( slug ) => onSetSkinRef.current( slug ),
+			fieldsRef
+		);
 		dumperRef.current = infra.dumper;
 		shellRef.current = shell;
 		infraRef.current = infra;
@@ -168,64 +234,23 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		dumperRef.current?.clear();
 	}, [] );
 
-	// Run one statement through the Shell; handle the three local-scope shapes.
+	// Run one statement through the Shell — the one door (ADR-1).
 	const dispatchStatement = useCallback( ( statement, fields ) => {
 		const s = shellRef.current;
 		const dumper = dumperRef.current;
 		if ( ! s || ! dumper ) {
 			return;
 		}
-		const parsed = s.parse( statement );
+		// Echo input verbatim; blanks stay silent.
 		if ( '' !== statement.trim() ) {
-			dumper.append( {
-				kind: 'sent',
-				text: statement,
-				prompt: '/',
-			} );
+			dumper.append( { kind: 'sent', text: statement, prompt: '/' } );
 		}
-		if ( null === parsed ) {
-			return;
-		}
-		if ( Array.isArray( parsed ) ) {
-			// FROM routes the reply back to our Dumper.
-			if ( ! parsed[ FROM ] ) {
-				parsed[ FROM ] = names.OUTPUT;
-			}
-			// Ignore TO that's non-empty? Overlay is local-only; trust Shell.
-			if ( undefined === parsed[ TO ] ) {
-				parsed[ TO ] = '';
-			}
-			// Compose modal's flag checkboxes + FROM / ID / KEY inputs.
-			applyComposeFields( parsed, fields );
-			// shell.sink bound; null sink = no interpreter — surface it.
-			if ( ! s.sink ) {
-				const verb = parsed[ VALUE ]?.name || '?';
-				Core.stderr(
-					`useDebugRepl: no command interpreter — REPL command dropped (${ verb })\n`
-				);
-				return;
-			}
-			// dispatch (not sink.fill) so useGraphReset's tap sees the verb.
-			s.dispatch( parsed );
-			return;
-		}
-		if ( 'error' === parsed.kind ) {
-			dumper.append( { kind: 'error', text: parsed.text } );
-			return;
-		}
-		dispatchLocalCommand( {
-			parsed,
-			append: ( entry ) => dumper.append( entry ),
-			clear: () => dumper.clear(),
-			debugLevelRef,
-			onDebugLevel: ( level ) => {
-				saveDebugLevel( level ); // persist verbosity across reloads [87].
-				setDebugLevel( level ); // reactive mirror for the Verbose toggle.
-			},
-			setSkin: onSetSkinRef.current,
-			skins: THEMES,
-			currentSkin: getStoredTheme(),
-		} );
+		// Applied on the way out by the gate this hook owns.
+		fieldsRef.current = fields;
+		const line = newMessage();
+		line[ TYPE ] = TM_BYTESTREAM;
+		line[ VALUE ] = statement;
+		s.fill( line );
 	}, [] );
 
 	const sendLine = useCallback(

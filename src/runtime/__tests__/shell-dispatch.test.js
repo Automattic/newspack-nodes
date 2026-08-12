@@ -1,6 +1,6 @@
 /**
- * ShellNode.dispatch — the single chokepoint every outgoing Message routes through
- * (sendCommand, parse-then-fill from the REPL, and GUI gestures). It invokes the
+ * ShellNode.dispatch — the single chokepoint every outgoing Message routes
+ * through, an internal of fill(). It invokes the
  * optional `onDispatch` tap, then fills `this.sink`. The tap lets the UI observe
  * graph-mutating commands (make_node / connect_node / …) uniformly, regardless of
  * which call site built the Message — that's how the Reset Graph chip stays in
@@ -9,8 +9,16 @@
  */
 
 import { ShellNode } from '../shell-node';
-import { TYPE, VALUE, TM_NOREPLY } from '../message';
+import { TYPE, VALUE, TM_NOREPLY, TM_BYTESTREAM, newMessage } from '../message';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
+
+// The one door (ADR-1): a typed line rides into the Shell in a TM_BYTESTREAM.
+function typeLine( shell, line ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ VALUE ] = line;
+	shell.fill( m );
+}
 
 describe( 'ShellNode.dispatch', () => {
 	it( 'fills the message into sink', () => {
@@ -40,24 +48,13 @@ describe( 'ShellNode.dispatch', () => {
 		expect( () => shell.dispatch( [] ) ).not.toThrow();
 	} );
 
-	it( 'routes sendCommand through dispatch so the tap sees the command', () => {
-		const seen = [];
-		const shell = new ShellNode();
-		shell.sink = { fill: () => {} };
-		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
-
-		shell.sendCommand( '', 'make_node', [ 'Tee', 't' ] );
-
-		expect( seen ).toEqual( [ 'make_node' ] );
-	} );
-
 	it( 'routes a parsed REPL line through dispatch so the tap sees the verb', () => {
 		const seen = [];
 		const shell = new ShellNode();
 		shell.sink = { fill: () => {} };
 		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
 
-		shell.fill( 'connect_node a b' );
+		typeLine( shell, 'connect_node a b' );
 
 		expect( seen ).toEqual( [ 'connect_node' ] );
 	} );
@@ -87,13 +84,13 @@ describe( 'ShellNode command signing', () => {
 		__setAuthFetch( null );
 	} );
 
-	it( 'signs a sendCommand mint, with TM_NOREPLY already folded in', () => {
+	it( 'signs a mint, with TM_NOREPLY already folded in', () => {
 		const captured = [];
 		const shell = new ShellNode();
 		shell.sink = { fill: ( m ) => captured.push( m ) };
 
 		shell._wantReply = false; // fire-and-forget: stampNoreply ORs the flag
-		shell.sendCommand( 'workers', 'status', [] );
+		typeLine( shell, 'cmd workers status' );
 
 		expect( captured ).toHaveLength( 1 );
 		const sent = captured[ 0 ];

@@ -15,11 +15,9 @@ import {
 	TM_BYTESTREAM,
 	TM_RESPONSE,
 	TM_ERROR,
-	newMessage,
 } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 import { useDebugRepl } from '../useDebugRepl';
-import { markLocal } from '../../runtime/command-auth';
 
 // Mount _output Dumper so transcript echoes are observable in tests.
 function mountOutput() {
@@ -471,7 +469,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		const spy = jest.spyOn( shell, 'fill' );
 		const classes = [
 			{
 				shell_name: 'Partition',
@@ -579,7 +577,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		const spy = jest.spyOn( shell, 'fill' );
 		const classes = [
 			{
 				shell_name: 'Partition',
@@ -607,7 +605,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'sendCommand' );
+		const spy = jest.spyOn( shell, 'fill' );
 		const classes = [ { shell_name: 'Tee', arguments: [] } ];
 		const { result } = renderHook( withRepl( shell, classes ) );
 		act( () =>
@@ -783,65 +781,19 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'dispatch backfills FROM=_output, leaving the Shell-set LOCAL intact', () => {
+	it( 'a GUI gesture arrives FROM=_output and LOCAL-marked, stamped by the Shell', () => {
 		// A real parse() completes every branch through stampNoreply, so the
-		// message arrives LOCAL-marked and signed; sendVerb only backfills FROM.
+		// message reaches the gate already addressed, signed and LOCAL-marked.
 		const { teardown } = mountExospine();
 		const dispatched = [];
-		const shell = {
-			path: '',
-			hasPending: () => false,
-			parse: () => markLocal( newMessage() ),
-			dispatch: ( m ) => dispatched.push( m ),
-			prefix: ( t ) => t,
-			replyFrom: ( n ) => n,
-		};
+		const shell = new ShellNode();
+		shell.path = '';
 		const { result } = renderHook( withRepl( shell ) );
+		Core.node( names.CONSOLE_TAP ).fill = ( m ) => dispatched.push( m );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( dispatched ).toHaveLength( 1 );
 		expect( dispatched[ 0 ][ FROM ] ).toBe( names.OUTPUT );
 		expect( dispatched[ 0 ][ LOCAL ] ).toBe( true );
-		teardown();
-	} );
-
-	it( 'surfaces a parse error instead of sending the line anyway', () => {
-		// The overlay's old dispatcher fell back to shell.sendCommand on a
-		// non-Message parse, which sent the command and swallowed the error.
-		// One path means console parity: the error reaches the transcript.
-		const { teardown } = mountExospine();
-		const calls = [];
-		const shell = {
-			path: '',
-			hasPending: () => false,
-			parse: () => ( { kind: 'error', text: 'nope' } ),
-			sendCommand: ( path, name, args ) =>
-				calls.push( { path, name, args } ),
-			prefix: ( t ) => t,
-			replyFrom: ( n ) => n,
-		};
-		const { result } = renderHook( withRepl( shell ) );
-		act( () => result.current.handlers.onRemoveNode( 'a' ) );
-		expect( calls ).toEqual( [] );
-		expect(
-			Core.node( names.OUTPUT )._transcript.some(
-				( e ) => 'error' === e.kind && 'nope' === e.text
-			)
-		).toBe( true );
-		teardown();
-	} );
-
-	it( 'commitDrop with no staged pendingDrop is a no-op (early return, no dispatch)', () => {
-		// commitDrop with nothing staged early-returns, no make_node dispatch.
-		const { teardown } = mountExospine();
-		const shell = new ShellNode();
-		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const spy = jest.spyOn( shell, 'dispatch' );
-		const { result } = renderHook( withRepl( shell ) );
-		expect( result.current.pendingDrop ).toBeNull();
-		act( () =>
-			result.current.commitDrop( { name: 'whatever', args: '' } )
-		);
-		expect( spy ).not.toHaveBeenCalled();
 		teardown();
 	} );
 
@@ -860,7 +812,8 @@ describe( 'useDebugGraph', () => {
 		const tap = Core.node( names.CONSOLE_TAP );
 		const before = tap.counter;
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
-		expect( shell.sink ).toBe( tap );
+		// The sink is the unnamed outgoing gate; the Tap is what it forwards to.
+		expect( shell.sink.name ).toBe( '' );
 		expect( tap.counter ).toBeGreaterThan( before );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
