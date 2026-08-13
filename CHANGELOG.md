@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.0] - 2026-08-13
+
 ### Fixed
 
 - **Seek positions travel as Tachikoma's offset sentinels, so `0` means the start of
