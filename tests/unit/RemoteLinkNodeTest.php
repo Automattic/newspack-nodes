@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Connect_Queue_Timer_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Null_Node;
 use Newspack_Nodes\Event_Framework;
@@ -139,6 +140,31 @@ class RemoteLinkNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 	// Timer cadence + patron lifecycle — ensure_patrons.
 	// ---------------------------------------------------------------------
+
+	public function test_a_cursorless_channel_asks_for_the_tail_by_name(): void {
+		// The base link keeps no durable cursor — restore_position() seeds none —
+		// so it must SAY it wants the tail rather than imply it by omission, which
+		// is what made a real 0:0 position unaskable.
+		$this->seed_vault();
+		[ $node ] = $this->make_link();
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node->fire();
+		$sse = Core::node( 'link-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$this->assertTrue( $sse->maybe_connect() );
+
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$this->assertSame(
+			Consumer_Node::SEEK_END,
+			\json_decode( $query['positions'], true )['firehose.p0']
+		);
+	}
 
 	public function test_tick_is_100ms_but_housekeeping_latches_to_once_per_second(): void {
 		$this->seed_vault();
