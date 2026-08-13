@@ -288,8 +288,11 @@ trait Durable_Reader {
 			// Skip paths let an idle cursor re-throttle each interval.
 			$this->last_checkpoint = Core::$now;
 		}
+		// Recurring, re-armed on a CHANGE: a missed oneshot is a dead node.
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
+		if ( $this->interval_ms !== $next_ms ) {
+			$this->set_timer( $next_ms );
+		}
 	}
 
 	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */

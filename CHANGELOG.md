@@ -7,6 +7,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Self-pacing nodes hold a RECURRING timer, re-armed only when the cadence changes.**
+  The pump (`Durable_Reader::fire()`, so Consumer / Tail / File_Tail), `Remote_Source`
+  and `Stdin` re-armed a fresh ONESHOT at the bottom of every tick. `fire_cb()` disarms
+  a oneshot before dispatching — `stop_timer()`, which also zeroes `interval_ms` — so
+  the node's continued existence in the event loop depended on reaching that last line
+  on every single tick. One early return, one throw, one refactor that moves the re-arm
+  under a conditional, and the node silently leaves the loop for good: no error, no
+  timer, just a reader that stops reading. All three now compute the interval they want
+  and call `set_timer()` only when it differs from `interval_ms`, leaving a recurring
+  timer armed in between; a stop is explicit (`Stdin` calls `stop_timer()` on its two
+  exit paths). The arming sites moved with them — Consumer's and File_Tail's boot arm,
+  Consumer's PLAY re-arm, and `wp nodes cli`'s `$reader->set_timer( 0 )` are recurring,
+  so `interval_ms` always describes the live timer. That last one matters on its own:
+  a 0ms ONESHOT boot arm plus a guarded re-arm is the exact trap this entry describes —
+  `fire_cb()` zeroes `interval_ms`, a first fire that delivers a line wants 0, the guard
+  reads "no change", and a piped `echo "ls" | wp nodes cli …` hangs forever on a reader
+  that has left the loop. Genuine one-time wakeups are unchanged and still oneshot:
+  `Partition`'s debounce and flush, `HTTP_Out`'s next-cycle flush, `Request`'s deadline.
+
+- **`Remote_Source` paced a buffered backlog at the channel tick.** Its `fire()`
+  overrides the pump's, so it rode `Remote_Link`'s 100ms tick and never consulted the
+  pump's busy/EOF cadence. `drain_buffer()` caps a drain at ONE line in `line_mode` and
+  in crawl, so a backlog in either mode trickled out at 10 lines/sec however deep it
+  was — `line_mode`, which means one line per event *cycle*, became a rate limit. It now
+  runs at `POLL_INTERVAL_BUSY_MS` (0) while a whole line is still buffered and returns
+  to the channel tick when the buffer is dry, so the loop keeps turning between lines.
+  Draining the backlog inline instead would block every other node in the process.
+  `fire()` also has a single exit now: a patron dropped by `reload()` skips the drain,
+  and returning early there would leave the 0ms cadence armed over a buffer nothing is
+  draining, spinning the loop flat until housekeeping rebuilds the patron.
+
+  The ARRIVAL takes the busy cadence too, which is where the rest of the latency was. A
+  push source learns of data in `on_message`, on the curl drain, BETWEEN fires — and a
+  re-arm at the bottom of `fire()` only runs after a fire has already seen the buffer, so
+  the first line of every burst still waited out a full 100ms channel tick before
+  anything drained it. `on_message` now takes `POLL_INTERVAL_BUSY_MS` itself (guarded, so
+  it costs one `set_timer` per burst rather than per line) and the drain happens on the
+  next event-loop cycle. `fire()` drops back to the channel tick when the buffer is dry.
+
+- **A `set_multi_writer` button on the topology canvas could only ever turn the
+  seal-grace OFF.** `Consumer_Node`'s declaration carried no `args`, and the console's
+  `VerbButton` fires an argless verb immediately with `positional: ''`, which the
+  synthesized toggle handler reads through `truthy('')` — false. So an operator
+  clicking it to enable the grace silently disabled it, on `Consumer`, `Tail` and
+  `File_Tail`. Both toggle declarations now name their `enabled` argument, as
+  `assume_clean_shutdown` and `set_line_mode` already did, so the console opens its
+  argument modal. `SchemaReflectionTest` sweeps every concrete node class and fails on
+  any `toggle` verb that declares no argument.
+
+### Added
+
+- **`Remote_Source` can ask a spoke to read a shared log with the seal-grace
+  (`set_multi_writer`).** The multi-writer grace lived only on `Consumer_Node`, and a
+  hub pulling a spoke's firehose never got it: the read happens inside the Consumer
+  the spoke's `/messages/stream` endpoint opens, and that one was built with the flag
+  at its default. So the far-side reader stepped off segment N the instant N+1
+  existed, orphaning whatever a peer wrote to N during the ~1s
+  `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` linger — for the firehose, typically
+  a request's terminal `process (complete)`, which then never finalized on the hub.
+  `Remote_Source_Node` now declares the same `set_multi_writer` verb (a declarative
+  toggle, so it round-trips through `dump_config`), `SSE_In_Node` carries it out as a
+  `multi_writer=1` query parameter on connect, and `SSE_Out_Node` applies it to every
+  log Consumer a stream opens — including partitions that self-heal in mid-stream via
+  `reconcile_glob_consumers()`. An IPC attach never takes it (one worker writes its own
+  output), and the browser dashboards never set it, so the interactive path pays no
+  grace. The CLIENT asserts the flag because nothing on the spoke's disk records which
+  of its logs are shared — that lives in a topology line, and the endpoint opens
+  Consumers with no topology in the picture; a wrong assertion costs a grace window,
+  never correctness. Being connect-time, a CHANGE to `set_multi_writer` on a live
+  source drops the stream so the next one carries it, discarding the undrained buffer
+  as `next_offset()` does — SSE_In's resume position only advances on a successful
+  forward, so buffered lines sit ahead of it and the spoke re-sends them. Re-asserting
+  the value a source already holds leaves the stream up. Documented at the `Consumer`
+  seal-grace section of `docs/architecture-guide.md`, and in ELN's `aggregator.tsl`
+  per-spoke recipe.
+
 ## [2.25.0] - 2026-08-12
 
 ### Security

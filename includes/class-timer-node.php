@@ -97,6 +97,37 @@ class Timer_Node extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
+	/**
+	 * Arm the timer: a named non-Router node asking for no interval, or for one of at least
+	 * `router_interval_ms()`, hitchhikes the Router's TIMER; everything else takes its own
+	 * Event_Framework slot, which requires a concrete interval.
+	 *
+	 * `$oneshot` is for a ONE-TIME wakeup — a debounce, a deadline, a flush on the next cycle.
+	 * A node that PACES ITSELF must never re-arm a fresh oneshot at the bottom of its own
+	 * `fire()`: `fire_cb()` disarms a oneshot before dispatching (`stop_timer()`, which also
+	 * sets `mode` to inactive and zeroes `interval_ms`), so the node's continued existence in
+	 * the event loop then depends on reaching that last line on every single tick. One early
+	 * return, one throw, one refactor that moves the re-arm under a conditional, and the node
+	 * leaves the loop for good — no error, no timer, just a node that stops firing. Hold a
+	 * RECURRING timer instead and re-arm only when the cadence CHANGES, which makes a stop
+	 * explicit:
+	 *
+	 *     $next_ms = $busy ? self::POLL_INTERVAL_BUSY_MS : self::POLL_INTERVAL_EOF_MS;
+	 *     if ( $this->interval_ms !== $next_ms ) {
+	 *         $this->set_timer( $next_ms );
+	 *     }
+	 *
+	 * Because `stop_timer()` zeroes `interval_ms`, that guard only reads true state while every
+	 * arming site for the node is recurring too — a oneshot boot arm leaves `interval_ms` at 0,
+	 * which a busy branch wanting 0 then reads as "no change" and never re-arms. Live examples:
+	 * `Durable_Reader::fire()`, `Remote_Source_Node::fire()`, `Stdin_Node::fire()`. JS mirror:
+	 * `src/runtime/timer-node.js`.
+	 *
+	 * @param int|null $ms      Interval in milliseconds; null means the Router's own cadence.
+	 * @param bool     $oneshot Disarm after the first fire. One-time wakeups only — see above.
+	 *
+	 * @throws \RuntimeException When the hitchhike finds no `_router`, or an own slot gets no interval.
+	 */
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$router = Core::node( Node_Names::ROUTER );
 		// Unnamed takes an own slot: the hitchhike is name-keyed.

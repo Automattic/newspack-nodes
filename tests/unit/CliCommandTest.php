@@ -90,6 +90,29 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
+	public function test_cli_bare_repl_exits_when_stdin_delivers_on_the_first_tick(): void {
+		// Piped input with a line ALREADY waiting, which the empty fixture above
+		// never produces: the first fire delivers, so the reader re-arms at the
+		// BUSY cadence (0ms). That is the tick a boot ONESHOT strands it on —
+		// fire_cb disarms the oneshot and zeroes interval_ms, so a busy branch
+		// that also wants 0 reads "no change", never re-arms, and the drain then
+		// spins forever on a reader that has left the event loop.
+		CLI::$uid_provider  = static fn (): int => 1000;
+		CLI_Command::$stdin = static function () {
+			$stream = \fopen( 'php://memory', 'r+' );
+			\fwrite( $stream, "ls\n" );
+			\rewind( $stream );
+			return $stream;
+		};
+		$start = \microtime( true );
+
+		( new CLI_Command() )->cli( [], [] );
+
+		$this->assertLessThan( 1.0, \microtime( true ) - $start, 'the reader must survive its first delivering fire' );
+
+		Core::cleanup_all_nodes();
+	}
+
 	/**
 	 * One policy, one derivation. The seam hands back a FRESH stream per call,
 	 * so a second probe judges a different resource than the reader drains.

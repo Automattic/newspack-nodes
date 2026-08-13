@@ -445,6 +445,39 @@ class SseInTest extends TestCase {
 		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
 	}
 
+	public function test_connect_asks_the_remote_to_read_a_shared_log_with_seal_grace(): void {
+		// The read happens on the far side, so the grace can only be requested
+		// at connect time — there is no other channel into that Consumer.
+		[ $node ] = $this->configured_node();
+		$node->set_multi_writer( true );
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$this->assertSame( '1', $query['multi_writer'] );
+	}
+
+	public function test_connect_omits_multi_writer_for_a_single_writer_source(): void {
+		[ $node ] = $this->configured_node();
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$this->assertArrayNotHasKey( 'multi_writer', $query );
+	}
+
 	public function test_require_ssl_refuses_http_url(): void {
 		$node = new SSE_In_Node();
 		$node->name( 'sse-in' );

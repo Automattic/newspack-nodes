@@ -124,6 +124,15 @@ class SSE_Out_Node extends Node {
 	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
 
+	/**
+	 * Whether the subscribed logs are appended by more than one process, which
+	 * the CLIENT asserts (`multi_writer=1`): a shared log's write-side is on
+	 * this server, but nothing on disk records that it is shared, and this
+	 * endpoint opens Consumers for matched dirs with no topology in the picture.
+	 * A wrong assertion costs the reader a grace window, never correctness.
+	 */
+	private bool $multi_writer = false;
+
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array $message ): void {
 		++$this->counter;
@@ -147,6 +156,9 @@ class SSE_Out_Node extends Node {
 		// `positions` is the ONLY resume input; the client assembles it.
 		$positions     = $this->parse_positions( Core::as_string( $positions_raw ) );
 		$interval      = self::HEARTBEAT_MS;
+		$this->set_multi_writer(
+			\rest_sanitize_boolean( Core::as_string( $request->get_param( 'multi_writer' ) ) )
+		);
 
 		$partition = $this->subscription_partition( $subs );
 		$acquire   = self::$acquire_slot ?? static fn ( int $_partition ): array => self::UNMETERED_LEASE;
@@ -667,6 +679,7 @@ class SSE_Out_Node extends Node {
 	private function log_consumer_for( string $dir, string $name, ?array $positions ): Consumer_Node {
 		$consumer = new Consumer_Node();
 		$consumer->arguments( [ $dir ] );
+		$consumer->set_multi_writer( $this->multi_writer );
 		$consumer->next_offset(
 			isset( $positions[ $name ] ) ? self::position_arg( $positions[ $name ] ) : 'end'
 		);
@@ -933,6 +946,15 @@ class SSE_Out_Node extends Node {
 		$this->needs_flush = false;
 	}
 
+	/**
+	 * Apply the multi-writer seal-grace to every log Consumer this stream opens
+	 * (see `Consumer_Node::SEAL_GRACE_SECONDS`). Set from the request in
+	 * `stream()`; an IPC attach is single-writer and never takes it.
+	 */
+	public function set_multi_writer( bool $flag ): void {
+		$this->multi_writer = $flag;
+	}
+
 	/** @api Support for unit tests. */
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
@@ -962,8 +984,9 @@ class SSE_Out_Node extends Node {
 				// Capability-only gate; NO nonce (breaks cross-server pull).
 				'permission_callback' => [ $this, 'check_permission' ],
 				'args'                => [
-					'subscribe' => [ 'required' => true, 'type' => 'string' ],
-					'positions' => [ 'required' => false, 'type' => 'string' ],
+					'subscribe'    => [ 'required' => true, 'type' => 'string' ],
+					'positions'    => [ 'required' => false, 'type' => 'string' ],
+					'multi_writer' => [ 'required' => false, 'type' => 'boolean' ],
 				],
 			]
 		);

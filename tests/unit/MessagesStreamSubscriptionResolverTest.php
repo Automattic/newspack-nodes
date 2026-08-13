@@ -30,8 +30,115 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		SSE_Out_Node::$acquire_slot = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
+	}
+
+	// ---------------------------------------------------------------------
+	// Multi-writer seal-grace: a hub pulling a shared log asks the spoke's
+	// reader to hold a superseded segment for the straggler's grace window.
+	// ---------------------------------------------------------------------
+
+	public function test_stream_carries_a_multi_writer_request_into_the_reader(): void {
+		// Refusing the slot returns before any header is written, which leaves
+		// the parsed request state to assert on.
+		SSE_Out_Node::$acquire_slot = static fn (): array|false => false;
+		$ctrl = new SSE_Out_Node();
+		$req  = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.*' );
+		$req->set_param( 'multi_writer', '1' );
+
+		$ctrl->stream( $req );
+
+		$this->assertTrue( $this->read_private( $ctrl, 'multi_writer' ) );
+	}
+
+	public function test_stream_without_the_parameter_reads_single_writer(): void {
+		SSE_Out_Node::$acquire_slot = static fn (): array|false => false;
+		$ctrl = new SSE_Out_Node();
+		$req  = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.*' );
+
+		$ctrl->stream( $req );
+
+		$this->assertFalse( $this->read_private( $ctrl, 'multi_writer' ) );
+	}
+
+	public function test_stream_reads_a_false_string_as_single_writer(): void {
+		// A raw `multi_writer=false` must not cast to true on the way in.
+		SSE_Out_Node::$acquire_slot = static fn (): array|false => false;
+		$ctrl = new SSE_Out_Node();
+		$req  = new \WP_REST_Request( 'GET' );
+		$req->set_param( 'subscribe', 'firehose.*' );
+		$req->set_param( 'multi_writer', 'false' );
+
+		$ctrl->stream( $req );
+
+		$this->assertFalse( $this->read_private( $ctrl, 'multi_writer' ) );
+	}
+
+	public function test_log_consumer_gets_seal_grace_when_the_stream_asks_for_it(): void {
+		// The firehose is appended by every request process: a peer can keep
+		// writing to segment N for ~1s after N+1 appears, and advancing off N
+		// on sight orphans that straggler.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$ctrl->set_multi_writer( true );
+
+		$consumers = $ctrl->open_subscription( 'firehose.p0', null );
+
+		$this->assertTrue( $this->read_private( $consumers[0], 'multi_writer' ) );
+	}
+
+	public function test_log_consumer_has_no_seal_grace_by_default(): void {
+		// A single-writer log seals segment N the instant it creates N+1, so the
+		// grace would be latency every dashboard stream pays for nothing.
+		\mkdir( "{$this->tmp}/logs/requests.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'requests.p0', null );
+
+		$this->assertFalse( $this->read_private( $consumers[0], 'multi_writer' ) );
+	}
+
+	public function test_ipc_consumer_never_gets_seal_grace(): void {
+		// One worker writes its own IPC output, so an attached console must not
+		// wait out a grace window at every segment boundary.
+		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$ctrl->set_multi_writer( true );
+
+		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertFalse( $this->read_private( $consumers[0], 'multi_writer' ) );
+	}
+
+	public function test_a_partition_appearing_mid_stream_gets_the_same_seal_grace(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+		$ctrl->set_multi_writer( true );
+		$route = new Node();
+		$route->name( '_seal_grace_route_' . \getmypid() );
+
+		$consumers  = [];
+		$glob_owned = [];
+		foreach ( $ctrl->open_subscription( 'firehose.*', null ) as $c ) {
+			$c->name( $c->stamped_as() );
+			$c->sink( $route );
+			$consumers[ $c->stamped_as() ]  = $c;
+			$glob_owned[ $c->stamped_as() ] = true;
+		}
+
+		\mkdir( "{$this->tmp}/logs/firehose.p1", 0755, true );
+		$ctrl->reconcile_glob_consumers( [ 'firehose.*' ], $consumers, $glob_owned, $route );
+
+		$this->assertTrue( $this->read_private( $consumers['firehose.p1'], 'multi_writer' ) );
 	}
 
 	public function test_group_prefixed_subscription_opens_the_offsets_dir(): void {

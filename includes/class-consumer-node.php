@@ -124,7 +124,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 
 		// No I/O at construction: first poll loads cursor + restores snapshot.
 		$this->poll_cb = $this->poll_init( ... );
-		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
+		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
 
 		return $args;
@@ -875,9 +875,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $out;
 	}
 
-	/** PLAY re-arm: the busy-cadence oneshot fire() loop. */
+	/** PLAY re-arm: the busy cadence; fire() backs it off to EOF once caught up. */
 	protected function time_travel_resume(): void {
-		$this->set_timer( self::POLL_INTERVAL_BUSY_MS, true );
+		$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
 	}
 
 	/** Publish the CHECKPOINT state after each committed frame (the trait's post-commit hook). */
@@ -973,6 +973,9 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 					[
 						'name'        => 'set_multi_writer',
 						'description' => 'Enable the multi-writer seal-grace (shared logs, e.g. the firehose).',
+						'args'        => [
+							[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
+						],
 						'toggle'      => 'multi_writer',
 					],
 				]

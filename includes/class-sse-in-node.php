@@ -70,6 +70,9 @@ class SSE_In_Node extends Node {
 	protected string $auth_username     = '';
 	protected string $subscribe         = '';
 
+	/** Ask the remote to read this subscription with the multi-writer seal-grace. */
+	protected bool $multi_writer        = false;
+
 	protected string $url               = '';
 
 	private string $buffer              = '';
@@ -149,6 +152,9 @@ class SSE_In_Node extends Node {
 		$params   = [
 			'subscribe' => $this->subscribe,
 		];
+		if ( $this->multi_writer ) {
+			$params['multi_writer'] = '1';
+		}
 		if ( $this->position['segment'] > 0 || $this->position['offset'] > 0 ) {
 			// Positions keyed by partition dir = $subscribe (<topic>.p<N>).
 			$params['positions'] = (string) \wp_json_encode(
@@ -733,6 +739,17 @@ class SSE_In_Node extends Node {
 			'segment' => \max( 0, $positions['segment'] ?? 0 ),
 			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
 		];
+	}
+
+	/**
+	 * Ask the remote to read this subscription with the multi-writer seal-grace
+	 * (`Consumer_Node::SEAL_GRACE_SECONDS`), for a log its own request processes
+	 * append to. Carried as a connect-time query parameter, so a change reaches
+	 * the far-side reader only on the next stream — the patron drops the current
+	 * one to make that happen.
+	 */
+	public function set_multi_writer( bool $flag ): void {
+		$this->multi_writer = $flag;
 	}
 
 	/**

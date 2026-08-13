@@ -13,6 +13,51 @@ use Newspack_Nodes\Tests\TestCase;
 #[CoversClass( Schema_Reflection::class )]
 class SchemaReflectionTest extends TestCase {
 
+	public function test_every_toggle_verb_declares_the_argument_it_toggles_on(): void {
+		// A verb with no declared args is fired IMMEDIATELY by the console's
+		// VerbButton with `positional: ''`, and the synthesized toggle handler
+		// reads that as truthy('') — off. So a toggle that declares no argument
+		// is a button that can only ever DISABLE the thing it names, with no way
+		// to turn it back on from the canvas.
+		$argless = [];
+		foreach ( $this->concrete_node_classes() as $fqcn ) {
+			foreach ( Core::arr( $fqcn::node_schema()['commands'] ?? [] ) as $verb ) {
+				if ( ! \is_array( $verb ) || '' === Core::as_string( $verb['toggle'] ?? '' ) ) {
+					continue;
+				}
+				if ( empty( $verb['args'] ) ) {
+					$argless[] = $fqcn . '::' . Core::as_string( $verb['name'] ?? '?' );
+				}
+			}
+		}
+
+		$this->assertSame( [], $argless, 'every toggle verb must declare its enable/disable argument' );
+	}
+
+	/**
+	 * Every concrete substrate Node class, read from the composer classmap — the
+	 * same source the console palette enumerates.
+	 *
+	 * @return list<class-string>
+	 */
+	private function concrete_node_classes(): array {
+		$classes = [];
+		foreach ( \Composer\Autoload\ClassLoader::getRegisteredLoaders() as $loader ) {
+			foreach ( \array_keys( $loader->getClassMap() ) as $fqcn ) {
+				if ( ! \str_starts_with( $fqcn, 'Newspack_Nodes\\' ) || ! \str_ends_with( $fqcn, '_Node' ) ) {
+					continue;
+				}
+				if ( ! \is_subclass_of( $fqcn, Node::class ) || ( new \ReflectionClass( $fqcn ) )->isAbstract() ) {
+					continue;
+				}
+				$classes[] = $fqcn;
+			}
+		}
+		// A stale classmap would make this sweep vacuously green.
+		$this->assertNotEmpty( $classes, 'the composer classmap lists no node classes (run composer dump-autoload -o)' );
+		return $classes;
+	}
+
 	public function test_parse_schema_args_resolves_and_coerces_a_config_token_default(): void {
 		// A <ns:key> token default is resolved via its namespace resolver and
 		// coerced to the declared type — a schema default never passes through

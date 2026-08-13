@@ -643,7 +643,10 @@ class ConsumerTimeTravelTest extends TestCase {
 		$id     = \spl_object_id( $c );
 		$this->assertArrayHasKey( $id, $timers );
 		$this->assertSame( Consumer_Node::POLL_INTERVAL_BUSY_MS, $timers[ $id ]->interval_ms );
-		$this->assertTrue( $timers[ $id ]->oneshot );
+		$this->assertFalse(
+			$timers[ $id ]->oneshot,
+			'PLAY arms a RECURRING busy timer; fire() backs it off to EOF once caught up. A oneshot here would give a resumed reader exactly one tick.'
+		);
 	}
 
 	// ============================================================================
