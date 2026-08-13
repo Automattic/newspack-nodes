@@ -797,11 +797,11 @@ class SSE_Out_Node extends Node {
 	 * @return array<int,mixed> The 7-field positional Message.
 	 */
 	private function build_heartbeat_msg( float $now ): array {
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_INFO;
-		$message[ Message::FROM ]      = '_stream';
-		$message[ Message::KEY ]       = 'heartbeat';
-		$message[ Message::VALUE ]     = (string) $now;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::KEY ]   = 'heartbeat';
+		$message[ Message::VALUE ] = (string) $now;
 		return $message;
 	}
 
@@ -812,11 +812,11 @@ class SSE_Out_Node extends Node {
 	 * @return array<int,mixed> `retry` Message envelope.
 	 */
 	private function build_retry_msg(): array {
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_INFO;
-		$message[ Message::FROM ]      = '_stream';
-		$message[ Message::KEY ]       = 'retry';
-		$message[ Message::VALUE ]     = (string) Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = '_stream';
+		$message[ Message::KEY ]   = 'retry';
+		$message[ Message::VALUE ] = (string) Core::num_int( Config::value( 'sse_retry_ms' ), 0 );
 		return $message;
 	}
 
