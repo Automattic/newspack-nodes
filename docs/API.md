@@ -407,7 +407,7 @@ The same registry backs the REPL's `taillog` verb; its reserved `taillog sources
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of registry NAMES (from the `Log_Sources` registry above). An unknown name throws the teaching `unknown log source` error listing the known names. No globs — registry sources are fixed for the life of a stream; Tail's missing-file grace covers a source that appears, rotates, or truncates mid-stream. |
-| `positions` | string | no | Optional resume positions. JSON object keyed by registry name; each value is a `{segment, offset}` object or one of the `start`/`recent`/`end` string forms. Round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot (the cursor self-validates against the live file and degrades to 0 on mismatch). Omit to start at `end` (live tail). |
+| `positions` | string | no | Optional resume positions, same vocabulary as `/messages/stream` above — this route is an `SSE_Out_Node` subclass and identical on the wire. JSON object keyed by registry name; each value is a `{segment, offset}` object or a seek sentinel (`0` start, `-1` end, `-2` recent), with `start`/`recent`/`end` accepted as aliases. `File_Tail` folds `recent` to the start: one file has no previous segment to fall back to. Round-trips unchanged from the client's perspective: for a segmented source `segment` is the segment id; for a file-mode source the file's inode occupies the same slot (the cursor self-validates against the live file and degrades to 0 on mismatch). Omit to start at `end` (live tail). |
 
 ### Response
 

@@ -8,6 +8,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
+import { SEEK_START, SEEK_END } from '../../../runtime/sse-in-node';
 import {
 	newMessage,
 	TYPE,
@@ -103,7 +104,9 @@ describe( 'useJobstatsStream', () => {
 		);
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'jobstats.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'jobstats.p0': SEEK_START } )
+			)
 		);
 	} );
 
@@ -128,14 +131,18 @@ describe( 'useJobstatsStream', () => {
 		// reconnected
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'jobstats.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'jobstats.p0': SEEK_START } )
+			)
 		); // re-seeks history, not a tail-follow
 	} );
 
-	it( "mode:'follow' tail-seeks (no positions param)", async () => {
+	it( "mode:'follow' asks for the tail, not a replay", async () => {
 		renderHook( () => useJobstatsStream( { mode: 'follow' } ) );
 		await act( async () => {} );
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		expect( FakeEventSource.last.url ).toContain(
+			encodeURIComponent( JSON.stringify( { 'jobstats.p0': SEEK_END } ) )
+		);
 	} );
 
 	it( 'routes a jobstats frame through the link into the view keyed by identity', async () => {

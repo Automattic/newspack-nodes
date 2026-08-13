@@ -21,6 +21,7 @@
 
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { useVisibilityGatedLink } from '@newspack-nodes/shared/hooks/useVisibilityGatedLink';
+import { SEEK_START } from '../../runtime/sse-in-node';
 import '../nodes/register';
 
 /**
@@ -34,7 +35,7 @@ import '../nodes/register';
  */
 function seekForMode( mode, subscribe ) {
 	if ( 'history' === mode ) {
-		return { [ subscribe ]: 'start' };
+		return { [ subscribe ]: SEEK_START };
 	}
 	if ( 'follow' === mode ) {
 		return null;

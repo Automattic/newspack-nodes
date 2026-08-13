@@ -27,8 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pair, whose offset is always a real byte position — our Partition addresses a byte
   within a numbered segment where Tachikoma's offset is absolute across the log, which
   is why the sentinels ride the offset field rather than replacing the pair. The
-  JS client was never affected: it keys `lastPositions` by subscription and tests key
-  PRESENCE, so a stored `{0,0}` was always sent explicitly.
+  JS client never had the bug — it keys `lastPositions` by subscription and tests key
+  PRESENCE, so a stored `{0,0}` was always sent explicitly — but it now speaks the same
+  vocabulary: `SEEK_START` / `SEEK_END` come from `sse-in-node.js` (no `SEEK_RECENT` —
+  nothing there asks for it), the four dashboard seeds send `0` rather than `start`, and
+  a new `seekMap()` names `SEEK_END` for any concrete subscription it holds no position
+  for instead of omitting the parameter. A GLOB stays unstated: the server expands it
+  and keys positions by concrete dir, so an entry filed under `firehose.*` is one
+  nothing reads.
 
   `Remote_Source_Node::next_offset()` forwards a bare sentinel instead of dropping it
   (it used to early-return on any non-array): a pull source holds no segments, so it

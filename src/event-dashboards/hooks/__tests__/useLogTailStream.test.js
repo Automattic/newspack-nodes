@@ -37,6 +37,7 @@ beforeEach( () => {
 } );
 
 import { useLogTailStream } from '../useLogTailStream';
+import { SEEK_START, SEEK_END } from '../../../runtime/sse-in-node';
 
 // Distinct from every shipped stream, so a hardcoded name cannot pass this.
 const STREAM = {
@@ -64,14 +65,18 @@ describe( 'useLogTailStream', () => {
 		renderHook( () => useLogTailStream( { ...STREAM, mode: 'history' } ) );
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'cachecozy.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'cachecozy.p0': SEEK_START } )
+			)
 		);
 	} );
 
-	it( "mode:'follow' tail-seeks (no positions param)", async () => {
+	it( "mode:'follow' asks for the tail, not a replay", async () => {
 		renderHook( () => useLogTailStream( { ...STREAM, mode: 'follow' } ) );
 		await act( async () => {} );
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		expect( FakeEventSource.last.url ).toContain(
+			encodeURIComponent( JSON.stringify( { 'cachecozy.p0': SEEK_END } ) )
+		);
 	} );
 
 	it( 'REFUSES an unrecognised mode rather than dropping the replay', () => {

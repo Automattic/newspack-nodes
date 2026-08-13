@@ -11,7 +11,7 @@
  */
 
 import { RemoteLinkNode } from '../remote-link-node';
-import { SseInNode } from '../sse-in-node';
+import { SseInNode, SEEK_END } from '../sse-in-node';
 import { HttpOutNode } from '../http-out-node';
 import { HeartbeatNode } from '../heartbeat-node';
 import { CommandInterpreterNode } from '../command-interpreter-node';
@@ -262,11 +262,12 @@ describe( 'RemoteLinkNode', () => {
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors' );
 	} );
 
-	it( 'connect() with no positions leaves the SseIn tailing (positions null)', () => {
+	it( 'connect() with no positions asks the SseIn to tail', () => {
 		const { link } = makeLink();
 		link.connect();
 		expect( link.sseIn.positions ).toBeNull();
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		// No seed of its own, so the seek it names is the tail sentinel.
+		expect( link.sseIn.seekMap() ).toEqual( { 'raw-logs': SEEK_END } );
 	} );
 
 	it( 'connect(positions) threads the seek seed into the SseIn stream URL', () => {

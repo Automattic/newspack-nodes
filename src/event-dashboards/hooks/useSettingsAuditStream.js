@@ -17,6 +17,7 @@
 
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { useVisibilityGatedLink } from '@newspack-nodes/shared/hooks/useVisibilityGatedLink';
+import { SEEK_START } from '../../runtime/sse-in-node';
 import '../nodes/register';
 
 const LINK = 'settingsaudit:link';
@@ -53,7 +54,7 @@ export function useSettingsAuditStream( {} = {} ) {
 			link.connect(
 				isReconnect
 					? link.resumePositions()
-					: { [ SUBSCRIBE ]: 'start' }
+					: { [ SUBSCRIBE ]: SEEK_START }
 			),
 	} );
 }
