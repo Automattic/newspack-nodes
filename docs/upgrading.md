@@ -6,6 +6,24 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The SSE `positions` wire carries seek sentinels, and a hub upgrades before its
+  spokes.** `SSE_In_Node` now always sends a position, using `-1` (`SEEK_END`) when it
+  has none, where it previously OMITTED the parameter to mean the same thing. An
+  upgraded hub pulling a spoke that is still on an older substrate sends `-1` to a
+  `next_offset()` that does not know the sentinels: it falls through that method's
+  `default:` case and seeks to **start**, so the hub replays the spoke's entire
+  retained firehose once, per partition, on its first connect after the upgrade.
+
+  Nothing is lost and it self-corrects — the next checkpoint commits a real position
+  and the replay does not repeat — but the aggregated volume is a spike, and every
+  replayed record dispatches downstream again (at-least-once, so job handlers see
+  duplicates). There is no compatibility shim: the fix is ordering.
+
+  **Upgrade spokes before hubs.** A spoke on this version answers `-1` correctly no
+  matter what the hub sends, so a spoke-first rollout has no window at all. If a hub
+  goes first anyway, expect one replay per spoke partition and let it settle rather
+  than restarting workers mid-replay.
+
 - **`Tail`'s `source_mode` argument is gone; single-file follow is its own class.**
   The two source shapes are now two classes, the way every other "same spine,
   different source" pair in the substrate already is (`Log extends Partition`,

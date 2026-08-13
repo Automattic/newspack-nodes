@@ -552,13 +552,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			return;
 		}
 
-		$seek = match ( $position ) {
-			'end'    => self::SEEK_END,
-			'recent' => self::SEEK_RECENT,
-			'start'  => self::SEEK_START,
-			default  => Core::num_int( $position, self::SEEK_START ),
-		};
-
+		$seek     = self::seek_sentinel( $position );
 		$segments = $this->source()->get_segments( true );
 
 		switch ( $seek ) {
@@ -588,6 +582,23 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				$this->cursor_offset = 0;
 				break;
 		}
+	}
+
+	/**
+	 * Resolve a scalar position to its SEEK sentinel — the one place the alias words
+	 * map to numbers, shared with the push source, which forwards the sentinel to
+	 * whoever holds the segments rather than resolving it locally. An unknown word
+	 * reads as SEEK_START, next_offset's long-standing default case.
+	 *
+	 * @param string|int|float $position Sentinel or alias word.
+	 */
+	public static function seek_sentinel( $position ): int {
+		return match ( $position ) {
+			'end'    => self::SEEK_END,
+			'recent' => self::SEEK_RECENT,
+			'start'  => self::SEEK_START,
+			default  => Core::num_int( $position, self::SEEK_START ),
+		};
 	}
 
 	/**

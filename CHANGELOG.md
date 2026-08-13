@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JS client was never affected: it keys `lastPositions` by subscription and tests key
   PRESENCE, so a stored `{0,0}` was always sent explicitly.
 
+  `Remote_Source_Node::next_offset()` forwards a bare sentinel instead of dropping it
+  (it used to early-return on any non-array): a pull source holds no segments, so it
+  cannot resolve `end` or `recent` locally and hands the sentinel to the spoke, which
+  owns the log. `SSE_In_Node::seek()` carries it until the first forwarded record
+  replaces it with a real position. `Consumer_Node::seek_sentinel()` is the one place
+  the alias words become numbers, shared by both.
+
+  **Upgrade note — spokes before hubs.** An upgraded hub sends `-1` to a spoke still on
+  an older substrate, whose `next_offset()` does not know the sentinels and falls
+  through to `start`, so that hub replays the spoke's whole retained firehose once per
+  partition on first connect. Nothing is lost and it self-corrects at the next
+  checkpoint, but downstream handlers see the duplicates. No shim ships for it; see
+  [`docs/upgrading.md`](docs/upgrading.md).
+
 - **Self-pacing nodes hold a RECURRING timer, re-armed only when the cadence changes.**
   The pump (`Durable_Reader::fire()`, so Consumer / Tail / File_Tail), `Remote_Source`
   and `Stdin` re-armed a fresh ONESHOT at the bottom of every tick. `fire_cb()` disarms

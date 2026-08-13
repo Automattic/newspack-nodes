@@ -387,10 +387,22 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the current
 	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to PLAY's tick.
 	 *
-	 * @param string|int|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame(); a bare seek is ignored (a push source has no segments to seek).
+	 * A bare SEEK sentinel is FORWARDED rather than resolved: this node holds no segments, so
+	 * `end` and `recent` mean nothing locally — the spoke owns the log and answers them. Either
+	 * way the in-flight buffer goes, since it belongs to the position being left behind.
+	 *
+	 * @param string|int|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame(), or a seek sentinel / alias word.
 	 */
 	public function next_offset( $position ): void {
 		if ( ! \is_array( $position ) ) {
+			$sse = $this->ensure_patrons();
+			if ( null === $sse ) {
+				return;
+			}
+			$sse->disconnect();
+			$sse->seek( Consumer_Node::seek_sentinel( $position ) );
+			$this->offset_set = true;
+			$this->buffer     = '';
 			return;
 		}
 		$segment = \is_numeric( $position['segment'] ?? null ) ? (int) $position['segment'] : 0;

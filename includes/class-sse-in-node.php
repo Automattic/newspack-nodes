@@ -94,6 +94,8 @@ class SSE_In_Node extends Node {
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
 	/** Whether $position is a real place we were put, vs the never-seeded default. */
 	private bool  $position_set         = false;
+	/** A SEEK sentinel to ask for instead of $position; the remote resolves it. */
+	private ?int  $pending_seek         = null;
 	/** Reopen delay the server advertised — `retry` event or field; null = none. */
 	private ?int  $server_retry_ms      = null;
 	/** Wall-second this stream is due back after a scheduled close; null = not waiting on one. */
@@ -161,12 +163,14 @@ class SSE_In_Node extends Node {
 		$params['positions'] = (string) \wp_json_encode(
 			[
 				// Keyed by partition dir = $subscribe (<topic>.p<N>).
-				$this->subscribe => $this->position_set
-					? [
-						'segment' => $this->position['segment'],
-						'offset' => $this->position['offset'],
-					]
-					: Consumer_Node::SEEK_END,
+				$this->subscribe => $this->pending_seek ?? (
+					$this->position_set
+						? [
+							'segment' => $this->position['segment'],
+							'offset' => $this->position['offset'],
+						]
+						: Consumer_Node::SEEK_END
+				),
 			]
 		);
 		$endpoint .= ( false === \strpos( $endpoint, '?' ) ? '?' : '&' ) . \http_build_query( $params );
@@ -763,11 +767,23 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function restore_position( int $segment, int $offset ): void {
-		$this->position     = [
+		$this->position      = [
 			'segment' => \max( 0, $segment ),
 			'offset'     => \max( 0, $offset ),
 		];
-		$this->position_set = true;
+		$this->position_set  = true;
+		// A real place supersedes a pending seek — the seek got us here.
+		$this->pending_seek  = null;
+	}
+
+	/**
+	 * Ask the remote for a SEEK rather than a byte position (`Consumer_Node::SEEK_*`).
+	 * A pull source has no segments of its own, so it cannot resolve `end` or `recent`
+	 * locally; it forwards the sentinel to the side that holds the log. Held until the
+	 * first forwarded record replaces it with a real position.
+	 */
+	public function seek( int $sentinel ): void {
+		$this->pending_seek = $sentinel;
 	}
 
 	/**

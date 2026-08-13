@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
@@ -206,6 +207,55 @@ class RemoteSourceNodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 	// Multi-writer seal-grace — Consumer's verb, asserted over the wire.
 	// ---------------------------------------------------------------------
+
+	// ---------------------------------------------------------------------
+	// Seek sentinels — a push source has no segments, so it forwards the seek
+	// to the spoke, which does.
+	// ---------------------------------------------------------------------
+
+	public function test_a_bare_seek_is_forwarded_to_the_spoke(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$sse->restore_position( 3, 900 ); // a pair the seek must override
+
+		$node->next_offset( Consumer_Node::SEEK_RECENT );
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$this->assertTrue( $sse->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$positions = \json_decode( $query['positions'], true );
+		$this->assertSame( Consumer_Node::SEEK_RECENT, $positions['firehose.p0'] );
+	}
+
+	public function test_a_seek_word_forwards_the_same_sentinel(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
+			->setValue( $node, "stale, and about to be seeked away from\n" );
+
+		$node->next_offset( 'end' );
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$this->assertTrue( $sse->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$this->assertSame( Consumer_Node::SEEK_END, \json_decode( $query['positions'], true )['firehose.p0'] );
+		$this->assertSame( '', $this->read_private( $node, 'buffer' ), 'a seek abandons what was in flight' );
+	}
 
 	public function test_seal_grace_seeds_a_patron_created_after_the_verb(): void {
 		// The aggregator configures its spokes before anything connects, so the
