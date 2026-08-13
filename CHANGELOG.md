@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Seek positions travel as Tachikoma's offset sentinels, so `0` means the start of
+  the log instead of "no position given".** `SSE_In_Node` signalled a tail seek by
+  OMITTING the `positions` parameter, and decided to omit it by testing the cursor's
+  VALUES (`segment > 0 || offset > 0`). A cursor legitimately parked at the very start
+  of segment 0 therefore looked identical to a cursor that had never been set: the
+  spoke received no position and tail-seeked to `end`. A `Remote_Source` that boots,
+  forwards nothing and gets recycled commits exactly that `0:0` frame in
+  `checkpoint_shutdown()`, so on its next boot it skipped every record written while it
+  was down. `Consumer_Node` now declares `SEEK_START` (0), `SEEK_END` (-1) and
+  `SEEK_RECENT` (-2) — the reference vocabulary verbatim (`Consumer.pm`: *"valid
+  offsets: start (0), recent (-2), end (-1)"*) — `next_offset()` resolves them, and
+  `SSE_In_Node` always sends a position, using `-1` when it has none. The
+  `start`/`recent`/`end` words remain accepted aliases at the human-facing boundaries
+  (the `taillog` verb, TSL, dashboards) and resolve to the same three seeks, so there is
+  one behaviour behind both spellings. An exact resume keeps its `{segment, offset}`
+  pair, whose offset is always a real byte position — our Partition addresses a byte
+  within a numbered segment where Tachikoma's offset is absolute across the log, which
+  is why the sentinels ride the offset field rather than replacing the pair. The
+  JS client was never affected: it keys `lastPositions` by subscription and tests key
+  PRESENCE, so a stored `{0,0}` was always sent explicitly.
+
 - **Self-pacing nodes hold a RECURRING timer, re-armed only when the cadence changes.**
   The pump (`Durable_Reader::fire()`, so Consumer / Tail / File_Tail), `Remote_Source`
   and `Stdin` re-armed a fresh ONESHOT at the bottom of every tick. `fire_cb()` disarms

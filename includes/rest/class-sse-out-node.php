@@ -740,16 +740,21 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Narrow a saved-position value to the `string|array<string,mixed>` shape
-	 * `Consumer_Node::next_offset()` accepts; non-array scalars pass as a magic
-	 * string, anything else falls back to 'start' (next_offset's default case).
+	 * Narrow a saved-position value to a shape `Consumer_Node::next_offset()` accepts:
+	 * an exact `{segment, offset}` pair, a numeric SEEK sentinel (`SEEK_START` 0 /
+	 * `SEEK_END` -1 / `SEEK_RECENT` -2), or one of the alias words. Anything else
+	 * falls back to 'start' (next_offset's default case).
 	 *
 	 * @param mixed $position Raw per-partition position.
-	 * @return array<array-key,mixed>|string
+	 * @return array<array-key,mixed>|string|int
 	 */
 	protected static function position_arg( $position ) {
 		if ( \is_array( $position ) ) {
 			return $position;
+		}
+		// A seek travels as a NUMBER; don't stringify it to reparse it.
+		if ( \is_numeric( $position ) ) {
+			return Core::num_int( $position, Consumer_Node::SEEK_START );
 		}
 		return Core::as_string( $position, 'start' );
 	}

@@ -3,6 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
@@ -443,6 +444,47 @@ class SseInTest extends TestCase {
 		$positions = \json_decode( $query['positions'], true );
 		$this->assertSame( 5, $positions['firehose.p0']['segment'] );
 		$this->assertSame( 10, $positions['firehose.p0']['offset'] );
+	}
+
+	public function test_connect_states_the_tail_seek_instead_of_omitting_it(): void {
+		// Omission used to mean "tail", which left {0,0} — the START of the log —
+		// unrepresentable: a source restoring a 0:0 checkpoint sent nothing and the
+		// spoke seeked to `end`, skipping its whole backlog. The seek now rides as
+		// Tachikoma's -1.
+		[ $node ] = $this->configured_node();
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$positions = \json_decode( $query['positions'], true );
+		$this->assertSame( Consumer_Node::SEEK_END, $positions['firehose.p0'] );
+	}
+
+	public function test_connect_carries_a_restored_start_of_log_position(): void {
+		[ $node ] = $this->configured_node();
+		$node->restore_position( 0, 0 );
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
+			$captured[] = $opts;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		\parse_str( (string) \parse_url( $captured[0][ \CURLOPT_URL ], PHP_URL_QUERY ), $query );
+		$positions = \json_decode( $query['positions'], true );
+		$this->assertSame(
+			[ 'segment' => 0, 'offset' => 0 ],
+			$positions['firehose.p0'],
+			'a restored 0:0 is the start of the log, not an absent position'
+		);
 	}
 
 	public function test_connect_asks_the_remote_to_read_a_shared_log_with_seal_grace(): void {

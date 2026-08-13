@@ -35,6 +35,17 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 */
 	public const SEAL_GRACE_SECONDS = 2.0;
 
+	/**
+	 * Seek sentinels, carried in an offset field. Tachikoma's exact vocabulary
+	 * (`Consumer.pm`: "valid offsets: start (0), recent (-2), end (-1)"), so a
+	 * single signed number expresses every seek and 0 means the start of the log
+	 * rather than "unset". `next_offset()` resolves them; anything >= 0 inside an
+	 * explicit `{segment, offset}` pair is a real byte position.
+	 */
+	public const SEEK_START  = 0;
+	public const SEEK_END    = -1;
+	public const SEEK_RECENT = -2;
+
 	/** Discard the resumable snapshot cache after this many seconds of an unbroken crash streak. */
 	public const STATE_WIPE_AFTER_S = 900;
 
@@ -513,9 +524,19 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * Set next read position: 'start' | 'recent' | 'end' | array{segment,offset}.
+	 * Set the next read position: a SEEK sentinel, one of its aliases, or an exact
+	 * `{segment, offset}` pair.
 	 *
-	 * @param string|array<array-key,mixed> $position Magic value or explicit position (reads 'segment'/'offset').
+	 * The sentinels are Tachikoma's (`Consumer.pm`: "valid offsets: start (0),
+	 * recent (-2), end (-1)"), and they are what travels on the wire — a signed
+	 * number expresses every seek, so `0` is unambiguously the START of the log
+	 * rather than doubling as "no position given". The words are aliases the
+	 * human-facing boundaries still speak (the `taillog` verb, TSL, dashboards);
+	 * they resolve here, so there is one behaviour behind both spellings. An
+	 * exact resume keeps the pair, because our Partition addresses a byte within
+	 * a numbered segment where Tachikoma's is absolute across the log.
+	 *
+	 * @param string|int|array<array-key,mixed> $position Sentinel, alias, or explicit `{segment, offset}`.
 	 */
 	public function next_offset( $position ): void {
 		$this->offset_set = true;
@@ -526,14 +547,22 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 			$segment = $position['segment'] ?? 0;
 			$offset  = $position['offset'] ?? 0;
 			$this->cursor_segment = Core::num_int( $segment );
+			// An exact pair addresses a real byte; only a SEEK may be negative.
 			$this->cursor_offset = \max( 0, Core::num_int( $offset ) );
 			return;
 		}
 
+		$seek = match ( $position ) {
+			'end'    => self::SEEK_END,
+			'recent' => self::SEEK_RECENT,
+			'start'  => self::SEEK_START,
+			default  => Core::num_int( $position, self::SEEK_START ),
+		};
+
 		$segments = $this->source()->get_segments( true );
 
-		switch ( $position ) {
-			case 'end':
+		switch ( $seek ) {
+			case self::SEEK_END:
 				if ( ! empty( $segments ) ) {
 					$newest = \end( $segments );
 					$this->cursor_segment = $newest['id'];
@@ -541,7 +570,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				}
 				break;
 
-			case 'recent':
+			case self::SEEK_RECENT:
 				if ( ! empty( $segments ) ) {
 					$count = \count( $segments );
 					if ( $count >= 2 ) {
@@ -553,7 +582,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 				}
 				break;
 
-			case 'start':
+			case self::SEEK_START:
 			default:
 				$this->cursor_segment = 0;
 				$this->cursor_offset = 0;
