@@ -46,6 +46,80 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 	}
 
+	// ------------------------------------------------------------------
+	// Seek vocabulary — Tachikoma's offset sentinels (Consumer.pm:89,
+	// "valid offsets: start (0), recent (-2), end (-1)").
+	// ------------------------------------------------------------------
+
+	public function test_offset_minus_one_seeks_the_live_end(): void {
+		$dir = $this->three_segment_source();
+		$c   = new Consumer_Node();
+		$c->arguments( [ $dir ] );
+
+		$c->next_offset( -1 );
+
+		$this->assertSame( 2, $this->read_private( $c, 'cursor_segment' ) );
+		$this->assertSame( \filesize( "{$dir}/2.log" ), $this->read_private( $c, 'cursor_offset' ) );
+	}
+
+	public function test_offset_minus_two_seeks_the_previous_segment(): void {
+		$dir = $this->three_segment_source();
+		$c   = new Consumer_Node();
+		$c->arguments( [ $dir ] );
+
+		$c->next_offset( -2 );
+
+		$this->assertSame( 1, $this->read_private( $c, 'cursor_segment' ) );
+		$this->assertSame( 0, $this->read_private( $c, 'cursor_offset' ) );
+	}
+
+	public function test_offset_zero_seeks_the_start(): void {
+		// The whole point of the sentinels: 0 is a POSITION, not a synonym for
+		// "unset". A wire that says 0 must land at the start of the log.
+		$dir = $this->three_segment_source();
+		$c   = new Consumer_Node();
+		$c->arguments( [ $dir ] );
+		$c->next_offset( -1 );
+
+		$c->next_offset( 0 );
+
+		$this->assertSame( 0, $this->read_private( $c, 'cursor_segment' ) );
+		$this->assertSame( 0, $this->read_private( $c, 'cursor_offset' ) );
+	}
+
+	public function test_the_seek_words_are_aliases_of_the_sentinels(): void {
+		// The strings stay accepted at the human-facing boundaries (taillog, TSL),
+		// resolving to the same three seeks — one behaviour, not two.
+		$dir = $this->three_segment_source();
+		foreach ( [ 'end' => -1, 'recent' => -2, 'start' => 0 ] as $word => $sentinel ) {
+			$by_word = new Consumer_Node();
+			$by_word->arguments( [ $dir ] );
+			$by_word->next_offset( $word );
+			$by_int = new Consumer_Node();
+			$by_int->arguments( [ $dir ] );
+			$by_int->next_offset( $sentinel );
+
+			$this->assertSame(
+				[ $this->read_private( $by_int, 'cursor_segment' ), $this->read_private( $by_int, 'cursor_offset' ) ],
+				[ $this->read_private( $by_word, 'cursor_segment' ), $this->read_private( $by_word, 'cursor_offset' ) ],
+				"'{$word}' must resolve exactly as {$sentinel}"
+			);
+		}
+	}
+
+	/** Three segments, so `recent` (-2) has a previous segment distinct from the newest. */
+	private function three_segment_source(): string {
+		$dir = "{$this->tmp}/seeks.p0";
+		\mkdir( $dir, 0755, true );
+		foreach ( [ 0, 1, 2 ] as $id ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$m[ Message::VALUE ] = "segment {$id}";
+			\file_put_contents( "{$dir}/{$id}.log", Message::packed( $m ) . "\n" );
+		}
+		return $dir;
+	}
+
 	public function test_idle_since_reports_when_the_newest_segment_last_grew(): void {
 		$dir = "{$this->tmp}/data.p0";
 		\mkdir( $dir, 0755, true );

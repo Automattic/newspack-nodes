@@ -25,7 +25,10 @@ namespace Newspack_Nodes;
 
 class Log_Sources {
 
-	/** Position tokens next_offset() resolves; the seek transport's vocabulary. */
+	/**
+	 * Seek words this human-facing verb accepts, aliasing `Consumer_Node::SEEK_*`
+	 * (start 0, recent -2, end -1) — the numbers are what travels on the wire.
+	 */
 	public const MAGIC_POSITIONS = [ 'start', 'recent', 'end' ];
 
 	/**

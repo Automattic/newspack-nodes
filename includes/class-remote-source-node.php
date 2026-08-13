@@ -387,7 +387,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * SEEK_FRAME landing: reseed SSE_In from the frame's {segment,offset} and drop the current
 	 * stream. Seeking only ever happens while paused, so the reconnect is deferred to PLAY's tick.
 	 *
-	 * @param string|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame().
+	 * @param string|int|array<array-key,mixed> $position Explicit {segment,offset} from seek_frame(); a bare seek is ignored (a push source has no segments to seek).
 	 */
 	public function next_offset( $position ): void {
 		if ( ! \is_array( $position ) ) {

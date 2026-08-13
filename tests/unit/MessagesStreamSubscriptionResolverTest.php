@@ -5,6 +5,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -33,6 +34,44 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		SSE_Out_Node::$acquire_slot = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
+	}
+
+	public function test_a_seek_sentinel_position_resolves_as_a_seek(): void {
+		// The wire states every seek as a number now, so -1 must reach
+		// next_offset() as -1 and land at the live end — not as the string
+		// '-1' by way of a stringify, and not silently as `start`.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'already on disk';
+		$line                      = Message::packed( $message ) . "\n";
+		\file_put_contents( "{$this->tmp}/logs/firehose.p0/0.log", $line );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'firehose.p0', [ 'firehose.p0' => Consumer_Node::SEEK_END ] );
+
+		$offset = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
+		$this->assertSame( \strlen( $line ), $offset->getValue( $consumers[0] ), 'seeked to the live end' );
+	}
+
+	public function test_a_zero_position_resolves_to_the_start_of_the_log(): void {
+		// The bug the sentinels close: 0 is a place, not an absent value.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'already on disk';
+		\file_put_contents( "{$this->tmp}/logs/firehose.p0/0.log", Message::packed( $message ) . "\n" );
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription(
+			'firehose.p0',
+			[ 'firehose.p0' => [ 'segment' => 0, 'offset' => 0 ] ]
+		);
+
+		$offset = new \ReflectionProperty( Consumer_Node::class, 'cursor_offset' );
+		$this->assertSame( 0, $offset->getValue( $consumers[0] ), 'replays from the start, not the tail' );
 	}
 
 	// ---------------------------------------------------------------------

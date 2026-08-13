@@ -180,13 +180,14 @@ class File_Tail_Node extends Tail_Node {
 	}
 
 	/**
-	 * Reposition the read cursor. There are no segments: 'end' is the file size, 'start'/'recent'
-	 * are 0, and an explicit array {segment: inode, offset} is a RESUME CANDIDATE validated through
-	 * the same validate_resume_offset() path as a durable frame (a foreign/absent generation or a
-	 * shrunk file reads from 0; a mid-line offset syncs forward). A runtime seek (handle already
-	 * open) validates now; a build-time one defers to the first poll.
+	 * Reposition the read cursor. There are no segments: SEEK_END is the file size, SEEK_START and
+	 * SEEK_RECENT are 0 (one file has no previous segment to fall back to), and an explicit array
+	 * {segment: inode, offset} is a RESUME CANDIDATE validated through the same
+	 * validate_resume_offset() path as a durable frame (a foreign/absent generation or a shrunk
+	 * file reads from 0; a mid-line offset syncs forward). A runtime seek (handle already open)
+	 * validates now; a build-time one defers to the first poll.
 	 *
-	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
+	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
 	 */
 	public function next_offset( $position ): void {
 		$this->offset_set          = true;
@@ -205,7 +206,7 @@ class File_Tail_Node extends Tail_Node {
 			}
 			return;
 		}
-		if ( 'end' !== $position ) {
+		if ( 'end' !== $position && self::SEEK_END !== $position ) {
 			$this->cursor_offset = 0;
 			return;
 		}

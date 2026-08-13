@@ -92,6 +92,8 @@ class SSE_In_Node extends Node {
 
 	/** @var array{segment:int, offset:int} Read cursor. */
 	private array $position             = [ 'segment' => 0, 'offset' => 0 ];
+	/** Whether $position is a real place we were put, vs the never-seeded default. */
+	private bool  $position_set         = false;
 	/** Reopen delay the server advertised — `retry` event or field; null = none. */
 	private ?int  $server_retry_ms      = null;
 	/** Wall-second this stream is due back after a scheduled close; null = not waiting on one. */
@@ -155,17 +157,18 @@ class SSE_In_Node extends Node {
 		if ( $this->multi_writer ) {
 			$params['multi_writer'] = '1';
 		}
-		if ( $this->position['segment'] > 0 || $this->position['offset'] > 0 ) {
-			// Positions keyed by partition dir = $subscribe (<topic>.p<N>).
-			$params['positions'] = (string) \wp_json_encode(
-				[
-					$this->subscribe => [
+		// Stated, never implied: omission meant "tail", so {0,0} was unaskable.
+		$params['positions'] = (string) \wp_json_encode(
+			[
+				// Keyed by partition dir = $subscribe (<topic>.p<N>).
+				$this->subscribe => $this->position_set
+					? [
 						'segment' => $this->position['segment'],
 						'offset' => $this->position['offset'],
-					],
-				]
-			);
-		}
+					]
+					: Consumer_Node::SEEK_END,
+			]
+		);
 		$endpoint .= ( false === \strpos( $endpoint, '?' ) ? '?' : '&' ) . \http_build_query( $params );
 
 		$headers = [
@@ -739,6 +742,8 @@ class SSE_In_Node extends Node {
 			'segment' => \max( 0, $positions['segment'] ?? 0 ),
 			'offset'     => \max( 0, $positions['offset'] ?? 0 ),
 		];
+		// An empty restore is "nowhere yet", which is NOT the same as 0:0.
+		$this->position_set  = isset( $positions['segment'] ) || isset( $positions['offset'] );
 	}
 
 	/**
@@ -758,10 +763,11 @@ class SSE_In_Node extends Node {
 	 * @api Dynamic entrypoint.
 	 */
 	public function restore_position( int $segment, int $offset ): void {
-		$this->position = [
+		$this->position     = [
 			'segment' => \max( 0, $segment ),
 			'offset'     => \max( 0, $offset ),
 		];
+		$this->position_set = true;
 	}
 
 	/**

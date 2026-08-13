@@ -913,7 +913,7 @@ trait Durable_Reader {
 	/**
 	 * Reposition the read cursor to `{segment,offset}` (seek_frame's landing).
 	 *
-	 * @param string|array<array-key,mixed> $position Magic value or explicit {segment,offset}.
+	 * @param string|int|array<array-key,mixed> $position Seek sentinel, alias word, or explicit {segment,offset}.
 	 */
 	abstract public function next_offset( $position ): void;
 
