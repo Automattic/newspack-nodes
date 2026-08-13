@@ -138,8 +138,29 @@ export class TimerNode extends Node {
 	 * slot, which requires a concrete interval. Any live slot is cleared
 	 * first, so re-arming never leaks one.
 	 *
+	 * `oneshot` is for a ONE-TIME wakeup — a debounce, a deadline, a
+	 * flush-on-the-next-cycle. A node that PACES ITSELF must never re-arm a
+	 * fresh oneshot at the bottom of its own `fire()`: `fireCb()` disarms a
+	 * oneshot before dispatching (`stopTimer()`, which also clears the interval
+	 * handle and zeroes `interval_ms`), so the node's continued existence in the
+	 * loop then depends on reaching that last line on every single tick. One
+	 * early return, one throw, one refactor that moves the re-arm under a
+	 * conditional, and the node leaves the loop for good — no error, no timer,
+	 * just a node that stops firing. `setInterval` is no protection: the first
+	 * fire clears it. Instead hold a RECURRING timer and re-arm only when the
+	 * cadence CHANGES, so a stop has to be explicit:
+	 *
+	 *     const nextMs = busy ? BUSY_MS : IDLE_MS;
+	 *     if ( this.interval_ms !== nextMs ) {
+	 *         this.setTimer( nextMs );
+	 *     }
+	 *
+	 * (PHP parity: `Durable_Reader::fire()`, `Remote_Source_Node::fire()`,
+	 * `Stdin_Node::fire()`. Note `stopTimer()` zeroes `interval_ms`, so that
+	 * guard only reads true state while every arming site is recurring too.)
+	 *
 	 * @param {?number} ms      Interval in milliseconds; null means the Router's own cadence.
-	 * @param {boolean} oneshot Disarm after the first fire.
+	 * @param {boolean} oneshot Disarm after the first fire. One-time wakeups only — see above.
 	 * @throws {Error} When the hitchhike finds no `_router`, or an own slot gets no interval.
 	 */
 	setTimer( ms = null, oneshot = false ) {

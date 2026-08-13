@@ -2987,7 +2987,10 @@ class ConsumerTest extends TestCase {
 			$timers[ $id ]->interval_ms,
 			'caught-up fire must re-arm with EOF interval'
 		);
-		$this->assertTrue( $timers[ $id ]->oneshot, 'fire re-arm must be one-shot' );
+		$this->assertFalse(
+			$timers[ $id ]->oneshot,
+			'the re-arm must be RECURRING: a oneshot self-disarms in fire_cb, so any tick that skips the re-arm strands the reader'
+		);
 	}
 
 	public function test_fire_rearms_timer_with_busy_interval_when_more_data_pending(): void {
@@ -3025,6 +3028,43 @@ class ConsumerTest extends TestCase {
 			$timers[ $id ]->interval_ms,
 			'busy fire must re-arm with BUSY interval (drain ASAP next tick)'
 		);
+		$this->assertFalse( $timers[ $id ]->oneshot, 'and recurring, so a skipped re-arm cannot strand it' );
+
+		// Still armed after further ticks at the same cadence — the stall a
+		// self-disarming oneshot causes shows up on the SECOND tick, not the first.
+		$fire->invoke( $busy_consumer );
+		$fire->invoke( $busy_consumer );
+		$timers = $timers_p->getValue( $ef );
+		$this->assertArrayHasKey( $id, $timers, 'a busy reader stays in the event loop' );
+		$this->assertSame( Consumer_Node::POLL_INTERVAL_BUSY_MS, $timers[ $id ]->interval_ms );
+	}
+
+	public function test_an_unchanged_cadence_does_not_re_arm_the_timer(): void {
+		// Re-arming an already-correct recurring timer is per-tick churn for every
+		// reader in the process; only a cadence CHANGE may touch it.
+		$busy_consumer = new class() extends Consumer_Node {
+			public int $arms = 0;
+			public function poll(): void {
+				parent::poll();
+				$p = ( new \ReflectionClass( Consumer_Node::class ) )->getProperty( 'at_eof' );
+				$p->setValue( $this, false );
+			}
+			public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
+				++$this->arms;
+				parent::set_timer( $ms, $oneshot );
+			}
+		};
+		$busy_consumer->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0" ] );
+
+		Core::$now = \microtime( true );
+		$fire      = ( new \ReflectionClass( $busy_consumer ) )->getMethod( 'fire' );
+		$fire->invoke( $busy_consumer );
+		$settled = $busy_consumer->arms;
+
+		$fire->invoke( $busy_consumer );
+		$fire->invoke( $busy_consumer );
+
+		$this->assertSame( $settled, $busy_consumer->arms, 'a steady cadence re-arms nothing' );
 	}
 
 	// ============================================================================

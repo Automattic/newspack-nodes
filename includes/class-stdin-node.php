@@ -40,15 +40,22 @@ class Stdin_Node extends Timer_Node {
 	}
 
 	/**
-	 * Timer override: drain one line via drain_once(), re-arm (busy/EOF/idle cadence).
+	 * Timer override: drain one line via drain_once(), then hold the busy/EOF/idle cadence.
+	 *
+	 * The timer is RECURRING and re-armed only when the cadence changes, so nothing here has to
+	 * re-arm to stay alive — a oneshot self-disarms in fire_cb, and either early return below
+	 * would then drop this node out of the event loop for good. The cost is that a stop must now
+	 * be explicit, which is what stop_timer() on the exit paths is.
 	 */
 	public function fire(): void {
 		if ( $this->eof_sent && Core::$now >= $this->eof_deadline_at ) {
 			$this->exit = true;
+			$this->stop_timer();
 			return;
 		}
 		$delivered = $this->drain_once();
 		if ( $this->exit ) {
+			$this->stop_timer();
 			return;
 		}
 		if ( $delivered ) {
@@ -58,7 +65,9 @@ class Stdin_Node extends Timer_Node {
 		} else {
 			$next_ms = self::IDLE_POLL_MS;
 		}
-		$this->set_timer( $next_ms, true );
+		if ( $this->interval_ms !== $next_ms ) {
+			$this->set_timer( $next_ms );
+		}
 	}
 
 	/** Drain one line (fgets); emit it, or on EOF send the marker. Returns true if a line was delivered. Overridden by TTY_In_Node for readline. */

@@ -204,6 +204,214 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
+	// Multi-writer seal-grace — Consumer's verb, asserted over the wire.
+	// ---------------------------------------------------------------------
+
+	public function test_seal_grace_seeds_a_patron_created_after_the_verb(): void {
+		// The aggregator configures its spokes before anything connects, so the
+		// flag has to survive until the patron exists.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->set_multi_writer( true );
+
+		$node->fire();
+
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$this->assertTrue( $this->read_private( $sse, 'multi_writer' ) );
+	}
+
+	public function test_seal_grace_reaches_a_live_patron_and_drops_the_stream(): void {
+		// It rides a connect-time query parameter, so the current stream has to
+		// go for the far-side reader to pick the change up.
+		[ $node ] = $this->make_remote();
+		$sse = new class() extends SSE_In_Node {
+			public ?bool $seal_grace = null;
+			public int $disconnects  = 0;
+			public function set_multi_writer( bool $flag ): void {
+				$this->seal_grace = $flag; }
+			public function disconnect(): void {
+				++$this->disconnects; }
+		};
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+
+		$node->set_multi_writer( true );
+
+		$this->assertTrue( $sse->seal_grace );
+		$this->assertSame( 1, $sse->disconnects, 'the stream is re-established to carry the new parameter' );
+	}
+
+	public function test_dropping_the_stream_discards_the_undrained_buffer(): void {
+		// SSE_In's resume position only advances after a successful forward, so
+		// anything still buffered sits AHEAD of it and the spoke re-sends it on
+		// reconnect. Keeping the buffer would forward those lines twice.
+		[ $node ] = $this->make_remote();
+		$sse      = $this->seal_grace_spy();
+		$sse->restore_position( 0, 512 ); // forwarded this far; the spoke replays from here
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
+			->setValue( $node, $sse );
+		$buffer = new \ReflectionProperty( Remote_Source_Node::class, 'buffer' );
+		$buffer->setValue( $node, "an undrained line\n" );
+
+		$node->set_multi_writer( true );
+
+		$this->assertSame( '', $buffer->getValue( $node ) );
+	}
+
+	public function test_a_stream_that_never_forwarded_keeps_its_buffer(): void {
+		// A {0,0} cursor sends no `positions` at all, so the spoke tail-seeks to
+		// `end` and replays NOTHING — the buffer is then the only copy of those
+		// records, and dropping it loses them outright rather than duplicating.
+		[ $node ] = $this->make_remote();
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
+			->setValue( $node, $this->seal_grace_spy() );
+		$buffer = new \ReflectionProperty( Remote_Source_Node::class, 'buffer' );
+		$buffer->setValue( $node, "the only copy\n" );
+
+		$node->set_multi_writer( true );
+
+		$this->assertSame( "the only copy\n", $buffer->getValue( $node ) );
+	}
+
+	public function test_reasserting_the_same_seal_grace_leaves_the_stream_up(): void {
+		// The verb is what an operator or an idempotent apply script invokes, and
+		// re-asserting a value the source already holds should cost nothing.
+		[ $node ] = $this->make_remote();
+		$sse = $this->seal_grace_spy();
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )->setValue( $node, $sse );
+		$node->set_multi_writer( true );
+
+		$node->set_multi_writer( true );
+
+		$this->assertSame( 1, $sse->disconnects, 'only the change drops the stream' );
+	}
+
+	public function test_an_arriving_line_takes_the_busy_cadence_immediately(): void {
+		// A push source learns of data in on_message, during the curl drain —
+		// between fires. Waiting out the channel tick to notice would put up to
+		// TICK_INTERVAL_MS on the front of every arrival burst, and the busy
+		// cadence at the bottom of fire() cannot help: it only runs after a fire
+		// has already observed the buffer.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
+		$this->assertSame( $tick, $node->interval_ms, 'idle at the channel tick' );
+
+		( $sse->on_message )( 'a line off the wire' );
+
+		$this->assertSame( 0, $node->interval_ms, 'the arrival itself schedules the drain' );
+	}
+
+	public function test_a_buffered_backlog_re_arms_for_the_next_event_cycle(): void {
+		// line_mode is GRANULARITY — one line per event cycle — not a rate limit.
+		// The pump's own fire() re-arms at POLL_INTERVAL_BUSY_MS (0) whenever it is
+		// not at EOF; Remote_Source rides Remote_Link's 100ms CHANNEL timer, so
+		// leaving that cadence in place while lines are buffered would pace a
+		// backlog at 10 lines/sec however deep it is.
+		[ $node, $sink ] = $this->make_remote();
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
+			->setValue( $node, $this->seal_grace_spy() );
+		$node->set_line_mode( true );
+		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
+			->setValue( $node, $this->stream_lines( 5 ) );
+
+		$node->fire();
+
+		$this->assertCount( 1, $sink->captured, 'still one line per cycle' );
+		$this->assertSame( 0, $node->interval_ms, 'and the next cycle is immediate' );
+		$this->assertFalse( $node->oneshot, 'recurring, so a skipped re-arm cannot strand it' );
+	}
+
+	public function test_losing_the_patron_drops_the_busy_cadence(): void {
+		// reload() -> drop_patrons() nulls sse_in. A tick that had armed the 0ms
+		// busy cadence and then skips straight past the drain leaves the loop
+		// spinning at full speed with nothing to do until housekeeping — latched
+		// to the wall-second — rebuilds the patron.
+		[ $node ] = $this->make_remote();
+		$sse_in   = new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' );
+		$sse_in->setValue( $node, $this->seal_grace_spy() );
+		$node->set_line_mode( true ); // one line per cycle, so a backlog survives the tick
+		( new \ReflectionProperty( Remote_Source_Node::class, 'buffer' ) )
+			->setValue( $node, $this->stream_lines( 3 ) );
+		$node->fire();
+		$this->assertSame( 0, $node->interval_ms, 'armed busy while draining' );
+
+		$sse_in->setValue( $node, null );
+		$node->fire();
+
+		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
+		$this->assertSame( $tick, $node->interval_ms, 'nothing to drain: back to the channel tick' );
+	}
+
+	public function test_an_empty_buffer_keeps_the_channel_cadence(): void {
+		// Nothing to drain: fall back to the recurring tick that carries the
+		// heartbeat and reconnect, rather than spinning the loop at 0ms.
+		[ $node ] = $this->make_remote();
+		( new \ReflectionProperty( \Newspack_Nodes\Remote_Link_Node::class, 'sse_in' ) )
+			->setValue( $node, $this->seal_grace_spy() );
+
+		$node->fire();
+
+		$tick = ( new \ReflectionClassConstant( \Newspack_Nodes\Remote_Link_Node::class, 'TICK_INTERVAL_MS' ) )->getValue();
+		$this->assertSame( $tick, $node->interval_ms );
+		$this->assertFalse( $node->oneshot );
+	}
+
+	/** $count packed TM_STRUCT lines with sequential breadcrumbs, as SSE_In would buffer them. */
+	private function stream_lines( int $count ): string {
+		$out = '';
+		for ( $i = 0; $i < $count; $i++ ) {
+			$m                   = Message::new_message();
+			$m[ Message::TYPE ]  = Message::TM_STRUCT;
+			$m[ Message::ID ]    = '0:' . ( $i * 100 ) . ':100';
+			$m[ Message::VALUE ] = [ 'n' => $i ];
+			$out                .= Message::packed( $m ) . "\n";
+		}
+		return $out;
+	}
+
+	/** SSE_In double recording the seal-grace pushed to it and every disconnect. */
+	private function seal_grace_spy(): SSE_In_Node {
+		return new class() extends SSE_In_Node {
+			public ?bool $seal_grace = null;
+			public int $disconnects  = 0;
+			public function set_multi_writer( bool $flag ): void {
+				$this->seal_grace = $flag; }
+			public function disconnect(): void {
+				++$this->disconnects; }
+		};
+	}
+
+	public function test_set_multi_writer_is_a_declared_verb(): void {
+		$verbs = \array_column( Remote_Source_Node::node_schema()['commands'], 'name' );
+		$this->assertContains( 'set_multi_writer', $verbs );
+	}
+
+	public function test_dump_config_roundtrips_set_multi_writer(): void {
+		// A console serialize → replay that dropped the flag would silently put
+		// the hub back on a reader that orphans stragglers.
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->set_multi_writer( true );
+
+		$matched = \preg_match(
+			'/command_node remote-austin:config set_multi_writer (\S+)/',
+			$node->dump_config(),
+			$matches
+		);
+
+		$this->assertSame( 1, $matched, 'the flag is emitted with an explicit argument' );
+		$replayed = new Remote_Source_Node();
+		$replayed->name( 'remote-austin-replayed' );
+		$replayed->arguments( $this->remote_args( 'remote-austin-replayed' ) );
+		$interpreter = $this->read_private( $replayed, 'interpreter' );
+		$interpreter->commands()['set_multi_writer']( $interpreter, [ $matches[1] ] );
+		$this->assertTrue( $this->read_private( $replayed, 'multi_writer' ), 'and replays back to on' );
+	}
+
+	// ---------------------------------------------------------------------
 	// Poison / crash lifecycle ([42]) — Consumer-style fair-shot + crawl.
 	// ---------------------------------------------------------------------
 

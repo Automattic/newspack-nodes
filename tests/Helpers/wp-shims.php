@@ -234,6 +234,19 @@ if ( ! function_exists( 'rest_authorization_required_code' ) ) {
 	}
 }
 
+if ( ! function_exists( 'rest_sanitize_boolean' ) ) {
+	// Body kept in lockstep with WP core: every string but 'false' and '0' is true.
+	function rest_sanitize_boolean( mixed $value ): bool {
+		if ( is_string( $value ) ) {
+			$value = \strtolower( $value );
+			if ( in_array( $value, [ 'false', '0' ], true ) ) {
+				$value = false;
+			}
+		}
+		return (bool) $value;
+	}
+}
+
 if ( ! function_exists( 'sanitize_text_field' ) ) {
 	// Body kept in lockstep with ELN's stub (its tests/bootstrap.php).
 	function sanitize_text_field( mixed $v ): string {

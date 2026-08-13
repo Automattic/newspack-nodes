@@ -51,6 +51,18 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
 	private bool $pump_armed = true;
 
+	/**
+	 * Whether the spoke partition this pulls is appended by more than one process
+	 * (the firehose is, from every request). Unlike Consumer's flag of the same
+	 * name it configures the reader on the OTHER end — a pull source has no
+	 * segments of its own — because that is where the read happens. The spoke
+	 * cannot decide for itself: which of its logs are shared lives in a topology
+	 * line, and the SSE endpoint opens Consumers with no topology in the picture.
+	 *
+	 * Protected, like Consumer's: the inherited `dump_toggles()` reads it.
+	 */
+	protected bool $multi_writer = false;
+
 	/** Tachikoma-parity: no-arg ctor. Auto-wire the {name}:config interpreter for the time-travel verbs. */
 	public function __construct() {
 		parent::__construct();
@@ -65,18 +77,35 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * Remote_Source rides Remote_Link's recurring TICK_INTERVAL_MS timer, not the pump's
 	 * self-re-arming cadence.
 	 *
+	 * …except for the cadence it re-arms with. That 100ms tick paces the CHANNEL, and the drain
+	 * must not inherit it as its own rate: line_mode and crawl cap `drain_buffer()` at one line,
+	 * so one drain per tick would trickle a backlog at 10 lines/sec however deep it is. So this
+	 * borrows the pump's rule — a line still buffered runs at POLL_INTERVAL_BUSY_MS (0), an empty
+	 * one returns to the channel tick — and, like the pump, only on a CHANGE, leaving a RECURRING
+	 * timer armed in between. line_mode stays GRANULARITY (one line per cycle) rather than becoming
+	 * a rate limit, and the loop keeps turning between lines, where draining the backlog inline
+	 * would block every other node. There is one exit on purpose: a patron dropped by reload()
+	 * skips the drain, and jumping straight out would leave a 0ms cadence armed over a buffer
+	 * nothing is draining — spinning the loop flat until housekeeping, latched to the wall-second,
+	 * rebuilds the patron.
+	 *
 	 * @api Dynamic entrypoint (Timer_Node::fire_cb).
 	 */
 	public function fire(): void {
 		parent::fire();
-		if ( ! $this->should_connect() || null === $this->sse_in ) {
-			return;
+		// No patron, no drain, no reason to hold the busy cadence.
+		$next_ms = self::TICK_INTERVAL_MS;
+		if ( $this->should_connect() && null !== $this->sse_in ) {
+			$this->poll();
+			// poll() moves the cursor; checkpoint() makes it durable.
+			if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
+				$this->checkpoint();
+				$this->last_checkpoint = Core::$now;
+			}
+			$next_ms = $this->buffer_has_line() ? self::POLL_INTERVAL_BUSY_MS : self::TICK_INTERVAL_MS;
 		}
-		$this->poll();
-		// poll() advances the cursor in memory; checkpoint() makes it durable.
-		if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
-			$this->checkpoint();
-			$this->last_checkpoint = Core::$now;
+		if ( $this->interval_ms !== $next_ms ) {
+			$this->set_timer( $next_ms );
 		}
 	}
 
@@ -384,13 +413,23 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * source buffers rather than forwarding straight downstream (the base channel path). The
 	 * valve stays OPEN through normal flow and only closes once the buffer crosses the high-water
 	 * mark (An unparseable line reaches the buffer unparsed; forward_line owns its DLQ.)
+	 *
+	 * The arrival also takes the busy cadence itself. A push source learns of data HERE, on the
+	 * curl drain, between fires — so leaving the schedule to fire() would put up to a full
+	 * TICK_INTERVAL_MS on the front of every burst, since that re-arm only runs after a fire has
+	 * already seen the buffer. fire() drops back to the channel tick once the buffer is dry.
 	 */
 	protected function ensure_patrons(): ?SSE_In_Node {
 		$sse = parent::ensure_patrons();
 		if ( null !== $sse ) {
+			$sse->set_multi_writer( $this->multi_writer );
 			$sse->on_message = function ( string $raw ): void {
 				$this->buffer .= $raw . "\n";
 				$this->pump_maybe_disarm();
+				// Drain on the next cycle, not up to a channel tick from now.
+				if ( self::POLL_INTERVAL_BUSY_MS !== $this->interval_ms ) {
+					$this->set_timer( self::POLL_INTERVAL_BUSY_MS );
+				}
 			};
 		}
 		return $sse;
@@ -518,6 +557,38 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
+	/**
+	 * Ask the spoke to read this partition with the multi-writer seal-grace
+	 * (`Consumer_Node::SEAL_GRACE_SECONDS`): a peer there can keep appending to
+	 * segment N for `Partition_Node::DRIFT_RESCAN_INTERVAL_SECONDS` after N+1
+	 * appears, and a reader that advances on sight orphans that straggler —
+	 * for the firehose, typically a request's terminal `process (complete)`,
+	 * which then never finalizes here.
+	 *
+	 * The grace rides a connect-time query parameter, so a CHANGE drops the live
+	 * stream and the tick reconnects from the committed cursor. The undrained
+	 * buffer usually goes with it, as in next_offset(): SSE_In's resume position
+	 * only advances on a successful forward, so whatever is still buffered sits
+	 * ahead of it and the spoke re-sends it. The exception is a cursor still at
+	 * {0,0} — maybe_connect() then sends no `positions` at all and the spoke
+	 * tail-seeks to `end`, replaying nothing, so the buffer is the only copy of
+	 * those records and clearing it would lose them rather than de-duplicate.
+	 */
+	public function set_multi_writer( bool $flag ): void {
+		$changed            = $flag !== $this->multi_writer;
+		$this->multi_writer = $flag;
+		if ( null === $this->sse_in || ! $changed ) {
+			return;
+		}
+		$this->sse_in->set_multi_writer( $flag );
+		$position = $this->sse_in->position();
+		$this->sse_in->disconnect();
+		// Only when the reconnect will replay it; see the docblock on {0,0}.
+		if ( $position['segment'] > 0 || $position['offset'] > 0 ) {
+			$this->buffer = '';
+		}
+	}
+
 	/** Close the valve once the buffer has accumulated past the high-water mark (from on_message). */
 	private function pump_maybe_disarm(): void {
 		if ( $this->pump_armed && \strlen( $this->buffer ) >= self::PUMP_DISARM_BYTES ) {
@@ -622,7 +693,21 @@ class Remote_Source_Node extends Remote_Link_Node {
 				]
 			),
 			// DLQ triage + time-travel + pump verbs, shared with Consumer.
-			'commands'    => \array_merge( self::deadletter_verbs(), self::time_travel_verbs(), self::pump_verbs() ),
+			'commands'    => \array_merge(
+				self::deadletter_verbs(),
+				self::time_travel_verbs(),
+				self::pump_verbs(),
+				[
+					[
+						'name'        => 'set_multi_writer',
+						'description' => 'Ask the spoke to read this partition with the multi-writer seal-grace (shared logs, e.g. the firehose).',
+						'args'        => [
+							[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'description' => 'A truthy value (1/true/yes/on) enables; anything else disables.' ],
+						],
+						'toggle'      => 'multi_writer',
+					],
+				]
+			),
 		] );
 	}
 }

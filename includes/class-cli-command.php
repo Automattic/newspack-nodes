@@ -102,8 +102,8 @@ class CLI_Command {
 			$reader->exit = true;
 		} );
 
-		// Schedule the first fire; subsequent fires self-schedule.
-		$reader->set_timer( 0, true );
+		// Recurring: fire() re-paces itself, never re-arms to stay alive.
+		$reader->set_timer( 0 );
 		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
 
 		if ( $has_readline ) {

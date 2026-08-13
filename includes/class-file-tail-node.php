@@ -80,7 +80,7 @@ class File_Tail_Node extends Tail_Node {
 		$this->ensure_deadletter();
 		// No I/O at construction; first poll opens + seats the cursor (ADR-5).
 		$this->poll_cb = $this->poll_init( ... );
-		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
+		$this->set_timer( self::POLL_INTERVAL_EOF_MS );
 		$this->set_state( 'POLLING', 'ACTIVE' );
 		return $args;
 	}
