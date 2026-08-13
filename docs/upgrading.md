@@ -4,7 +4,7 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
-## Unreleased
+## 2.26.0
 
 - **The SSE `positions` wire carries seek sentinels, and a hub upgrades before its
   spokes.** `SSE_In_Node` now always sends a position, using `-1` (`SEEK_END`) when it
