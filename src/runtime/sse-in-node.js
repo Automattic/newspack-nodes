@@ -50,6 +50,23 @@ const GROUP_PREFIXES = new Set( [ 'offsets', 'deadletter' ] );
 // Default REST route opened; RemoteLink overrides it for /log/stream.
 const DEFAULT_STREAM_ENDPOINT = 'newspack-nodes/v1/messages/stream';
 
+/**
+ * Seek sentinels carried in an offset field, mirroring `Consumer_Node::SEEK_*`
+ * — Tachikoma's vocabulary (`Consumer.pm`: "valid offsets: start (0), recent
+ * (-2), end (-1)"). A signed number expresses every seek, so 0 is the START of
+ * the log rather than doubling as "no position given". The reader also accepts
+ * the words `start` / `recent` / `end` as aliases.
+ *
+ * `recent` (-2) has no JS spelling. It is live on the PHP side — `wp nodes
+ * reqgrep --recent` and the `request_grep` verb's `scope=recent` both seek it —
+ * but both build a local Consumer rather than crossing this wire, so no browser
+ * caller has ever asked for it. Add it when one does, not before.
+ */
+export const SEEK_START = 0;
+
+/** @testonly The tail seek. Production names it inside seekMap(), not by import. */
+export const SEEK_END = -1;
+
 // Heartbeat-timeout watchdog: force a fresh stream after STALE + GRACE silence.
 const HEARTBEAT_CADENCE_MS = 2000;
 const STALE_AFTER_MS = HEARTBEAT_CADENCE_MS * 3;
@@ -104,7 +121,12 @@ export class SseInNode extends TimerNode {
 		// Empty falls back to the localized global (see the getters below).
 		this._baseUrl = '';
 		this._nonce = '';
-		// Optional per-subscription seek seed; null/empty → tail-seek.
+		/**
+		 * Optional per-subscription seek seed: an exact `{segment, offset}`, a
+		 * SEEK sentinel, or an alias word. Unseeded names take SEEK_END.
+		 *
+		 * @type {?Object<string,{segment:number,offset:number}|number|string>}
+		 */
 		this.positions = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
 		this.lastPositions = {};
@@ -386,13 +408,14 @@ export class SseInNode extends TimerNode {
 				this._handleVisibilityChange
 			);
 		}
+		const seeks = this.seekMap();
 		let url =
 			`${ this.baseUrl }${ this.endpoint }` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
-		if ( this.positions && Object.keys( this.positions ).length > 0 ) {
+		if ( Object.keys( seeks ).length > 0 ) {
 			url += `&positions=${ encodeURIComponent(
-				JSON.stringify( this.positions )
+				JSON.stringify( seeks )
 			) }`;
 		}
 		// Lifecycle: opening; CONNECTED on handshake, then DISCONNECTED/ERROR.
@@ -552,6 +575,31 @@ export class SseInNode extends TimerNode {
 		return Object.keys( this.lastPositions ).length > 0
 			? { ...this.lastPositions }
 			: null;
+	}
+
+	/**
+	 * What to ask for per subscription: the position this stream reached, or
+	 * SEEK_END when it has none. Stating the seek is the point — carrying "tail"
+	 * by OMITTING the parameter is what left a real `{segment: 0, offset: 0}`
+	 * unable to mean the start of the log on the PHP side.
+	 *
+	 * A GLOB is the one seek a client cannot state: the server expands it into
+	 * concrete dirs and keys positions by those, so an entry filed under
+	 * `firehose.*` is one nothing reads. Its dirs take the server's default,
+	 * which is this same tail. A non-glob subscription IS its dir name
+	 * (`SSE_Out_Node::matched_dirs()` globs the name and `stamp_for()` stamps the
+	 * basename), so stating it is exact.
+	 *
+	 * @return {Object<string,{segment:number,offset:number}|number|string>} Per-subscription seek.
+	 */
+	seekMap() {
+		const stated = { ...( this.positions || {} ) };
+		for ( const sub of this.subscribe ) {
+			if ( ! sub.includes( '*' ) && undefined === stated[ sub ] ) {
+				stated[ sub ] = SEEK_END;
+			}
+		}
+		return stated;
 	}
 
 	/**

@@ -8,6 +8,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
+import { SEEK_START, SEEK_END } from '../../../runtime/sse-in-node';
 import { Node } from '../../../runtime/node';
 import {
 	newMessage,
@@ -132,18 +133,24 @@ describe( 'useTopicProbeStream', () => {
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain( 'positions=' );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'topicprobe.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'topicprobe.p0': SEEK_START } )
+			)
 		);
 	} );
 
-	it( "mode:'follow' tail-seeks (no positions param)", async () => {
+	it( "mode:'follow' asks for the tail, not a replay", async () => {
 		renderHook( () =>
 			useTopicProbeStream( {
 				mode: 'follow',
 			} )
 		);
 		await act( async () => {} );
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		expect( FakeEventSource.last.url ).toContain(
+			encodeURIComponent(
+				JSON.stringify( { 'topicprobe.p0': SEEK_END } )
+			)
+		);
 	} );
 
 	it( 'inserts an inspectable Tee on the stream edge: link → tee → view', async () => {
@@ -241,7 +248,9 @@ describe( 'useTopicProbeStream', () => {
 		// reconnected
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'topicprobe.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'topicprobe.p0': SEEK_START } )
+			)
 		); // re-seeks history, not a tail-follow
 	} );
 } );

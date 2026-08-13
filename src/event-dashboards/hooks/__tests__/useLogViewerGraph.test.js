@@ -21,6 +21,7 @@ import {
 } from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
+import { SEEK_END } from '../../../runtime/sse-in-node';
 import { mountExospine } from '../../../runtime/exospine';
 import { forgetSession, __setAuthFetch } from '../../../runtime/command-auth';
 import names from '../../../runtime/reserved-node-names.json';
@@ -308,7 +309,14 @@ describe( 'useLogViewerGraph', () => {
 			result.current.selectSource( 'debug' );
 		} );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		// Tails the NEW source; the abandoned `access: start` must not ride along.
+		expect(
+			JSON.parse(
+				decodeURIComponent(
+					FakeEventSource.last.url.split( 'positions=' )[ 1 ]
+				)
+			)
+		).toEqual( { debug: SEEK_END } );
 		expect( Core.node( VIEW ).mode ).toBe( 'live' );
 	} );
 

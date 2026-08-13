@@ -31,6 +31,7 @@ import {
 } from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
+import { SEEK_END } from '../../../runtime/sse-in-node';
 import { mountExospine } from '../../../runtime/exospine';
 import { Node } from '../../../runtime/node';
 import { useNodeState } from '../../../runtime/react';
@@ -790,7 +791,9 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		const url = FakeEventSource.last.url;
 		expect( url ).toContain( 'subscribe=errors.p0' );
 		// A fresh selection tails — the OLD dir's resume offset must not leak in.
-		expect( url ).not.toContain( 'positions=' );
+		expect(
+			JSON.parse( decodeURIComponent( url.split( 'positions=' )[ 1 ] ) )
+		).toEqual( { 'errors.p0': SEEK_END } );
 	} );
 
 	test( 'seek while paused does NOT reopen the stream', async () => {

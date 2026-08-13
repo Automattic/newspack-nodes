@@ -14,7 +14,7 @@
  * n SUBSCRIPTIONS csv INTERVAL n` string (no partition).
  */
 
-import { SseInNode } from '../sse-in-node';
+import { SseInNode, SEEK_START, SEEK_END } from '../sse-in-node';
 import { IoTelemetry, byteLength } from '../io-telemetry';
 import { Core } from '../core';
 import { RouterNode } from '../router-node';
@@ -396,8 +396,11 @@ test( 'start opens an EventSource with the right URL', () => {
 		nonce: 'NONCE',
 	} );
 	sse.start();
-	expect( FakeEventSource.last.url ).toBe(
-		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'
+	expect( sse._es.url ).toBe(
+		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE' +
+			`&positions=${ encodeURIComponent(
+				JSON.stringify( { firehose: SEEK_END, errors: SEEK_END } )
+			) }`
 	);
 } );
 
@@ -414,10 +417,62 @@ test( 'records bytesRead + largestMsgSent for each received frame', () => {
 	expect( sse.largestMsgSent ).toBe( byteLength( data ) );
 } );
 
-test( 'start omits the positions param when none is set (default tail-seek)', () => {
-	const { sse } = makeSseIn();
+// The seek this node asked for, read off the stream IT opened — not off the
+// fake's static `last`, which is whatever object anyone constructed most
+// recently and answers a `not.toContain` just as happily when nothing happened.
+function seeksAsked( sse ) {
+	const url = sse._es.url;
+	expect( url ).toContain( 'positions=' );
+	return JSON.parse( decodeURIComponent( url.split( 'positions=' )[ 1 ] ) );
+}
+
+// seekMap() is the whole decision, and it touches no transport — so these
+// exercise it directly. Only the last test below involves an EventSource at
+// all, and then only to confirm the map reaches the wire.
+describe( 'seekMap — what this node asks each subscription for', () => {
+	const mapFor = ( subscribe, positions = null ) => {
+		const sse = newSseIn();
+		sse.arguments = [ subscribe.join( ',' ) ];
+		sse.positions = positions;
+		return sse.seekMap();
+	};
+
+	it( 'names the tail for a subscription it has no position for', () => {
+		// Same vocabulary as the PHP reader (Consumer_Node::SEEK_*): 0 start,
+		// -1 end, -2 recent. Carrying "tail" by omitting the parameter is what
+		// left a real {segment:0, offset:0} unable to mean the start of the log.
+		expect( mapFor( [ 'x' ] ) ).toEqual( { x: SEEK_END } );
+	} );
+
+	it( 'passes a seeded sentinel through as the number it is', () => {
+		expect(
+			mapFor( [ 'settings.p0' ], { 'settings.p0': SEEK_START } )
+		).toEqual( { 'settings.p0': 0 } );
+	} );
+
+	it( 'keeps a resumed start-of-log position instead of swallowing it', () => {
+		expect(
+			mapFor( [ 'firehose.p0' ], {
+				'firehose.p0': { segment: 0, offset: 0 },
+			} )
+		).toEqual( { 'firehose.p0': { segment: 0, offset: 0 } } );
+	} );
+
+	it( 'leaves a glob to the server, which owns the concrete dir names', () => {
+		expect( mapFor( [ 'firehose.*' ] ) ).toEqual( {} );
+	} );
+
+	it( 'states the tail only for the subscriptions still lacking one', () => {
+		expect(
+			mapFor( [ 'a.p0', 'b.p0' ], { 'a.p0': { segment: 2, offset: 7 } } )
+		).toEqual( { 'a.p0': { segment: 2, offset: 7 }, 'b.p0': SEEK_END } );
+	} );
+} );
+
+test( 'the seek map is what lands in the positions parameter', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 	sse.start();
-	expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	expect( seeksAsked( sse ) ).toEqual( sse.seekMap() );
 } );
 
 test( 'start appends positions as an encoded JSON blob when set', () => {
@@ -436,11 +491,11 @@ test( 'start appends positions as an encoded JSON blob when set', () => {
 	);
 } );
 
-test( 'an empty positions object is not appended (it would just tail-seek anyway)', () => {
+test( 'an empty positions object still asks for the seek it means', () => {
 	const { sse } = makeSseIn();
 	sse.positions = {};
 	sse.start();
-	expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+	expect( seeksAsked( sse ) ).toEqual( { x: SEEK_END } );
 } );
 
 test( 'start() reports CONNECTING with the subscription csv', () => {
@@ -1132,12 +1187,14 @@ test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-r
 		const { sse } = makeSseIn();
 		sse.positions = { x: { 0: 'start' } };
 		sse.start();
-		expect( FakeEventSource.last.url ).toContain( 'positions=' ); // replay
-		// Stream goes silent; the watchdog forces a reconnect.
-		FakeEventSource.last.readyState = FakeEventSource.OPEN;
+		expect( sse.seekMap() ).toEqual( { x: { 0: 'start' } } ); // replay
+		// The fake's job is the STIMULUS: a stream that goes silent long enough
+		// for the watchdog to force a reconnect. What it recorded is not the
+		// question — what this node asks for next is.
+		sse._es.readyState = FakeEventSource.OPEN;
 		jest.advanceTimersByTime( 13000 );
-		// Reopens LIVE (tail), not another full replay of the seed.
-		expect( FakeEventSource.last.url ).not.toContain( 'positions=' );
+		// Reopens LIVE — it ASKS for the tail, rather than replaying the seed.
+		expect( sse.seekMap() ).toEqual( { x: SEEK_END } );
 	} finally {
 		jest.useRealTimers();
 	}
@@ -1176,7 +1233,10 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 		expectConsoleWarn(
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);
-		const { sse } = makeSseIn( { subscribe: [ 'completed' ] } );
+		// Subscribe by the CONCRETE dir: a non-glob subscription is its own dir
+		// name server-side, so a stamp of `completed.p1` under a `completed`
+		// subscription is a shape the resolver cannot produce.
+		const { sse } = makeSseIn( { subscribe: [ 'completed.p1' ] } );
 		sse.start();
 		const m = newMessage();
 		m[ TYPE ] = TM_BYTESTREAM;
@@ -1185,12 +1245,8 @@ test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no repla
 		m[ VALUE ] = 'x';
 		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 		jest.advanceTimersByTime( 13000 ); // watchdog forces a reconnect
-		const url = FakeEventSource.last.url;
-		expect( url ).toContain( 'positions=' );
-		const positions = JSON.parse(
-			decodeURIComponent( url.split( 'positions=' )[ 1 ] )
-		);
-		expect( positions ).toEqual( {
+		// The frame it consumed is what moved the cursor, so ask the node.
+		expect( sse.seekMap() ).toEqual( {
 			'completed.p1': { segment: 2, offset: 500 + 100 },
 		} );
 	} finally {
@@ -1304,8 +1360,11 @@ describe( 'SseIn — no-arg ctor + schema-driven arguments', () => {
 		const sse = newSseIn();
 		sse.arguments = [ 'firehose,errors' ];
 		sse.start();
-		expect( FakeEventSource.last.url ).toBe(
-			'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'
+		expect( sse._es.url ).toBe(
+			'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE' +
+				`&positions=${ encodeURIComponent(
+					JSON.stringify( { firehose: SEEK_END, errors: SEEK_END } )
+				) }`
 		);
 	} );
 } );

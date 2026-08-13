@@ -49,6 +49,7 @@ beforeEach( () => {
 } );
 
 import { useSettingsAuditStream } from '../useSettingsAuditStream';
+import { SEEK_START } from '../../../runtime/sse-in-node';
 
 const LINK = 'settingsaudit:link';
 const TEE = 'settingsaudit:stream';
@@ -91,7 +92,9 @@ describe( 'useSettingsAuditStream', () => {
 		renderHook( () => useSettingsAuditStream( {} ) );
 		await act( async () => {} );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'settings.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'settings.p0': SEEK_START } )
+			)
 		);
 	} );
 
@@ -158,7 +161,9 @@ describe( 'useSettingsAuditStream', () => {
 		expect( Core.node( LINK ) ).not.toBe( firstLink ); // rebuilt
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( before );
 		expect( FakeEventSource.last.url ).toContain(
-			encodeURIComponent( JSON.stringify( { 'settings.p0': 'start' } ) )
+			encodeURIComponent(
+				JSON.stringify( { 'settings.p0': SEEK_START } )
+			)
 		);
 	} );
 } );

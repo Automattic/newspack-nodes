@@ -41,6 +41,14 @@ import names from './reserved-node-names.json';
  */
 
 /**
+ * What a CALLER may seed instead: the same per-dir map, but a value may also be
+ * a SEEK sentinel (`SEEK_START` 0 / `SEEK_END` -1) or one of the reader's alias
+ * words. Wider than ResumePositions, which only ever holds real positions.
+ *
+ * @typedef {Object<string,{segment:number,offset:number}|number|string>} SeekSeed
+ */
+
+/**
  * The composed SSE+HTTP channel: one node standing in for an SseIn stream, the
  * shared HttpOut command boundary, and the Heartbeat that keeps the stream's
  * slot lease alive.
@@ -96,8 +104,8 @@ export class RemoteLinkNode extends Node {
 	/**
 	 * Re-point the stream at a new subscription, closing and reopening it.
 	 *
-	 * @param {string[]}         subscribe Subscriptions the reopened stream carries.
-	 * @param {?ResumePositions} positions Where to resume each partition; null tail-seeks.
+	 * @param {string[]}  subscribe Subscriptions the reopened stream carries.
+	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
 	 */
 	setSubscribe( subscribe, positions = null ) {
 		this.ensureChildren();
@@ -153,7 +161,7 @@ export class RemoteLinkNode extends Node {
 	/**
 	 * Open the inbound stream, building the children on first use.
 	 *
-	 * @param {?ResumePositions} positions Where to resume each partition; null tail-seeks.
+	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
 	 */
 	connect( positions = null ) {
 		this.ensureChildren();
