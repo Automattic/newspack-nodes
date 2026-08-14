@@ -25,7 +25,7 @@ use Newspack_Nodes\Tests\TestCase;
 class WorkersCITest extends TestCase {
 
 	private ?string $tmp = null;
-	private int $slot_ttl = 60;
+	private ?int $slot_ttl = null;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -515,8 +515,8 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
 			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
-			\get_current_user_id(),
-			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			\Newspack_Nodes\SSE_Slot_Pool::identity(),
+			8,
 			8,
 			83
 		);
@@ -546,16 +546,14 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = $memd;
 		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
 			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
-			\get_current_user_id(),
-			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			\Newspack_Nodes\SSE_Slot_Pool::identity(),
+			8,
 			8,
 			83
 		);
 		$this->assertIsArray( $lease );
 		\Newspack_Nodes\SSE_Slot_Pool::release(
 			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
-			\get_current_user_id(),
-			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
 			$lease['slot'],
 			$lease['owner']
 		);
@@ -593,8 +591,8 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = $memd;
 		$lease = \Newspack_Nodes\SSE_Slot_Pool::acquire(
 			\Newspack_Nodes\SSE_Slot_Pool::namespace_key(),
-			\get_current_user_id(),
-			\Newspack_Nodes\SSE_Slot_Pool::ip_hash(),
+			\Newspack_Nodes\SSE_Slot_Pool::identity(),
+			8,
 			8,
 			83
 		);

@@ -559,9 +559,9 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( null === Cache_Backend::shared_first() ) {
 			throw new \RuntimeException( 'cache not configured' );
 		}
-		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::namespace_key(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $owner, SSE_Slot_Pool::$ttl ) ) {
+		if ( ! SSE_Slot_Pool::touch( SSE_Slot_Pool::namespace_key(), $slot, $owner, SSE_Slot_Pool::ttl() ) ) {
 			// Four states share this refusal; inspect() names which.
-			$diagnosis = SSE_Slot_Pool::inspect( SSE_Slot_Pool::namespace_key(), SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $owner );
+			$diagnosis = SSE_Slot_Pool::inspect( SSE_Slot_Pool::namespace_key(), $slot, $owner );
 			throw new \RuntimeException( \esc_html( 'SSE slot lease not owned: ' . $diagnosis['lease_state'] ) );
 		}
 		return [ 'success' => true, 'slot' => $slot ];

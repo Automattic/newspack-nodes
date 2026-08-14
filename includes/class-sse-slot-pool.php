@@ -22,11 +22,71 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 
 class SSE_Slot_Pool {
 
-	/** Maximum concurrent SSE streams per user/IP per pool. */
-	public static int $max_slots = 10;
+	/**
+	 * Maximum concurrent SSE streams per user/IP, when config says nothing.
+	 *
+	 * @longform An SSE stream is a SUSTAINED PHP-FPM child, never a bursty one,
+	 * and a host tolerates only a handful sustained before the platform starts
+	 * refusing requests outright. This cap is per user/IP, so it has never
+	 * bounded a host's total — it is the per-reader share of a budget the
+	 * global cap owns. Three, because idle streams close and reopen on a
+	 * `sse_idle_timeout` + `sse_retry_ms` cycle and a dead lease can linger for
+	 * its TTL while the client is already back asking for another.
+	 */
+	public const DEFAULT_MAX_SLOTS = 3;
 
-	/** Slot TTL (seconds). Must outlive the client's session-forget threshold. */
-	public static int $ttl = 60;
+	/**
+	 * Lease TTL in seconds, when config says nothing.
+	 *
+	 * @longform The floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not
+	 * two. Only an owner-matched `workers heartbeat` refreshes a lease —
+	 * `check()` never does — and a client that loses its session stops
+	 * heartbeating for the whole re-auth round trip, so a TTL sized for
+	 * heartbeat loss alone fences a stream that is merely re-authenticating.
+	 * Shortening this to reclaim crashed readers faster is tempting once the
+	 * pool is small; 45 is the wall, and the existing test pins it.
+	 */
+	public const DEFAULT_TTL = 60;
+
+	/**
+	 * Concurrent SSE streams for the whole host, when config says nothing.
+	 *
+	 * @longform This is the cap that actually protects the site; the per-identity
+	 * one only divides it fairly. An SSE stream occupies a php-fpm child for its
+	 * entire life, and Atomic replies 599 once PHP requests backlog, which puts
+	 * the EDGE into auto-defensive mode for 60s for every visitor. Six against a
+	 * ~10-worker allocation leaves room for page requests and the worker itself;
+	 * burst capacity above the allocation is explicitly not guaranteed, so it
+	 * cannot be spent on something sustained. See docs/sse-host-budget.md.
+	 */
+	public const DEFAULT_MAX_STREAMS = 6;
+
+	/** @api Tests override; production reads config through max_slots(). */
+	public static ?int $max_slots = null;
+
+	/** @api Tests override; production reads config through ttl(). */
+	public static ?int $ttl = null;
+
+	/** @api Tests override; production reads config through max_streams(). */
+	public static ?int $max_streams = null;
+
+	/**
+	 * One reader's share: the override, else config, else the default — never
+	 * more than the whole host, since a share that cannot bind is not a share.
+	 */
+	public static function max_slots(): int {
+		return self::$max_slots
+			?? \min(
+				self::max_streams(),
+				\max( 1, Core::num_int( Config::value( 'sse_max_slots' ), self::DEFAULT_MAX_SLOTS ) )
+			);
+	}
+
+	/** Whole-host concurrent-stream cap: the override, else config, else the default. */
+	public static function max_streams(): int {
+		return self::$max_streams
+			?? \max( 1, Core::num_int( Config::value( 'sse_max_streams' ), self::DEFAULT_MAX_STREAMS ) );
+	}
 
 	/**
 	 * Install the four `SSE_Out` slot-pool seams. Idempotent. Call from the
@@ -34,21 +94,42 @@ class SSE_Slot_Pool {
 	 */
 	public static function wire(): void {
 		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1 ): array|false {
-			return self::acquire( self::namespace_key(), self::user_id(), self::ip_hash(), self::$max_slots, self::$ttl );
+			return self::acquire( self::namespace_key(), self::identity(), self::max_streams(), self::max_slots(), self::ttl() );
 		};
 		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1 ): void {
 			$lease = self::require_lease( $lease );
-			self::release( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			self::release( self::namespace_key(), $lease['slot'], $lease['owner'] );
 		};
 		SSE_Out_Node::$check_slot = static function ( array $lease, int $_partition = -1 ): bool {
 			// Check-only, NEVER refresh TTL here (only client heartbeat does).
 			$lease = self::require_lease( $lease );
-			return self::check( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			return self::check( self::namespace_key(), $lease['slot'], $lease['owner'] );
 		};
 		SSE_Out_Node::$inspect_slot = static function ( array $lease, int $_partition = -1 ): array {
 			$lease = self::require_lease( $lease );
-			return self::inspect( self::namespace_key(), self::user_id(), self::ip_hash(), $lease['slot'], $lease['owner'] );
+			return self::inspect( self::namespace_key(), $lease['slot'], $lease['owner'] );
 		};
+	}
+
+	/**
+	 * Lease TTL in seconds: the override, else config, else the default, floored
+	 * at the re-auth window. A configured value below it is raised, not honoured
+	 * — see DEFAULT_TTL for why 45 is a wall rather than a preference.
+	 */
+	public static function ttl(): int {
+		return self::$ttl
+			?? \max(
+				3 * Remote_Link_Node::HEARTBEAT_INTERVAL,
+				Core::num_int( Config::value( 'sse_slot_ttl' ), self::DEFAULT_TTL )
+			);
+	}
+
+	/**
+	 * Who holds a stream. Slots are pooled host-wide, so this rides in the lease
+	 * VALUE and bounds one reader's share instead of splitting the pool.
+	 */
+	public static function identity(): string {
+		return self::user_id() . ':' . self::ip_hash();
 	}
 
 	/**
@@ -87,19 +168,22 @@ class SSE_Slot_Pool {
 	 *
 	 * @return array{slot:int,owner:int}|false Lease, or false if all slots are live / no store.
 	 */
-	public static function acquire( string $namespace, int $user_id, string $ip_hash, int $max_slots, int $ttl ): array|false {
+	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl ): array|false {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return false;
 		}
+		if ( self::held_by( $backend, $namespace, $identity, $max_streams ) >= $max_per_identity ) {
+			return false;
+		}
 
-		for ( $slot = 0; $slot < $max_slots; $slot++ ) {
+		for ( $slot = 0; $slot < $max_streams; $slot++ ) {
 			$owner       = \random_int( 1, \PHP_INT_MAX );
-			$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+			$pointer_key = self::slot_key( $namespace, $slot );
 			$lease_key   = self::lease_key( $pointer_key, $owner );
 
 			// Publish liveness before the pointer can advertise this owner.
-			if ( ! $backend->add( $lease_key, 1, $ttl ) ) {
+			if ( ! $backend->add( $lease_key, $identity, $ttl ) ) {
 				continue;
 			}
 
@@ -155,6 +239,39 @@ class SSE_Slot_Pool {
 	}
 
 	/**
+	 * How many live host slots this identity already holds.
+	 *
+	 * @longform Two connections from one identity can both read a stale count and
+	 * both claim, overshooting the per-identity cap by the number racing. That is
+	 * deliberate: only the HOST cap has to be exact, and it is, because a claim is
+	 * a CAS on a fixed number of pointers. Making this exact too would need a
+	 * second CAS'd counter to stay consistent with the pointers it describes, and
+	 * a wrong count there leaks capacity permanently rather than for one TTL.
+	 *
+	 * A read that fails is counted as not-held, so this fails OPEN while the
+	 * rest of the class fails closed. That is the safe direction for a SHARE:
+	 * the host cap still refuses on its own read errors, so a flapping cache
+	 * can let one identity over its share but never over the host's.
+	 */
+	private static function held_by( Cache_Backend $backend, string $namespace, string $identity, int $max_streams ): int {
+		$pointer_keys = [];
+		for ( $slot = 0; $slot < $max_streams; $slot++ ) {
+			$pointer_keys[] = self::slot_key( $namespace, $slot );
+		}
+
+		$lease_keys = [];
+		foreach ( $backend->read_multi( $pointer_keys ) as $pointer_key => $owner ) {
+			if ( \is_int( $owner ) && 0 < $owner ) {
+				$lease_keys[] = self::lease_key( $pointer_key, $owner );
+			}
+		}
+
+		return [] === $lease_keys
+			? 0
+			: \count( \array_keys( $backend->read_multi( $lease_keys ), $identity, true ) );
+	}
+
+	/**
 	 * Inspect one failed lease check with fresh, read-only cache operations.
 	 *
 	 * This is deliberately separate from the hot-path check. A fully healthy
@@ -162,7 +279,7 @@ class SSE_Slot_Pool {
 	 *
 	 * @return array<string,int|string>
 	 */
-	public static function inspect( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): array {
+	public static function inspect( string $namespace, int $slot, int $owner ): array {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return [
@@ -171,7 +288,7 @@ class SSE_Slot_Pool {
 			];
 		}
 
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $slot );
 		$pointer     = $backend->read( $pointer_key );
 		if ( Cache_Backend::READ_ERROR === $pointer['status'] ) {
 			return self::inspection_result( $backend, 'backend_read_error' );
@@ -232,7 +349,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Whether the exact lease is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+	public static function check( string $namespace, int $slot, int $owner ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -240,7 +357,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return false;
 		}
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $slot );
 		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
 			return false;
 		}
@@ -250,7 +367,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Tombstone this exact owner, then remove its liveness. Fail-OPEN without a backend. */
-	public static function release( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner ): bool {
+	public static function release( string $namespace, int $slot, int $owner ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -258,7 +375,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return true;
 		}
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $slot );
 		if ( ! $backend->compare_and_swap( $pointer_key, $owner, 0 ) ) {
 			return false;
 		}
@@ -291,7 +408,7 @@ class SSE_Slot_Pool {
 	}
 
 	/** Refresh the exact lease TTL. Fail-CLOSED when ownership is unverifiable. */
-	public static function touch( string $namespace, int $user_id, string $ip_hash, int $slot, int $owner, int $ttl ): bool {
+	public static function touch( string $namespace, int $slot, int $owner, int $ttl ): bool {
 		if ( $owner <= 0 ) {
 			return false;
 		}
@@ -299,7 +416,7 @@ class SSE_Slot_Pool {
 		if ( null === $backend ) {
 			return false;
 		}
-		$pointer_key = self::slot_key( $namespace, $user_id, $ip_hash, $slot );
+		$pointer_key = self::slot_key( $namespace, $slot );
 		$lease_key   = self::lease_key( $pointer_key, $owner );
 		if ( ! self::pointer_matches( $backend, $pointer_key, $owner ) ) {
 			return false;
@@ -332,11 +449,11 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Permanent slot-pointer key. The configured slot count bounds pointers
-	 * within each host/user/IP namespace; liveness lives only in lease keys.
+	 * Permanent slot-pointer key. ONE pooled keyspace per host, so the pointer
+	 * count IS the host cap; liveness and holder live in the lease key.
 	 */
-	private static function slot_key( string $namespace, int $user_id, string $ip_hash, int $slot ): string {
+	private static function slot_key( string $namespace, int $slot ): string {
 		// $namespace IS the scope (machine:site); callers inject their own.
-		return Cache_Backend::key( $namespace, "sse:{$user_id}:{$ip_hash}:{$slot}" );
+		return Cache_Backend::key( $namespace, "sse:{$slot}" );
 	}
 }

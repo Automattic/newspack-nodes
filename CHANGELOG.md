@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: the SSE slot pool is now **host-wide**, bounded by the new `sse_max_streams` (default 6). It was keyed per user/IP, so it never bounded a host at all — every additional reader brought its own budget, and the only ceiling was the platform's. `sse_max_slots` (default 3, was a hardcoded 10) keeps its name but changes meaning: it is one reader's share of the host budget, enforced as a predicate at acquire time rather than a private pool.
+- A connection still holds exactly ONE lease, so `workers heartbeat <slot> <owner>` is unchanged on the wire. The holder's identity moved out of the cache key and into the lease value, which is what lets a single pooled keyspace answer "how many does this reader already have?" without a second lease to keep refreshed. `acquire()` / `check()` / `release()` / `touch()` / `inspect()` lost their `$user_id` / `$ip_hash` parameters accordingly.
+- `sse_slot_ttl` is configurable and stays at **60s**. It was very nearly shortened to 30 on the reasoning that 2× `Remote_Link_Node::HEARTBEAT_INTERVAL` survives one lost heartbeat; the real floor is 3× (45s), because a client that loses its session stops heartbeating for the whole re-auth round trip and would be fenced mid-recovery.
+- Two invariants are now ENFORCED rather than documented, because a wall nothing checks is a comment: `sse_slot_ttl` is raised to the 45s re-auth floor if configured below it, and `sse_max_slots` is capped at `sse_max_streams` (a share above the host budget can never bind). `held_by()` batches its sweep into two `read_multi` calls rather than 2N serial reads on a connect path that already fails closed on latency.
+- Known gap: a hub's `Remote_Source` pull draws from the spoke's host budget like any browser, with no reservation or priority, so enough dashboard tabs on a spoke can silently stall aggregation. Documented rather than fixed — a reserved machine tier is a separate decision.
+- Why these numbers: an SSE stream occupies a php-fpm child for its entire life, and Atomic replies 599 once PHP requests backlog, putting the EDGE into auto-defensive mode for 60 seconds — for every visitor to that site, not just the connection at fault. Burst capacity above the configured allocation is explicitly not guaranteed, so it cannot fund something sustained. The arithmetic and its sources are in `docs/sse-host-budget.md`.
+
 ## [2.28.0] - 2026-08-14
 
 ### Changed
