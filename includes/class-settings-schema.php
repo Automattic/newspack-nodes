@@ -290,6 +290,31 @@ class Settings_Schema {
 					default: 5000,
 					ui: false,
 				),
+				// The host's sustained-stream budget; see SSE_Slot_Pool.
+				new Field(
+					key: 'sse_max_streams',
+					type: 'int',
+					default: SSE_Slot_Pool::DEFAULT_MAX_STREAMS,
+					min: 1,
+					max: 64,
+					ui: false,
+				),
+				new Field(
+					key: 'sse_max_slots',
+					type: 'int',
+					default: SSE_Slot_Pool::DEFAULT_MAX_SLOTS,
+					min: 1,
+					max: 64,
+					ui: false,
+				),
+				new Field(
+					key: 'sse_slot_ttl',
+					type: 'int',
+					default: SSE_Slot_Pool::DEFAULT_TTL,
+					min: 45,
+					max: 3600,
+					ui: false,
+				),
 				// Worker analogue of sse_idle_timeout; frontmatter wins.
 				new Field(
 					key: 'on_demand_idle',

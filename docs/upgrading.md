@@ -6,6 +6,41 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **The SSE slot pool is host-wide, and its methods lost `$user_id` / `$ip_hash`.**
+  The pool was keyed per user/IP, so it never bounded a host — each additional
+  reader arrived with its own budget. Slots are now one pooled keyspace per
+  `machine:site`, sized by the new `sse_max_streams` (default 6). The holder's
+  identity moved out of the cache key into the lease VALUE, and `sse_max_slots`
+  (default 3, previously a hardcoded 10) became one reader's SHARE of the host
+  budget rather than a private pool:
+
+  ```php
+  // before
+  SSE_Slot_Pool::acquire( $ns, $user_id, $ip_hash, $max_slots, $ttl );
+  SSE_Slot_Pool::touch( $ns, $user_id, $ip_hash, $slot, $owner, $ttl );
+  // after
+  SSE_Slot_Pool::acquire( $ns, SSE_Slot_Pool::identity(), $max_streams, $max_per_identity, $ttl );
+  SSE_Slot_Pool::touch( $ns, $slot, $owner, $ttl );
+  ```
+
+  `check()`, `release()` and `inspect()` drop the same two parameters. Nothing
+  changes on the wire: a connection still holds exactly ONE lease, so
+  `workers heartbeat <slot> <owner>` is unaffected. Old lease keys expire within
+  `sse_slot_ttl`; old POINTER keys were written with no expiry and are simply
+  orphaned — nothing sweeps them, so they sit until cache eviction or restart.
+  Bounded and harmless, but not self-cleaning.
+
+  Both bounds and the TTL are now config keys (`sse_max_streams`,
+  `sse_max_slots`, `sse_slot_ttl`). Read [sse-host-budget.md](sse-host-budget.md)
+  before raising any of them — an SSE stream holds a php-fpm child for its whole
+  life, and exhausting the pool puts the EDGE into auto-defensive mode for 60
+  seconds for every visitor to the site. Two floors are enforced rather than
+  documented: `sse_slot_ttl` is raised to the 45s re-auth window if configured
+  below it, and `sse_max_slots` is capped at `sse_max_streams`.
+
+  Hub operators: a `Remote_Source` pull draws from the spoke's host budget like
+  any browser, with no reservation. Count it as one of the streams when sizing.
+
 - **`before_job` is a FILTER, and `after_job`'s arguments moved.** Every listener on
   `newspack_nodes/job_worker/before_job` now receives the decision as its FIRST
   argument — `( $run, $handler, $id, $message )` — and must return it:

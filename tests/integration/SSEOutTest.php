@@ -35,9 +35,9 @@ class SSEOutTest extends TestCase {
 
 	/** Restore the declared pool geometry; the reopen test narrows it to one slot. */
 	protected function tearDown(): void {
-		$declared                 = ( new \ReflectionClass( SSE_Slot_Pool::class ) )->getDefaultProperties();
-		SSE_Slot_Pool::$max_slots = $declared['max_slots'];
-		SSE_Slot_Pool::$ttl       = $declared['ttl'];
+		SSE_Slot_Pool::$max_slots   = null;
+		SSE_Slot_Pool::$max_streams = null;
+		SSE_Slot_Pool::$ttl         = null;
 		Core::$memd               = null;
 		parent::tearDown();
 	}
@@ -528,8 +528,9 @@ class SSEOutTest extends TestCase {
 	public function test_an_idle_close_releases_its_slot_so_the_reopen_inside_the_ttl_is_granted(): void {
 		// One slot, and a TTL that outlives the reopen: the reopening client
 		// meets its OWN lease, and must reclaim it rather than read a full pool.
-		SSE_Slot_Pool::$max_slots = 1;
-		SSE_Slot_Pool::$ttl       = 41;
+		SSE_Slot_Pool::$max_slots   = 1;
+		SSE_Slot_Pool::$max_streams = 1;
+		SSE_Slot_Pool::$ttl         = 41;
 		Core::$memd               = new InMemoryMemcached();
 		SSE_Slot_Pool::wire();
 		$this->set_sse_config( 1, 4500 );
