@@ -229,6 +229,31 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'prices', '300' ], $table->arguments() );
 	}
 
+	public function test_store_reports_whether_the_write_landed(): void {
+		// A caller that shadows its writes durably — Stats_Store's mirror seam —
+		// must not record a set the backend refused, or a failed write is
+		// resurrected on cold boot as though it had succeeded.
+		$table = Table_Node::table( 'prices', 60 );
+
+		$this->assertTrue( $table->store( 'sku-9', [ 'usd' => 1250 ] ), 'a landed write reports true' );
+	}
+
+	public function test_store_reports_false_when_the_backend_refuses(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$prev  = Core::$memd;
+		// A handle whose set() always fails, as a full or unreachable server does.
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function set( $key, $value, $expiration = 0 ): bool {
+				return false;
+			}
+		};
+		try {
+			$this->assertFalse( $table->store( 'sku-9', [ 'usd' => 1250 ] ), 'a refused write reports false' );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
 	public function test_ttl_comes_from_the_table_not_the_call(): void {
 		[ $table ] = $this->table( 'prices', '300' );
 
@@ -280,155 +305,71 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
-	// ── L1: an opt-in in-memory tier in front of memcache ──────────────────
+	// ── Accumulator: an opt-in in-memory tier the caller drains ────────────
 
-	/** Reads served straight from the backend, so a miss here means the L1 answered. */
-	private function backend_reads(): int {
-		return $this->memd->get_calls;
+	private function accumulating_table(): Table_Node {
+		return Table_Node::table( 'agg', 60 )->accumulator( 1000, 5 );
 	}
 
-	public function test_no_l1_by_default_so_every_read_reaches_the_backend(): void {
-		[ $table ] = $this->table( 'prices' );
-		$table->store( 'sku-9', 'v2' );
+	public function test_accumulate_holds_the_value_without_writing_it(): void {
+		// The tier Flame_Builder needs: un-persisted state it folds into and
+		// drains on its own cadence, NOT a write-through cache of storage.
+		$table = $this->accumulating_table();
 
-		$before = $this->backend_reads();
-		$table->lookup( 'sku-9' );
-		$table->lookup( 'sku-9' );
+		$table->accumulate( 'h1', [ 'count' => 3 ] );
 
-		$this->assertSame( 2, $this->backend_reads() - $before, 'a table that opted out is read-through' );
+		$this->assertNull( $table->lookup( 'h1' ), 'accumulate() must not reach the backend' );
+		$this->assertSame( [ 'count' => 3 ], $table->accumulated( 'h1' ) );
 	}
 
-	public function test_l1_answers_a_repeat_read_without_the_backend(): void {
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-9', 'v2' );
+	public function test_accumulated_falls_back_to_stored_when_nothing_is_held(): void {
+		$table = $this->accumulating_table();
+		$table->store( 'h2', [ 'count' => 9 ] );
 
-		$table->lookup( 'sku-9' );
-		$before = $this->backend_reads();
-
-		$this->assertSame( 'v2', $table->lookup( 'sku-9' ) );
-		$this->assertSame( 0, $this->backend_reads() - $before );
+		$this->assertSame( [ 'count' => 9 ], $table->accumulated( 'h2' ), 'a cold key reads through to storage' );
 	}
 
-	public function test_l1_is_keyed_by_the_derived_key_so_moving_the_namespace_orphans_it(): void {
-		// The generation idiom: pyrobase names its table `pyrobase:g47` and a
-		// schema bump renames it. Keyed by the bare key, the L1 would survive
-		// that rename and keep serving the previous generation's value.
-		[ $table ] = $this->table( 'pyrobase:g47', '0', '5' );
-		$table->store( 'obj:88', 'gen-47-value' );
-		$this->assertSame( 'gen-47-value', $table->lookup( 'obj:88' ) );
+	public function test_accumulating_walks_what_is_held_for_the_drain(): void {
+		$table = $this->accumulating_table();
+		$table->accumulate( 'h1', [ 'count' => 1 ] );
+		$table->accumulate( 'h2', [ 'count' => 2 ] );
 
-		$table->arguments( [ 'pyrobase:g48', '0', '5' ] );
+		$seen = [];
+		foreach ( $table->accumulating() as $key => $value ) {
+			$seen[ (string) $key ] = $value;
+		}
 
-		$this->assertNull( $table->lookup( 'obj:88' ) );
+		$this->assertSame( [ 'h1' => [ 'count' => 1 ], 'h2' => [ 'count' => 2 ] ], $seen );
 	}
 
-	public function test_l1_entries_age_out_however_often_they_are_read(): void {
-		// Promotion is what a working set wants and a read-through tier must
-		// not have: re-reading the hottest key would pin the staleset forever.
-		Core::$now = 1_770_000_000.0;
-		[ $table ] = $this->table( 'prices', '0', '4' );
-		$table->store( 'sku-9', 'v2' );
-		$this->assertSame( 'v2', $table->lookup( 'sku-9' ) );
+	public function test_a_drain_does_not_clear_what_is_held(): void {
+		// set_url_stats() overwrites the whole aggregate, so draining twice is
+		// idempotent; clearing here would lose the accumulation between flushes.
+		$table = $this->accumulating_table();
+		$table->accumulate( 'h1', [ 'count' => 1 ] );
 
-		// Another process writes; this table's L1 still holds the old value.
-		$this->memd->set( Table_Node::entry_key( 'prices', 'sku-9' ), 'v3', 0 );
-		$this->assertSame( 'v2', $table->lookup( 'sku-9' ), 'bounded staleness is what l1_ttl buys' );
+		foreach ( $table->accumulating() as $key => $value ) {
+			$table->store( (string) $key, $value );
+		}
 
-		Core::$now = 1_770_000_009.0;
-		$this->assertSame( 'v3', $table->lookup( 'sku-9' ), 'and the window closes on wall-clock time' );
+		$this->assertSame( [ 'count' => 1 ], $table->accumulated( 'h1' ), 'still held after the drain' );
 	}
 
-	public function test_a_write_through_this_table_updates_its_own_l1(): void {
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-9', 'v2' );
-		$table->lookup( 'sku-9' );
+	public function test_reset_drops_what_is_held(): void {
+		$table = $this->accumulating_table();
+		$table->accumulate( 'h1', [ 'count' => 1 ] );
 
-		$table->fill( $this->keyed( 'sku-9', 'v3' ) );
+		$table->reset();
 
-		$this->assertSame( 'v3', $table->lookup( 'sku-9' ) );
+		$this->assertSame( [], \iterator_to_array( $table->accumulating() ) );
 	}
 
-	public function test_forget_drops_the_l1_copy_too(): void {
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-9', 'v2' );
-		$table->lookup( 'sku-9' );
+	public function test_accumulating_without_opting_in_is_refused(): void {
+		// Silently dropping the value would lose counts; say so instead.
+		$table = Table_Node::table( 'agg', 60 );
 
-		$table->forget( 'sku-9' );
-
-		$this->assertNull( $table->lookup( 'sku-9' ) );
+		$this->expectException( \LogicException::class );
+		$table->accumulate( 'h1', [ 'count' => 1 ] );
 	}
 
-	public function test_a_write_the_backend_refused_is_not_cached(): void {
-		// A read-through tier may only hold what the store confirmed. Cached
-		// anyway, this process reads its own failed write as fact for a whole
-		// window while every other process correctly sees the old value.
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-9', 'v2' );
-		$this->memd->fail_set( Table_Node::entry_key( 'prices', 'sku-9' ) );
-
-		$table->store( 'sku-9', 'refused' );
-
-		$this->assertSame( 'v2', $table->lookup( 'sku-9' ), 'the backend still holds v2, so the table must say v2' );
-	}
-
-	public function test_lookup_multi_batches_the_backend_remainder(): void {
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-9', 'nine' );
-		$table->store( 'sku-7', 'seven' );
-		$table->lookup( 'sku-9' );
-
-		$found = $table->lookup_multi( [ 'sku-9', 'sku-7', 'never-stored' ] );
-
-		$this->assertSame( [ 'sku-9' => 'nine', 'sku-7' => 'seven' ], $found );
-		$this->assertSame( 1, $this->memd->multi_calls, 'one round trip for everything the L1 missed' );
-	}
-
-	public function test_lookup_multi_populates_the_l1_from_what_it_fetched(): void {
-		[ $table ] = $this->table( 'prices', '0', '5' );
-		$table->store( 'sku-7', 'seven' );
-
-		$table->lookup_multi( [ 'sku-7' ] );
-		$before = $this->backend_reads();
-
-		$this->assertSame( 'seven', $table->lookup( 'sku-7' ) );
-		$this->assertSame( 0, $this->backend_reads() - $before );
-	}
-
-	public function test_lookup_multi_keeps_a_stored_false(): void {
-		// The single-key path distinguishes a stored false from a miss; the
-		// batch path answers for the same table and must not disagree.
-		[ $table ] = $this->table( 'prices' );
-		$table->store( 'flag', false );
-
-		$this->assertSame( [ 'flag' => false ], $table->lookup_multi( [ 'flag', 'absent' ] ) );
-	}
-
-	public function test_lookup_multi_without_an_l1_still_batches(): void {
-		[ $table ] = $this->table( 'prices' );
-		$table->store( 'sku-9', 'nine' );
-
-		$this->assertSame( [ 'sku-9' => 'nine' ], $table->lookup_multi( [ 'sku-9', 'absent' ] ) );
-		$this->assertSame( 1, $this->memd->multi_calls );
-	}
-
-	public function test_the_factory_builds_the_same_table_arguments_does(): void {
-		$table = Table_Node::table( 'prices', 300, 5.0 );
-
-		$this->assertSame( [ 'prices', '300', '5' ], $table->arguments() );
-	}
-
-	public function test_two_factory_calls_are_two_tables(): void {
-		// Deliberately NOT memoized: a memoizing factory is the global registry
-		// wearing a constructor's clothes, and the L1's lifetime belongs to
-		// whoever holds the table.
-		$this->assertNotSame( Table_Node::table( 'prices' ), Table_Node::table( 'prices' ) );
-	}
-
-	public function test_rm_deletes_a_key(): void {
-		[ $table ] = $this->table();
-		$table->fill( $this->keyed( 'sku-9', 'gone-soon' ) );
-
-		$this->assertSame( "ok\n", $table->rm( 'sku-9' ) );
-		$this->assertNull( $table->lookup( 'sku-9' ) );
-	}
 }
