@@ -64,11 +64,19 @@ browser tab does. It has no reservation and no priority: enough dashboard tabs
 open on a spoke will refuse the hub's pull, and the hub's view of that spoke
 goes stale until a slot frees.
 
-That is the cap working as designed — the box cannot afford the sustained
-children either way — but the failure is silent and it is the *wrong* stream to
-lose. If a deployment needs the pull to win, the fix is a reserved slot for
-machine identities, not a larger budget. Size `sse_max_streams` counting the hub
-pull as one of the streams.
+`sse_reserved_slots` (default 0) holds slots back from browsers so a pull always
+finds one. A spoke sets 1. The reservation comes **out of** `sse_max_streams`,
+not on top of it: with 6 streams and 1 reserved, browsers claim 5 and the sixth
+waits for the pull. Nobody's ceiling moves — the setting only decides who may
+reach the last slot. A pull is otherwise bounded exactly like a browser, same
+per-identity share and same TTL.
+
+The pull announces itself with an `X-Newspack-Nodes-Pull` request header. That
+is a fairness hint, not a security boundary: the endpoint already requires the
+READ capability, so any holder of it could send the header, and forging it costs
+a reserved slot rather than granting access. Reserving every slot would lock out
+the readers the host exists for, so `reserved_slots()` always leaves at least
+one.
 
 ## Why the TTL is 60 and not shorter
 

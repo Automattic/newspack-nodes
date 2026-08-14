@@ -300,6 +300,14 @@ class Settings_Schema {
 					ui: false,
 				),
 				new Field(
+					key: 'sse_reserved_slots',
+					type: 'int',
+					default: SSE_Slot_Pool::DEFAULT_RESERVED_SLOTS,
+					min: 0,
+					max: 63,
+					ui: false,
+				),
+				new Field(
 					key: 'sse_max_slots',
 					type: 'int',
 					default: SSE_Slot_Pool::DEFAULT_MAX_SLOTS,

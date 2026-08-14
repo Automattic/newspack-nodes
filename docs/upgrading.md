@@ -39,7 +39,9 @@ Breaking changes that affect a plugin built on the substrate — topology files,
   below it, and `sse_max_slots` is capped at `sse_max_streams`.
 
   Hub operators: a `Remote_Source` pull draws from the spoke's host budget like
-  any browser, with no reservation. Count it as one of the streams when sizing.
+  any browser. Set `sse_reserved_slots => 1` on each spoke so dashboard tabs
+  cannot starve the pull. It comes out of `sse_max_streams`, so a spoke with 6
+  streams and 1 reserved serves 5 browsers and keeps the sixth for the hub.
 
 - **`before_job` is a FILTER, and `after_job`'s arguments moved.** Every listener on
   `newspack_nodes/job_worker/before_job` now receives the decision as its FIRST

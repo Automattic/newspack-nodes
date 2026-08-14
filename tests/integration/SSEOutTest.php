@@ -35,9 +35,10 @@ class SSEOutTest extends TestCase {
 
 	/** Restore the declared pool geometry; the reopen test narrows it to one slot. */
 	protected function tearDown(): void {
-		SSE_Slot_Pool::$max_slots   = null;
-		SSE_Slot_Pool::$max_streams = null;
-		SSE_Slot_Pool::$ttl         = null;
+		SSE_Slot_Pool::$max_slots      = null;
+		SSE_Slot_Pool::$max_streams    = null;
+		SSE_Slot_Pool::$reserved_slots = null;
+		SSE_Slot_Pool::$ttl            = null;
 		Core::$memd               = null;
 		parent::tearDown();
 	}

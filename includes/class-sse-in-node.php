@@ -178,6 +178,8 @@ class SSE_In_Node extends Node {
 		$headers = [
 			'Accept: text/event-stream',
 			'Cache-Control: no-cache',
+			// Lets the far end's slot pool honour `sse_reserved_slots`.
+			'X-Newspack-Nodes-Pull: 1',
 		];
 		$authorization = Vault::credential_header(
 			$this->auth_username,
