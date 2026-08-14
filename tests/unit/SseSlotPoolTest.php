@@ -33,6 +33,8 @@ class SseSlotPoolTest extends TestCase {
 	protected function tearDown(): void {
 		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		\Newspack_Nodes\Config::reset();
+		unset( $_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] );
+		SSE_Slot_Pool::$reserved_slots = null;
 		SSE_Slot_Pool::$max_slots   = null;
 		SSE_Slot_Pool::$max_streams = null;
 		SSE_Slot_Pool::$ttl         = null;
@@ -1127,5 +1129,90 @@ class SseSlotPoolTest extends TestCase {
 		// A share at or above the host cap is a share that never binds.
 		$this->assertSame( 5, SSE_Slot_Pool::max_streams() );
 		$this->assertSame( 5, SSE_Slot_Pool::max_slots(), 'the share is capped by the host budget' );
+	}
+
+	public function test_a_reserved_slot_is_out_of_reach_for_users_and_free_for_a_pull(): void {
+		// Four host slots, one reserved. A user may fill three; the fourth is
+		// not a fourth stream, it is the same budget with one slot held back.
+		$filled = [];
+		foreach ( [ '11:aaaa1111', '22:bbbb2222', '33:cccc3333' ] as $identity ) {
+			$lease = SSE_Slot_Pool::acquire( 'reserve-host', $identity, 4, 3, 83, 1 );
+			$this->assertIsArray( $lease, "{$identity} should reach an unreserved slot" );
+			$filled[] = $lease['slot'];
+		}
+		$this->assertSame( [ 0, 1, 2 ], $filled, 'users claim from the head, never the reserved tail' );
+
+		$this->assertFalse(
+			SSE_Slot_Pool::acquire( 'reserve-host', '44:dddd4444', 4, 3, 83, 1 ),
+			'a user must not be handed the reserved slot'
+		);
+
+		$pull = SSE_Slot_Pool::acquire( 'reserve-host', '99:eeee9999', 4, 3, 83, 0 );
+		$this->assertIsArray( $pull, 'the pull the slot was reserved for must get it' );
+		$this->assertSame( 3, $pull['slot'] );
+	}
+
+	public function test_the_reservation_comes_out_of_the_total_not_on_top_of_it(): void {
+		$live = 0;
+		foreach ( [ '11:aaaa1111', '22:bbbb2222', '33:cccc3333', '44:dddd4444' ] as $identity ) {
+			if ( \is_array( SSE_Slot_Pool::acquire( 'total-host', $identity, 3, 3, 83, 1 ) ) ) {
+				++$live;
+			}
+		}
+		if ( \is_array( SSE_Slot_Pool::acquire( 'total-host', '99:eeee9999', 3, 3, 83, 0 ) ) ) {
+			++$live;
+		}
+		$this->assertSame( 3, $live, 'reserving a slot must not raise the host total' );
+	}
+
+	public function test_a_pull_is_bounded_exactly_like_a_user_otherwise(): void {
+		// The reservation is the ONLY asymmetry: same per-identity share.
+		$this->assertIsArray( SSE_Slot_Pool::acquire( 'evenhand-host', '99:eeee9999', 5, 2, 83, 1 ) );
+		$this->assertIsArray( SSE_Slot_Pool::acquire( 'evenhand-host', '99:eeee9999', 5, 2, 83, 1 ) );
+		$this->assertFalse(
+			SSE_Slot_Pool::acquire( 'evenhand-host', '99:eeee9999', 5, 2, 83, 1 ),
+			'a pull gets no larger share than a browser does'
+		);
+	}
+
+	public function test_the_reservation_is_configurable_and_always_leaves_users_a_slot(): void {
+		SSE_Slot_Pool::$max_slots      = null;
+		SSE_Slot_Pool::$max_streams    = null;
+		SSE_Slot_Pool::$reserved_slots = null;
+		SSE_Slot_Pool::$ttl            = null;
+
+		$this->assertSame( 0, SSE_Slot_Pool::reserved_slots(), 'reserving nothing is the default' );
+
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/../configs/sse-slots.php' );
+		\Newspack_Nodes\Config::reset();
+		$this->assertSame( 2, SSE_Slot_Pool::reserved_slots() );
+
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/../configs/sse-slots-absurd.php' );
+		\Newspack_Nodes\Config::reset();
+		$this->assertSame( 5, SSE_Slot_Pool::max_streams() );
+		$this->assertSame(
+			4,
+			SSE_Slot_Pool::reserved_slots(),
+			'reserving the whole host would lock every user out; one slot always survives'
+		);
+	}
+
+	public function test_the_wired_seam_gives_a_pull_the_reserved_slot_a_browser_cannot_reach(): void {
+		Core::$memd                    = new InMemoryMemcached();
+		SSE_Slot_Pool::$max_slots      = 4;
+		SSE_Slot_Pool::$max_streams    = 2;
+		SSE_Slot_Pool::$reserved_slots = 1;
+		SSE_Slot_Pool::wire();
+
+		unset( $_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] );
+		$this->assertIsArray( ( SSE_Out_Node::$acquire_slot )( -1 ), 'the browser takes the unreserved slot' );
+		$this->assertFalse( ( SSE_Out_Node::$acquire_slot )( -1 ), 'and must not reach the reserved one' );
+
+		$_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] = '1';
+		$pull                                  = ( SSE_Out_Node::$acquire_slot )( -1 );
+		unset( $_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] );
+
+		$this->assertIsArray( $pull, 'the pull claims the slot held for it' );
+		$this->assertSame( 1, $pull['slot'] );
 	}
 }

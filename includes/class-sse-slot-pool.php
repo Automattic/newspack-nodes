@@ -61,6 +61,18 @@ class SSE_Slot_Pool {
 	 */
 	public const DEFAULT_MAX_STREAMS = 6;
 
+	/**
+	 * Host slots held back from browsers, when config says nothing.
+	 *
+	 * @longform Zero, because a reservation is only meaningful where something
+	 * machine-driven pulls from this host — a spoke sets 1 so the hub's
+	 * aggregation pull always finds a slot. It comes OUT of the host total, not
+	 * on top of it: reserving raises nobody's ceiling, it only decides who may
+	 * reach the last slot. A pull is otherwise bounded exactly like a browser,
+	 * same per-identity share and same TTL.
+	 */
+	public const DEFAULT_RESERVED_SLOTS = 0;
+
 	/** @api Tests override; production reads config through max_slots(). */
 	public static ?int $max_slots = null;
 
@@ -69,6 +81,9 @@ class SSE_Slot_Pool {
 
 	/** @api Tests override; production reads config through max_streams(). */
 	public static ?int $max_streams = null;
+
+	/** @api Tests override; production reads config through reserved_slots(). */
+	public static ?int $reserved_slots = null;
 
 	/**
 	 * One reader's share: the override, else config, else the default — never
@@ -79,6 +94,19 @@ class SSE_Slot_Pool {
 			?? \min(
 				self::max_streams(),
 				\max( 1, Core::num_int( Config::value( 'sse_max_slots' ), self::DEFAULT_MAX_SLOTS ) )
+			);
+	}
+
+	/**
+	 * Host slots browsers may not claim: the override, else config, else the
+	 * default — never the whole host, since reserving every slot locks out the
+	 * readers the host exists to serve.
+	 */
+	public static function reserved_slots(): int {
+		return self::$reserved_slots
+			?? \min(
+				self::max_streams() - 1,
+				\max( 0, Core::num_int( Config::value( 'sse_reserved_slots' ), self::DEFAULT_RESERVED_SLOTS ) )
 			);
 	}
 
@@ -94,7 +122,8 @@ class SSE_Slot_Pool {
 	 */
 	public static function wire(): void {
 		SSE_Out_Node::$acquire_slot = static function ( int $_partition = -1 ): array|false {
-			return self::acquire( self::namespace_key(), self::identity(), self::max_streams(), self::max_slots(), self::ttl() );
+			$reserved = self::is_machine_pull() ? 0 : self::reserved_slots();
+			return self::acquire( self::namespace_key(), self::identity(), self::max_streams(), self::max_slots(), self::ttl(), $reserved );
 		};
 		SSE_Out_Node::$release_slot = static function ( array $lease, int $_partition = -1 ): void {
 			$lease = self::require_lease( $lease );
@@ -168,7 +197,7 @@ class SSE_Slot_Pool {
 	 *
 	 * @return array{slot:int,owner:int}|false Lease, or false if all slots are live / no store.
 	 */
-	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl ): array|false {
+	public static function acquire( string $namespace, string $identity, int $max_streams, int $max_per_identity, int $ttl, int $reserved = 0 ): array|false {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return false;
@@ -177,7 +206,9 @@ class SSE_Slot_Pool {
 			return false;
 		}
 
-		for ( $slot = 0; $slot < $max_streams; $slot++ ) {
+		// Reserved slots are the TAIL, so a browser just stops short.
+		$claimable = \max( 1, $max_streams - \max( 0, $reserved ) );
+		for ( $slot = 0; $slot < $claimable; $slot++ ) {
 			$owner       = \random_int( 1, \PHP_INT_MAX );
 			$pointer_key = self::slot_key( $namespace, $slot );
 			$lease_key   = self::lease_key( $pointer_key, $owner );
@@ -269,6 +300,21 @@ class SSE_Slot_Pool {
 		return [] === $lease_keys
 			? 0
 			: \count( \array_keys( $backend->read_multi( $lease_keys ), $identity, true ) );
+	}
+
+	/**
+	 * Whether this request is a machine pull rather than a browser.
+	 *
+	 * @longform A fairness hint, NOT a security boundary: the endpoint already
+	 * requires the READ capability, and any holder of it could send the header.
+	 * All it decides is which side of an authorized reader's own budget the
+	 * request draws from, so forging it costs a reserved slot and grants no
+	 * access. Anything stronger would need the pull to carry a distinct
+	 * credential, which is a Vault change, not a slot-pool one.
+	 */
+	public static function is_machine_pull(): bool {
+		// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__HTTP_USER_AGENT__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		return '' !== Core::as_string( $_SERVER['HTTP_X_NEWSPACK_NODES_PULL'] ?? '', '' );
 	}
 
 	/**

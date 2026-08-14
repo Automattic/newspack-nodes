@@ -6,6 +6,7 @@
  */
 
 return [
+	'sse_reserved_slots' => 2,
 	'sse_max_streams' => 5,
 	'sse_max_slots'   => 2,
 	'sse_slot_ttl'    => 47,

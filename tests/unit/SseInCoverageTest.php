@@ -146,6 +146,25 @@ class SseInCoverageTest extends TestCase {
 		$this->assertContains( 'Authorization: Bearer tok-123', $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
+	public function test_maybe_connect_identifies_itself_as_a_machine_pull(): void {
+		// Without this the spoke cannot tell an aggregation pull from a browser
+		// tab, and `sse_reserved_slots` reserves a slot nothing can claim.
+		$node = new SSE_In_Node();
+		$node->name( 'sse-in' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->configure( 'https://austin.example', '', '', 'tok-123', 'firehose.p0', [], true, false );
+
+		$captured = [];
+		SSE_In_Node::$curl_dispatch = function ( array $o ) use ( &$captured ): \CurlHandle {
+			$captured[] = $o;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+		$this->assertContains( 'X-Newspack-Nodes-Pull: 1', $captured[0][ \CURLOPT_HTTPHEADER ] );
+	}
+
 	public function test_reconnect_reuses_the_shared_multi(): void {
 		Event_Framework::reset();
 		[ $node ]  = $this->configured_node();

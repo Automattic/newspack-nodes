@@ -42,6 +42,7 @@ class SettingsSchemaTest extends TestCase {
 		'sse_idle_timeout',
 		'sse_max_slots',
 		'sse_max_streams',
+		'sse_reserved_slots',
 		'sse_retry_ms',
 		'sse_slot_ttl',
 		'on_demand_idle',
