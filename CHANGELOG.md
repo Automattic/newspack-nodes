@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.29.0] - 2026-08-14
+
 ### Changed
 - **BREAKING**: the SSE slot pool is now **host-wide**, bounded by the new `sse_max_streams` (default 6). It was keyed per user/IP, so it never bounded a host at all — every additional reader brought its own budget, and the only ceiling was the platform's. `sse_max_slots` (default 3, was a hardcoded 10) keeps its name but changes meaning: it is one reader's share of the host budget, enforced as a predicate at acquire time rather than a private pool.
 - A connection still holds exactly ONE lease, so `workers heartbeat <slot> <owner>` is unchanged on the wire. The holder's identity moved out of the cache key and into the lease value, which is what lets a single pooled keyspace answer "how many does this reader already have?" without a second lease to keep refreshed. `acquire()` / `check()` / `release()` / `touch()` / `inspect()` lost their `$user_id` / `$ip_hash` parameters accordingly.
