@@ -1,6 +1,6 @@
 import { ProbeStreamViewNode } from './probe-stream-view-node';
 import {
-	KEY,
+	IDENTITY,
 	HANDLER,
 	RUNS_DELTA,
 	ERRORS_DELTA,
@@ -20,7 +20,7 @@ import {
  *
  * Each inbound frame is one job identity's lean POSITIONAL record (the
  * `Jobstats_Record` layout); the snapshot instant is the Message TIMESTAMP. Per
- * identity `KEY` the view pushes each record onto a bounded series carrying its
+ * identity `IDENTITY` the view pushes each record onto a bounded series carrying its
  * raw deltas (what the table sums into WINDOWED totals) alongside the per-second
  * rates the charts plot — every value read off THAT record, never differenced
  * across records, so a worker recycle is just another window rather than a
@@ -28,7 +28,7 @@ import {
  * avg duration) are summed over the retained window in `_entryView`, so they
  * shrink with the series as old samples prune. Last-run detail comes from the
  * latest record. Shares ProbeStreamViewNode's ring/throttle/TTL machinery;
- * supplies only the KEY identity + the jobstats field mapping.
+ * supplies only the IDENTITY identity + the jobstats field mapping.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
  * @param {number} [ttlMs]      Identity liveness TTL.
@@ -159,13 +159,13 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * The per-entry identity the base folds on: a jobstats record's `KEY` slot.
+	 * The per-entry identity the base folds on: a jobstats record's `IDENTITY` slot.
 	 *
 	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
 	 * @return {string|number} Job identity (`handler:id` or `handler`).
 	 */
 	_identityOf( value ) {
-		return value[ KEY ];
+		return value[ IDENTITY ];
 	}
 
 	/**

@@ -19,7 +19,7 @@ import {
 	TM_STRUCT,
 } from '../../../runtime/message';
 import {
-	KEY,
+	IDENTITY,
 	HANDLER,
 	RUNS_DELTA,
 	ELAPSED_MS,
@@ -75,7 +75,7 @@ function jobstatsFrame( {
 	m[ TO ] = 'jobstats';
 	m[ TIMESTAMP ] = TS_BASE + ts;
 	const v = [];
-	v[ KEY ] = key;
+	v[ IDENTITY ] = key;
 	v[ HANDLER ] = handler;
 	v[ RUNS_DELTA ] = runs;
 	v[ ELAPSED_MS ] = elapsedMs;

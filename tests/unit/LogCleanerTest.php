@@ -691,7 +691,7 @@ class LogCleanerTest extends TestCase {
 		$intake   = new Job_Intake( $this->tmp );
 		// Enough distinct keys to exercise every partition the writer will use.
 		for ( $i = 0; $i < 200; $i++ ) {
-			$intake->write_job( 'probe_handler', [ 'i' => $i ], "key-{$i}" );
+			$intake->write_job( 'probe_handler', null, [ 'i' => $i ], "key-{$i}" );
 		}
 		$intake->close();
 

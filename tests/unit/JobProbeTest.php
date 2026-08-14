@@ -28,7 +28,7 @@ class JobProbeTest extends TestCase {
 	/** @return array<int,int|string> A filled 12-slot Jobstats_Record. */
 	private function make_record( string $key, string $handler, int $runs ): array {
 		$r                                    = [];
-		$r[ Jobstats_Record::KEY ]            = $key;
+		$r[ Jobstats_Record::IDENTITY ]            = $key;
 		$r[ Jobstats_Record::HANDLER ]        = $handler;
 		$r[ Jobstats_Record::RUNS_DELTA ]     = $runs;
 		$r[ Jobstats_Record::ERRORS_DELTA ]   = 0;
@@ -78,7 +78,7 @@ class JobProbeTest extends TestCase {
 			$this->assertSame( '_jobstats:log', $msg[ Message::TO ] );
 			$this->assertCount( 13, $msg[ Message::VALUE ] );
 		}
-		$keys = \array_map( static fn ( $m ) => $m[ Message::VALUE ][ Jobstats_Record::KEY ], $capture->captured );
+		$keys = \array_map( static fn ( $m ) => $m[ Message::VALUE ][ Jobstats_Record::IDENTITY ], $capture->captured );
 		\sort( $keys );
 		$this->assertSame( [ 'cron:films', 'evtemplate' ], $keys );
 	}
@@ -147,7 +147,7 @@ class JobProbeTest extends TestCase {
 		$probe->fire_cb();
 
 		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 'ok', $capture->captured[0][ Message::VALUE ][ Jobstats_Record::KEY ] );
+		$this->assertSame( 'ok', $capture->captured[0][ Message::VALUE ][ Jobstats_Record::IDENTITY ] );
 	}
 
 	public function test_fire_truncates_an_oversize_last_message_to_fit_pipe_buf(): void {
@@ -173,7 +173,7 @@ class JobProbeTest extends TestCase {
 		$last = $msg[ Message::VALUE ][ Jobstats_Record::LAST_MESSAGE ];
 		$this->assertNotSame( '', $last, 'a truncated tail of the message survives' );
 		$this->assertLessThan( 900, \mb_strlen( $last ) );
-		$this->assertSame( 'burst', $msg[ Message::VALUE ][ Jobstats_Record::KEY ] );
+		$this->assertSame( 'burst', $msg[ Message::VALUE ][ Jobstats_Record::IDENTITY ] );
 	}
 
 	public function test_fire_drops_a_record_no_truncation_can_fit(): void {
@@ -189,7 +189,7 @@ class JobProbeTest extends TestCase {
 		$probe->fire_cb();
 
 		$this->assertCount( 1, $capture->captured, 'only the fittable record lands' );
-		$this->assertSame( 'ok', $capture->captured[0][ Message::VALUE ][ Jobstats_Record::KEY ] );
+		$this->assertSame( 'ok', $capture->captured[0][ Message::VALUE ][ Jobstats_Record::IDENTITY ] );
 	}
 
 	public function test_arguments_sets_interval_and_returns_raw_string(): void {

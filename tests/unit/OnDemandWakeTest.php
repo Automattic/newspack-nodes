@@ -249,7 +249,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_writing_a_job_wakes_the_partition_it_landed_on(): void {
 		$this->activate( 'marmot-ondemand', 23 );
 
-		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', [] );
+		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', null, [] );
 		Partition_Node::flush_pending_wakes();
 
 		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken() );
@@ -292,7 +292,7 @@ class OnDemandWakeTest extends TestCase {
 
 		( new Job_Intake( $this->tmp, 2 ) )
 			->partition( 0 )
-			->write_job( 'marmot_handler', [], null, null, [ 'delay' => 3600 ] );
+			->write_job( 'marmot_handler', null, [], null, [ 'delay' => 3600 ] );
 		Partition_Node::flush_pending_wakes();
 
 		$this->assertSame( [], $this->woken() );
@@ -301,7 +301,7 @@ class OnDemandWakeTest extends TestCase {
 	public function test_writing_a_job_wakes_nothing_when_no_topology_is_on_demand(): void {
 		$this->activate( 'marmot-resident', 0 );
 
-		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', [] );
+		( new Job_Intake( $this->tmp, 2 ) )->partition( 1 )->write_job( 'marmot_handler', null, [] );
 		Partition_Node::flush_pending_wakes();
 
 		$this->assertSame( [], $this->woken() );

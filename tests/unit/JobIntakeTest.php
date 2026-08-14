@@ -70,27 +70,27 @@ class JobIntakeTest extends TestCase {
 
 	public function test_rejects_invalid_handler_name(): void {
 		$intake = new Job_Intake( $this->tmp );
-		$this->assertFalse( $intake->write_job( 'Bad-Name!', [] ) );
+		$this->assertFalse( $intake->write_job( 'Bad-Name!', null, [] ) );
 		$intake->close();
 	}
 
 	public function test_accepts_alphanumeric_underscore_handler(): void {
 		$intake = new Job_Intake( $this->tmp );
-		$this->assertTrue( $intake->write_job( 'good_handler', [ 'x' => 1 ] ) );
+		$this->assertTrue( $intake->write_job( 'good_handler', null, [ 'x' => 1 ] ) );
 		$intake->close();
 	}
 
 	public function test_accepts_dashed_handler(): void {
 		// HANDLER_NAME_PATTERN matches upstream — permissive at intake.
 		$intake = new Job_Intake( $this->tmp );
-		$this->assertTrue( $intake->write_job( 'sync-settings', [ 'x' => 1 ] ) );
+		$this->assertTrue( $intake->write_job( 'sync-settings', null, [ 'x' => 1 ] ) );
 		$intake->close();
 	}
 
 	public function test_static_queue_validates_before_lock(): void {
 		// Fail-fast: invalid handler name MUST return false without ever touching
 		// the filesystem (validate before entering the retry loop).
-		$this->assertFalse( Job_Intake::queue( '!bad', [], null, null, $this->tmp ) );
+		$this->assertFalse( Job_Intake::queue( '!bad', null, [], null, $this->tmp ) );
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/jobintake.lock.d" ) );
 	}
 
@@ -99,7 +99,7 @@ class JobIntakeTest extends TestCase {
 	public function test_write_job_writes_envelope_to_partition_log(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$this->assertTrue( $intake->write_job( 'sync', [ 'opt' => 'log_urls' ] ) );
+		$this->assertTrue( $intake->write_job( 'sync', null, [ 'opt' => 'log_urls' ] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines();
@@ -119,7 +119,7 @@ class JobIntakeTest extends TestCase {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
 
-		$this->assertTrue( $intake->write_feed( 'zarquon', [ 'site' => 7391 ] ) );
+		$this->assertTrue( $intake->write_feed( 'zarquon', null, [ 'site' => 7391 ] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' );
@@ -140,8 +140,8 @@ class JobIntakeTest extends TestCase {
 
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$this->assertFalse( $intake->write_feed( 'zarquon', $oversized ), 'over PIPE_BUF: refused' );
-		$this->assertTrue( $intake->write_job( 'zarquon', $oversized ), 'the locked path still takes it' );
+		$this->assertFalse( $intake->write_feed( 'zarquon', null, $oversized ), 'over PIPE_BUF: refused' );
+		$this->assertTrue( $intake->write_job( 'zarquon', null, $oversized ), 'the locked path still takes it' );
 		$intake->close();
 
 		$this->assertSame( [], $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' ) );
@@ -160,7 +160,7 @@ class JobIntakeTest extends TestCase {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
 		for ( $i = 0; $i < $writes; $i++ ) {
-			$this->assertTrue( $intake->write_feed( 'zarquon', $entry ) );
+			$this->assertTrue( $intake->write_feed( 'zarquon', null, $entry ) );
 		}
 		$intake->close();
 
@@ -182,10 +182,10 @@ class JobIntakeTest extends TestCase {
 	 * the filesystem, and a valid call writes the envelope and closes up.
 	 */
 	public function test_static_feed_validates_then_writes_the_jobfeed_envelope(): void {
-		$this->assertFalse( Job_Intake::feed( '!bad', [], null, null, $this->tmp, 1 ) );
+		$this->assertFalse( Job_Intake::feed( '!bad', null, [], null, $this->tmp, 1 ) );
 		$this->assertSame( [], glob( "{$this->tmp}/logs/jobfeed.p*" ) ?: [] );
 
-		$this->assertTrue( Job_Intake::feed( 'zarquon', [ 'site' => 7391 ], null, 'run-8812', $this->tmp, 1 ) );
+		$this->assertTrue( Job_Intake::feed( 'zarquon', 'run-8812', [ 'site' => 7391 ], null, $this->tmp, 1 ) );
 
 		$lines = $this->read_all_jobintake_lines( '/^jobfeed\.p\d+$/' );
 		$this->assertCount( 1, $lines );
@@ -198,8 +198,8 @@ class JobIntakeTest extends TestCase {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$intake->partition( 2 );
 
-		$this->assertTrue( $intake->write_job( 'a', [] ) );
-		$this->assertTrue( $intake->write_job( 'a', [] ) );
+		$this->assertTrue( $intake->write_job( 'a', null, [] ) );
+		$this->assertTrue( $intake->write_job( 'a', null, [] ) );
 		$intake->close();
 
 		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p2" ) );
@@ -213,8 +213,8 @@ class JobIntakeTest extends TestCase {
 		// Same key → same partition every time. Guaranteed by Partition::hash_to_partition.
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$expected = Partition_Node::hash_to_partition( 'event_42', 4 );
-		$this->assertTrue( $intake->write_job( 'sync', [ 'eid' => 42 ], 'event_42' ) );
-		$this->assertTrue( $intake->write_job( 'sync', [ 'eid' => 42 ], 'event_42' ) );
+		$this->assertTrue( $intake->write_job( 'sync', null, [ 'eid' => 42 ], 'event_42' ) );
+		$this->assertTrue( $intake->write_job( 'sync', null, [ 'eid' => 42 ], 'event_42' ) );
 		$intake->close();
 
 		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p{$expected}" ) );
@@ -224,7 +224,7 @@ class JobIntakeTest extends TestCase {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 4 );
 		// Issue 8 writes; the round-robin counter advances monotonically.
 		for ( $i = 0; $i < 8; $i++ ) {
-			$this->assertTrue( $intake->write_job( 'noop', [ 'i' => $i ] ) );
+			$this->assertTrue( $intake->write_job( 'noop', null, [ 'i' => $i ] ) );
 		}
 		$intake->close();
 
@@ -241,7 +241,7 @@ class JobIntakeTest extends TestCase {
 		// 33MB JSON > MAX_JOB_SIZE 32MB.
 		$intake = new Job_Intake( $this->tmp );
 		$big    = str_repeat( 'x', 33 * 1024 * 1024 );
-		$this->assertFalse( $intake->write_job( 'big', [ 'data' => $big ] ) );
+		$this->assertFalse( $intake->write_job( 'big', null, [ 'data' => $big ] ) );
 		$intake->close();
 	}
 
@@ -249,7 +249,7 @@ class JobIntakeTest extends TestCase {
 		// Optional identity for durable jobstats — key stats per "handler:id".
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$this->assertTrue( $intake->write_job( 'cron', [ 'opt' => 1 ], null, 'import-films' ) );
+		$this->assertTrue( $intake->write_job( 'cron', 'import-films' , [ 'opt' => 1 ]) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines();
@@ -263,7 +263,7 @@ class JobIntakeTest extends TestCase {
 		// PIPE_BUF lost the identity its jobstats are keyed by while the small
 		// one beside it kept it.
 		$this->assertTrue(
-			Job_Intake::queue( 'cron', [ 'opt' => 1 ], null, 'films-seed-5501', $this->tmp, 1 )
+			Job_Intake::queue( 'cron', 'films-seed-5501', [ 'opt' => 1 ], null, $this->tmp, 1 )
 		);
 
 		$lines = $this->read_all_jobintake_lines();
@@ -276,8 +276,8 @@ class JobIntakeTest extends TestCase {
 		// boundary so a runaway id can't bloat records toward the PIPE_BUF cap.
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$this->assertFalse( $intake->write_job( 'cron', [], null, str_repeat( 'z', 129 ) ) );
-		$this->assertTrue( $intake->write_job( 'cron', [], null, str_repeat( 'z', 128 ) ) );
+		$this->assertFalse( $intake->write_job( 'cron', str_repeat( 'z', 129 ), [] ) );
+		$this->assertTrue( $intake->write_job( 'cron', str_repeat( 'z', 128 ), [] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines();
@@ -289,7 +289,7 @@ class JobIntakeTest extends TestCase {
 		// Wire consumers pass nothing → today's behavior (no `id` key at all).
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$this->assertTrue( $intake->write_job( 'cron', [ 'opt' => 1 ] ) );
+		$this->assertTrue( $intake->write_job( 'cron', null, [ 'opt' => 1 ] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines();
@@ -350,7 +350,7 @@ class JobIntakeTest extends TestCase {
 	public function test_write_job_acquires_partition_lock(): void {
 		// Writing materializes the Partition + its per-partition write lock.
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
-		$this->assertTrue( $intake->write_job( 'a', [] ) );
+		$this->assertTrue( $intake->write_job( 'a', null, [] ) );
 		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
 		// No host-wide intake lock created.
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/jobintake.lock.d" ) );
@@ -363,7 +363,7 @@ class JobIntakeTest extends TestCase {
 		// __destruct calls close(); per-partition lock should be released even
 		// if the caller forgets to call close() explicitly.
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
-		$intake->write_job( 'a', [] );
+		$intake->write_job( 'a', null, [] );
 		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
 		unset( $intake );
 		$this->assertFalse( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
@@ -374,11 +374,11 @@ class JobIntakeTest extends TestCase {
 		// on p1 — the legacy host-wide intake lock used to gate both.
 		$first = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$first->partition( 0 );
-		$this->assertTrue( $first->write_job( 'a', [] ) );
+		$this->assertTrue( $first->write_job( 'a', null, [] ) );
 
 		$second = new Job_Intake( $this->tmp, num_partitions: 4 );
 		$second->partition( 1 );
-		$this->assertTrue( $second->write_job( 'b', [] ) );
+		$this->assertTrue( $second->write_job( 'b', null, [] ) );
 
 		$first->close();
 		$second->close();
@@ -387,7 +387,7 @@ class JobIntakeTest extends TestCase {
 	// --- Static queue() helper ----------------------------------------------
 
 	public function test_static_queue_writes_single_job(): void {
-		$this->assertTrue( Job_Intake::queue( 'a_handler', [ 'x' => 1 ], null, null, $this->tmp ) );
+		$this->assertTrue( Job_Intake::queue( 'a_handler', null, [ 'x' => 1 ], null, $this->tmp ) );
 		$lines = $this->read_all_jobintake_lines();
 		$this->assertCount( 1, $lines );
 		$this->assertSame( 'a_handler', $lines[0]['handler'] );
@@ -395,18 +395,18 @@ class JobIntakeTest extends TestCase {
 
 	public function test_static_queue_with_key_routes_consistently(): void {
 		$expected = Partition_Node::hash_to_partition( 'k', 4 );
-		$this->assertTrue( Job_Intake::queue( 'a', [], 'k', null, $this->tmp, 4 ) );
+		$this->assertTrue( Job_Intake::queue( 'a', null, [], 'k', $this->tmp, 4 ) );
 		$this->assertTrue( is_dir( "{$this->tmp}/logs/jobintake.p{$expected}" ) );
 	}
 
 	public function test_static_queue_releases_lock_after_call(): void {
 		// Single-shot calls must release the per-Partition lock so another
 		// caller can immediately queue another job.
-		Job_Intake::queue( 'a', [], null, null, $this->tmp, 1 );
+		Job_Intake::queue( 'a', null, [], null, $this->tmp, 1 );
 		$this->assertFalse( is_dir( "{$this->tmp}/logs/jobintake.p0/write.lock.d" ) );
 
 		// Second call succeeds without contention.
-		$this->assertTrue( Job_Intake::queue( 'b', [], null, null, $this->tmp, 1 ) );
+		$this->assertTrue( Job_Intake::queue( 'b', null, [], null, $this->tmp, 1 ) );
 	}
 
 	// --- Config fail-loud (no silent /tmp/newspack-nodes default) -----------
@@ -480,7 +480,7 @@ class JobIntakeTest extends TestCase {
 	public function test_not_before_future_routes_to_jobdelay(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
 		$due    = \microtime( true ) + 500.0;
-		$this->assertTrue( $intake->write_job( 'delayed_h', [ 'z' => 9 ], 'affkey', 'id7', [ 'not_before' => $due ] ) );
+		$this->assertTrue( $intake->write_job( 'delayed_h', 'id7', [ 'z' => 9 ], 'affkey', [ 'not_before' => $due ] ) );
 		$intake->close();
 
 		$this->assertSame( [], $this->read_all_jobintake_lines(), 'a future job must not enter jobintake' );
@@ -498,10 +498,10 @@ class JobIntakeTest extends TestCase {
 		// so a fan-out template must expand and a pinned one must not.
 		$intake = new Job_Intake( $this->tmp, 3 );
 		for ( $i = 0; $i < 40; $i++ ) {
-			$intake->write_job( 'probe_h', [ 'i' => $i ], "key-{$i}" );
-			$intake->feed( 'probe_h', [ 'i' => $i ], "key-{$i}" );
+			$intake->write_job( 'probe_h', null, [ 'i' => $i ], "key-{$i}" );
+			$intake->feed( 'probe_h', null, [ 'i' => $i ], "key-{$i}" );
 		}
-		$intake->write_job( 'late_h', [], null, null, [ 'not_before' => \microtime( true ) + 500.0 ] );
+		$intake->write_job( 'late_h', null, [], null, [ 'not_before' => \microtime( true ) + 500.0 ] );
 		$intake->close();
 
 		$declared = [];
@@ -519,7 +519,7 @@ class JobIntakeTest extends TestCase {
 
 	public function test_not_before_past_routes_to_jobintake_without_delay_fields(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
-		$this->assertTrue( $intake->write_job( 'prompt_h', [], 'affkey', null, [ 'not_before' => \microtime( true ) - 5.0 ] ) );
+		$this->assertTrue( $intake->write_job( 'prompt_h', null, [], 'affkey', [ 'not_before' => \microtime( true ) - 5.0 ] ) );
 		$intake->close();
 
 		$this->assertSame( [], $this->read_all_jobdelay_lines() );
@@ -530,8 +530,8 @@ class JobIntakeTest extends TestCase {
 
 	public function test_keyed_live_entry_carries_its_key_for_retry_affinity(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
-		$this->assertTrue( $intake->write_job( 'keyed_h', [], 'affkey' ) );
-		$this->assertTrue( $intake->write_job( 'unkeyed_h', [] ) );
+		$this->assertTrue( $intake->write_job( 'keyed_h', null, [], 'affkey' ) );
+		$this->assertTrue( $intake->write_job( 'unkeyed_h', null, [] ) );
 		$intake->close();
 
 		$lines = array_column( $this->read_all_jobintake_lines(), null, 'handler' );
@@ -542,7 +542,7 @@ class JobIntakeTest extends TestCase {
 	public function test_delay_option_converts_to_not_before(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
 		$before = \microtime( true );
-		$this->assertTrue( $intake->write_job( 'delayed_h', [], null, null, [ 'delay' => 120 ] ) );
+		$this->assertTrue( $intake->write_job( 'delayed_h', null, [], null, [ 'delay' => 120 ] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobdelay_lines();
@@ -553,7 +553,7 @@ class JobIntakeTest extends TestCase {
 
 	public function test_retries_option_rides_the_entry(): void {
 		$intake = new Job_Intake( $this->tmp, 4 );
-		$this->assertTrue( $intake->write_job( 'retry_h', [], null, null, [ 'retries' => 4 ] ) );
+		$this->assertTrue( $intake->write_job( 'retry_h', null, [], null, [ 'retries' => 4 ] ) );
 		$intake->close();
 
 		$lines = $this->read_all_jobintake_lines();
@@ -567,7 +567,7 @@ class JobIntakeTest extends TestCase {
 		try {
 			$this->expectException( \InvalidArgumentException::class );
 			$this->expectExceptionMessageMatches( '/retrys/' );
-			$intake->write_job( 'typo_h', [], null, null, [ 'retrys' => 3 ] );
+			$intake->write_job( 'typo_h', null, [], null, [ 'retrys' => 3 ] );
 		} finally {
 			$intake->close();
 		}
@@ -582,7 +582,7 @@ class JobIntakeTest extends TestCase {
 			// lock-contention catch can never silently swallow the misconfig.
 			$this->expectException( \LogicException::class );
 			$this->expectExceptionMessageMatches( '/memcached/' );
-			$intake->write_job( 'uniq_h', [], null, null, [ 'unique' => 'u1', 'unique_ttl' => 77 ] );
+			$intake->write_job( 'uniq_h', null, [], null, [ 'unique' => 'u1', 'unique_ttl' => 77 ] );
 		} finally {
 			$intake->close();
 			Core::$memd = $prev;
@@ -596,7 +596,7 @@ class JobIntakeTest extends TestCase {
 		try {
 			$this->expectException( \InvalidArgumentException::class );
 			$this->expectExceptionMessageMatches( '/unique_ttl/' );
-			$intake->write_job( 'uniq_h', [], null, null, [ 'unique' => 'u1' ] );
+			$intake->write_job( 'uniq_h', null, [], null, [ 'unique' => 'u1' ] );
 		} finally {
 			$intake->close();
 			Core::$memd = $prev;
@@ -608,9 +608,9 @@ class JobIntakeTest extends TestCase {
 		Core::$memd = new InMemoryMemcached();
 		$intake     = new Job_Intake( $this->tmp, 4 );
 		try {
-			$this->assertTrue( $intake->write_job( 'uniq_h', [ 'a' => 1 ], null, null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
-			$this->assertFalse( $intake->write_job( 'uniq_h', [ 'a' => 2 ], null, null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
-			$this->assertTrue( $intake->write_job( 'uniq_h', [ 'a' => 3 ], null, null, [ 'unique' => 'other', 'unique_ttl' => 77 ] ) );
+			$this->assertTrue( $intake->write_job( 'uniq_h', null, [ 'a' => 1 ], null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
+			$this->assertFalse( $intake->write_job( 'uniq_h', null, [ 'a' => 2 ], null, [ 'unique' => 'warm', 'unique_ttl' => 77 ] ) );
+			$this->assertTrue( $intake->write_job( 'uniq_h', null, [ 'a' => 3 ], null, [ 'unique' => 'other', 'unique_ttl' => 77 ] ) );
 		} finally {
 			$intake->close();
 			Core::$memd = $prev;
@@ -659,7 +659,7 @@ class JobIntakeTest extends TestCase {
 	}
 
 	public function test_static_queue_passes_options_through(): void {
-		$this->assertTrue( Job_Intake::queue( 'opt_h', [], null, null, $this->tmp, 4, [ 'retries' => 2 ] ) );
+		$this->assertTrue( Job_Intake::queue( 'opt_h', null, [], null, $this->tmp, 4, [ 'retries' => 2 ] ) );
 		$lines = $this->read_all_jobintake_lines();
 		$this->assertCount( 1, $lines );
 		$this->assertSame( 2, $lines[0]['retries'] );

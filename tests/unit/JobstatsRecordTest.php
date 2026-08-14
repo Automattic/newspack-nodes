@@ -18,7 +18,7 @@ class JobstatsRecordTest extends TestCase {
 		$this->assertSame(
 			[ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ],
 			[
-				Jobstats_Record::KEY,
+				Jobstats_Record::IDENTITY,
 				Jobstats_Record::HANDLER,
 				Jobstats_Record::RUNS_DELTA,
 				Jobstats_Record::ERRORS_DELTA,
@@ -42,7 +42,7 @@ class JobstatsRecordTest extends TestCase {
 		$this->assertIsString( $js, 'jobstats-record.js must exist' );
 
 		$expected = [
-			'KEY'               => Jobstats_Record::KEY,
+			'IDENTITY'          => Jobstats_Record::IDENTITY,
 			'HANDLER'           => Jobstats_Record::HANDLER,
 			'RUNS_DELTA'        => Jobstats_Record::RUNS_DELTA,
 			'ERRORS_DELTA'      => Jobstats_Record::ERRORS_DELTA,

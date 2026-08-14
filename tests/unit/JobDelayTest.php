@@ -27,7 +27,7 @@ class JobDelayTest extends TestCase {
 
 	private function seed_delayed( string $handler, float $not_before, ?string $key = null, ?string $id = null, array $extra = [] ): void {
 		$intake = new Job_Intake( $this->tmp, 2 );
-		$this->assertTrue( $intake->write_job( $handler, [ 'seeded' => 1 ], $key, $id, [ 'not_before' => $not_before ] + $extra ) );
+		$this->assertTrue( $intake->write_job( $handler, $id, [ 'seeded' => 1 ], $key, [ 'not_before' => $not_before ] + $extra ) );
 		$intake->close();
 	}
 

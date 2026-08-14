@@ -61,7 +61,8 @@ class JobWorkerTest extends TestCase {
 		$this->register_job_handler( $jw, 'ctx', fn ( $id, $p ) => null );
 
 		$seen = [];
-		add_action( 'newspack_nodes/job_worker/before_job', function ( $h ) use ( &$seen ) { $seen[] = "before:$h"; } );
+		// before_job is a filter, so the handler is its SECOND argument.
+		add_filter( 'newspack_nodes/job_worker/before_job', function ( $run, $h ) use ( &$seen ) { $seen[] = "before:$h"; return $run; }, 10, 2 );
 		add_action( 'newspack_nodes/job_worker/after_job', function ( $h ) use ( &$seen ) { $seen[] = "after:$h"; } );
 
 		$message = $this->job_message( 'ctx' );
@@ -96,13 +97,14 @@ class JobWorkerTest extends TestCase {
 		$this->register_job_handler( $jw, 'ctx', fn ( $id, $p ) => null );
 
 		$seen = null;
-		add_action(
+		add_filter(
 			'newspack_nodes/job_worker/before_job',
-			function ( $handler, $id, $message ) use ( &$seen ) {
+			function ( $run, $handler, $id, $message ) use ( &$seen ) {
 				$seen = $message;
+				return $run;
 			},
 			10,
-			3
+			4
 		);
 
 		$message                  = $this->job_message( 'ctx' );
@@ -176,6 +178,217 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $this->jobs_executed( $jw ) );
 	}
 
+	public function test_before_job_returning_false_declines_the_job(): void {
+		// before_job is a filter: a listener that will not set a context up for
+		// this job — one addressed to another host — declines it, and the
+		// handler never runs. after_job still fires, exactly as it does when a
+		// listener throws, so a DIFFERENT listener that had already set itself
+		// up is torn down no matter what order the two ran in.
+		$jw  = new Job_Worker_Node();
+		$ran = false;
+		$this->register_job_handler( $jw, 'evtemplate', function () use ( &$ran ) { $ran = true; } );
+
+		$after = 0;
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
+		add_filter( 'newspack_nodes/job_worker/before_job', function () { return false; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [], 'job', 'https://hub/Tools/UpdateSite.html' ) );
+
+		$this->assertFalse( $ran, 'a declined job must not run its handler' );
+		$this->assertSame( 1, $after, 'after_job must fire so a half-set-up listener is torn down' );
+	}
+
+	public function test_before_job_filter_receives_the_handler_id_and_message(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'evtemplate', function () {} );
+
+		$seen = [];
+		add_filter(
+			'newspack_nodes/job_worker/before_job',
+			function ( $run, $handler, $id, $message ) use ( &$seen ) {
+				$seen = [ $run, $handler, $id, $message[ Message::KEY ] ];
+				return $run;
+			},
+			10,
+			4
+		);
+
+		$message                 = $this->job_message( 'evtemplate', [], 'job', 'https://hub/Tools/UpdateSite.html' );
+		$message[ Message::KEY ] = 'affinity-3308';
+		$jw->fill( $message );
+
+		$this->assertSame( [ true, 'evtemplate', 'https://hub/Tools/UpdateSite.html', 'affinity-3308' ], $seen );
+	}
+
+	public function test_a_before_job_listener_returning_nothing_still_runs_the_job(): void {
+		// Fail-open: a listener that ignores the filter contract and returns
+		// null must not stop jobs. It DOES erase a decline threaded from an
+		// earlier priority, which is why the handler re-checks the host itself.
+		$jw  = new Job_Worker_Node();
+		$ran = false;
+		$this->register_job_handler( $jw, 'ctx', function () use ( &$ran ) { $ran = true; } );
+		add_action( 'newspack_nodes/job_worker/before_job', function () { return null; } );
+
+		$jw->fill( $this->job_message( 'ctx', [], 'job', 'run-6620' ) );
+
+		$this->assertTrue( $ran, 'a void listener must not be read as a decline' );
+		$this->assertSame( 1, $this->jobs_executed( $jw ) );
+	}
+
+	public function test_a_declined_job_leaves_its_batch_alone(): void {
+		// Declining is a per-worker routing decision, not an outcome: a batched
+		// job addressed to one host is declined by every OTHER subscribed worker,
+		// and settling it there would decrement the batch N times and report
+		// errors for work this host was never going to do.
+		$tmp        = $this->arrange_retry_base();
+		$prev       = Core::$memd;
+		$memd       = new InMemoryMemcached();
+		Core::$memd = $memd;
+		try {
+			$memd->set( Job_Intake::batch_count_key( 'bDecline' ), 2, 0 );
+			$memd->set( Job_Intake::batch_err_key( 'bDecline' ), 0, 0 );
+
+			$jw = new Job_Worker_Node();
+			$this->register_job_handler( $jw, 'evtemplate', fn () => null );
+			add_filter( 'newspack_nodes/job_worker/before_job', function () { return false; } );
+
+			$jw->fill( $this->job_message( 'evtemplate', [], 'job', 'https://hub/x.html', [ 'batch' => 'bDecline' ] ) );
+
+			$this->assertSame( 2, $memd->get( Job_Intake::batch_count_key( 'bDecline' ) ), 'the batch count must not move' );
+			$this->assertSame( 0, $memd->get( Job_Intake::batch_err_key( 'bDecline' ) ), 'and no error may be recorded' );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
+	// --- XXX: legacy gyrobase envelope shim ---------------------------------
+
+	public function test_legacy_gyrobase_envelope_lifts_its_template_into_the_id(): void {
+		// XXX: prod gyrobase queues {queue, template, parameters} with no
+		// top-level id, so the handler used to receive '' and return without
+		// rendering. Remove this test with the shim.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [
+			'queue'      => 'runTemplate',
+			'template'   => 'https://hub/Tools/UpdateSite.html',
+			'parameters' => [ 'Name' => 'Bend' ],
+		] ) );
+
+		$this->assertSame( [ 'https://hub/Tools/UpdateSite.html', [ 'Name' => 'Bend' ] ], $seen );
+	}
+
+	public function test_legacy_gyrobase_envelope_parses_a_query_string_body(): void {
+		// No evLog attributes means the legacy producer left `parameters` as the
+		// raw, form-encoded query string rather than a hash.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [
+			'queue'      => 'runTemplate',
+			'template'   => 'https://hub/Tools/UpdateSite.html',
+			'parameters' => 'Name=Bend&amp;ID=808579',
+		] ) );
+
+		$this->assertSame(
+			[ 'https://hub/Tools/UpdateSite.html', [ 'Name' => 'Bend', 'ID' => '808579' ] ],
+			$seen
+		);
+	}
+
+	public function test_legacy_envelope_preserves_dotted_parameter_names(): void {
+		// XXX: parse_str() rewrites `.` and space in keys to `_`; dotted field
+		// names are idiomatic on the gyrobase side, and the shim exists to
+		// reproduce the old producer's payload exactly. Remove with the shim.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = $p; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [
+			'queue'      => 'runTemplate',
+			'template'   => 'Tools/UpdateSite.html',
+			'parameters' => 'Site.Id=7391&Mailing+City=Bend',
+		] ) );
+
+		$this->assertSame( [ 'Site.Id' => '7391', 'Mailing City' => 'Bend' ], $seen );
+	}
+
+	public function test_legacy_envelope_with_a_null_parameters_key_still_lifts_its_template(): void {
+		// XXX: isset() is false for a present-but-null `parameters`, which would
+		// drop the envelope through unlifted. Remove with the shim.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [
+			'queue'      => 'runTemplate',
+			'template'   => 'Tools/UpdateSite.html',
+			'parameters' => null,
+		] ) );
+
+		$this->assertSame( [ 'Tools/UpdateSite.html', [] ], $seen );
+	}
+
+	public function test_the_legacy_shim_only_applies_to_evtemplate(): void {
+		// XXX: shape alone is not proof — another handler whose parameters
+		// legitimately carry these three keys would have its payload replaced
+		// and its identity rewritten. Remove with the shim.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'importer', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$envelope = [ 'queue' => 'q', 'template' => 'T.html', 'parameters' => [ 'x' => 1 ] ];
+		$jw->fill( $this->job_message( 'importer', $envelope ) );
+
+		$this->assertSame( [ '', $envelope ], $seen, 'a non-evtemplate handler keeps its parameters verbatim' );
+	}
+
+	public function test_the_legacy_shim_respects_the_job_id_cap(): void {
+		// Every other id path bounds the id at MAX_JOB_ID_LEN, because it rides
+		// in every jobstats record IDENTITY.
+		$jw  = new Job_Worker_Node();
+		$ran = false;
+		$this->register_job_handler( $jw, 'evtemplate', function () use ( &$ran ) { $ran = true; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [
+			'queue'      => 'runTemplate',
+			'template'   => \str_repeat( 'z', Job_Intake::MAX_JOB_ID_LEN + 1 ),
+			'parameters' => [],
+		] ) );
+
+		$this->assertFalse( $ran, 'an overlong lifted id is refused, not truncated into a wrong identity' );
+	}
+
+	public function test_a_declined_job_is_not_counted_as_executed(): void {
+		$jw = new Job_Worker_Node();
+		$this->register_job_handler( $jw, 'evtemplate', fn () => null );
+		add_filter( 'newspack_nodes/job_worker/before_job', function () { return false; } );
+
+		$jw->fill( $this->job_message( 'evtemplate', [], 'job', 'https://hub/x.html' ) );
+
+		$this->assertSame( 0, $this->jobs_executed( $jw ), 'a declined job did no work' );
+	}
+
+	public function test_a_modern_entry_is_untouched_by_the_legacy_shim(): void {
+		// A current producer sets the id itself; a `template` parameter must not
+		// be mistaken for the legacy envelope.
+		$jw   = new Job_Worker_Node();
+		$seen = [];
+		$this->register_job_handler( $jw, 'evtemplate', function ( $id, $p ) use ( &$seen ) { $seen = [ $id, $p ]; } );
+
+		$jw->fill( $this->job_message(
+			'evtemplate',
+			[ 'template' => 'PostTask.html', 'silo' => 'archive' ],
+			'job',
+			'Tools/Run.html'
+		) );
+
+		$this->assertSame( [ 'Tools/Run.html', [ 'template' => 'PostTask.html', 'silo' => 'archive' ] ], $seen );
+	}
+
 	// --- Job identity threaded to handler + before/after actions -------------
 
 	public function test_two_param_handler_receives_the_top_level_id(): void {
@@ -217,24 +430,24 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( '', $captured_id );
 	}
 
-	public function test_before_job_action_receives_the_id_as_second_arg(): void {
+	public function test_before_job_filter_receives_the_id_as_third_arg(): void {
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'cron', fn ( $id, $p ) => null );
 
 		$captured = 'MISSING';
-		add_action( 'newspack_nodes/job_worker/before_job', function ( $h, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 2 );
+		add_filter( 'newspack_nodes/job_worker/before_job', function ( $run, $h, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; return $run; }, 10, 3 );
 
 		$jw->fill( $this->job_message( 'cron', [], 'job', 'events-77' ) );
 
 		$this->assertSame( 'events-77', $captured );
 	}
 
-	public function test_after_job_action_receives_the_id_as_third_arg(): void {
+	public function test_after_job_action_receives_the_id_as_second_arg(): void {
 		$jw = new Job_Worker_Node();
 		$this->register_job_handler( $jw, 'cron', fn ( $id, $p ) => null );
 
 		$captured = 'MISSING';
-		add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $outcome, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 3 );
+		add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $id = 'MISSING' ) use ( &$captured ) { $captured = $id; }, 10, 2 );
 
 		$jw->fill( $this->job_message( 'cron', [], 'job', 'digest-9' ) );
 

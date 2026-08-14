@@ -49,7 +49,7 @@ class JobIntakePatronTest extends TestCase {
 	public function test_partition_is_named(): void {
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$intake->write_job( 'a', [] );
+		$intake->write_job( 'a', null, [] );
 
 		$p = $this->find_jobintake_partition();
 		$this->assertNotNull( $p, 'jobintake Partition must be registered by name' );
@@ -64,7 +64,7 @@ class JobIntakePatronTest extends TestCase {
 		// dump_metadata hides it from the topology console canvas.
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$intake->write_job( 'a', [] );
+		$intake->write_job( 'a', null, [] );
 
 		$p = $this->find_jobintake_partition();
 		$this->assertNotNull( $p );
@@ -80,7 +80,7 @@ class JobIntakePatronTest extends TestCase {
 
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$intake->write_job( 'a', [] );
+		$intake->write_job( 'a', null, [] );
 
 		$p = $this->find_jobintake_partition();
 		$this->assertNotNull( $p );
@@ -96,7 +96,7 @@ class JobIntakePatronTest extends TestCase {
 
 		$intake = new Job_Intake( $this->tmp, num_partitions: 1 );
 		$intake->partition( 0 );
-		$intake->write_job( 'a', [] );
+		$intake->write_job( 'a', null, [] );
 
 		$p = $this->find_jobintake_partition();
 		$this->assertNotNull( $p );

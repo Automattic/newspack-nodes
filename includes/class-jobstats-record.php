@@ -22,9 +22,9 @@ namespace Newspack_Nodes;
 class Jobstats_Record {
 
 	/** Job identity: `handler:id` (top-level `id` present) or `handler`. */
-	public const KEY = 0;
+	public const IDENTITY = 0;
 
-	/** Handler name (grouping/display; the `id`-free half of KEY). */
+	/** Handler name (grouping/display; the `id`-free half of IDENTITY). */
 	public const HANDLER = 1;
 
 	/** Runs during ELAPSED_MS (every executed job, success or error). */
