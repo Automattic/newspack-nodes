@@ -33,18 +33,18 @@ class DeadLetterQueueScopeTest extends TestCase {
 
 	public function test_a_quarantine_only_host_carries_no_reader_seal_state(): void {
 		$partition = $this->own_property_names( Partition_Node::class );
-		foreach ( [ 'sealed_quarantine', 'crawl_skip_head', 'skip_head_disposition' ] as $reader_only ) {
+		foreach ( [ 'crawl_skip_head', 'disposed_record', 'crumb' ] as $reader_only ) {
 			$this->assertNotContains(
 				$reader_only,
 				$partition,
-				"Partition_Node uses Dead_Letter_Queue alone and can never seal; {$reader_only} is Durable_Reader's"
+				"Partition_Node uses Dead_Letter_Queue alone and reads nothing; {$reader_only} is Durable_Reader's"
 			);
 		}
 	}
 
 	public function test_a_durable_reader_still_carries_all_of_it(): void {
 		$consumer = $this->own_property_names( Consumer_Node::class );
-		foreach ( [ 'sealed_quarantine', 'crawl_skip_head', 'skip_head_disposition' ] as $reader_only ) {
+		foreach ( [ 'crawl_skip_head', 'disposed_record', 'crumb' ] as $reader_only ) {
 			$this->assertContains( $reader_only, $consumer );
 		}
 		// And the quarantine primitive is still shared with Partition.

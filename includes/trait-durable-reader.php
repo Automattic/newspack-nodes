@@ -36,43 +36,35 @@ trait Durable_Reader {
 	protected bool $crawl_skip_head = false;
 
 	/**
-	 * Disposition of an armed boot head-skip (see $crawl_skip_head): 'crash' → the head was
-	 * never captured, DLQ it with reason 'crash' (the crash-lineage sacrifice); 'drop' → a
-	 * quarantine marker (`quarantined => true` on the resumed frame) says the head is ALREADY in
-	 * the DLQ, so drop it silently (no second entry). Only meaningful while $crawl_skip_head is true.
-	 */
-	protected string $skip_head_disposition = 'crash';
-
-	/**
-	 * Source `{segment,offset}` of a message already in the `:deadletter` sibling that the cursor
-	 * still sits on (an advance-on-next reader lingers there until the next arrival; a boot 'drop'
-	 * life sits on the marker's position). Every frame committed AT this position keeps `quarantined`
-	 * set so no plain boot/persist/shutdown frame clobbers the marker and re-forwards an
-	 * already-quarantined message; a frame committed strictly PAST it releases the seal. null = none.
+	 * The record currently being drained, as crumb_for_line() placed it. Read by
+	 * advance_consume_cursor after the dispatch, and stamped into the forwarded message's ID.
 	 *
-	 * @var array{segment:int,offset:int}|null
+	 * @var array{segment:int, offset:int, length:int}
 	 */
-	protected ?array $sealed_quarantine = null;
+	protected array $crumb = [ 'segment' => 0, 'offset' => 0, 'length' => 0 ];
 
 	/**
-	 * Arm the boot-time head skip from a restored frame, choosing its disposition. A quarantine
-	 * marker (`quarantined => true`) arms a silent DROP — the head is already in the DLQ. Otherwise
-	 * a hard-crash lineage (via resume_attempts_from_frame) arms the DLQ 'crash' sacrifice. A frame
-	 * can be both (a post-crash-sacrifice marker keeps the crawl lineage AND carries the marker);
-	 * the marker's DROP wins so the already-quarantined head isn't re-dead-lettered, while crawl
-	 * still continues. resume_attempts_from_frame is ALWAYS called (it seeds attempts/first_crash_ts
-	 * even off the crawl path). Shared by Consumer (load_offsetlog) and Remote_Source (restore_position).
+	 * Set by a drain that DISPOSED of its record — dead-lettered or dropped it rather than
+	 * forwarding it. The drain loop consumes the flag after advancing past the record: the
+	 * position is now clean, so it commits there gracefully, which both stops a crash from
+	 * re-dead-lettering the same record and keeps the disposal from reading as a crash lineage
+	 * the next boot would sacrifice an innocent head for.
+	 */
+	protected bool $disposed_record = false;
+
+	/**
+	 * Arm the boot-time head skip from a restored frame: a hard-crash lineage (via
+	 * resume_attempts_from_frame) arms the DLQ 'crash' sacrifice of the resumed head, which
+	 * the crawl pre-dispatch pin makes the message that was in flight when the death struck.
+	 * A disposal commits gracefully past its record, so a poison position never arms this.
+	 * Shared by Consumer (load_offsetlog) and Remote_Source (restore_position).
 	 *
 	 * @param array<array-key,mixed> $entry The restored frame VALUE.
 	 * @return bool True when the head skip is armed.
 	 */
 	protected function arm_skip_head_from_frame( array $entry ): bool {
 		if ( $this->resume_attempts_from_frame( $entry ) ) {
-			$this->crawl_skip_head = true; // Keep default: DLQ sacrifice.
-		}
-		if ( true === ( $entry['quarantined'] ?? false ) ) {
-			$this->crawl_skip_head       = true;
-			$this->skip_head_disposition = 'drop';
+			$this->crawl_skip_head = true;
 		}
 		return $this->crawl_skip_head;
 	}
@@ -373,7 +365,7 @@ trait Durable_Reader {
 		$max     = ( $this->line_mode || $this->crawl ) ? 1 : \PHP_INT_MAX;
 		$emitted = 0;
 		$pos     = 0;
-		// finally: a propagated Worker_Should_Stop still advances the cursor.
+		// finally: the buffer chop survives a propagated Worker_Should_Stop.
 		try {
 			while ( $emitted < $max ) {
 				$nl = \strpos( $this->buffer, "\n", $pos );
@@ -381,20 +373,24 @@ trait Durable_Reader {
 					break;
 				}
 				$line = \substr( $this->buffer, $pos, $nl - $pos );
+				$this->crumb = $this->crumb_for_line( $line );
 				try {
-					$this->drain_line( $line, $this->cursor_offset + $pos );
+					$this->drain_line( $line, $this->cursor_offset );
 				} catch ( Worker_Should_Stop_Clean $e ) {
-					// Fully processed: commit past it; plain stop replays.
+					// Fully processed: commit past it; a plain stop replays.
 					$pos = $nl + 1;
+					$this->advance_consume_cursor();
 					throw $e;
 				}
 				$pos = $nl + 1; // past the consumed \n.
+				$this->advance_consume_cursor();
+				$this->commit_disposed_record();
 				++$emitted;
 			}
 		} finally {
+			// Buffer bookkeeping only: the cursor already moved, per record.
 			if ( $pos > 0 ) {
 				$this->buffer = \substr( $this->buffer, $pos );
-				$this->advance_consume_cursor( $pos );
 			}
 		}
 		// Buffer dry of lines: the remainder is a partial — guard its growth.
@@ -416,28 +412,64 @@ trait Durable_Reader {
 		if ( $this->crawl_skip_head ) {
 			// One-shot boot head-skip; $abs_offset is the head start.
 			$this->crawl_skip_head = false;
-			if ( 'drop' === $this->skip_head_disposition ) {
-				// Marker: head already in the DLQ — drop, no second entry.
-				$this->print_less_often( "DROP [quarantined] {$this->name} at ", "{$this->cursor_segment}:{$this->cursor_offset}", ' — already dead-lettered' );
-			} else {
-				// Sacrifice head to DLQ, then quarantine-mark its start.
-				$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
-				$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
-			}
+			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'crash' );
+			$this->disposed_record = true;
 			return;
 		}
 		$this->forward_line( $line, $abs_offset );
 	}
 
 	/**
-	 * Consume-cursor advance seam: after drain_buffer chops the emitted lines off the buffer,
-	 * advance the durable read offset by the chopped byte count. Consumer's cursor IS the disk
-	 * read position, so it bumps by the chop; a push source (Remote_Source) derives its cursor
-	 * from each line's own breadcrumb in forward_line, so it overrides this to a no-op (the local
-	 * buffer chop index is not a remote seg:offset).
+	 * Place one raw line in the source's own bytes, as `{segment, offset, length}` — the crumb
+	 * that goes into its ID and the amount advance_consume_cursor moves past it. A tailing
+	 * reader is addressed by what it reads: the cursor IS this record's start, because the
+	 * previous record advanced exactly past itself, and the line's own bytes are its length.
+	 * A pull source, addressed by the spoke that sent it, overrides this to read the crumb.
+	 *
+	 * @return array{segment:int, offset:int, length:int}
 	 */
-	protected function advance_consume_cursor( int $pos ): void {
-		$this->cursor_offset += $pos;
+	protected function crumb_for_line( string $line ): array {
+		return [
+			'segment' => $this->cursor_segment,
+			'offset'  => $this->cursor_offset,
+			'length'  => \strlen( $line ) + 1,
+		];
+	}
+
+	/**
+	 * Durably resolve a record this drain DISPOSED of, if disposing of it ended a poison or
+	 * crash lineage. Left climbing, that lineage would arm a head sacrifice on the next boot at
+	 * a position the disposal already made clean — condemning whichever innocent record arrived
+	 * there. A lineage-free disposal writes nothing: its record is in the DLQ either way, and a
+	 * frame per bad record would burn the whole time-travel keyframe history on a poison burst.
+	 */
+	private function commit_disposed_record(): void {
+		if ( ! $this->disposed_record ) {
+			return;
+		}
+		$this->disposed_record = false;
+		// Crawl pins its own accounting until it survives a clean interval.
+		if ( $this->crawl || ( 1 >= $this->attempts && null === $this->first_crash_ts ) ) {
+			return;
+		}
+		$this->attempts       = 1;
+		$this->first_crash_ts = null;
+		$this->poison_reason  = '';
+		$this->write_checkpoint_frame( true, true );
+	}
+
+	/**
+	 * Consume-cursor advance: move the durable read offset PAST the record just drained, by the
+	 * length in its own crumb. Called once per record from the drain loop — the one place that
+	 * owns it, so no forward_line override can forget it — after the record was forwarded and
+	 * its ID stamped from the pre-advance cursor.
+	 *
+	 * The cursor therefore always names the next UNREAD position, and it means that for every
+	 * reader. Pinned at the last-forwarded record's start instead, every resume re-delivers that
+	 * record: one duplicate per resume, adjacent, carrying the same crumb.
+	 */
+	protected function advance_consume_cursor(): void {
+		$this->cursor_offset += $this->crumb['length'];
 	}
 
 	/**
@@ -459,6 +491,7 @@ trait Durable_Reader {
 		} catch ( \InvalidArgumentException $e ) {
 			// Won't unpack, never will: quarantine; cursor advances.
 			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $abs_offset ), 'unparseable', $e );
+			$this->disposed_record = true;
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -466,7 +499,8 @@ trait Durable_Reader {
 			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 		}
 		// ID breadcrumb = seg:offset:length (length for SSE_In's reconnect).
-		$message[ Message::ID ] = "{$this->cursor_segment}:{$abs_offset}:{$line_size}";
+		$this->crumb            = [ 'segment' => $this->cursor_segment, 'offset' => $abs_offset, 'length' => $line_size ];
+		$message[ Message::ID ] = "{$this->crumb['segment']}:{$this->crumb['offset']}:{$this->crumb['length']}";
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
@@ -554,9 +588,13 @@ trait Durable_Reader {
 		}
 		// Boot-cursor message got a full lifetime; we stopped on it: strike.
 		if ( $this->record_poison_strike( $reason ) ) {
-			// Quarantine head; hand off a MARKER; the successor drops it.
+			// Hand off PAST the head: it is already in the DLQ.
 			$this->dead_letter( $this->poison_from_line( $head, $this->cursor_segment, $this->cursor_offset ), $reason );
-			$this->write_checkpoint_frame( true, true, [ 'quarantined' => true ] );
+			$this->crumb          = $this->crumb_for_line( $head );
+			$this->cursor_segment = $this->crumb['segment'];
+			$this->cursor_offset  = $this->crumb['offset'];
+			$this->advance_consume_cursor();
+			$this->write_checkpoint_frame( true, true );
 			return;
 		}
 		// Record the strike at the unchanged cursor; the respawn climbs it.
@@ -875,15 +913,6 @@ trait Durable_Reader {
 	protected function commit_checkpoint_frame( int $segment, int $offset, bool $graceful, array $extra = [] ): void {
 		if ( null === $this->offsetlog ) {
 			return;
-		}
-		// Keep 'quarantined' on the DLQ'd message; past it drops the seal.
-		if ( null !== $this->sealed_quarantine ) {
-			$sealed = $this->sealed_quarantine;
-			if ( $segment === $sealed['segment'] && $offset === $sealed['offset'] ) {
-				$extra['quarantined'] = true;
-			} elseif ( [ $segment, $offset ] > [ $sealed['segment'], $sealed['offset'] ] ) {
-				$this->sealed_quarantine = null;
-			}
 		}
 		$frame = [
 			'segment'            => $segment,

@@ -208,6 +208,28 @@ class RemoteSourceNodeTest extends TestCase {
 	// Multi-writer seal-grace — Consumer's verb, asserted over the wire.
 	// ---------------------------------------------------------------------
 
+	public function test_the_committed_cursor_names_the_next_unread_record(): void {
+		// The cursor must mean what Consumer's means: the next UNREAD position.
+		// Pinned at the last-forwarded record's start instead, every resume
+		// re-delivers that one record — the hub writes it twice, adjacent, with
+		// the same crumb, while the spoke's own log holds it once.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node, $sink ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse = Core::node( 'remote-austin:sse-in' );
+
+		// Two records, the crumbs chaining exactly as a partition lays them out.
+		$this->deliver( $sse, '7:100:60' );
+		$this->deliver( $sse, '7:160:40' );
+
+		$this->assertCount( 2, $sink->captured, 'both forwarded' );
+		$this->assertSame(
+			[ 7, 200 ],
+			[ $this->read_private( $node, 'cursor_segment' ), $this->read_private( $node, 'cursor_offset' ) ],
+			'the cursor sits PAST the last record (160 + 40), not on its start'
+		);
+	}
+
 	// ---------------------------------------------------------------------
 	// Seek sentinels — a push source has no segments, so it forwards the seek
 	// to the spoke, which does.
@@ -222,6 +244,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse->restore_position( 3, 900 ); // a pair the seek must override
 
 		$node->next_offset( Consumer_Node::SEEK_RECENT );
+		// A seek waits for the spoke to resolve it, and the reconnect is throttled to the
+		// wall second — so the seek must survive the ticks in between. The per-tick cursor
+		// handoff would otherwise answer it with the very position it was asked to leave.
+		$node->fire();
+		$node->fire();
 
 		$captured = [];
 		SSE_In_Node::$curl_dispatch = function ( array $opts ) use ( &$captured ): \CurlHandle {
@@ -476,18 +503,18 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$this->deliver( $sse, '7:128:44', 'boom' ); // downstream throws → dead-letter immediately.
-		$this->deliver( $sse, '7:300:40', '' );     // NOT blocked: forwards. Advance-on-next → cursor pins its START.
+		$this->deliver( $sse, '7:300:40', '' );     // NOT blocked: forwards.
 
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'poison dead-lettered on the first throw' );
 		$this->assertCount( 1, $spy->captured, 'the following message is not head-blocked' );
 
-		// A clean shutdown commits the last forwarded message's own START (advance-on-next — the
-		// cursor no longer computes an exclusive end), safely PAST the earlier poison.
+		// A clean shutdown commits PAST the last forwarded message — its crumb start plus the
+		// crumb's own length, which is the next unread position and never a record already read.
 		$node->checkpoint_shutdown();
 		$frame = $this->newest_offsetlog_frame( $node );
 		$this->assertSame( 7, $frame['segment'] );
-		$this->assertSame( 300, $frame['offset'] );
+		$this->assertSame( 340, $frame['offset'] );
 		$this->assertSame( 0, $frame['attempts'], 'no fair-shot climb — a clean handoff' );
 	}
 
@@ -508,77 +535,79 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->assertSame(
 			40959889 + 177,
+			$this->read_private( $node, 'cursor_offset' ),
+			'the cursor must land on the next record boundary, not inside it'
+		);
+		$node->fire(); // the tick hands the cursor to the stream for its next connect.
+		$this->assertSame(
+			40959889 + 177,
 			$sse->position()['offset'],
-			'resume must land on the next record boundary, not inside it'
+			'and the resume position is that same cursor — one position, not two'
 		);
 	}
 
-	public function test_crumbless_throw_dead_letters_without_marking_prior_cursor(): void {
-		// Fix #4: a crumb-less throwing message (no parseable ID) has no position of its own — the
-		// cursor still pins the PRIOR healthy line. Marking a quarantine at the cursor would falsely
-		// seal that good line. So it is dead-lettered but writes NO quarantine marker (parity with
-		// the retired relay's `if ( null !== $crumb )` guard).
+	public function test_crumbless_throw_dead_letters_without_moving_the_cursor(): void {
+		// A crumb-less throwing message has no position of its own: it cannot be placed in the
+		// spoke's bytes, so it moves the cursor by nothing. The disposal still commits, and that
+		// commit must land PAST the prior healthy record — never rewound onto it.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor pins {7,100}.
-		$this->assertSame( 100, $this->read_private( $node, 'cursor_offset' ) );
-		$baseline = $this->count_offsetlog_records( $node );
+		$this->deliver( $sse, '7:100:40', '' ); // healthy → cursor advances past it.
+		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ) );
 
 		$this->deliver( $sse, '', 'boom' ); // crumb-less, downstream throws.
 
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the crumb-less throw IS dead-lettered' );
-		$this->assertSame( $baseline, $this->count_offsetlog_records( $node ), 'but writes NO quarantine marker frame at the prior healthy cursor' );
-		$this->assertFalse( $this->newest_offsetlog_frame( $node )['quarantined'] ?? false, 'the prior healthy cursor is not falsely sealed' );
+		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'an unplaceable record moves the cursor by nothing' );
+		$node->checkpoint_shutdown();
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 140, $frame['offset'], 'and the handoff sits past the healthy record, never rewound onto it' );
 	}
 
-	public function test_caught_throw_last_message_marks_quarantine_and_reboot_drops(): void {
-		// Advance-on-next + on-sight marker: a caught-throw poison pins its OWN start AND writes a
-		// quarantine marker there. On an idle tail a clean recycle preserves the marker (sealed
-		// position), so a respawn DROPS the re-delivered poison instead of re-quarantining it on
-		// every ~10-min recycle (bounding invariant row 1's exposure to the marker-write window).
+	public function test_caught_throw_commits_past_the_poison_and_a_reboot_moves_on(): void {
+		// A caught-throw poison is dead-lettered ON SIGHT, so its position is resolved: the cursor
+		// advances past it by its own crumb length and the disposal commits there GRACEFULLY. A
+		// respawn therefore resumes past it — it is never re-delivered, and never re-quarantined.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:128:44', 'boom' ); // last message → dead-letter + marker at {7,128}, then idle.
+		$this->deliver( $sse, '7:128:44', 'boom' ); // last message → dead-lettered, then idle.
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ) );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 128, $frame['offset'], 'cursor pins the poison start' );
-		$this->assertTrue( $frame['quarantined'] ?? false, 'an on-sight throw writes a quarantine marker' );
+		$this->assertSame( 172, $this->read_private( $node, 'cursor_offset' ), 'the cursor moves PAST the poison (128 + 44)' );
 
-		// Clean recycle preserves the marker at the sealed position (does not clobber it graceful).
 		$node->checkpoint_shutdown();
-		$this->assertTrue( $this->newest_offsetlog_frame( $node )['quarantined'] ?? false, 'the clean-recycle frame keeps the marker' );
-
-		// Respawn: a fresh node restores the marker, arms DROP, and drops the re-delivered poison.
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 172, $frame['offset'], 'and the handoff commits there' );
+		$this->assertSame( 0, $frame['attempts'], 'a disposed record leaves no lineage behind' );
 		$node->remove_node();
 		$spy->remove_node();
 		[ $node2, $spy2 ] = $this->make_remote_spy( 'remote-austin' );
 		$node2->fire();
-		$this->assertSame( 'drop', $this->read_private( $node2, 'skip_head_disposition' ), 'the marker arms DROP on reboot' );
-		$sse2 = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse2, '7:128:44', 'boom' ); // re-delivered poison → DROPPED, not re-quarantined.
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'no second DLQ entry on the recycle' );
-		$this->assertCount( 0, $spy2->captured, 'and not forwarded' );
+		$this->assertSame( 172, $this->read_private( $node2, 'cursor_offset' ), 'the respawn resumes past the poison' );
+		$this->assertFalse( $this->read_private( $node2, 'crawl_skip_head' ), 'and arms no head sacrifice on a resolved position' );
 
-		$this->deliver( $sse2, '7:200:40', '' ); // a fresh message forwards, cursor moves on.
-		$this->assertCount( 1, $spy2->captured );
+		$sse2 = Core::node( 'remote-austin:sse-in' );
+		$this->deliver( $sse2, '7:200:40', '' );
+		$this->assertCount( 1, $spy2->captured, 'the next message forwards normally' );
+		$this->assertSame( 1, $this->count_log_records( $dlq ), 'and nothing is re-quarantined' );
 	}
 
-	public function test_caught_throw_marker_preserves_a_live_crash_lineage(): void {
-		// The on-sight throw marker must PRESERVE the live attempt accounting (never graceful/virgin),
-		// so a caught throw during a climbing crash lineage doesn't reset the streak.
+	public function test_a_disposal_ends_a_climbing_crash_lineage(): void {
+		// The record the lineage was climbing for is now IN the dead-letter queue — the suspect is
+		// resolved. Committing the live streak instead would leave the next boot arming a head
+		// sacrifice at a clean position, condemning whichever innocent message arrived there.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 2, '' ); // climbing lineage: resume → attempts=3.
+		$this->seed_offsetlog_frame( 7, 128, 2, '' ); // climbing lineage: resume -> attempts=3.
 		[ $node ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$this->assertSame( 3, $this->read_private( $node, 'attempts' ) );
@@ -587,14 +616,15 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->deliver( $sse, '7:128:44', 'boom' ); // caught throw on the boot message.
 
 		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertTrue( $frame['quarantined'] ?? false, 'the throw marker is written' );
-		$this->assertSame( 3, $frame['attempts'], 'the climbing lineage is preserved, not reset to virgin' );
+		$this->assertSame( 172, $frame['offset'], 'committed past the disposed record' );
+		$this->assertSame( 0, $frame['attempts'], 'the lineage ends with the record it was about' );
 	}
 
-	public function test_unparseable_tail_marks_quarantine_and_reboot_drops(): void {
-		// Invariant row 2 symmetry: an unparseable frame is quarantined ON SIGHT with a marker at
-		// the SSE position; a clean recycle preserves it, and a respawn DROPS the re-delivered raw
-		// line at the boot 'drop' position (identified by the SSE position, not a parseable crumb).
+	public function test_unparseable_tail_is_quarantined_where_the_cursor_stands(): void {
+		// A torn frame carries no crumb, so it cannot be placed in the spoke's bytes by anything
+		// this node measures. It is dead-lettered where the cursor stands — the next unread
+		// position, the one place available — and moves it by nothing, never by a local line
+		// length, which is in the wrong byte space entirely.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		$this->seed_offsetlog_frame( 7, 128, 0, '' ); // boot = {7,128}; SSE_In is seeded there.
@@ -606,35 +636,23 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->poll(); // drain: forward_line owns the torn-line DLQ (SSE_In no longer unpacks).
 		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'the unparseable frame is quarantined once' );
-		$frame = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 128, $frame['offset'] );
-		$this->assertTrue( $frame['quarantined'] ?? false, 'an unparseable frame writes a quarantine marker' );
+		$this->assertSame( 128, $this->read_private( $node, 'cursor_offset' ), 'the cursor stands where the record was placed' );
+		$this->assertCount( 0, $spy->captured, 'and nothing is forwarded' );
 
-		$node->checkpoint_shutdown();
-
-		// Reboot: the re-delivered unparseable line is DROPPED, not re-quarantined.
-		$node->remove_node();
-		$spy->remove_node();
-		[ $node2 ] = $this->make_remote_spy( 'remote-austin' );
-		$node2->fire();
-		$this->assertSame( 'drop', $this->read_private( $node2, 'skip_head_disposition' ) );
-		$sse2 = Core::node( 'remote-austin:sse-in' );
-		$sse2->process_sse_chunk( "event: msg\ndata: not-a-valid-message\n\n" );
-		$node2->poll(); // drain: the re-delivered torn line hits the boot 'drop' head-skip.
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'no second DLQ entry on the reboot' );
+		// The stream moves on: the next crumb-bearing record places itself and forwards.
+		$this->deliver( $sse, '7:400:40', '' );
+		$this->assertCount( 1, $spy->captured );
+		$this->assertSame( 440, $this->read_private( $node, 'cursor_offset' ) );
 	}
 
-	public function test_unparseable_past_boot_head_under_drop_is_dead_lettered_not_dropped(): void {
-		// Fix #3: the boot 'drop' silent-drop is guarded on POSITION (parity with the old on_poison
-		// hook) — only a torn frame AT the boot head (SSE next-read position == boot pin, the
-		// already-quarantined suspect) is dropped. A torn frame PAST the boot head (the stream
-		// resumed past a GC'd suspect) is genuinely new poison → dead-lettered, not silently dropped.
+	public function test_unparseable_past_the_boot_head_is_dead_lettered(): void {
+		// A torn frame is genuinely new poison wherever it lands: the stream resuming PAST a
+		// GC'd crash suspect does not make the next torn frame that suspect.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 0, '', 'remote-austin', true ); // marker → boot='drop', boot={7,128}.
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
+		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' ); // crash lineage, boot={7,128}.
+		[ $node ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
-		$this->assertSame( 'drop', $this->read_private( $node, 'skip_head_disposition' ) );
 		$this->assertTrue( $this->read_private( $node, 'crawl_skip_head' ) );
 		$sse = Core::node( 'remote-austin:sse-in' );
 		$sse->restore_position( 7, 500 ); // the stream resumed PAST the boot head (suspect GC'd).
@@ -778,18 +796,18 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'suspect head dead-lettered' );
 		$this->assertCount( 0, $spy->captured, 'suspect head is NOT forwarded downstream' );
 		$this->assertFalse( $this->read_private( $node, 'crawl_skip_head' ), 'head sacrifice is one-shot' );
-		// Advance-on-next: the cursor pins the sacrificed head's own START (no offset+length).
+		// The suspect is resolved: the cursor moves PAST it (128 + 44).
 		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ) );
-		$this->assertSame( 128, $this->read_private( $node, 'cursor_offset' ), 'cursor pins the sacrificed head start' );
-		// The sacrifice co-commits a quarantine marker at that start, closing the sacrifice→next-arrival
-		// crash window (a re-boot in it DROPS instead of producing a second DLQ entry).
-		$marker = $this->newest_offsetlog_frame( $node );
-		$this->assertSame( 128, $marker['offset'] );
-		$this->assertTrue( $marker['quarantined'] ?? false, 'sacrifice writes a quarantine marker frame' );
+		$this->assertSame( 172, $this->read_private( $node, 'cursor_offset' ), 'cursor lands past the sacrificed head' );
+		// And the disposal commits there, closing the sacrifice-to-next-arrival crash window: a
+		// reboot inside it resumes past the suspect instead of producing a second DLQ entry.
+		$frame = $this->newest_offsetlog_frame( $node );
+		$this->assertSame( 172, $frame['offset'] );
+		$this->assertSame( Remote_Source_Node::CRASH_MAX_ATTEMPTS, $frame['attempts'], 'crawl keeps its accounting pinned until it survives a clean interval' );
 
-		$this->deliver( $sse, '7:172:40', '' ); // past the pin, flag cleared → forwards normally, cursor pins 172.
+		$this->deliver( $sse, '7:172:40', '' ); // past the pin, flag cleared → forwards normally.
 		$this->assertCount( 1, $spy->captured, 'the next message forwards normally' );
-		$this->assertSame( 172, $this->read_private( $node, 'cursor_offset' ), 'cursor advances to the next message start' );
+		$this->assertSame( 212, $this->read_private( $node, 'cursor_offset' ), 'and the cursor lands past it' );
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'only the head was dead-lettered' );
 	}
 
@@ -866,7 +884,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'quarantined', $frame, 'a below-threshold strike is NOT a quarantine marker' );
 	}
 
-	public function test_cooperative_stop_at_threshold_writes_quarantine_marker_at_message_start(): void {
+	public function test_cooperative_stop_at_threshold_quarantines_and_hands_off_past_it(): void {
 		// At COOP_MAX the in-flight boot message is dead-lettered and the shutdown frame is a
 		// quarantine MARKER at the message's own START (advance-on-next — no offset+length), at the
 		// virgin baseline. The successor boots onto it, DROPS it (already in the DLQ), and advances.
@@ -884,9 +902,8 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $this->count_log_records( $dlq ), 'quarantined at COOP_MAX' );
 		$frame = $this->newest_offsetlog_frame( $node );
 		$this->assertSame( 7, $frame['segment'] );
-		$this->assertSame( 128, $frame['offset'], 'marker at the poison message START (not offset+length)' );
+		$this->assertSame( 172, $frame['offset'], 'hands off PAST the quarantined message (128 + 44)' );
 		$this->assertSame( 0, $frame['attempts'], 'clean handoff at the virgin baseline' );
-		$this->assertTrue( $frame['quarantined'] ?? false, 'the strike-out frame is a quarantine marker' );
 	}
 
 	public function test_cooperative_stop_clean_handoff_when_cursor_advanced(): void {
@@ -934,10 +951,10 @@ class RemoteSourceNodeTest extends TestCase {
 	}
 
 	public function test_assume_clean_shutdown_does_not_advance_past_a_crumbless_message(): void {
-		// A crumb-less message has no position of its own — the cursor pins the PRIOR
-		// healthy line. assume_clean_shutdown must NOT advance from that base (that would
-		// be prior_start + this_line_len = a bogus offset that misaligns the stream); it
-		// falls through to the normal mid-dispatch replay, committing at the prior line.
+		// A crumb-less message has no position of its own — the cursor stands PAST the prior
+		// healthy record. assume_clean_shutdown must NOT advance from that base (that would
+		// be prior_end + this_line_len = a bogus offset that misaligns the stream); it
+		// falls through to the normal mid-dispatch replay, committing where the cursor stands.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_remote_spy( 'remote-austin' );
@@ -945,11 +962,11 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:100:40', '' );                  // healthy → cursor pins {7,100}.
+		$this->deliver( $sse, '7:100:40', '' );                  // healthy → cursor advances to 140.
 		$this->deliver_built( $sse, $this->stop_message( '' ) ); // crumb-less stop.
 		$node->cooperative_stop( 'timeout', false );
 
-		$this->assertSame( 100, $this->newest_offsetlog_frame( $node )['offset'], 'crumb-less stop does not advance past the prior line' );
+		$this->assertSame( 140, $this->newest_offsetlog_frame( $node )['offset'], 'a crumb-less stop moves the cursor by nothing' );
 	}
 
 	public function test_cooperative_stop_memory_watermark_exemption_does_not_strike(): void {
@@ -972,9 +989,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 0, $frame['attempts'], 'clean handoff, no strike' );
 	}
 
-	public function test_advance_on_next_pins_the_in_hand_message_start(): void {
-		// Advance-on-next: the cursor records the START of the message in hand (from its own crumb),
-		// learned on arrival. It moves off N only when N+1 arrives and becomes the new in hand.
+	public function test_the_cursor_lands_past_each_forwarded_message(): void {
+		// The cursor names the next UNREAD byte, the same as Consumer's: a record's
+		// own crumb gives its start and size, and forwarding it moves the cursor
+		// past both. Pinned at the start instead, every resume re-delivers it.
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		$this->stub_sse_connect();
 		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
@@ -982,10 +1000,10 @@ class RemoteSourceNodeTest extends TestCase {
 		$sse = Core::node( 'remote-austin:sse-in' );
 
 		$this->deliver( $sse, '7:100:40', '' );
-		$this->assertSame( 100, $this->read_private( $node, 'cursor_offset' ), 'cursor pins message N start' );
+		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'past message N (100 + 40)' );
 
 		$this->deliver( $sse, '7:140:30', '' );
-		$this->assertSame( 140, $this->read_private( $node, 'cursor_offset' ), 'cursor moves to N+1 start on its arrival' );
+		$this->assertSame( 170, $this->read_private( $node, 'cursor_offset' ), 'past N+1 (140 + 30)' );
 		$this->assertCount( 2, $spy->captured );
 	}
 
@@ -1045,100 +1063,10 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$this->assertCount( 1, $spy->captured, 'a two-part crumb still forwards' );
 		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ) );
-		$this->assertSame( 200, $this->read_private( $node, 'cursor_offset' ), 'cursor pins the two-part crumb start' );
+		$this->assertSame( 200, $this->read_private( $node, 'cursor_offset' ), 'a length-less crumb pins its start and advances by nothing' );
 	}
 
-	public function test_boot_from_quarantine_marker_drops_head_without_second_dlq_entry(): void {
-		// Booting onto a quarantine marker (graceful attempts=0 + quarantined): the head is already
-		// in the DLQ, so the successor DROPS it silently (no forward, no second DLQ entry) and
-		// advances off the next arrival.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, 0, '', 'remote-austin', true ); // quarantine marker at {7,128}.
-
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire();
-		$this->assertSame( 'drop', $this->read_private( $node, 'skip_head_disposition' ), 'a marker arms DROP' );
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:128:44', '' ); // the condemned head arrives → dropped silently.
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 0, $this->count_log_records( $dlq ), 'the already-quarantined head is NOT re-dead-lettered' );
-		$this->assertCount( 0, $spy->captured, 'and is NOT forwarded' );
-
-		$this->deliver( $sse, '7:172:40', '' ); // the next message forwards normally.
-		$this->assertCount( 1, $spy->captured );
-	}
-
-	public function test_crash_sacrifice_marker_survives_reboot_and_drops_head(): void {
-		// The crash-crawl sacrifice writes a quarantine marker at the suspect's start. A reboot from
-		// that marker DROPS the head instead of producing a second DLQ entry (closing the window).
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
-
-		Core::$now = 1000.0;
-		[ $node, $spy ] = $this->make_remote_spy( 'remote-austin' );
-		$node->fire(); // crawl, boot pinned at {7,128}, head sacrifice armed.
-		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '7:128:44', '' ); // suspect sacrificed → DLQ + marker frame committed.
-		$dlq = \Newspack_Nodes\Config::get_base_directory() . '/deadletter/remote-austin.firehose.p0';
-		$this->assertSame( 1, $this->count_log_records( $dlq ) );
-
-		// Reboot from the marker frame: the same suspect is DROPPED, not re-dead-lettered.
-		$node->remove_node();
-		$spy->remove_node();
-		[ $node2, $spy2 ] = $this->make_remote_spy( 'remote-austin' );
-		$node2->fire();
-		$this->assertSame( 'drop', $this->read_private( $node2, 'skip_head_disposition' ), 'the marker re-arms DROP on reboot' );
-		$sse2 = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse2, '7:128:44', '' ); // re-pulled suspect → dropped.
-		$this->assertSame( 1, $this->count_log_records( $dlq ), 'no duplicate DLQ entry on the reboot' );
-		$this->assertCount( 0, $spy2->captured );
-	}
-
-	public function test_marker_write_order_dead_letter_precedes_the_marker_frame(): void {
-		// Write order is normative: the DLQ write runs BEFORE the marker frame, so a marker never
-		// falsely claims a message is quarantined that isn't yet on disk. Observed via a subclass
-		// that records the state at the dead_letter call: the marker frame must NOT exist yet.
-		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
-		$this->stub_sse_connect();
-		$this->seed_offsetlog_frame( 7, 128, Remote_Source_Node::CRASH_MAX_ATTEMPTS, '' );
-
-		Core::$now = 1000.0;
-		$node = new class() extends Remote_Source_Node {
-			public bool $marker_present_at_dead_letter = true;
-			protected function dead_letter( array $message, string $reason, ?\Throwable $error = null ): void {
-				$frames = $this->offsetlog?->get_segments( true ) ?? [];
-				$marker = false;
-				foreach ( $frames as $s ) {
-					foreach ( \explode( "\n", (string) $this->offsetlog?->read_at( $s['id'], 0, $s['size'] ) ) as $l ) {
-						if ( '' !== $l && ( Message::unpacked( $l )[ Message::VALUE ]['quarantined'] ?? false ) ) {
-							$marker = true;
-						}
-					}
-				}
-				$this->marker_present_at_dead_letter = $marker;
-				parent::dead_letter( $message, $reason, $error );
-			}
-		};
-		$node->name( 'remote-austin' );
-		$spy = new Relay_Sink_Spy();
-		$spy->name( 'downstream' );
-		$node->sink( $spy );
-		$node->target( 'downstream' );
-		$node->arguments( $this->remote_args() );
-		$node->fire();
-		$sse = Core::node( 'remote-austin:sse-in' );
-
-		$this->deliver( $sse, '7:128:44', '' ); // sacrifice: dead_letter first, then the marker frame.
-
-		$this->assertFalse( $node->marker_present_at_dead_letter, 'no marker frame exists yet when dead_letter runs' );
-		$marker = $this->newest_offsetlog_frame( $node );
-		$this->assertTrue( $marker['quarantined'] ?? false, 'the marker frame is written after the DLQ entry' );
-	}
-
-	public function test_relay_with_null_sink_fails_loud(): void {
+public function test_relay_with_null_sink_fails_loud(): void {
 		// Bug D: a null/unwired downstream must FAIL LOUD — never silently no-op while the
 		// stream is consumed (which would advance the cursor past undelivered messages). The
 		// stream now arrives via the SSE_In buffer; forward_line throws on the null sink at drain.
@@ -1188,13 +1116,13 @@ class RemoteSourceNodeTest extends TestCase {
 		[ $node ] = $this->make_remote_spy( 'remote-austin' );
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '9:512:40', '' ); // healthy forward → node cursor pins the message START.
+		$this->deliver( $sse, '9:512:40', '' ); // healthy forward → cursor lands past it.
 
 		$node->checkpoint_shutdown();
 
 		$frame = $this->newest_offsetlog_frame( $node );
 		$this->assertSame( 9, $frame['segment'] );
-		$this->assertSame( 512, $frame['offset'] );
+		$this->assertSame( 552, $frame['offset'], 'the handoff names the next unread record (512 + 40)' );
 		$this->assertSame( 0, $frame['attempts'], 'a healthy shutdown is a clean handoff (attempts=0)' );
 	}
 
@@ -1231,14 +1159,14 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 		$sse = Core::node( 'remote-austin:sse-in' );
 
-		$this->deliver( $sse, '7:300:40', '' ); // healthy forward → node cursor pins the message START.
+		$this->deliver( $sse, '7:300:40', '' ); // healthy forward → node cursor lands past it.
 		$sse->restore_position( 9, 99999 );      // desync SSE_In's connection cursor far ahead.
 
 		$node->checkpoint_shutdown();
 
 		$frame = $this->newest_offsetlog_frame( $node );
 		$this->assertSame( 7, $frame['segment'], 'committed the node-owned cursor, not SSE_In lead' );
-		$this->assertSame( 300, $frame['offset'] );
+		$this->assertSame( 340, $frame['offset'] );
 	}
 
 	/** Build a named Remote_Source wired to a Relay_Sink_Spy downstream + target. */
@@ -1497,7 +1425,7 @@ class RemoteSourceNodeTest extends TestCase {
 		$node->fire();
 
 		$sse = Core::node( 'remote-austin:sse-in' );
-		$this->deliver( $sse, '7:99:40', '' ); // healthy forward → node cursor pins the message START.
+		$this->deliver( $sse, '7:99:40', '' ); // healthy forward → cursor lands PAST it (99 + 40).
 
 		// Advance clock past the commit interval and tick again.
 		Core::$now = \microtime( true ) + 100;
@@ -1505,7 +1433,7 @@ class RemoteSourceNodeTest extends TestCase {
 
 		$value = $this->newest_offsetlog_frame( $node );
 		$this->assertSame( 7, $value['segment'] );
-		$this->assertSame( 99, $value['offset'] );
+		$this->assertSame( 139, $value['offset'] );
 	}
 
 	public function test_throttled_checkpoint_does_not_recommit_an_unchanged_position(): void {

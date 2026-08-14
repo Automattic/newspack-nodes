@@ -786,6 +786,11 @@ class SSE_In_Node extends Node {
 		$this->pending_seek = $sentinel;
 	}
 
+	/** True while a seek sentinel is waiting for the spoke to resolve it. */
+	public function has_pending_seek(): bool {
+		return null !== $this->pending_seek;
+	}
+
 	/**
 	 * Current in-memory cursor.
 	 *

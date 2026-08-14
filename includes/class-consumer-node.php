@@ -483,10 +483,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->boot_cursor_offset  = $this->cursor_offset;
 		// Resume attempt accounting and arm the boot head-skip (ADR-12).
 		$this->arm_skip_head_from_frame( $entry );
-		if ( 'drop' === $this->skip_head_disposition ) {
-			// Booted on quarantine marker: seal boot pos until drop passes it.
-			$this->sealed_quarantine = [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-		}
 		// Offset + cache from ONE record, so cursor and state stay aligned.
 		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
 		// Crash streak past wipe window: discard the corrupt resumable state.
@@ -634,7 +630,7 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * @param bool                    $with_state Co-commit the snapshot node's save_state(). False for the
 	 *                                            stateless boot frame written BEFORE restore — reading the
 	 *                                            un-restored node there would clobber the good cache.
-	 * @param array<array-key,mixed> $extra      Per-call frame additions (the quarantine marker).
+	 * @param array<array-key,mixed> $extra      Per-call frame additions.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		// Co-commit snapshots with offset as ONE record for lockstep respawn.

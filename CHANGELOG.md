@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A durable reader's cursor names the next UNREAD record, so a resume no longer
+  re-delivers the last one it read.** `Remote_Source_Node` pinned its cursor to each
+  record's own START and moved off it only when the next record arrived, while
+  `Consumer_Node` advanced past. Every offsetlog frame an aggregator committed therefore
+  named a record it had already forwarded, and every resume — a ~10-minute worker
+  recycle, a reconnect, a checkpoint followed by a restart — replayed it. The hub saw
+  one duplicate per resume, adjacent to its twin and carrying an identical breadcrumb,
+  while the source it pulled from showed none. `Durable_Reader` now owns one cursor
+  discipline for both readers: `crumb_for_line()` places each record in its source's own
+  byte space — the line's own bytes for a tailing reader, the spoke's stamped length for
+  a pull source — and the drain loop advances past it there. `Remote_Source_Node`'s
+  advance-on-next override is gone.
+- **A dead-lettered record is committed past, not marked and re-read.** The `quarantined`
+  marker frame, its `sealed_quarantine` seal and the boot head-skip's `drop` disposition
+  existed to stop an advance-on-next reader re-delivering a record it had already
+  quarantined. With the cursor advancing past its own record, a disposal — a caught-throw
+  poison, an unparseable line, a cooperative-stop strike-out, a crash-lineage head
+  sacrifice — resolves the position: the cursor moves past the record and commits there
+  gracefully. The successor resumes past it, so there is nothing to recognise and no
+  lineage left for the next boot to sacrifice an innocent head for. A torn frame, which
+  carries no crumb, is placed at the spoke's own next-read position; a two-part
+  `segment:offset` crumb moves the cursor by nothing rather than by a local length in the
+  wrong byte space. **On upgrade**, a reader booting onto a 2.26.0 frame that still carries
+  `quarantined` forwards that record once — the key no longer means anything. One duplicate
+  per stuck cursor, no data loss.
+- **A clean stop commits past the message it completed.** `Worker_Should_Stop_Clean` means the
+  in-flight message's downstream work finished, which is the whole reason the exception exists
+  — but the drain loop threw before advancing, so the successor replayed that message on every
+  recycle, and read its next block from a position short of the truth. Regression-tested on the
+  cursor now, not just on an empty buffer.
+
 ## [2.26.0] - 2026-08-13
 
 ### Fixed
