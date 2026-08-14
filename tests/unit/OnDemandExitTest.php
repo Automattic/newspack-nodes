@@ -164,8 +164,11 @@ class OnDemandExitTest extends TestCase {
 	/** should_continue() sampled from INSIDE the handler, where pump() runs it. */
 	private function continued_mid_job( \Newspack_Nodes\Consumer_Node $consumer ): ?bool {
 		$during = null;
-		\add_action( 'newspack_nodes/job_worker/before_job', function () use ( &$during ) {
+		// A filter: return the value, or a decline threaded from an earlier
+		// priority is overwritten and the job runs after all.
+		\add_filter( 'newspack_nodes/job_worker/before_job', function ( $run ) use ( &$during ) {
 			$during = $this->worker()->should_continue();
+			return $run;
 		} );
 		$this->drain( $consumer );
 		return $during;

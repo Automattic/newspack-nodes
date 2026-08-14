@@ -88,9 +88,9 @@ class Job_Delay {
 			/** @var array<string,mixed> $options */
 			return $intake->write_job(
 				Core::as_string( $entry['handler'] ?? '', '' ),
+				'' !== $id ? $id : null,
 				$parameters,
 				'' !== $key ? $key : null,
-				'' !== $id ? $id : null,
 				$options
 			);
 		};

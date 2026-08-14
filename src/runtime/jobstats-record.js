@@ -7,8 +7,8 @@
  * cheaply. Mirrors includes/class-jobstats-record.php (a parity test pins these).
  */
 
-export const KEY = 0; // job identity: "handler:id" or "handler"
-export const HANDLER = 1; // handler name (the id-free half of KEY)
+export const IDENTITY = 0; // job identity: "handler:id" or "handler"
+export const HANDLER = 1; // handler name (the id-free half of IDENTITY)
 export const RUNS_DELTA = 2; // runs during ELAPSED_MS (success or error)
 export const ERRORS_DELTA = 3; // error-status runs during ELAPSED_MS
 export const DURATION_MS_DELTA = 4; // Σ run durations during ELAPSED_MS (ms)

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: `Jobstats_Record::KEY` is now `Jobstats_Record::IDENTITY` (and `KEY` → `IDENTITY` in the `jobstats-record.js` mirror). The field always held the job identity `handler:id`, never a partition key, and `key` already means something else for jobs. Index 0 is unchanged, so no record on disk moves.
+- **BREAKING**: producers emit the job envelope as `{handler, id, parameters}` — identity follows the handler on the wire as it does in every signature and hook. Consumers read by key, so this is presentation only.
+- Fixed: the legacy-envelope shim is scoped to the `evtemplate` handler and enforces `Job_Intake::MAX_JOB_ID_LEN` on the id it lifts. Shape alone was not proof — any handler whose parameters happened to carry `queue`/`template`/`parameters` had its payload replaced and its identity rewritten.
+- Fixed: a declined job no longer counts toward `jobs_executed` or the cache-flush interval. On a spoke declining most of a topic, `wp_cache_flush()` was firing every 50 declines and `GET_HEALTH` reported work the process never did.
+- Fixed: a job DECLINED by a `before_job` listener no longer settles its batch. Declining is a per-worker routing decision, so a batched job addressed to one host was being decremented — and counted as an error — by every other subscribed worker. A `before_job` throw still settles: that job failed here and nobody else will run it.
+- Added, temporary: `Job_Worker_Node` lifts a legacy gyrobase `{queue, template, parameters}` envelope into a top-level `id`, so jobs from a not-yet-deployed engine run instead of no-op'ing. Marked `// XXX:`; remove once every gyrobase deploy emits `id` itself.
+- **BREAKING**: `Job_Intake::queue()`, `feed()`, `write_job()` and `write_feed()` take `$id` as their SECOND argument, directly after `$handler` — `queue( $handler, $id, $parameters )`. It matches the handler contract itself (`( string $id, array $parameters )`) and the before_job/after_job argument order, so a job's identity sits in the same position everywhere. `$id` has no default: a producer that has none passes `null` deliberately rather than by omission.
+- **BREAKING**: the `newspack_nodes/job_worker/after_job` action passes `( $handler, $id, $outcome )`; `$id` moved from third to second. Re-register listeners with the new order and `accepted_args` raised where they read `$outcome`.
+- **BREAKING**: `newspack_nodes/job_worker/before_job` is now a FILTER, not an action. A listener returning `false` declines the job: the handler never runs, and no request context is opened for it. Only an explicit `false` declines, so a listener returning `null` carries on as before — but every listener's arguments shift by one, since the filter value comes first (`$run, $handler, $id, $message`). Re-register with `add_filter` and `accepted_args + 1`. `after_job` still fires for a declined job, exactly as for a thrown one, so a listener that had already set itself up is torn down whatever order the two ran in.
+
 ## [2.26.1] - 2026-08-13
 
 ### Fixed

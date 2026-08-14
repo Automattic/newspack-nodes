@@ -89,7 +89,7 @@ class Job_Intake {
 	 */
 	public const MAX_JOB_SIZE = 32 * 1024 * 1024;
 
-	/** Max chars for the optional per-job `id` (it rides in jobstats record KEYs). */
+	/** Max chars for the optional per-job `id` (it rides in every jobstats record IDENTITY). */
 	public const MAX_JOB_ID_LEN = 128;
 
 	/**
@@ -211,7 +211,7 @@ class Job_Intake {
 			}
 
 			/** @var array<string,mixed> $parameters */
-			if ( $this->write_job( $handler, $parameters, $key, \is_string( $id ) ? $id : null, $options ) ) {
+			if ( $this->write_job( $handler, \is_string( $id ) ? $id : null, $parameters, $key, $options ) ) {
 				++$written;
 			}
 		}
@@ -228,9 +228,9 @@ class Job_Intake {
 	 * - Otherwise, round-robin across partitions
 	 *
 	 * @param string      $handler    Handler name (alphanumeric, underscores, hyphens, max 64 chars).
+	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
 	 * @param array<string,mixed>       $parameters Job parameters (can be large).
 	 * @param string|null $key        Optional partition key for consistent routing.
-	 * @param string|null $id         Optional per-job identity (top-level `id`) for durable
 	 *                                jobstats keying ("handler:id"); omitted entirely when null/empty.
 	 * @param array<string,mixed>       $options    Optional behaviors: `not_before` (unix ts) or `delay`
 	 *                                (seconds) schedules the job via jobdelay.p0; `retries` (int)
@@ -244,8 +244,8 @@ class Job_Intake {
 	 * @throws \LogicException When `unique` is passed with no claim store (memcached or APCu).
 	 * @throws \RuntimeException From the per-Partition write lock on a genuine concurrent writer.
 	 */
-	public function write_job( string $handler, array $parameters, ?string $key = null, ?string $id = null, array $options = [] ): bool {
-		return $this->write_entry( $handler, $parameters, $key, $id, $options, self::LOG_BASENAME, true );
+	public function write_job( string $handler, ?string $id, array $parameters, ?string $key = null, array $options = [] ): bool {
+		return $this->write_entry( $handler, $id, $parameters, $key, $options, self::LOG_BASENAME, true );
 	}
 
 	/** Error tally for a batch; see batch_count_key(). */
@@ -272,22 +272,22 @@ class Job_Intake {
 	 * cap is refused here — route that one through queue() instead of losing it.
 	 *
 	 * @param string               $handler    Handler name.
+	 * @param string|null          $id         Optional per-job identity for jobstats keying.
 	 * @param array<string,mixed> $parameters Job parameters (must fit PIPE_BUF once packed).
 	 * @param string|null          $key        Optional partition key for consistent routing.
-	 * @param string|null          $id         Optional per-job identity for jobstats keying.
 	 * @return bool False on validation failure or an entry over the atomic cap.
 	 */
-	public function write_feed( string $handler, array $parameters, ?string $key = null, ?string $id = null ): bool {
-		return $this->write_entry( $handler, $parameters, $key, $id, [], self::FEED_BASENAME, false );
+	public function write_feed( string $handler, ?string $id, array $parameters, ?string $key = null ): bool {
+		return $this->write_entry( $handler, $id, $parameters, $key, [], self::FEED_BASENAME, false );
 	}
 
 	/**
 	 * Shared write path for both ingress logs.
 	 *
 	 * @param string               $handler    Handler name.
+	 * @param string|null          $id         Optional per-job identity.
 	 * @param array<string,mixed> $parameters Job parameters.
 	 * @param string|null          $key        Optional partition key.
-	 * @param string|null          $id         Optional per-job identity.
 	 * @param array<string,mixed> $options    write_job() options; empty for the feed path.
 	 * @param string               $basename   Target log basename.
 	 * @param bool                 $large      Lift the PIPE_BUF cap and take the write lock.
@@ -295,7 +295,7 @@ class Job_Intake {
 	 * @return bool True when the entry was handed to its Partition.
 	 * @throws \InvalidArgumentException On an unknown option key or not_before+delay together.
 	 */
-	private function write_entry( string $handler, array $parameters, ?string $key, ?string $id, array $options, string $basename, bool $large ): bool {
+	private function write_entry( string $handler, ?string $id, array $parameters, ?string $key, array $options, string $basename, bool $large ): bool {
 		$unknown = \array_diff( \array_keys( $options ), self::OPTION_KEYS );
 		if ( [] !== $unknown ) {
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers; escape at the view, not the runtime.
@@ -339,15 +339,16 @@ class Job_Intake {
 		// Clamp partition to valid range.
 		$partition = \max( 0, \min( $partition, $this->num_partitions - 1 ) );
 
+		// On the wire too: a raw log line reads handler, id, parameters.
 		$job = [
-			'k'          => 'job',
-			'handler'    => $handler,
-			'parameters' => $parameters,
-			'ts'         => $now,
+			'k'       => 'job',
+			'handler' => $handler,
 		];
 		if ( null !== $id && '' !== $id ) {
 			$job['id'] = $id;
 		}
+		$job['parameters'] = $parameters;
+		$job['ts']         = $now;
 		foreach ( [ 'retries', 'attempt' ] as $field ) {
 			$n = Core::as_int( $options[ $field ] ?? 0, 0 );
 			if ( $n > 0 ) {
@@ -517,9 +518,9 @@ class Job_Intake {
 	 *
 	 * @api Used by external plugins (pyrobase Log runtime large-write path).
 	 * @param string              $handler        Handler name.
+	 * @param string|null         $id             Optional job ID for logging.
 	 * @param array<string,mixed> $parameters     Job parameters.
 	 * @param string|null         $key            Optional partition key (e.g., event ID).
-	 * @param string|null         $id             Optional job ID for logging.
 	 * @param string|null         $base_dir       Override base directory.
 	 * @param int|null            $num_partitions Override partition count.
 	 * @param array<string,mixed> $options        Optional behaviors — see write_job().
@@ -528,9 +529,9 @@ class Job_Intake {
 	 */
 	public static function queue(
 		string $handler,
+		?string $id,
 		array $parameters,
 		?string $key = null,
-		?string $id = null,
 		?string $base_dir = null,
 		?int $num_partitions = null,
 		array $options = []
@@ -541,7 +542,7 @@ class Job_Intake {
 
 		$intake = new self( $base_dir, $num_partitions );
 		try {
-			$result = $intake->write_job( $handler, $parameters, $key, $id, $options );
+			$result = $intake->write_job( $handler, $id, $parameters, $key, $options );
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e; // ADR-14: a cooperative stop is not a write failure.
 		} catch ( \RuntimeException $e ) {
@@ -557,9 +558,9 @@ class Job_Intake {
 	 *
 	 * @api Small-job ingress. Paired with a firehose `job` write by every producer.
 	 * @param string              $handler        Handler name.
+	 * @param string|null         $id             Optional per-job identity for jobstats keying.
 	 * @param array<string,mixed> $parameters     Job parameters (must fit PIPE_BUF once packed).
 	 * @param string|null         $key            Optional partition key for consistent routing.
-	 * @param string|null         $id             Optional per-job identity for jobstats keying.
 	 * @param string|null         $base_dir       Override the configured base dir.
 	 * @param int|null            $num_partitions Override the configured partition count.
 	 * @return bool False on validation failure or an entry over the atomic cap.
@@ -567,9 +568,9 @@ class Job_Intake {
 	 */
 	public static function feed(
 		string $handler,
+		?string $id,
 		array $parameters,
 		?string $key = null,
-		?string $id = null,
 		?string $base_dir = null,
 		?int $num_partitions = null
 	): bool {
@@ -579,7 +580,7 @@ class Job_Intake {
 
 		$intake = new self( $base_dir, $num_partitions );
 		try {
-			$result = $intake->write_feed( $handler, $parameters, $key, $id );
+			$result = $intake->write_feed( $handler, $id, $parameters, $key );
 		} catch ( Worker_Should_Stop $e ) {
 			throw $e; // ADR-14: a cooperative stop is not a write failure.
 		} catch ( \RuntimeException $e ) {

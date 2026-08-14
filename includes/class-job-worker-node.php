@@ -30,11 +30,23 @@
  * nor needs the Message to do it.
  *
  * Per-job request context (suspending a parent logger, rewriting $_SERVER to a
- * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() fires
- * `newspack_nodes/job_worker/before_job` ( $handler, $id ) and `…/after_job`
- * ( $handler, $outcome, $id ) around each handler so applications can hook their
- * own context. The cleanup action runs in a finally block, even if the handler
- * throws. Extra args are BC-safe via accepted_args.
+ * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() runs
+ * the `newspack_nodes/job_worker/before_job` FILTER ( $run, $handler, $id,
+ * $message ) and fires the `…/after_job` action ( $handler, $id, $outcome )
+ * around each handler so applications can hook their own context. The cleanup
+ * action runs in a finally block, even if the handler throws. Extra args are
+ * BC-safe via accepted_args.
+ *
+ * before_job is a filter so a listener can DECLINE a job it will not set a
+ * context up for — an evtemplate whose id addresses another host reaches every
+ * worker on the topic, and running it there renders someone else's template.
+ * Returning false skips the handler. Only an explicit false declines, so a
+ * listener returning null fails OPEN rather than stopping every job — but a
+ * null does overwrite a decline threaded from an earlier priority, so a
+ * listener must return the value it was given, and a handler whose routing
+ * matters re-checks it rather than trusting the decline alone. after_job fires
+ * for a declined job exactly as it does for a thrown one, so a second listener
+ * that had already set itself up is torn down whatever order the two ran in.
  *
  * SECURITY:
  * - Handler names must match HANDLER_NAME_PATTERN
@@ -162,18 +174,47 @@ class Job_Worker_Node extends Node {
 		$parameters = $entry['parameters'] ?? [];
 
 		// Identity: top-level `id` distinguishes jobs sharing one handler name.
-		$id  = Core::as_string( $entry['id'] ?? '', '' );
-		$key = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
-		$ts  = Core::num_float( $entry['ts'] ?? 0, 0.0 );
+		$id = Core::as_string( $entry['id'] ?? '', '' );
+
+		// XXX: legacy gyrobase envelope; remove once every engine emits `id`.
+		if ( '' === $id && 'evtemplate' === $handler && \is_array( $parameters )
+			&& isset( $parameters['queue'], $parameters['template'] )
+			&& \array_key_exists( 'parameters', $parameters ) ) {
+			$id = Core::as_string( $parameters['template'], '' );
+			if ( \strlen( $id ) > Job_Intake::MAX_JOB_ID_LEN ) {
+				$this->print_less_often( 'legacy job id over the cap, dropping: ', $handler );
+				return;
+			}
+			$legacy = $parameters['parameters'];
+			// Hand-parsed: parse_str() rewrites `.` and space in keys.
+			$parameters = \is_array( $legacy ) ? $legacy : [];
+			if ( \is_string( $legacy ) && '' !== $legacy ) {
+				$parameters = [];
+				foreach ( \explode( '&', \str_replace( '&amp;', '&', $legacy ) ) as $pair ) {
+					if ( '' === $pair ) {
+						continue;
+					}
+					[ $pair_key, $pair_value ] = \array_pad( \explode( '=', $pair, 2 ), 2, '' );
+					if ( '' !== $pair_key ) {
+						$parameters[ \urldecode( $pair_key ) ] = \urldecode( $pair_value );
+					}
+				}
+			}
+		}
+
+		$identity = ( '' !== $id ) ? "{$handler}:{$id}" : $handler;
+		$ts       = Core::num_float( $entry['ts'] ?? 0, 0.0 );
 
 		// Apps hook request context on before/after_job; asymmetry deliberate.
 		$before_ok       = false;
+		$declined        = false;
 		$outcome         = null;
 		$retry_scheduled = false;
 		try {
 			try {
-				\do_action( 'newspack_nodes/job_worker/before_job', $handler, $id, $message );
-				$before_ok = true;
+				// Only an explicit false declines; a null carries on.
+				$before_ok = false !== \apply_filters( 'newspack_nodes/job_worker/before_job', true, $handler, $id, $message );
+				$declined  = ! $before_ok;
 			} catch ( Worker_Should_Stop $e ) {
 				throw $e;
 			} catch ( \Throwable $e ) {
@@ -192,7 +233,7 @@ class Job_Worker_Node extends Node {
 				} catch ( \Throwable $e ) {
 					// Poison: record first — the throw skips post-try.
 					$outcome = [ 'status' => 'error', 'message' => $e->getMessage(), 'items_ok' => 0, 'items_err' => 0 ];
-					$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
+					$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
 					// Opted-in retries re-park with backoff; else poison.
 					$retry_scheduled = $this->schedule_retry( $entry );
 					if ( ! $retry_scheduled ) {
@@ -201,21 +242,28 @@ class Job_Worker_Node extends Node {
 				}
 				if ( ! $retry_scheduled ) {
 					// The retry path already recorded inside its catch.
-					$this->record_job_stats( $key, $handler, $started, $queue_ms, $outcome );
+					$this->record_job_stats( $handler, $identity, $started, $queue_ms, $outcome );
 				}
 			}
 		} finally {
 			// after_job always fires; swallow throw so it can't mask the error.
 			try {
-				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $outcome, $id );
+				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $id, $outcome );
 			} catch ( \Throwable $e ) {
 				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
 			}
 		}
 		$batch = Core::as_string( $entry['batch'] ?? '', '' );
-		if ( '' !== $batch && ! $retry_scheduled ) {
-			// A retry-scheduled job isn't settled; its batch stays open.
+		if ( '' !== $batch && ! $retry_scheduled && ! $declined ) {
+			// @longform A retry-scheduled job isn't settled; its batch stays
+			// open. Nor is a declined one: it is not this host's to settle, and
+			// the host that does own it settles it there. A before_job THROW
+			// still settles — that job failed here and no one else will run it.
 			$this->settle_batch( $batch, $outcome );
+		}
+		if ( $declined ) {
+			// No handler ran, so nothing to count and no caches to flush for.
+			return;
 		}
 		++$this->jobs_executed;
 		++$this->jobs_since_cache_flush;
@@ -266,9 +314,9 @@ class Job_Worker_Node extends Node {
 			try {
 				return $intake->write_job(
 					Core::as_string( $entry['handler'] ?? '', '' ),
+					'' !== $id ? $id : null,
 					$parameters,
 					'' !== $key ? $key : null,
-					'' !== $id ? $id : null,
 					$options
 				);
 			} finally {
@@ -366,15 +414,15 @@ class Job_Worker_Node extends Node {
 	 * Fold one run's outcome + duration into the per-identity accumulator. Cumulative
 	 * counters (never deltas) — the Job_Probe emits them raw and readers derive rates.
 	 *
-	 * @param string                                                                 $key      Job identity (`handler:id` or `handler`).
 	 * @param string                                                                 $handler  Handler name.
+	 * @param string                                                                 $identity Job identity (`handler:id`, or `handler` alone).
 	 * @param float                                                                  $started  microtime() at handler dispatch.
 	 * @param float                                                                  $queue_ms Queue latency (start − enqueue ts), ms.
 	 * @param array{status:string,message:string,items_ok:int,items_err:int}         $outcome  Classified outcome.
 	 */
-	private function record_job_stats( string $key, string $handler, float $started, float $queue_ms, array $outcome ): void {
+	private function record_job_stats( string $handler, string $identity, float $started, float $queue_ms, array $outcome ): void {
 		$duration_ms = ( Core::right_now() - $started ) * 1000; // real elapsed; also un-freezes $now post-job
-		$s           = $this->job_stats[ $key ] ?? [
+		$s           = $this->job_stats[ $identity ] ?? [
 			'handler'          => $handler,
 			'runs'             => 0,
 			'errors'           => 0,
@@ -403,7 +451,7 @@ class Job_Worker_Node extends Node {
 		$s['last_status']      = $outcome['status'];
 		$s['last_message']     = \mb_substr( $outcome['message'], 0, self::MAX_STAT_MESSAGE_LEN );
 
-		$this->job_stats[ $key ] = $s;
+		$this->job_stats[ $identity ] = $s;
 	}
 
 	/**
@@ -505,9 +553,9 @@ class Job_Worker_Node extends Node {
 	 */
 	public function probe_stats(): array {
 		$records = [];
-		foreach ( $this->job_stats as $key => $s ) {
+		foreach ( $this->job_stats as $identity => $s ) {
 			$record                                      = [];
-			$record[ Jobstats_Record::KEY ]              = $key;
+			$record[ Jobstats_Record::IDENTITY ]              = $identity;
 			$record[ Jobstats_Record::HANDLER ]          = $s['handler'];
 			$record[ Jobstats_Record::RUNS_DELTA ]       = $s['runs'];
 			$record[ Jobstats_Record::ERRORS_DELTA ]     = $s['errors'];
@@ -521,7 +569,7 @@ class Job_Worker_Node extends Node {
 			$record[ Jobstats_Record::LAST_MESSAGE ]     = $s['last_message'];
 			$record[ Jobstats_Record::ELAPSED_MS ]       = (int) \round( \max( 0.0, Core::$now - $s['probe_ts'] ) * 1000 );
 			$records[]                                   = $record;
-			$this->job_stats[ $key ]                     = $this->drained( $s );
+			$this->job_stats[ $identity ]                = $this->drained( $s );
 		}
 		return $records;
 	}

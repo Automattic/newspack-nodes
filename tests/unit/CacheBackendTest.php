@@ -294,8 +294,8 @@ class CacheBackendTest extends TestCase {
 
 		$intake = new \Newspack_Nodes\Job_Intake( $tmp, 1 );
 		try {
-			$this->assertTrue( $intake->write_job( 'apcu_h', [], null, null, [ 'unique' => 'solo', 'unique_ttl' => 60 ] ) );
-			$this->assertFalse( $intake->write_job( 'apcu_h', [], null, null, [ 'unique' => 'solo', 'unique_ttl' => 60 ] ), 'the dedup window holds on APCu alone' );
+			$this->assertTrue( $intake->write_job( 'apcu_h', null, [], null, [ 'unique' => 'solo', 'unique_ttl' => 60 ] ) );
+			$this->assertFalse( $intake->write_job( 'apcu_h', null, [], null, [ 'unique' => 'solo', 'unique_ttl' => 60 ] ), 'the dedup window holds on APCu alone' );
 		} finally {
 			$intake->close();
 			$this->rmdir_recursive( $tmp );

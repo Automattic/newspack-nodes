@@ -46,7 +46,7 @@ class JobWorkerStatsTest extends TestCase {
 	/** @return array<int,int|string> The one probe record for $key (fails if absent). */
 	private function record_for( Job_Worker_Node $jw, string $key ): array {
 		foreach ( $jw->probe_stats() as $record ) {
-			if ( $key === $record[ Jobstats_Record::KEY ] ) {
+			if ( $key === $record[ Jobstats_Record::IDENTITY ] ) {
 				return $record;
 			}
 		}
@@ -169,7 +169,7 @@ class JobWorkerStatsTest extends TestCase {
 		$jw->fill( $this->job_message( 'cron', [], 'import-films' ) );
 		$jw->fill( $this->job_message( 'cron', [], 'import-events' ) );
 
-		$keys = \array_map( static fn ( $r ) => $r[ Jobstats_Record::KEY ], $jw->probe_stats() );
+		$keys = \array_map( static fn ( $r ) => $r[ Jobstats_Record::IDENTITY ], $jw->probe_stats() );
 		\sort( $keys );
 		$this->assertSame( [ 'cron:import-events', 'cron:import-films' ], $keys );
 		$this->assertSame( 'cron', $this->record_for( $jw, 'cron:import-films' )[ Jobstats_Record::HANDLER ] );
@@ -180,7 +180,7 @@ class JobWorkerStatsTest extends TestCase {
 		$this->register_job_handler( $jw, 'ok', fn () => [ 'stats' => [ 'success_count' => 9, 'error_count' => 0 ] ] );
 
 		$captured = 'UNSET';
-		\add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $outcome ) use ( &$captured ) { $captured = $outcome; }, 10, 2 );
+		\add_action( 'newspack_nodes/job_worker/after_job', function ( $h, $id, $outcome ) use ( &$captured ) { $captured = $outcome; }, 10, 3 );
 
 		$jw->fill( $this->job_message( 'ok' ) );
 

@@ -4,6 +4,46 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 **Maintenance rule:** a release that changes any consumer-facing contract adds its entry here in the same commit as its CHANGELOG entry. No entry means nothing to do.
 
+## Unreleased
+
+- **`before_job` is a FILTER, and `after_job`'s arguments moved.** Every listener on
+  `newspack_nodes/job_worker/before_job` now receives the decision as its FIRST
+  argument — `( $run, $handler, $id, $message )` — and must return it:
+
+  ```php
+  // before
+  \add_action( 'newspack_nodes/job_worker/before_job', $cb, 10, 3 );   // ( $handler, $id, $message )
+  // after
+  \add_filter( 'newspack_nodes/job_worker/before_job', $cb, 10, 4 );   // ( $run, $handler, $id, $message )
+  ```
+
+  Returning `false` DECLINES the job: the handler never runs, nothing is counted,
+  and no batch is settled. That is how a plugin refuses work addressed to another
+  host without the worker opening a request context for it. A listener that returns
+  nothing fails open (jobs still run) but **overwrites a decline** made at an earlier
+  priority, so return the value you were given — and keep any routing check in the
+  handler too, as defense in depth.
+
+  `…/after_job` passes `( $handler, $id, $outcome )`; `$id` moved from third to
+  second. Raise `accepted_args` by one for listeners that read `$outcome`.
+
+- **`Job_Intake` takes `$id` second.** `queue()`, `feed()`, `write_job()` and
+  `write_feed()` are now `( $handler, $id, $parameters, $key, … )`, matching the
+  handler contract `( string $id, array $parameters )` and the hooks above. `$id` has
+  no default — pass `null` when a job genuinely has no identity:
+
+  ```php
+  Job_Intake::queue( 'evtemplate', $template, $parameters );        // was ( $handler, $parameters, $key, $id )
+  $intake->write_job( 'importer', null, $parameters, 'jobintake' );
+  ```
+
+- **`Jobstats_Record::KEY` is `Jobstats_Record::IDENTITY`** (`KEY` → `IDENTITY` in the
+  `jobstats-record.js` mirror). The field always held `handler:id`, never a partition
+  key. Index 0 is unchanged, so no record on disk moves — rename references only.
+
+- **Producers emit `{handler, id, parameters}`.** Presentation only; consumers read by
+  key, so nothing to do unless you byte-compare log lines.
+
 ## 2.26.0
 
 - **The SSE `positions` wire carries seek sentinels, and a hub upgrades before its

@@ -76,7 +76,7 @@ class JobIntakeTopologyCutoverTest extends TestCase {
 
 		// A >4KB payload forces the locked large-write ingress path (ADR-4).
 		$big = \str_repeat( 'x', 8000 );
-		$this->assertTrue( Job_Intake::queue( 'process_image', [ 'data' => $big ] ) );
+		$this->assertTrue( Job_Intake::queue( 'process_image', null, [ 'data' => $big ] ) );
 		$this->assertFileExists( "{$this->tmp}/logs/jobintake.p0/0.log" );
 
 		// No durable offsetlog frame before the drain.

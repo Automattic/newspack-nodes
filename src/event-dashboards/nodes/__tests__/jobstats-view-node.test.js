@@ -7,7 +7,7 @@ import {
 	TM_STRUCT,
 } from '../../../runtime/message';
 import {
-	KEY,
+	IDENTITY,
 	HANDLER,
 	RUNS_DELTA,
 	ERRORS_DELTA,
@@ -49,7 +49,7 @@ function jobstatsMsg( {
 	m[ TYPE ] = TM_STRUCT;
 	m[ TIMESTAMP ] = TS_BASE + ts;
 	const v = [];
-	v[ KEY ] = key;
+	v[ IDENTITY ] = key;
 	v[ HANDLER ] = handler;
 	v[ RUNS_DELTA ] = runs;
 	v[ ERRORS_DELTA ] = errors;

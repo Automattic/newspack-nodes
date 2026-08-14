@@ -80,7 +80,7 @@ class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 				$message[ Message::VALUE ]     = $record;
 				$message                       = Line_Fitter::fit( $message, [ Jobstats_Record::LAST_MESSAGE ] );
 				if ( null === $message ) {
-					$key = Core::as_string( $record[ Jobstats_Record::KEY ] ?? '' );
+					$key = Core::as_string( $record[ Jobstats_Record::IDENTITY ] ?? '' );
 					$this->print_less_often( 'Job_Probe dropped an unfittable record: ', $key );
 					continue;
 				}
