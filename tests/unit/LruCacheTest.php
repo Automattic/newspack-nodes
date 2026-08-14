@@ -109,9 +109,9 @@ class LruCacheTest extends TestCase {
 	}
 
 	public function test_delete_removes_the_shadowed_copy_too(): void {
-		// Table_Node's L1 shape: no promotion, so a re-set leaves the older
-		// copy in an older bucket and delete() must take both.
-		$cache = ( new LRU_Cache( 2, 3 ) )->without_promotion();
+		// A re-set writes to the newest bucket and leaves the older copy where
+		// it was, so delete() has to take both.
+		$cache = new LRU_Cache( 2, 3 );
 		$cache->set( 'shadowed', 'stale-v1' );
 		$cache->set( 'filler', 'pad' );
 		$cache->set( 'shadowed', 'fresh-v2' );
@@ -122,7 +122,7 @@ class LruCacheTest extends TestCase {
 	}
 
 	public function test_iterate_yields_a_shadowed_key_once(): void {
-		$cache = ( new LRU_Cache( 2, 3 ) )->without_promotion();
+		$cache = new LRU_Cache( 2, 3 );
 		$cache->set( 'shadowed', 'stale-v1' );
 		$cache->set( 'filler', 'pad' );
 		$cache->set( 'shadowed', 'fresh-v2' );
@@ -616,21 +616,7 @@ class LruCacheTest extends TestCase {
 		$this->assertSame( 22, $cache->get( 'two' ) );
 	}
 
-	// ── Promotion opt-out ──────────────────────────────────────────────────
-
-	public function test_without_promotion_leaves_a_hit_in_its_original_bucket(): void {
-		// bucket_size 1 so every set rotates; with promotion on, reading 'a'
-		// would move it to the newest bucket and it would outlive 'b'.
-		$cache = ( new LRU_Cache( 1, 3 ) )->without_promotion();
-		$cache->set( 'a', 'first' );
-		$cache->set( 'b', 'second' );
-
-		$this->assertSame( 'first', $cache->get( 'a' ) );
-		$cache->set( 'c', 'third' );
-
-		$this->assertNull( $cache->get( 'a' ), 'a read must not extend an entry beyond its window' );
-		$this->assertSame( 'third', $cache->get( 'c' ) );
-	}
+	// ── Promotion ──────────────────────────────────────────────────────────
 
 	public function test_promotion_is_on_by_default(): void {
 		$cache = new LRU_Cache( 1, 3 );
@@ -641,17 +627,6 @@ class LruCacheTest extends TestCase {
 		$cache->set( 'c', 'third' );
 
 		$this->assertSame( 'first', $cache->get( 'a' ), 'a working set keeps what it touches' );
-	}
-
-	public function test_get_multi_honours_the_promotion_setting(): void {
-		$cache = ( new LRU_Cache( 1, 3 ) )->without_promotion();
-		$cache->set( 'a', 'first' );
-		$cache->set( 'b', 'second' );
-
-		$this->assertSame( [ 'a' => 'first' ], $cache->get_multi( [ 'a' ] ) );
-		$cache->set( 'c', 'third' );
-
-		$this->assertSame( [], $cache->get_multi( [ 'a' ] ) );
 	}
 
 	// ── Combined behaviour ─────────────────────────────────────────────────

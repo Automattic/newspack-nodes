@@ -16,12 +16,11 @@
  * without them a fleet whose workers recycle faster than the window (idle
  * exit at 30s against a 200s window) never aged anything out at all.
  *
- * Two shapes use it, and they want opposite things from promotion. A WORKING
- * SET (the event logger's in-flight requests, keyed by request id) reads
- * eviction as "this one never completed", so promotion is what keeps a live
- * entry alive. A READ-THROUGH TIER (`Table_Node`'s L1) instead needs every
- * entry to age out on schedule, or the hottest key is the one most likely to
- * be stale forever — those build with without_promotion().
+ * Every shape that uses it wants promotion. A WORKING SET (the event logger's
+ * in-flight requests, keyed by request id) reads eviction as "this one never
+ * completed"; an ACCUMULATOR (`Table_Node`'s tier, per-URL aggregates) would
+ * lose counts it has not drained. In both, a hit keeping an entry alive is
+ * exactly right.
  *
  * A variant of Tachikoma's bucket LRU — `Nodes/Table.pm` `lru_lookup`
  * (https://github.com/datapoke/tachikoma), in the shape our DN `ReqGrep.pm`
@@ -66,9 +65,6 @@ class LRU_Cache {
 	/** @var callable|null Called with (key, value) for each evicted item. */
 	private $on_evict = null;
 
-	/** @var bool Whether a hit moves into the newest bucket. */
-	private bool $promote = true;
-
 	/** @var float Seconds between time-based rotations (0 = capacity-only). */
 	private float $rotate_interval = 0;
 
@@ -88,7 +84,7 @@ class LRU_Cache {
 	 *
 	 * Searches newest bucket first. A hit in an older bucket moves the entry
 	 * into the newest one, which resets its age and can itself trigger a
-	 * rotation — so a read may evict the oldest bucket. without_promotion()
+	 * rotation — so a read may evict the oldest bucket. Promotion
 	 * turns that off.
 	 *
 	 * @api Consumers read a working set one key at a time.
@@ -108,12 +104,12 @@ class LRU_Cache {
 	 * need the difference: what is missing is what they go and fetch.
 	 *
 	 * Keys come back `array-key` for the reason iterate() gives — a PHP array
-	 * turns an all-digit string key into an int on the way in. With promotion
-	 * on, this promotes like get() does, so a batch read can rotate a bucket
-	 * and fire on_evict.
+	 * turns an all-digit string key into an int on the way in. This promotes
+	 * like get() does, so a batch read can rotate a bucket and fire on_evict.
 	 *
 	 * @param list<string> $keys Cache keys.
 	 * @return array<array-key,mixed> Values for the keys that were present.
+	 * @api Sibling plugins batch-read a working set (Request_Builder, Reqgrep).
 	 */
 	public function get_multi( array $keys ): array {
 		$found = [];
@@ -138,7 +134,7 @@ class LRU_Cache {
 	 */
 	private function take( int $i, string $key ): mixed {
 		$value = $this->buckets[ $i ][ $key ];
-		if ( $this->promote && $i < $this->current ) {
+		if ( $i < $this->current ) {
 			unset( $this->buckets[ $i ][ $key ] );
 			$this->buckets[ $this->current ][ $key ] = $value;
 			$this->maybe_rotate();
@@ -170,6 +166,7 @@ class LRU_Cache {
 	 * all-digit string key into an int on the way in.
 	 *
 	 * @param array<array-key,mixed> $items Values keyed by cache key.
+	 * @api Sibling plugins batch-fill a working set.
 	 */
 	public function set_multi( array $items ): void {
 		foreach ( $items as $key => $value ) {
@@ -221,6 +218,7 @@ class LRU_Cache {
 	 * entry ages out on wall-clock time rather than on how often we looked.
 	 * num_buckets rolls already empty the cache, so a longer gap has nothing
 	 * left to drop and the count caps there.
+	 * @api Sibling plugins roll the window from their own tick.
 	 */
 	public function rotate_if_due(): void {
 		if ( $this->rotate_interval <= 0 ) {
@@ -284,6 +282,7 @@ class LRU_Cache {
 	 * @param float    $seconds  Seconds between rotations.
 	 * @param callable $on_evict Called with (key, value) for each evicted item.
 	 * @return self This cache, for chaining onto the constructor.
+	 * @api Sibling plugins arm the wall-clock window and its evict callback.
 	 */
 	public function with_timed_rotation( float $seconds, callable $on_evict ): self {
 		$this->rotate_interval = $seconds;
@@ -324,6 +323,7 @@ class LRU_Cache {
 	 * the entry, not that a caller retired it.
 	 *
 	 * @param string $key Cache key.
+	 * @api Sibling plugins drop a key they have finished with.
 	 */
 	public function delete( string $key ): void {
 		foreach ( $this->live_indices() as $i ) {
@@ -374,21 +374,6 @@ class LRU_Cache {
 		$indices = \array_keys( $this->buckets );
 		\rsort( $indices );
 		return $indices;
-	}
-
-	/**
-	 * Stop a hit from moving into the newest bucket.
-	 *
-	 * A read-through tier wants this: promotion resets an entry's age, so the
-	 * hottest key would be the one most likely to be stale forever and any
-	 * window over this cache would be decorative. A working set wants the
-	 * default, where a read is what keeps a live entry alive.
-	 *
-	 * @return self This cache, for chaining onto the constructor.
-	 */
-	public function without_promotion(): self {
-		$this->promote = false;
-		return $this;
 	}
 
 	/**

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING**: `Table_Node` drops the read-through L1. The `l1_ttl` third argument, `table()`'s third parameter and the `l1_ttl` TSL token are gone. It shipped in v2.21.0 and never had a consumer — no call site passed a non-zero `l1_ttl`, and no topology built a Table at all — so it was speculative surface caching storage nobody re-read.
+- Added in its place: an opt-in **accumulator** tier, `accumulator( $bucket_size, $num_buckets )` plus `accumulate()` / `accumulated()` / `accumulating()` / `reset()`. It holds values a caller is still folding into and has NOT persisted, and `accumulated()` reads through to `lookup()` for a cold key, so an evicted or unseen entry resumes from what was last stored. That is what the one real in-memory tier in this codebase was doing by hand — ELN's `Flame_Builder_Node` held its own `LRU_Cache` in front of a Table lookup — and it is closer to Tachikoma's `Table.pm`, which accumulates in memory and drains, than a read cache ever was. `accumulate()` without opting in throws rather than silently dropping the value.
+- Removed `LRU_Cache::without_promotion()` and the `$promote` flag with it. The read-through L1 was its only consumer — promotion-off is what a cache of storage wants and what an accumulator must not have, since eviction there loses counts. Every remaining holder wants the default.
+- `Table_Node::store()` returns `bool` instead of `void` — true when the backend accepted the write. A caller that shadows its writes durably (ELN's `Stats_Store` mirror) must not record a set the backend refused, or a failed write is resurrected on cold boot as though it had landed. Existing callers ignoring the return are unaffected.
+
 ## [2.27.0] - 2026-08-14
 
 ### Changed
