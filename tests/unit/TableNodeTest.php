@@ -305,6 +305,96 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
+	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
+		// One backend round trip for a set of keys — what ELN's Stats_Store
+		// reads a page of URL buckets through.
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-1', [ 'usd' => 100 ] );
+		$table->store( 'sku-3', [ 'usd' => 300 ] );
+
+		$found = $table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] );
+
+		$this->assertSame(
+			[ 'sku-1' => [ 'usd' => 100 ], 'sku-3' => [ 'usd' => 300 ] ],
+			$found,
+			'absent keys are omitted, present ones keyed as the caller asked'
+		);
+	}
+
+	public function test_lookup_multi_is_empty_when_the_backend_goes_away(): void {
+		// table() refuses to build without one, so the loss happens after: a
+		// memcached that dies mid-process reads as an empty table, not a throw.
+		$table      = Table_Node::table( 'prices', 60 );
+		$prev       = Core::$memd;
+		Core::$memd = null;
+		try {
+			$this->assertSame( [], $table->lookup_multi( [ 'sku-1' ] ) );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
+	public function test_a_request_that_is_not_a_get_is_refused_not_answered(): void {
+		// The verb surface is GET alone; anything else is a caller bug, and
+		// replying to it would look like an empty table rather than a refusal.
+		$table = new class() extends Table_Node {
+			/** @var string[] */
+			public array $warnings = [];
+			public function print_less_often( string $text, string ...$extra ): void {
+				$this->warnings[] = $text . \implode( '', $extra );
+			}
+		};
+		$table->arguments( [ 'prices' ] );
+		$capture = new Capture_Sink_Node();
+		$table->sink( $capture );
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_REQUEST;
+		$message[ Message::VALUE ] = 'SET sku-9 12';
+		$table->fill( $message );
+
+		$this->assertSame( [], $capture->captured, 'a refused request gets no reply' );
+		$this->assertSame( [ 'ERROR: bad request: SET sku-9 12' ], $table->warnings );
+	}
+
+	public function test_a_backend_read_error_is_said_out_loud(): void {
+		// Null reads as "empty table" downstream, so a broken backend that stays
+		// quiet is indistinguishable from a cold one.
+		$table = new class() extends Table_Node {
+			/** @var string[] */
+			public array $warnings = [];
+		};
+		$table->arguments( [ 'prices' ] );
+		$prev = Core::$memd;
+		// A handle whose get() fails with something other than NOTFOUND.
+		Core::$memd = new class() extends InMemoryMemcached {
+			public function get( $key, $cache_cb = null, $flags = 0 ): mixed {
+				return false;
+			}
+			public function getResultCode(): int {
+				return \Memcached::RES_SERVER_ERROR;
+			}
+		};
+		try {
+			$this->assertNull( $table->lookup( 'sku-9' ), 'a failed read is still a null' );
+		} finally {
+			Core::$memd = $prev;
+		}
+	}
+
+	public function test_a_table_without_a_namespace_is_refused(): void {
+		// The namespace is what scopes lookup(); an empty one would silently
+		// share a keyspace with every other unnamed table.
+		$this->expectException( \InvalidArgumentException::class );
+		Table_Node::table( '' );
+	}
+
+	public function test_accumulating_yields_nothing_without_an_accumulator(): void {
+		$table = Table_Node::table( 'prices', 60 );
+
+		$this->assertSame( [], \iterator_to_array( $table->accumulating() ) );
+	}
+
 	// ── Accumulator: an opt-in in-memory tier the caller drains ────────────
 
 	private function accumulating_table(): Table_Node {
