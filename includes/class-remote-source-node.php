@@ -52,6 +52,14 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private bool $pump_armed = true;
 
 	/**
+	 * The crumb crumb_for_line() last read off the wire, null when that line carried none —
+	 * the distinction the placeholder crumb erases, and what the drain seam steers on.
+	 *
+	 * @var array{segment:int, offset:int, length:int}|null
+	 */
+	private ?array $parsed_crumb = null;
+
+	/**
 	 * Whether the spoke partition this pulls is appended by more than one process
 	 * (the firehose is, from every request). Unlike Consumer's flag of the same
 	 * name it configures the reader on the OTHER end — a pull source has no
@@ -97,6 +105,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$next_ms = self::TICK_INTERVAL_MS;
 		if ( $this->should_connect() && null !== $this->sse_in ) {
 			$this->poll();
+			// One position, not two — unless an unresolved seek outranks it.
+			$sse = $this->sse_in;
+			if ( null !== $sse && ! $sse->has_pending_seek() ) {
+				$sse->restore_position( $this->cursor_segment, $this->cursor_offset );
+			}
 			// poll() moves the cursor; checkpoint() makes it durable.
 			if ( null !== $this->offsetlog && $this->checkpoint_due() ) {
 				$this->checkpoint();
@@ -121,21 +134,37 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Drain seam override: dispatch ONE buffered line the push way. Read the record's own START
-	 * from its breadcrumb and pin the cursor there (advance-on-next — a push cursor is
-	 * breadcrumb-derived, NOT chop-derived); then, if the boot head-skip is armed, run the
-	 * 3-way crumb-vs-boot-pin compare (this is the surviving sacrifice_head — a push stream can
-	 * resume PAST a GC'd suspect, so an armed head is not unconditionally the first drained
-	 * line). Everything else forwards through forward_line.
+	 * Crumb seam override: a pull source is addressed by the spoke that sent it, so the record's
+	 * position and size are the breadcrumb it arrived with, never the local line's bytes. A line
+	 * carrying no crumb cannot be placed in the spoke's byte space at all — it keeps the cursor
+	 * where it stands and moves it by nothing.
+	 *
+	 * @return array{segment:int, offset:int, length:int}
+	 */
+	protected function crumb_for_line( string $line ): array {
+		$this->parsed_crumb = $this->crumb_from_line( $line );
+		return $this->parsed_crumb ?? [
+			'segment' => $this->cursor_segment,
+			'offset'  => $this->cursor_offset,
+			'length'  => 0,
+		];
+	}
+
+	/**
+	 * Drain seam override: dispatch ONE buffered line the push way. Pin the cursor to the record's
+	 * own START from its breadcrumb; then, if the boot head-skip is armed, run the 3-way
+	 * crumb-vs-boot-pin compare (this is the surviving sacrifice_head — a push stream can resume
+	 * PAST a GC'd suspect, so an armed head is not unconditionally the first drained line).
+	 * Everything else forwards through forward_line.
 	 */
 	protected function drain_line( string $line, int $abs_offset ): void {
-		$crumb = $this->crumb_from_line( $line );
+		$crumb = $this->parsed_crumb;
 		if ( null !== $crumb ) {
 			$this->cursor_segment = $crumb['segment'];
 			$this->cursor_offset  = $crumb['offset'];
 		}
 		if ( $this->crawl_skip_head && null !== $crumb && $this->sacrifice_boot_head( $line, $crumb ) ) {
-			return; // Sacrificed / dropped — not forwarded.
+			return; // Sacrificed — not forwarded.
 		}
 		$this->forward_line( $line, $abs_offset, $crumb );
 	}
@@ -147,9 +176,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * A downstream throw dead-letters ON SIGHT + writes an advance-on-next quarantine marker (no
 	 * head-block, no fair-shot climb — that is reserved for the hard-crash lineage / crawl); a
 	 * Worker_Should_Stop is control flow (record the mid-dispatch stop, escape); a null downstream
-	 * FAILS LOUD; an unparseable line is quarantined (a re-delivered boot 'drop' head is dropped).
-	 * A crumb-less throwing message (null $crumb) has no position of its own — the cursor still
-	 * pins the prior healthy line — so it is dead-lettered but writes NO quarantine marker there.
+	 * FAILS LOUD; an unparseable line has no crumb, so it is quarantined where the cursor stands
+	 * — the next unread position, which is the one place it can be put — and moves it by nothing.
 	 *
 	 * @param array{segment:int, offset:int, length:int}|null $crumb The line's parsed breadcrumb.
 	 */
@@ -161,16 +189,9 @@ class Remote_Source_Node extends Remote_Link_Node {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			// Torn frame: no crumb; SSE_In next-read pos, quarantine on sight.
-			$pos = $this->sse_in?->position() ?? [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-			if ( $this->crawl_skip_head && 'drop' === $this->skip_head_disposition
-				&& $pos['segment'] === $this->boot_cursor_segment && $pos['offset'] === $this->boot_cursor_offset ) {
-				$this->crawl_skip_head = false;
-				$this->print_less_often( "{$this->name} boot head-drop (unparseable) at ", "{$pos['segment']}:{$pos['offset']}", ' — already quarantined, dropping' );
-				return;
-			}
-			$this->dead_letter( $this->poison_from_line( $line, $pos['segment'], $pos['offset'] ), 'unparseable', $e );
-			$this->mark_quarantined_at( $pos['segment'], $pos['offset'] );
+			// No crumb: place it at the cursor (SSE_In's copy is a tick old).
+			$this->dead_letter( $this->poison_from_line( $line, $this->cursor_segment, $this->cursor_offset ), 'unparseable', $e );
+			$this->disposed_record = true;
 			return;
 		}
 		if ( \is_string( $this->target ) && '' !== $this->target ) {
@@ -182,10 +203,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 		try {
 			$sink->fill( $message );
-			// Remote offset + remote length; crumb-less keeps the prior cursor.
-			if ( null !== $crumb ) {
-				$this->sse_in?->restore_position( $this->cursor_segment, $this->cursor_offset + $crumb['length'] );
-			}
 			// Clear streak on forward itself (cursor at boot); not in crawl.
 			if ( ! $this->crawl && $this->attempts > 1 ) {
 				$this->attempts       = 1;
@@ -195,9 +212,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 			}
 		} catch ( Worker_Should_Stop $e ) {
 			$clean = $e instanceof Worker_Should_Stop_Clean;
-			// Commit past a crumb-bearing message not in crawl; else replay.
+			// Commit past a placeable message not in crawl; else replay.
 			if ( ( $clean || $this->assume_clean_shutdown ) && null !== $crumb && ! $this->crawl ) {
-				$this->cursor_offset += $crumb['length'];
 				throw $clean ? $e : new Worker_Should_Stop_Clean();
 			}
 			// Cooperative deadline: record the mid-dispatch stop, then escape.
@@ -207,10 +223,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			throw $e;
 		} catch ( \Throwable $e ) {
 			$this->dead_letter( $message, 'throw', $e );
-			// Crumb-bearing message pins its start; else marker hits good line.
-			if ( null !== $crumb ) {
-				$this->mark_quarantined_at( $this->cursor_segment, $this->cursor_offset );
-			}
+			$this->disposed_record = true;
 		}
 	}
 
@@ -250,15 +263,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$cmp = [ $crumb['segment'], $crumb['offset'] ] <=> [ $this->boot_cursor_segment, $this->boot_cursor_offset ];
 		if ( 0 === $cmp ) {
 			$this->crawl_skip_head = false;
-			if ( 'drop' === $this->skip_head_disposition ) {
-				// Marker: head already in DLQ, drop silently, no second entry.
-				$this->print_less_often( "{$this->name} boot head-drop: message at ", "{$this->boot_cursor_segment}:{$this->boot_cursor_offset}", ' is already quarantined — dropping' );
-				return true;
-			}
-			// Crash suspect: dead-letter, quarantine-mark start (crash window).
 			$this->dead_letter( $this->poison_from_line( $line, $crumb['segment'], $crumb['offset'] ), 'crash' );
-			$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
-			$this->sealed_quarantine = [ 'segment' => $crumb['segment'], 'offset' => $crumb['offset'] ];
+			$this->disposed_record = true;
 			return true;
 		}
 		if ( 0 < $cmp ) {
@@ -269,24 +275,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	}
 
 	/**
-	 * Seal an on-sight quarantine at `{segment,offset}` and commit a marker frame there (dead_letter
-	 * must have run first). The frame PRESERVES the live attempt accounting (never graceful) so a
-	 * throw during a climbing crash lineage doesn't reset the streak. The cursor still advances only
-	 * on the next arrival; the marker makes any re-encounter of this position a silent drop.
-	 */
-	private function mark_quarantined_at( int $segment, int $offset ): void {
-		$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
-		$this->cursor_segment    = $segment;
-		$this->cursor_offset     = $offset;
-		$this->write_checkpoint_frame( false, true, [ 'quarantined' => true ] );
-	}
-
-	/**
 	 * Parse a raw line's breadcrumb into `{segment, offset, length}`, or null when the line won't
 	 * unpack or its ID isn't a well-formed crumb. offset is the record's on-disk start; length is
-	 * the crumb's own `segment:offset:length` third field — the spoke's authoritative byte size —
-	 * falling back to the local received size for a legacy 2-field crumb. assume_clean_shutdown
-	 * commits offset+length to advance PAST a durably-written message on a cooperative stop.
+	 * the crumb's own `segment:offset:length` third field — the spoke's authoritative byte size,
+	 * and what the drain loop advances past the record by. A legacy 2-field crumb carries no
+	 * length, so it places the record and moves the cursor by nothing rather than by a local
+	 * size measured in the wrong byte space.
 	 *
 	 * @return array{segment:int, offset:int, length:int}|null
 	 */
@@ -305,7 +299,8 @@ class Remote_Source_Node extends Remote_Link_Node {
 		if ( 3 === $count && ! \ctype_digit( $parts[2] ) ) {
 			return null;
 		}
-		$length = ( 3 === $count ) ? (int) $parts[2] : \strlen( $line ) + 1;
+		// No length on the wire: a local one is the wrong byte space.
+		$length = ( 3 === $count ) ? (int) $parts[2] : 0;
 		return [ 'segment' => (int) $parts[0], 'offset' => (int) $parts[1], 'length' => $length ];
 	}
 
@@ -334,16 +329,11 @@ class Remote_Source_Node extends Remote_Link_Node {
 		$offset  = $value['offset'] ?? 0;
 		$segment = Core::as_int( $segment );
 		$offset  = Core::as_int( $offset );
-		// Arm head-skip from frame: marker -> DROP head, crash -> sacrifice.
 		$this->arm_skip_head_from_frame( $value );
 		$this->cursor_segment      = $segment;
 		$this->cursor_offset       = $offset;
 		$this->boot_cursor_segment = $segment;
 		$this->boot_cursor_offset  = $offset;
-		if ( 'drop' === $this->skip_head_disposition ) {
-			// Booted onto marker: seal boot pos until drop advances past it.
-			$this->sealed_quarantine = [ 'segment' => $segment, 'offset' => $offset ];
-		}
 		return [
 			'segment' => $segment,
 			'offset'  => $offset,
@@ -374,7 +364,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * offsetlog exists first. Remote_Source has no snapshot cache to co-commit, so $with_state is
 	 * unused; the _ts wall-clock rides via checkpoint_frame_extra().
 	 *
-	 * @param array<array-key,mixed> $extra Per-call frame additions (the quarantine marker).
+	 * @param array<array-key,mixed> $extra Per-call frame additions.
 	 */
 	protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void {
 		if ( null === $this->ensure_offsetlog() ) {
@@ -617,13 +607,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function deadletter_name(): string {
 		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:deadletter" : '';
 	}
-
-	/**
-	 * Consume-cursor advance seam: NO-OP. Consumer bumps cursor_offset by the local buffer chop;
-	 * a push source pins its cursor from each line's breadcrumb in drain_line/forward_line, so the
-	 * chop index (a local-buffer position) is not a remote seg:offset and must not touch the cursor.
-	 */
-	protected function advance_consume_cursor( int $pos ): void {}
 
 	/**
 	 * Remote_Source's frame extra beyond the shared base: the commit wall-clock, carried on

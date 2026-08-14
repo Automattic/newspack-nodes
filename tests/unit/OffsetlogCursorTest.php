@@ -25,10 +25,6 @@ class Offsetlog_Cursor_Double extends Node {
 		return $this->crawl_skip_head;
 	}
 
-	public function disposition(): string {
-		return $this->skip_head_disposition;
-	}
-
 	protected function offsetlog_name(): string {
 		return 'double:offsetlog';
 	}
@@ -159,45 +155,21 @@ class OffsetlogCursorTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/offsets.p0/0.log", Message::packed( $message ) . "\n" );
 		$this->assertNull( $d->read() );
 	}
-	// ── arm_skip_head_from_frame: boot head-skip disposition (quarantine marker) ──
+	// ── arm_skip_head_from_frame: the crash-lineage boot head-skip ──
 
 	public function test_arm_skip_head_from_frame_arms_crash_on_hard_crash_lineage(): void {
 		\Newspack_Nodes\Core::$now = 7000.0;
 		$d = new Offsetlog_Cursor_Double();
-		// A hard-crash lineage with no marker → arm the DLQ 'crash' sacrifice (existing behavior).
+		// A hard-crash lineage arms the DLQ sacrifice of the resumed head.
 		$this->assertTrue( $d->arm( [ 'attempts' => Offsetlog_Cursor_Double::CRASH_MAX_ATTEMPTS, 'reason' => '' ] ) );
 		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'crash', $d->disposition() );
-	}
-
-	public function test_arm_skip_head_from_frame_arms_drop_on_quarantine_marker(): void {
-		$d = new Offsetlog_Cursor_Double();
-		// A strike-out marker frame: graceful (attempts=0) + quarantined → arm the silent DROP
-		// (the head is already in the DLQ), no crawl.
-		$this->assertTrue( $d->arm( [ 'attempts' => 0, 'reason' => '', 'quarantined' => true ] ) );
-		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'drop', $d->disposition() );
-		$this->assertFalse( $this->read_private( $d, 'crawl' ), 'a strike-out marker hands off at the virgin baseline, not crawl' );
-	}
-
-	public function test_arm_skip_head_from_frame_marker_drop_wins_over_crash_lineage(): void {
-		\Newspack_Nodes\Core::$now = 7000.0;
-		$d = new Offsetlog_Cursor_Double();
-		// A post-crash-sacrifice marker keeps the crawl lineage (attempts pinned, no reason) AND
-		// carries the marker. The marker's DROP must win so the already-quarantined head isn't
-		// re-dead-lettered, while crawl still continues.
-		$this->assertTrue( $d->arm( [ 'attempts' => Offsetlog_Cursor_Double::CRASH_MAX_ATTEMPTS, 'reason' => '', 'quarantined' => true ] ) );
-		$this->assertTrue( $d->armed() );
-		$this->assertSame( 'drop', $d->disposition(), 'the marker DROP wins over the crash-lineage sacrifice' );
-		$this->assertTrue( $this->read_private( $d, 'crawl' ), 'the crawl lineage still continues' );
 	}
 
 	public function test_arm_skip_head_from_frame_unarmed_on_a_clean_frame(): void {
 		$d = new Offsetlog_Cursor_Double();
-		// A plain graceful frame with no marker and no crash lineage arms nothing.
+		// A graceful frame — what a disposal commits — has no lineage to arm.
 		$this->assertFalse( $d->arm( [ 'attempts' => 0, 'reason' => '' ] ) );
 		$this->assertFalse( $d->armed() );
-		$this->assertSame( 'crash', $d->disposition(), 'the disposition stays at its default when unarmed' );
 	}
 
 }
