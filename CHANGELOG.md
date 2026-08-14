@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.26.1] - 2026-08-13
+
 ### Fixed
 
 - **A durable reader's cursor names the next UNREAD record, so a resume no longer
