@@ -45,6 +45,26 @@ class CommandAuthScopeTest extends TestCase {
 		return $m;
 	}
 
+	public function test_a_minted_session_remembers_who_minted_it(): void {
+		$GLOBALS['_wp_test_current_user_id'] = 7319;
+
+		$session = Command_Auth::mint_session( Capabilities::READ );
+
+		$this->assertSame(
+			7319,
+			Command_Auth::load_session_record( $session['handle'] )['user'],
+			'a session acts AS its minter; without the id it can only ever act as nobody'
+		);
+	}
+
+	public function test_a_pre_user_record_reads_as_nobody_rather_than_as_someone(): void {
+		$address = ( new \ReflectionMethod( Command_Auth::class, 'session_address' ) )
+			->invoke( null, self::LEGACY_HANDLE );
+		Core::$memd->add( $address, self::LEGACY_KEY, 600 );
+
+		$this->assertSame( 0, Command_Auth::load_session_record( self::LEGACY_HANDLE )['user'] );
+	}
+
 	public function test_a_minted_session_remembers_the_scope_it_was_asked_for(): void {
 		$session = Command_Auth::mint_session( Capabilities::TUNE );
 

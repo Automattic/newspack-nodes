@@ -765,3 +765,15 @@
 		border-color: var(--paper-shadow, var(--np-border-strong));
 	}
 }
+
+// Picker mode: `cursor: help` IS the `?` cursor natively, so the picker needs
+// no asset. `!important` because every askable row already sets its own cursor.
+:where(body).newspack-nodes-asking,
+:where(body).newspack-nodes-asking * {
+	cursor: help !important;
+}
+
+:where(body).newspack-nodes-asking [data-ask]:hover {
+	outline: 2px solid var(--np-accent, #003da5);
+	outline-offset: -2px;
+}

@@ -191,7 +191,6 @@ class HTTP_In_Node extends Node {
 
 		// Lazy-init the request-scope graph (idempotent); apps mount via hook.
 		$base_interpreter = $this->ensure_request_graph();
-		\do_action( 'newspack_nodes/request_graph_ready', $base_interpreter );
 
 		$router = Core::node( Node_Names::ROUTER );
 		$out    = Core::node( Node_Names::OUTPUT );
@@ -258,17 +257,8 @@ class HTTP_In_Node extends Node {
 	 * the `_output` response-writer Node.
 	 */
 	private function ensure_request_graph(): Command_Interpreter_Node {
-		$router = Core::node( Node_Names::ROUTER );
-		if ( ! $router instanceof Router_Node ) {
-			$router = new Router_Node();
-			$router->name( Node_Names::ROUTER );
-		}
-		$base_interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( ! $base_interpreter instanceof Command_Interpreter_Node ) {
-			$base_interpreter = new Command_Interpreter_Node();
-			$base_interpreter->name( Node_Names::COMMAND_INTERPRETER );
-			$base_interpreter->sink( $router );
-		}
+		// Shared with every command door; only `_output` is this one's own.
+		$base_interpreter = Bootstrap::mount_request_graph();
 		// The graph vocabulary declares no per-verb roles; pin it at MANAGE.
 		$base_interpreter->required_capability = Capabilities::MANAGE;
 		// This controller instance IS the _output egress Node (same obj).

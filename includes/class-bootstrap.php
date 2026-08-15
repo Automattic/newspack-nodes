@@ -854,6 +854,33 @@ class Bootstrap {
 	}
 
 	/**
+	 * Build (idempotently) the request-scope graph EVERY command entry point
+	 * needs — `_router` and `_command_interpreter` — and fire
+	 * `newspack_nodes/request_graph_ready` so applications mount their service
+	 * CIs onto it.
+	 *
+	 * Shared because `/command` is no longer the only door: an MCP request
+	 * reaches the same verbs by another route, and a second copy of this
+	 * construction sequence is exactly the kind of thing that drifts until one
+	 * door silently has no service CIs behind it.
+	 */
+	public static function mount_request_graph(): Command_Interpreter_Node {
+		$router = Core::node( Node_Names::ROUTER );
+		if ( ! $router instanceof Router_Node ) {
+			$router = new Router_Node();
+			$router->name( Node_Names::ROUTER );
+		}
+		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( ! $interpreter instanceof Command_Interpreter_Node ) {
+			$interpreter = new Command_Interpreter_Node();
+			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+			$interpreter->sink( $router );
+		}
+		\do_action( 'newspack_nodes/request_graph_ready', $interpreter );
+		return $interpreter;
+	}
+
+	/**
 	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
 	 *
 	 * @return bool True iff the partition is now mounted.

@@ -173,7 +173,7 @@ class Command_Auth {
 		}
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
-		if ( ! self::store_session( $handle, $key, $ttl, $scope ) ) {
+		if ( ! self::store_session( $handle, $key, $ttl, $scope, self::current_user() ) ) {
 			throw new \RuntimeException( 'Command_Auth: could not persist the session (no cache backend, or handle taken)' );
 		}
 		return [
@@ -184,6 +184,11 @@ class Command_Auth {
 			// The minter signs TIMESTAMP; the client aligns to this clock.
 			'now'        => \time(),
 		];
+	}
+
+	/** The minting user, or 0 outside a WP runtime. */
+	private static function current_user(): int {
+		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 	}
 
 	/**
@@ -197,11 +202,11 @@ class Command_Auth {
 	 * cache domain. This deliberately differs from the nonce claim's
 	 * `local_first()` ordering.
 	 */
-	public static function store_session( string $handle, string $key, int $ttl, string $scope = Capabilities::MANAGE ): bool {
+	public static function store_session( string $handle, string $key, int $ttl, string $scope = Capabilities::MANAGE, int $user = 0 ): bool {
 		$backend = Cache_Backend::shared_first();
 		return null !== $backend && $backend->add(
 			self::session_address( $handle ),
-			[ 'k' => $key, 's' => $scope ],
+			[ 'k' => $key, 's' => $scope, 'u' => $user ],
 			$ttl
 		);
 	}
@@ -442,7 +447,7 @@ class Command_Auth {
 	 * authority was unrestricted — so it reads back as MANAGE rather than being
 	 * discarded, which would log every live client out on deploy.
 	 *
-	 * @return array{key:string,scope:string}|null
+	 * @return array{key:string,scope:string,user:int}|null
 	 */
 	public static function load_session_record( string $handle ): ?array {
 		$backend = Cache_Backend::shared_first();
@@ -451,7 +456,8 @@ class Command_Auth {
 		}
 		$record = $backend->get( self::session_address( $handle ) );
 		if ( \is_string( $record ) ) {
-			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE ];
+			// A pre-scope record is a bare key: unrestricted, and nobody's.
+			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE, 'user' => 0 ];
 		}
 		if ( ! \is_array( $record ) ) {
 			return null;
@@ -462,7 +468,9 @@ class Command_Auth {
 		if ( '' === $scope ) {
 			$scope = Capabilities::MANAGE;
 		}
-		return '' === $key ? null : [ 'key' => $key, 'scope' => $scope ];
+		return '' === $key
+			? null
+			: [ 'key' => $key, 'scope' => $scope, 'user' => Core::num_int( $record['u'] ?? 0 ) ];
 	}
 
 	/**
