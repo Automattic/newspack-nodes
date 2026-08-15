@@ -131,6 +131,12 @@ describe( 'LogViewer', () => {
 			step,
 			fetchSources,
 			clear: clearGraph,
+			setFilter: ( term ) => {
+				const view = Core.nodes.get( 'logviewer:view' );
+				if ( view ) {
+					view.filter = String( term ).toLowerCase();
+				}
+			},
 		} );
 	}
 
@@ -284,12 +290,12 @@ describe( 'LogViewer', () => {
 		expect( logBrowserProps.mode ).toBe( 'live' );
 	} );
 
-	it( 'passes the filter down and renders raw rows with no partition column', () => {
-		registerViewFixture( { selected: 'php' } );
+	it( 'gates ingest on the filter and renders raw rows with no partition column', () => {
+		const node = registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
 		const input = container.querySelector( '.newspack-nodes-search-input' );
 		fireEvent.change( input, { target: { value: 'oops' } } );
-		expect( logRowListProps.filter ).toBe( 'oops' );
+		expect( node.filter ).toBe( 'oops' );
 
 		const { container: rowc } = render(
 			logRowListProps.renderRow( {
@@ -388,6 +394,8 @@ describe( 'LogViewer', () => {
 	} );
 
 	it( 'a capped count reads visible/total, with no debug-cap banner', () => {
+		// Debug caps the rendered rows at DEBUG_MAX_ROWS; the split is how the
+		// toolbar says so. Filtering no longer makes the two differ — only this.
 		registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );
 		act( () =>

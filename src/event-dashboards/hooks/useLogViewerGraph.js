@@ -44,7 +44,7 @@ function defaultSourceName( sources ) {
 }
 
 /**
- * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void, clear: () => void }}
+ * @return {{ selectSource: Function, setPaused: Function, seek: Function, sources: Array, fetchSources: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks + the source catalog (name/mode/availability/segments)
  *   for the picker and segment sidebar; fetchSources refreshes that catalog,
  *   step (paused only) delivers one record from the cursor, and clear empties
@@ -186,6 +186,13 @@ export function useLogViewerGraph() {
 		[ resubscribe, fetchSources ]
 	);
 
+	// Ingest gate: only matching rows enter the ring from here on.
+	const setFilter = useCallback( ( term ) => {
+		viewRef.current?.fill(
+			controlMsg( viewRef.current, { action: 'filter', term } )
+		);
+	}, [] );
+
 	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
 	const clear = useCallback( () => {
 		viewRef.current?.fill(
@@ -232,6 +239,7 @@ export function useLogViewerGraph() {
 	);
 
 	return {
+		setFilter,
 		selectSource,
 		setPaused,
 		seek,

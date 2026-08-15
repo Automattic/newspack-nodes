@@ -99,34 +99,6 @@ it( 'reports total / visible / lps up to the consumer', () => {
 	} );
 } );
 
-it( 'filters the ring, reporting and rendering only matching rows', () => {
-	const base = rows( 30, 'plain' );
-	base[ 3 ].content = 'zebra-alpha';
-	base[ 9 ].content = 'zebra-beta';
-	const node = makeNode( base );
-	const onStats = jest.fn();
-	const { container } = render(
-		<LogRowList
-			getNode={ () => node }
-			rowHeight={ 18 }
-			renderRow={ renderRow }
-			filter="zebra"
-			onStats={ onStats }
-		/>
-	);
-	tickFrame();
-	expect( onStats ).toHaveBeenLastCalledWith( {
-		total: 30,
-		visible: 2,
-		lps: 0,
-	} );
-	const rendered = [ ...container.querySelectorAll( '.row' ) ];
-	expect( rendered.length ).toBe( 2 );
-	rendered.forEach( ( el ) =>
-		expect( el.dataset.content ).toMatch( /zebra/ )
-	);
-} );
-
 it( 'a burst keeps the unbounded glide, with the ring bound into the window', () => {
 	const lines = rows( 5 );
 	const node = makeNode( lines );
@@ -404,27 +376,6 @@ it( 'debug mode reports the rendered (capped) count as visible', () => {
 		visible: DEBUG_MAX_ROWS,
 		lps: 0,
 	} );
-} );
-
-it( 'debug mode windows the filter matches the same way', () => {
-	const base = rows( 30, 'noise' );
-	base[ 3 ].content = 'needle 4194';
-	const node = makeNode( base );
-	const { container } = render(
-		<LogRowList
-			getNode={ () => node }
-			rowHeight={ 18 }
-			renderRow={ renderRow }
-			filter="needle"
-			debug
-		/>
-	);
-	tickFrame();
-	const rendered = container.querySelectorAll( '.row' );
-	expect( rendered.length ).toBe( 1 );
-	expect( rendered[ 0 ].getAttribute( 'data-content' ) ).toBe(
-		'needle 4194'
-	);
 } );
 
 it( 'leaving debug mode does not replay rows that arrived during it', () => {

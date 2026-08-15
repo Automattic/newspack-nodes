@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Log-stream filtering is an INGEST gate on the view node, not a per-frame scan in the renderer.** Two bugs fell out of filtering at render time: the `isEven` stripe reflected a row's position in the UNFILTERED stream, so survivors of a filter no longer alternated; and non-matching rows still consumed ring slots, so a rare match aged out of the buffer while its filter still stood — searching for something unusual made the matches vanish as unrelated traffic cycled through. `lineCounter` now advances only for ADMITTED rows, which makes ingest parity filtered parity: stripes alternate across what is displayed AND stay pinned to their row. Restores the design of ELN's v0.16.0 `4b3abc5`, lost when the viewers rebased onto the shared base in `b5ce511`.
+- Changing the filter does NOT clear the ring: already-buffered rows stay, and `Clear` is the control that empties them. The gate governs what arrives from here on.
+- `LogRowList` loses the `filter` / `matchRow` props and its O(ring) per-frame scan; `LogStreamViewer` gains `onFilter`, which sends the view's `filter` control. A subclass with more searchable fields overrides `matchesFilter()` on its view node. The filter is re-sent on a graph rebuild, which replaces the node the gate lives on.
+
+
 ## [2.29.0] - 2026-08-14
 
 ### Changed

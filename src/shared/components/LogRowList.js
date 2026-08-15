@@ -32,11 +32,6 @@ const STATS_INTERVAL_MS = 250;
 // Debug mode renders natural-height rows unvirtualized; bound the DOM cost.
 export const DEBUG_MAX_ROWS = 500;
 
-const defaultMatch = ( row, filterLower ) =>
-	String( row?.content ?? '' )
-		.toLowerCase()
-		.includes( filterLower );
-
 /**
  * The committed render model: the pulled window plus the geometry placing it.
  *
@@ -47,7 +42,8 @@ const defaultMatch = ( row, filterLower ) =>
  * @property {Object[]} rows        The pulled window, newest first.
  * @property {number}   spacerTop   Height in px of the spacer standing in for the rows above the window.
  * @property {number}   totalHeight Full scroll height in px; 0 in the debug regime, which is unvirtualized.
- * @property {number}   visible     Rows the projection considers visible — post-filter, not window-limited.
+ * @property {number}   visible     Rows actually shown: the ring total, or the
+ *                                  DEBUG_MAX_ROWS cap in debug.
  * @property {number}   [offset]    Smooth-scroll offset in px, committed with its rows. Absent in the debug regime, which never glides.
  */
 
@@ -75,11 +71,11 @@ const defaultMatch = ( row, filterLower ) =>
  * scroll-state re-render lags the single-frame pull. New rows smooth-scroll into
  * place via an offset that decays to zero (or hold the reader's position when
  * scrolled into history), and `{ total, visible, lps }` is reported up to the
- * consumer's toolbar. An optional `filter` scans the ring (only while active,
- * matching the canvas renderer) and windows over the matches.
+ * consumer's toolbar. Filtering happens at INGEST on the view node, so the
+ * ring holds only what is displayed and this windows straight off it.
  *
  * Flood-safe, per the console Dumper: per-frame work is bounded regardless of
- * INPUT RATE (the active-filter scan stays O(ring capacity), rate-independent).
+ * INPUT RATE.
  * The glide debt is capped at MAX_DEBT_ROWS (excess rows appear instantly —
  * the animation drops, never the data), stats publishes coalesce to
  * STATS_INTERVAL_MS, and row elements re-map only on a model commit.
@@ -88,8 +84,6 @@ const defaultMatch = ( row, filterLower ) =>
  * @param {Function}  props.getNode         `() => node|null`; node exposes `linesCount`, `lineAt(i)`, optional `lps`.
  * @param {number}    props.rowHeight       Fixed row height in px.
  * @param {RenderRow} props.renderRow       Renders one row of the pulled window.
- * @param {string}    [props.filter]        Substring filter; '' scans nothing.
- * @param {Function}  [props.matchRow]      `(row, filterLower) => boolean`; defaults to `row.content` includes.
  * @param {*}         [props.emptyLabel]    Rendered when no rows are visible.
  * @param {Function}  [props.onStats]       `({ total, visible, lps }) => void`, on change, coalesced to STATS_INTERVAL_MS.
  * @param {number}    [props.resetSignal]   Change it to rebase the projection (clear / new subscription).
@@ -101,8 +95,6 @@ export default function LogRowList( {
 	getNode,
 	rowHeight,
 	renderRow,
-	filter = '',
-	matchRow = defaultMatch,
 	emptyLabel = '',
 	onStats,
 	resetSignal = 0,
@@ -118,12 +110,7 @@ export default function LogRowList( {
 	const glidingRef = useRef( true );
 	// Newest row id already smooth-scrolled for (monotonic; cap-robust).
 	const lastTopIdRef = useRef( 0 );
-	const lastTopFilterRef = useRef( filter );
 	// Latest of each so the rAF reads without re-subscribing.
-	const filterRef = useRef( filter );
-	filterRef.current = filter;
-	const matchRef = useRef( matchRow );
-	matchRef.current = matchRow;
 	const onStatsRef = useRef( onStats );
 	onStatsRef.current = onStats;
 	// Change-detect gate: idle frames push no React state.
@@ -152,10 +139,9 @@ export default function LogRowList( {
 		} )
 	);
 
-	// Rebase on clear / filter change: forget motion + the new-row baseline.
+	// Rebase on clear: forget motion + the new-row baseline.
 	useEffect( () => {
 		lastTopIdRef.current = 0;
-		lastTopFilterRef.current = filterRef.current;
 		offsetRef.current = 0;
 		isAdjustingScrollRef.current = false;
 		glidingRef.current = true;
@@ -172,15 +158,13 @@ export default function LogRowList( {
 		if ( listRef.current ) {
 			listRef.current.scrollTop = 0;
 		}
-	}, [ resetSignal, filter ] );
+	}, [ resetSignal ] );
 
 	useEffect( () => {
 		const draw = ( frameTs ) => {
 			const node = getNode();
 			const total = node?.linesCount ?? 0;
 			const lps = node?.lps ?? 0;
-			const activeFilter = filterRef.current;
-			const filterLower = activeFilter.toLowerCase();
 
 			// On change AND on cadence; a throttled change lands next window.
 			const pushStats = ( visibleNow ) => {
@@ -199,24 +183,10 @@ export default function LogRowList( {
 				}
 			};
 
-			// Filter: scan the ring for matches; else window straight off it.
-			let filtered = null;
-			let visible;
-			if ( activeFilter ) {
-				filtered = [];
-				for ( let i = 0; i < total; i++ ) {
-					const row = node.lineAt( i );
-					if ( row && matchRef.current( row, filterLower ) ) {
-						filtered.push( row );
-					}
-				}
-				visible = filtered.length;
-			} else {
-				visible = total;
-			}
+			const visible = total;
 
 			// MONOTONIC top id: new-row detection AND the ring-rotation tell.
-			const topRow = filtered ? filtered[ 0 ] : node?.lineAt( 0 );
+			const topRow = node?.lineAt( 0 );
 			const topId = topRow ? topRow.id : 0;
 
 			// First sight of a full ring baselines it — never glides it.
@@ -228,7 +198,6 @@ export default function LogRowList( {
 			if ( debug ) {
 				// Baseline stays current: leaving debug must not replay these.
 				lastTopIdRef.current = topId;
-				lastTopFilterRef.current = activeFilter;
 				// Pending glide debt dies here too, or exit replays it.
 				offsetRef.current = 0;
 				const end = Math.min( visible, DEBUG_MAX_ROWS );
@@ -243,7 +212,7 @@ export default function LogRowList( {
 				) {
 					const debugRows = [];
 					for ( let i = 0; i < end; i++ ) {
-						const row = filtered ? filtered[ i ] : node.lineAt( i );
+						const row = node.lineAt( i );
 						if ( row ) {
 							debugRows.push( row );
 						}
@@ -264,18 +233,9 @@ export default function LogRowList( {
 				return;
 			}
 
-			const filterChanged = activeFilter !== lastTopFilterRef.current;
-			lastTopFilterRef.current = activeFilter;
 			let newRows = 0;
-			if ( ! filterChanged && topId > lastTopIdRef.current ) {
-				if ( filtered ) {
-					const firstOld = filtered.findIndex(
-						( r ) => r.id <= lastTopIdRef.current
-					);
-					newRows = -1 === firstOld ? filtered.length : firstOld;
-				} else {
-					newRows = Math.min( visible, topId - lastTopIdRef.current );
-				}
+			if ( topId > lastTopIdRef.current ) {
+				newRows = Math.min( visible, topId - lastTopIdRef.current );
 			}
 			lastTopIdRef.current = topId;
 
@@ -346,7 +306,7 @@ export default function LogRowList( {
 			) {
 				const rows = [];
 				for ( let i = start; i < end; i++ ) {
-					const row = filtered ? filtered[ i ] : node.lineAt( i );
+					const row = node.lineAt( i );
 					if ( row ) {
 						rows.push( row );
 					}

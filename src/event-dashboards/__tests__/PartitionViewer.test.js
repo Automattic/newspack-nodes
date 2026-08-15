@@ -123,6 +123,12 @@ describe( 'PartitionViewer', () => {
 			seek,
 			step,
 			clear: clearGraph,
+			setFilter: ( term ) => {
+				const view = Core.nodes.get( 'partition:view' );
+				if ( view ) {
+					view.filter = String( term ).toLowerCase();
+				}
+			},
 		} );
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
@@ -205,24 +211,26 @@ describe( 'PartitionViewer', () => {
 		);
 	} );
 
-	it( 'passes the toolbar filter text down to LogRowList', async () => {
-		registerViewFixture( { logs: [] } );
+	it( 'sends the toolbar filter to the view node as an ingest control', async () => {
+		// The ring must hold only what is displayed: filtering at render left
+		// non-matches consuming slots, so a rare match aged out of the buffer.
+		const node = registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();
 		const input = container.querySelector( '.newspack-nodes-search-input' );
+
 		fireEvent.change( input, { target: { value: 'zebra' } } );
-		expect( logRowListProps.filter ).toBe( 'zebra' );
+
+		expect( node.filter ).toBe( 'zebra' );
+		expect( logRowListProps.filter ).toBeUndefined();
 	} );
 
-	it( 'reflects the counts LogRowList reports up into the toolbar', async () => {
+	it( 'reflects the count LogRowList reports up into the toolbar', async () => {
 		registerViewFixture( { logs: [] } );
 		const { container } = await renderViewer();
-		const input = container.querySelector( '.newspack-nodes-search-input' );
-		// A filter switches the toolbar to the "visible / total" phrasing.
-		fireEvent.change( input, { target: { value: 'x' } } );
 		act( () =>
-			logRowListProps.onStats( { total: 40, visible: 12, lps: 3.5 } )
+			logRowListProps.onStats( { total: 40, visible: 40, lps: 3.5 } )
 		);
-		expect( container.textContent ).toMatch( /12 \/ 40 lines/ );
+		expect( container.textContent ).toMatch( /40 lines/ );
 		expect( container.textContent ).toMatch( /3\.5 lines\/s/ );
 	} );
 

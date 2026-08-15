@@ -67,6 +67,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 		step,
 		fetchSources,
 		clear,
+		setFilter,
 	} = useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
@@ -171,6 +172,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			onJump={ handleJump }
 			getViewNode={ getViewNode }
 			onClear={ clear }
+			onFilter={ setFilter }
 			sidebar={
 				<LogBrowser
 					mode={ displayMode }

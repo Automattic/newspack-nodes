@@ -11,9 +11,10 @@
  * runtime-free like its `LogRowList` sibling.
  */
 
-import { useState, createPortal } from '@wordpress/element';
+import { useEffect, useState, createPortal } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
+import { Core } from '../../runtime/core';
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
@@ -88,48 +89,39 @@ const debugHeader = ( hasKeyColumn ) => (
 	/>
 );
 
-/**
- * Toolbar-filter predicate: does this row survive the current filter?
- *
- * @callback MatchRow
- * @param {Object} row         One row, as `LogRowList` yields it from the ring.
- * @param {string} filterLower The filter text, lowercased once by the list.
- * @return {boolean} True to keep the row visible.
- */
-
 /** @typedef {import('./LogRowList').RenderRow} RenderRow */
 
 /**
- * @param {Object}     props                      Props.
- * @param {string}     props.className            Root class; the body wrapper is `${className}__body`.
- * @param {string}     props.ariaLabel            The region's accessible name.
- * @param {string}     [props.title]              Inline page heading (adopters without a hub header).
- * @param {?Element}   [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
- * @param {?Array}     props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
- * @param {string}     [props.selectedKey]        The picked option's key; required only with a picker.
- * @param {Function}   [props.onPick]             `(key) => void` — switch the source; required only with a picker.
- * @param {string}     [props.pickerEmptyLabel]   Status text when the catalog is empty; required only with a picker.
- * @param {boolean}    props.isPaused             The view's paused flag.
- * @param {boolean}    props.connectionError      The view's reconnect flag.
- * @param {() => void} props.onTogglePause        Pause/resume the stream.
- * @param {() => void} [props.onStep]             Step one message (paused-only); absent = no step button.
- * @param {Function}   [props.onJump]             Jump handler for the offset input; absent = no input.
- * @param {Function}   props.getViewNode          `() => node` — the live ring node `LogRowList` reads.
- * @param {() => void} props.onClear              Send the view's `clear` control. Required.
- * @param {*}          props.sidebar              The configured `LogBrowser` element.
- * @param {RenderRow}  props.renderRow            One-row renderer, forwarded to `LogRowList`.
- * @param {number}     props.rowHeight            Fixed row height (px).
- * @param {string}     [props.listClassName]      Extra `LogRowList` class.
- * @param {MatchRow}   [props.matchRow]           Filter predicate override; the default matches `row.content`.
- * @param {string}     [props.filterPlaceholder]  Filter input placeholder override.
- * @param {Function}   [props.renderCount]        `(stats) => string` count label override.
- * @param {Function}   [props.renderRate]         `(lps) => string` rate label override.
- * @param {*}          [props.toolbarExtras]      Extra toolbar controls (before Clear).
- * @param {*}          [props.belowToolbar]       Panel under the banner (e.g. a column picker).
- * @param {*}          [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
- * @param {RenderRow}  [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared ID/Key/Value row.
- * @param {*}          [props.renderDebugHeader]  Debug-mode header; defaults to the shared ID/Key/Value header.
- * @param {boolean}    [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
+ * @param {Object}                 props                      Props.
+ * @param {string}                 props.className            Root class; the body wrapper is `${className}__body`.
+ * @param {string}                 props.ariaLabel            The region's accessible name.
+ * @param {string}                 [props.title]              Inline page heading (adopters without a hub header).
+ * @param {?Element}               [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
+ * @param {?Array}                 props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
+ * @param {string}                 [props.selectedKey]        The picked option's key; required only with a picker.
+ * @param {Function}               [props.onPick]             `(key) => void` — switch the source; required only with a picker.
+ * @param {string}                 [props.pickerEmptyLabel]   Status text when the catalog is empty; required only with a picker.
+ * @param {boolean}                props.isPaused             The view's paused flag.
+ * @param {boolean}                props.connectionError      The view's reconnect flag.
+ * @param {() => void}             props.onTogglePause        Pause/resume the stream.
+ * @param {() => void}             [props.onStep]             Step one message (paused-only); absent = no step button.
+ * @param {Function}               [props.onJump]             Jump handler for the offset input; absent = no input.
+ * @param {Function}               props.getViewNode          `() => node` — the live ring node `LogRowList` reads.
+ * @param {() => void}             props.onClear              Send the view's `clear` control. Required.
+ * @param {*}                      props.sidebar              The configured `LogBrowser` element.
+ * @param {RenderRow}              props.renderRow            One-row renderer, forwarded to `LogRowList`.
+ * @param {number}                 props.rowHeight            Fixed row height (px).
+ * @param {string}                 [props.listClassName]      Extra `LogRowList` class.
+ * @param {(term: string) => void} props.onFilter             Send the view's `filter` control; the node gates ingest on it. Required.
+ * @param {string}                 [props.filterPlaceholder]  Filter input placeholder override.
+ * @param {Function}               [props.renderCount]        `(stats) => string` count label override.
+ * @param {Function}               [props.renderRate]         `(lps) => string` rate label override.
+ * @param {*}                      [props.toolbarExtras]      Extra toolbar controls (before Clear).
+ * @param {*}                      [props.belowToolbar]       Panel under the banner (e.g. a column picker).
+ * @param {*}                      [props.listHeader]         Header row above the list (adds a `${className}__main` wrapper).
+ * @param {RenderRow}              [props.renderDebugRow]     Debug-mode row renderer; defaults to the shared ID/Key/Value row.
+ * @param {*}                      [props.renderDebugHeader]  Debug-mode header; defaults to the shared ID/Key/Value header.
+ * @param {boolean}                [props.hasKeyColumn]       False drops the debug KEY column (keyless raw lines).
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogStreamViewer( {
@@ -152,7 +144,7 @@ export default function LogStreamViewer( {
 	renderRow,
 	rowHeight,
 	listClassName,
-	matchRow,
+	onFilter,
 	filterPlaceholder,
 	renderCount,
 	renderRate,
@@ -187,6 +179,16 @@ export default function LogStreamViewer( {
 	const [ jumpText, setJumpText ] = useState( '' );
 	// Counts LogRowList reports up (row DATA never becomes React state).
 	const [ stats, setStats ] = useState( EMPTY_STATS );
+
+	// @longform The gate lives on the view node, which a graph rebuild
+	// replaces — "Reset Graph", a renewed session, a remount. The input would
+	// still read the typed term while the fresh node admitted everything, so
+	// re-send it whenever the generation moves. Render-time filtering survived
+	// a rebuild for free because it lived here; this does not.
+	useEffect(
+		() => Core.subscribeGraphGeneration( () => onFilter?.( filter ) ),
+		[ filter, onFilter ]
+	);
 	// Bumped to rebase the list on Clear (also re-reads the emptied ring).
 	const [ resetSignal, setResetSignal ] = useState( 0 );
 
@@ -272,7 +274,10 @@ export default function LogStreamViewer( {
 					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
 				}
 				value={ filter }
-				onChange={ ( e ) => setFilter( e.target.value ) }
+				onChange={ ( e ) => {
+					setFilter( e.target.value );
+					onFilter?.( e.target.value );
+				} }
 			/>
 
 			{ onJump && (
@@ -366,8 +371,6 @@ export default function LogStreamViewer( {
 			rowHeight={ rowHeight }
 			debug={ debug }
 			renderRow={ debug ? activeDebugRow : renderRow }
-			filter={ filter }
-			matchRow={ matchRow }
 			emptyLabel={ emptyLabel }
 			onStats={ setStats }
 			resetSignal={ resetSignal }
