@@ -16,8 +16,8 @@ import { ModalShell } from './Modal';
  *                                                  or `stock` — anything else groups
  *                                                  under stock), and `active`.
  * @param {boolean}                props.loading    The catalog fetch has not settled.
- * @param {Error|null}             props.error      Fetch failure; replaces the list
- *                                                  with an error banner.
+ * @param {string|null}            props.error      Refusal text; replaces the
+ *                                                  list with an error banner.
  * @param {(name: string) => void} props.onPick     Receives the chosen topology name.
  * @param {() => void}             props.onCancel   Dismiss without choosing.
  * @return {import('react').ReactElement} The modal.

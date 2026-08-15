@@ -100,26 +100,53 @@ function dialogButton( label ) {
 	);
 }
 
+// Each verb's answer, as the hook publishes it: which server it was about,
+// what it said, and a number so a repeat still registers.
+const NO_ANSWER = { seq: 0, subject: null, error: null, pending: false };
+
 describe( 'VaultAdmin', () => {
 	let addServer;
 	let removeServer;
 	let testServer;
+	let answers;
 	const mounted = [];
+
+	// Publish an answer, as a reply landing on the verb's node would.
+	function answer( verb, { subject, error = null } ) {
+		answers[ verb ] = {
+			seq: answers[ verb ].seq + 1,
+			subject,
+			error,
+			pending: false,
+		};
+		publish();
+	}
+
+	function publish() {
+		useVaultGraph.mockReturnValue( {
+			addServer,
+			updateServer: jest.fn(),
+			removeServer,
+			testServer,
+			addResult: answers.add,
+			removeResult: answers.remove,
+			testResult: answers.test,
+		} );
+		mounted.forEach( ( r ) => r.rerender( <VaultAdmin /> ) );
+	}
 
 	beforeEach( () => {
 		Core.reset();
-		addServer = jest.fn().mockResolvedValue( { id: 'spoke-01' } );
-		removeServer = jest.fn().mockResolvedValue( { id: 'spoke-01' } );
-		testServer = jest
-			.fn()
-			.mockResolvedValue( { id: 'spoke-01', status: 'connected' } );
+		addServer = jest.fn();
+		removeServer = jest.fn();
+		testServer = jest.fn();
+		answers = {
+			add: NO_ANSWER,
+			remove: NO_ANSWER,
+			test: NO_ANSWER,
+		};
 		useVaultGraph.mockClear();
-		useVaultGraph.mockReturnValue( {
-			addServer,
-			updateServer: jest.fn().mockResolvedValue( { id: 'spoke-01' } ),
-			removeServer,
-			testServer,
-		} );
+		publish();
 	} );
 
 	afterEach( () => {
@@ -303,7 +330,8 @@ describe( 'VaultAdmin', () => {
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).toHaveBeenCalled();
-		// The modal is gone once the add resolves.
+		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
+		// The modal is gone once the add's answer lands.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
 		expect( container.querySelector( '#new-server-id' ) ).toBeNull();
 	} );
@@ -424,7 +452,6 @@ describe( 'VaultAdmin', () => {
 	} );
 
 	it( 'calls testServer and shows the per-row test status on success', async () => {
-		testServer.mockResolvedValue( { id: 'spoke-01', status: 'connected' } );
 		registerViewFixture( {
 			servers: [ SAMPLE_SERVERS[ 0 ] ],
 			loading: false,
@@ -437,13 +464,13 @@ describe( 'VaultAdmin', () => {
 			);
 		} );
 		expect( testServer ).toHaveBeenCalledWith( 'spoke-01' );
+		await act( async () => answer( 'test', { subject: 'spoke-01' } ) );
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'Connected'
 		);
 	} );
 
-	it( 'shows the per-row test failure message when testServer rejects', async () => {
-		testServer.mockRejectedValue( new Error( 'connection refused' ) );
+	it( 'shows the per-row test failure message when the probe is refused', async () => {
 		registerViewFixture( {
 			servers: [ SAMPLE_SERVERS[ 0 ] ],
 			loading: false,
@@ -455,13 +482,18 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
+		await act( async () =>
+			answer( 'test', {
+				subject: 'spoke-01',
+				error: 'connection refused',
+			} )
+		);
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'connection refused'
 		);
 	} );
 
-	it( 'shows the per-row failure message when removeServer rejects', async () => {
-		removeServer.mockRejectedValue( new Error( 'vault write refused' ) );
+	it( 'shows the per-row failure message when a remove is refused', async () => {
 		registerViewFixture( {
 			servers: [ SAMPLE_SERVERS[ 0 ] ],
 			loading: false,
@@ -478,6 +510,12 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
+		await act( async () =>
+			answer( 'remove', {
+				subject: 'spoke-01',
+				error: 'vault write refused',
+			} )
+		);
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'vault write refused'
 		);
@@ -487,8 +525,7 @@ describe( 'VaultAdmin', () => {
 		).toBeTruthy();
 	} );
 
-	it( 'renders a bare-string rejection verbatim, like every other surface', async () => {
-		testServer.mockRejectedValue( 'vault sealed' );
+	it( 'renders a bare-string refusal verbatim, like every other surface', async () => {
 		registerViewFixture( {
 			servers: [ SAMPLE_SERVERS[ 0 ] ],
 			loading: false,
@@ -500,6 +537,9 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
+		await act( async () =>
+			answer( 'test', { subject: 'spoke-01', error: 'vault sealed' } )
+		);
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'vault sealed'
 		);

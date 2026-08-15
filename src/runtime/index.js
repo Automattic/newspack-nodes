@@ -7,7 +7,6 @@ export { HookNode } from './hook-node';
 export { CallbackNode } from './callback-node';
 export { EchoNode } from './echo-node';
 export { TimerNode } from './timer-node';
-export { RequestNode } from './request-node';
 export { HeartbeatNode } from './heartbeat-node';
 export { CommandInterpreterNode } from './command-interpreter-node';
 export { StubNode } from './stub-node';

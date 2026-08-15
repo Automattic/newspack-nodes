@@ -1,9 +1,10 @@
 /**
- * useTopologyList / useTopology — the saved-topology list and an on-demand get.
+ * useTopologyList / useTopology — the saved-topology list and an on-demand get,
+ * both batched-poll slices.
  *
- * Each hook mints from its OWN Request node (`topologies:list`,
- * `topologies:get`), and the reply routes back to whichever minted it — which
- * is why a list and a get can overlap without an op-id between them.
+ * Each owns its own Fetcher and view node, and the reply routes back to
+ * whichever minted it — which is why a list and a get can overlap without an
+ * op-id between them.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -38,7 +39,6 @@ describe( 'useTopologyList', () => {
 		expect( result.current.userDir ).toBe( '' );
 		expect( result.current.loading ).toBe( false );
 		expect( result.current.error ).toBeNull();
-		expect( typeof result.current.reload ).toBe( 'function' );
 		expect( replyFor ).not.toHaveBeenCalled();
 	} );
 
@@ -57,15 +57,27 @@ describe( 'useTopologyList', () => {
 		expect( result.current.loading ).toBe( false );
 	} );
 
-	it( 'reload() triggers a refetch', async () => {
+	// A save used to owe the catalog a `reload()`. The tick carries the new
+	// entry on its own, so what the dialog shows converges without being told.
+	it( 'picks up a new entry without being reloaded', async () => {
 		const { result } = renderHook( () =>
 			useTopologyList( { enabled: true } )
 		);
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ) );
-		await act( async () => {
-			result.current.reload();
-		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
+		await waitFor( () =>
+			expect( result.current.topologies ).toEqual( LISTED.topologies )
+		);
+
+		replyFor.mockImplementation( () => ( {
+			topologies: [ { name: 'wombat-8823', source: 'user' } ],
+			user_dir: '/wp/uploads/topologies',
+		} ) );
+		await waitFor(
+			() =>
+				expect( result.current.topologies ).toEqual( [
+					{ name: 'wombat-8823', source: 'user' },
+				] ),
+			{ timeout: 4000 }
+		);
 	} );
 
 	it( 'captures verb errors into state.error', async () => {
@@ -74,40 +86,99 @@ describe( 'useTopologyList', () => {
 			useTopologyList( { enabled: true } )
 		);
 		await waitFor( () => expect( result.current.error ).not.toBeNull() );
-		expect( result.current.error.message ).toBe( 'boom-4471' );
+		// A slice publishes the reply's text, not an Error object.
+		expect( result.current.error ).toContain( 'boom-4471' );
 		expect( result.current.loading ).toBe( false );
 	} );
 
-	it( 'defaults topologies/userDir when payload is empty', async () => {
-		replyFor.mockImplementation( () => null );
+	// An empty body is not an empty catalog: the poll keeps whatever it has
+	// rather than blanking the dialog for one bad tick.
+	it( 'keeps the last good list when a reply arrives malformed', async () => {
 		const { result } = renderHook( () =>
 			useTopologyList( { enabled: true } )
 		);
-		await waitFor( () => expect( result.current.loading ).toBe( false ) );
-		expect( result.current.topologies ).toEqual( [] );
-		expect( result.current.userDir ).toBe( '' );
+		await waitFor( () =>
+			expect( result.current.topologies ).toEqual( LISTED.topologies )
+		);
+
+		replyFor.mockImplementation( () => null );
+		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+
+		expect( result.current.topologies ).toEqual( LISTED.topologies );
+		expect( result.current.userDir ).toBe( '/wp/uploads/topologies' );
 	} );
 } );
 
 describe( 'useTopology', () => {
-	it( 'dispatches topologies.get with the supplied name', async () => {
-		const { result } = renderHook( () => useTopology() );
-		let payload;
-		await act( async () => {
-			payload = await result.current( 'demo' );
+	it( 'asks for the named topology and publishes the answer', async () => {
+		const { result } = renderHook( () => useTopology( { scope: 'test' } ) );
+		expect( replyFor ).not.toHaveBeenCalled();
+
+		act( () => {
+			result.current.open( 'demo' );
 		} );
 
+		await waitFor(
+			() =>
+				expect( result.current.topology ).toMatchObject( {
+					name: 'demo',
+					tsl: 'make_node Echo e',
+				} ),
+			{ timeout: 4000 }
+		);
 		expect( verbs() ).toEqual( [ 'get' ] );
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].arguments ).toEqual( [
 			'demo',
 		] );
-		expect( payload ).toEqual( FETCHED );
 	} );
 
-	it( 'is stable across renders', () => {
-		const { result, rerender } = renderHook( () => useTopology() );
-		const first = result.current;
-		rerender();
-		expect( result.current ).toBe( first );
+	// Half a loaded page is the failure this replaces: the old awaited fetch
+	// was sent once, and an ask that never came back left the editor open on
+	// nothing at all. This one asks again until an answer lands.
+	it( 'keeps asking until the answer actually lands', async () => {
+		replyFor.mockImplementationOnce( () => undefined );
+		const { result } = renderHook( () => useTopology( { scope: 'test' } ) );
+		act( () => {
+			result.current.open( 'demo' );
+		} );
+
+		await waitFor(
+			() => expect( result.current.topology?.name ).toBe( 'demo' ),
+			{ timeout: 6000 }
+		);
+	}, 15000 );
+
+	// Once it lands, the slice stops — a topology the operator is editing must
+	// not be re-fetched under them every second.
+	it( 'stops asking once the answer is in hand', async () => {
+		const { result } = renderHook( () => useTopology( { scope: 'test' } ) );
+		act( () => {
+			result.current.open( 'demo' );
+		} );
+		await waitFor( () => expect( result.current.topology ).not.toBeNull(), {
+			timeout: 4000,
+		} );
+
+		const settledCalls = replyFor.mock.calls.length;
+		await new Promise( ( r ) => setTimeout( r, 2200 ) );
+		expect( replyFor ).toHaveBeenCalledTimes( settledCalls );
+	}, 15000 );
+
+	// The answer to the LAST open() is what a caller reads as its own; the
+	// previous topology's body sitting in the view node is not that.
+	it( 'reports no topology while a newly-opened one is outstanding', async () => {
+		const { result } = renderHook( () => useTopology( { scope: 'test' } ) );
+		act( () => {
+			result.current.open( 'demo' );
+		} );
+		await waitFor( () => expect( result.current.topology ).not.toBeNull(), {
+			timeout: 4000,
+		} );
+
+		replyFor.mockImplementation( () => undefined );
+		await act( async () => {
+			result.current.open( 'other' );
+		} );
+		expect( result.current.topology ).toBeNull();
 	} );
 } );

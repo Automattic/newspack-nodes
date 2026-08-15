@@ -31,6 +31,9 @@ import { defaultTransport } from './command-transport';
 /**
  * The TM_ERROR an undelivered command earns, addressed back to its minter.
  *
+ * `undelivered` marks it as the transport's word, not the server's: a retried
+ * read asks again rather than treating it as the answer.
+ *
  * @param {Array}  sent   The command Message that failed to POST.
  * @param {string} reason Human-readable failure text.
  * @return {Array} A positional reply Message.
@@ -42,6 +45,7 @@ function failureReply( sent, reason ) {
 	reply[ VALUE ] = {
 		name: sent[ VALUE ]?.name,
 		payload: `Command not delivered: ${ reason }`,
+		undelivered: true,
 	};
 	return reply;
 }

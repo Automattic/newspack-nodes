@@ -1,6 +1,6 @@
 /**
- * useClassCatalog — lazy single fetch of the substrate class catalog for the
- * console palette, minted from its own `classes:list` Request node.
+ * useClassCatalog — the substrate class catalog behind the console palette,
+ * polled as a batched-poll slice and read as published state.
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
@@ -78,8 +78,9 @@ describe( 'useClassCatalog', () => {
 	} );
 
 	// A failure used to be memoised forever, so even an explicit retry got the
-	// same rejected promise back.
-	it( 'does not cache a failure permanently', async () => {
+	// same rejected promise back. The poll has no promise to memoise: the next
+	// tick asks again, with nothing to reset and nobody to ask.
+	it( 'recovers from a failure on the next tick', async () => {
 		replyFor.mockImplementationOnce( () => new Error( 'refused-8823' ) );
 
 		const { result } = renderHook( () =>
@@ -87,11 +88,10 @@ describe( 'useClassCatalog', () => {
 		);
 		await waitFor( () => expect( result.current.error ).toBeTruthy() );
 
-		await act( async () => {
-			await result.current.load().catch( () => {} );
-		} );
-
-		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
+		await waitFor(
+			() => expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] ),
+			{ timeout: 4000 }
+		);
 	} );
 
 	it( 'returns the empty initial shape when disabled', () => {
@@ -101,7 +101,6 @@ describe( 'useClassCatalog', () => {
 			formatters: [],
 			loading: false,
 			error: null,
-			load: expect.any( Function ),
 		} );
 		expect( replyFor ).not.toHaveBeenCalled();
 	} );
@@ -118,7 +117,6 @@ describe( 'useClassCatalog', () => {
 		expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ].name ).toBe( 'list' );
 		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
 		expect( result.current.formatters ).toEqual( [ 'Plain' ] );
-		await expect( result.current.load() ).resolves.toEqual( CATALOG );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
 
@@ -140,21 +138,27 @@ describe( 'useClassCatalog', () => {
 			useClassCatalog( { enabled: true } )
 		);
 		await waitFor( () => expect( result.current.error ).not.toBeNull() );
-		expect( result.current.error.message ).toBe( 'network down' );
+		// A slice publishes the reply's text, not an Error object.
+		expect( result.current.error ).toContain( 'network down' );
 		expect( result.current.loading ).toBe( false );
 	} );
 
-	it( 'rejects a malformed payload instead of treating every class as regular', async () => {
-		replyFor.mockImplementation( () => null );
+	// A body missing either list is what a half-built palette comes from. The
+	// poll keeps the last good catalog rather than blanking on one bad tick —
+	// there is always another tick, and an empty palette is the worse answer.
+	it( 'keeps the last good catalog when a reply arrives malformed', async () => {
 		const { result } = renderHook( () =>
 			useClassCatalog( { enabled: true } )
 		);
-		await waitFor( () => expect( result.current.error ).not.toBeNull() );
-		expect( result.current.error.message ).toBe(
-			'Invalid classes.list response.'
+		await waitFor( () =>
+			expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] )
 		);
-		expect( result.current.classes ).toEqual( [] );
-		expect( result.current.formatters ).toEqual( [] );
+
+		replyFor.mockImplementation( () => null );
+		await new Promise( ( r ) => setTimeout( r, 1200 ) );
+
+		expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] );
+		expect( result.current.formatters ).toEqual( [ 'Plain' ] );
 	} );
 
 	it( 'sets loading true during the in-flight fetch', async () => {

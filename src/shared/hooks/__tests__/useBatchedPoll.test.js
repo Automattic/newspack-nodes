@@ -234,6 +234,46 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		expect( wire.batches.length ).toBe( 1 );
 	} );
 
+	test( 'enabled:false costs no request at all — not even the first load', async () => {
+		const wire = installWire();
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				enabled: false,
+				intervalMs: 5000,
+			} )
+		);
+		await act( async () => {} );
+
+		// `paused` deliberately still delivers ONE first load; a surface that
+		// is never opened must cost nothing, which is a different gate.
+		expect( wire.batches.length ).toBe( 0 );
+	} );
+
+	test( 'enabling later delivers the first load then', async () => {
+		const wire = installWire();
+		const { rerender } = renderHook(
+			( { enabled } ) =>
+				useBatchedPoll( {
+					build: buildSlices,
+					timerName: 'insights:timer',
+					teeName: 'insights:tee',
+					enabled,
+					intervalMs: 5000,
+				} ),
+			{ initialProps: { enabled: false } }
+		);
+		await act( async () => {} );
+		expect( wire.batches.length ).toBe( 0 );
+
+		rerender( { enabled: true } );
+		await act( async () => {} );
+
+		expect( wire.batches.length ).toBe( 1 );
+	} );
+
 	test( 'keeps a paused first poll eligible until deferred authentication can sign it', async () => {
 		const session = {
 			handle: 'd3f3aa11d3f3bb22d3f3cc33d3f3dd44',
@@ -324,15 +364,112 @@ describe( 'useBatchedPoll — the batching bracket', () => {
 		await act( async () => {} );
 		wire.batches.length = 0;
 
-		await act( async () => {
-			Core.node( ROUTER ).fireCb();
-		} );
+		// The mount's first load already fired; this poll is slower than the
+		// tick, so it is due again only once its own cadence has elapsed.
+		const realNow = Date.now;
+		Date.now = () => realNow() + 6000;
+		try {
+			await act( async () => {
+				Core.node( ROUTER ).fireCb();
+			} );
+		} finally {
+			Date.now = realNow;
+		}
 
 		// ONE POST for the whole tick — the batch assertion.
 		expect( wire.batches.length ).toBe( 1 );
 		expect( wire.batches[ 0 ].length ).toBe( 3 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
 		expect( verbs ).toEqual( [ 'accumulated', 'counts', 'top' ] );
+	} );
+
+	// @longform
+	// The first load TRIGGERS the Router's tick rather than opening a bracket
+	// of its own. The Router is the page's one heartbeat and the only thing
+	// that brackets a tick; a mount that lock/flushed for itself was a second
+	// bracket owner, and the slices it left out — another dashboard's poll,
+	// due on the same tick — paid for a second POST.
+	test( 'the first load rides the ROUTER tick, so everything due shares its POST', async () => {
+		const wire = installWire();
+		// A second poller, already mounted and due.
+		renderHook( () =>
+			useBatchedPoll( {
+				build: ( { interpreter, tee } ) =>
+					addSliceFetcher( interpreter, {
+						fetcher: 'other-fetch',
+						receiver: 'otherIn',
+						command: 'other',
+						view: 'other:view',
+						viewClass: 'AccumulatedView',
+						tee,
+						target: TARGET,
+					} ),
+				timerName: 'other:timer',
+				teeName: 'other:tee',
+				intervalMs: 1000,
+			} )
+		);
+		await act( async () => {} );
+		wire.batches.length = 0;
+
+		// This mount's first load fires the page, not just itself.
+		renderPoll( {} );
+		await act( async () => {} );
+
+		expect( wire.batches.length ).toBe( 1 );
+		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
+		expect( verbs ).toEqual( [ 'accumulated', 'counts', 'other', 'top' ] );
+	} );
+
+	// Three polls mounting in one commit is three asks to be included, not
+	// three ticks: a slice at exactly the tick's cadence has no throttle to
+	// protect it, so it would send once per foreign mount — the duplication
+	// the batch exists to prevent.
+	test( 'many mounts in one commit share ONE tick', async () => {
+		const wire = installWire();
+		const mountOne = ( n ) =>
+			renderHook( () =>
+				useBatchedPoll( {
+					build: ( { interpreter, tee } ) =>
+						addSliceFetcher( interpreter, {
+							fetcher: `many-${ n }-fetch`,
+							receiver: `many-${ n }-in`,
+							command: `many${ n }`,
+							view: `many-${ n }:view`,
+							viewClass: 'AccumulatedView',
+							tee,
+							target: TARGET,
+						} ),
+					timerName: `many-${ n }:timer`,
+					teeName: `many-${ n }:tee`,
+					intervalMs: 1000,
+				} )
+			);
+
+		await act( async () => {
+			mountOne( 1 );
+			mountOne( 2 );
+			mountOne( 3 );
+		} );
+
+		const verbs = wire.batches.flat().map( ( m ) => m[ VALUE ].name );
+		expect( verbs.sort() ).toEqual( [ 'many1', 'many2', 'many3' ] );
+	} );
+
+	// A slice slower than the tick throttles itself, so an off-cadence refresh
+	// has to say it is due — otherwise a filter change waits out the cadence.
+	test( 'pollNow re-fires a slice slower than the tick', async () => {
+		const wire = installWire();
+		const { result } = renderPoll( {} ); // intervalMs 5000
+		await act( async () => {} );
+		wire.batches.length = 0;
+
+		await act( async () => {
+			result.current.pollNow();
+		} );
+
+		expect( wire.batches.length ).toBe( 1 );
+		expect( wire.batches[ 0 ].length ).toBe( 3 );
 	} );
 
 	test( 'brackets the tick: `_http` is locked before notify and flushed after (empty buffer ⇒ no POST when nothing fans out)', async () => {

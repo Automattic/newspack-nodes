@@ -231,3 +231,21 @@ describe( 'graphGeneration — full-rebuild signal', () => {
 		expect( calls ).toBe( 1 ); // pre-reset bump only; post-reset has none
 	} );
 } );
+
+// A Router is never removed — it is the page's one heartbeat — so a reset that
+// only swapped the registry left it ticking against nothing, and a test file
+// accumulated one orphaned heartbeat per test until the run ran out of memory.
+describe( 'Core.reset', () => {
+	it( 'stops the timers of the nodes it discards', () => {
+		const { TimerNode } = require( '../timer-node' );
+		// Sub-second, so it owns its slot rather than hitchhiking a Router.
+		const timer = new TimerNode();
+		timer.name = 'wombat:timer-4471';
+		timer.setTimer( 250 );
+		expect( timer.mode ).not.toBe( 'inactive' );
+
+		Core.reset();
+
+		expect( timer.mode ).toBe( 'inactive' );
+	} );
+} );

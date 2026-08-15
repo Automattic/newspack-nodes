@@ -16,7 +16,7 @@
  * harness, plus a `sent` log).
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { TO, VALUE } from '../../runtime/message';
 import { Core } from '../../runtime/core';
@@ -200,28 +200,42 @@ describe( 'useTopologyManager', () => {
 		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
-		await act( async () => {
-			await result.current.deactivate( 'a' );
+		act( () => {
+			result.current.deactivate( 'a' );
 		} );
 
-		const deactivateSend = sent.find( ( s ) => 'deactivate' === s.verb );
-		expect( deactivateSend ).toBeTruthy();
-		expect( deactivateSend.args ).toEqual( [ 'a' ] );
-	} );
+		await waitFor(
+			() =>
+				expect(
+					sent.find( ( s ) => 'deactivate' === s.verb )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
+		expect( sent.find( ( s ) => 'deactivate' === s.verb ).args ).toEqual( [
+			'a',
+		] );
+	}, 15000 );
 
 	it( 'activate dispatches `topologies activate <name>`', async () => {
 		const { sent } = buildClient();
 		const { result } = renderHook( () => useTopologyManager( {} ) );
 		await act( async () => {} );
 
-		await act( async () => {
-			await result.current.activate( 'b' );
+		act( () => {
+			result.current.activate( 'b' );
 		} );
 
-		const activateSend = sent.find( ( s ) => 'activate' === s.verb );
-		expect( activateSend ).toBeTruthy();
-		expect( activateSend.args ).toEqual( [ 'b' ] );
-	} );
+		await waitFor(
+			() =>
+				expect(
+					sent.find( ( s ) => 'activate' === s.verb )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
+		expect( sent.find( ( s ) => 'activate' === s.verb ).args ).toEqual( [
+			'b',
+		] );
+	}, 15000 );
 
 	it( 'restart is exposed and dispatches the worker restart verb', async () => {
 		const { sent } = buildClient();
@@ -229,16 +243,26 @@ describe( 'useTopologyManager', () => {
 		await act( async () => {} );
 
 		expect( typeof result.current.restart ).toBe( 'function' );
-		await act( async () => {
-			await result.current.restart( 'a' );
+		act( () => {
+			result.current.restart( 'a' );
 		} );
 
-		const restartSend = sent.find( ( s ) => 'restart' === s.verb );
-		expect( restartSend ).toBeTruthy();
-		expect( restartSend.args ).toEqual( [ 'a' ] );
-	} );
+		await waitFor(
+			() =>
+				expect(
+					sent.find( ( s ) => 'restart' === s.verb )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
+		expect( sent.find( ( s ) => 'restart' === s.verb ).args ).toEqual( [
+			'a',
+		] );
+	}, 15000 );
 
-	it( 'activate rejects when the server replies TM_ERROR', async () => {
+	// A refused mutation reaches the caller's handler with the topology name
+	// it was about — the answer lands on the node that asked, a tick later,
+	// so there is no promise to reject.
+	it( 'reports a refused activate to onError, named', async () => {
 		installRecordingWire(
 			{
 				dump_graph: DUMP_GRAPH,
@@ -247,15 +271,24 @@ describe( 'useTopologyManager', () => {
 			},
 			new Set( [ 'activate' ] )
 		);
-		const { result } = renderHook( () => useTopologyManager( {} ) );
+		const onError = jest.fn();
+		const { result } = renderHook( () =>
+			useTopologyManager( { onError } )
+		);
 		await act( async () => {} );
 
-		await act( async () => {
-			await expect( result.current.activate( 'x' ) ).rejects.toThrow(
-				'topology not found'
-			);
+		act( () => {
+			result.current.activate( 'x' );
 		} );
-	} );
+
+		await waitFor( () => expect( onError ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 6000,
+		} );
+		expect( onError.mock.calls[ 0 ][ 0 ].name ).toBe( 'x' );
+		expect( onError.mock.calls[ 0 ][ 0 ].message ).toContain(
+			'topology not found'
+		);
+	}, 15000 );
 
 	it( 'each poll fires both dump_graph and topologies list', async () => {
 		const { sent } = buildClient();
@@ -310,9 +343,17 @@ describe( 'useTopologyManager', () => {
 		await act( async () => {} );
 		wire.batches.length = 0;
 
-		await act( async () => {
-			Core.node( '_router' ).fireCb();
-		} );
+		// The mount's first load already fired; this poll is slower than the
+		// tick, so it is due again only once its own cadence has elapsed.
+		const realNow = Date.now;
+		Date.now = () => realNow() + 6000;
+		try {
+			await act( async () => {
+				Core.node( '_router' ).fireCb();
+			} );
+		} finally {
+			Date.now = realNow;
+		}
 
 		expect( wire.batches.length ).toBe( 1 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
@@ -502,6 +543,9 @@ async function pollHealth( opts ) {
  * read-rate delta to hand the health roll-up: 500 bytes over 50s = 10 B/s.
  * A single poll can only ever produce rate 0 (nothing to delta against).
  *
+ * The wall clock advances too: this poll is slower than the router tick, so
+ * it is due again only once its own cadence has elapsed.
+ *
  * @param {Array} workers Lean per-partition fixtures.
  * @return {Object} Topology `a`'s merged row after the second poll.
  */
@@ -518,9 +562,15 @@ async function pollHealthAtTenBytesPerSecond( workers ) {
 		currentTime: 1050,
 		cursorOffset: 500,
 	} );
-	await act( async () => {
-		Core.node( '_router' ).fireCb();
-	} );
+	const realNow = Date.now;
+	Date.now = () => realNow() + 6000;
+	try {
+		await act( async () => {
+			Core.node( '_router' ).fireCb();
+		} );
+	} finally {
+		Date.now = realNow;
+	}
 	return result.current.topologies.find( ( t ) => 'a' === t.name );
 }
 

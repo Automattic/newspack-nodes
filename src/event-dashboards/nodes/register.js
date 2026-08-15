@@ -2,6 +2,7 @@
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { JobstatsViewNode } from './jobstats-view-node';
 import { PartitionViewerViewNode } from './partition-viewer-view-node';
+import { CatalogListViewNode } from './catalog-list-view-node';
 import { LogViewerViewNode } from './logviewer-view-node';
 import { SettingsAuditViewNode } from './settings-audit-view-node';
 import { TopicProbeViewNode } from './topic-probe-view-node';
@@ -12,6 +13,7 @@ import { WorkerStatusViewNode } from './worker-status-view-node';
 CommandInterpreterNode.registerNodeClasses( {
 	JobstatsView: JobstatsViewNode,
 	PartitionViewerView: PartitionViewerViewNode,
+	CatalogListView: CatalogListViewNode,
 	LogViewerView: LogViewerViewNode,
 	SettingsAuditView: SettingsAuditViewNode,
 	TopicProbeView: TopicProbeViewNode,

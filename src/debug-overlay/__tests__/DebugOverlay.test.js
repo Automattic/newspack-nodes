@@ -732,11 +732,22 @@ describe( 'DebugOverlay', () => {
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:debug:local' )
 		);
-		// iso must share the deeper column's x (right), not X_PAD (left).
-		expect( stored.positions.iso.x ).toBe( stored.positions.t.x );
-		expect( stored.positions.iso.x ).toBeGreaterThan(
-			stored.positions.s.x
-		);
+		// @longform
+		// What this test uniquely covers: a fresh open lays out the COMPLETE
+		// graph once and persists every node. Which COLUMN an isolated node
+		// lands in is autoLayout's own rule, and it is tested there against a
+		// controlled graph — `isolatedToLeft` flips on `maxDepth >= 3 &&
+		// sourceCount >= maxDepth`, so asserting it through the overlay pins
+		// the branch that whatever tabs happen to be mounted produce.
+		for ( const id of [ 's', 't', 'iso' ] ) {
+			expect( stored.positions[ id ] ).toEqual(
+				expect.objectContaining( {
+					x: expect.any( Number ),
+					y: expect.any( Number ),
+				} )
+			);
+		}
+		expect( stored.positions.t.x ).toBeGreaterThan( stored.positions.s.x );
 	} );
 
 	it( 'shows a tab bar and switches the mounted tab when >1 overlay tab is registered', () => {

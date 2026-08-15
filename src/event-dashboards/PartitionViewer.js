@@ -94,6 +94,9 @@ const COLUMNS = {
 // What the viewer showed before the picker existed, plus ID (debug's column).
 const DEFAULT_COLUMNS = [ 'id', 'key', 'value' ];
 
+// One array, so "no segments" is the same value every time it is published.
+const NO_SEGMENTS = [];
+
 // TYPE is a bitmask and TIMESTAMP epoch seconds; neither reads as itself.
 const cellText = ( col, row, debug ) => {
 	switch ( col ) {
@@ -176,6 +179,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		selectLog,
 		setPaused,
 		fetchLogStatus,
+		logStatus,
 		seek,
 		step,
 		clear,
@@ -206,32 +210,23 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	const { segmentId, follow, browseSegment, replay } =
 		useLogPositions( selectedLog );
 	const [ segments, setSegments ] = useState( [] );
-	// @longform
-	// Keyed on the log the reply BELONGS to, not a shared cancelled flag: React
-	// runs the old cleanup then the new effect body, so a single ref is un-set
-	// by the very re-run it should be cancelling and a slow reply for the
-	// previous log lands in the new log's rail. Both writers below use this.
-	const selectedLogRef = useRef( selectedLog );
-	selectedLogRef.current = selectedLog;
-	const applySegments = useCallback( ( forLog, status ) => {
-		if ( selectedLogRef.current === forLog ) {
-			setSegments( status?.segments ?? [] );
-		}
-	}, [] );
-
-	const refreshSegments = useCallback( () => {
-		const forLog = selectedLog;
-		if ( ! forLog ) {
+	// The answer NAMES its partition; no cancellation flag, nothing keyed.
+	useEffect( () => {
+		if ( logStatus.log !== selectedLog ) {
 			return;
 		}
-		fetchLogStatus( forLog )
-			.then( ( status ) => applySegments( forLog, status ) )
-			.catch( () => {} );
-	}, [ selectedLog, fetchLogStatus, applySegments ] );
+		setSegments( logStatus.result?.segments ?? NO_SEGMENTS );
+	}, [ logStatus, selectedLog ] );
+
+	const refreshSegments = useCallback( () => {
+		if ( selectedLog ) {
+			fetchLogStatus( selectedLog );
+		}
+	}, [ selectedLog, fetchLogStatus ] );
 
 	useEffect( () => {
 		if ( ! selectedLog ) {
-			setSegments( [] );
+			setSegments( NO_SEGMENTS );
 			return;
 		}
 		refreshSegments();

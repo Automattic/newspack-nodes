@@ -31,6 +31,10 @@ class CoreImpl {
 	}
 
 	reset() {
+		// A Router is never removed; a bare swap leaves it ticking on nothing.
+		for ( const node of this._registry?.nodes?.values() ?? [] ) {
+			node.stopTimer?.();
+		}
 		// The name table is its own class; Core keeps ONE as its default.
 		this._registry = new NodeRegistry();
 		this._msgCounter = 0;

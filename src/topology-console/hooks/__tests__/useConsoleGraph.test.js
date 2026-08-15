@@ -97,6 +97,10 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 } );
 
 import { useConsoleGraph } from '../useConsoleGraph';
+import {
+	invalidateExpandedIncludes,
+	useExpandedIncludes,
+} from '../useExpandedIncludes';
 
 beforeEach( () => {
 	// Dumper persists its transcript to localStorage; isolate it per test.
@@ -107,6 +111,8 @@ beforeEach( () => {
 	FakeEventSource.last = null;
 	global.EventSource = FakeEventSource;
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	// The expansion cache is module-level and outlives an `it` block.
+	invalidateExpandedIncludes();
 	mockSend.mockReset();
 	installFakeCommandWire( ( m ) =>
 		mockSend( {
@@ -115,36 +121,43 @@ beforeEach( () => {
 			args: m[ wire.VALUE ]?.arguments,
 		} )
 	);
-	mockSend.mockImplementation( ( message ) => {
-		if ( 'topologies' === message?.to && 'get' === message?.verb ) {
-			return Promise.resolve(
-				reply( {
-					name: 'demo',
-					source: 'user',
-					tsl: '',
-					expanded: { nodes: [], edges: [] },
-					resolved_config_edges: [],
-				} )
-			);
-		}
-		return undefined;
-	} );
+	// Leave the background seed OUTSTANDING by default: a structure-only test
+	// asserts synchronously, and an answer landing later would publish into
+	// React outside its act(). A retried read waits out its retry window, so
+	// an unanswered ask costs one command, not one per tick. The seed's own
+	// tests install a wire that answers.
+	mockSend.mockImplementation( ( message ) =>
+		'topologies' === message?.to && 'get' === message?.verb
+			? new Promise( () => {} )
+			: undefined
+	);
 } );
 
-const loadEmptyCatalog = () =>
-	Promise.resolve( { classes: [], formatters: [] } );
+const EMPTY_CATALOG = { classes: [], loading: false, error: null };
+const EMPTY_INCLUDES = [];
 
+// The seed asks on the router tick; drive one rather than waiting it out.
+const tickRouter = () =>
+	act( async () => {
+		Core.node( names.ROUTER ).fireCb();
+		await Promise.resolve();
+	} );
+
+// The console mounts the expand hook beside this one, and it is what answers a
+// key the seed's include-expansion fallback parks. Mirror that here.
 const renderGraph = ( props = {} ) =>
 	renderHook(
-		( p ) =>
+		( p ) => (
+			useExpandedIncludes( EMPTY_INCLUDES ),
 			useConsoleGraph( {
 				topology: 'demo',
 				partition: 0,
 				enabled: true,
 				debugLevelRef: { current: 0 },
-				loadCatalog: loadEmptyCatalog,
+				catalog: EMPTY_CATALOG,
 				...p,
-			} ),
+			} )
+		),
 		{ initialProps: props }
 	);
 
@@ -191,14 +204,17 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( 'other.p1' ) ).toBeInstanceOf( RemoteIpcNode );
 	} );
 
-	it( 'bumping the graph generation tears down + rebuilds the graph (fresh Router)', () => {
+	it( 'bumping the graph generation tears down + rebuilds the graph around the KEPT Router', async () => {
 		renderGraph();
 		const first = Core.node( names.ROUTER );
 		expect( first ).toBeInstanceOf( RouterNode );
-		act( () => Core.bumpGraphGeneration() );
+		await act( async () => Core.bumpGraphGeneration() );
 		const second = Core.node( names.ROUTER );
 		expect( second ).toBeInstanceOf( RouterNode );
-		expect( second ).not.toBe( first );
+		// The graph is rebuilt around a KEPT Router: it is the page's one
+		// heartbeat, and every poller in the graph hitchhikes its TIMER.
+		expect( second ).toBe( first );
+		expect( second.mode ).toBe( 'event_framework' );
 	} );
 
 	it( 'builds the substrate soft-nodes via interpreter.makeNode (Dumper stays new+named for the debugLevelRef)', () => {
@@ -311,7 +327,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 				partition: 0,
 				enabled: true,
 				debugLevelRef: { current: 0 },
-				loadCatalog: loadEmptyCatalog,
+				catalog: EMPTY_CATALOG,
 			} );
 		} );
 
@@ -349,8 +365,16 @@ describe( 'useConsoleGraph — TIMER batch lock/flush pairing', () => {
 		httpOf().client = { postBatch };
 		// Point the cwd at the active worker so polls route to its HttpOut.
 		Core.node( names.CWD ).target = 'demo.p0';
+		// The mount's own tick already polled; Metadata self-throttles to its
+		// 1s interval off Core.now(), so step past it to get a second ask.
+		const realNow = Date.now;
+		Date.now = () => realNow() + 2000;
 		// One Router TIMER tick: every poll rides ONE POST via active HttpOut.
-		act( () => Core.node( names.ROUTER ).fireCb() );
+		try {
+			act( () => Core.node( names.ROUTER ).fireCb() );
+		} finally {
+			Date.now = realNow;
+		}
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		const { VALUE } = require( '../../../runtime/message' );
 		const verbNames = postBatch.mock.calls[ 0 ][ 0 ]
@@ -388,12 +412,14 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( Core.node( 'demo.p0' ).heartbeat.slot ).toBe( 1 );
 	} );
 
-	it( 'resets the displayed pid when a steal closes the active worker (onClose)', () => {
+	it( 'resets the displayed pid when a steal closes the active worker (onClose)', async () => {
 		const { result } = renderGraph( {
 			topology: 'demo',
 			partition: 0,
 			workers: [ 'demo.p0', 'other.p1' ],
 		} );
+		// Settle the mount's coalesced tick before driving the stream.
+		await act( async () => {} );
 		// Session worker connects → pid displayed.
 		act( () => Core.node( 'demo.p0' ).connect() );
 		act( () => Core.node( 'demo.p0' ).sseIn.emitConnected( 4242 ) );
@@ -440,7 +466,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		expect( lastConnector.startCount ).toBe( 1 );
 	} );
 
-	it( 'stops the router tick when hidden, so every poller stops with it', () => {
+	it( 'stops the router tick when hidden, so every poller stops with it', async () => {
 		// Pollers hitchhike the tick — dump_metadata (1s), uptime (5s), dmesg
 		// (10s), topologies list (10s). Only the SSE was gated, so a hidden
 		// console kept POSTing all of them. (The heartbeat was already silent:
@@ -454,7 +480,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		// poller fires from notify_timer, so a stopped tick must silence it.
 		const metadata = Core.node( names.METADATA );
 		const before = metadata.counter;
-		act( () => router.fireCb() );
+		await act( async () => router.fireCb() );
 		expect( metadata.counter ).toBeGreaterThan( before );
 
 		// …so an inactive router is a silent poller: notify_timer only runs
@@ -473,7 +499,7 @@ describe( 'useConsoleGraph — visibility-gated streaming', () => {
 		const realNow = Date.now;
 		Date.now = () => realNow() + 2000;
 		try {
-			act( () => router.fireCb() );
+			await act( async () => router.fireCb() );
 		} finally {
 			Date.now = realNow;
 		}
@@ -595,11 +621,16 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'seeds the Metadata node with the topology TSL on mount (instant structure before dump_metadata)', async () => {
 		const tsl = 'make_node Echo greeter\n';
-		mockSend.mockResolvedValue( { name: 'demo', source: 'user', tsl } );
-		await act( async () => {
-			renderGraph();
-			await Promise.resolve();
-		} );
+		// Answer the seed ONLY: a blanket reply answers every poll too.
+		mockSend.mockImplementation( ( msg ) =>
+			'topologies' === msg?.to && 'get' === msg?.verb
+				? Promise.resolve(
+						reply( { name: 'demo', source: 'user', tsl } )
+				  )
+				: undefined
+		);
+		renderGraph();
+		await tickRouter();
 		// Fired topologies `get` — same direct REST command edit mode uses.
 		expect( mockSend ).toHaveBeenCalledWith(
 			expect.objectContaining( {
@@ -614,20 +645,28 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 
 	it( 'does NOT seed the Metadata node at the local root (cwd "/") — only at a worker scope', async () => {
-		mockSend.mockResolvedValue( {
-			name: 'demo',
-			source: 'user',
-			tsl: 'make_node Echo greeter\n',
-		} );
+		// Answer the seed ONLY: a blanket reply answers every poll too.
+		mockSend.mockImplementation( ( msg ) =>
+			'topologies' === msg?.to && 'get' === msg?.verb
+				? Promise.resolve(
+						reply( {
+							name: 'demo',
+							source: 'user',
+							tsl: 'make_node Echo greeter\n',
+						} )
+				  )
+				: undefined
+		);
 		renderGraph();
 		// cd / before the seed resolves; seeding topology paints wrong graph.
 		Core.node( names.CWD ).target = '';
-		await act( async () => {
-			await Promise.resolve();
-		} );
-		expect(
-			Core.node( names.METADATA ).setStateCache?.metadata
-		).toBeUndefined();
+		await tickRouter();
+		// At the local root the poll answers itself in-browser and publishes
+		// the BROWSER's own graph, so the slot is not empty — what must be
+		// absent is the topology's own node.
+		const published =
+			Core.node( names.METADATA ).setStateCache?.metadata?.nodes ?? [];
+		expect( published.map( ( n ) => n.id ) ).not.toContain( 'greeter' );
 	} );
 
 	it( 'an SSE reply with TO=_completion lands in the Completion node (not the transcript)', () => {
@@ -834,7 +873,8 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		const connector = lastConnector;
 		unmount();
 		expect( connector.closed ).toBe( true );
-		expect( Core.node( names.ROUTER ) ).toBeNull();
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
 		expect( Core.node( 'demo.p0' ) ).toBeNull();
 		expect( RemoteIpcNode.active ).toBeNull();
@@ -869,9 +909,6 @@ describe( 'useConsoleGraph — lifecycle', () => {
 	} );
 
 	it( 'tearing down on enabled→false unregisters nodes + closes the stream', () => {
-		// The in-flight topology `get` reply outlives its node; the Router says
-		// so rather than routing it into the void.
-		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { rerender } = renderGraph( { enabled: true } );
 		const connector = lastConnector;
 		act( () => {
@@ -968,6 +1005,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 
 		renderGraph();
+		await tickRouter();
 
 		await waitFor( () => {
 			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
@@ -1003,6 +1041,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 
 		const { result } = renderGraph();
+		await tickRouter();
 
 		await waitFor( () => {
 			expect( result.current.seedError?.message ).toBe(
@@ -1015,7 +1054,9 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 	} );
 
 	it( 'resolves a flat topology own-node config target without making the node borrowed', async () => {
-		const loadCatalog = jest.fn().mockResolvedValue( {
+		const catalog = {
+			loading: false,
+			error: null,
 			classes: [
 				{
 					shell_name: 'Wombat_Flame_Builder_619',
@@ -1029,8 +1070,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 				},
 				{ shell_name: 'Echo', fans_out: false, commands: [] },
 			],
-			formatters: [],
-		} );
+		};
 		mockSend.mockImplementation( ( msg ) => {
 			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
 				return Promise.resolve(
@@ -1058,7 +1098,8 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			return undefined;
 		} );
 
-		renderGraph( { loadCatalog } );
+		renderGraph( { catalog } );
+		await tickRouter();
 
 		await waitFor( () => {
 			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
@@ -1080,13 +1121,6 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 	} );
 
 	it( 'waits for the PHP catalog before folding a custom Tee seed', async () => {
-		let resolveCatalog;
-		const loadCatalog = jest.fn(
-			() =>
-				new Promise( ( resolve ) => {
-					resolveCatalog = resolve;
-				} )
-		);
 		mockSend.mockImplementation( ( msg ) => {
 			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
 				return Promise.resolve(
@@ -1107,8 +1141,10 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			return undefined;
 		} );
 
-		const { result } = renderGraph( { loadCatalog } );
-		await waitFor( () => expect( loadCatalog ).toHaveBeenCalledTimes( 1 ) );
+		const { result, rerender } = renderGraph( {
+			catalog: { classes: [], loading: true, error: null },
+		} );
+		await tickRouter();
 		await act( async () => {
 			await Promise.resolve();
 		} );
@@ -1117,12 +1153,19 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		).toBeUndefined();
 
 		await act( async () => {
-			resolveCatalog( {
-				classes: [
-					{ shell_name: 'WombatSeedFanout731', fans_out: true },
-					{ shell_name: 'Echo', fans_out: false },
-				],
-				formatters: [],
+			rerender( {
+				topology: 'demo',
+				partition: 0,
+				enabled: true,
+				debugLevelRef: { current: 0 },
+				catalog: {
+					loading: false,
+					error: null,
+					classes: [
+						{ shell_name: 'WombatSeedFanout731', fans_out: true },
+						{ shell_name: 'Echo', fans_out: false },
+					],
+				},
 			} );
 		} );
 
@@ -1135,25 +1178,16 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		expect( result.current.seedError ).toBeNull();
 	} );
 
-	it( 'surfaces a catalog failure and leaves the pre-metadata seed gated', async () => {
-		const loadCatalog = jest
-			.fn()
-			.mockRejectedValue(
-				new Error( 'seed-catalog-sentinel-947 failed' )
-			);
+	// A refused catalog holds the paint for the same reason a loading one does;
+	// the refusal itself is surfaced by whoever owns the catalog slice.
+	it( 'leaves the pre-metadata seed gated on a refused catalog', async () => {
 		mockSend.mockImplementation( ( msg ) => {
 			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
 				return Promise.resolve(
 					reply( {
 						name: 'demo',
 						source: 'user',
-						tsl: [
-							'make_node WombatFailedFanout947 zebra-fanout',
-							'make_node Echo giraffe-target',
-							'make_node Echo llama-target',
-							'connect_node zebra-fanout giraffe-target',
-							'connect_node zebra-fanout llama-target',
-						].join( '\n' ),
+						tsl: 'make_node WombatFailedFanout947 zebra-fanout\n',
 						expanded: { nodes: [], edges: [] },
 					} )
 				);
@@ -1161,12 +1195,18 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 			return undefined;
 		} );
 
-		const { result } = renderGraph( { loadCatalog } );
-		await waitFor( () => {
-			expect( result.current.seedError?.message ).toBe(
-				'seed-catalog-sentinel-947 failed'
-			);
+		renderGraph( {
+			catalog: {
+				classes: [],
+				loading: false,
+				error: 'seed-catalog-sentinel-947 failed',
+			},
 		} );
+		await tickRouter();
+		await act( async () => {
+			await Promise.resolve();
+		} );
+
 		expect(
 			Core.node( names.METADATA )?.setStateCache?.metadata
 		).toBeUndefined();
@@ -1207,13 +1247,19 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 
 		renderGraph();
+		await tickRouter();
 
-		await waitFor( () => {
-			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;
-			const ids = ( seeded?.nodes || [] ).map( ( n ) => n.id );
-			expect( ids ).toContain( 'wombat:tee' );
-			expect( ids ).toContain( 'zebra:consumer' );
-		} );
+		// The include expansion is a second ask, so a second tick away.
+		await waitFor(
+			() => {
+				const seeded = Core.node( names.METADATA )?.setStateCache
+					?.metadata;
+				const ids = ( seeded?.nodes || [] ).map( ( n ) => n.id );
+				expect( ids ).toContain( 'wombat:tee' );
+				expect( ids ).toContain( 'zebra:consumer' );
+			},
+			{ timeout: 6000 }
+		);
 	} );
 
 	it( 'uses the expansion `get` ships, without a second round trip', async () => {
@@ -1247,6 +1293,7 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		} );
 
 		renderGraph();
+		await tickRouter();
 
 		await waitFor( () => {
 			const seeded = Core.node( names.METADATA )?.setStateCache?.metadata;

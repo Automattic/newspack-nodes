@@ -88,13 +88,30 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	// re-attach on backbone-up, which is what that signal exists for.
 	let ownsBackbone = false;
 
-	// (Re)create the rule-#2 backbone; mutable so a FULL rebuild recreates it.
+	// @longform
+	// The page's ONE heartbeat: constructed once and kept (see
+	// `teardownBackbone`). A kept Router is returned AS IS — never re-armed —
+	// because a stopped Router is usually stopped on purpose: the console
+	// stops it while the tab is hidden and re-arms it on the way back. Arming
+	// here would restart the heartbeat behind that gate every time anything
+	// mounted a passenger backbone.
+	const ensureRouter = () => {
+		const kept = Core.node( names.ROUTER );
+		if ( kept ) {
+			return kept;
+		}
+		const fresh = new RouterNode();
+		fresh.name = names.ROUTER;
+		return fresh;
+	};
+
+	// (Re)create the backbone bar the Router; a FULL rebuild recreates it.
 	const mountBackbone = () => {
 		// Idempotent under StrictMode double-invoke: reuse existing backbone.
 		const existing = Core.node( names.COMMAND_INTERPRETER );
 		if ( existing ) {
 			interpreter = existing;
-			router = Core.node( names.ROUTER );
+			router = ensureRouter();
 			// Adopt a backbone a passenger raised; it has no owner yet.
 			if ( ! passenger && ! Core.backboneOwned ) {
 				ownsBackbone = true;
@@ -106,8 +123,7 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		ownsBackbone = ! passenger;
 		Core.backboneOwned = Core.backboneOwned || ownsBackbone;
 
-		router = new RouterNode();
-		router.name = names.ROUTER;
+		router = ensureRouter();
 
 		interpreter = new CommandInterpreterNode();
 		interpreter.name = names.COMMAND_INTERPRETER;
@@ -147,6 +163,11 @@ export function mountExospine( build, { passenger = false } = {} ) {
 	const runBuild = () => {
 		// A reusing mount's spine may be stale — re-point at live nodes first.
 		syncSpineFromCore();
+		// Nothing to clip onto yet; backbone-up brings this build back.
+		if ( ! spine.interpreter ) {
+			builtNames = [];
+			return;
+		}
 		const before = new Set( Core.nodes.keys() );
 		cleanup = 'function' === typeof build ? build( spine ) : undefined;
 		builtNames = [ ...Core.nodes.keys() ].filter(
@@ -164,14 +185,25 @@ export function mountExospine( build, { passenger = false } = {} ) {
 		}
 		builtNames = [];
 	};
+	/**
+	 * Tear the backbone down — everything but the ROUTER, which is never
+	 * removed.
+	 *
+	 * It is the page's one heartbeat: every poller hitchhikes its TIMER and
+	 * every command batches inside the lock/flush bracket its tick opens. A
+	 * Reset-Graph that replaced it stopped the clock the whole graph runs on,
+	 * so nothing dared depend on the tick — and the loops that HAD to survive a
+	 * rebuild answered by owning private setIntervals, which is exactly the
+	 * unbatched second heartbeat the graph exists not to have.
+	 *
+	 * A node the rebuild removes unregisters itself (TimerNode.removeNode →
+	 * stopTimer), so no stale TIMER registration outlives its node.
+	 */
 	const teardownBackbone = () => {
-		router.stopTimer();
-		// Remove leaf singletons, then interpreter + router — nothing dangles.
 		Core.node( names.CONSOLE_TAP )?.removeNode();
 		Core.node( names.HTTP )?.removeNode();
 		Core.node( names.HEARTBEAT )?.removeNode();
 		interpreter.removeNode();
-		router.removeNode();
 	};
 
 	// Fine-grained rebuild: just the soft build nodes, backbone preserved.
@@ -226,7 +258,13 @@ export function mountExospine( build, { passenger = false } = {} ) {
 			unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
 		} else {
 			// Reused backbone — owner owns full rebuilds; just reinit ours.
-			unsubscribe = Core.subscribeGraphGeneration( spine.reinit );
+			const offGeneration = Core.subscribeGraphGeneration( spine.reinit );
+			// A replaced backbone leaves these sinking into a removed node.
+			const offBackbone = Core.subscribeBackboneUp( spine.reinit );
+			unsubscribe = () => {
+				offGeneration();
+				offBackbone();
+			};
 		}
 	}
 

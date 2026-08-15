@@ -16,18 +16,21 @@
  * not packed partition envelopes. EVERY node sinks into the interpreter; flow is
  * steered ONLY by each node's `target`.
  *
- * The catalog, the selection and the open stream are ONE reconciled loader
- * (`establish`), so a refusal at mount and a Reset Graph rebuild both recover
- * through the same path — the graph build fetches nothing for itself.
+ * The catalog is POLLED as a batched-poll slice, so a refusal at mount, a
+ * session that expired while the tab slept, and a Reset Graph rebuild all
+ * recover on the next tick without a loader of their own — and the selection
+ * is established from whatever the catalog last published.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
 import '../nodes/register';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { useNodeState } from '../../runtime/react';
 import { controlMsg } from '../../shared/helpers/controlMsg';
 
 const LINK = 'logviewer:link';
@@ -35,6 +38,12 @@ const TEE = 'logviewer:stream';
 const VIEW = 'logviewer:view';
 const READ_NODE = 'logviewer:read';
 const SOURCES_NODE = 'logviewer:list';
+const SOURCES_VIEW = 'logviewer:list:view';
+
+/** Segments and sizes move slowly; the picker does not need every tick. */
+const CATALOG_POLL_MS = 10000;
+
+const EMPTY_SOURCES = [];
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 
 // Prefer the first available source; else fall back to the first listed.
@@ -54,18 +63,18 @@ export function useLogViewerGraph() {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	// Two reads, two nodes; each reply lands on the node that asked.
-	const readOne = useRequestNode( READ_NODE, '' );
-	const readSources = useRequestNode( SOURCES_NODE, '' );
+	// `taillog` is an interpreter builtin, so the egress has no CI after it.
+	const stepRead = useCommandOnce( {
+		scope: READ_NODE,
+		target: '_shell/_http',
+		command: 'taillog',
+	} );
 
-	// One-line fetch behind the paused single-step, through its own node.
-	const fetchMessage = useCallback(
-		( sub, position ) =>
-			readOne( 'taillog', [ 'read', sub, position ] ).then(
-				( payload ) =>
-					payload && 'object' === typeof payload ? payload : null
-			),
-		[ readOne ]
+	// One-line read behind the paused single-step, through its own node.
+	const { run: runStep } = stepRead;
+	const requestStep = useCallback(
+		( sub, position ) => runStep( [ 'read', sub, position ] ),
+		[ runStep ]
 	);
 
 	// Pause/visibility gating + the record-then-reopen subscription control.
@@ -73,14 +82,13 @@ export function useLogViewerGraph() {
 		{
 			linkRef,
 			viewRef,
-			fetchMessage,
+			requestStep,
+			stepAnswer: stepRead,
 		}
 	);
 
 	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
 	const [ , bumpBuild ] = useState( 0 );
-	// The source catalog (for the picker), set when taillog sources replies.
-	const [ sources, setSources ] = useState( [] );
 
 	useEffect( () => {
 		const build = ( { interpreter } ) => {
@@ -120,56 +128,48 @@ export function useLogViewerGraph() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// Read a FRESH catalog + republish, so segments track rotation.
-	const readCatalog = useCallback(
-		() =>
-			readSources( 'taillog', [ 'sources' ] ).then( ( catalog ) => {
-				if ( Array.isArray( catalog ) ) {
-					setSources( catalog );
-				}
-				return catalog;
+	// The catalog, POLLED: rotation lands, and a refusal is one empty tick.
+	useBatchedPoll( {
+		build: ( { interpreter, tee } ) =>
+			addSliceFetcher( interpreter, {
+				fetcher: `${ SOURCES_NODE }:fetch`,
+				receiver: `${ SOURCES_NODE }:in`,
+				command: 'taillog',
+				argsFn: () => [ 'sources' ],
+				view: SOURCES_VIEW,
+				viewClass: 'CatalogListView',
+				tee,
+				target: '_shell/_http',
 			} ),
-		[ readSources ]
-	);
+		timerName: `${ SOURCES_NODE }:timer`,
+		teeName: `${ SOURCES_NODE }:tee`,
+		intervalMs: CATALOG_POLL_MS,
+	} );
+	const catalog = useNodeState( SOURCES_VIEW, 'view' );
+	const sources = catalog?.items ?? EMPTY_SOURCES;
 
 	// @longform
-	// The DESIRED STATE, in one loader: a catalog, a selection, and a stream
-	// open on it. The catalog half used to be fetched inside the graph build
-	// with its failure swallowed as "picker stays empty", so a refusal at
-	// mount — or a session that expired while the tab slept — left the
-	// dashboard dead with no way back but a reload; the reconciled half that
-	// replaced it restored only the picker, which is the same dead dashboard
-	// with a populated dropdown. Selection is established ONLY when there is
-	// none, so re-establishing never overrides the user's pick.
-	const establish = useCallback( () => {
+	// The DESIRED STATE: a selection, and a stream open on it. The catalog
+	// half used to be fetched inside the graph build with its failure
+	// swallowed as "picker stays empty", so a refusal at mount — or a session
+	// that expired while the tab slept — left the dashboard dead with no way
+	// back but a reload. Selection is established ONLY when there is none, so
+	// a later catalog never overrides the user's pick.
+	useEffect( () => {
 		const view = viewRef.current;
-		if ( ! view ) {
-			// The gate: keep trying until the exospine graph has mounted.
-			return Promise.reject( new Error( 'graph not ready' ) );
+		if ( ! view || view.selected || ! sources.length ) {
+			return;
 		}
-		return readCatalog().then( ( catalog ) => {
-			if ( ! Array.isArray( catalog ) || view.selected ) {
-				return catalog;
-			}
-			const chosen = defaultSourceName( catalog );
-			if ( chosen ) {
-				view.fill(
-					controlMsg( view, { action: 'select', log: chosen } )
-				);
-				// Record the default; open only while active.
-				resubscribe( [ chosen ], null );
-			}
-			return catalog;
-		} );
-	}, [ readCatalog, resubscribe ] );
+		const chosen = defaultSourceName( sources );
+		if ( chosen ) {
+			view.fill( controlMsg( view, { action: 'select', log: chosen } ) );
+			// Record the default; open only while active.
+			resubscribe( [ chosen ], null );
+		}
+	}, [ sources, resubscribe ] );
 
-	const { reconcileNow } = useReconcile( { load: establish } );
-
-	// Rail maintenance; a failure re-opens the convergence window.
-	const fetchSources = useCallback(
-		() => readCatalog().catch( () => reconcileNow() ),
-		[ readCatalog, reconcileNow ]
-	);
+	// The poll keeps the rail fresh on its own; nothing to trigger.
+	const fetchSources = useCallback( () => {}, [] );
 
 	// Record the pick, re-open if active, re-catalog for fresh segments.
 	const selectSource = useCallback(

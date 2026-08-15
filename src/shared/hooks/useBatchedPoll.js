@@ -7,10 +7,13 @@
  *    backbone plus its `_http` HttpOut egress and `_shell` observe-only Tap,
  *  - the `_http` command client (the I/O boundary; HttpOut defaults it),
  *  - a fan-out `Tee` + a router-hitchhike `Timer` that fans each tick to it,
- *  - the lock/flush bracket on the router TIMER tick, so a tick's commands batch
- *    into ONE HttpOut POST (Tachikoma batching — fan-out is free),
  *  - the page-visibility gate: HIDDEN unregisters the Timer from the router TIMER
  *    (no fan-out → no POST); VISIBLE re-registers it.
+ *
+ * It does NOT bracket anything. The Router owns the lock/flush around a tick, so
+ * a tick's commands batch into ONE HttpOut POST (Tachikoma batching — fan-out is
+ * free); a first load or a `pollNow()` says it is due and then runs the Router's
+ * tick, which is how whatever else was due rides the same POST.
  *
  * The caller supplies a `build( { interpreter, tee } )` that adds ONLY the
  * dashboard-specific nodes — typically `slices.forEach( s => addSliceFetcher(
@@ -25,13 +28,14 @@
  *     paused,          // suspend the poll without unmounting (e.g. a drag in flight)
  *   } );
  *
- * Returns `{ interpreterRef }` — the live interpreter consumers fire awaited
- * verbs against — and re-renders (the `bumpBuild` semantics) after each build so
- * each widget's `useNodeState` re-subscribes to the freshly-mounted view nodes.
+ * Returns `{ interpreterRef }` — the live interpreter — and re-renders (the
+ * `bumpBuild` semantics) after each build so each widget's `useNodeState`
+ * re-subscribes to the freshly-mounted view nodes.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { mountExospine, hasSession } from '@newspack-nodes/runtime';
+import { Core, mountExospine, hasSession } from '@newspack-nodes/runtime';
+import names from '../../runtime/reserved-node-names.json';
 import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
@@ -44,8 +48,12 @@ function isFirstLoadPending( timer ) {
 	);
 }
 
-function syncTimer( timer, isPageVisible, paused, intervalMs ) {
-	if ( isPageVisible && ( ! paused || isFirstLoadPending( timer ) ) ) {
+function syncTimer( timer, isPageVisible, paused, intervalMs, enabled = true ) {
+	if (
+		enabled &&
+		isPageVisible &&
+		( ! paused || isFirstLoadPending( timer ) )
+	) {
 		timer.setTimer( intervalMs );
 	} else {
 		timer.stopTimer();
@@ -57,11 +65,13 @@ function syncTimer( timer, isPageVisible, paused, intervalMs ) {
  * pause, and cadence. See the module overview above for what it wires up.
  *
  * @param {Object}   opts
- * @param {Function} opts.build      `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
- * @param {string}   opts.timerName  Name for the owned router-hitchhike Timer.
- * @param {string}   opts.teeName    Name for the owned fan-out Tee.
- * @param {boolean}  [opts.paused]   Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false.
- * @param {number}   opts.intervalMs Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval. Changing it re-arms the Timer.
+ * @param {Function} opts.build       `( { interpreter, tee } ) => cleanup|void` — adds the dashboard's slice nodes onto the owned Tee.
+ * @param {string}   opts.timerName   Name for the owned router-hitchhike Timer.
+ * @param {string}   opts.teeName     Name for the owned fan-out Tee.
+ * @param {boolean}  [opts.paused]    Suspend polling while true (stops the Timer hitchhike, like a hidden tab); resumes when false. A paused mount STILL delivers its one first load — see `enabled` for the gate that does not.
+ * @param {boolean}  [opts.enabled]   False costs nothing at all: no first load, no timer. `paused` suspends a surface that is open; this is for one that was never opened. Flipping it true delivers the first load then.
+ * @param {boolean}  [opts.passenger] True to clip onto a backbone somebody else owns — a poll that is a PART of a page rather than its graph. The owner keeps Reset Graph and the full rebuild; a passenger re-attaches when the backbone comes back.
+ * @param {number}   opts.intervalMs  Poll cadence in ms, REQUIRED and >= 1000 — TimerNode's hitchhike threshold, so the tick stays inside the lock/flush bracket. 1000 rides every router tick; above that `fireCb` throttles to the interval. Changing it re-arms the Timer.
  * @return {{ interpreterRef: Object, pollNow: Function }} A ref to the live interpreter, and `pollNow()` — fire the batched poll tick off-cadence.
  */
 export function useBatchedPoll( opts ) {
@@ -97,7 +107,7 @@ export function useBatchedPoll( opts ) {
 	const isPageVisible = usePageVisibility();
 
 	useEffect( () => {
-		const build = ( { interpreter, http } ) => {
+		const build = ( { interpreter } ) => {
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 
 			// The fan-out Tee + the router-hitchhike Timer that fans each tick.
@@ -113,11 +123,18 @@ export function useBatchedPoll( opts ) {
 
 			interpreterRef.current = interpreter;
 
-			// One batched tick = ONE POST, reused to deliver the first load.
+			// @longform
+			// Ask to be included in THIS tick, then let the ROUTER run it.
+			// The Router is the page's one heartbeat and the only thing that
+			// brackets a tick; opening a lock/flush here made this mount a
+			// second bracket owner, and whatever else was due on the same tick
+			// paid for a second POST. Zeroing `lastFireTime` is how a slice
+			// slower than the tick says it is due, since `fireCb` throttles a
+			// hitchhiker whose interval exceeds the 1s tick. `requestTick`
+			// coalesces, so three mounts in one commit are one tick.
 			const fireTick = () => {
-				http.lock();
-				timer.fire();
-				http.flush();
+				timer.lastFireTime = 0;
+				Core.node( names.ROUTER )?.requestTick();
 			};
 			fireTickRef.current = fireTick;
 
@@ -127,6 +144,8 @@ export function useBatchedPoll( opts ) {
 			 */
 			timer.register( 'FIRE', FIRST_LOAD_LISTENER, () => {
 				if ( ! hasSession() ) {
+					// Nothing signed, so nothing went: not a spent tick.
+					timer.lastFireTime = 0;
 					return;
 				}
 				if ( optsRef.current.paused ) {
@@ -135,17 +154,19 @@ export function useBatchedPoll( opts ) {
 				return false;
 			} );
 
+			// ARM first: the Router fires only what its TIMER holds.
 			const visible = 'visible' === document.visibilityState;
-			if ( visible ) {
-				fireTick();
-			}
 			// Paused still rides the router until one signed first load fires.
 			syncTimer(
 				timer,
 				visible,
 				optsRef.current.paused,
-				optsRef.current.intervalMs
+				optsRef.current.intervalMs,
+				false !== optsRef.current.enabled
 			);
+			if ( visible && false !== optsRef.current.enabled ) {
+				fireTick();
+			}
 
 			// Re-render so each widget's useNodeState rebinds to the new view.
 			bumpBuild( ( n ) => n + 1 );
@@ -161,7 +182,9 @@ export function useBatchedPoll( opts ) {
 			};
 		};
 
-		const { teardown } = mountExospine( build );
+		const { teardown } = mountExospine( build, {
+			passenger: true === optsRef.current.passenger,
+		} );
 		return teardown;
 	}, [] );
 
@@ -171,23 +194,33 @@ export function useBatchedPoll( opts ) {
 		if ( ! timer ) {
 			return;
 		}
-		// Deliver the one-time load immediately when a hidden tab shows.
-		if (
+		const enabled = false !== opts.enabled;
+		const owed =
+			enabled &&
 			isPageVisible &&
 			isFirstLoadPending( timer ) &&
-			'inactive' === timer.mode
-		) {
+			'inactive' === timer.mode;
+		// ARM first: the Router fires only what is registered on its TIMER.
+		syncTimer(
+			timer,
+			isPageVisible,
+			opts.paused,
+			opts.intervalMs,
+			enabled
+		);
+		// The one-time load, when a hidden or unopened surface finally shows.
+		if ( owed ) {
 			fireTickRef.current?.();
 		}
-		syncTimer( timer, isPageVisible, opts.paused, opts.intervalMs );
-	}, [ isPageVisible, opts.paused, opts.intervalMs ] );
+	}, [ isPageVisible, opts.paused, opts.intervalMs, opts.enabled ] );
 
 	/**
-	 * Fire the poll tick NOW, off-cadence — one batched POST of every slice,
-	 * with each slice's `argsFn()` reading the caller's current refs.
+	 * Run the ROUTER's tick NOW, off-cadence, having said this poll is due —
+	 * one batched POST of every slice, with each `argsFn()` reading the
+	 * caller's current refs.
 	 *
 	 * This is how a consumer refreshes after a filter change: the tick already
-	 * fans to every slice inside the router's lock/flush bracket, so there is
+	 * fans to every slice inside the Router's lock/flush bracket, so there is
 	 * nothing to hand-batch. Consumers that rebuilt that bracket around
 	 * hand-sent copies of the same verbs were re-implementing this.
 	 */

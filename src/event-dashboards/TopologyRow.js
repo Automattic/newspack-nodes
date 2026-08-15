@@ -100,7 +100,6 @@ export function sectionFor( name, status ) {
  * @property {Function}        onActivate           (name) => Promise.
  * @property {Function}        onDeactivate         (name) => Promise.
  * @property {Function}        onRestart            (name) => Promise.
- * @property {Function}        onError              ({name,message}) => void; a rejected mutation.
  * @property {Function}        [onExpand]           (name) => void; unfold this row (folded chevron).
  * @property {Function}        [onCollapseTopology] (name) => void; fold this row (unfolded chevron).
  * @property {boolean}         [isDragging]         True while this row is the one being pointer-dragged.
@@ -128,7 +127,6 @@ const TopologyRow = memo( function TopologyRow( {
 	onActivate,
 	onDeactivate,
 	onRestart,
-	onError,
 	onExpand,
 	onCollapseTopology,
 	isDragging = false,
@@ -329,7 +327,6 @@ const TopologyRow = memo( function TopologyRow( {
 					onActivate={ onActivate }
 					onDeactivate={ onDeactivate }
 					onRestart={ onRestart }
-					onError={ onError }
 					editHref={ consoleHref( name, { edit: true } ) }
 				/>
 			</div>

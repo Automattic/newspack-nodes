@@ -70,6 +70,10 @@ function unpackLines( text ) {
 /**
  * The TM_ERROR a refused command earns, addressed back to whoever minted it.
  *
+ * `undelivered` is what tells a retried read this is not the server's answer:
+ * the batch never reached the verb, so asking again is the recovery rather
+ * than a second ask for a question already answered.
+ *
  * @param {Array}  sent   The posted command Message.
  * @param {number} status HTTP status the substrate answered with.
  * @param {string} code   REST error code, if the body carried one.
@@ -84,6 +88,7 @@ function refusalReply( sent, status, code ) {
 		payload: `Command refused (HTTP ${ status }${
 			code ? ` ${ code }` : ''
 		})`,
+		undelivered: true,
 	};
 	return reply;
 }

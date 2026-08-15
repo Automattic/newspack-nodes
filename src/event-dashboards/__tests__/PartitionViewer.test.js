@@ -92,18 +92,26 @@ describe( 'PartitionViewer', () => {
 	let selectLog;
 	let setPaused;
 	let fetchLogStatus;
+	let logStatus;
 	let seek;
 	let step;
 	let clearGraph;
 
 	// Wrap render in act so the async log_status fetch effect settles inside it.
+	const mounted = [];
+
 	async function renderViewer( props = {} ) {
 		let out;
 		await act( async () => {
 			out = render( <PartitionViewer { ...props } /> );
 		} );
+		mounted.push( out );
 		return out;
 	}
+
+	afterEach( () => {
+		mounted.length = 0;
+	} );
 
 	beforeEach( () => {
 		Core.reset();
@@ -111,15 +119,25 @@ describe( 'PartitionViewer', () => {
 		logBrowserProps = undefined;
 		selectLog = jest.fn();
 		setPaused = jest.fn();
-		fetchLogStatus = jest.fn().mockResolvedValue( { segments: [] } );
+		fetchLogStatus = jest.fn();
+		// The status answer names the log it is about; the viewer reads it
+		// rather than awaiting a promise. `answerStatus()` publishes one.
+		logStatus = { seq: 0, log: null, result: null };
 		seek = jest.fn();
 		step = jest.fn();
 		clearGraph = jest.fn();
 		usePartitionViewerGraph.mockClear();
+		publishGraph();
+		window.history.replaceState( {}, '', '/' );
+		window.localStorage.clear();
+	} );
+
+	function publishGraph() {
 		usePartitionViewerGraph.mockReturnValue( {
 			selectLog,
 			setPaused,
 			fetchLogStatus,
+			logStatus,
 			seek,
 			step,
 			clear: clearGraph,
@@ -130,9 +148,14 @@ describe( 'PartitionViewer', () => {
 				}
 			},
 		} );
-		window.history.replaceState( {}, '', '/' );
-		window.localStorage.clear();
-	} );
+	}
+
+	// Publish a `log_status` answer, as a reply landing on its node would.
+	function answerStatus( log, result ) {
+		logStatus = { seq: logStatus.seq + 1, log, result };
+		publishGraph();
+		mounted.forEach( ( r ) => r.rerender( <PartitionViewer /> ) );
+	}
 
 	it( 'renders a select populated from the view model', async () => {
 		registerViewFixture( {
@@ -285,18 +308,20 @@ describe( 'PartitionViewer', () => {
 	} );
 
 	it( 'fetches the selected log segments and lists them in the browser', async () => {
-		fetchLogStatus.mockResolvedValue( {
-			segments: [
-				{ id: 4, size: 100 },
-				{ id: 5, size: 2048 },
-			],
-		} );
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
 		} );
 		await renderViewer();
 		expect( fetchLogStatus ).toHaveBeenCalledWith( 'firehose' );
+		await act( async () =>
+			answerStatus( 'firehose', {
+				segments: [
+					{ id: 4, size: 100 },
+					{ id: 5, size: 2048 },
+				],
+			} )
+		);
 		expect( logBrowserProps.items ).toEqual( [
 			{ id: 4, size: 100 },
 			{ id: 5, size: 2048 },
@@ -357,14 +382,14 @@ describe( 'PartitionViewer', () => {
 	} );
 
 	it( 'a record from an unknown segment refetches the rail once', async () => {
-		fetchLogStatus.mockResolvedValue( {
-			segments: [ { id: 0, size: 10 } ],
-		} );
 		const node = registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
 		} );
 		await renderViewer();
+		await act( async () =>
+			answerStatus( 'firehose', { segments: [ { id: 0, size: 10 } ] } )
+		);
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
 		// A rotation: the stream reports a segment the rail doesn't know.
 		await act( async () => {
@@ -621,17 +646,19 @@ describe( 'PartitionViewer', () => {
 	} );
 
 	it( 'captures the newest segment as the replay end so the view can catch up', async () => {
-		fetchLogStatus.mockResolvedValue( {
-			segments: [
-				{ id: 4, size: 100 },
-				{ id: 6, size: 2048 },
-			],
-		} );
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
 		} );
 		await renderViewer();
+		await act( async () =>
+			answerStatus( 'firehose', {
+				segments: [
+					{ id: 4, size: 100 },
+					{ id: 6, size: 2048 },
+				],
+			} )
+		);
 		act( () => logBrowserProps.onReplay() );
 		// The ROW rides; browseControl() derives segment 6 @ 2048 from it.
 		expect( seek ).toHaveBeenCalledWith(
@@ -674,11 +701,43 @@ describe( 'PartitionViewer', () => {
 		);
 	} );
 
-	it( 'falls back to no segments when the log_status fetch fails', async () => {
-		fetchLogStatus.mockRejectedValue( new Error( 'boom' ) );
+	// A refused log_status publishes no result for the log, so the rail stays
+	// empty rather than showing another partition's segments.
+	it( 'falls back to no segments when the log_status is refused', async () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
 			selected: 'firehose',
+		} );
+		await renderViewer();
+		await act( async () => answerStatus( 'firehose', null ) );
+		expect( logBrowserProps.items ).toEqual( [] );
+	} );
+
+	// The real hook builds its `logStatus` fresh on every render, so anything
+	// keyed on that object runs every render. A refusal carries no segments,
+	// and a NEW empty array each time is a state change each time — the tab
+	// pins a core rather than showing an empty rail.
+	it( 'settles when the status answer is a new object every render', async () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		let renders = 0;
+		usePartitionViewerGraph.mockImplementation( () => {
+			renders += 1;
+			if ( 50 < renders ) {
+				throw new Error( 'render loop over one status answer' );
+			}
+			return {
+				selectLog,
+				setPaused,
+				fetchLogStatus,
+				logStatus: { seq: 1, log: 'firehose', result: null },
+				seek,
+				step,
+				clear: clearGraph,
+				setFilter: () => {},
+			};
 		} );
 		await renderViewer();
 		expect( logBrowserProps.items ).toEqual( [] );
