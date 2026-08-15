@@ -79,7 +79,7 @@ describe( 'useTopologyCatalog', () => {
 		afterEach( () => {
 			host?.teardown();
 			host = null;
-			Core.cleanupAllNodes?.();
+			Core.reset();
 		} );
 
 		// A passenger: it mounts onto a backbone the console owns, never its own.

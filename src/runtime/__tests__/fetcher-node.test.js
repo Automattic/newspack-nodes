@@ -1,5 +1,10 @@
 import { FetcherNode } from '../fetcher-node';
-import { forgetSession, hasSession, __setAuthFetch } from '../command-auth';
+import {
+	ensureSession,
+	forgetSession,
+	hasSession,
+	__setAuthFetch,
+} from '../command-auth';
 import { CommandInterpreterNode } from '../command-interpreter-node';
 import {
 	newMessage,
@@ -111,10 +116,10 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 	} );
 } );
 
-test( 'a function command_args returning a non-string coerces to empty args', () => {
+test( 'a function command_args returning a non-array coerces to empty args', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'urls:in', 'urls' ];
-	f.command_args = () => null;
+	f.command_args = () => 'not-a-token-array';
 	const sent = [];
 	f.sink = { fill: ( m ) => sent.push( m ) };
 	f.fill( newMessage() );
@@ -229,4 +234,62 @@ test( 'keeps the inherited command() minting helper', async () => {
 
 	forgetSession();
 	__setAuthFetch( null );
+} );
+
+// A one-shot rides the tick like everything else: it holds its arguments until
+// the next fan-out, sends once, and has nothing to say on the ticks between.
+// Without this a mutation would have to fire off-cadence, outside the router's
+// lock/flush bracket — its own POST, which is what the batch exists to avoid.
+test( 'a function command_args returning null sends NOTHING that tick', () => {
+	const f = new FetcherNode();
+	f.arguments = [ 'save:in', 'save' ];
+	let pending = null;
+	f.command_args = () => pending;
+	const sent = [];
+	f.sink = { fill: ( m ) => sent.push( m ) };
+
+	f.fill( newMessage() );
+	expect( sent ).toHaveLength( 0 );
+
+	pending = [ 'wombat-4471' ];
+	f.fill( newMessage() );
+	expect( sent ).toHaveLength( 1 );
+	expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'save',
+		arguments: [ 'wombat-4471' ],
+	} );
+} );
+
+// A one-shot's arguments are TAKEN as they are read, so reading them before
+// deciding whether we can send at all drops the command on the floor: a tick
+// that lands mid-re-auth ate the save, and nothing ever sent it.
+test( 'an unauthenticated tick does not consume the pending arguments', () => {
+	forgetSession();
+	const f = new FetcherNode();
+	f.arguments = [ 'save:in', 'save' ];
+	let pending = [ 'wombat-4471' ];
+	f.command_args = () => {
+		const args = pending;
+		pending = null;
+		return args;
+	};
+	const sent = [];
+	f.sink = { fill: ( m ) => sent.push( m ) };
+
+	f.fill( newMessage() );
+	expect( sent ).toHaveLength( 0 );
+	// Untouched: the arguments are still there to send once authenticated.
+	expect( pending ).toEqual( [ 'wombat-4471' ] );
+
+	__setAuthFetch( async () => ( {
+		handle: 'aaaa1111aaaa1111aaaa1111aaaa1111',
+		key: 'fetcher-auth-key',
+		expires_in: 3600,
+		now: Math.floor( Date.now() / 1000 ),
+	} ) );
+	return ensureSession().then( () => {
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'wombat-4471' ] );
+	} );
 } );

@@ -20,20 +20,21 @@
  *
  * The graph build is handed to `mountExospine( build )`, which snapshots Core so
  * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph"). The
- * catalog, the default selection and the open stream are ONE reconciled loader
- * (`fetchLogs`): a rebuild bumps the graph generation, which un-settles
- * `useReconcile`, which fires `list_logs` again and re-opens the stream. Every
+ * catalog is POLLED, and the default selection follows whatever it publishes:
+ * a rebuild simply asks again on the next tick and re-opens the stream. Every
  * reopen goes through `resubscribe`, which RECORDS the target while paused or
  * hidden rather than reviving a closed stream.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
 import { mountExospine } from '../../runtime/exospine';
 import { browseControl } from '../../shared/nodes/seekTracker';
 import { useGatedSubscription } from './useGatedSubscription';
 import '../nodes/register';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { useNodeState } from '../../runtime/react';
 import { controlMsg } from '../../shared/helpers/controlMsg';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
@@ -44,16 +45,23 @@ const VIEW = 'partition:view';
 const READ_NODE = 'partition:read';
 const LIST_NODE = 'partition:list';
 const STATUS_NODE = 'partition:status';
+const LIST_VIEW = 'partition:list:view';
+
+/** Partitions come and go slowly; the dropdown does not need every tick. */
+const CATALOG_POLL_MS = 10000;
+
+const EMPTY_LOGS = [];
 const RAW_LOGS_CI = 'raw-logs';
 // Placeholder subscription the catalog repoints; NOT RAW_LOGS_CI.
 const SUBSCRIBE_PLACEHOLDER = 'raw-logs';
 
 /**
- * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
+ * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, logStatus: { seq: number, log: ?string, result: ?Object }, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,
- *   `setPaused( paused )` gates it, `fetchLogStatus( log )` resolves that
- *   partition's segment metadata, `seek( log, positions, source )` switches between
+ *   `setPaused( paused )` gates it, `fetchLogStatus( log )` asks for that
+ *   partition's segment metadata (answered on `logStatus`, which names the log
+ *   it is about), `seek( log, positions, source )` switches between
  *   follow and browse, `step()` delivers one record while paused, and
  *   `clear()` empties the ring. Reset Graph is driven by a
  *   `Core.bumpGraphGeneration()` bump — mountExospine subscribes this reused
@@ -64,17 +72,31 @@ export function usePartitionViewerGraph() {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	const readOne = useRequestNode( READ_NODE, RAW_LOGS_CI );
-	const listLogs = useRequestNode( LIST_NODE, RAW_LOGS_CI );
-	const logStatus = useRequestNode( STATUS_NODE, RAW_LOGS_CI );
+	const target = `_shell/_http/${ RAW_LOGS_CI }`;
 
-	// One-record fetch behind the paused single-step; its own node.
-	const fetchMessage = useCallback(
-		( sub, position ) =>
-			readOne( 'read_message', [ sub, position ] ).then( ( payload ) =>
-				payload && 'object' === typeof payload ? payload : null
-			),
-		[ readOne ]
+	// One-record read behind the paused single-step; its own node.
+	const stepRead = useCommandOnce( {
+		scope: READ_NODE,
+		target,
+		command: 'read_message',
+	} );
+	const { run: runStep } = stepRead;
+	const requestStep = useCallback(
+		( sub, position ) => runStep( [ sub, position ] ),
+		[ runStep ]
+	);
+
+	// Segment metadata for the rail, by partition; the answer names the log.
+	const status = useCommandOnce( {
+		scope: STATUS_NODE,
+		target,
+		command: 'log_status',
+		retry: true,
+	} );
+	const { run: runStatus } = status;
+	const fetchLogStatus = useCallback(
+		( log ) => runStatus( [ log ] ),
+		[ runStatus ]
 	);
 
 	// Pause/visibility gating + the record-then-reopen subscription control.
@@ -82,7 +104,8 @@ export function usePartitionViewerGraph() {
 		{
 			linkRef,
 			viewRef,
-			fetchMessage,
+			requestStep,
+			stepAnswer: stepRead,
 		}
 	);
 
@@ -145,34 +168,39 @@ export function usePartitionViewerGraph() {
 	);
 
 	// @longform
-	// The DESIRED STATE, in one loader: a catalog, a selection, and a stream
-	// open on it. The catalog used to be fetched inline in the graph build with
-	// its failure swallowed as "dropdown stays empty", so a refusal at mount —
-	// or a session that expired while the tab slept — left the partition list
-	// blank until a reload. Held as reconciled state, the not-ready rejection
-	// doubles as the gate until the exospine graph has mounted, and a Reset
-	// Graph re-establishes through the same path.
-	const fetchLogs = useCallback( () => {
-		const view = viewRef.current;
-		if ( ! view ) {
-			return Promise.reject( new Error( 'graph not ready' ) );
-		}
-		return listLogs( 'list_logs' ).then( ( logs ) => {
-			if ( ! Array.isArray( logs ) || 0 === logs.length ) {
-				return logs;
-			}
-			const hadSelection = Boolean( view.selected );
-			// Push the catalog into the view (defaults selected).
-			view.fill( controlMsg( view, { action: 'logs', logs } ) );
-			// Only the DEFAULT opens: re-establishing must not yank a Replay.
-			if ( ! hadSelection && view.selected ) {
-				resubscribe( [ view.selected ], null );
-			}
-			return logs;
-		} );
-	}, [ listLogs, resubscribe ] );
+	// The partition catalog, POLLED. It used to be fetched inline in the graph
+	// build with its failure swallowed as "dropdown stays empty", so a refusal
+	// at mount — or a session that expired while the tab slept — left the list
+	// blank until a reload. A refusal is now one tick that published nothing.
+	useBatchedPoll( {
+		build: ( { interpreter, tee } ) =>
+			addSliceFetcher( interpreter, {
+				fetcher: `${ LIST_NODE }:fetch`,
+				receiver: `${ LIST_NODE }:in`,
+				command: 'list_logs',
+				view: LIST_VIEW,
+				viewClass: 'CatalogListView',
+				tee,
+				target,
+			} ),
+		timerName: `${ LIST_NODE }:timer`,
+		teeName: `${ LIST_NODE }:tee`,
+		intervalMs: CATALOG_POLL_MS,
+	} );
+	const logs = useNodeState( LIST_VIEW, 'view' )?.items ?? EMPTY_LOGS;
 
-	useReconcile( { load: fetchLogs } );
+	// Only the DEFAULT opens, so a later catalog cannot yank a Replay.
+	useEffect( () => {
+		const view = viewRef.current;
+		if ( ! view || ! logs.length ) {
+			return;
+		}
+		const hadSelection = Boolean( view.selected );
+		view.fill( controlMsg( view, { action: 'logs', logs } ) );
+		if ( ! hadSelection && view.selected ) {
+			resubscribe( [ view.selected ], null );
+		}
+	}, [ logs, resubscribe ] );
 
 	// Ingest gate: only matching rows enter the ring from here on.
 	const setFilter = useCallback( ( term ) => {
@@ -189,11 +217,6 @@ export function usePartitionViewerGraph() {
 	}, [] );
 
 	// Fetch a log's segment metadata (log_status); stable for a fetch effect.
-	const fetchLogStatus = useCallback(
-		( log ) => logStatus( 'log_status', [ log ] ),
-		[ logStatus ]
-	);
-
 	/**
 	 * Set the view mode; resubscribe re-opens if active (mode rides control).
 	 *
@@ -219,6 +242,11 @@ export function usePartitionViewerGraph() {
 		selectLog,
 		setPaused,
 		fetchLogStatus,
+		logStatus: {
+			seq: status.seq,
+			log: status.answeredArgs?.[ 0 ] ?? null,
+			result: status.result,
+		},
 		seek,
 		step,
 		clear,

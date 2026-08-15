@@ -106,6 +106,9 @@ export default function Overview( { headerControlsSlot } ) {
 	const dragFromRef = useRef( -1 );
 	const dragging = null !== dragName;
 
+	// Refused activate/deactivate/restart ({name,message}) raises this alert.
+	const [ alert, setAlert ] = useState( null );
+
 	// PAUSE all background updates while dragging (poll + probe view).
 	const {
 		topologies,
@@ -116,10 +119,7 @@ export default function Overview( { headerControlsSlot } ) {
 		deactivate,
 		restart,
 		connected,
-	} = useTopologyManager( { paused: dragging } );
-
-	// Rejected activate/deactivate/restart ({name,message}) raises this alert.
-	const [ alert, setAlert ] = useState( null );
+	} = useTopologyManager( { paused: dragging, onError: setAlert } );
 	// Active topology names currently UNFOLDED, restored from localStorage.
 	const [ expanded, setExpanded ] = useState( readExpanded );
 	const [ order, setOrder ] = useState( readOrder );
@@ -384,7 +384,6 @@ export default function Overview( { headerControlsSlot } ) {
 						onActivate={ activate }
 						onDeactivate={ deactivate }
 						onRestart={ restart }
-						onError={ setAlert }
 						onExpand={ expandTopology }
 						onCollapseTopology={ collapseTopology }
 						isDragging={ dragName === t.name }
@@ -415,7 +414,6 @@ export default function Overview( { headerControlsSlot } ) {
 								onActivate={ activate }
 								onDeactivate={ deactivate }
 								onRestart={ restart }
-								onError={ setAlert }
 								editHref={ consoleHref( t.name, {
 									edit: true,
 								} ) }

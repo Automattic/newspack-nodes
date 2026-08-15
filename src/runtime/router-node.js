@@ -44,6 +44,8 @@ export class RouterNode extends TimerNode {
 		super();
 		// Router self-starts its own 1s slot; isRouter skips the hitchhike.
 		this.isRouter = true;
+		// A coalescing tick request is pending; see `requestTick`.
+		this._tickAsked = false;
 		this.setTimer( ROUTER_TICK_MS );
 	}
 
@@ -217,6 +219,27 @@ export class RouterNode extends TimerNode {
 			}
 			node.fireCb();
 		}
+	}
+
+	/**
+	 * Ask for a tick NOW, coalesced: many asks in one commit run ONE tick.
+	 *
+	 * A mount that wants its first load says so here rather than opening a
+	 * bracket of its own. Three mounts in one commit are three asks and one
+	 * tick — running one each would send a tick-cadence hitchhiker's command
+	 * once per asker, since only an interval ABOVE the tick throttles.
+	 *
+	 * @return {void}
+	 */
+	requestTick() {
+		if ( this._tickAsked ) {
+			return;
+		}
+		this._tickAsked = true;
+		Promise.resolve().then( () => {
+			this._tickAsked = false;
+			this.fireCb();
+		} );
 	}
 
 	/**

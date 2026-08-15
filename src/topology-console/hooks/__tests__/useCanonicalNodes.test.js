@@ -1,18 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 
-// Spy on graphFromTsl so post-unmount test asserts !live short-circuits parsing.
-jest.mock( '../../utils/draftToGraph', () => {
-	const actual = jest.requireActual( '../../utils/draftToGraph' );
-	return { graphFromTsl: jest.fn( actual.graphFromTsl ) };
-} );
-
-const { graphFromTsl } = require( '../../utils/draftToGraph' );
-
 import { Core } from '@newspack-nodes/runtime';
-import {
-	installFakeCommandWire,
-	makeFakeCommandWire,
-} from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCanonicalNodes, driftNodeIds } from '../useCanonicalNodes';
 
 describe( 'driftNodeIds', () => {
@@ -27,7 +16,7 @@ describe( 'driftNodeIds', () => {
 		expect( [ ...driftNodeIds( nodes, canonical ) ] ).toEqual( [
 			'gamma',
 		] );
-	} );
+	}, 15000 );
 
 	it( 'returns null when there is no canonical info (empty set)', () => {
 		expect( driftNodeIds( [ { id: 'x' } ], new Set() ) ).toBeNull();
@@ -42,23 +31,27 @@ describe( 'useCanonicalNodes', () => {
 		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 		send = jest.fn();
 		installFakeCommandWire( ( m ) => send( m ) );
-	} );
+	}, 15000 );
 
 	it( 'fetches the topology .tsl and returns its declared node names', async () => {
 		send.mockReturnValue( {
+			name: 'combined',
 			tsl: 'make_node Echo alpha\nmake_node Tee beta\n',
 		} );
 		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
-		await waitFor( () => expect( result.current.size ).toBe( 2 ) );
+		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
+			timeout: 4000,
+		} );
 		expect( result.current.has( 'alpha' ) ).toBe( true );
 		expect( result.current.has( 'beta' ) ).toBe( true );
-	} );
+	}, 15000 );
 
 	it( 'counts a BORROWED node as canonical, not as runtime drift', async () => {
 		// combined.tsl owns one node and `include`s the rest. Comparing live nodes
 		// against the raw file alone paints every borrowed node as drift — a
 		// "temporary node" the operator never added.
 		send.mockReturnValue( {
+			name: 'combined',
 			tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
 			includes: [ 'zebra-base' ],
 			expanded: {
@@ -73,7 +66,9 @@ describe( 'useCanonicalNodes', () => {
 
 		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
 
-		await waitFor( () => expect( result.current.size ).toBe( 3 ) );
+		await waitFor( () => expect( result.current.size ).toBe( 3 ), {
+			timeout: 4000,
+		} );
 		expect( result.current.has( 'wombat:tee' ) ).toBe( true );
 		expect( result.current.has( 'zebra:consumer' ) ).toBe( true );
 		expect( result.current.has( 'zebra:partition' ) ).toBe( true );
@@ -89,6 +84,7 @@ describe( 'useCanonicalNodes', () => {
 			.spyOn( console, 'warn' )
 			.mockImplementation( () => {} );
 		send.mockReturnValue( {
+			name: 'combined',
 			tsl:
 				'include zebra-base\n' +
 				'make_node HTTP_Out wombat:out tw0\n' +
@@ -105,10 +101,12 @@ describe( 'useCanonicalNodes', () => {
 
 		const { result } = renderHook( () => useCanonicalNodes( 'combined' ) );
 
-		await waitFor( () => expect( result.current.size ).toBe( 2 ) );
+		await waitFor( () => expect( result.current.size ).toBe( 2 ), {
+			timeout: 4000,
+		} );
 		expect( Core.recentLog.join( '\n' ) ).not.toMatch( /unknown node/ );
 		warn.mockRestore();
-	} );
+	}, 15000 );
 
 	it( 'returns an empty set (and does not fetch) when there is no topology', () => {
 		const { result } = renderHook( () => useCanonicalNodes( '' ) );
@@ -116,41 +114,47 @@ describe( 'useCanonicalNodes', () => {
 		expect( send ).not.toHaveBeenCalled();
 	} );
 
-	it( 'ignores a fetch that resolves after the hook unmounts', async () => {
-		graphFromTsl.mockClear();
-		send.mockReturnValue( { tsl: 'make_node Echo alpha\n' } );
-		// Hold the wire open so the reply lands only after the unmount.
-		const wire = makeFakeCommandWire( ( m ) => send( m ) );
-		let release;
-		global.fetch = jest.fn(
-			( ...args ) =>
-				new Promise( ( resolve ) => {
-					release = () => resolve( wire( ...args ) );
-				} )
-		);
-		const { unmount } = renderHook( () => useCanonicalNodes( 'combined' ) );
-		// The mint waits out /auth, so let it reach the wire before unmounting.
-		await waitFor( () => expect( global.fetch ).toHaveBeenCalled() );
-		unmount();
-		release();
-		// Flush the resolve handlers.
-		for ( let i = 0; i < 8; i++ ) {
-			await Promise.resolve();
-		}
-		// !live guard returns before parse/setState; graphFromTsl running is a bug.
-		expect( graphFromTsl ).not.toHaveBeenCalled();
-	} );
-
-	it( 'resets to an empty set when the topology fetch rejects', async () => {
-		send.mockReturnValueOnce( { tsl: 'make_node Echo alpha\n' } );
+	// The slice publishes ONE view node, so the previous topology's answer is
+	// still sitting in it when the next name is asked for. Reading it as the new
+	// topology's canonical set would paint every node of the new one as drift.
+	it( 'does not count the previous topology answer as the new one', async () => {
+		send.mockReturnValue( {
+			name: 'combined',
+			tsl: 'make_node Echo alpha\n',
+		} );
 		const { result, rerender } = renderHook(
 			( { t } ) => useCanonicalNodes( t ),
 			{ initialProps: { t: 'combined' } }
 		);
-		await waitFor( () => expect( result.current.size ).toBe( 1 ) );
+		await waitFor( () => expect( result.current.size ).toBe( 1 ), {
+			timeout: 4000,
+		} );
 
-		send.mockReturnValueOnce( new Error( 'nope' ) );
+		// The reply for 'other' never arrives; 'combined' stays published.
+		send.mockReturnValue( new Error( 'still-loading-2871' ) );
 		rerender( { t: 'other' } );
-		await waitFor( () => expect( result.current.size ).toBe( 0 ) );
+		await waitFor( () => expect( result.current.size ).toBe( 0 ), {
+			timeout: 4000,
+		} );
+	}, 15000 );
+
+	it( 'resets to an empty set when the topology fetch rejects', async () => {
+		send.mockReturnValueOnce( {
+			name: 'combined',
+			tsl: 'make_node Echo alpha\n',
+		} );
+		const { result, rerender } = renderHook(
+			( { t } ) => useCanonicalNodes( t ),
+			{ initialProps: { t: 'combined' } }
+		);
+		await waitFor( () => expect( result.current.size ).toBe( 1 ), {
+			timeout: 4000,
+		} );
+
+		send.mockReturnValue( new Error( 'nope' ) );
+		rerender( { t: 'other' } );
+		await waitFor( () => expect( result.current.size ).toBe( 0 ), {
+			timeout: 4000,
+		} );
 	} );
 } );

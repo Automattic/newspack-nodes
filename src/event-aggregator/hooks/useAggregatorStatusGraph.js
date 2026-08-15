@@ -29,17 +29,16 @@
  * the correlator this design does not have — so it is a node each, and the reply
  * that lands on one IS that spoke's answer. They take the same
  * `_shell/_http/<ci>` path as the slices (unlocked between poll ticks →
- * immediate POST; during a tick they batch with the poll), and the build's
- * cleanup removes them, so a click-raised node still dies with the graph.
+ * the same tick as the poll), and the answer names the spoke it is about.
  *
  * Returns the refresh control (`setRefreshInterval` / `refreshInterval`), the
  * `probe(id)` dispatch, and the per-spoke `probes` map it fills. React reads each
  * polled slice via its own useNodeState('<slice>:view','view').
  */
 
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { Core, formatCommandArgs } from '@newspack-nodes/runtime';
-import { ensureRequestNode } from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCallback, useEffect, useState } from '@wordpress/element';
+import { formatCommandArgs } from '@newspack-nodes/runtime';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
@@ -96,20 +95,17 @@ const SLICES = [
 ];
 
 /**
- * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => Promise<*>, probes: Object<string, { ok: boolean, rollup?: *, error?: string }> }}
+ * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => void, probes: Object<string, { ok: boolean, rollup?: *, error?: string }> }}
  *   The controls the thin React view needs: `setRefreshInterval` takes a
  *   REFRESH_OPTIONS value (string ms), `probe` deep-probes one spoke by id and
- *   resolves with its roll-up, and `probes` maps spoke id to the settled
- *   result of that spoke's last probe. Each polled slice is read separately
- *   via useNodeState.
+ *   returns nothing — the answer lands in `probes`, which maps spoke id to the
+ *   settled result of that spoke's last probe. Each polled slice is read
+ *   separately via useNodeState.
  */
 export function useAggregatorStatusGraph() {
 	// The persisted refresh interval (string ms); seeds from localStorage.
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
-
-	// The probe nodes raised since this build, so they die with it.
-	const probeNames = useRef( new Set() );
 
 	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
 	useBatchedPoll( {
@@ -121,18 +117,6 @@ export function useAggregatorStatusGraph() {
 					target: TARGET,
 				} )
 			);
-			// @longform
-			// A probe node is raised from a click, so it is outside the build
-			// snapshot `mountExospine` removes — left to itself it outlives
-			// the interpreter it sinks into, and every spoke ever probed
-			// leaks one for the life of the page. Removing them here puts
-			// them back on the graph's lifecycle: teardown AND rebuild.
-			return () => {
-				probeNames.current.forEach( ( node ) =>
-					Core.node( node )?.removeNode()
-				);
-				probeNames.current.clear();
-			};
 		},
 		timerName: 'aggregator:timer',
 		teeName: 'aggregator:tee',
@@ -145,32 +129,23 @@ export function useAggregatorStatusGraph() {
 	// Per-spoke roll-ups, filed as each probe settles.
 	const [ probes, setProbes ] = useState( {} );
 
-	// On-demand deep probe of one spoke, through that spoke's own node.
-	const probe = useCallback( async ( id ) => {
-		const name = `${ PROBE_PREFIX }:${ id }`;
-		const node = ensureRequestNode( name, SERVER );
-		if ( ! node ) {
-			return Promise.reject( new Error( 'graph not mounted' ) );
-		}
-		probeNames.current.add( name );
-		try {
-			const rollup = await node.request(
-				'probe',
-				formatCommandArgs( [ id ] )
-			);
+	// On-demand deep probe; the answer NAMES the spoke it is about.
+	const { run: runProbe } = useCommandOnce( {
+		scope: PROBE_PREFIX,
+		target: TARGET,
+		command: 'probe',
+		onDone: ( { result, error, args } ) =>
 			setProbes( ( prev ) => ( {
 				...prev,
-				[ id ]: { ok: true, rollup },
-			} ) );
-			return rollup;
-		} catch ( e ) {
-			setProbes( ( prev ) => ( {
-				...prev,
-				[ id ]: { ok: false, error: e?.message ?? 'Probe failed' },
-			} ) );
-			throw e;
-		}
-	}, [] );
+				[ args[ 0 ] ]: error
+					? { ok: false, error }
+					: { ok: true, rollup: result },
+			} ) ),
+	} );
+	const probe = useCallback(
+		( id ) => runProbe( formatCommandArgs( [ id ] ) ),
+		[ runProbe ]
+	);
 
 	// Persist the refresh choice to localStorage.
 	useEffect( () => {

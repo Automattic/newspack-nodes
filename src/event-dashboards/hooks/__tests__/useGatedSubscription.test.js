@@ -39,12 +39,20 @@ const fakeView = () => ( {
 	fill: jest.fn(),
 } );
 
-function mount( link, view, fetchMessage ) {
-	return renderHook( () => {
-		const linkRef = useRef( link );
-		const viewRef = useRef( view );
-		return useGatedSubscription( { linkRef, viewRef, fetchMessage } );
-	} );
+function mount( link, view, requestStep, stepAnswer ) {
+	return renderHook(
+		( props ) => {
+			const linkRef = useRef( link );
+			const viewRef = useRef( view );
+			return useGatedSubscription( {
+				linkRef,
+				viewRef,
+				requestStep,
+				stepAnswer: props?.stepAnswer,
+			} );
+		},
+		{ initialProps: { stepAnswer } }
+	);
 }
 
 describe( 'useGatedSubscription', () => {
@@ -142,24 +150,19 @@ describe( 'useGatedSubscription', () => {
 		} );
 	} );
 
-	test( 'step after a same-tick pause+seek fetches the SEEK cursor', async () => {
+	test( 'step after a same-tick pause+seek asks for the SEEK cursor', () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const fetchMessage = jest.fn( () =>
-			Promise.resolve( {
-				message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
-				cursor: { segment: 2, offset: 9 },
-			} )
-		);
-		const { result } = mount( link, fakeView(), fetchMessage );
+		const requestStep = jest.fn();
+		const { result } = mount( link, fakeView(), requestStep );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], {
 				'x.p0': { segment: 2, offset: 0 },
 			} );
 		} );
-		await act( async () => result.current.step() );
-		// fetchMessage takes the formatted read position, not a cursor object.
-		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', '2:0' );
+		act( () => result.current.step() );
+		// requestStep takes the formatted read position, not a cursor object.
+		expect( requestStep ).toHaveBeenCalledWith( 'x.p0', '2:0' );
 	} );
 
 	/**
@@ -167,21 +170,51 @@ describe( 'useGatedSubscription', () => {
 	 * object-only guard silently returned here — pause → Replay → Step did
 	 * nothing until a segment click replaced the token with a {segment,offset}.
 	 */
-	test( 'steps from the magic start token a Replay seeks', async () => {
+	test( 'steps from the magic start token a Replay seeks', () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const fetchMessage = jest.fn( () =>
-			Promise.resolve( {
-				message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
-				cursor: { segment: 0, offset: 9 },
-			} )
-		);
-		const { result } = mount( link, fakeView(), fetchMessage );
+		const requestStep = jest.fn();
+		const { result } = mount( link, fakeView(), requestStep );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], { 'x.p0': 'start' } );
 		} );
-		await act( async () => result.current.step() );
-		expect( fetchMessage ).toHaveBeenCalledWith( 'x.p0', 'start' );
+		act( () => result.current.step() );
+		expect( requestStep ).toHaveBeenCalledWith( 'x.p0', 'start' );
+	} );
+
+	// The stepped record arrives later, on the node that asked; admitting it
+	// is what advances the reopen target so the NEXT step continues from it.
+	test( 'admits the stepped record and advances the reopen target', () => {
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const view = fakeView();
+		const requestStep = jest.fn();
+		const { result, rerender } = mount( link, view, requestStep );
+		act( () => {
+			result.current.setPaused( true );
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} );
+		} );
+		act( () => result.current.step() );
+
+		act( () =>
+			rerender( {
+				stepAnswer: {
+					seq: 1,
+					result: {
+						message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
+						cursor: { segment: 2, offset: 9 },
+					},
+				},
+			} )
+		);
+
+		expect( view.fill ).toHaveBeenCalled();
+		link.setSubscribe.mockClear();
+		act( () => result.current.setPaused( false ) );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 2, offset: 9 },
+		} );
 	} );
 
 	// @longform The symmetric hole: play flips the gate refs synchronously,

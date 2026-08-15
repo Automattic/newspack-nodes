@@ -10,7 +10,7 @@
  * "no drift info", never "everything drifted".
  */
 
-import { useState, useEffect } from '@wordpress/element';
+import { useEffect, useMemo } from '@wordpress/element';
 import { useTopology } from './useTopologyList';
 import { graphFromTsl } from '../utils/draftToGraph';
 
@@ -37,48 +37,33 @@ export function driftNodeIds( nodes, canonical ) {
 	return out;
 }
 
+// Stable, so "no canonical info" never re-renders a consumer.
+const NO_NAMES = new Set();
+
 /**
  * @param {string} topology Topology name, or '' for none.
  * @return {Set<string>} Canonical node names from the topology's `.tsl`.
  */
 export function useCanonicalNodes( topology ) {
-	const fetchTopology = useTopology( { enabled: !! topology } );
-	const [ names, setNames ] = useState( () => new Set() );
+	const { open, topology: loaded } = useTopology( {
+		scope: 'canonical',
+		enabled: !! topology,
+	} );
 
 	useEffect( () => {
-		if ( ! topology ) {
-			setNames( new Set() );
-			return undefined;
-		}
-		let live = true;
-		fetchTopology( topology )
-			.then( ( resp ) => {
-				if ( ! live ) {
-					return;
-				}
-				// Seeded: a file's own edges may name a borrowed node.
-				const parsed = graphFromTsl( resp?.tsl || '', resp?.expanded );
-				// A borrowed node is canonical: declared, just in another file.
-				const borrowed = ( resp?.expanded?.nodes || [] ).map(
-					( n ) => n.name
-				);
-				setNames(
-					new Set( [
-						...parsed.nodes.map( ( n ) => n.id ),
-						...borrowed,
-					] )
-				);
-			} )
-			.catch( () => {
-				// Best-effort: no canonical set means no drift coloring.
-				if ( live ) {
-					setNames( new Set() );
-				}
-			} );
-		return () => {
-			live = false;
-		};
-	}, [ topology, fetchTopology ] );
+		open( topology );
+	}, [ topology, open ] );
 
-	return names;
+	return useMemo( () => {
+		if ( ! topology || loaded?.name !== topology ) {
+			return NO_NAMES;
+		}
+		// Seeded: a file's own edges may name a borrowed node.
+		const parsed = graphFromTsl( loaded.tsl, loaded.expanded );
+		// A borrowed node is canonical: declared, just in another file.
+		const borrowed = ( loaded.expanded?.nodes || [] ).map(
+			( n ) => n.name
+		);
+		return new Set( [ ...parsed.nodes.map( ( n ) => n.id ), ...borrowed ] );
+	}, [ topology, loaded ] );
 }

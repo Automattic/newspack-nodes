@@ -1,4 +1,4 @@
-import { render, fireEvent, act } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import TopologyControls from '../TopologyControls';
 
 const noop = () => Promise.resolve();
@@ -59,17 +59,12 @@ it( 'clicking restart fires onRestart', () => {
 	expect( s.onRestart ).toHaveBeenCalledWith( 'combined' );
 } );
 
-it( 'surfaces a rejected mutation through onError instead of throwing', async () => {
-	const onActivate = jest.fn( () =>
-		Promise.reject( new Error( 'conflict' ) )
-	);
-	const onError = jest.fn();
-	const { container } = setup( { active: false, onActivate, onError } );
-	await act( async () => {
-		fireEvent.click( container.querySelector( '.nodes-ctl__toggle' ) );
-	} );
-	expect( onError ).toHaveBeenCalledWith( {
-		name: 'combined',
-		message: 'conflict',
-	} );
+// The control fires and returns. A refusal comes back a tick later, on the
+// node that asked, and is raised by whoever owns those nodes — so this has
+// nothing to await and nothing to swallow.
+it( 'fires and returns, leaving the answer to whoever owns the node', () => {
+	const onActivate = jest.fn();
+	const { container } = setup( { active: false, onActivate } );
+	fireEvent.click( container.querySelector( '.nodes-ctl__toggle' ) );
+	expect( onActivate ).toHaveBeenCalledWith( 'combined' );
 } );

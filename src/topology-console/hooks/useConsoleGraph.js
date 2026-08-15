@@ -1,3 +1,6 @@
+// Stable, so an omitted catalog is not a fresh identity every render.
+const NO_CATALOG = { classes: [], loading: false, error: null };
+
 /**
  * useConsoleGraph — mounts the per-session in-browser node graph. Send: Shell →
  * _command_interpreter → _router ─[peel {worker}]→ the worker's RemoteIpc (which
@@ -26,7 +29,6 @@ import { OutgoingGateNode } from '../core/outgoingGate';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { useTopology } from './useTopologyList';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
 import { graphFromTsl } from '../utils/draftToGraph';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import {
@@ -56,7 +58,7 @@ const EMPTY_TRANSCRIPT = [];
  * @param {string[]} params.workers       Active worker readers (`['aggregator.p0', …]`); one RemoteIpc per entry.
  * @param {boolean}  params.streamEnabled Open the active worker's SSE stream (cwd is a worker). The graph stays mounted regardless; this only gates the EventSource, so cd-ing off a worker stops streaming without rebuilding. Default true.
  * @param {Object}   params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @param {Function} params.loadCatalog   Load the PHP class catalog with `fans_out` flags.
+ * @param {Object}   params.catalog       The PHP class catalog slice — `{ classes, loading, error }`.
  * @return {Object} Connection state, the anonymous Shell, and any pre-metadata
  *                  seed failure.
  */
@@ -67,7 +69,7 @@ export function useConsoleGraph( {
 	workers = [],
 	streamEnabled = true,
 	debugLevelRef,
-	loadCatalog,
+	catalog = NO_CATALOG,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
@@ -81,10 +83,14 @@ export function useConsoleGraph( {
 	// Reset Graph bumps generation → re-runs the effect, rebuilding the graph.
 	const generation = useGraphGeneration();
 
-	// Direct `topologies get` for the mount TSL seed; stable identity.
-	const fetchTopologyTsl = useTopology( { enabled } );
-	// fetchExpandedIncludes below borrows this node; mount it for that call.
-	useRequestNode( 'topologies:expand', 'topologies', enabled );
+	// The mount TSL seed, as its own slice; painted by the effect below.
+	const { open: openSeedTopology, topology: seedTopology } = useTopology( {
+		scope: 'seed',
+		enabled,
+	} );
+	useEffect( () => {
+		openSeedTopology( enabled ? topology : '' );
+	}, [ topology, enabled, openSeedTopology ] );
 
 	// Stash debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
@@ -111,9 +117,6 @@ export function useConsoleGraph( {
 			setSeedError( null );
 			return undefined;
 		}
-		let seedCancelled = false;
-		setSeedError( null );
-
 		const reader = `${ topology }.p${ partition }`;
 
 		// The shared rule-#2 backbone: _command_interpreter → _router.
@@ -214,101 +217,10 @@ export function useConsoleGraph( {
 		uptime.setTimer();
 		dmesg.setTimer();
 
-		// Paint the declared topology before SSE/dump_metadata arrives.
-		if ( topology ) {
-			const topologySeed = fetchTopologyTsl( topology ).then(
-				async ( resp ) => {
-					/**
-					 * Seed the COMPOSED graph. A topology that mostly `include`s
-					 * others owns few nodes of its own, so seeding the parsed file
-					 * alone paints a sliver and the rest pops in on the next
-					 * dump_metadata — the staged paint autofit can't survive.
-					 * `get` ships the expansion; expand() is the fallback.
-					 */
-					const tsl = resp?.tsl || '';
-					const includes = DraftInterpreterNode.includesOf( tsl );
-					const baseline =
-						resp?.expanded ??
-						( await fetchExpandedIncludes( includes ) );
-					primeExpandedIncludes( includes, baseline );
-					return {
-						tsl,
-						baseline,
-						resolvedConfigEdges: resp?.resolved_config_edges,
-					};
-				}
-			);
-			const catalog = Promise.resolve()
-				.then( () => {
-					if ( 'function' !== typeof loadCatalog ) {
-						throw new Error(
-							'PHP class catalog loader is unavailable.'
-						);
-					}
-					return loadCatalog();
-				} )
-				.then( ( loadedCatalog ) => {
-					if ( ! Array.isArray( loadedCatalog?.classes ) ) {
-						throw new Error( 'Invalid classes.list response.' );
-					}
-					return loadedCatalog;
-				} );
-			Promise.all( [ topologySeed, catalog ] )
-				.then(
-					( [
-						{ tsl, baseline, resolvedConfigEdges },
-						loadedCatalog,
-					] ) => {
-						if ( seedCancelled ) {
-							return;
-						}
-						// graphFromTsl composed it; only virtual edges remain.
-						const parsedGraph = withReplAnchor(
-							withResolvedConfigEdges(
-								graphFromTsl(
-									tsl,
-									baseline,
-									loadedCatalog.classes,
-									resolvedConfigEdges
-								),
-								resolvedConfigEdges
-							)
-						);
-						const seeded = augmentWithVirtualEdges(
-							parsedGraph,
-							loadedCatalog.classes
-						);
-						// LIVE metadata; skip if a reply already filled it.
-						const node = Core.node( names.METADATA );
-						const live =
-							node?.rawMap &&
-							Object.keys( node.rawMap ).length > 0;
-						// Seed only at a worker scope (else wrong graph).
-						const onWorker = scopeFromCwd(
-							Core.node( names.CWD )?.target ?? ''
-						).isWorker;
-						if (
-							node &&
-							seeded.nodes.length &&
-							! live &&
-							onWorker
-						) {
-							node.setState( 'metadata', seeded );
-						}
-					}
-				)
-				.catch( ( error ) => {
-					if ( ! seedCancelled ) {
-						setSeedError( error );
-					}
-				} );
-		}
-
 		setShell( consoleShell );
 		setOutgoing( outgoingGate );
 
 		return () => {
-			seedCancelled = true;
 			// Each node owns teardown; unregister before removeNode.
 			dumper.unregister( 'transcript', transcriptListenerId );
 			dumper.removeNode();
@@ -329,14 +241,85 @@ export function useConsoleGraph( {
 		};
 		// `workersKey` is the stable projection of `workers` (id churn).
 		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ topology, partition, enabled, workersKey, generation ] );
+
+	/**
+	 * Paint the declared topology before SSE/dump_metadata arrives.
+	 *
+	 * Seed the COMPOSED graph. A topology that mostly `include`s others owns few
+	 * nodes of its own, so seeding the parsed file alone paints a sliver and the
+	 * rest pops in on the next dump_metadata — a staged paint autofit can't
+	 * survive. `get` ships the expansion; `expand()` is the fallback.
+	 */
+	useEffect( () => {
+		// Without `fans_out` a custom fan-out seeds wrong edges, confidently.
+		if (
+			! enabled ||
+			! topology ||
+			seedTopology?.name !== topology ||
+			catalog.loading ||
+			catalog.error
+		) {
+			return undefined;
+		}
+		let cancelled = false;
+		setSeedError( null );
+
+		const paint = async () => {
+			const { tsl, expanded } = seedTopology;
+			const resolvedConfigEdges = seedTopology.resolved_config_edges;
+			const includes = DraftInterpreterNode.includesOf( tsl );
+			const baseline =
+				expanded ?? ( await fetchExpandedIncludes( includes ) );
+			primeExpandedIncludes( includes, baseline );
+			if ( cancelled ) {
+				return;
+			}
+			// graphFromTsl composed it; only virtual edges remain.
+			const parsedGraph = withReplAnchor(
+				withResolvedConfigEdges(
+					graphFromTsl(
+						tsl,
+						baseline,
+						catalog.classes,
+						resolvedConfigEdges
+					),
+					resolvedConfigEdges
+				)
+			);
+			const seeded = augmentWithVirtualEdges(
+				parsedGraph,
+				catalog.classes
+			);
+			// LIVE metadata; skip if a reply already filled it.
+			const node = Core.node( names.METADATA );
+			const live = node?.rawMap && Object.keys( node.rawMap ).length > 0;
+			// Seed only at a worker scope (else wrong graph).
+			const onWorker = scopeFromCwd(
+				Core.node( names.CWD )?.target ?? ''
+			).isWorker;
+			if ( node && seeded.nodes.length && ! live && onWorker ) {
+				node.setState( 'metadata', seeded );
+			}
+		};
+
+		paint().catch( ( error ) => {
+			if ( ! cancelled ) {
+				setSeedError( error );
+			}
+		} );
+
+		return () => {
+			cancelled = true;
+		};
 	}, [
-		topology,
-		partition,
 		enabled,
-		workersKey,
+		topology,
+		seedTopology,
+		catalog.classes,
+		catalog.loading,
+		catalog.error,
 		generation,
-		fetchTopologyTsl,
-		loadCatalog,
 	] );
 
 	// Stream open only while mounted, cwd is a worker, and the tab is visible.

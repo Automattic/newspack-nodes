@@ -29,7 +29,6 @@ import {
 	TM_STRUCT,
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
-import { RequestNode } from '../../runtime/request-node';
 import { Core } from '../../runtime/core';
 import { forgetSession } from '../../runtime/command-auth';
 import {
@@ -68,18 +67,12 @@ global.EventSource = FakeEventSource;
 jest.mock( '../hooks/useConsoleGraph', () => {
 	// eslint-disable-next-line no-shadow
 	const { Core } = require( '../../runtime/core' );
-	const { RouterNode } = require( '../../runtime/router-node' );
-	const {
-		CommandInterpreterNode,
-	} = require( '../../runtime/command-interpreter-node' );
 	const { Node } = require( '../../runtime/node' );
 	const { DumperNode } = require( '../../runtime/dumper-node' );
 	const { MetadataNode } = require( '../../runtime/metadata-node' );
 	const { UptimeNode } = require( '../../runtime/uptime-node' );
 	const { CompletionNode } = require( '../../runtime/completion-node' );
 	const { RemoteIpcNode } = require( '../../runtime/remote-ipc-node' );
-	const { HttpOutNode } = require( '../../runtime/http-out-node' );
-	const { HeartbeatNode } = require( '../../runtime/heartbeat-node' );
 	const { ShellNode } = require( '../../runtime/shell-node' );
 	const { StdoutNode } = require( '../../runtime/stdout-node' );
 	const { OutgoingGateNode } = require( '../core/outgoingGate' );
@@ -97,14 +90,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.CWD,
 	];
 	const teardown = () => {
-		Core.node( reserved.ROUTER )?.stopTimer();
+		// The Router is never stopped — it is the page's one heartbeat, and
+		// every poll and one-shot hitchhikes its tick.
 		// The per-worker RemoteIpc tears down its composed children + stream.
 		if ( globalThis.__reader ) {
 			Core.node( globalThis.__reader )?.removeNode();
 		}
 		RemoteIpcNode.active = null;
 		for ( const n of NAMES ) {
-			Core.unregisterNode( n );
+			// removeNode, not unregister: a dropped Timer must take its
+			// registration with it, or the kept Router reports it as forgotten.
+			Core.node( n )?.removeNode();
 		}
 		globalThis.__graphKey = null;
 		globalThis.__shell = null;
@@ -130,16 +126,11 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			const key = `${ reader }|${ generation }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
-				let router = Core.node( reserved.ROUTER );
-				let interpreter = Core.node( reserved.COMMAND_INTERPRETER );
-				const freshBackbone = ! interpreter;
-				if ( freshBackbone ) {
-					router = new RouterNode();
-					router.name = reserved.ROUTER;
-					interpreter = new CommandInterpreterNode();
-					interpreter.name = reserved.COMMAND_INTERPRETER;
-					interpreter.sink = router;
-				}
+				// The REAL backbone: a hand-built interpreter+router left the
+				// console without `_shell`/`_http`, so anything targeting the
+				// egress (a one-shot, a slice) routed into NOT_AVAILABLE.
+				const { interpreter } =
+					require( '../../runtime/exospine' ).mountExospine();
 				const dumper = new DumperNode();
 				dumper.debugLevelRef = debugLevelRef;
 				dumper.name = reserved.OUTPUT;
@@ -153,15 +144,6 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const uptime = new UptimeNode();
 				uptime.name = reserved.UPTIME;
 				new CompletionNode().name = reserved.COMPLETION;
-				// Backbone singletons; RemoteIpc.ensureChildren reuses them.
-				if ( freshBackbone ) {
-					const http = new HttpOutNode();
-					http.name = reserved.HTTP;
-					http.sink = interpreter;
-					const heartbeat = new HeartbeatNode();
-					heartbeat.name = reserved.HEARTBEAT;
-					heartbeat.sink = interpreter;
-				}
 				// One RemoteIpc/worker: SseIn+HttpOut(captures)+Heartbeat.
 				const remote = interpreter.makeNode( 'RemoteIpc', reader, [
 					reader,
@@ -207,16 +189,9 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// Metadata/Uptime hitchhike _router TIMER: fire each tick.
 				metadata.setTimer();
 				uptime.setTimer();
-				// Stop Router's 1s timer: slow tests must not be overwritten.
-				router.stopTimer();
 				globalThis.__shell = shell;
 				globalThis.__reader = reader;
 				globalThis.__graphKey = key;
-				// The real hook mounts via mountExospine, which announces a
-				// NEW backbone; passenger nodes re-attach on that signal.
-				if ( freshBackbone ) {
-					Core.notifyBackboneUp();
-				}
 			}
 			// `__connecting`: pre-connect window (enabled, no pid) guard.
 			return globalThis.__connecting
@@ -249,6 +224,27 @@ globalThis.__hooks = {
 	catalog: null,
 };
 const hooks = globalThis.__hooks;
+globalThis.__fakeOneShot = ( fixture, key ) => ( onDone ) => ( {
+	pending: false,
+	[ key ]: ( arg ) =>
+		globalThis.__hooks[ fixture ]( arg )
+			.then( ( result ) =>
+				onDone?.( {
+					result,
+					error: null,
+					errorData: null,
+					args: [ arg.name ],
+				} )
+			)
+			.catch( ( e ) =>
+				onDone?.( {
+					result: null,
+					error: e?.data?.message || e?.message || String( e ),
+					errorData: e?.data ?? null,
+					args: [ arg.name ],
+				} )
+			),
+} );
 jest.mock( '../hooks/useTopologyList', () => ( {
 	useTopologyList: () => ( {
 		topologies: globalThis.__hooks.topologies,
@@ -257,7 +253,29 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 		error: null,
 		reload: () => {},
 	} ),
-	useTopology: () => globalThis.__hooks.fetchTopology,
+	// The slice, faked over the promise the fixtures still seed: `open()` asks
+	// `fetchTopology`, and what it resolves becomes the published answer.
+	useTopology: () => {
+		const { useCallback, useState } = require( '@wordpress/element' );
+		const [ topology, setTopology ] = useState( null );
+		const [ error, setError ] = useState( null );
+		const open = useCallback( ( name ) => {
+			if ( ! name ) {
+				return;
+			}
+			setError( null );
+			globalThis.__hooks
+				.fetchTopology( name )
+				// The server echoes the name it was asked for; so does this.
+				.then( ( resp ) =>
+					setTopology( resp ? { source: '', ...resp, name } : null )
+				)
+				.catch( ( e ) =>
+					setError( e?.data?.message || e?.message || String( e ) )
+				);
+		}, [] );
+		return { open, topology, error, loading: null === topology };
+	},
 } ) );
 // Drift diff (roadmap [49]) has its own suite; no-op here.
 jest.mock( '../hooks/useCanonicalNodes', () => ( {
@@ -283,35 +301,90 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 // Mutable catalog the hoisted mock reads at call time; tests seed classes.
 globalThis.__catalog = { classes: [], formatters: [] };
 jest.mock( '../hooks/useClassCatalog', () => ( {
-	useClassCatalog: () => ( {
-		classes: globalThis.__catalog.classes,
-		formatters: globalThis.__catalog.formatters,
-		loading: false,
-		error: null,
-		load: ( ...args ) =>
-			globalThis.__catalog.load
-				? globalThis.__catalog.load( ...args )
-				: Promise.resolve( {
-						classes: globalThis.__catalog.classes,
-						formatters: globalThis.__catalog.formatters,
-				  } ),
-	} ),
+	// `__catalogBump()` republishes, standing in for the poll's next tick.
+	useClassCatalog: () => {
+		const { useEffect, useState } = require( '@wordpress/element' );
+		const [ , bump ] = useState( 0 );
+		useEffect( () => {
+			globalThis.__catalogBump = () => bump( ( n ) => n + 1 );
+			return () => {
+				globalThis.__catalogBump = null;
+			};
+		} );
+		return {
+			classes: globalThis.__catalog.classes,
+			formatters: globalThis.__catalog.formatters,
+			loading: !! globalThis.__catalog.loading,
+			error: globalThis.__catalog.error ?? null,
+		};
+	},
 } ) );
 // Stub useVaults so vault.list doesn't hit unwrapCommandResponse's throw.
 jest.mock( '../hooks/useVaults', () => ( {
 	useVaults: () => ( { vaults: [], loading: false, error: null } ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
-	useLayout: () => ( {
-		fetchLayout: globalThis.__hooks.fetchLayout,
-		saveLayout: globalThis.__hooks.saveLayout,
-	} ),
+	// Faked over the promises the fixtures still seed: what settles becomes the
+	// handler the console now does its work in. The two senders are STABLE, as
+	// the real hook's are — a fresh identity per render re-runs the console's
+	// fetch effect, which sets state, which renders again.
+	useLayout: ( handlers = {} ) => {
+		const { useCallback, useRef } = require( '@wordpress/element' );
+		const ref = useRef( handlers );
+		ref.current = handlers;
+		const fetchLayout = useCallback(
+			( name ) =>
+				globalThis.__hooks
+					.fetchLayout( name )
+					.then( ( result ) =>
+						ref.current.onFetched?.( {
+							result,
+							error: null,
+							args: [ name ],
+						} )
+					)
+					.catch( ( e ) =>
+						ref.current.onFetched?.( {
+							result: null,
+							error: e?.message || String( e ),
+							args: [ name ],
+						} )
+					),
+			[]
+		);
+		const saveLayout = useCallback(
+			( { name, positions } ) =>
+				globalThis.__hooks
+					.saveLayout( { name, positions } )
+					.then( ( result ) =>
+						ref.current.onSaved?.( {
+							result,
+							error: null,
+							args: [ name ],
+						} )
+					)
+					.catch( ( e ) =>
+						ref.current.onSaved?.( {
+							result: null,
+							error:
+								e?.data?.message || e?.message || String( e ),
+							args: [ name ],
+						} )
+					),
+			[]
+		);
+		return { fetchLayout, saveLayout };
+	},
 } ) );
+// The one-shots, faked over the promises the fixtures still seed: what settles
+// becomes the `onDone` the console now does its work in.
 jest.mock( '../hooks/useSaveTopology', () => ( {
-	useSaveTopology: () => globalThis.__hooks.saveTopology,
+	useSaveTopology: ( onDone ) =>
+		globalThis.__fakeOneShot( 'saveTopology', 'save' )( onDone ),
 } ) );
 jest.mock( '../hooks/useDeleteTopology', () => ( {
-	useDeleteTopology: () => globalThis.__hooks.deleteTopology,
+	useDeleteTopology: ( onDone ) =>
+		globalThis.__fakeOneShot( 'deleteTopology', 'remove' )( onDone ),
 } ) );
 // Capture canvas + inspector props so tests can invoke any threaded handler.
 let mockCanvasProps = null;
@@ -720,10 +793,13 @@ jest.mock( '../components/Modal', () => ( {
 // `{ to, verb, args }` shape the assertions read, and returns the reply
 // payload (an Error answers TM_ERROR, undefined answers nothing at all).
 globalThis.__activateSend = jest.fn();
-// Only a Request node's command is answered here; a worker-bound poll gets
-// silence, as the live server gives it — its reply rides the SSE stream.
+// Only a command with a reply address is answered here — a one-shot's
+// `<scope>:in` receiver. A worker-bound poll gets silence, as the live server
+// gives it: its reply rides the SSE stream.
+const ONE_SHOT_RECEIVER = /^topologies:[a-z]+:in$/;
 const answerCommand = ( m ) => {
-	if ( ! ( Core.node( m[ FROM ] ) instanceof RequestNode ) ) {
+	const from = String( m[ FROM ] );
+	if ( ! ONE_SHOT_RECEIVER.test( from ) ) {
 		return undefined;
 	}
 	return globalThis.__activateSend( {
@@ -841,10 +917,6 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply routes to _metadata/_uptime)', async () => {
-		// The stub server carries no `heartbeat` verb; the poke reports that.
-		expectConsoleWarn(
-			'_heartbeat: ERROR: client heartbeat failed - no such verb: heartbeat'
-		);
 		jest.useFakeTimers();
 		try {
 			globalThis.__httpPosts = [];
@@ -852,7 +924,9 @@ describe( 'TopologyConsole boot', () => {
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
-			// Re-install the 1s cadence the mock stopped; drive one tick.
+			// The Router armed its slot at construction, on the REAL clock —
+			// re-arm it under the fake one so advanceTimersByTime drives the
+			// tick — then drive one by hand.
 			act( () => {
 				Core.node( names.ROUTER ).setTimer( 1000 );
 				Core.node( names.ROUTER ).fireCb();
@@ -882,6 +956,9 @@ describe( 'TopologyConsole boot', () => {
 			// One stats tick: a new dump, uptime NOT due.
 			const dumpBefore = dumps().length;
 			const uptimeBefore = uptimes().length;
+			// Metadata rescales its own cadence to the graph it last received;
+			// pin it back to the tick, which is what this test is about.
+			Core.node( names.METADATA ).pollIntervalMs = 1000;
 			act( () => {
 				jest.advanceTimersByTime( 1000 );
 			} );
@@ -2123,6 +2200,7 @@ describe( 'TopologyConsole boot', () => {
 		// findByText polls so the metadata+cwd gate can settle.
 		const chip = await findByText( 'reset-graph' );
 		expect( () => fireEvent.click( chip ) ).not.toThrow();
+		await act( async () => {} );
 	} );
 
 	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
@@ -2147,6 +2225,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			fireEvent.click( chip );
 		} );
+		await act( async () => {} );
 		expect( lastHeaderProps.path ).toBe( '' );
 	} );
 
@@ -2183,6 +2262,7 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			fireEvent.click( chip );
 		} );
+		await act( async () => {} );
 		expect( Core.node( 'my-user-tee' ) ).toBeFalsy();
 		// And the canonical backbone must STILL be present after the rebuild.
 		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
@@ -2701,11 +2781,15 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'confirm' ) );
 		} );
-		expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
-			to: 'topologies',
-			verb: 'activate',
-			args: [ 'newname' ],
-		} );
+		await waitFor(
+			() =>
+				expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
+					to: 'topologies',
+					verb: 'activate',
+					args: [ 'newname' ],
+				} ),
+			{ timeout: 4000 }
+		);
 	} );
 
 	it( 'dismissing the "Activate now?" prompt dispatches nothing', async () => {
@@ -2783,10 +2867,14 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'confirm' ) );
 		} );
-		const errorToast = container.querySelector( '.topology-toast--error' );
-		expect( errorToast ).not.toBeNull();
-		expect( errorToast.textContent ).toMatch(
-			/conflicts with active demo/
+		// The activate rides the next tick, so the refusal is a round trip away.
+		await waitFor(
+			() =>
+				expect(
+					container.querySelector( '.topology-toast--error' )
+						?.textContent
+				).toMatch( /conflicts with active demo/ ),
+			{ timeout: 4000 }
 		);
 		expect(
 			container.querySelector( '.topology-toast--success' )
@@ -3344,13 +3432,8 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'handleOpenPick waits for a deferred PHP catalog before folding custom Tee edges', async () => {
-		let resolveCatalog;
-		globalThis.__catalog.load = jest.fn(
-			() =>
-				new Promise( ( resolve ) => {
-					resolveCatalog = resolve;
-				} )
-		);
+		// The catalog has not landed yet; the poll is still loading.
+		globalThis.__catalog = { classes: [], formatters: [], loading: true };
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: [
 				'make_node WombatFanout357 zebra-fanout',
@@ -3374,16 +3457,17 @@ describe( 'TopologyConsole boot', () => {
 			await Promise.resolve();
 		} );
 		expect( hooks.fetchTopology ).toHaveBeenCalledWith( 'picked' );
-		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
 
 		await act( async () => {
-			resolveCatalog( {
+			globalThis.__catalog = {
 				classes: [
 					{ shell_name: 'WombatFanout357', fans_out: true },
 					{ shell_name: 'Echo', fans_out: false },
 				],
 				formatters: [],
-			} );
+				loading: false,
+			};
+			globalThis.__catalogBump();
 		} );
 
 		await waitFor( () => {
@@ -3396,13 +3480,8 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'mode change waits for a deferred PHP catalog before folding custom Tee edges', async () => {
-		let resolveCatalog;
-		globalThis.__catalog.load = jest.fn(
-			() =>
-				new Promise( ( resolve ) => {
-					resolveCatalog = resolve;
-				} )
-		);
+		// The catalog has not landed yet; the poll is still loading.
+		globalThis.__catalog = { classes: [], formatters: [], loading: true };
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: [
 				'make_node WombatModeFanout863 zebra-fanout',
@@ -3423,16 +3502,17 @@ describe( 'TopologyConsole boot', () => {
 			await Promise.resolve();
 		} );
 		expect( hooks.fetchTopology ).toHaveBeenCalledWith( 'demo' );
-		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
 
 		await act( async () => {
-			resolveCatalog( {
+			globalThis.__catalog = {
 				classes: [
 					{ shell_name: 'WombatModeFanout863', fans_out: true },
 					{ shell_name: 'Echo', fans_out: false },
 				],
 				formatters: [],
-			} );
+				loading: false,
+			};
+			globalThis.__catalogBump();
 		} );
 
 		await waitFor( () => {
@@ -3445,9 +3525,12 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'surfaces a PHP class catalog failure instead of opening with regular-node semantics', async () => {
-		globalThis.__catalog.load = jest
-			.fn()
-			.mockRejectedValue( new Error( 'catalog-sentinel-439 failed' ) );
+		globalThis.__catalog = {
+			classes: [],
+			formatters: [],
+			loading: false,
+			error: 'catalog-sentinel-439 failed',
+		};
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: [
 				'make_node WombatFailureFanout439 zebra-fanout',
@@ -3476,7 +3559,6 @@ describe( 'TopologyConsole boot', () => {
 				'catalog-sentinel-439 failed'
 			);
 		} );
-		expect( globalThis.__catalog.load ).toHaveBeenCalledTimes( 1 );
 		expect(
 			container.querySelector( '.topology-toast--success' )
 		).toBeNull();
@@ -4421,6 +4503,9 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
+		// At the local root the poll answers itself and publishes the browser's
+		// own graph; let the mount's tick land BEFORE the snapshot below.
+		await act( async () => {} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -4612,6 +4697,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( stored.positions.n1 ).toEqual( currentPosition );
 	} );
 
+	// An include expansion is a command on the router tick, so settling one is
+	// a wait rather than a microtask flush.
+	const waitForTick = ( check ) => waitFor( check, { timeout: 6000 } );
+
 	describe( 'edit mode: topology includes', () => {
 		function mockTopologyGet( name, tsl, extra = {} ) {
 			hooks.fetchTopology.mockResolvedValueOnce( {
@@ -4664,7 +4753,7 @@ describe( 'TopologyConsole boot', () => {
 			await act( async () => {
 				lastPaletteProps.onDropTopology( { name, ...point } );
 			} );
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect( lastPaletteProps.declaredIncludes ).toContain( name );
 				expect(
 					( mockCanvasProps.hulls || [] ).some(
@@ -4740,7 +4829,7 @@ describe( 'TopologyConsole boot', () => {
 				} );
 			} );
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect( mockCanvasProps ).not.toBeNull();
 				const hulls = mockCanvasProps.hulls || [];
 				expect( hulls.map( ( h ) => h.include ) ).toEqual( [
@@ -4791,18 +4880,21 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			// Settle past the reactive expand + include reconcile, not just the
 			// upload's own await chain — that is where a borrowed node is lost.
-			await act( async () => {
-				await new Promise( ( r ) => setTimeout( r, 0 ) );
-			} );
-			await act( async () => {
-				await new Promise( ( r ) => setTimeout( r, 0 ) );
-			} );
+			// The expand is a tick away, so this is a wait, not a flush.
+			await waitFor(
+				() => {
+					const painted = mockCanvasProps.parsed.nodes.map(
+						( n ) => n.id
+					);
+					expect( painted ).toContain( 'zebra:partition' );
+				},
+				{ timeout: 6000 }
+			);
 
 			const ids = mockCanvasProps.parsed.nodes.map( ( n ) => n.id );
 			expect( ids ).toContain( 'quokka-null' );
 			expect( ids ).toContain( 'quokka-echo' );
 			expect( ids ).toContain( 'zebra:fanout' );
-			expect( ids ).toContain( 'zebra:partition' );
 			// A fan-out source keeps EVERY connect; collapsing to the last one
 			// is the "nothing is connected" bug.
 			expect(
@@ -5028,7 +5120,7 @@ describe( 'TopologyConsole boot', () => {
 
 			await renderConsoleInEditMode();
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect(
 					mockCanvasProps.parsed.nodes.find(
 						( n ) => n.id === 'shared-tee'
@@ -5050,7 +5142,7 @@ describe( 'TopologyConsole boot', () => {
 				} );
 			} );
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect(
 					container.querySelector( '.topology-toast--error' )
 				).not.toBeNull();
@@ -5088,7 +5180,7 @@ describe( 'TopologyConsole boot', () => {
 
 			const { container } = await renderConsoleInEditMode();
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect(
 					container.querySelector( '.topology-toast--error' )
 				).not.toBeNull();
@@ -5114,7 +5206,7 @@ describe( 'TopologyConsole boot', () => {
 				fireEvent.click( getByText( 'pick' ) );
 			} );
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect(
 					container.querySelector( '.topology-toast--error' )
 				).not.toBeNull();
@@ -5217,7 +5309,7 @@ describe( 'TopologyConsole boot', () => {
 				hulls: { performance: [ 'n1', 'sibling-echo' ] },
 			} );
 			const { getByText } = await renderConsoleInEditMode();
-			await waitFor( () =>
+			await waitForTick( () =>
 				expect(
 					mockCanvasProps.parsed.nodes.some( ( n ) => n.id === 'n1' )
 				).toBe( true )
@@ -5274,7 +5366,7 @@ describe( 'TopologyConsole boot', () => {
 
 			await renderConsoleInEditMode();
 
-			await waitFor( () => {
+			await waitForTick( () => {
 				expect(
 					mockCanvasProps.parsed.nodes.find(
 						( n ) => n.id === 'shared-tee'

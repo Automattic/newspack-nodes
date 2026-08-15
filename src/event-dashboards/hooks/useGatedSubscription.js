@@ -45,23 +45,29 @@ function reopenSeed( link, { subscribe, positions } ) {
  * closed stream. See the module docblock for the full gating contract.
  *
  * @param {Object}   o
- * @param {Object}   o.linkRef        Ref to the RemoteLink node, whose
- *                                    `setSubscribe`/`close`/`resumePositions`
- *                                    open, close, and resume the stream.
- * @param {Object}   o.viewRef        Ref to the view node the pause control
- *                                    and stepped records are published to.
- * @param {Function} [o.fetchMessage] One-record read over the command
- *                                    channel, behind the paused single-step:
- *                                    `( sub, position )` resolving to
- *                                    `{ message, cursor }`, or null when the
- *                                    read finds nothing. Without it, `step`
- *                                    is a no-op.
+ * @param {Object}   o.linkRef       Ref to the RemoteLink node, whose
+ *                                   `setSubscribe`/`close`/`resumePositions`
+ *                                   open, close, and resume the stream.
+ * @param {Object}   o.viewRef       Ref to the view node the pause control
+ *                                   and stepped records are published to.
+ * @param {Function} [o.requestStep] One-record read over the command channel,
+ *                                   behind the paused single-step:
+ *                                   `( sub, position )`, answered later on the
+ *                                   node that asked. Without it, `step` is a
+ *                                   no-op.
+ * @param {Object}   [o.stepAnswer]  That read's last answer —
+ *                                   `{ seq, result: { message, cursor } }`.
  * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function, step: () => void }}
  *   `isPausedRef` (for a mount rebuild to re-apply a surviving pause), `resubscribe`,
  *   `setPaused` (flips the gate + publishes the pause control for the UI), and
  *   `step` (paused-only: deliver one frame from the cursor, then close).
  */
-export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
+export function useGatedSubscription( {
+	linkRef,
+	viewRef,
+	requestStep,
+	stepAnswer,
+} ) {
 	const isPageVisible = usePageVisibility();
 
 	// Pause closes the SSE stream (frees the server slot); play resumes.
@@ -137,15 +143,15 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 	);
 
 	// @longform Paused-only single-step: the stream stays OFFLINE; one record
-	// is fetched over the command channel (`fetchMessage( sub, cursor )` →
-	// `{ message, cursor }`, server-stamped by the real read model), admitted
-	// through the view's paused belt, and the recorded reopen target advances
-	// to the post-step cursor — so the NEXT step continues from there and
-	// Play resumes streaming from the stepped point.
+	// is asked for over the command channel (`requestStep( sub, cursor )`,
+	// answered a tick later as `{ message, cursor }`), admitted through the
+	// view's paused belt, and the recorded reopen target advances to the
+	// post-step cursor — so the NEXT step continues from there and Play
+	// resumes streaming from the stepped point.
 	const step = useCallback( () => {
 		const link = linkRef.current;
 		const target = pendingTargetRef.current;
-		if ( ! isPausedRef.current || ! link || ! target || ! fetchMessage ) {
+		if ( ! isPausedRef.current || ! link || ! target || ! requestStep ) {
 			return;
 		}
 		const sub = target.subscribe[ 0 ];
@@ -153,21 +159,36 @@ export function useGatedSubscription( { linkRef, viewRef, fetchMessage } ) {
 		if ( null === position ) {
 			return;
 		}
-		fetchMessage( sub, position )
-			.then( ( result ) => {
-				const view = viewRef.current;
-				if ( ! result?.message || ! view || ! isPausedRef.current ) {
-					return;
-				}
-				view.fill( controlMsg( view, { action: 'step', frames: 1 } ) );
-				view.fill( result.message );
-				pendingTargetRef.current = {
-					subscribe: target.subscribe,
-					positions: { [ sub ]: { ...result.cursor } },
-				};
-			} )
-			.catch( () => {} );
-	}, [ linkRef, viewRef, fetchMessage ] );
+		requestStep( sub, position );
+	}, [ linkRef, requestStep ] );
+
+	// The stepped record lands on the node that asked for it, a tick later.
+	const seenStepRef = useRef( 0 );
+	useEffect( () => {
+		const seq = stepAnswer?.seq ?? 0;
+		if ( 0 === seq || seq === seenStepRef.current ) {
+			return;
+		}
+		seenStepRef.current = seq;
+		const result = stepAnswer.result;
+		const view = viewRef.current;
+		const target = pendingTargetRef.current;
+		if (
+			! result?.message ||
+			! view ||
+			! target ||
+			! isPausedRef.current
+		) {
+			return;
+		}
+		const sub = target.subscribe[ 0 ];
+		view.fill( controlMsg( view, { action: 'step', frames: 1 } ) );
+		view.fill( result.message );
+		pendingTargetRef.current = {
+			subscribe: target.subscribe,
+			positions: { [ sub ]: { ...result.cursor } },
+		};
+	}, [ stepAnswer, viewRef ] );
 
 	return { isPausedRef, resubscribe, setPaused, step };
 }

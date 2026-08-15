@@ -16,7 +16,6 @@ import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '../runtime/react';
 import { LIST_VIEW, useSessionsGraph } from './hooks/useSessionsGraph';
-import { errorMessage } from '../shared/errorMessage';
 import Modal from '@newspack-nodes/shared/components/Modal';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import './sessions-admin.scss';
@@ -67,32 +66,43 @@ function when( seconds ) {
  * to say so.
  *
  * @param {Object}   props
- * @param {Object}   props.session  A row from the view model.
- * @param {Function} props.onRevoke Revoke callback (handle).
+ * @param {Object}   props.session     A row from the view model.
+ * @param {Function} props.onRevoke    Revoke callback (handle).
+ * @param {Object}   props.revokeState Last revoke answer: `{ seq, subject, error }`.
  * @return {import('react').ReactElement} The rendered row.
  */
-function SessionRow( { session, onRevoke } ) {
+function SessionRow( { session, onRevoke, revokeState } ) {
 	const { handle, label, scope, expires, created, live } = session;
 	const [ status, setStatus ] = useState( '' );
 	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 
-	const confirmRevoke = async () => {
-		setIsConfirmOpen( false );
-		setBusy( true );
-		try {
-			await onRevoke( handle );
-		} catch ( err ) {
+	// The revoke's answer names its handle; that is how this row knows.
+	const seenRef = useRef( 0 );
+	useEffect( () => {
+		if (
+			revokeState.subject !== handle ||
+			revokeState.seq === seenRef.current
+		) {
+			return;
+		}
+		seenRef.current = revokeState.seq;
+		setBusy( false );
+		if ( revokeState.error ) {
 			setStatus(
 				sprintf(
 					// translators: %s: revocation error message.
 					__( 'Revoke failed: %s', 'newspack-nodes' ),
-					errorMessage( err )
+					revokeState.error
 				)
 			);
-		} finally {
-			setBusy( false );
 		}
+	}, [ revokeState, handle ] );
+
+	const confirmRevoke = () => {
+		setIsConfirmOpen( false );
+		setBusy( true );
+		onRevoke( handle );
 	};
 
 	return (
@@ -172,26 +182,37 @@ function SessionRow( { session, onRevoke } ) {
  * recoverable from the listing.
  *
  * @param {Object}     props
- * @param {Function}   props.onCreate Create callback (fields) → promise.
- * @param {Function}   props.onIssued Called with the issued session.
- * @param {() => void} props.onCancel Dismisses the modal.
- * @param {string[]}   props.scopes   Scope vocabulary from the view model.
- * @param {number}     props.ttlMax   Server-side TTL ceiling, in seconds.
+ * @param {Function}   props.onCreate    Create callback (fields).
+ * @param {Object}     props.createState Last create answer: `{ seq, subject, result, error }`.
+ * @param {Function}   props.onIssued    Called with the issued session.
+ * @param {() => void} props.onCancel    Dismisses the modal.
+ * @param {string[]}   props.scopes      Scope vocabulary from the view model.
+ * @param {number}     props.ttlMax      Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The rendered form.
  */
-function CreateSessionForm( { onCreate, onIssued, onCancel, scopes, ttlMax } ) {
+function CreateSessionForm( {
+	onCreate,
+	createState,
+	onIssued,
+	onCancel,
+	scopes,
+	ttlMax,
+} ) {
 	const [ label, setLabel ] = useState( '' );
 	const [ scope, setScope ] = useState( scopes[ 0 ] ?? 'read' );
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
 	const [ status, setStatus ] = useState( '' );
 	const [ busy, setBusy ] = useState( false );
 	const labelRef = useRef( null );
+	// The label this form submitted, so it recognises its own answer.
+	const submittedRef = useRef( null );
+	const seenRef = useRef( 0 );
 
 	useEffect( () => {
 		labelRef.current?.focus();
 	}, [] );
 
-	const handleCreate = async () => {
+	const handleCreate = () => {
 		const trimmed = label.trim();
 		if ( ! trimmed ) {
 			setStatus(
@@ -204,22 +225,32 @@ function CreateSessionForm( { onCreate, onIssued, onCancel, scopes, ttlMax } ) {
 		}
 		setBusy( true );
 		setStatus( __( 'Issuing…', 'newspack-nodes' ) );
-		try {
-			onIssued(
-				await onCreate( { label: trimmed, scope, ttl: Number( ttl ) } )
-			);
-		} catch ( err ) {
+		submittedRef.current = trimmed;
+		onCreate( { label: trimmed, scope, ttl: Number( ttl ) } );
+	};
+
+	// The key rides the create's own answer, named by its label.
+	useEffect( () => {
+		if (
+			createState.subject !== submittedRef.current ||
+			createState.seq === seenRef.current
+		) {
+			return;
+		}
+		seenRef.current = createState.seq;
+		setBusy( false );
+		if ( createState.error ) {
 			setStatus(
 				sprintf(
 					// translators: %s: error message.
 					__( 'Error: %s', 'newspack-nodes' ),
-					errorMessage( err )
+					createState.error
 				)
 			);
-		} finally {
-			setBusy( false );
+			return;
 		}
-	};
+		onIssued( createState.result );
+	}, [ createState, onIssued ] );
 
 	return (
 		<>
@@ -371,7 +402,8 @@ function IssuedKeyPanel( { session, onClose } ) {
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function SessionsAdmin( { headerControlsSlot } ) {
-	const { createSession, revokeSession } = useSessionsGraph();
+	const { createSession, revokeSession, createResult, revokeResult } =
+		useSessionsGraph();
 
 	const model = useNodeState( LIST_VIEW, 'view' ) ?? EMPTY_MODEL;
 	const { sessions, scopes, ttlMax, error } = model;
@@ -438,6 +470,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 								key={ session.handle }
 								session={ session }
 								onRevoke={ revokeSession }
+								revokeState={ revokeResult }
 							/>
 						) )
 					) : (
@@ -471,6 +504,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 					) : (
 						<CreateSessionForm
 							onCreate={ createSession }
+							createState={ createResult }
 							onIssued={ setIssued }
 							onCancel={ closeCreate }
 							scopes={

@@ -219,3 +219,25 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		}
 	} );
 } );
+
+// Several nodes mounting in one commit each ask to be included in THIS tick.
+// That is one tick, not one per asker: a hitchhiker at the tick's own cadence
+// has no throttle to protect it, so a tick per asker would send its command
+// once per asker — the duplication the batch exists to prevent.
+test( 'requestTick coalesces many asks in one commit into ONE tick', async () => {
+	const router = new RouterNode();
+	router.name = '_router';
+
+	router.requestTick();
+	router.requestTick();
+	router.requestTick();
+	expect( router.fireCount ).toBe( 0 );
+
+	await Promise.resolve();
+	expect( router.fireCount ).toBe( 1 );
+
+	// A later ask is a later tick.
+	router.requestTick();
+	await Promise.resolve();
+	expect( router.fireCount ).toBe( 2 );
+} );

@@ -1,99 +1,110 @@
 /**
- * useLayout — canvas positions over `layouts.get` / `layouts.save`.
+ * useLayout — canvas positions over `layouts get` / `layouts save`, both on the
+ * batched router tick.
  *
- * The pin that matters: get and save are TWO nodes. A node carries one command,
- * so overlapping a fetch and a save on one node would need correlation; two
- * nodes need none. Their replies are told apart by which node they land on.
+ * The get and the save own separate nodes: they can be outstanding at the same
+ * time, and a node carries one command. That separation is what keeps each
+ * reply unambiguous with nothing to correlate.
  */
 
-import { renderHook, act } from '@testing-library/react';
-import { Core } from '@newspack-nodes/runtime';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { Core, VALUE } from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useLayout } from '../useLayout';
-import { newMessage, FROM, TO, ID, KEY, VALUE } from '../../../runtime/message';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
-const POSITIONS = { 'firehose-in': { x: 317, y: -44 } };
-const STORED = { name: 'combined', positions: POSITIONS };
+const POSITIONS = { greeter: [ 41, 97 ] };
+const FETCHED = { name: 'demo', positions: POSITIONS };
 
-const capture = ( name ) => {
-	const node = Core.node( name );
-	const sent = [];
-	node.sink = { fill: ( m ) => sent.push( m ) };
-	return { node, sent };
-};
-
-const reply = ( verb, payload ) => {
-	const m = newMessage();
-	m[ VALUE ] = { name: verb, payload };
-	return m;
-};
+let replyFor;
 
 beforeEach( () => {
 	Core.reset();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	replyFor = jest.fn( () => FETCHED );
+	installFakeCommandWire( ( m ) => replyFor( m ) );
 } );
 
-it( 'returns stable callbacks across renders', () => {
-	const { result, rerender } = renderHook( () => useLayout() );
-	const first = result.current;
-	rerender();
-	expect( result.current ).toBe( first );
-} );
-
-it( 'mints get FROM the get node, with no ID and no KEY', () => {
-	const { result } = renderHook( () => useLayout() );
-	const { sent } = capture( 'layouts:get' );
+it( 'asks for a topology layout and hands the answer to onFetched', async () => {
+	const onFetched = jest.fn();
+	const { result } = renderHook( () => useLayout( { onFetched } ) );
 
 	act( () => {
-		// Never replied to; the teardown rejection is expected, not a failure.
-		result.current.fetchLayout( 'combined' ).catch( () => {} );
+		result.current.fetchLayout( 'demo' );
 	} );
 
-	expect( sent ).toHaveLength( 1 );
-	expect( sent[ 0 ][ FROM ] ).toBe( 'layouts:get' );
-	expect( sent[ 0 ][ TO ] ).toBe( '_shell/_http/layouts' );
-	expect( sent[ 0 ][ VALUE ].name ).toBe( 'get' );
-	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'combined' ] );
-	expect( sent[ 0 ][ ID ] ).toBe( '' );
-	expect( sent[ 0 ][ KEY ] ).toBe( '' );
+	await waitFor( () => expect( onFetched ).toHaveBeenCalledTimes( 1 ), {
+		timeout: 4000,
+	} );
+	expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'get',
+		arguments: [ 'demo' ],
+	} );
+	expect( onFetched.mock.calls[ 0 ][ 0 ] ).toMatchObject( {
+		result: FETCHED,
+		args: [ 'demo' ],
+	} );
 } );
 
-it( 'mints save FROM the save node with the positions as JSON', () => {
-	const { result } = renderHook( () => useLayout() );
-	const { sent } = capture( 'layouts:save' );
+// A topology with no saved layout is refused, and that IS the answer: the
+// canvas auto-fits. Retrying it would ask forever for something never there.
+it( 'reports a refused layout once, naming what it asked for', async () => {
+	replyFor.mockImplementation( () => new Error( 'no layout for demo' ) );
+	const onFetched = jest.fn();
+	const { result } = renderHook( () => useLayout( { onFetched } ) );
 
 	act( () => {
-		// Never replied to; the teardown rejection is expected, not a failure.
-		result.current
-			.saveLayout( { name: 'combined', positions: POSITIONS } )
-			.catch( () => {} );
+		result.current.fetchLayout( 'demo' );
 	} );
 
-	expect( sent[ 0 ][ FROM ] ).toBe( 'layouts:save' );
-	expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [
-		'combined',
-		JSON.stringify( POSITIONS ),
-	] );
+	await waitFor( () => expect( onFetched ).toHaveBeenCalledTimes( 1 ), {
+		timeout: 4000,
+	} );
+	expect( onFetched.mock.calls[ 0 ][ 0 ].result ).toBeNull();
+	expect( onFetched.mock.calls[ 0 ][ 0 ].args ).toEqual( [ 'demo' ] );
+
+	await new Promise( ( r ) => setTimeout( r, 2200 ) );
+	expect( onFetched ).toHaveBeenCalledTimes( 1 );
+}, 15000 );
+
+it( 'sends the positions as one JSON token and reports the save', async () => {
+	const onSaved = jest.fn();
+	const { result } = renderHook( () => useLayout( { onSaved } ) );
+
+	act( () => {
+		result.current.saveLayout( { name: 'demo', positions: POSITIONS } );
+	} );
+
+	await waitFor( () => expect( onSaved ).toHaveBeenCalledTimes( 1 ), {
+		timeout: 4000,
+	} );
+	expect( replyFor.mock.calls[ 0 ][ 0 ][ VALUE ] ).toMatchObject( {
+		name: 'save',
+		arguments: [ 'demo', JSON.stringify( POSITIONS ) ],
+	} );
 } );
 
-it( 'a get and a save in flight at once settle independently', async () => {
-	const { result } = renderHook( () => useLayout() );
-	const get = capture( 'layouts:get' );
-	const save = capture( 'layouts:save' );
+// A get and a save in flight together is the case an op-id would have been
+// invented for; separate nodes make it a non-question.
+it( 'keeps a get and a save apart while both are outstanding', async () => {
+	const onFetched = jest.fn();
+	const onSaved = jest.fn();
+	replyFor.mockImplementation( ( m ) =>
+		'get' === m[ VALUE ].name ? FETCHED : { name: 'demo', positions: {} }
+	);
+	const { result } = renderHook( () => useLayout( { onFetched, onSaved } ) );
 
-	let fetched;
-	let saved;
 	act( () => {
-		fetched = result.current.fetchLayout( 'combined' );
-		saved = result.current.saveLayout( {
-			name: 'combined',
-			positions: POSITIONS,
-		} );
-		// Replies land out of order; each node knows only its own.
-		save.node.fill( reply( 'save', STORED ) );
-		get.node.fill( reply( 'get', POSITIONS ) );
+		result.current.fetchLayout( 'demo' );
+		result.current.saveLayout( { name: 'demo', positions: POSITIONS } );
 	} );
 
-	await expect( fetched ).resolves.toEqual( POSITIONS );
-	await expect( saved ).resolves.toEqual( STORED );
+	await waitFor( () => expect( onSaved ).toHaveBeenCalledTimes( 1 ), {
+		timeout: 4000,
+	} );
+	expect( onFetched.mock.calls[ 0 ][ 0 ].result ).toEqual( FETCHED );
+	expect( onSaved.mock.calls[ 0 ][ 0 ].result ).toEqual( {
+		name: 'demo',
+		positions: {},
+	} );
 } );

@@ -15,7 +15,7 @@
  * per tick. Nothing is injected: the seam is `fetch`, so the whole egress runs.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
 	TO,
@@ -98,9 +98,11 @@ describe( 'useAggregatorStatusGraph — batched-poll backbone + slice wiring', (
 		}
 	} );
 
-	test( 'fires both slice commands on mount (summary + servers_status), batched into one POST', () => {
+	test( 'fires both slice commands on mount (summary + servers_status), batched into one POST', async () => {
 		const wire = installWire();
 		renderHook( () => useAggregatorStatusGraph( {} ) );
+		// The first load is a coalesced tick, so it runs after the commit.
+		await act( async () => {} );
 		expect( wire.batches.length ).toBeGreaterThanOrEqual( 1 );
 		const verbs = wire.batches[ 0 ].map( ( m ) => m[ VALUE ].name ).sort();
 		expect( verbs ).toEqual( [ 'servers_status', 'summary' ] );
@@ -188,7 +190,8 @@ describe( 'useAggregatorStatusGraph — teardown', () => {
 	test( 'unmount unregisters every slice view + the backbone', () => {
 		const { unmount } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		unmount();
-		for ( const name of [ ...SLICE_VIEWS, INTERPRETER, ROUTER, HTTP ] ) {
+		// The ROUTER is the page's heartbeat and is never torn down.
+		for ( const name of [ ...SLICE_VIEWS, INTERPRETER, HTTP ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}
 	} );
@@ -227,50 +230,52 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		installWire();
 	} );
 
-	test( 'mounts nothing up front; the first probe raises that spoke its node', async () => {
-		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
-		expect( Core.node( 'aggregator:probe:spokeX' ) ).toBeNull();
-
-		await act( async () => {
-			await result.current.probe( 'spokeX' );
-		} );
-		expect( Core.node( 'aggregator:probe:spokeX' ) ).toBeTruthy();
-	} );
-
-	test( "probe(id) mints FROM that spoke's node, with no ID and no KEY", async () => {
+	test( 'probe(id) mints FROM the probe node, with no ID and no KEY', async () => {
 		const wire = installWire();
 		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
-		await act( async () => {
-			await result.current.probe( 'spokeX' );
-		} );
+		act( () => result.current.probe( 'spokeX' ) );
+
+		await waitFor(
+			() =>
+				expect(
+					wire.batches
+						.flat()
+						.find( ( m ) => 'probe' === m[ VALUE ]?.name )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
 		const probeMsg = wire.batches
 			.flat()
 			.find( ( m ) => 'probe' === m[ VALUE ]?.name );
-		expect( probeMsg ).toBeTruthy();
-		expect( probeMsg[ FROM ] ).toBe( 'aggregator:probe:spokeX' );
+		expect( probeMsg[ FROM ] ).toBe( 'aggregator:probe:in' );
 		expect( probeMsg[ ID ] ).toBe( '' );
 		expect( probeMsg[ KEY ] ).toBe( '' );
-		// TO started `_http/aggregator`; the router peeled it before the POST.
+		// TO started `_shell/_http/aggregator`; the router peeled it.
 		expect( probeMsg[ TO ] ).toBe( 'aggregator' );
-	} );
+		expect( probeMsg[ VALUE ].arguments ).toEqual( [ 'spokeX' ] );
+	}, 15000 );
 
-	test( 'two spokes probed at once settle independently, each on its own node', async () => {
+	// Two spokes probed in the same second are two writes that both have to
+	// go, and each answer is filed against the spoke it NAMES — which is what
+	// makes one node enough.
+	test( 'two spokes probed at once are filed independently', async () => {
 		installWire( { rollup: { id: 'either' } } );
 		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
-		await act( async () => {
-			await Promise.all( [
-				result.current.probe( 'spoke1' ),
-				result.current.probe( 'spoke2' ),
-			] );
+		act( () => {
+			result.current.probe( 'spoke1' );
+			result.current.probe( 'spoke2' );
 		} );
 
-		expect( Core.node( 'aggregator:probe:spoke1' ) ).toBeTruthy();
-		expect( Core.node( 'aggregator:probe:spoke2' ) ).toBeTruthy();
-		expect( result.current.probes.spoke1.ok ).toBe( true );
-		expect( result.current.probes.spoke2.ok ).toBe( true );
-	} );
+		await waitFor(
+			() => {
+				expect( result.current.probes.spoke1?.ok ).toBe( true );
+				expect( result.current.probes.spoke2?.ok ).toBe( true );
+			},
+			{ timeout: 6000 }
+		);
+	}, 15000 );
 
-	test( 'a probe reply resolves the caller AND files the roll-up', async () => {
+	test( 'a probe reply files the roll-up under its spoke', async () => {
 		const rollup = {
 			id: 'spoke1',
 			workers: { total: 2, live: 2, stale: 0, dead: 0 },
@@ -279,65 +284,29 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		};
 		installWire( { rollup } );
 		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
-		let settled;
-		await act( async () => {
-			settled = await result.current.probe( 'spoke1' );
-		} );
-		expect( settled ).toEqual( rollup );
-		expect( result.current.probes.spoke1 ).toEqual( { ok: true, rollup } );
-	} );
+		act( () => result.current.probe( 'spoke1' ) );
 
-	test( 'unmount removes every probe node it raised (they ride the build)', async () => {
-		const { result, unmount } = renderHook( () =>
-			useAggregatorStatusGraph( {} )
+		await waitFor(
+			() =>
+				expect( result.current.probes.spoke1 ).toEqual( {
+					ok: true,
+					rollup,
+				} ),
+			{ timeout: 6000 }
 		);
-		await act( async () => {
-			await result.current.probe( 'spokeQ' );
-		} );
-		expect( Core.node( 'aggregator:probe:spokeQ' ) ).toBeTruthy();
+	}, 15000 );
 
-		unmount();
-
-		// Left behind, it outlives the interpreter it was sunk into and the
-		// next mount hands the same dead node back.
-		expect( Core.node( 'aggregator:probe:spokeQ' ) ).toBeNull();
-	} );
-
-	test( 'a Reset Graph rebuild starts from no probe nodes', async () => {
-		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
-		await act( async () => {
-			await result.current.probe( 'spokeR' );
-		} );
-
-		await act( async () => {
-			Core.bumpGraphGeneration();
-		} );
-
-		expect( Core.node( 'aggregator:probe:spokeR' ) ).toBeNull();
-	} );
-
-	test( 'probe rejects after unmount (graph gone)', async () => {
-		const { result, unmount } = renderHook( () =>
-			useAggregatorStatusGraph( {} )
-		);
-		unmount();
-		await expect( result.current.probe( 'x' ) ).rejects.toThrow(
-			'graph not mounted'
-		);
-	} );
-
-	test( 'a failed probe rejects AND files the failure for that spoke', async () => {
+	test( 'a refused probe files the failure for that spoke', async () => {
 		installFakeCommandWire( () => new Error( 'spoke unreachable' ) );
 		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
+		act( () => result.current.probe( 'spoke9' ) );
 
-		await act( async () => {
-			await expect( result.current.probe( 'spoke9' ) ).rejects.toThrow(
-				'spoke unreachable'
-			);
-		} );
-		expect( result.current.probes.spoke9 ).toEqual( {
-			ok: false,
-			error: 'spoke unreachable',
-		} );
-	} );
+		await waitFor(
+			() => expect( result.current.probes.spoke9?.ok ).toBe( false ),
+			{ timeout: 6000 }
+		);
+		expect( result.current.probes.spoke9.error ).toContain(
+			'spoke unreachable'
+		);
+	}, 15000 );
 } );

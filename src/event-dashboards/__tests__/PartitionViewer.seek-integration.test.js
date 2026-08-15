@@ -10,7 +10,7 @@
  * keep passing.
  */
 
-import { render, act } from '@testing-library/react';
+import { render, act, waitFor } from '@testing-library/react';
 import {
 	newMessage,
 	pack,
@@ -144,11 +144,16 @@ test( 'REPRO: Replay flips to Live once replayed records reach the captured end'
 	await act( async () => {
 		render( <PartitionViewer /> );
 	} );
-	// list_logs + log_status settled: selected + segments present.
-	expect( logBrowserProps.items ).toEqual( [
-		{ id: 97, size: 1000 },
-		{ id: 98, size: 500 },
-	] );
+	// list_logs + log_status both ride the router tick; the rail is a wait
+	// away, not a flush.
+	await waitFor(
+		() =>
+			expect( logBrowserProps.items ).toEqual( [
+				{ id: 97, size: 1000 },
+				{ id: 98, size: 500 },
+			] ),
+		{ timeout: 6000 }
+	);
 
 	// Nothing received yet: no rail highlight follows.
 	expect( logBrowserProps.activeKey ).toBe( null );
@@ -191,4 +196,4 @@ test( 'REPRO: Replay flips to Live once replayed records reach the captured end'
 		);
 	} );
 	expect( logBrowserProps.mode ).toBe( 'live' );
-} );
+}, 20000 );

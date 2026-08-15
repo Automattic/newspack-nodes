@@ -66,7 +66,7 @@ import {
 	verbInvocationArgs,
 	verbUsesConfig,
 } from './utils/editorLines';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { scopeFromCwd } from './utils/scope';
 import { Core } from '../runtime/core';
 import {
@@ -409,13 +409,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	useEffect( () => {
 		initSkin();
 	}, [] );
-	const saveTopology = useSaveTopology();
-	const deleteTopology = useDeleteTopology();
-	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
+	const {
+		open: openTopology,
+		topology: openedTopology,
+		error: openError,
+	} = useTopology( { scope: 'editor' } );
 	// Two catalogs: PHP (HTTP; workers/edit) and JS (browser make_node).
 	const phpCatalog = useClassCatalog( { enabled: true } );
-	const loadPhpCatalog = phpCatalog.load;
+	const catalogClasses = phpCatalog.classes;
 	const jsCatalog = useJsCatalog();
 	const vaultCatalog = useVaults( { enabled: true } );
 	// Measure .topology-app so the REPL ceiling tracks real height.
@@ -439,6 +441,9 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Dumper verbosity dial (0/1/2); a ref so it's read without re-binding.
 	const debugLevelRef = useRef( 0 );
+
+	// The topology a save is creating, so its reply can offer to activate it.
+	const newTopologyRef = useRef( null );
 
 	// "reset graph" stashes the cwd so the shell sync can restore it.
 	const cwdRestoreRef = useRef( null );
@@ -469,19 +474,21 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		workers: pathOptions.filter( ( o ) => parseWorker( o ) ),
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
-		loadCatalog: loadPhpCatalog,
+		catalog: phpCatalog,
 	} );
 	useEffect( () => {
-		const error = seedError || phpCatalog.error;
+		const error = seedError || phpCatalog.error || openError;
 		if ( ! error ) {
 			return;
 		}
+		// A slice's error is a STRING; a thrown seed error is an Error.
 		const msg =
+			( 'string' === typeof error && error ) ||
 			( error && error.data && error.data.message ) ||
 			( error && error.message ) ||
 			__( 'Failed to load the PHP class catalog.', 'newspack-nodes' );
 		setToast( { kind: 'error', text: msg } );
-	}, [ seedError, phpCatalog.error ] );
+	}, [ seedError, phpCatalog.error, openError ] );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4).
 	const { graph: parsed, hasNodes: parsedHasNodes } = useGraphSource( {
@@ -582,7 +589,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 *
 	 * @param {Object}  doc                       The document to load.
 	 * @param {string}  doc.tsl                   Source text.
-	 * @param {Object}  doc.catalogClasses        Classes from `loadPhpCatalog()`.
 	 * @param {Object}  [doc.expansion]           Pre-fetched include expansion.
 	 * @param {Object}  [doc.resolvedConfigEdges] Server-resolved config edges.
 	 * @param {string}  doc.name                  Editor identity.
@@ -598,7 +604,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const loadIntoEditor = useCallback(
 		async ( {
 			tsl,
-			catalogClasses,
 			expansion: preExpanded = null,
 			resolvedConfigEdges = null,
 			name,
@@ -628,46 +633,127 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			// Close settings so the panel reseeds from loaded frontmatter.
 			setSettingsOpen( false );
 		},
-		[ assertResolved, loadDraft, setDraftCatalog, setDirtySnapshot ]
+		[
+			assertResolved,
+			catalogClasses,
+			loadDraft,
+			setDraftCatalog,
+			setDirtySnapshot,
+		]
 	);
+
+	/**
+	 * The editor's OPEN pipeline.
+	 *
+	 * Both entry points — flipping into edit mode, and the OPEN dialog — used to
+	 * await their own `topologies get` beside their own `classes list`, minting
+	 * two POSTs each from a React callback. They name what they want here
+	 * instead; the poll asks until it lands, and the effect below is the one
+	 * place that turns a topology into a draft.
+	 */
+	const [ opening, setOpening ] = useState( null );
+
+	const openForEdit = useCallback(
+		( name, announce ) => {
+			setOpening( { name, announce } );
+			openTopology( name );
+		},
+		[ openTopology ]
+	);
+
+	useEffect( () => {
+		// Settled, not non-empty: no `fans_out`, no fan-out semantics.
+		if (
+			! opening ||
+			openedTopology?.name !== opening.name ||
+			phpCatalog.loading ||
+			phpCatalog.error
+		) {
+			return;
+		}
+		setOpening( null );
+		loadIntoEditor( {
+			tsl: openedTopology.tsl,
+			expansion: openedTopology.expanded,
+			resolvedConfigEdges: openedTopology.resolved_config_edges,
+			name: openedTopology.name,
+			source: openedTopology.source,
+		} )
+			.then( () => {
+				if ( ! opening.announce ) {
+					return;
+				}
+				setToast( {
+					kind: 'success',
+					text: sprintf(
+						// translators: 1: topology name, 2: source (stock/user/both).
+						__( 'Loaded %1$s (%2$s).', 'newspack-nodes' ),
+						openedTopology.name,
+						openedTopology.source
+					),
+				} );
+			} )
+			.catch( ( e ) => {
+				// Draft stays blank; surface WHY, don't go silent.
+				const msg =
+					e?.data?.message ||
+					e?.message ||
+					__( 'Failed to load topology.', 'newspack-nodes' );
+				setToast( { kind: 'error', text: msg } );
+			} );
+	}, [
+		opening,
+		openedTopology,
+		phpCatalog.loading,
+		phpCatalog.error,
+		loadIntoEditor,
+	] );
 
 	// Server-saved layout (fetchLayout): seed source, autoLayout is fallback.
 	const [ savedLayout, setSavedLayout ] = useState( null );
-	const { fetchLayout, saveLayout } = useLayout();
 	const effectiveTopologyName =
 		mode === 'edit' && editingName ? editingName : topology;
+
+	// A refusal is an answer: no saved layout, so the canvas auto-fits.
+	const onLayoutFetched = useCallback(
+		( { result, args } ) =>
+			setSavedLayout( {
+				name: args[ 0 ],
+				positions: result?.positions || null,
+			} ),
+		[]
+	);
+	const { fetchLayout, saveLayout } = useLayout( {
+		onFetched: onLayoutFetched,
+		onSaved: ( { result, error, args } ) => {
+			if ( error ) {
+				setToast( { kind: 'error', text: error } );
+				return;
+			}
+			setSavedLayout( ( current ) =>
+				current && current.name !== args[ 0 ]
+					? current
+					: { name: args[ 0 ], positions: result.positions || null }
+			);
+			setToast( {
+				kind: 'success',
+				text: sprintf(
+					// translators: %s: topology name.
+					__( 'Saved layout for %s.', 'newspack-nodes' ),
+					result.name
+				),
+			} );
+		},
+	} );
 
 	useEffect( () => {
 		if ( ! effectiveTopologyName ) {
 			setSavedLayout( null );
-			return undefined;
+			return;
 		}
-		const requestedTopologyName = effectiveTopologyName;
-		let active = true;
 		// Null while fetching so init can't lock in stale positions.
 		setSavedLayout( null );
-		fetchLayout( requestedTopologyName )
-			.then( ( resp ) => {
-				if ( ! active ) {
-					return;
-				}
-				setSavedLayout( {
-					name: requestedTopologyName,
-					positions: resp?.positions || null,
-				} );
-			} )
-			.catch( () => {
-				if ( ! active ) {
-					return;
-				}
-				setSavedLayout( {
-					name: requestedTopologyName,
-					positions: null,
-				} );
-			} );
-		return () => {
-			active = false;
-		};
+		fetchLayout( effectiveTopologyName );
 	}, [ effectiveTopologyName, fetchLayout ] );
 
 	const currentSavedLayout =
@@ -815,11 +901,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		resetLayout();
 	}, [ mode, resetLayout ] );
 
-	const handleSaveLayout = useCallback( async () => {
+	const handleSaveLayout = useCallback( () => {
 		if ( ! effectiveTopologyName ) {
 			return;
 		}
-		const savedTopologyName = effectiveTopologyName;
 		// Only serialize canvas ids; skip a deleted node's stale override.
 		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const positions = {};
@@ -833,34 +918,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				positions[ id ] = [ p.x, p.y ];
 			}
 		}
-		try {
-			const resp = await saveLayout( {
-				name: savedTopologyName,
-				positions,
-			} );
-			setSavedLayout( ( currentLayout ) =>
-				currentLayout && currentLayout.name !== savedTopologyName
-					? currentLayout
-					: {
-							name: savedTopologyName,
-							positions: resp.positions || null,
-					  }
-			);
-			setToast( {
-				kind: 'success',
-				text: sprintf(
-					// translators: %s: topology name.
-					__( 'Saved layout for %s.', 'newspack-nodes' ),
-					resp.name
-				),
-			} );
-		} catch ( e ) {
-			const msg =
-				( e && e.data && e.data.message ) ||
-				( e && e.message ) ||
-				__( 'Save layout failed', 'newspack-nodes' );
-			setToast( { kind: 'error', text: msg } );
-		}
+		saveLayout( { name: effectiveTopologyName, positions } );
 	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
 	const partitions = useMemo(
 		() => partitionIndices( topologyWorkers, topology ),
@@ -1084,31 +1142,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				seededExpansionRef.current = null;
 				setDirtySnapshot( loadDraft( '' ) );
 				if ( topology ) {
-					Promise.all( [
-						fetchTopology( topology ),
-						loadPhpCatalog(),
-					] )
-						.then( ( [ resp, loadedCatalog ] ) =>
-							loadIntoEditor( {
-								tsl: resp.tsl || '',
-								catalogClasses: loadedCatalog.classes,
-								expansion: resp.expanded,
-								resolvedConfigEdges: resp.resolved_config_edges,
-								name: resp.name,
-								source: resp.source || '',
-							} )
-						)
-						.catch( ( e ) => {
-							// Draft stays blank; surface WHY, don't go silent.
-							const msg =
-								( e && e.data && e.data.message ) ||
-								( e && e.message ) ||
-								__(
-									'Failed to load topology.',
-									'newspack-nodes'
-								);
-							setToast( { kind: 'error', text: msg } );
-						} );
+					openForEdit( topology, false );
 				}
 				return;
 			}
@@ -1135,16 +1169,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[
-			mode,
-			draft,
-			dirtySnapshot,
-			topology,
-			fetchTopology,
-			loadPhpCatalog,
-			loadDraft,
-			loadIntoEditor,
-		]
+		[ mode, draft, dirtySnapshot, topology, openForEdit, loadDraft ]
 	);
 
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
@@ -1336,17 +1361,16 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		setDeleteModal( { name: editingName } );
 	}, [ editingName ] );
 
-	const confirmDelete = useCallback( async () => {
-		const name = deleteModal?.name;
-		setDeleteModal( null );
-		if ( ! name ) {
-			return;
-		}
-		try {
-			const resp = await deleteTopology( { name } );
+	const onDeleted = useCallback(
+		( { result, error, args } ) => {
+			const name = args?.[ 0 ];
+			if ( error ) {
+				setToast( { kind: 'error', text: error } );
+				return;
+			}
 			setToast( {
 				kind: 'success',
-				text: resp.stock_fallback
+				text: result.stock_fallback
 					? sprintf(
 							// translators: %s: topology name.
 							__(
@@ -1361,7 +1385,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 							name
 					  ),
 			} );
-			topologyList.reload();
 			// A delete restarts the matching fleet — re-fetch the live catalog.
 			invalidateExpandedIncludes();
 			reloadCatalog();
@@ -1369,14 +1392,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setMode( 'view' );
 			setEditingName( '' );
 			setEditingSource( '' );
-		} catch ( e ) {
-			const msg =
-				( e && e.data && e.data.message ) ||
-				( e && e.message ) ||
-				__( 'Delete failed', 'newspack-nodes' );
-			setToast( { kind: 'error', text: msg } );
+		},
+		[ reloadCatalog ]
+	);
+	const { remove } = useDeleteTopology( onDeleted );
+
+	const confirmDelete = useCallback( () => {
+		const name = deleteModal?.name;
+		setDeleteModal( null );
+		if ( name ) {
+			remove( { name } );
 		}
-	}, [ deleteModal, deleteTopology, topologyList, reloadCatalog ] );
+	}, [ deleteModal, remove ] );
 
 	const handleRenameNode = useCallback(
 		( oldId, rawNew ) => {
@@ -1444,41 +1471,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// Opening a topology lands you in the editor, from live too — like New.
 	const handleOpenPick = useCallback(
-		async ( name ) => {
+		( name ) => {
 			setOpenModalShown( false );
 			setMode( 'edit' );
-			try {
-				const [ resp, loadedCatalog ] = await Promise.all( [
-					fetchTopology( name ),
-					loadPhpCatalog(),
-				] );
-				await loadIntoEditor( {
-					tsl: resp.tsl || '',
-					catalogClasses: loadedCatalog.classes,
-					expansion: resp.expanded,
-					resolvedConfigEdges: resp.resolved_config_edges,
-					name: resp.name,
-					source: resp.source || '',
-				} );
-				// Storage key includes editingName, so the hook auto-loads.
-				setToast( {
-					kind: 'success',
-					text: sprintf(
-						// translators: 1: topology name, 2: source (stock/user/both).
-						__( 'Loaded %1$s (%2$s).', 'newspack-nodes' ),
-						resp.name,
-						resp.source
-					),
-				} );
-			} catch ( e ) {
-				const msg =
-					( e && e.data && e.data.message ) ||
-					( e && e.message ) ||
-					__( 'Open failed', 'newspack-nodes' );
-				setToast( { kind: 'error', text: msg } );
-			}
+			// Storage key includes editingName, so the hook auto-loads.
+			openForEdit( name, true );
 		},
-		[ fetchTopology, loadPhpCatalog, loadIntoEditor ]
+		[ openForEdit ]
 	);
 
 	/**
@@ -1640,14 +1639,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const handleUpload = useCallback(
 		async ( file ) => {
 			try {
-				const [ text, loadedCatalog ] = await Promise.all( [
-					file.text(),
-					loadPhpCatalog(),
-				] );
+				const text = await file.text();
 				// Takes over the identity; no server home until it is saved.
 				await loadIntoEditor( {
 					tsl: text,
-					catalogClasses: loadedCatalog.classes,
 					name: file.name.replace( /\.tsl$/, '' ),
 					fromServer: false,
 				} );
@@ -1666,111 +1661,109 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ loadPhpCatalog, loadIntoEditor ]
+		[ loadIntoEditor ]
 	);
 
+	/**
+	 * What used to follow the awaited save. `args[0]` is the topology name the
+	 * write carried, which is what the new-topology check was snapshotted for.
+	 */
+	const onSaved = useCallback(
+		( { result, error, errorData, args } ) => {
+			if ( error ) {
+				const lineHint = errorData?.line_number
+					? ' ' +
+					  sprintf(
+							// translators: %d: line number in the topology source.
+							__( '(line %d)', 'newspack-nodes' ),
+							errorData.line_number
+					  )
+					: '';
+				setToast( { kind: 'error', text: `${ error }${ lineHint }` } );
+				return;
+			}
+			const restartedCount = ( result.restarted_fleets || [] ).length;
+			const fleetsPhrase = sprintf(
+				// translators: %d: number of restarted fleets.
+				_n(
+					'Restarted %d fleet.',
+					'Restarted %d fleets.',
+					restartedCount,
+					'newspack-nodes'
+				),
+				restartedCount
+			);
+			setToast( {
+				kind: 'success',
+				text: sprintf(
+					// translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
+					__( 'Saved %1$s. %2$s', 'newspack-nodes' ),
+					result.name,
+					fleetsPhrase
+				),
+			} );
+			setEditingName( result.name );
+			// Written user copy now deletable: 'both' if it shadows stock.
+			setEditingSource( result.shadows_stock ? 'both' : 'user' );
+			// A save restarts the fleet — re-fetch the live catalog.
+			invalidateExpandedIncludes();
+			reloadCatalog();
+			setSettingsOpen( false );
+			setMode( 'view' );
+			// A brand-new topology saves inactive; offer to activate now.
+			if ( newTopologyRef.current === args?.[ 0 ] ) {
+				setActivateModal( { name: result.name } );
+			}
+		},
+		[ reloadCatalog ]
+	);
+	const { save } = useSaveTopology( onSaved );
+
 	const handleSaveConfirm = useCallback(
-		async ( name ) => {
+		( name ) => {
 			// Live SAVE carries captured TSL; edit serializes the draft.
 			const capturedTsl = saveModal?.tsl;
 			setSaveModal( null );
 			// Snapshot new-vs-existing before the save reloads the catalog.
-			const isNewTopology = ! Object.prototype.hasOwnProperty.call(
+			newTopologyRef.current = Object.prototype.hasOwnProperty.call(
 				topologyWorkers,
 				name
-			);
-			try {
-				const tsl = capturedTsl ?? dumpDraft( ownExpansion );
-				const resp = await saveTopology( { name, tsl } );
-				const restartedCount = ( resp.restarted_fleets || [] ).length;
-				const fleetsPhrase = sprintf(
-					// translators: %d: number of restarted fleets.
-					_n(
-						'Restarted %d fleet.',
-						'Restarted %d fleets.',
-						restartedCount,
-						'newspack-nodes'
-					),
-					restartedCount
-				);
-				setToast( {
-					kind: 'success',
-					text: sprintf(
-						// translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-						__( 'Saved %1$s. %2$s', 'newspack-nodes' ),
-						resp.name,
-						fleetsPhrase
-					),
-				} );
-				setEditingName( resp.name );
-				// Written user copy now deletable: 'both' if it shadows stock.
-				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
-				// Refresh the picker so the next Open sees the new topology.
-				topologyList.reload();
-				// A save restarts the fleet — re-fetch the live catalog.
-				invalidateExpandedIncludes();
-				reloadCatalog();
-				setSettingsOpen( false );
-				setMode( 'view' );
-				// A brand-new topology saves inactive; offer to activate now.
-				if ( isNewTopology ) {
-					setActivateModal( { name: resp.name } );
-				}
-			} catch ( e ) {
-				const msg =
-					( e && e.data && e.data.message ) ||
-					( e && e.message ) ||
-					__( 'Save failed', 'newspack-nodes' );
-				const lineHint =
-					e && e.data && e.data.line_number
-						? ' ' +
-						  sprintf(
-								// translators: %d: line number in the topology source.
-								__( '(line %d)', 'newspack-nodes' ),
-								e.data.line_number
-						  )
-						: '';
-				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
-			}
+			)
+				? null
+				: name;
+			save( { name, tsl: capturedTsl ?? dumpDraft( ownExpansion ) } );
 		},
-		[
-			saveModal,
-			saveTopology,
-			topologyList,
-			dumpDraft,
-			ownExpansion,
-			reloadCatalog,
-			topologyWorkers,
-		]
+		[ saveModal, save, dumpDraft, ownExpansion, topologyWorkers ]
 	);
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
-	const activate = useRequestNode( 'topologies:activate', 'topologies' );
-	const confirmActivate = useCallback( async () => {
-		const name = activateModal?.name;
-		setActivateModal( null );
-		if ( ! name ) {
-			return;
-		}
-		try {
-			await activate( 'activate', formatCommandArgs( [ name ] ) );
+	const { run: runActivate } = useCommandOnce( {
+		scope: 'topologies:activate',
+		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`,
+		command: 'activate',
+		onDone: ( { error, args } ) => {
+			if ( error ) {
+				setToast( { kind: 'error', text: error } );
+				return;
+			}
 			reloadCatalog();
 			setToast( {
 				kind: 'success',
 				text: sprintf(
 					// translators: %s: topology name.
 					__( 'Activated %s.', 'newspack-nodes' ),
-					name
+					args[ 0 ]
 				),
 			} );
-		} catch ( e ) {
-			const msg =
-				( e && e.data && e.data.message ) ||
-				( e && e.message ) ||
-				__( 'Activate failed', 'newspack-nodes' );
-			setToast( { kind: 'error', text: msg } );
+		},
+	} );
+	const confirmActivate = useCallback( () => {
+		const name = activateModal?.name;
+		setActivateModal( null );
+		if ( name ) {
+			runActivate( formatCommandArgs( [ name ] ) );
 		}
-	}, [ activate, activateModal, reloadCatalog ] );
+	}, [ runActivate, activateModal ] );
 
 	useEffect( () => {
 		if ( ! toast ) {

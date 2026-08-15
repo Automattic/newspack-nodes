@@ -227,8 +227,7 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'after a bump, _metadata re-registers its TIMER on the FRESH router (the critical ordering)', () => {
-		// Fresh _router must exist BEFORE async re-register, else freeze.
+	it( 'after a bump, _metadata is still registered on the SAME router', () => {
 		const { teardown } = mountExospine( () => {} );
 		const shell = makeShell();
 		renderHook( () => useDebugRepl( true, shell ) );
@@ -239,10 +238,15 @@ describe( 'useDebugRepl', () => {
 
 		act( () => Core.bumpGraphGeneration() );
 
-		const freshRouter = Core.node( names.ROUTER );
-		expect( freshRouter ).not.toBe( firstRouter );
-		// The TIMER lands on the FRESH router, not the torn-down one.
-		expect( names.METADATA in freshRouter.registrations.TIMER ).toBe(
+		// @longform
+		// This used to assert a FRESH router and called itself "the critical
+		// ordering": a rebuild replaced the Router, so `_metadata` had to
+		// re-register on the new one, and the new one had to exist before the
+		// async re-register or the overlay froze. A rebuild keeps the Router
+		// now, so the ordering hazard the assertion guarded cannot arise —
+		// there is nothing to re-register onto.
+		expect( Core.node( names.ROUTER ) ).toBe( firstRouter );
+		expect( names.METADATA in firstRouter.registrations.TIMER ).toBe(
 			true
 		);
 		teardown();

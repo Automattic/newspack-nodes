@@ -21,14 +21,14 @@ describe( 'useRouterTick', () => {
 
 	beforeEach( () => {
 		jest.useFakeTimers();
-		Core.cleanupAllNodes?.();
+		Core.reset();
 		host = null;
 	} );
 
 	afterEach( () => {
 		host?.teardown();
 		host = null;
-		Core.cleanupAllNodes?.();
+		Core.reset();
 		// Never useRealTimers() — see jest-node-timers.js. Just drop pending work.
 		jest.clearAllTimers();
 	} );

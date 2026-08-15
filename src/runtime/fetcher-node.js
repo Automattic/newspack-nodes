@@ -16,8 +16,12 @@ import { newMessage, TYPE, FROM, VALUE, TM_COMMAND } from './message';
  * `fill()` CALLS it each tick to get the current args token array. This lets a poll
  * dashboard emit live arguments that track React UI state (filter / sort / page)
  * without re-wiring the graph — the getter reads the current state at fire time.
- * A non-array return coerces to []. A static token array stays byte-identical to the
- * pre-getter behavior (only callers that opt in pass a getter).
+ * A `null` return means there is nothing to send THIS tick, which is what makes a
+ * one-shot (a save, a delete) expressible as a Fetcher: it holds its arguments
+ * until the next fan-out, sends once, and stays silent in between, so a mutation
+ * rides the same batch as everything else instead of minting its own POST. Any
+ * other non-array return coerces to []. A static token array stays byte-identical
+ * to the pre-getter behavior (only callers that opt in pass a getter).
  *
  * `fill()` IGNORES the trigger payload — every message is just a trigger. The
  * command is configured on the node, never read from the message (a node that
@@ -43,9 +47,9 @@ export class FetcherNode extends Node {
 		this.verb = '';
 		/**
 		 * The verb's argument tokens, or a fire-time getter `fill()` calls each
-		 * tick for the current ones. `''` is the unconfigured state; anything
-		 * that is not an array — including a getter's non-array return — sends
-		 * no arguments at all.
+		 * tick for the current ones. `''` is the unconfigured state; a getter
+		 * returning `null` sends nothing at all that tick, and any other
+		 * non-array sends the command with no arguments.
 		 *
 		 * @type {string|string[]|Function}
 		 */
@@ -80,18 +84,26 @@ export class FetcherNode extends Node {
 	/**
 	 * Send the configured command. Every message is only a trigger — its type,
 	 * VALUE and addressing are ignored — so one trigger yields exactly one
-	 * TM_COMMAND, or none while the browser holds no signing session.
+	 * TM_COMMAND, or none while the browser holds no signing session or the
+	 * fire-time getter reports nothing to send.
 	 *
 	 * @param {Array} _message The trigger message; deliberately unread.
 	 */
 	fill( _message ) {
+		// @longform
+		// BEFORE the getter: a one-shot's getter TAKES its arguments as it
+		// reads them, so asking first would eat the command on a tick that
+		// cannot send it — and nothing would ever send it again.
+		if ( ! readyToMint() ) {
+			return; // unauthenticated; re-auth is under way, next poll carries it
+		}
 		// command_args: fire-time getter or static token array.
 		const args =
 			'function' === typeof this.command_args
 				? this.command_args()
 				: this.command_args;
-		if ( ! readyToMint() ) {
-			return; // unauthenticated; re-auth is under way, next poll carries it
+		if ( null === args || undefined === args ) {
+			return; // nothing pending; a one-shot between its sends
 		}
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;

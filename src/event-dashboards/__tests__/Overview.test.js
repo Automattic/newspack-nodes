@@ -506,10 +506,10 @@ describe( 'Overview — remaining interactions', () => {
 			} )
 		);
 		const { container } = render( <Overview /> );
-		// A rejected mutation raises the alert via the row's onError handler.
-		act( () =>
-			rowProps( 'alpha' ).onError( { name: 'alpha', message: 'boom' } )
-		);
+		// A refused mutation raises the alert through the hook's onError: the
+		// answer lands on the node that asked, not on a row's promise.
+		const { onError } = useTopologyManager.mock.calls.at( -1 )[ 0 ];
+		act( () => onError( { name: 'alpha', message: 'boom' } ) );
 		expect( container.querySelector( '.nodes-tm__alert' ) ).not.toBeNull();
 		fireEvent.click(
 			container.querySelector( '.nodes-tm__alert-actions .button' )

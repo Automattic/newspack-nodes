@@ -65,8 +65,9 @@ describe( 'useLogViewerGraph — recovery from a refused catalog', () => {
 		expect( FakeEventSource.instances.length ).toBe( 0 );
 
 		refused = false;
+		// The catalog polls on its own cadence, not every tick.
 		await act( async () => {
-			jest.advanceTimersByTime( 1200 );
+			jest.advanceTimersByTime( 11000 );
 		} );
 		await act( async () => {} );
 

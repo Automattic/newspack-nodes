@@ -28,7 +28,7 @@
  * independent → its own slice. Neither needs a server change; both are existing
  * verbs.
  *
- * Mutations are on-demand Fetchers (graph-visible through `_shell`), not
+ * Mutations are one-shots on the same tick (graph-visible through `_shell`), not
  * hook-callback → interpreter.fill: `dispatchAwaited` mounts a one-shot Fetcher
  * targeting `_shell/_http/<ci>` with FROM=<view>, fans a single trigger through it,
  * overlay's `connect _shell` sees the command flow.
@@ -45,13 +45,12 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import { Core } from '../../runtime/core';
 import { useNodeState } from '../../runtime/react';
 import { formatCommandArgs } from '../../runtime/command-args';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '@newspack-nodes/shared/utils/formatters';
@@ -222,25 +221,18 @@ function deriveConnected( {
 }
 
 /**
- * Put the just-minted command on the wire NOW: a mutation is event-driven, not
- * part of the batched poll tick that would otherwise carry it.
- *
- * @param {Promise} pending The request's promise, returned unchanged.
- * @return {Promise} `pending`.
- */
-function flushed( pending ) {
-	Core.node( '_http' )?.flush();
-	return pending;
-}
-
-/**
  * Mount the Topology Manager graph and expose its model plus mutations. See the
  * file header for the graph and the merge it performs.
  *
- * @param {Object}  [opts]           Options (testing seams).
- * @param {boolean} [opts.paused]    Suspend polling (e.g. an Overview drag in flight).
- * @param {number}  [opts.refreshMs] Poll interval in ms; also the unit of the
- *                                   staleness window. Defaults to 5000.
+ * @param {Object}   [opts]           Options (testing seams).
+ * @param {Function} [opts.onError]   `( { name, message } ) => void` for a
+ *                                    refused mutation. It arrives here rather
+ *                                    than as a rejected promise: the answer to
+ *                                    an activate lands on the node that asked,
+ *                                    a tick later, with the name it was about.
+ * @param {boolean}  [opts.paused]    Suspend polling (e.g. an Overview drag in flight).
+ * @param {number}   [opts.refreshMs] Poll interval in ms; also the unit of the
+ *                                    staleness window. Defaults to 5000.
  * @return {{ topologies: Array, readRate: number, writeRate: number,
  *   logPartitions: number, activate: Function, deactivate: Function,
  *   restart: Function, connected: boolean }} The Topology Manager data +
@@ -250,6 +242,10 @@ function flushed( pending ) {
  */
 export function useTopologyManager( opts = {} ) {
 	const { paused = false } = opts;
+
+	// Read live, so a caller's inline handler is never a stale closure.
+	const onErrorRef = useRef( opts.onError );
+	onErrorRef.current = opts.onError;
 	// Parsed once here; parseInt stringifies its argument anyway.
 	const refreshMs = parseInt( String( opts.refreshMs ?? 5000 ), 10 );
 
@@ -266,13 +262,30 @@ export function useTopologyManager( opts = {} ) {
 		intervalMs: refreshMs,
 	} );
 
-	// One node per mutation verb; the reply that lands on it IS its answer.
-	const restartNode = useRequestNode( 'workers:restart', WORKERS_CI );
-	const activateNode = useRequestNode( 'topologies:activate', TOPOLOGIES_CI );
-	const deactivateNode = useRequestNode(
-		'topologies:deactivate',
-		TOPOLOGIES_CI
-	);
+	// One one-shot per verb; its answer names the topology it was about.
+	const onMutationDone = useCallback( ( { error, args } ) => {
+		if ( error ) {
+			onErrorRef.current?.( { name: args[ 0 ], message: error } );
+		}
+	}, [] );
+	const restartOnce = useCommandOnce( {
+		scope: 'workers:restart',
+		target: `_shell/_http/${ WORKERS_CI }`,
+		command: 'restart',
+		onDone: onMutationDone,
+	} );
+	const activateOnce = useCommandOnce( {
+		scope: 'topologies:activate',
+		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+		command: 'activate',
+		onDone: onMutationDone,
+	} );
+	const deactivateOnce = useCommandOnce( {
+		scope: 'topologies:deactivate',
+		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+		command: 'deactivate',
+		onDone: onMutationDone,
+	} );
 
 	const workerModel = useNodeState( WORKER_VIEW, 'view' );
 	const topologyModel = useNodeState( TOPOLOGY_VIEW, 'view' );
@@ -334,34 +347,29 @@ export function useTopologyManager( opts = {} ) {
 	);
 	const logPartitions = workerModel?.logPartitions ?? 0;
 
+	const { run: runRestart } = restartOnce;
+	const { run: runActivate } = activateOnce;
+	const { run: runDeactivate } = deactivateOnce;
+
 	// Request a graceful restart; the reply lands on the node that asked.
 	const restart = useCallback(
 		( name, partition = -1 ) =>
-			flushed(
-				restartNode(
-					'restart',
-					partition >= 0
-						? formatCommandArgs( [ name, String( partition ) ] )
-						: formatCommandArgs( [ name ] )
-				)
+			runRestart(
+				partition >= 0
+					? formatCommandArgs( [ name, String( partition ) ] )
+					: formatCommandArgs( [ name ] )
 			),
-		[ restartNode ]
+		[ runRestart ]
 	);
 
 	const activate = useCallback(
-		( name ) =>
-			flushed(
-				activateNode( 'activate', formatCommandArgs( [ name ] ) )
-			),
-		[ activateNode ]
+		( name ) => runActivate( formatCommandArgs( [ name ] ) ),
+		[ runActivate ]
 	);
 
 	const deactivate = useCallback(
-		( name ) =>
-			flushed(
-				deactivateNode( 'deactivate', formatCommandArgs( [ name ] ) )
-			),
-		[ deactivateNode ]
+		( name ) => runDeactivate( formatCommandArgs( [ name ] ) ),
+		[ runDeactivate ]
 	);
 
 	return {

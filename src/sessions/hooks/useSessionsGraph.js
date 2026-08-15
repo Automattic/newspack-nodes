@@ -18,7 +18,7 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { TO } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import names from '../../runtime/reserved-node-names.json';
 import '../nodes/register';
 
@@ -44,15 +44,34 @@ function fireList( shell ) {
 }
 
 /**
- * @return {{ createSession: Function, revokeSession: Function }} Callbacks for
- *   the thin React view; the table's model is read via useNodeState.
+ * @return {{createSession: Function, revokeSession: Function, createResult: Object, revokeResult: Object}}
+ *   Callbacks for the thin React view, plus each verb's last answer — the
+ *   arguments that produced it included, so a row knows which reply is its own.
+ *   The table's model is read via useNodeState.
  */
 export function useSessionsGraph() {
 	const shellRef = useRef( null );
 	const [ , bumpBuild ] = useState( 0 );
 
-	const create = useRequestNode( 'sessions:create', 'sessions' );
-	const revoke = useRequestNode( 'sessions:revoke', 'sessions' );
+	// A mutation re-lists on its answer; the server's state, not a patch.
+	const relist = useCallback( () => {
+		if ( shellRef.current ) {
+			fireList( shellRef.current );
+		}
+	}, [] );
+	const target = `${ names.CONSOLE_TAP }/${ names.HTTP }/sessions`;
+	const create = useCommandOnce( {
+		scope: 'sessions:create',
+		target,
+		command: 'create',
+		onDone: relist,
+	} );
+	const revoke = useCommandOnce( {
+		scope: 'sessions:revoke',
+		target,
+		command: 'revoke',
+		onDone: relist,
+	} );
 
 	useEffect( () => {
 		const build = ( { interpreter, shell } ) => {
@@ -79,30 +98,39 @@ export function useSessionsGraph() {
 		return teardown;
 	}, [] );
 
-	// The result is the caller's; the table repaints off the re-list.
-	const runMutation = useCallback( async ( request, verb, args ) => {
-		const result = await request( verb, args );
-		if ( shellRef.current ) {
-			fireList( shellRef.current );
-		}
-		return result;
-	}, [] );
-
+	const { run: runCreate } = create;
 	const createSession = useCallback(
 		( { label, scope, ttl } ) =>
-			runMutation(
-				create,
-				'create',
-				formatCommandArgs( [ label ], { scope, ttl } )
-			),
-		[ create, runMutation ]
+			runCreate( formatCommandArgs( [ label ], { scope, ttl } ) ),
+		[ runCreate ]
 	);
 
+	const { run: runRevoke } = revoke;
 	const revokeSession = useCallback(
-		( handle ) =>
-			runMutation( revoke, 'revoke', formatCommandArgs( [ handle ] ) ),
-		[ revoke, runMutation ]
+		( handle ) => runRevoke( formatCommandArgs( [ handle ] ) ),
+		[ runRevoke ]
 	);
 
-	return { createSession, revokeSession };
+	return {
+		createSession,
+		revokeSession,
+		createResult: answerOf( create ),
+		revokeResult: answerOf( revoke ),
+	};
+}
+
+/**
+ * The publishable half of a one-shot: what came back, and what it answered.
+ *
+ * @param {Object} once A `useCommandOnce` handle.
+ * @return {{seq: number, subject: ?string, result: ?Object, error: ?string}}
+ *   `subject` is the label or handle the answer is about.
+ */
+function answerOf( once ) {
+	return {
+		seq: once.seq,
+		subject: once.answeredArgs?.[ 0 ] ?? null,
+		result: once.result,
+		error: once.error,
+	};
 }

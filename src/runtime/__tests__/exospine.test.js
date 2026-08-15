@@ -54,25 +54,30 @@ test( 'the backbone heartbeat targets _http/workers (permanent edge, even with n
 	teardown();
 } );
 
-test( 'teardown unregisters both backbone nodes from Core', () => {
+test( 'teardown unregisters the interpreter from Core, and keeps the Router', () => {
 	const { teardown } = mountExospine();
 
 	teardown();
 
 	expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
-	expect( Core.node( names.ROUTER ) ).toBeNull();
+	expect( Core.node( names.ROUTER ) ).not.toBeNull();
 } );
 
-test( 'teardown fully clears the backbone (sink edge + caller TIMER listeners)', () => {
+test( 'a hitchhiker removed with the graph unregisters itself from the kept Router', () => {
 	const { interpreter, router, teardown } = mountExospine();
-	// A caller clips a poll node onto the router TIMER, as the console does.
-	router.register( 'TIMER', 'poll', () => {} );
+	// The ONLY way anything registers on the router TIMER: by node NAME,
+	// from TimerNode.setTimer(). Nothing registers a closure there, which is
+	// what makes a permanent Router safe — a removed node takes its own
+	// registration with it (removeNode → stopTimer → unregister).
+	const poller = interpreter.makeNode( 'Timer', 'poll' );
+	poller.setTimer();
+	expect( 'poll' in router.registrations.TIMER ).toBe( true );
+
+	poller.removeNode();
+	expect( 'poll' in router.registrations.TIMER ).toBe( false );
 
 	teardown();
-
 	expect( interpreter.sink ).toBeNull();
-	// removeNode wipes registrations, so the TIMER listener can't survive.
-	expect( router.registrations.TIMER?.poll ).toBeUndefined();
 } );
 
 describe( 'mountExospine( build )', () => {
@@ -119,6 +124,48 @@ describe( 'mountExospine( build )', () => {
 		expect( Core.node( 'view' ) ).not.toBe( first );
 		// The old instance was fully removed (removeNode clears its name).
 		expect( first.name ).toBe( '' );
+	} );
+
+	// The console owns a backbone it did NOT delegate a build to, so a Reset
+	// Graph replaces the interpreter under every passenger that clipped onto
+	// it. Without rebuilding on backbone-up, a batched poll's Fetchers go on
+	// sinking into a removed interpreter — alive, ticking, and unroutable.
+	test( 'a reused-backbone mount rebuilds when the backbone is replaced', () => {
+		// The owner: no build, so it registers no rebuild of its own.
+		const owner = mountExospine();
+		let builds = 0;
+		mountExospine( ( { interpreter } ) => {
+			builds += 1;
+			interpreter.makeNode( 'Tee', 'passenger:tee' );
+		} );
+		expect( builds ).toBe( 1 );
+
+		// What a Reset Graph does: the owner replaces the backbone, and the
+		// fresh one announces itself.
+		owner.teardown();
+		mountExospine();
+
+		expect( builds ).toBe( 2 );
+		expect( Core.node( 'passenger:tee' ) ).not.toBeNull();
+	} );
+
+	// Reset Graph removes every node and THEN bumps, so a passenger's rebuild
+	// can fire with no backbone at all. Building onto nothing threw and took
+	// the page's React tree with it; the backbone-up signal is what rebuilds.
+	test( 'a rebuild with no backbone waits rather than throwing', () => {
+		const owner = mountExospine();
+		let builds = 0;
+		mountExospine( ( { interpreter } ) => {
+			builds += 1;
+			interpreter.makeNode( 'Tee', 'passenger:tee' );
+		} );
+		owner.teardown();
+
+		expect( () => Core.bumpGraphGeneration() ).not.toThrow();
+		expect( builds ).toBe( 1 );
+
+		mountExospine();
+		expect( builds ).toBe( 2 );
 	} );
 
 	test( 'reinit keeps the same backbone instances', () => {
@@ -172,7 +219,8 @@ describe( 'mountExospine( build )', () => {
 
 		expect( Core.node( 'view' ) ).toBeNull();
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
-		expect( Core.node( names.ROUTER ) ).toBeNull();
+		// The Router is the page's heartbeat and is never torn down.
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
 		expect( calls ).toEqual( [ 'cleanup' ] );
 	} );
 } );
@@ -193,12 +241,17 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 
 		Core.bumpGraphGeneration();
 
-		// Everything is a fresh instance — the backbone included.
+		// The graph is rebuilt; the ROUTER is not. It is the page's one
+		// heartbeat — every poller hitchhikes its TIMER and every command
+		// batches inside its lock/flush bracket — so replacing it on a
+		// Reset-Graph is what made the tick undependable, and what drove
+		// useReconcile to own a private setInterval instead of riding it.
 		expect( builds ).toBe( 2 );
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).not.toBe(
 			firstInterpreter
 		);
-		expect( Core.node( names.ROUTER ) ).not.toBe( firstRouter );
+		expect( Core.node( names.ROUTER ) ).toBe( firstRouter );
+		expect( Core.node( names.ROUTER ).mode ).toBe( 'event_framework' );
 		expect( Core.node( 'view' ) ).not.toBe( firstView );
 		// The rebuilt soft node sinks into the rebuilt interpreter.
 		expect( Core.node( 'view' ).sink ).toBe(
@@ -381,8 +434,10 @@ describe( 'mountExospine — a passenger-only page', () => {
 		expect( Core.node( names.ROUTER ) ).not.toBeNull();
 
 		second.teardown();
-		expect( Core.node( names.ROUTER ) ).toBeNull();
+		// The Router stays; everything else goes.
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
 		expect( Core.node( names.HTTP ) ).toBeNull();
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
 	} );
 
 	it( 'leaves an OWNED backbone alone when a passenger leaves', () => {
@@ -393,6 +448,7 @@ describe( 'mountExospine — a passenger-only page', () => {
 		expect( Core.node( names.ROUTER ) ).not.toBeNull();
 
 		owner.teardown();
-		expect( Core.node( names.ROUTER ) ).toBeNull();
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeNull();
+		expect( Core.node( names.ROUTER ) ).not.toBeNull();
 	} );
 } );

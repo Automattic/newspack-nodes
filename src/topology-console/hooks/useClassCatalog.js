@@ -1,90 +1,70 @@
 /**
- * useClassCatalog — the substrate class catalog behind the palette, held as
- * reconciled state rather than fetched once.
+ * useClassCatalog — the substrate class catalog behind the palette, as a
+ * batched-poll slice.
  *
  * It used to memoise the in-flight promise forever, so a catalog that failed
  * once stayed failed: every later load() handed back the same rejected promise
  * and the palette was empty until a reload. The overnight tab hit exactly that
  * — the catalog loaded fine at mount, the session expired an hour later, and
  * nothing ever asked again.
+ *
+ * A slice has no promise to memoise and no cache to invalidate. The tick asks
+ * again, so a turned-over session recovers on its own, and the auth-generation
+ * stamp that used to guard the cache has nothing left to guard.
  */
 
-import { useCallback, useRef, useState } from '@wordpress/element';
-import { authGeneration } from '@newspack-nodes/runtime';
-import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
-import useRequestNode from '@newspack-nodes/shared/hooks/useRequestNode';
+import { useNodeState } from '../../runtime/react';
+import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import names from '../../runtime/reserved-node-names.json';
+import '../nodes/register';
+
+const FETCHER = 'classes:fetch';
+const RECEIVER = 'classes:in';
+const VIEW = 'classes:view';
+
+/** Every router tick; batched, it costs no request of its own. */
+const POLL_INTERVAL_MS = 1000;
+
+const EMPTY = { classes: null, formatters: [], error: null };
 
 /**
  * @param {Object}  [options]         Hook options.
- * @param {boolean} [options.enabled] Gate — false parks the reconcile loop, so
- *                                    the catalog is never requested.
- * @return {{classes: Object[], formatters: string[], loading: boolean, error: Error|null, load: () => Promise<{classes: Object[], formatters: string[]}>}}
+ * @param {boolean} [options.enabled] Gate — false costs no request at all, so a
+ *                                    palette that is never opened is free.
+ * @return {{classes: Object[], formatters: string[], loading: boolean, error: ?string}}
  *   Catalog state. `classes` are the palette entries from `classes list` (one
  *   per concrete Node class, schema inlined), `formatters` their registered
- *   formatter names. `load()` resolves with both; concurrent callers share one
- *   round trip, and a failure is never cached.
+ *   formatter names. Consumers READ these; there is nothing to call. The
+ *   `load()` promise they used to await was the last thing standing between the
+ *   palette and its slice.
  */
 export function useClassCatalog( { enabled = false } = {} ) {
-	const [ classes, setClasses ] = useState( [] );
-	const [ formatters, setFormatters ] = useState( [] );
+	useBatchedPoll( {
+		build: ( { interpreter, tee } ) =>
+			addSliceFetcher( interpreter, {
+				fetcher: FETCHER,
+				receiver: RECEIVER,
+				command: 'list',
+				view: VIEW,
+				viewClass: 'ClassCatalogView',
+				tee,
+				target: `${ names.CONSOLE_TAP }/${ names.HTTP }/classes`,
+			} ),
+		timerName: 'classes:timer',
+		teeName: 'classes:tee',
+		enabled,
+		intervalMs: POLL_INTERVAL_MS,
+	} );
 
-	// @longform
-	// Resolved catalog, stamped with the auth generation it was fetched
-	// under. The stamp IS the invalidation check, because it is read HERE —
-	// on the same synchronous tick the reconcile loop invalidates on. An
-	// effect that cleared the cache would run a render too late for this
-	// read, which is how a successfully-loaded catalog outlived its session
-	// and was never re-fetched.
-	const cached = useRef( null );
-	// In-flight request, so concurrent callers share ONE round trip.
-	const inflight = useRef( null );
-
-	const request = useRequestNode( 'classes:list', 'classes' );
-
-	const load = useCallback( () => {
-		if (
-			cached.current &&
-			cached.current.generation === authGeneration()
-		) {
-			return Promise.resolve( cached.current.value );
-		}
-		if ( inflight.current ) {
-			return inflight.current;
-		}
-
-		// Stamped from the REQUEST: a mid-flight turnover leaves it stale.
-		const generation = authGeneration();
-		inflight.current = request( 'list' )
-			.then( ( body ) => {
-				if (
-					! Array.isArray( body?.classes ) ||
-					! Array.isArray( body?.formatters )
-				) {
-					throw new Error( 'Invalid classes.list response.' );
-				}
-				const value = {
-					classes: body.classes,
-					formatters: body.formatters,
-				};
-				cached.current = { generation, value };
-				setClasses( value.classes );
-				setFormatters( value.formatters );
-				return value;
-			} )
-			.finally( () => {
-				// Cleared either way: a failure must not be cached as one.
-				inflight.current = null;
-			} );
-		return inflight.current;
-	}, [ request ] );
-
-	const { settled, error } = useReconcile( { load, enabled } );
+	const model = useNodeState( VIEW, 'view' ) ?? EMPTY;
+	const classes = model.classes ?? [];
+	const formatters = model.formatters ?? [];
 
 	return {
 		classes,
 		formatters,
-		loading: enabled && ! settled && ! error,
-		error,
-		load,
+		loading: enabled && null === model.classes && ! model.error,
+		error: model.error ?? null,
 	};
 }

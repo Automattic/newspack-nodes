@@ -38,7 +38,27 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 		error: null,
 		reload: () => {},
 	} ),
-	useTopology: () => globalThis.__newHooks.fetchTopology,
+	useTopology: () => {
+		const { useCallback, useState } = require( '@wordpress/element' );
+		const [ topology, setTopology ] = useState( null );
+		const [ error, setError ] = useState( null );
+		const open = useCallback( ( name ) => {
+			if ( ! name ) {
+				return;
+			}
+			setError( null );
+			globalThis.__newHooks
+				.fetchTopology( name )
+				// The server echoes the name it was asked for; so does this.
+				.then( ( resp ) =>
+					setTopology( resp ? { source: '', ...resp, name } : null )
+				)
+				.catch( ( e ) =>
+					setError( e?.data?.message || e?.message || String( e ) )
+				);
+		}, [] );
+		return { open, topology, error, loading: null === topology };
+	},
 } ) );
 jest.mock( '../hooks/useClassCatalog', () => ( {
 	useClassCatalog: () => ( {
@@ -50,10 +70,57 @@ jest.mock( '../hooks/useClassCatalog', () => ( {
 	} ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
-	useLayout: () => ( {
-		fetchLayout: globalThis.__newHooks.fetchLayout,
-		saveLayout: globalThis.__newHooks.saveLayout,
-	} ),
+	// Faked over the promises the fixtures still seed: what settles becomes the
+	// handler the console now does its work in. The two senders are STABLE, as
+	// the real hook's are — a fresh identity per render re-runs the console's
+	// fetch effect, which sets state, which renders again.
+	useLayout: ( handlers = {} ) => {
+		const { useCallback, useRef } = require( '@wordpress/element' );
+		const ref = useRef( handlers );
+		ref.current = handlers;
+		const fetchLayout = useCallback(
+			( name ) =>
+				globalThis.__newHooks
+					.fetchLayout( name )
+					.then( ( result ) =>
+						ref.current.onFetched?.( {
+							result,
+							error: null,
+							args: [ name ],
+						} )
+					)
+					.catch( ( e ) =>
+						ref.current.onFetched?.( {
+							result: null,
+							error: e?.message || String( e ),
+							args: [ name ],
+						} )
+					),
+			[]
+		);
+		const saveLayout = useCallback(
+			( { name, positions } ) =>
+				globalThis.__newHooks
+					.saveLayout( { name, positions } )
+					.then( ( result ) =>
+						ref.current.onSaved?.( {
+							result,
+							error: null,
+							args: [ name ],
+						} )
+					)
+					.catch( ( e ) =>
+						ref.current.onSaved?.( {
+							result: null,
+							error:
+								e?.data?.message || e?.message || String( e ),
+							args: [ name ],
+						} )
+					),
+			[]
+		);
+		return { fetchLayout, saveLayout };
+	},
 } ) );
 jest.mock( '../hooks/useSaveTopology', () => ( {
 	useSaveTopology: () => globalThis.__newHooks.saveLayout,

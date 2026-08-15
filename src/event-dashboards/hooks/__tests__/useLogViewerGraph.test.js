@@ -7,7 +7,7 @@
  * sidebar, and the replay boundary.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import {
 	newMessage,
 	pack,
@@ -126,14 +126,21 @@ describe( 'useLogViewerGraph', () => {
 		} ) );
 		const wire = installWire( { taillog: sourcesReply() } );
 		mountGraph();
-		await act( async () => {} );
+		await waitFor(
+			() =>
+				expect(
+					wire.batches
+						.flat()
+						.find( ( m ) => 'taillog' === m[ VALUE ]?.name )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
 
 		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'taillog' === m[ VALUE ]?.name );
-		expect( cmd ).toBeTruthy();
 		expect( cmd[ VALUE ].auth?.sig ).toMatch( /^[0-9a-f]{64}$/ );
-	} );
+	}, 15000 );
 
 	test( 'opens the stream on the first AVAILABLE source over /log/stream', async () => {
 		installWire( { taillog: sourcesReply() } );
@@ -288,14 +295,25 @@ describe( 'useLogViewerGraph', () => {
 		expect( Core.node( VIEW ).seek.endSegment ).toBe( 5 );
 	} );
 
-	test( 'selectSource refreshes the catalog (fresh segments for the sidebar)', async () => {
-		const payload = { taillog: sourcesReply() };
-		installWire( payload );
+	// Picking a source no longer re-asks for the catalog: the poll already
+	// keeps the sidebar's segments fresh, and asking again was a round trip
+	// per click for something arriving anyway.
+	test( 'selectSource re-opens the stream without re-asking for the catalog', async () => {
+		const wire = installWire( { taillog: sourcesReply() } );
 		const { result } = mountGraph();
 		await act( async () => {} );
-		payload.taillog = segmentedReply();
-		await act( async () => result.current.selectSource( 'debug' ) );
-		expect( result.current.sources ).toEqual( segmentedReply() );
+		const asked = wire.batches
+			.flat()
+			.filter( ( m ) => 'taillog' === m[ VALUE ]?.name ).length;
+
+		act( () => result.current.selectSource( 'debug' ) );
+
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );
+		expect(
+			wire.batches
+				.flat()
+				.filter( ( m ) => 'taillog' === m[ VALUE ]?.name ).length
+		).toBe( asked );
 	} );
 
 	test( 'a stale seek does NOT reposition after the selection moved on', async () => {
@@ -349,8 +367,16 @@ describe( 'useLogViewerGraph', () => {
 		};
 
 		const esCount = FakeEventSource.instances.length;
-		await act( async () => result.current.step() );
+		act( () => result.current.step() );
 
+		// The read rides the router tick, so the line is a wait away.
+		await waitFor(
+			() =>
+				expect( Core.node( VIEW ).lines[ 0 ]?.content ).toBe(
+					'stepped line\n'
+				),
+			{ timeout: 6000 }
+		);
 		expect( FakeEventSource.instances.length ).toBe( esCount );
 		const cmd = wire.batches
 			.flat()
@@ -360,18 +386,24 @@ describe( 'useLogViewerGraph', () => {
 			'access',
 			'4242:100',
 		] );
-		expect( Core.node( VIEW ).lines[ 0 ].content ).toBe( 'stepped line\n' );
-	} );
+	}, 15000 );
 
-	test( 'fetchSources refreshes the returned catalog', async () => {
+	// The catalog is polled, so rotation lands on its own: nothing to call.
+	test( 'the polled catalog picks up a rotation', async () => {
 		const payload = { taillog: sourcesReply() };
 		installWire( payload );
 		const { result } = mountGraph();
-		await act( async () => {} );
+		await waitFor(
+			() => expect( result.current.sources ).toEqual( sourcesReply() ),
+			{ timeout: 6000 }
+		);
+
 		payload.taillog = segmentedReply();
-		await act( async () => result.current.fetchSources() );
-		expect( result.current.sources ).toEqual( segmentedReply() );
-	} );
+		await waitFor(
+			() => expect( result.current.sources ).toEqual( segmentedReply() ),
+			{ timeout: 15000 }
+		);
+	}, 25000 );
 
 	/**
 	 * Was 'a seek-time fetch failure replays with NO boundary (degraded)'. There

@@ -1,8 +1,11 @@
 /**
  * TopologyControls — the per-topology action cluster (active toggle + fleet
  * restart + Edit deep-link) shared by the Topologies and Overview hub tabs, so
- * both carry the SAME controls with one set of styles. A rejected mutation is
- * surfaced via `onError` (never swallowed, never crashes the render).
+ * both carry the SAME controls with one set of styles.
+ *
+ * Each action fires and returns; the answer lands a tick later on the node that
+ * asked for it, and a refusal is raised by whoever owns those nodes. There is
+ * nothing to await here, and so nothing to swallow.
  */
 
 import { __ } from '@wordpress/i18n';
@@ -11,10 +14,9 @@ import { __ } from '@wordpress/i18n';
  * @param {Object}   props
  * @param {string}   props.name         Topology name (the mutation argument).
  * @param {boolean}  props.active       Whether the topology is active.
- * @param {Function} props.onActivate   (name) => Promise.
- * @param {Function} props.onDeactivate (name) => Promise.
- * @param {Function} props.onRestart    (name) => Promise.
- * @param {Function} props.onError      ({name,message}) => void for a rejected mutation.
+ * @param {Function} props.onActivate   (name) => void.
+ * @param {Function} props.onDeactivate (name) => void.
+ * @param {Function} props.onRestart    (name) => void.
  * @param {string}   props.editHref     Console edit deep-link.
  * @return {import('react').ReactElement} The control cluster.
  */
@@ -24,13 +26,9 @@ export default function TopologyControls( {
 	onActivate,
 	onDeactivate,
 	onRestart,
-	onError,
 	editHref,
 } ) {
-	const fire = ( fn ) => () =>
-		Promise.resolve( fn( name ) ).catch( ( err ) =>
-			onError?.( { name, message: err?.message || String( err ) } )
-		);
+	const fire = ( fn ) => () => fn( name );
 
 	return (
 		<span className="nodes-ctl">

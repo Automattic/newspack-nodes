@@ -16,7 +16,7 @@
  * actually routes the composed `:sse-in` → view.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import {
 	newMessage,
 	pack,
@@ -327,8 +327,9 @@ describe( 'usePartitionViewerGraph — heartbeat slot bridge', () => {
 				);
 			} );
 			wire.batches.length = 0; // ignore the initial list_logs batch
-			// 1s Router TIMER x 5 = past the 5s base-Timer throttle.
-			act( () => {
+			// 1s Router TIMER x 5 = past the 5s base-Timer throttle. The
+			// catalog poll rides the same ticks, so its reply publishes here.
+			await act( async () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
 			expect( Core.node( HEARTBEAT ).lastFireTime ).toBeGreaterThan( 0 );
@@ -354,14 +355,8 @@ describe( 'usePartitionViewerGraph — teardown', () => {
 		unmount();
 		expect( es.closed ).toBe( true );
 		// The single-link owner tears down the shared _http/_heartbeat too.
-		for ( const name of [
-			HTTP,
-			HEARTBEAT,
-			LINK,
-			VIEW,
-			INTERPRETER,
-			ROUTER,
-		] ) {
+		// Not the ROUTER: it is the page's heartbeat and is never removed.
+		for ( const name of [ HTTP, HEARTBEAT, LINK, VIEW, INTERPRETER ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}
 	} );
@@ -427,20 +422,27 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		} );
 		const { result } = mountGraph();
 		await act( async () => {} );
-		let status;
-		await act( async () => {
-			status = await result.current.fetchLogStatus( 'firehose.p0' );
-		} );
+
+		act( () => result.current.fetchLogStatus( 'firehose.p0' ) );
+
+		// The answer NAMES the partition it is about — nothing correlated.
+		await waitFor(
+			() =>
+				expect( result.current.logStatus ).toMatchObject( {
+					log: 'firehose.p0',
+				} ),
+			{ timeout: 6000 }
+		);
 		const statusMsg = wire.batches
 			.flat()
 			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
 		expect( statusMsg[ TO ] ).toBe( 'raw-logs' );
 		expect( statusMsg[ VALUE ].arguments ).toEqual( [ 'firehose.p0' ] );
-		expect( status.segments ).toEqual( [
+		expect( result.current.logStatus.result.segments ).toEqual( [
 			{ id: 4, size: 100 },
 			{ id: 5, size: 200 },
 		] );
-	} );
+	}, 15000 );
 
 	test( 'seek re-subscribes the stream at the given positions seed', async () => {
 		installWire( { list_logs: oneLogReply() } );
@@ -680,16 +682,20 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 		act( () => result.current.setPaused( true ) );
 
 		const esCount = FakeEventSource.instances.length;
-		await act( async () => result.current.step() );
+		act( () => result.current.step() );
 
+		// The read rides the router tick, so the record is a wait away.
+		const view = Core.node( VIEW );
+		await waitFor(
+			() => expect( view.lines[ 0 ]?.content ).toBe( 'stepped one' ),
+			{ timeout: 6000 }
+		);
 		// No stream opened; the record rode the command channel.
 		expect( FakeEventSource.instances.length ).toBe( esCount );
 		const cmd = wire.batches
 			.flat()
 			.find( ( m ) => 'read_message' === m[ VALUE ]?.name );
 		expect( cmd[ VALUE ].arguments ).toEqual( [ 'firehose.p0', '7:120' ] );
-		const view = Core.node( VIEW );
-		expect( view.lines[ 0 ].content ).toBe( 'stepped one' );
 		// Stamped like a streamed frame: sub-prefixed FROM keeps the P column.
 		expect( view.lines[ 0 ].partition ).toBe( 0 );
 
@@ -699,7 +705,16 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			cursor: { segment: 7, offset: 160 },
 			at_eof: false,
 		};
-		await act( async () => result.current.step() );
+		act( () => result.current.step() );
+		await waitFor(
+			() =>
+				expect(
+					wire.batches
+						.flat()
+						.filter( ( m ) => 'read_message' === m[ VALUE ]?.name )
+				).toHaveLength( 2 ),
+			{ timeout: 6000 }
+		);
 		const cmds = wire.batches
 			.flat()
 			.filter( ( m ) => 'read_message' === m[ VALUE ]?.name );
@@ -707,14 +722,14 @@ describe( 'usePartitionViewerGraph — pause disconnects / play resumes', () => 
 			'firehose.p0',
 			'7:150',
 		] );
-	} );
+	}, 20000 );
 
 	test( 'step while LIVE is a no-op (paused-only control)', async () => {
 		installWire( { list_logs: oneLogReply() } );
 		const { result } = mountGraph();
 		await act( async () => {} );
 		const before = FakeEventSource.instances.length;
-		await act( async () => result.current.step() );
+		act( () => result.current.step() );
 		expect( FakeEventSource.instances.length ).toBe( before );
 	} );
 

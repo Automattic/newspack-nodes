@@ -12,18 +12,99 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import useReconcile from '@newspack-nodes/shared/hooks/useReconcile';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
-import useRequestNode, {
-	requestVia,
-} from '@newspack-nodes/shared/hooks/useRequestNode';
+import names from '../../runtime/reserved-node-names.json';
 
 const EMPTY = { nodes: [], edges: [], tree: {}, hulls: {} };
 
-// Mounted below; the module-level fetch borrows it, queueing behind it.
-const EXPAND_NODE = 'topologies:expand';
-
 const cache = new Map();
+
+// @longform
+// The keys still to ask about, and who is waiting on each. The console mounts
+// ONE expand hook and it does all the asking, one at a time; a caller that
+// needs an expansion mid-flow (an upload, whose .tsl has includes but no
+// expansion shipped with it) parks its key here and is woken when the answer
+// lands. Nothing here mints a command — the hook's one-shot does, on the router
+// tick, in the batch with everything else.
+const waiting = new Map();
+let wake = () => {};
+
+/**
+ * Queue a key to ask about, with nobody waiting on the answer.
+ *
+ * @param {string} key The joined include set.
+ */
+function want( key ) {
+	if ( ! waiting.has( key ) ) {
+		waiting.set( key, [] );
+	}
+}
+
+/** @return {?string} The next queued key with no answer yet. */
+function nextWanted() {
+	for ( const key of waiting.keys() ) {
+		if ( ! cache.has( key ) ) {
+			return key;
+		}
+	}
+	return null;
+}
+
+/**
+ * Hand an arrived expansion to everyone waiting on it.
+ *
+ * @param {string} key       The joined include set.
+ * @param {Object} expansion `{ nodes, edges, tree, hulls }`.
+ */
+function settle( key, expansion ) {
+	cache.set( key, expansion );
+	const waiters = waiting.get( key ) || [];
+	waiting.delete( key );
+	waiters.forEach( ( { resolve } ) => resolve( expansion ) );
+}
+
+/**
+ * Fail everyone waiting on a key the server refused — a cycle, a conflict, an
+ * unknown include name. A refusal is an answer, so the key leaves the queue.
+ *
+ * @param {string} key    The joined include set.
+ * @param {string} reason The refusal text.
+ */
+function refuse( key, reason ) {
+	const waiters = waiting.get( key ) || [];
+	waiting.delete( key );
+	waiters.forEach( ( { reject } ) => reject( new Error( reason ) ) );
+}
+
+/**
+ * Fail everyone still waiting, because nothing is left to ask for them. The
+ * hook that does the asking has gone; a key parked now would never settle, and
+ * its caller — mid-load, awaiting a baseline — would hang there rather than
+ * unwind.
+ *
+ * @param {string} reason The refusal text.
+ */
+function refuseAll( reason ) {
+	for ( const key of [ ...waiting.keys() ] ) {
+		refuse( key, reason );
+	}
+}
+
+/**
+ * Shape a raw `topologies expand` reply, which may be missing any of its lists.
+ *
+ * @param {?Object} value The reply payload.
+ * @return {Object} `{ nodes, edges, tree, hulls }`.
+ */
+function shape( value ) {
+	return {
+		nodes: value?.nodes || [],
+		edges: value?.edges || [],
+		tree: value?.tree || {},
+		hulls: value?.hulls || {},
+	};
+}
 
 /**
  * Drop every cached expansion. Saving or deleting ANY topology can change what
@@ -44,65 +125,55 @@ export function primeExpandedIncludes( includes, expansion ) {
 	if ( ! includes || ! includes.length || ! expansion ) {
 		return;
 	}
-	cache.set( includes.join( ' ' ), {
-		nodes: expansion.nodes || [],
-		edges: expansion.edges || [],
-		tree: expansion.tree || {},
-		hulls: expansion.hulls || {},
-	} );
+	settle( includes.join( ' ' ), shape( expansion ) );
 }
 
 /**
- * One-off `topologies expand` round trip for a topology-open/edit-entry load
- * (applyLoadedBaseline needs the composed expansion BEFORE the draft is set,
- * so it can subtract `disconnects`; useExpandedIncludes only reacts AFTER).
+ * The composed expansion for a load that needs it BEFORE the draft is set —
+ * `applyLoadedBaseline` subtracts `disconnects` against it, and the reactive
+ * pass below only reacts AFTER.
  *
- * Shares useExpandedIncludes' module-level cache: a cache hit here skips the
- * network round trip, and a fresh fetch primes the cache so the reactive
- * useExpandedIncludes pass that follows (once the includes land in the
- * draft) is itself a cache hit — one `topologies expand` per open, not two.
+ * It sends nothing itself. The key is parked for the console's expand hook,
+ * which asks on the next tick, and the promise settles when the answer lands —
+ * or immediately, when the cache already holds it (a `topologies get` ships the
+ * expansion with the file, and `primeExpandedIncludes` puts it here).
  *
  * @param {string[]} includes Directly-declared includes to expand.
  * @return {Promise<Object>} `{ nodes, edges, tree, hulls }`; empty when
  *                           `includes` is empty.
  */
-export async function fetchExpandedIncludes( includes ) {
+export function fetchExpandedIncludes( includes ) {
 	if ( ! includes || ! includes.length ) {
-		return EMPTY;
+		return Promise.resolve( EMPTY );
 	}
 	const key = includes.join( ' ' );
 	const cached = cache.get( key );
 	if ( cached ) {
-		return cached;
+		return Promise.resolve( cached );
 	}
-	const value =
-		( await requestVia(
-			EXPAND_NODE,
-			'expand',
-			formatCommandArgs( includes )
-		) ) || {};
-	const expansion = {
-		nodes: value.nodes || [],
-		edges: value.edges || [],
-		tree: value.tree || {},
-		hulls: value.hulls || {},
-	};
-	cache.set( key, expansion );
-	return expansion;
+	return new Promise( ( resolve, reject ) => {
+		waiting.set( key, [
+			...( waiting.get( key ) || [] ),
+			{ resolve, reject },
+		] );
+		wake();
+	} );
 }
 
 /**
- * Track the composed expansion of the draft's include set, reactively.
+ * Track the composed expansion of the draft's include set, reactively — and,
+ * being the console's ONE expand hook, work off whatever `fetchExpandedIncludes`
+ * has parked as well. One ask at a time: a second `run()` over an outstanding
+ * one would replace its arguments, and the first key would never be asked.
  *
- * The include set is held as desired state (`useReconcile`), not fetched once:
- * an expansion that failed — a refused command session, a restarted worker —
- * keeps being retried until it resolves, while an already-expanded set is
- * served from the module cache instead of re-requested. An empty set resets to
- * the empty expansion synchronously, with no round trip at all.
+ * The ask is a READ, so it retries until an answer lands: an expansion lost to
+ * a refused session or a restarted worker resolves on its own. An
+ * already-expanded set is served from the module cache with no round trip, and
+ * an empty set resets synchronously without asking at all.
  *
- * A server-side cycle, conflict, or unknown include name throws; the last-good
- * expansion is kept and `error` carries the message, so the caller can revert
- * the include that broke it.
+ * A server-side cycle, conflict, or unknown include name is refused; the
+ * last-good expansion is kept and `error` carries the message, so the caller
+ * can revert the include that broke it.
  *
  * @param {string[]} includes The draft's directly-declared includes.
  * @return {{expansion: Object, error: string|null, loading: boolean}} The
@@ -111,65 +182,80 @@ export async function fetchExpandedIncludes( includes ) {
  */
 export function useExpandedIncludes( includes ) {
 	const key = ( includes || [] ).join( ' ' );
-	// Latest includes for the effect (it depends on the stable key).
-	const includesRef = useRef( includes );
-	includesRef.current = includes;
-	const [ state, setState ] = useState( {
-		expansion: EMPTY,
-		error: null,
-		loading: false,
-	} );
-	const request = useRequestNode( EXPAND_NODE, 'topologies' );
 
-	// @longform
-	// The lastKey latch was set BEFORE the request, so one failed expansion
-	// was permanent for that key — the expansion stayed missing until the key
-	// changed. The loop owns whether another attempt is due; the cache still
-	// serves an already-expanded key, so only an unresolved one is retried.
-	const load = useCallback( async () => {
-		const cached = cache.get( key );
-		if ( cached ) {
-			setState( ( s ) =>
-				cached === s.expansion && ! s.error && ! s.loading
-					? s
-					: { expansion: cached, error: null, loading: false }
-			);
+	// Bumped when the cache or the queue moves, so this re-reads them.
+	const [ , bump ] = useState( 0 );
+	const [ error, setError ] = useState( null );
+
+	// The key of the ask in flight; one at a time.
+	const askingRef = useRef( null );
+	// `pump` reaches the reply handler through this, being defined after it.
+	const pumpRef = useRef( () => {} );
+
+	const { run } = useCommandOnce( {
+		scope: 'topologies:expand',
+		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`,
+		command: 'expand',
+		retry: true,
+		onDone: ( { result, error: refusal, args } ) => {
+			const asked = args.join( ' ' );
+			askingRef.current = null;
+			if ( refusal ) {
+				refuse( asked, refusal );
+				setError( refusal );
+			} else {
+				settle( asked, shape( result ) );
+			}
+			bump( ( n ) => n + 1 );
+			// One ask at a time: the next key is asked for here or nowhere.
+			pumpRef.current();
+		},
+	} );
+
+	// Ask for the next queued key, unless one is already outstanding.
+	const pump = useCallback( () => {
+		if ( askingRef.current ) {
 			return;
 		}
-		setState( ( s ) => ( { ...s, loading: true, error: null } ) );
-		try {
-			const value = await request(
-				'expand',
-				formatCommandArgs( includesRef.current || [] )
-			);
-			const expansion = {
-				nodes: value.nodes || [],
-				edges: value.edges || [],
-				tree: value.tree || {},
-				hulls: value.hulls || {},
-			};
-			cache.set( key, expansion );
-			setState( { expansion, error: null, loading: false } );
-		} catch ( e ) {
-			setState( ( s ) => ( {
-				expansion: s.expansion,
-				error: e?.message || 'expand failed',
-				loading: false,
-			} ) );
-			throw e;
+		const next = nextWanted();
+		if ( next ) {
+			askingRef.current = next;
+			run( formatCommandArgs( next.split( ' ' ) ) );
 		}
-	}, [ key, request ] );
+	}, [ run ] );
 
-	// An empty include set resets synchronously, as it always did.
+	// A parked key has nobody else to ask for it; wake this hook for it.
+	pumpRef.current = pump;
 	useEffect( () => {
-		if ( '' === key ) {
-			setState( { expansion: EMPTY, error: null, loading: false } );
+		const waker = () => {
+			bump( ( n ) => n + 1 );
+			pumpRef.current();
+		};
+		wake = waker;
+		return () => {
+			// A later mount already took over; leave its waker alone.
+			if ( wake !== waker ) {
+				return;
+			}
+			wake = () => {};
+			refuseAll( 'the graph was torn down' );
+		};
+	}, [] );
+
+	// The draft's own set joins the same queue; then work the queue.
+	useEffect( () => {
+		setError( null );
+		if ( '' !== key && ! cache.has( key ) ) {
+			want( key );
 		}
-	}, [ key ] );
+		pump();
+	}, [ key, pump ] );
 
-	useReconcile( { load, enabled: '' !== key, deps: [ key ] } );
-
-	return state;
+	return {
+		expansion: ( '' === key ? EMPTY : cache.get( key ) ) ?? EMPTY,
+		error,
+		loading: '' !== key && ! cache.has( key ) && null === error,
+	};
 }
 
 /**
