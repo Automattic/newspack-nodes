@@ -31,6 +31,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
@@ -60,7 +61,6 @@ class Settings_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_set( array $args ): array {
-		self::require_manage_options();
 		// Positional: set <option> <value>; <option> is the full option key.
 		[ $option, $value ] = \array_pad( Command_Args::parse( $args )['positional'], 2, null );
 
@@ -163,12 +163,14 @@ class Settings_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'get',
+					'capability'  => Capabilities::READ,
 					'description' => 'Return the seven substrate-owned integer settings as a snapshot.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_get(),
 				],
 				[
 					'name'        => 'set',
+					'capability'  => Capabilities::TUNE,
 					'description' => 'Set a single substrate-owned integer setting by its full option name, then return the post-set snapshot.',
 					'args'        => [
 						[ 'name' => 'option', 'type' => 'string', 'required' => true ],

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A third capability role, `tune`, and a session SCOPE that lowers the ceiling for one command.** Authority is cut by BLAST RADIUS now, not by read-versus-write: `read` changes nothing, `tune` writes values a schema already bounds (settings, layouts), `manage` takes the site down or hands out access (restart, activate, spawn, vault). All three still default to `manage_options`, so nothing changes until a site filters `newspack_nodes/capability_map` or runs `wp nodes caps install`.
+- **`Roles`** — the opt-in migration off `manage_options` onto three real capabilities, plus the `newspack_nodes_hub` role holding `read` + `tune` and nothing else. `install()` grants all three to EVERY role that already held `manage_options`, not just `administrator`, so a site with a custom Ops role is not locked out by a migration billed as non-breaking. Reversible, and `uninstall.php` calls it — the role lives in the roles option, which no `newspack_nodes_` prefix sweep would ever reach.
+- **`wp nodes caps <status|install|uninstall>`** and **`wp nodes hub-user <login>`**: install the granular capabilities, then create the least-privilege aggregator user and issue it an application password (shown once). That retires the `adminnewspack` application password the hub held on every spoke to do nothing but pull a read-only stream.
+- **`Sessions` + `Sessions_CI` + a Sessions hub tab** — the mirror of Vault. Vault holds the credentials this site sends OUT; Sessions lists, issues and revokes the ones it hands to callers coming IN. A session carries a scope, CLAMPED at mint to what the issuing user actually holds, so a listing states authority rather than a request. Cache stores do not enumerate, so an option holds the directory and the cache stays the authority on liveness — the same pointer-versus-lease split as `SSE_Slot_Pool`. The key is never stored there and cannot be hashed (verification recomputes an HMAC from it), which is the argument for short TTLs rather than a long-lived token.
+- `POST /v1/auth` accepts `scope`, `label` and `ttl`; the response gains `scope`.
+- A shared `Modal` component (`@newspack-nodes/shared/components/Modal`) — one canonical dialog shell instead of a per-dashboard backdrop. Vault now uses it.
+
+### Changed
+- **`POST /v1/command` demands READ at the door, not MANAGE.** The strictest verb behind an endpoint used to set the privilege level of every caller reaching it. Authority is decided per verb now: each service CI verb declares its role, and the base interpreter — whose vocabulary builds and rewires the graph — is pinned to MANAGE by the controller, with a READ exception list for the builtins every dashboard drives (`taillog`, `dump_metadata`, `list_nodes`, `uptime`, …). Workers leave the pin null; a CLI process has no current user and a floor there would refuse the worker its own topology.
+- Every substrate service verb now DECLARES its role rather than defaulting to manage by omission. Notably `workers heartbeat` is `read`: it is the SSE slot keepalive, and manage there would expire every read-only stream after one slot TTL.
+- `Command_Auth::verify()` fails CLOSED on every refusal — the ceiling it installs is global and only `interpret()` restores it, so a caller outside that lifetime cannot leave a wider ceiling standing than the command that failed.
+
 ## [2.30.1] - 2026-08-14
 
 ### Fixed

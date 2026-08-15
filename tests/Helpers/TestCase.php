@@ -142,6 +142,12 @@ abstract class TestCase extends PHPUnitTestCase {
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
 			Core::$config_resolvers = $this->saved_config_resolvers;
 		}
+		// A direct Command_Auth::verify() installs a capability ceiling that
+		// only interpret() restores; a test calling it raw would otherwise
+		// leave every later test's Capabilities::can() answering false.
+		if ( \class_exists( '\Newspack_Nodes\Capabilities' ) ) {
+			\Newspack_Nodes\Capabilities::$session_scope = null;
+		}
 		if ( isset( $GLOBALS['_wp_actions'] ) ) {
 			$GLOBALS['_wp_actions'] = $this->saved_wp_actions;
 		}

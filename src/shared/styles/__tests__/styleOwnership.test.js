@@ -123,7 +123,6 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'topology-settings-panel', 'newspack-nodes-card' ],
 	[ 'topology-settings-panel', 'newspack-nodes-card--elevated' ],
 	[ 'topology-open-item__badge', 'newspack-nodes-badge' ],
-	[ 'nodes-vault__modal', 'newspack-nodes-modal' ],
 	[ 'nodes-tm__alert', 'newspack-nodes-modal' ],
 	[ 'nodes-devtools__empty', 'newspack-nodes-empty-state' ],
 	[ 'nodes-devtools__lazy-loading', 'newspack-nodes-performance-loading' ],
@@ -174,7 +173,6 @@ const SURFACE_SELECTORS = new Set( [
 	'.aggregator-partition',
 	'.aggregator-partition:hover',
 	'.aggregator-partition-stat-label',
-	'.nodes-vault__modal',
 	'.nodes-tm__alert',
 	'.topology-modal',
 	'.topology-settings-panel',
@@ -1832,11 +1830,14 @@ describe( 'canonical appearance ownership', () => {
 			} )
 		);
 
-		const vaultStylesheet = compile(
-			path.join( NODES_SRC, 'vault/vault-admin.scss' )
+		const modalStylesheet = compile(
+			path.join( NODES_SRC, 'shared/components/Modal.scss' )
 		);
 		expect(
-			declarationsForSelector( vaultStylesheet, '.nodes-vault__modal' )
+			declarationsForSelector(
+				modalStylesheet,
+				'.newspack-nodes-modal__backdrop > .newspack-nodes-modal'
+			)
 		).toEqual(
 			expect.objectContaining( {
 				width: '90%',

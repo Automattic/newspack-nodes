@@ -41,6 +41,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -212,6 +213,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'summary',
+					'capability'  => Capabilities::READ,
 					'description' => 'De-god header slice: connected/idle/total counts + snapshot clock (computed from the status snapshot).',
 					'args'        => [],
 					'handler'     => self::slice_verb( static function (): array {
@@ -236,6 +238,7 @@ class Aggregator_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'servers_status',
+					'capability'  => Capabilities::READ,
 					'description' => 'De-god server-cards slice: the status snapshot as a sequential array.',
 					'args'        => [],
 					'handler'     => self::slice_verb( static fn (): array => \array_values( self::build_snapshot() ) ),

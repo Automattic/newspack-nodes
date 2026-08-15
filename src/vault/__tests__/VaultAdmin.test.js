@@ -240,9 +240,7 @@ describe( 'VaultAdmin', () => {
 		openAddModal( container );
 		const dialog = document.querySelector( '[role="dialog"]' );
 		expect( dialog ).toBeTruthy();
-		expect( dialog.className ).toBe(
-			'nodes-vault__modal newspack-nodes-modal'
-		);
+		expect( dialog.className ).toBe( 'newspack-nodes-modal' );
 		expect( dialog.querySelector( '#new-server-id' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#new-server-url' ) ).toBeTruthy();
 		expect( dialog.querySelector( '#new-server-username' ) ).toBeTruthy();
@@ -257,7 +255,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		openAddModal( container );
 		const footer = container.querySelector(
-			'[role="dialog"] .nodes-vault__modal-actions'
+			'[role="dialog"] .newspack-nodes-modal__actions'
 		);
 		expect( footer ).toBeTruthy();
 		// The primary submit lives in the footer, not in the form table.

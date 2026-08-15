@@ -60,6 +60,10 @@ const ENTRIES = [
 		outDir: path.resolve( ROOT, 'build/vault' ),
 	},
 	{
+		entry: 'src/sessions/index.js',
+		outDir: path.resolve( ROOT, 'build/sessions' ),
+	},
+	{
 		entry: 'src/event-aggregator/index.js',
 		outDir: path.resolve( ROOT, 'build/event-aggregator' ),
 	},

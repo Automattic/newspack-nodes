@@ -53,6 +53,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
@@ -500,12 +501,14 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'list',
+					'capability'  => Capabilities::READ,
 					'description' => 'List topologies with source (user/stock/both) and active state.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
 				],
 				[
 					'name'        => 'get',
+					'capability'  => Capabilities::READ,
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
@@ -539,6 +542,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'expand',
+					'capability'  => Capabilities::READ,
 					'description' => 'Compose an include set into one graph with provenance (informational).',
 					'args'        => [ [ 'name' => 'names', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_expand( self::arg_strings( $args ) ),

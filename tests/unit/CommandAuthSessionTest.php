@@ -58,14 +58,14 @@ class CommandAuthSessionTest extends TestCase {
 		);
 		$this->assertSame(
 			self::KEY,
-			Command_Auth::load_session( self::HANDLE ),
+			( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ),
 			'the losing store must leave the original key intact'
 		);
 	}
 
 	public function test_load_session_returns_null_for_an_unknown_handle(): void {
 		$this->assertNull(
-			Command_Auth::load_session( 'ffffffffffffffffffffffffffffffff' ),
+			( Command_Auth::load_session_record( 'ffffffffffffffffffffffffffffffff' )['key'] ?? null ),
 			'a miss must be null, never false or a default'
 		);
 	}
@@ -73,7 +73,7 @@ class CommandAuthSessionTest extends TestCase {
 	public function test_load_session_returns_null_when_no_store_is_available(): void {
 		Core::$memd                 = null;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
-		$this->assertNull( Command_Auth::load_session( self::HANDLE ) );
+		$this->assertNull( ( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ) );
 	}
 
 	public function test_store_session_fails_closed_when_no_store_is_available(): void {
@@ -87,7 +87,7 @@ class CommandAuthSessionTest extends TestCase {
 
 		$this->assertSame(
 			$session['key'],
-			Command_Auth::load_session( $session['handle'] ),
+			( Command_Auth::load_session_record( $session['handle'] )['key'] ?? null ),
 			'the returned key must be the one that was persisted'
 		);
 		$this->assertSame( Command_Auth::SESSION_TTL_S, $session['expires_in'] );
@@ -260,7 +260,7 @@ class CommandAuthSessionTest extends TestCase {
 			self::TTL
 		);
 
-		$this->assertNull( Command_Auth::load_session( self::HANDLE ) );
+		$this->assertNull( ( Command_Auth::load_session_record( self::HANDLE )['key'] ?? null ) );
 	}
 
 	public function test_apcu_session_store_load_sign_and_verify_round_trip(): void {
@@ -276,7 +276,7 @@ class CommandAuthSessionTest extends TestCase {
 
 		try {
 			$this->assertTrue( Command_Auth::store_session( self::APCU_HANDLE, self::KEY, self::TTL ) );
-			$this->assertSame( self::KEY, Command_Auth::load_session( self::APCU_HANDLE ) );
+			$this->assertSame( self::KEY, ( Command_Auth::load_session_record( self::APCU_HANDLE )['key'] ?? null ) );
 			Command_Auth::remember_session( $remote, self::APCU_HANDLE, self::KEY );
 
 			$message = $this->command();

@@ -70,6 +70,16 @@ class Command_Auth {
 	public const SESSION_TTL_S = 3600;
 
 	/**
+	 * Longest session a caller may ask for. The key stays RECOVERABLE in the
+	 * cache — verification recomputes an HMAC, so it cannot be hashed — and a
+	 * day is already generous for something sitting readable in memcached.
+	 */
+	public const SESSION_TTL_MAX_S = 86400;
+
+	/** Shortest session worth minting; below this a client re-auths mid-task. */
+	public const SESSION_TTL_MIN_S = 60;
+
+	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
 	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
 	 * rides along fine).
@@ -147,21 +157,30 @@ class Command_Auth {
 	 *
 	 * Takes no destination or user: the verifier resolves a key by handle and
 	 * nothing more, and a signature under one session's key is verifiable only
-	 * by the site that minted it. Scope lives with the client that holds the key.
+	 * by the site that minted it. The SCOPE does ride along, because it is the
+	 * ceiling the verifier applies — the holder of the key cannot restate it.
 	 *
-	 * @return array{handle:string,key:string,expires_in:int,now:int}
+	 * @param string $scope One of Capabilities::READ|TUNE|MANAGE.
+	 * @param int    $ttl   Lifetime in seconds; defaults to SESSION_TTL_S.
+	 * @return array{handle:string,key:string,scope:string,expires_in:int,now:int}
+	 * @throws \InvalidArgumentException On a scope outside the ladder.
 	 * @throws \RuntimeException When the session could not be persisted.
 	 */
-	public static function mint_session(): array {
+	public static function mint_session( string $scope = Capabilities::MANAGE, int $ttl = self::SESSION_TTL_S ): array {
+		if ( ! Capabilities::scope_covers( $scope, Capabilities::READ ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- plain-text message for log/CLI consumers.
+			throw new \InvalidArgumentException( "unknown session scope: {$scope}" );
+		}
 		$handle = \bin2hex( \random_bytes( 16 ) );
 		$key    = \bin2hex( \random_bytes( 32 ) );
-		if ( ! self::store_session( $handle, $key, self::SESSION_TTL_S ) ) {
+		if ( ! self::store_session( $handle, $key, $ttl, $scope ) ) {
 			throw new \RuntimeException( 'Command_Auth: could not persist the session (no cache backend, or handle taken)' );
 		}
 		return [
 			'handle'     => $handle,
 			'key'        => $key,
-			'expires_in' => self::SESSION_TTL_S,
+			'scope'      => $scope,
+			'expires_in' => $ttl,
 			// The minter signs TIMESTAMP; the client aligns to this clock.
 			'now'        => \time(),
 		];
@@ -178,9 +197,53 @@ class Command_Auth {
 	 * cache domain. This deliberately differs from the nonce claim's
 	 * `local_first()` ordering.
 	 */
-	public static function store_session( string $handle, string $key, int $ttl ): bool {
+	public static function store_session( string $handle, string $key, int $ttl, string $scope = Capabilities::MANAGE ): bool {
 		$backend = Cache_Backend::shared_first();
-		return null !== $backend && $backend->add( self::session_address( $handle ), $key, $ttl );
+		return null !== $backend && $backend->add(
+			self::session_address( $handle ),
+			[ 'k' => $key, 's' => $scope ],
+			$ttl
+		);
+	}
+
+	/**
+	 * Drop a session so its key stops verifying immediately. The cache entry IS
+	 * the authority; a directory row without it is already dead.
+	 */
+	public static function revoke_session( string $handle ): bool {
+		$backend = Cache_Backend::shared_first();
+		return null !== $backend && $backend->delete( self::session_address( $handle ) );
+	}
+
+	/**
+	 * Which of these handles still have a live key, as a `handle => true` set.
+	 * ONE multi-get: a directory listing asking per row is 50 round trips for
+	 * one screen, and the rest of the substrate batches its cache reads.
+	 *
+	 * @param list<string> $handles Handles to test.
+	 * @return array<string,true>
+	 */
+	public static function live_handles( array $handles ): array {
+		$backend = Cache_Backend::shared_first();
+		if ( null === $backend || [] === $handles ) {
+			return [];
+		}
+		$addresses = [];
+		foreach ( $handles as $handle ) {
+			$addresses[ self::session_address( $handle ) ] = $handle;
+		}
+		$live = [];
+		foreach ( $backend->read_multi( \array_keys( $addresses ) ) as $address => $record ) {
+			if ( null !== $record && isset( $addresses[ $address ] ) ) {
+				$live[ $addresses[ $address ] ] = true;
+			}
+		}
+		return $live;
+	}
+
+	/** Clamp a requested lifetime into [SESSION_TTL_MIN_S, SESSION_TTL_MAX_S]. */
+	public static function bounded_ttl( int $ttl ): int {
+		return \max( self::SESSION_TTL_MIN_S, \min( self::SESSION_TTL_MAX_S, $ttl ) );
 	}
 
 	/**
@@ -258,6 +321,27 @@ class Command_Auth {
 	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
 	 */
 	public static function verify( array $message, ?int $now = null, ?Command_Interpreter_Node $interpreter = null ): bool {
+		// @longform ONE exit for the ceiling. `check()` installs the verified
+		// session's scope on the way through, and this closes it on EVERY
+		// refusal — the mutation is global and only interpret() restores it, so
+		// a caller outside that lifetime (a sibling plugin, a test) must not be
+		// able to leave a wider ceiling standing than the command that failed.
+		$ok = self::check( $message, $now, $interpreter );
+		if ( ! $ok ) {
+			Capabilities::$session_scope = Capabilities::NONE;
+		}
+		return $ok;
+	}
+
+	/**
+	 * The verification itself. Installs the resolved scope as it goes; `verify()`
+	 * owns what happens to it on refusal.
+	 *
+	 * @param array<int,mixed>              $message     Message to verify.
+	 * @param int|null                      $now         Verification time; defaults to time().
+	 * @param Command_Interpreter_Node|null $interpreter Node to log a refusal through.
+	 */
+	private static function check( array $message, ?int $now, ?Command_Interpreter_Node $interpreter ): bool {
 		$type  = $message[ Message::TYPE ]      ?? null;
 		$ts    = $message[ Message::TIMESTAMP ] ?? null;
 		$value = $message[ Message::VALUE ]     ?? null;
@@ -286,11 +370,15 @@ class Command_Auth {
 		$handle = $auth['handle'] ?? null;
 		if ( null === $handle ) {
 			$key = self::secret();
+			// The per-site secret is the site's own authority: no ceiling.
+			Capabilities::$session_scope = null;
 		} else {
-			$key = self::load_session( Core::as_string( $handle ) );
-			if ( null === $key ) {
+			$record = self::load_session_record( Core::as_string( $handle ) );
+			if ( null === $record ) {
 				return false;
 			}
+			$key = $record['key'];
+			Capabilities::$session_scope = $record['scope'];
 		}
 
 		$canon = self::canonical( $ts, $value, $nonce );
@@ -347,14 +435,34 @@ class Command_Auth {
 		return false === $encoded ? null : $encoded;
 	}
 
-	/** Resolve a session key by handle. Null on miss, on a non-string, or with no store. */
-	public static function load_session( string $handle ): ?string {
+	/**
+	 * Resolve a session record by handle: `{key, scope}`, or null on any miss.
+	 *
+	 * A record written before scopes existed is a bare key string, and its
+	 * authority was unrestricted — so it reads back as MANAGE rather than being
+	 * discarded, which would log every live client out on deploy.
+	 *
+	 * @return array{key:string,scope:string}|null
+	 */
+	public static function load_session_record( string $handle ): ?array {
 		$backend = Cache_Backend::shared_first();
 		if ( null === $backend ) {
 			return null;
 		}
-		$key = $backend->get( self::session_address( $handle ) );
-		return \is_string( $key ) && '' !== $key ? $key : null;
+		$record = $backend->get( self::session_address( $handle ) );
+		if ( \is_string( $record ) ) {
+			return '' === $record ? null : [ 'key' => $record, 'scope' => Capabilities::MANAGE ];
+		}
+		if ( ! \is_array( $record ) ) {
+			return null;
+		}
+		$key   = Core::as_string( $record['k'] ?? null, '' );
+		// as_string() substitutes only for a NON-scalar, so `?? ''` yields ''.
+		$scope = Core::as_string( $record['s'] ?? null, '' );
+		if ( '' === $scope ) {
+			$scope = Capabilities::MANAGE;
+		}
+		return '' === $key ? null : [ 'key' => $key, 'scope' => $scope ];
 	}
 
 	/**

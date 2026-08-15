@@ -114,9 +114,17 @@ class HTTP_In_Node extends Node {
 	}
 
 	/**
-	 * Permission check: manage_options THEN per-user rate limit. Capability
+	 * Permission check: the READ floor THEN the per-user rate limit. Capability
 	 * is verified first so an unauthenticated burst can't poison the
 	 * transient table (same ordering Spawn_Controller uses).
+	 *
+	 * The door demands the LEAST any verb behind it needs, and authority is
+	 * then decided per verb — by each Service CI's declared role and, for the
+	 * base interpreter's graph vocabulary, by the MANAGE floor
+	 * `ensure_request_graph()` pins on it. Demanding MANAGE here instead made
+	 * the strictest verb set the privilege level of every caller, which is why
+	 * the log aggregator had to hold an administrator's application password to
+	 * do nothing but pull a read-only stream.
 	 *
 	 * @param \WP_REST_Request $req Request.
 	 * @return bool|\WP_Error
@@ -126,7 +134,7 @@ class HTTP_In_Node extends Node {
 		if ( null !== $gate ) {
 			return $gate;
 		}
-		if ( ! Capabilities::can( Capabilities::MANAGE ) ) {
+		if ( ! Capabilities::can( Capabilities::READ ) ) {
 			return false;
 		}
 		return $this->check_rate_limit();
@@ -261,6 +269,8 @@ class HTTP_In_Node extends Node {
 			$base_interpreter->name( Node_Names::COMMAND_INTERPRETER );
 			$base_interpreter->sink( $router );
 		}
+		// The graph vocabulary declares no per-verb roles; pin it at MANAGE.
+		$base_interpreter->required_capability = Capabilities::MANAGE;
 		// This controller instance IS the _output egress Node (same obj).
 		if ( ! Core::node( Node_Names::OUTPUT ) instanceof self ) {
 			$this->name( Node_Names::OUTPUT );

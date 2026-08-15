@@ -42,6 +42,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	$nodes_ingest_cli   = new \Newspack_Nodes\Ingest_CLI_Command();
 	$nodes_scaffold_cli = new \Newspack_Nodes\Scaffold_CLI_Command();
 	$nodes_memcache_cli = new \Newspack_Nodes\Memcache_CLI_Command();
+	$nodes_caps_cli     = new \Newspack_Nodes\Caps_CLI_Command();
 	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
 	\WP_CLI::add_command( 'nodes types',      [ $nodes_worker_cli, 'types' ]      );
 	\WP_CLI::add_command( 'nodes run',        [ $nodes_worker_cli, 'run' ]        );
@@ -56,6 +57,8 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
 	\WP_CLI::add_command( 'nodes memcache get', [ $nodes_memcache_cli, 'get' ] );
+	\WP_CLI::add_command( 'nodes caps',       [ $nodes_caps_cli, 'caps' ]         );
+	\WP_CLI::add_command( 'nodes hub-user',   [ $nodes_caps_cli, 'hub_user' ]     );
 }
 
 // Storage-backed runtime wiring stays lazy; only diagnostics wire above.
@@ -93,6 +96,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$base_interpreter->make_node( 'Aggregator_CI', 'aggregator' );
 	$base_interpreter->make_node( 'Settings_CI',   'settings' );
 	$base_interpreter->make_node( 'Status_CI',     'status' );
+	$base_interpreter->make_node( 'Sessions_CI',   'sessions' );
 
 	// Workers_CI needs the Cli: assign it as a public property after make_node.
 	$cli        = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );

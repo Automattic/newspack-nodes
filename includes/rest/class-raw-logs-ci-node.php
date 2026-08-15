@@ -22,6 +22,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
@@ -187,18 +188,21 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'list_logs',
+					'capability'  => Capabilities::READ,
 					'description' => 'List the on-disk log keys.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list_logs(),
 				],
 				[
 					'name'        => 'log_status',
+					'capability'  => Capabilities::READ,
 					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_log_status( $self, self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'read_message',
+					'capability'  => Capabilities::READ,
 					'description' => 'The single decoded record at <segment>:<offset> (a trailing :<length> is ignored); replies with the record, the post-step cursor and at_eof.',
 					'args'        => [
 						[ 'name' => 'log', 'type' => 'string', 'required' => true ],

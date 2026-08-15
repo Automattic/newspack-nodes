@@ -19,6 +19,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
@@ -163,12 +164,14 @@ class Layouts_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'get',
+					'capability'  => Capabilities::READ,
 					'description' => 'Read saved node positions for a layout name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args ): array => self::cmd_get( self::arg_strings( $args ) ),
 				],
 				[
 					'name'        => 'save',
+					'capability'  => Capabilities::TUNE,
 					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 1 MiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],

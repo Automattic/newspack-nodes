@@ -35,17 +35,17 @@ class AuthControllerTest extends TestCase {
 
 		$this->assertSame(
 			$body['key'],
-			Command_Auth::load_session( $body['handle'] ),
+			( Command_Auth::load_session_record( $body['handle'] )['key'] ?? null ),
 			'the issued key must be the one the verifier will resolve'
 		);
 		$this->assertSame( Command_Auth::SESSION_TTL_S, $body['expires_in'] );
 	}
 
 	/** The response is the only place the key is ever disclosed; nothing else may ride along. */
-	public function test_the_response_carries_only_the_session_triplet(): void {
+	public function test_the_response_carries_only_the_session_fields(): void {
 		$body = ( new Auth_Controller() )->issue( new \WP_REST_Request() );
 
-		$this->assertSame( [ 'expires_in', 'handle', 'key', 'now' ], $this->sorted_keys( $body ) );
+		$this->assertSame( [ 'expires_in', 'handle', 'key', 'now', 'scope' ], $this->sorted_keys( $body ) );
 	}
 
 	public function test_a_main_site_manage_options_user_is_permitted(): void {
