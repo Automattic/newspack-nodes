@@ -92,9 +92,9 @@ export function useTopologyList( { enabled = false } = {} ) {
  */
 export function useTopology( { scope, enabled = true } ) {
 	const { run, result, error, pending } = useCommandOnce( {
-		scope: `topologies:get:${ scope }`,
-		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`,
+		ci: 'topologies',
 		command: 'get',
+		scope: `topologies:get:${ scope }`,
 		retry: true,
 	} );
 

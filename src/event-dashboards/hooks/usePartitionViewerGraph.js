@@ -36,6 +36,7 @@ import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import { useNodeState } from '../../runtime/react';
 import { controlMsg } from '../../shared/helpers/controlMsg';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // The RemoteLink node, the inspectable stream Tee, and the view-model node.
 const LINK = 'partition:link';
@@ -72,13 +73,13 @@ export function usePartitionViewerGraph() {
 	const linkRef = useRef( null );
 	const viewRef = useRef( null );
 
-	const target = `_shell/_http/${ RAW_LOGS_CI }`;
+	const target = egressPath( RAW_LOGS_CI );
 
 	// One-record read behind the paused single-step; its own node.
 	const stepRead = useCommandOnce( {
-		scope: READ_NODE,
-		target,
+		ci: RAW_LOGS_CI,
 		command: 'read_message',
+		scope: READ_NODE,
 	} );
 	const { run: runStep } = stepRead;
 	const requestStep = useCallback(
@@ -88,9 +89,9 @@ export function usePartitionViewerGraph() {
 
 	// Segment metadata for the rail, by partition; the answer names the log.
 	const status = useCommandOnce( {
-		scope: STATUS_NODE,
-		target,
+		ci: RAW_LOGS_CI,
 		command: 'log_status',
+		scope: STATUS_NODE,
 		retry: true,
 	} );
 	const { run: runStatus } = status;

@@ -36,13 +36,13 @@ function replyError( message ) {
 
 /**
  * @param {Object} o         Options, as `useCommandOnce` takes them.
- * @param {string} o.scope   Names this verb's own nodes.
- * @param {string} o.target  Egress path the Fetcher targets.
  * @param {string} o.command The verb to send.
+ * @param {string} [o.ci]    The server CI mount the verb lives on.
+ * @param {string} [o.scope] Names this verb's own nodes.
  * @return {(args: string[]) => Promise<*>} Sends on the next tick; resolves
  *   with the reply's payload, or rejects with its refusal.
  */
-export function useAwaitableCommand( { scope, target, command } ) {
+export function useAwaitableCommand( { command, ci, scope } ) {
 	// @longform
 	// One waiter per send, in the order `useCommandOnce` answers them. The
 	// order holds because EVERY entry earns a reply: a POST that never landed
@@ -51,9 +51,9 @@ export function useAwaitableCommand( { scope, target, command } ) {
 	const waitersRef = useRef( [] );
 
 	const { run } = useCommandOnce( {
-		scope,
-		target,
 		command,
+		ci,
+		scope,
 		onDone: ( { result, error } ) => {
 			const waiter = waitersRef.current.shift();
 			if ( ! waiter ) {

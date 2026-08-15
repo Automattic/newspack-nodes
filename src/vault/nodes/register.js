@@ -1,7 +1,21 @@
-// Register the vault view classes so interpreter.makeNode can create them.
-import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
-import { VaultListViewNode } from './vault-list-view-node';
+/**
+ * The vault dashboard's slice view, declared rather than subclassed.
+ */
 
-CommandInterpreterNode.registerNodeClasses( {
-	VaultListView: VaultListViewNode,
+import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
+
+/** The classes, for the tests that instantiate them. @testonly */
+export const views = registerSliceViews( {
+	// `vault list` answers a live `{ id: public_shape }` map; take the rows.
+	VaultListView: {
+		empty: { servers: null, loading: true, error: null },
+		parse: ( body ) =>
+			body && 'object' !== typeof body
+				? null
+				: {
+						servers: Object.values( body || {} ),
+						loading: false,
+						error: null,
+				  },
+	},
 } );

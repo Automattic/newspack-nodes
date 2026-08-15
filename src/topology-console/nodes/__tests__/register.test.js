@@ -16,12 +16,12 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { VaultCatalogViewNode } from '../vault-catalog-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView() {
-	const node = new VaultCatalogViewNode();
+	const node = new views.VaultCatalogView();
 	node.name = 'vaults:view';
 	return node;
 }

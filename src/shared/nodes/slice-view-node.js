@@ -1,4 +1,10 @@
-import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
+import {
+	CommandInterpreterNode,
+	Node,
+	TYPE,
+	VALUE,
+	TM_ERROR,
+} from '@newspack-nodes/runtime';
 import { errorMessage } from '../errorMessage';
 
 /**
@@ -17,9 +23,13 @@ import { errorMessage } from '../errorMessage';
  * Subclasses supply only `emptySlice()` — the shaped-but-empty model so a render
  * before the first reply is valid.
  *
- * A slice, and only a slice. A verb somebody awaits is minted from its own
- * `Request` node and its reply is addressed there — so nothing that lands here
- * needs telling apart from anything else that lands here.
+ * A slice, and only a slice. A verb somebody awaits is minted from its own node
+ * and its reply is addressed there — so nothing that lands here needs telling
+ * apart from anything else that lands here.
+ *
+ * Most views need nothing but an empty model and a guard-then-map parse, which
+ * is a DECLARATION: see `sliceView()` below. Subclass only for a view that owns
+ * more than its slice — its own `fill()`, a timer, a teardown.
  */
 export class SliceViewNode extends Node {
 	/**
@@ -116,4 +126,54 @@ export class SliceViewNode extends Node {
 			has_target: false,
 		};
 	}
+}
+
+/**
+ * Declare a slice view: its empty model, and how a reply maps onto it.
+ *
+ * @param {Object}   o               The declaration.
+ * @param {Object}   o.empty         The shaped-but-empty model, copied per node.
+ * @param {Function} o.parse         `( payload ) => model|null`; null keeps the
+ *                                   model already on screen.
+ * @param {boolean}  [o.json]        True when the verb answers a JSON STRING —
+ *                                   `parse` then receives the decoded body.
+ * @param {string}   [o.description] Overrides the palette description.
+ * @return {typeof SliceViewNode} The view class.
+ */
+export function sliceView( { empty, parse, json = false, description } ) {
+	return class extends SliceViewNode {
+		emptySlice() {
+			return { ...empty };
+		}
+		_parse( payload ) {
+			if ( ! json ) {
+				return parse( payload );
+			}
+			// null is the base saying it could not decode, not a payload.
+			const body = super._parse( payload );
+			return null === body ? null : parse( body );
+		}
+		static nodeSchema() {
+			const schema = super.nodeSchema();
+			return description ? { ...schema, description } : schema;
+		}
+	};
+}
+
+/**
+ * Declare a dashboard's slice views and register them under their make_node
+ * names, which is what `viewClass` resolves against.
+ *
+ * @param {Object<string,Object>} views Name to `sliceView()` declaration.
+ * @return {Object<string,typeof SliceViewNode>} The classes, by name.
+ */
+export function registerSliceViews( views ) {
+	const classes = Object.fromEntries(
+		Object.entries( views ).map( ( [ name, spec ] ) => [
+			name,
+			sliceView( spec ),
+		] )
+	);
+	CommandInterpreterNode.registerNodeClasses( classes );
+	return classes;
 }

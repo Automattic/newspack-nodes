@@ -37,6 +37,7 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import names from '../../runtime/reserved-node-names.json';
 import '../nodes/register';
 
+const VAULT_CI = 'vault';
 const LIST_RECV = 'vault:listIn';
 
 /** The credential-list view node the table reads its model from. */
@@ -81,29 +82,24 @@ export function useVaultGraph() {
 			fireList( shellRef.current );
 		}
 	}, [] );
-	const target = `${ names.CONSOLE_TAP }/${ names.HTTP }/vault`;
 	const add = useCommandOnce( {
-		scope: 'vault:add',
-		target,
+		ci: VAULT_CI,
 		command: 'add',
 		onDone: relist,
 	} );
 	const update = useCommandOnce( {
-		scope: 'vault:update',
-		target,
+		ci: VAULT_CI,
 		command: 'update',
 		onDone: relist,
 	} );
 	const remove = useCommandOnce( {
-		scope: 'vault:delete',
-		target,
+		ci: VAULT_CI,
 		command: 'delete',
 		onDone: relist,
 	} );
 	// The probe is read-only and changes nothing, so it does not re-list.
 	const test = useCommandOnce( {
-		scope: 'vault:test',
-		target,
+		ci: VAULT_CI,
 		command: 'test',
 	} );
 

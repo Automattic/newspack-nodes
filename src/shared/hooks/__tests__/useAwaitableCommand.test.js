@@ -23,8 +23,7 @@ let replyFor;
 const renderSearch = () =>
 	renderHook( () =>
 		useAwaitableCommand( {
-			scope: 'performance:request_search',
-			target: '_shell/_http/performance',
+			ci: 'performance',
 			command: 'request_search',
 		} )
 	);

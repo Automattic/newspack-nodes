@@ -22,6 +22,7 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import names from '../../runtime/reserved-node-names.json';
 import '../nodes/register';
 
+const SESSIONS_CI = 'sessions';
 const LIST_RECV = 'sessions:listIn';
 
 /** The view node the table reads its model from. */
@@ -59,16 +60,13 @@ export function useSessionsGraph() {
 			fireList( shellRef.current );
 		}
 	}, [] );
-	const target = `${ names.CONSOLE_TAP }/${ names.HTTP }/sessions`;
 	const create = useCommandOnce( {
-		scope: 'sessions:create',
-		target,
+		ci: SESSIONS_CI,
 		command: 'create',
 		onDone: relist,
 	} );
 	const revoke = useCommandOnce( {
-		scope: 'sessions:revoke',
-		target,
+		ci: SESSIONS_CI,
 		command: 'revoke',
 		onDone: relist,
 	} );

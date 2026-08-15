@@ -25,12 +25,12 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { VaultListViewNode } from '../vault-list-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView( name = 'vault:list' ) {
-	const node = new VaultListViewNode();
+	const node = new views.VaultListView();
 	node.name = name;
 	return node;
 }
@@ -134,7 +134,7 @@ describe( 'vault:list — error surfacing', () => {
 
 describe( 'vault:list — nodeSchema', () => {
 	test( 'is a Hidden, terminal (no output port) node', () => {
-		const schema = VaultListViewNode.nodeSchema();
+		const schema = views.VaultListView.nodeSchema();
 		expect( schema.has_target ).toBe( false );
 		expect( schema.category ).toBe( 'Hidden' );
 		expect( schema.arguments ).toEqual( [] );

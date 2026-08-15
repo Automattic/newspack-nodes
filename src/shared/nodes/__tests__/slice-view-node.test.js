@@ -15,7 +15,7 @@ import {
 	newMessage,
 	Core,
 } from '@newspack-nodes/runtime';
-import { SliceViewNode } from '../slice-view-node';
+import { SliceViewNode, sliceView } from '../slice-view-node';
 
 beforeEach( () => Core.reset() );
 
@@ -133,5 +133,96 @@ describe( 'SliceViewNode', () => {
 		garbage[ VALUE ] = 'not a json object';
 		v.fill( garbage );
 		expect( v.setStateCache.view ).toEqual( { sources: { a: 1 } } );
+	} );
+} );
+
+// Nine views were a class file each, all the same two methods: an empty-model
+// literal and a guard-then-map parse. That is a declaration, not a class.
+describe( 'sliceView', () => {
+	const VaultCatalogView = sliceView( {
+		empty: { vaults: null, loading: true, error: null },
+		parse: ( payload ) =>
+			payload && 'object' === typeof payload
+				? {
+						vaults: Object.values( payload ).map( ( v ) => ( {
+							id: v.id,
+						} ) ),
+						loading: false,
+						error: null,
+				  }
+				: null,
+	} );
+
+	test( 'publishes the declared empty model before any reply', () => {
+		expect( new VaultCatalogView().setStateCache.view ).toEqual( {
+			vaults: null,
+			loading: true,
+			error: null,
+		} );
+	} );
+
+	test( 'hands each view its OWN empty model, not one shared object', () => {
+		const first = new VaultCatalogView();
+		first.model.vaults = [ { id: 'mutated-4471' } ];
+		expect( new VaultCatalogView().setStateCache.view.vaults ).toBeNull();
+	} );
+
+	test( 'maps a reply through the declared parse', () => {
+		const v = new VaultCatalogView();
+		v.name = 'vaults:view';
+		v.fill( reply( { a: { id: 'wombat-4471' } } ) );
+		expect( v.setStateCache.view ).toEqual( {
+			vaults: [ { id: 'wombat-4471' } ],
+			loading: false,
+			error: null,
+		} );
+	} );
+
+	test( 'keeps the prior model when the declared parse returns null', () => {
+		const v = new VaultCatalogView();
+		v.name = 'vaults:view';
+		v.fill( reply( { a: { id: 'wombat-4471' } } ) );
+		v.fill( reply( 'not an object' ) );
+		expect( v.setStateCache.view.vaults ).toEqual( [
+			{ id: 'wombat-4471' },
+		] );
+	} );
+
+	// Some verbs answer a JSON string, some a live object; `json` is which.
+	test( 'decodes a JSON-string payload first when json is declared', () => {
+		const SummaryView = sliceView( {
+			json: true,
+			empty: { connected: 0, error: null },
+			parse: ( body ) => ( { connected: body.connected, error: null } ),
+		} );
+		const v = new SummaryView();
+		v.name = 'summary:view';
+		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
+		expect( v.setStateCache.view.connected ).toBe( 7 );
+	} );
+
+	test( 'a json view keeps the prior model on an undecodable payload', () => {
+		const SummaryView = sliceView( {
+			json: true,
+			empty: { connected: 0, error: null },
+			parse: ( body ) => ( { connected: body.connected, error: null } ),
+		} );
+		const v = new SummaryView();
+		v.name = 'summary:view';
+		v.fill( reply( JSON.stringify( { connected: 7 } ) ) );
+		v.fill( reply( '{not valid json' ) );
+		expect( v.setStateCache.view.connected ).toBe( 7 );
+	} );
+
+	test( 'carries a declared description into the node schema', () => {
+		const Described = sliceView( {
+			empty: {},
+			parse: () => null,
+			description: 'Worker Status render-model sink.',
+		} );
+		expect( Described.nodeSchema().description ).toBe(
+			'Worker Status render-model sink.'
+		);
+		expect( Described.nodeSchema().registrations ).toEqual( [ 'view' ] );
 	} );
 } );

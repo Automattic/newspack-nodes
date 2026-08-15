@@ -42,10 +42,11 @@ import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import '../nodes/register';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // Server CI mount + egress path the Fetchers target (owns _shell/_http).
 const SERVER = 'aggregator';
-const TARGET = `_shell/_http/${ SERVER }`;
+const TARGET = egressPath( SERVER );
 
 // One on-demand probe node per spoke; the name IS the addressing.
 const PROBE_PREFIX = 'aggregator:probe';
@@ -131,9 +132,9 @@ export function useAggregatorStatusGraph() {
 
 	// On-demand deep probe; the answer NAMES the spoke it is about.
 	const { run: runProbe } = useCommandOnce( {
-		scope: PROBE_PREFIX,
-		target: TARGET,
+		ci: SERVER,
 		command: 'probe',
+		scope: PROBE_PREFIX,
 		onDone: ( { result, error, args } ) =>
 			setProbes( ( prev ) => ( {
 				...prev,

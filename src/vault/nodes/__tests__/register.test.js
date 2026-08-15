@@ -6,12 +6,11 @@
  * a credential-LIST view and a TEST-result view.
  */
 import { CommandInterpreterNode } from '../../../runtime/command-interpreter-node';
-import { VaultListViewNode } from '../vault-list-view-node';
-import '../register';
+import { views } from '../register';
 
 it( 'registers the credential-list view for make_node', () => {
 	expect( CommandInterpreterNode.includeNodes.VaultListView ).toBe(
-		VaultListViewNode
+		views.VaultListView
 	);
 } );
 
