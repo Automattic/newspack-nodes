@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Scrolled into history, new rows shifted the log viewers by more than the rows that arrived.** `LogRowList` compensates `scrollTop` itself when rows land above a reader who has scrolled back, and browser scroll anchoring — on by default, and never opted out of — applied the SAME correction for the growing virtual spacer. The two stacked, so every new row moved the reader by two and the page slid up under them. `.newspack-nodes-log-rows` now sets `overflow-anchor: none`, leaving the list's own exact compensation. At the top of the list nothing changed: that path glides through an offset and never touches `scrollTop`, which is why it only ever misbehaved mid-history.
+- jsdom implements no scroll anchoring, so nothing behavioural can catch a regression here; `styleOwnership` asserts the declaration instead. Removed `isAdjustingScrollRef`, three sites for a flag whose handler only cleared it — it guarded nothing, and the shifting it was meant to catch was the browser's.
+
+
 ## [2.30.0] - 2026-08-14
 
 ### Fixed

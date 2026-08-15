@@ -1525,6 +1525,18 @@ describe( 'canonical appearance ownership', () => {
 		const logRowListStylesheet = compile(
 			path.join( NODES_SRC, 'shared/components/LogRowList.scss' )
 		);
+		// @longform The list compensates scrollTop itself when new rows arrive
+		// above a reader scrolled into history. Browser scroll anchoring does
+		// the SAME correction for the growing spacer, and the two stack: every
+		// new row moved the reader by two, so the page slid up. jsdom does not
+		// implement anchoring, so no behavioural test can catch this — the
+		// declaration is the only thing standing between us and the bug.
+		expect(
+			declarationsForSelector(
+				logRowListStylesheet,
+				'.newspack-nodes-log-rows'
+			)
+		).toEqual( expect.objectContaining( { 'overflow-anchor': 'none' } ) );
 		expect(
 			declarationsForSelector(
 				logRowListStylesheet,
