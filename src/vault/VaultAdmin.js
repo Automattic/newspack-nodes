@@ -22,6 +22,7 @@ import { LIST_VIEW, useVaultGraph } from './hooks/useVaultGraph';
 import { errorMessage } from '../shared/errorMessage';
 import './vault-admin.scss';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import Modal from '@newspack-nodes/shared/components/Modal';
 
 // The view model before the first list publishes one — drives the loading gate.
 const EMPTY_MODEL = {
@@ -29,51 +30,6 @@ const EMPTY_MODEL = {
 	loading: true,
 	error: null,
 };
-
-/**
- * Substrate plain-DOM modal shell (no @wordpress/components): a backdrop + a
- * role="dialog" box. ESC and backdrop-click invoke `onClose`. Callers own their
- * own initial focus (so each modal focuses the element that fits it).
- *
- * @param {Object}                    props
- * @param {string}                    props.ariaLabel Accessible dialog label.
- * @param {Function}                  props.onClose   Dismiss handler (ESC / backdrop).
- * @param {import('react').ReactNode} props.children  Dialog body.
- * @return {import('react').ReactElement} The modal.
- */
-function Modal( { ariaLabel, onClose, children } ) {
-	useEffect( () => {
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onClose();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onClose ] );
-
-	return (
-		<div
-			className="nodes-vault__modal-backdrop"
-			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onClose();
-				}
-			} }
-		>
-			<div
-				className="nodes-vault__modal newspack-nodes-modal"
-				role="dialog"
-				aria-modal="true"
-				aria-label={ ariaLabel }
-			>
-				{ children }
-			</div>
-		</div>
-	);
-}
 
 /**
  * Minimal confirm dialog. The confirm button focuses on mount.
@@ -101,7 +57,7 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 					'newspack-nodes'
 				) }
 			</p>
-			<div className="nodes-vault__modal-actions">
+			<div className="newspack-nodes-modal__actions">
 				<button type="button" className="button" onClick={ onCancel }>
 					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>{ ' ' }
@@ -415,7 +371,7 @@ function AddServerForm( { onAdd, onSuccess, onCancel } ) {
 					</tr>
 				</tbody>
 			</table>
-			<div className="nodes-vault__modal-actions">
+			<div className="newspack-nodes-modal__actions">
 				<span
 					id="add-server-status"
 					className={ `newspack-nodes-status nodes-vault__add-status ${ status.tone }` }

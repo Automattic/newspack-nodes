@@ -171,6 +171,66 @@ if ( ! function_exists( 'current_user_can' ) ) {
 	}
 }
 
+// Roles live in $GLOBALS['_wp_test_roles'] as [ slug => [name, capabilities] ].
+if ( ! class_exists( 'WP_Role' ) ) {
+	class WP_Role {
+		public $name;
+		public $capabilities;
+		public function __construct( $slug ) {
+			$this->name         = $slug;
+			$this->capabilities = $GLOBALS['_wp_test_roles'][ $slug ]['capabilities'] ?? [];
+		}
+		public function add_cap( $cap, $grant = true ) {
+			$GLOBALS['_wp_test_roles'][ $this->name ]['capabilities'][ $cap ] = $grant;
+			$this->capabilities[ $cap ] = $grant;
+		}
+		public function remove_cap( $cap ) {
+			unset( $GLOBALS['_wp_test_roles'][ $this->name ]['capabilities'][ $cap ], $this->capabilities[ $cap ] );
+		}
+		public function has_cap( $cap ) {
+			return ! empty( $this->capabilities[ $cap ] );
+		}
+	}
+}
+
+// $GLOBALS['wp_roles'] mirrors the same store, so Roles::current_map() can
+// enumerate what already holds manage_options.
+if ( ! class_exists( 'WP_Roles_Stub' ) ) {
+	class WP_Roles_Stub {
+		public function __get( $name ) {
+			return 'roles' === $name ? ( $GLOBALS['_wp_test_roles'] ?? [] ) : null;
+		}
+		// Real WP_Roles has a plain public $roles; without __isset the
+		// production `isset( $roles->roles )` is false for a magic getter.
+		public function __isset( $name ) {
+			return 'roles' === $name;
+		}
+	}
+	$GLOBALS['wp_roles'] = new WP_Roles_Stub();
+}
+
+if ( ! function_exists( 'get_role' ) ) {
+	function get_role( $slug ) {
+		return isset( $GLOBALS['_wp_test_roles'][ $slug ] ) ? new WP_Role( $slug ) : null;
+	}
+}
+
+if ( ! function_exists( 'add_role' ) ) {
+	function add_role( $slug, $display, $caps = [] ) {
+		if ( isset( $GLOBALS['_wp_test_roles'][ $slug ] ) ) {
+			return null;
+		}
+		$GLOBALS['_wp_test_roles'][ $slug ] = [ 'name' => $display, 'capabilities' => $caps ];
+		return new WP_Role( $slug );
+	}
+}
+
+if ( ! function_exists( 'remove_role' ) ) {
+	function remove_role( $slug ) {
+		unset( $GLOBALS['_wp_test_roles'][ $slug ] );
+	}
+}
+
 if ( ! function_exists( 'wp_verify_nonce' ) ) {
 	function wp_verify_nonce( $nonce, $action ) {
 		return ( $GLOBALS['_wp_test_valid_nonces'][ $action ] ?? null ) === $nonce ? 1 : false;

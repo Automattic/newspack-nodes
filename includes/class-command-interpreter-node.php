@@ -121,6 +121,51 @@ class Command_Interpreter_Node extends Node {
 	public ?\Closure $authorize = null;
 
 	/**
+	 * Capability role this interpreter's vocabulary demands by DEFAULT, or null
+	 * to gate nothing. The `/command` controller pins the request-scope base
+	 * interpreter to MANAGE: its verbs build and rewire the graph, and unlike a
+	 * Service CI they declare no per-verb role, so the lowered endpoint door
+	 * would otherwise be the only thing standing in front of `make_node`.
+	 *
+	 * Workers leave it null on purpose — a CLI process has no current user, and
+	 * a floor here would refuse the worker its own topology.
+	 *
+	 * READ_VERBS below is the exception list, because the base table is not all
+	 * graph mutation.
+	 *
+	 * @var string|null
+	 */
+	public ?string $required_capability = null;
+
+	/**
+	 * Base verbs that only READ. Every dashboard on the site drives some of
+	 * these — the Log Viewer sends `taillog`, the debug overlay polls
+	 * `dump_metadata` every tick — so a single whole-table MANAGE floor would
+	 * have made the lowered `/command` door buy the read surface nothing at
+	 * all: the endpoint would admit a read-only caller and then refuse every
+	 * verb it came for.
+	 *
+	 * @var list<string>
+	 */
+	private const READ_VERBS = [
+		'pwd',
+		'list_nodes',
+		'ls',
+		'list_timers',
+		'list_handles',
+		'list_profiles',
+		'dmesg',
+		'taillog',
+		'dump_node',
+		'dump',
+		'dump_config',
+		'dump_metadata',
+		'stats',
+		'uptime',
+		'help',
+	];
+
+	/**
 	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
 	 *
 	 * @var array<string,callable>|null
@@ -164,26 +209,37 @@ class Command_Interpreter_Node extends Node {
 		// Authorize every command (LOCAL taint client-side, HMAC on verifiers).
 		$authorize = $this->authorize ?? self::$default_authorize
 			?? static fn ( self $ci, array $m ): bool => isset( $m[ Message::LOCAL ] );
-		if ( ! $authorize( $this, $message ) ) {
-			$result    = 'unauthorized: ' . $cmd_name;
-			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
-			// authorize may have logged the reason; skip the generic one.
-		} else {
-			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR for cli.
-			try {
-				$result = $this->dispatch(
-					$cmd_name,
-					$cmd_args,
-					$message
-				);
-				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
-			} catch ( Worker_Should_Stop $e ) {
-				throw $e; // control flow, not a verb error (ADR-14).
-			} catch ( \Throwable $e ) {
-				// Decode: handler errors are pre-escaped; sink re-escapes raw.
-				$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) . "\n";
+		// @longform A scoped session's ceiling belongs to ONE
+		// command: authorize installs it, dispatch runs under it,
+		// and this restores whatever stood before. Without the
+		// restore the last verified scope outlives its command —
+		// harmless in a request handling one, and a worker stuck
+		// at the first caller's ceiling for its whole ~595s life.
+		$prior_scope = Capabilities::$session_scope;
+		try {
+			if ( ! $authorize( $this, $message ) ) {
+				$result    = 'unauthorized: ' . $cmd_name;
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+				// authorize may have logged the reason; skip the generic one.
+			} else {
+				// Handlers throw freely; wrapped as TM_COMMAND|TM_ERROR.
+				try {
+					$result = $this->dispatch(
+						$cmd_name,
+						$cmd_args,
+						$message
+					);
+					$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
+				} catch ( Worker_Should_Stop $e ) {
+					throw $e; // control flow, not a verb error (ADR-14).
+				} catch ( \Throwable $e ) {
+					// Handler errors are pre-escaped; the sink re-escapes.
+					$result    = \html_entity_decode( $e->getMessage(), \ENT_QUOTES ) . "\n";
+					$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+				}
 			}
+		} finally {
+			Capabilities::$session_scope = $prior_scope;
 		}
 
 		// One terminator per string reply; structs pass through untouched.
@@ -228,6 +284,10 @@ class Command_Interpreter_Node extends Node {
 	 * @return mixed Verb result (string for most verbs; array for dump_metadata).
 	 */
 	public function dispatch( string $name, array $args = [], array $envelope = [] ): mixed {
+		$role = $this->capability_for( $name );
+		if ( null !== $role ) {
+			Capabilities::require( $role );
+		}
 		$refusal = $this->refuse_at_secure_level( $name );
 		if ( null !== $refusal ) {
 			throw new \RuntimeException( \esc_html( $refusal ) );
@@ -237,6 +297,21 @@ class Command_Interpreter_Node extends Node {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
 		return ( $commands[ $name ] )( $this, $args, $envelope );
+	}
+
+	/**
+	 * The role $verb demands here, or null when this interpreter gates nothing.
+	 * A read-only builtin answers READ even under a MANAGE floor; everything
+	 * else takes the floor. Service_CI_Node overrides nothing: its verbs are
+	 * gated by their own declared roles, and it never sets the floor.
+	 */
+	protected function capability_for( string $verb ): ?string {
+		if ( null === $this->required_capability ) {
+			return null;
+		}
+		return \in_array( $verb, self::READ_VERBS, true )
+			? Capabilities::READ
+			: $this->required_capability;
 	}
 
 	/**

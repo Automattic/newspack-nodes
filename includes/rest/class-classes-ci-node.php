@@ -17,6 +17,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Composer\Autoload\ClassLoader;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Formatters;
@@ -158,8 +159,8 @@ class Classes_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'list',
+					'capability'  => Capabilities::READ,
 					'description' => 'List registered classes (with schemas) and formatters.',
-					'capability'  => 'read',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_list(),
 				],

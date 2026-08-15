@@ -23,6 +23,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\CLI;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
@@ -662,6 +663,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'list',
+					'capability'  => Capabilities::READ,
 					'description' => 'List workers with heartbeat liveness.',
 					'args'        => [],
 					// $self is the Workers_CI_Node; reads its injected cli.
@@ -669,12 +671,14 @@ class Workers_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'dump_graph',
+					'capability'  => Capabilities::READ,
 					'description' => 'Full operator-grade fleet/log metadata + per-topology .tsl graph.',
 					'args'        => [],
 					'handler'     => static fn ( Workers_CI_Node $self, array $args, array $envelope = [] ): array => self::cmd_dump_graph(),
 				],
 				[
 					'name'        => 'cleanup_status',
+					'capability'  => Capabilities::READ,
 					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_cleanup_status(),
@@ -690,6 +694,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'heartbeat',
+					'capability'  => Capabilities::READ,
 					'description' => "Refresh this session's SSE slot TTL.",
 					'args'        => [
 						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],

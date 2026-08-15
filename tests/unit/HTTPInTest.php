@@ -20,7 +20,8 @@ class HTTPInTest extends TestCase {
 	private array $status_codes = [];
 
 	protected function tearDown(): void {
-		Command_Auth::$claim_nonce = null;
+		Command_Auth::$claim_nonce            = null;
+		$GLOBALS['_wp_test_current_user_can'] = [];
 		parent::tearDown();
 	}
 
@@ -31,7 +32,10 @@ class HTTPInTest extends TestCase {
 		// (including the request_graph_ready hook tests below) leak across
 		// boundaries and break later dispatches. Reset here.
 		$GLOBALS['_wp_actions'] = [];
-		$this->status_codes     = [];
+		// The controller pins the request-scope interpreter at MANAGE; a real
+		// /command request holds it, so the harness must too.
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->status_codes                   = [];
 		// Ingress no longer signs, so a request must arrive signed like a real
 		// client's. Same-site secret() signing is the `wp nodes cli` path.
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;

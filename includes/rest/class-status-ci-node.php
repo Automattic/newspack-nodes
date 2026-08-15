@@ -24,6 +24,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Cache_Backend;
+use Newspack_Nodes\Capabilities;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Service_CI_Node;
 
@@ -58,6 +59,7 @@ class Status_CI_Node extends Service_CI_Node {
 			'commands'    => [
 				[
 					'name'        => 'get',
+					'capability'  => Capabilities::READ,
 					'description' => 'Return a single-shot health snapshot for the admin "is this thing alive?" panel.',
 					'args'        => [],
 					'handler'     => static fn ( Command_Interpreter_Node $self, array $args, array $envelope = [] ): array => self::cmd_get(),

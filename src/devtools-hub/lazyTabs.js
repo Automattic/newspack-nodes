@@ -1,5 +1,5 @@
 /**
- * Lazy hub tabs — the heavy tab bundles (Console, Vault, Aggregator) are NOT
+ * Lazy hub tabs — the heavy tab bundles (Console, Vault, Sessions, Aggregator) are NOT
  * enqueued up front (~870KB of tab JS for one screen). The hub registers a
  * lightweight placeholder for each, carrying the tab's metadata from its shared
  * `tabMeta` so the tab bar and `?tab=` deep-link work before the bundle loads.
@@ -12,6 +12,7 @@ import { __ } from '@wordpress/i18n';
 import { registerDevtoolsTab } from '@newspack-nodes/shared/devtools/tabRegistry';
 import consoleMeta from '../topology-console/tabMeta';
 import vaultMeta from '../vault/tabMeta';
+import sessionsMeta from '../sessions/tabMeta';
 import aggregatorMeta from '../event-aggregator/tabMeta';
 import { loadTabBundle } from './loadTabBundle';
 
@@ -19,6 +20,7 @@ import { loadTabBundle } from './loadTabBundle';
 const LAZY_TABS = [
 	{ meta: consoleMeta, handle: 'newspack-nodes-topology-console' },
 	{ meta: vaultMeta, handle: 'newspack-nodes-vault' },
+	{ meta: sessionsMeta, handle: 'newspack-nodes-sessions' },
 	{ meta: aggregatorMeta, handle: 'newspack-nodes-aggregator-tab' },
 ];
 

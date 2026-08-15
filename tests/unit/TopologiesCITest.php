@@ -183,13 +183,14 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( [ 'alpha', 'middle', 'zeta' ], $names );
 	}
 
-	public function test_list_is_denied_without_manage_options(): void {
+	public function test_list_is_denied_to_a_caller_holding_nothing(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
 
-		$this->assertSame( "permission denied: manage capability required\n", $result );
+		// `list` reads; the role it names in the refusal is its declared one.
+		$this->assertSame( "permission denied: read capability required\n", $result );
 	}
 
 	public function test_list_marks_active_via_topologies_filter(): void {

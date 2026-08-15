@@ -10,46 +10,9 @@
 	// button (the Overview's "+ New Topology" look), styled there — not here.
 }
 
-// Plain-DOM modal shell (the ConfirmRemoveModal + AddServerModal). WP-admin-native
-// card on a dimmed full-screen backdrop — self-contained (no topology theme vars).
-.nodes-vault__modal-backdrop {
-	position: fixed;
-	inset: 0;
-	z-index: 100000;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: rgba(0, 0, 0, 0.5);
-}
 
-.nodes-vault__modal {
-	box-sizing: border-box;
-	width: 90%;
-	max-width: 640px;
-	max-height: 90vh;
-	overflow-y: auto;
-	padding: 24px;
-
-	h4 {
-		margin-top: 0;
-		font-size: 18px;
-	}
-
-	// The add form drops its own width clamp inside the dialog.
-	.form-table {
-		max-width: none;
-	}
-}
-
-.nodes-vault__modal-actions {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 16px;
-
-	// Validation/status text sits on the left; the buttons stay right-aligned.
-	.nodes-vault__add-status {
-		margin-right: auto;
-	}
+// The add-form status sits left of the footer buttons; the shared modal owns
+// the flex row, this owns which end this element takes.
+.newspack-nodes-modal__actions .nodes-vault__add-status {
+	margin-right: auto;
 }
