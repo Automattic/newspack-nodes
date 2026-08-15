@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.31.0] - 2026-08-15
+
 ### Added
 - **A third capability role, `tune`, and a session SCOPE that lowers the ceiling for one command.** Authority is cut by BLAST RADIUS now, not by read-versus-write: `read` changes nothing, `tune` writes values a schema already bounds (settings, layouts), `manage` takes the site down or hands out access (restart, activate, spawn, vault). All three still default to `manage_options`, so nothing changes until a site filters `newspack_nodes/capability_map` or runs `wp nodes caps install`.
 - **`Roles`** — the opt-in migration off `manage_options` onto three real capabilities, plus the `newspack_nodes_hub` role holding `read` + `tune` and nothing else. `install()` grants all three to EVERY role that already held `manage_options`, not just `administrator`, so a site with a custom Ops role is not locked out by a migration billed as non-breaking. Reversible, and `uninstall.php` calls it — the role lives in the roles option, which no `newspack_nodes_` prefix sweep would ever reach.
@@ -14,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Sessions` + `Sessions_CI` + a Sessions hub tab** — the mirror of Vault. Vault holds the credentials this site sends OUT; Sessions lists, issues and revokes the ones it hands to callers coming IN. A session carries a scope, CLAMPED at mint to what the issuing user actually holds, so a listing states authority rather than a request. Cache stores do not enumerate, so an option holds the directory and the cache stays the authority on liveness — the same pointer-versus-lease split as `SSE_Slot_Pool`. The key is never stored there and cannot be hashed (verification recomputes an HMAC from it), which is the argument for short TTLs rather than a long-lived token.
 - `POST /v1/auth` accepts `scope`, `label` and `ttl`; the response gains `scope`.
 - A shared `Modal` component (`@newspack-nodes/shared/components/Modal`) — one canonical dialog shell instead of a per-dashboard backdrop. Vault now uses it.
+- **`useAskPicker`** (`@newspack-nodes/shared/hooks/useAskPicker`) — the `?` element picker every dashboard can offer. Any element becomes askable by carrying one `data-ask` attribute, and the hook resolves the whole `[data-ask]` chain from the target outward, because DOM nesting already says what contains what. It suppresses the target's own handler in the CAPTURE phase for modified and unmodified clicks alike: Cmd/Ctrl-click already MEANS something on exactly these elements, and the modifier is re-read on `mousedown`, matching the convention already shipping. Keyboard-reachable while picking.
+- **`Bootstrap::mount_request_graph()`** — the router + interpreter + `request_graph_ready` sequence every command entry point needs, in one place. `/command` is no longer the only door: an MCP request reaches the same verbs by another route, and a second copy of that construction is exactly what drifts until one door silently has no service CIs behind it.
+- A session records the USER that minted it, so a credential presented outside a browser can act as that user with its scope as the ceiling. Without it a session authenticates and then acts as nobody.
+
+### Fixed
+- `Bootstrap::fleet_gate()`'s docblock, which a new method's insertion had split in half.
 
 ### Changed
 - **`POST /v1/command` demands READ at the door, not MANAGE.** The strictest verb behind an endpoint used to set the privilege level of every caller reaching it. Authority is decided per verb now: each service CI verb declares its role, and the base interpreter — whose vocabulary builds and rewires the graph — is pinned to MANAGE by the controller, with a READ exception list for the builtins every dashboard drives (`taillog`, `dump_metadata`, `list_nodes`, `uptime`, …). Workers leave the pin null; a CLI process has no current user and a floor there would refuse the worker its own topology.

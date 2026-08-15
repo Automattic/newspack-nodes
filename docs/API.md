@@ -175,7 +175,15 @@ Passing `/command`'s permission callback authenticates the *request*; it signs n
 POST  /wp-json/newspack-nodes/v1/auth
 ```
 
-Issues a session: a random key under a random handle (`Command_Auth::mint_session()`). Gated by `Bootstrap::fleet_gate()` then `current_user_can('manage_options')` — no separate rate limit. The caller supplies nothing; both handle and key are generated server-side, since caller entropy is unverifiable and a caller-chosen handle could collide with or fixate a live session.
+Issues a session: a random key under a random handle (`Command_Auth::mint_session()`). Gated by `Bootstrap::fleet_gate()` then the READ role — a scope is a ceiling, so a read-only user minting a `manage` session still gets a read-only one. The handle and key are generated server-side; caller entropy is unverifiable and a caller-chosen handle could collide with or fixate a live session.
+
+#### Request (all optional)
+
+| Field | Meaning |
+|---|---|
+| `scope` | `read`, `tune` or `manage`. Defaults to `manage`, and is CLAMPED to the highest role the minting user actually holds — so the returned `scope` states authority rather than a request. An unrecognised value is a 400. |
+| `label` | How the session shows up in the Sessions tab. |
+| `ttl` | Lifetime in seconds, clamped to `[60, 86400]`. |
 
 #### Response
 
@@ -183,12 +191,15 @@ Issues a session: a random key under a random handle (`Command_Auth::mint_sessio
 {
   "handle": "5f2b...(32 hex chars)",
   "key": "9ac4...(64 hex chars)",
+  "scope": "read",
   "expires_in": 3600,
   "now": 1735689600
 }
 ```
 
-The key is disclosed only in this response. `expires_in` is the session's fixed lifetime (`Command_Auth::SESSION_TTL_S`, 3600s) — never slid on use, so a leaked handle expires on schedule no matter how busy it is. `now` is the server clock; the client aligns its signed TIMESTAMP to it rather than trusting its own.
+The key is disclosed only in this response, and it cannot be recovered from the Sessions listing — verification recomputes an HMAC from it, so it is stored recoverable rather than hashed, which is the argument for a short `ttl` rather than a long-lived token. `expires_in` is never slid on use, so a leaked handle expires on schedule no matter how busy it is. `now` is the server clock; the client aligns its signed TIMESTAMP to it rather than trusting its own.
+
+The session also records the user that minted it. A credential presented outside a browser — the MCP surface, a script — acts as that user with the scope as its ceiling; without the record it would authenticate and then act as nobody.
 
 ### Signing a command
 
@@ -220,7 +231,9 @@ POST  /wp-json/newspack-nodes/v1/command
 
 Unified non-streaming dispatch endpoint. The browser POSTs a TM_COMMAND envelope; the controller routes it through the request-scope `_router` to the named CI; the CI's reply walks back via `TO=FROM` through `_output` (an `HTTP_In_Node` — a double-duty class that is BOTH the `/command` REST controller and the egress Node registered as `_output`, i.e. `Node_Names::OUTPUT`) which writes the packed Message directly to the HTTP response body. (The JS runtime uses `_http` as its egress/Shell.path name, and the SSE process's `HTTP_Filter` egress is also named `_output` — but the PHP `/command` egress is `_output`.)
 
-Permission callback (`HTTP_In_Node::check_permission`): the fleet gate, then `current_user_can('manage_options')`, then the per-user rate limit below. This authenticates the request; it does not sign any command inside it — see [Command Signing](#command-signing) above. Application CIs may layer additional per-verb capability checks on top — that's an application concern, not the substrate's.
+Permission callback (`HTTP_In_Node::check_permission`): the fleet gate, then the READ role, then the per-user rate limit below. This authenticates the request; it does not sign any command inside it — see [Command Signing](#command-signing) above.
+
+READ is the FLOOR every verb behind the endpoint needs, not the level any of them demands. Authority is decided per verb: each service CI verb declares its role in `node_schema()` and `Service_CI_Node` gates it, while the base interpreter — whose vocabulary builds and rewires the graph — is pinned at MANAGE by the controller, with a READ exception list for the builtins every dashboard drives (`taillog`, `dump_metadata`, `list_nodes`, `uptime`, …). Demanding MANAGE at the door instead made the strictest verb set the privilege level of every caller, which is why the log aggregator had to hold an administrator's application password to pull a read-only stream.
 
 ### Request
 
@@ -300,7 +313,7 @@ Verb handlers receive three positional arguments — `( Command_Interpreter_Node
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [architecture-guide.md → Completion-query mode](architecture-guide.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above) AND a valid command signature (see [Command Signing](#command-signing)), and per-verb application-side caps are an application concern.
+Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers,vault,aggregator,settings,status,sessions}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires the READ floor (see "Permission callback" above) AND a valid command signature (see [Command Signing](#command-signing)), and each verb's DECLARED role decides the rest.
 
 ### Test mode
 
@@ -314,7 +327,7 @@ GET   /wp-json/newspack-nodes/v1/messages/stream
 
 Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_sse` egress Node and the REST controller, mirroring `HTTP_In_Node`'s double-duty pattern). One endpoint covers every subscription dashboards need — log partitions and worker IPC partitions both surface as `Consumer_Node` instances drained in the same loop. Each Message that lands at the `_sse` egress is emitted as an SSE `msg` event carrying the packed Message; idle keepalives fire every `HEARTBEAT_MS = 2000`ms.
 
-**Permission**: `current_user_can( 'manage_options' )`. No nonce check — that would break cross-server SSE pulls.
+**Permission**: the READ role. No nonce check — that would break cross-server SSE pulls. This is the aggregator's whole job, and it is why `workers heartbeat` (the slot keepalive) is `read` too: manage there would expire every read-only stream after one slot TTL.
 
 ### Query parameters
 

@@ -13,6 +13,7 @@ export { CommandInterpreterNode } from './command-interpreter-node';
 export { StubNode } from './stub-node';
 export { DraftInterpreterNode } from './draft-interpreter-node';
 export { mountExospine } from './exospine';
+export { nodesData } from './nodes-data';
 // The reserved node names, for shared code that cannot reach the JSON itself.
 export { default as reservedNames } from './reserved-node-names.json';
 export { SseInNode } from './sse-in-node';
