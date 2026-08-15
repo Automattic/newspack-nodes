@@ -47,7 +47,7 @@ function chainFrom( el ) {
  *
  * @param {Object}   options
  * @param {Function} options.onPick Called `( descriptors, { additive } )`.
- * @return {{ active: boolean, start: Function, cancel: Function }} Picker controls.
+ * @return {{ active: boolean, start: () => void, cancel: () => void }} Picker controls.
  */
 export function useAskPicker( { onPick } ) {
 	const [ active, setActive ] = useState( false );
