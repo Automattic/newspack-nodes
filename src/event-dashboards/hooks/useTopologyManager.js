@@ -56,6 +56,7 @@ import { globalRates } from '../globalRates';
 import { etaSeconds } from '@newspack-nodes/shared/utils/formatters';
 import { partitionSummaries } from '../partitionSummaries';
 import '../nodes/register';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // Stale once the last successful poll is older than this many poll intervals.
 const STALE_POLL_INTERVALS = 3;
@@ -78,7 +79,7 @@ const SLICES = [
 		command: 'dump_graph',
 		view: WORKER_VIEW,
 		viewClass: 'WorkerStatusView',
-		target: `_shell/_http/${ WORKERS_CI }`,
+		target: egressPath( WORKERS_CI ),
 		transform: {
 			name: 'workerstatus:transform',
 			nodeClass: 'WorkerStatusTransform',
@@ -90,7 +91,7 @@ const SLICES = [
 		command: 'list',
 		view: TOPOLOGY_VIEW,
 		viewClass: 'TopologyManagerView',
-		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+		target: egressPath( TOPOLOGIES_CI ),
 	},
 ];
 
@@ -269,20 +270,17 @@ export function useTopologyManager( opts = {} ) {
 		}
 	}, [] );
 	const restartOnce = useCommandOnce( {
-		scope: 'workers:restart',
-		target: `_shell/_http/${ WORKERS_CI }`,
+		ci: WORKERS_CI,
 		command: 'restart',
 		onDone: onMutationDone,
 	} );
 	const activateOnce = useCommandOnce( {
-		scope: 'topologies:activate',
-		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+		ci: TOPOLOGIES_CI,
 		command: 'activate',
 		onDone: onMutationDone,
 	} );
 	const deactivateOnce = useCommandOnce( {
-		scope: 'topologies:deactivate',
-		target: `_shell/_http/${ TOPOLOGIES_CI }`,
+		ci: TOPOLOGIES_CI,
 		command: 'deactivate',
 		onDone: onMutationDone,
 	} );

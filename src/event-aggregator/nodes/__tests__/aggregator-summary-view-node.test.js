@@ -16,12 +16,12 @@ import {
 	newMessage,
 	Core,
 } from '@newspack-nodes/runtime';
-import { AggregatorSummaryViewNode } from '../aggregator-summary-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView() {
-	const node = new AggregatorSummaryViewNode();
+	const node = new views.AggregatorSummaryView();
 	node.name = 'summary:view';
 	return node;
 }

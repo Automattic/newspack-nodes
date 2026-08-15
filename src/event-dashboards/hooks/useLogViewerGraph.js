@@ -32,6 +32,7 @@ import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import { useNodeState } from '../../runtime/react';
 import { controlMsg } from '../../shared/helpers/controlMsg';
+import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 const LINK = 'logviewer:link';
 const TEE = 'logviewer:stream';
@@ -66,7 +67,6 @@ export function useLogViewerGraph() {
 	// `taillog` is an interpreter builtin, so the egress has no CI after it.
 	const stepRead = useCommandOnce( {
 		scope: READ_NODE,
-		target: '_shell/_http',
 		command: 'taillog',
 	} );
 
@@ -139,7 +139,7 @@ export function useLogViewerGraph() {
 				view: SOURCES_VIEW,
 				viewClass: 'CatalogListView',
 				tee,
-				target: '_shell/_http',
+				target: egressPath(),
 			} ),
 		timerName: `${ SOURCES_NODE }:timer`,
 		teeName: `${ SOURCES_NODE }:tee`,

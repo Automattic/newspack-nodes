@@ -16,12 +16,12 @@ import {
 	newMessage,
 	Core,
 } from '@newspack-nodes/runtime';
-import { AggregatorServersViewNode } from '../aggregator-servers-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView() {
-	const node = new AggregatorServersViewNode();
+	const node = new views.AggregatorServersView();
 	node.name = 'servers:view';
 	return node;
 }

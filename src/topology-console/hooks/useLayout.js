@@ -14,7 +14,6 @@
 import { useCallback } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
-import names from '../../runtime/reserved-node-names.json';
 
 const LAYOUTS = 'layouts';
 
@@ -30,15 +29,13 @@ const LAYOUTS = 'layouts';
  */
 export function useLayout( { onFetched, onSaved } = {} ) {
 	const { run: runGet } = useCommandOnce( {
-		scope: 'layouts:get',
-		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/${ LAYOUTS }`,
+		ci: LAYOUTS,
 		command: 'get',
 		retry: true,
 		onDone: onFetched,
 	} );
 	const { run: runSave } = useCommandOnce( {
-		scope: 'layouts:save',
-		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/${ LAYOUTS }`,
+		ci: LAYOUTS,
 		command: 'save',
 		onDone: onSaved,
 	} );

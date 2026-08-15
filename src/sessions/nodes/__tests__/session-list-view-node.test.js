@@ -15,12 +15,12 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { SessionListViewNode } from '../session-list-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView( name = 'sessions:list' ) {
-	const node = new SessionListViewNode();
+	const node = new views.SessionListView();
 	node.name = name;
 	return node;
 }

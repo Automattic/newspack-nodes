@@ -1738,8 +1738,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
 	const { run: runActivate } = useCommandOnce( {
-		scope: 'topologies:activate',
-		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`,
+		ci: 'topologies',
 		command: 'activate',
 		onDone: ( { error, args } ) => {
 			if ( error ) {

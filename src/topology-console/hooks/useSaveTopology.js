@@ -9,7 +9,6 @@
 import { useCallback } from '@wordpress/element';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { formatCommandArgs } from '../../runtime/command-args';
-import names from '../../runtime/reserved-node-names.json';
 
 /**
  * @param {Function} onDone `( { result, error, args } ) => void`, fired once per
@@ -20,8 +19,7 @@ import names from '../../runtime/reserved-node-names.json';
  */
 export function useSaveTopology( onDone ) {
 	const { run, pending } = useCommandOnce( {
-		scope: 'topologies:save',
-		target: `${ names.CONSOLE_TAP }/${ names.HTTP }/topologies`,
+		ci: 'topologies',
 		command: 'save',
 		onDone,
 	} );

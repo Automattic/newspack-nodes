@@ -14,12 +14,12 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { TopologyManagerViewNode } from '../topology-manager-view-node';
+import { views } from '../register';
 
 beforeEach( () => Core.reset() );
 
 function makeView( name ) {
-	const node = new TopologyManagerViewNode();
+	const node = new views.TopologyManagerView();
 	node.name = name;
 	return node;
 }
@@ -70,7 +70,7 @@ test( 'uncorrelated errors publish the global model error', () => {
 } );
 
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {
-	expect( TopologyManagerViewNode.nodeSchema().has_target ).toBe( false );
+	expect( views.TopologyManagerView.nodeSchema().has_target ).toBe( false );
 } );
 
 // The base keeps the prior slice when `_parse()` rejects a payload — the guard

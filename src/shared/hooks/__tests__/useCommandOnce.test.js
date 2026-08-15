@@ -18,8 +18,7 @@ let replyFor;
 const renderSave = () =>
 	renderHook( () =>
 		useCommandOnce( {
-			scope: 'topologies:save',
-			target: '_shell/_http/topologies',
+			ci: 'topologies',
 			command: 'save',
 		} )
 	);
@@ -32,6 +31,43 @@ beforeEach( () => {
 } );
 
 describe( 'useCommandOnce', () => {
+	// The egress path was spelled five ways across 21 call sites — a literal, a
+	// template over `names`, a per-file TARGET const. The hook takes the CI
+	// mount and builds it, and names its own nodes after the verb.
+	it( 'builds its egress path and node names from the CI mount', async () => {
+		renderHook( () =>
+			useCommandOnce( { ci: 'topologies', command: 'save' } )
+		);
+		await act( async () => {} );
+		expect( Core.node( 'topologies:save:fetch' ).target ).toBe(
+			'_shell/_http/topologies'
+		);
+		expect( Core.node( 'topologies:save:result' ) ).toBeTruthy();
+	} );
+
+	// A stale `target` used to be silently ignored, which pointed a Fetcher at
+	// the bare egress and lost every reply. An option the hook does not take
+	// is a mistake, and it says so.
+	it( 'refuses an option it no longer takes', () => {
+		// React logs the throw as it unwinds; the next beforeEach re-spies.
+		console.error = () => {};
+		expect( () =>
+			renderHook( () =>
+				useCommandOnce( {
+					command: 'save',
+					target: '_shell/_http/topologies',
+				} )
+			)
+		).toThrow( /target/ );
+	} );
+
+	// `taillog` is an interpreter builtin: there is no CI after the egress.
+	it( 'targets the bare egress for a builtin verb', async () => {
+		renderHook( () => useCommandOnce( { command: 'taillog' } ) );
+		await act( async () => {} );
+		expect( Core.node( 'taillog:fetch' ).target ).toBe( '_shell/_http' );
+	} );
+
 	// A one-shot clips onto whatever graph the page already has. Owning the
 	// backbone means owning Reset Graph and the full rebuild, and hook
 	// declaration order would decide that — a save's four nodes taking the
@@ -156,8 +192,7 @@ describe( 'useCommandOnce', () => {
 		const onDone = jest.fn();
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:save',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'save',
 				onDone,
 			} )
@@ -185,8 +220,7 @@ describe( 'useCommandOnce', () => {
 		const onDone = jest.fn();
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:save',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'save',
 				onDone,
 			} )
@@ -213,8 +247,7 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation( () => undefined );
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 			} )
@@ -249,8 +282,7 @@ describe( 'useCommandOnce', () => {
 	it( 'keeps asking when the request never reached the server', async () => {
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 			} )
@@ -284,8 +316,7 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation( () => new Error( 'no-such-topology' ) );
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 			} )
@@ -378,8 +409,7 @@ describe( 'useCommandOnce', () => {
 		const onDone = jest.fn();
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:save',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'save',
 				onDone,
 			} )
@@ -423,8 +453,7 @@ describe( 'useCommandOnce', () => {
 		replyFor.mockImplementation( () => ( { name: 'wombat-4471' } ) );
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 				onDone,
@@ -454,8 +483,7 @@ describe( 'useCommandOnce', () => {
 	it( 'supersedes a read rather than queueing it', async () => {
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 			} )
@@ -483,8 +511,7 @@ describe( 'useCommandOnce', () => {
 		const seen = [];
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'vault:delete',
-				target: '_shell/_http/vault',
+				ci: 'vault',
 				command: 'delete',
 				onDone: ( { args } ) => seen.push( args[ 0 ] ),
 			} )
@@ -509,8 +536,7 @@ describe( 'useCommandOnce', () => {
 		const onDone = jest.fn();
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:save',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'save',
 				onDone,
 			} )
@@ -549,8 +575,7 @@ describe( 'useCommandOnce', () => {
 		);
 		const { result } = renderHook( () =>
 			useCommandOnce( {
-				scope: 'topologies:get',
-				target: '_shell/_http/topologies',
+				ci: 'topologies',
 				command: 'get',
 				retry: true,
 			} )
