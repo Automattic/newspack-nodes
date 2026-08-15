@@ -1,12 +1,6 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 
-import {
-	useState,
-	useEffect,
-	useRef,
-	useCallback,
-	useMemo,
-} from '@wordpress/element';
+import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
 import './LogRowList.scss';
 
 const OVERSCAN = 5;
@@ -105,7 +99,6 @@ export default function LogRowList( {
 	const contentRef = useRef( null );
 	const offsetRef = useRef( 0 );
 	const rafRef = useRef( null );
-	const isAdjustingScrollRef = useRef( false );
 	// Hysteresis state: whether new rows glide (true) or anchor scrollTop.
 	const glidingRef = useRef( true );
 	// Newest row id already smooth-scrolled for (monotonic; cap-robust).
@@ -143,7 +136,6 @@ export default function LogRowList( {
 	useEffect( () => {
 		lastTopIdRef.current = 0;
 		offsetRef.current = 0;
-		isAdjustingScrollRef.current = false;
 		glidingRef.current = true;
 		modelPushedRef.current = {
 			visible: -1,
@@ -253,8 +245,11 @@ export default function LogRowList( {
 					// Hold rows in place; the offset decays smoothly to 0.
 					offsetRef.current -= newRows * rowHeight;
 				} else if ( list ) {
-					// Hold the reader's position when scrolled into history.
-					isAdjustingScrollRef.current = true;
+					// @longform Hold the reader's position when scrolled into
+					// history. Exact, because `overflow-anchor: none` stops the
+					// browser correcting for the same rows a second time; with
+					// anchoring on, both fired and every new row moved the
+					// reader by two.
 					list.scrollTop += newRows * rowHeight;
 				}
 			}
@@ -338,13 +333,6 @@ export default function LogRowList( {
 		return () => cancelAnimationFrame( rafRef.current );
 	}, [ getNode, rowHeight, debug ] );
 
-	// Swallow the programmatic scroll we make when holding the read position.
-	const handleScroll = useCallback( () => {
-		if ( isAdjustingScrollRef.current ) {
-			isAdjustingScrollRef.current = false;
-		}
-	}, [] );
-
 	// Rows re-map only when the model commits, not on parent re-renders.
 	const renderedRows = useMemo(
 		() => model.rows.map( renderRow ),
@@ -358,7 +346,6 @@ export default function LogRowList( {
 			}${ listClassName ? ' ' + listClassName : '' }` }
 			role="rowgroup"
 			ref={ listRef }
-			onScroll={ handleScroll }
 			style={
 				/** @type {import('react').CSSProperties} */ ( {
 					'--log-row-height': `${ rowHeight }px`,

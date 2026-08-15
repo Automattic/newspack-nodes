@@ -18,6 +18,8 @@ $stream-scrollbar: 17px;
 	flex: 1;
 	overflow-y: scroll;
 	overflow-x: hidden;
+	// The list compensates scrollTop itself; anchoring would do it twice.
+	overflow-anchor: none;
 	-webkit-overflow-scrolling: touch;
 }
 
