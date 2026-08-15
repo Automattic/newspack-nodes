@@ -184,3 +184,73 @@ test( 'a control with no payload is a no-op, not a crash', () => {
 	v.fill( controlMsg( undefined ) );
 	expect( v.linesCount ).toBe( 1 );
 } );
+
+describe( 'ingest filter', () => {
+	const feed = ( node, ...values ) =>
+		values.forEach( ( v ) => node.fill( rowMsg( v ) ) );
+
+	it( 'admits only matching rows once a filter is set', () => {
+		const v = new TestViewNode();
+		v.controlFrom = CONTROLLER;
+		v.fill( controlMsg( { action: 'filter', term: 'keep' } ) );
+
+		feed( v, 'keep one', 'drop this', 'keep two', 'drop that' );
+
+		expect( v.lines.map( ( r ) => r.content ) ).toEqual( [
+			'keep two',
+			'keep one',
+		] );
+	} );
+
+	it( 'stripes admitted rows alternately, whatever was dropped between', () => {
+		const v = new TestViewNode();
+		v.controlFrom = CONTROLLER;
+		v.fill( controlMsg( { action: 'filter', term: 'keep' } ) );
+
+		// Two drops between the keeps: ingest parity over the FULL stream
+		// would give both survivors the same shade.
+		feed( v, 'keep a', 'x', 'y', 'keep b', 'z', 'q', 'keep c' );
+
+		const stripes = v.lines.map( ( r ) => r.isEven ).reverse();
+		expect( stripes ).toEqual( [ false, true, false ] );
+	} );
+
+	it( 'leaves rows already in the buffer alone — the past is the past', () => {
+		const v = new TestViewNode();
+		v.controlFrom = CONTROLLER;
+
+		feed( v, 'old one', 'old two' );
+		v.fill( controlMsg( { action: 'filter', term: 'keep' } ) );
+		feed( v, 'keep new', 'drop new' );
+
+		expect( v.lines.map( ( r ) => r.content ) ).toEqual( [
+			'keep new',
+			'old two',
+			'old one',
+		] );
+	} );
+
+	it( 'a row keeps its stripe as newer rows arrive above it', () => {
+		const v = new TestViewNode();
+		v.controlFrom = CONTROLLER;
+		v.fill( controlMsg( { action: 'filter', term: 'keep' } ) );
+
+		feed( v, 'keep a' );
+		const before = v.lines.find( ( r ) => 'keep a' === r.content ).isEven;
+		feed( v, 'noise', 'keep b', 'keep c' );
+		const after = v.lines.find( ( r ) => 'keep a' === r.content ).isEven;
+
+		expect( after ).toBe( before );
+	} );
+
+	it( 'clearing the filter admits everything again', () => {
+		const v = new TestViewNode();
+		v.controlFrom = CONTROLLER;
+		v.fill( controlMsg( { action: 'filter', term: 'keep' } ) );
+		feed( v, 'drop me' );
+		v.fill( controlMsg( { action: 'filter', term: '' } ) );
+		feed( v, 'anything' );
+
+		expect( v.lines.map( ( r ) => r.content ) ).toEqual( [ 'anything' ] );
+	} );
+} );

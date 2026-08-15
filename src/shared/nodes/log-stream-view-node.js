@@ -49,6 +49,13 @@ export class LogStreamViewNode extends Node {
 		// Paused-step allowance: a `step` control admits this many rows.
 		this.stepBudget = 0;
 		this.connectionError = false;
+		// @longform Ingest gate, lowercased: rows that miss it never enter the
+		// ring, so `lineCounter` counts ADMITTED rows and the `isEven` stripe
+		// alternates across what is displayed while staying pinned to its row.
+		// Filtering at render instead cost both — the stripe reflected a
+		// position in the unfiltered stream, and non-matches still consumed
+		// ring slots, so a rare match aged out while its filter still stood.
+		this.filter = '';
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
 	}
@@ -84,7 +91,7 @@ export class LogStreamViewNode extends Node {
 	 * `follow`, or `clear`. Subclasses handle their own verbs first and defer
 	 * the rest here with `super._control( value )`.
 	 *
-	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
+	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number, term?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
 	 */
 	_control( value ) {
 		const action = value?.action;
@@ -104,13 +111,18 @@ export class LogStreamViewNode extends Node {
 			this.seek.follow();
 		} else if ( 'clear' === action ) {
 			this._clear();
+		} else if ( 'filter' === action ) {
+			// The past is the past; `clear` is what empties the ring.
+			this.filter = String( value.term ?? '' ).toLowerCase();
 		}
 	}
 
 	/**
-	 * Shape, track, and append one raw envelope — the hot path. An envelope
-	 * the subclass declines to shape is dropped without touching the seek
-	 * breadcrumb, so a filtered-out record never moves the rail highlight.
+	 * Shape, track, and append one raw envelope — the hot path. An envelope the
+	 * subclass declines to SHAPE is dropped without touching the seek
+	 * breadcrumb: it was never this view's record. One the ingest FILTER
+	 * rejects still moves the breadcrumb, because the stream really did
+	 * advance past it and the rail reports position, not matches.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
@@ -194,6 +206,13 @@ export class LogStreamViewNode extends Node {
 	 *                        and the `isEven` stripe are stamped on top.
 	 */
 	_appendRow( fields ) {
+		// The gate precedes the belt: a dropped row must not spend step budget.
+		if (
+			'' !== this.filter &&
+			! this.matchesFilter( fields, this.filter )
+		) {
+			return;
+		}
 		// Paused belt: drop frames, unless a step budget admits them.
 		if ( this.paused ) {
 			if ( this.stepBudget <= 0 ) {
@@ -222,6 +241,20 @@ export class LogStreamViewNode extends Node {
 			out[ i ] = this.lineAt( i );
 		}
 		return out;
+	}
+
+	/**
+	 * Whether one shaped row survives the ingest filter. The base matches
+	 * `content`; a subclass with more searchable fields overrides.
+	 *
+	 * @param {Object} fields      Row fields from `shapeRow()`.
+	 * @param {string} filterLower The active filter, already lowercased.
+	 * @return {boolean} True to admit the row into the ring.
+	 */
+	matchesFilter( fields, filterLower ) {
+		return String( fields.content ?? '' )
+			.toLowerCase()
+			.includes( filterLower );
 	}
 
 	/**

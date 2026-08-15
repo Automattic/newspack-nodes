@@ -6,7 +6,8 @@
  * is pinned through the PartitionViewer / LogViewer suites.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
+import { Core } from '../../../runtime/core';
 import LogStreamViewer from '../LogStreamViewer';
 
 let logRowListProps;
@@ -131,26 +132,31 @@ it( 'renders a listHeader above the row list', () => {
 	).not.toBeNull();
 } );
 
-it( 'passes matchRow and filterPlaceholder through', () => {
-	const matchRow = () => true;
+it( 'sends the filter term to the consumer and honours the placeholder', () => {
+	const onFilter = jest.fn();
 	const { container } = render(
 		<LogStreamViewer
 			{ ...BASE }
-			matchRow={ matchRow }
+			onFilter={ onFilter }
 			filterPlaceholder="Filter by URL…"
 		/>
 	);
-	expect( logRowListProps.matchRow ).toBe( matchRow );
-	expect(
-		container.querySelector( '.newspack-nodes-search-input' ).placeholder
-	).toBe( 'Filter by URL…' );
+	const input = container.querySelector( '.newspack-nodes-search-input' );
+
+	fireEvent.change( input, { target: { value: 'oops' } } );
+
+	// The consumer forwards it to the view node's ingest gate; the list is
+	// never told, because the ring already holds only what is displayed.
+	expect( onFilter ).toHaveBeenLastCalledWith( 'oops' );
+	expect( logRowListProps.filter ).toBeUndefined();
+	expect( input.placeholder ).toBe( 'Filter by URL…' );
 } );
 
 it( 'label overrides: renderCount and renderRate replace the defaults', () => {
 	const { container } = render(
 		<LogStreamViewer
 			{ ...BASE }
-			renderCount={ ( stats ) => `${ stats.visible } requests` }
+			renderCount={ ( stats ) => `${ stats.total } requests` }
 			renderRate={ ( lps ) => `${ lps.toFixed( 1 ) } req/s` }
 		/>
 	);
@@ -271,4 +277,37 @@ it( 'the list keeps ONE tree position across the debug toggle', () => {
 	expect( container.querySelector( '.test-viewer__main' ) ).not.toBeNull();
 	fireEvent.click( getByText( 'Debug' ) );
 	expect( container.querySelector( '.test-viewer__main' ) ).not.toBeNull();
+} );
+
+it( 're-sends the filter when the graph is rebuilt', () => {
+	// The gate lives on the view node, which a rebuild replaces; the input
+	// would keep showing the term while the fresh node admitted everything.
+	const onFilter = jest.fn();
+	const { container } = render(
+		<LogStreamViewer { ...BASE } onFilter={ onFilter } />
+	);
+	fireEvent.change(
+		container.querySelector( '.newspack-nodes-search-input' ),
+		{ target: { value: 'zebra' } }
+	);
+	onFilter.mockClear();
+
+	act( () => {
+		Core.bumpGraphGeneration();
+	} );
+
+	expect( onFilter ).toHaveBeenLastCalledWith( 'zebra' );
+} );
+
+it( 'types without an onFilter consumer rather than throwing', () => {
+	// Published through @newspack-nodes/shared, where knip cannot see a
+	// changed export: an unmigrated adopter must not die on a keystroke.
+	const { container } = render( <LogStreamViewer { ...BASE } /> );
+
+	expect( () =>
+		fireEvent.change(
+			container.querySelector( '.newspack-nodes-search-input' ),
+			{ target: { value: 'x' } }
+		)
+	).not.toThrow();
 } );

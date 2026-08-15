@@ -172,8 +172,15 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	const header = makeHeader( visibleColumns );
 
 	// Mount the node graph; it returns the thin control callbacks.
-	const { selectLog, setPaused, fetchLogStatus, seek, step, clear } =
-		usePartitionViewerGraph();
+	const {
+		selectLog,
+		setPaused,
+		fetchLogStatus,
+		seek,
+		step,
+		clear,
+		setFilter,
+	} = usePartitionViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
@@ -304,6 +311,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			onJump={ handleJump }
 			getViewNode={ getViewNode }
 			onClear={ clear }
+			onFilter={ setFilter }
 			sidebar={
 				<LogBrowser
 					mode={ displayMode }

@@ -49,7 +49,7 @@ const RAW_LOGS_CI = 'raw-logs';
 const SUBSCRIBE_PLACEHOLDER = 'raw-logs';
 
 /**
- * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void, clear: () => void }}
+ * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,
  *   `setPaused( paused )` gates it, `fetchLogStatus( log )` resolves that
@@ -174,6 +174,13 @@ export function usePartitionViewerGraph() {
 
 	useReconcile( { load: fetchLogs } );
 
+	// Ingest gate: only matching rows enter the ring from here on.
+	const setFilter = useCallback( ( term ) => {
+		viewRef.current?.fill(
+			controlMsg( viewRef.current, { action: 'filter', term } )
+		);
+	}, [] );
+
 	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
 	const clear = useCallback( () => {
 		viewRef.current?.fill(
@@ -208,5 +215,13 @@ export function usePartitionViewerGraph() {
 		[ resubscribe ]
 	);
 
-	return { selectLog, setPaused, fetchLogStatus, seek, step, clear };
+	return {
+		selectLog,
+		setPaused,
+		fetchLogStatus,
+		seek,
+		step,
+		clear,
+		setFilter,
+	};
 }
