@@ -356,4 +356,102 @@ class CommandAuthSessionTest extends TestCase {
 		$method = new \ReflectionMethod( Command_Auth::class, 'session_address' );
 		return $method->invoke( null, $handle );
 	}
+
+	/**
+	 * The Sessions screen lists what this site ISSUED from a durable option,
+	 * because a cache store cannot enumerate — so liveness is a second
+	 * question, asked of the cache in ONE round trip rather than N.
+	 */
+	public function test_live_handles_reports_only_the_sessions_the_cache_still_holds(): void {
+		$live = '1111aaaa2222bbbb3333cccc4444dddd';
+		$gone = '5555eeee6666ffff7777aaaa8888bbbb';
+		Command_Auth::store_session( $live, self::KEY, self::TTL );
+
+		$held = Command_Auth::live_handles( [ $live, $gone ] );
+
+		$this->assertSame( [ $live => true ], $held );
+	}
+
+	/** Nothing asked for is nothing read: no keys, no round trip. */
+	public function test_live_handles_of_nothing_reads_nothing(): void {
+		$this->assertSame( [], Command_Auth::live_handles( [] ) );
+	}
+
+	/**
+	 * A revoked handle stops verifying at once — that is the whole point of
+	 * revocation — so it must drop out of the liveness answer too.
+	 */
+	public function test_a_revoked_handle_is_no_longer_live(): void {
+		$handle = '9999aaaa8888bbbb7777cccc6666dddd';
+		Command_Auth::store_session( $handle, self::KEY, self::TTL );
+		Command_Auth::revoke_session( $handle );
+
+		$this->assertSame( [], Command_Auth::live_handles( [ $handle ] ) );
+	}
+
+	/**
+	 * `has_session()` is asked before minting a command AT a remote: the
+	 * process either holds that destination's credential or has to fetch one.
+	 */
+	public function test_has_session_is_per_destination(): void {
+		$this->assertFalse( Command_Auth::has_session( 'https://spoke.test/wp-json/' ) );
+
+		Command_Auth::remember_session(
+			'https://spoke.test/wp-json/',
+			self::HANDLE,
+			self::KEY
+		);
+
+		$this->assertTrue( Command_Auth::has_session( 'https://spoke.test/wp-json/' ) );
+		$this->assertFalse(
+			Command_Auth::has_session( 'https://other.test/wp-json/' ),
+			'one remote credential must not authorize another'
+		);
+	}
+
+	public function test_forgetting_a_destination_drops_its_session(): void {
+		Command_Auth::remember_session( 'https://spoke.test/wp-json/', self::HANDLE, self::KEY );
+		Command_Auth::forget_session( 'https://spoke.test/wp-json/' );
+		$this->assertFalse( Command_Auth::has_session( 'https://spoke.test/wp-json/' ) );
+	}
+
+	/** A lifetime is clamped, never refused: the ask is a preference. */
+	public function test_a_requested_lifetime_is_clamped_into_the_allowed_band(): void {
+		$this->assertSame(
+			Command_Auth::SESSION_TTL_MAX_S,
+			Command_Auth::bounded_ttl( Command_Auth::SESSION_TTL_MAX_S * 10 )
+		);
+		$this->assertSame( Command_Auth::SESSION_TTL_MIN_S, Command_Auth::bounded_ttl( 1 ) );
+		$this->assertSame( self::TTL, Command_Auth::bounded_ttl( self::TTL ) );
+	}
+
+	/**
+	 * A session stored before scopes existed carries no `s`, and the whole
+	 * point of a scope is that it can only ever SUBTRACT — so an absent one
+	 * means the full ceiling, not an empty scope that authorizes nothing.
+	 */
+	public function test_a_scopeless_record_reads_as_the_full_ceiling(): void {
+		$handle  = '4471aaaa4471bbbb4471cccc4471dddd';
+		$backend = \Newspack_Nodes\Cache_Backend::shared_first();
+		$this->assertNotNull( $backend );
+		$backend->add(
+			$this->session_address( $handle ),
+			[ 'k' => self::KEY, 'u' => 0 ],
+			self::TTL
+		);
+
+		$record = Command_Auth::load_session_record( $handle );
+
+		$this->assertSame( self::KEY, $record['key'] );
+		$this->assertSame( \Newspack_Nodes\Capabilities::MANAGE, $record['scope'] );
+	}
+
+	/** A record with no key verifies nothing; it is not a session at all. */
+	public function test_a_keyless_record_is_no_session(): void {
+		$handle  = '8823aaaa8823bbbb8823cccc8823dddd';
+		$backend = \Newspack_Nodes\Cache_Backend::shared_first();
+		$backend->add( $this->session_address( $handle ), [ 's' => 'read' ], self::TTL );
+
+		$this->assertNull( Command_Auth::load_session_record( $handle ) );
+	}
 }
