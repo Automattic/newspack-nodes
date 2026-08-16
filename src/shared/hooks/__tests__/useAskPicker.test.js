@@ -12,13 +12,18 @@
 import { render, act, fireEvent } from '@testing-library/react';
 import { useAskPicker } from '../useAskPicker';
 
-function Harness( { onPick, onRowClick } ) {
-	const { active, start, cancel } = useAskPicker( { onPick } );
+function Harness( { onPick, onNothing, onAbandon, onRowClick } ) {
+	const { active, start, cancel } = useAskPicker( {
+		onPick,
+		onNothing,
+		onAbandon,
+	} );
 	return (
 		<div>
 			<button
 				type="button"
 				data-testid="trigger"
+				data-ask-trigger=""
 				onClick={ active ? cancel : start }
 			>
 				{ active ? 'cancel' : 'ask' }
@@ -43,11 +48,18 @@ function Harness( { onPick, onRowClick } ) {
 
 function setup() {
 	const onPick = jest.fn();
+	const onNothing = jest.fn();
+	const onAbandon = jest.fn();
 	const onRowClick = jest.fn();
 	const utils = render(
-		<Harness onPick={ onPick } onRowClick={ onRowClick } />
+		<Harness
+			onPick={ onPick }
+			onNothing={ onNothing }
+			onAbandon={ onAbandon }
+			onRowClick={ onRowClick }
+		/>
 	);
-	return { onPick, onRowClick, ...utils };
+	return { onPick, onNothing, onAbandon, onRowClick, ...utils };
 }
 
 function startPicking( getByTestId ) {
@@ -152,7 +164,7 @@ test( 'a plain pick ends picker mode', () => {
 	);
 } );
 
-test( 'clicking something unaskable cancels rather than asking about the page', () => {
+test( 'clicking something unaskable never asks about the page', () => {
 	const { getByTestId, onPick } = setup();
 	startPicking( getByTestId );
 
@@ -161,8 +173,24 @@ test( 'clicking something unaskable cancels rather than asking about the page', 
 	} );
 
 	expect( onPick ).not.toHaveBeenCalled();
+} );
+
+/**
+ * A missed click used to disarm silently, which reads as the picker being
+ * broken and hands the next click to the element underneath — on a flame graph
+ * that zooms. Saying so and staying armed lets the second click land.
+ */
+test( 'a missed click says so and leaves the picker armed', () => {
+	const { getByTestId, onNothing } = setup();
+	startPicking( getByTestId );
+
+	act( () => {
+		fireEvent.click( getByTestId( 'outside' ) );
+	} );
+
+	expect( onNothing ).toHaveBeenCalledTimes( 1 );
 	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
-		false
+		true
 	);
 } );
 
@@ -233,4 +261,31 @@ test( 'unmounting while picking leaves nothing behind', () => {
 		fireEvent.keyDown( document, { key: 'Escape' } );
 	} );
 	expect( onPick ).not.toHaveBeenCalled();
+} );
+
+/**
+ * Giving up is not the same as finishing: a multi-select that ends in Escape
+ * meant none of it, while the plain click that ends one means all of it.
+ */
+test( 'escape reports the selection as abandoned', () => {
+	const { getByTestId, onAbandon } = setup();
+	startPicking( getByTestId );
+
+	act( () => {
+		fireEvent.keyDown( document, { key: 'Escape' } );
+	} );
+
+	expect( onAbandon ).toHaveBeenCalledTimes( 1 );
+} );
+
+test( 'a plain pick finishes rather than abandons', () => {
+	const { getByTestId, onAbandon } = setup();
+	startPicking( getByTestId );
+
+	act( () => {
+		fireEvent.mouseDown( getByTestId( 'cell' ) );
+		fireEvent.click( getByTestId( 'cell' ) );
+	} );
+
+	expect( onAbandon ).not.toHaveBeenCalled();
 } );

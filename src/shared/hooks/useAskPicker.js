@@ -7,6 +7,13 @@ export const ASKING_CLASS = 'newspack-nodes-asking';
 const ASK_ATTR = 'data-ask';
 
 /**
+ * The picker's own controls, which it must NOT swallow: the capture-phase
+ * handler suppresses every click while armed, so a trigger without this never
+ * receives its own `onClick` and could not cancel.
+ */
+export const ASK_TRIGGER_ATTR = 'data-ask-trigger';
+
+/**
  * Every `[data-ask]` from $el outward, innermost first. DOM nesting already
  * expresses containment — a span sits inside its request, a row inside its URL
  * — so the chain is what makes the small descriptor vocabulary self-sufficient
@@ -52,15 +59,21 @@ function chainFrom( el ) {
  * click, and the mousedown read is the working answer to it).
  *
  * @param {Object}   options
- * @param {Function} options.onPick Called `( descriptors, { additive } )`.
+ * @param {Function} options.onPick      Called `( descriptors, { additive } )`.
+ * @param {Function} [options.onNothing] Called when the click hit nothing askable.
+ * @param {Function} [options.onAbandon] Called when Escape gives the selection up.
  * @return {{ active: boolean, start: () => void, cancel: () => void }} Picker controls.
  */
-export function useAskPicker( { onPick } ) {
+export function useAskPicker( { onPick, onNothing, onAbandon } ) {
 	const [ active, setActive ] = useState( false );
 	const activeRef = useRef( false );
 	const modifierRef = useRef( false );
 	const onPickRef = useRef( onPick );
 	onPickRef.current = onPick;
+	const onNothingRef = useRef( onNothing );
+	onNothingRef.current = onNothing;
+	const onAbandonRef = useRef( onAbandon );
+	onAbandonRef.current = onAbandon;
 
 	const setPicking = useCallback( ( on ) => {
 		activeRef.current = on;
@@ -83,8 +96,8 @@ export function useAskPicker( { onPick } ) {
 		( target, additive ) => {
 			const chain = chainFrom( target );
 			if ( 0 === chain.length ) {
-				// Nothing askable: cancel, never ask about the page.
-				setPicking( false );
+				// Disarming would hand the next click to what is under it.
+				onNothingRef.current?.();
 				return;
 			}
 			onPickRef.current?.( chain, { additive } );
@@ -104,6 +117,10 @@ export function useAskPicker( { onPick } ) {
 			if ( ! activeRef.current ) {
 				return;
 			}
+			// The picker's own controls act normally while it is armed.
+			if ( e.target?.closest?.( `[${ ASK_TRIGGER_ATTR }]` ) ) {
+				return;
+			}
 			// Capture phase: the row's own handler must not also fire.
 			e.preventDefault();
 			e.stopPropagation();
@@ -116,7 +133,13 @@ export function useAskPicker( { onPick } ) {
 			}
 			if ( 'Escape' === e.key ) {
 				e.preventDefault();
+				// Giving up, not finishing: the holder drops it.
+				onAbandonRef.current?.();
 				setPicking( false );
+				return;
+			}
+			// The picker's own controls act normally while armed.
+			if ( e.target?.closest?.( `[${ ASK_TRIGGER_ATTR }]` ) ) {
 				return;
 			}
 			if ( 'Enter' === e.key || ' ' === e.key ) {
