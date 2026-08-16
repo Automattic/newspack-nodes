@@ -60,18 +60,15 @@ function chainFrom( el ) {
  *
  * @param {Object}   options
  * @param {Function} options.onPick      Called `( descriptors, { additive } )`.
- * @param {Function} [options.onNothing] Called when the click hit nothing askable.
  * @param {Function} [options.onAbandon] Called when Escape gives the selection up.
  * @return {{ active: boolean, start: () => void, cancel: () => void }} Picker controls.
  */
-export function useAskPicker( { onPick, onNothing, onAbandon } ) {
+export function useAskPicker( { onPick, onAbandon } ) {
 	const [ active, setActive ] = useState( false );
 	const activeRef = useRef( false );
 	const modifierRef = useRef( false );
 	const onPickRef = useRef( onPick );
 	onPickRef.current = onPick;
-	const onNothingRef = useRef( onNothing );
-	onNothingRef.current = onNothing;
 	const onAbandonRef = useRef( onAbandon );
 	onAbandonRef.current = onAbandon;
 
@@ -97,7 +94,6 @@ export function useAskPicker( { onPick, onNothing, onAbandon } ) {
 			const chain = chainFrom( target );
 			if ( 0 === chain.length ) {
 				// Disarming would hand the next click to what is under it.
-				onNothingRef.current?.();
 				return;
 			}
 			onPickRef.current?.( chain, { additive } );

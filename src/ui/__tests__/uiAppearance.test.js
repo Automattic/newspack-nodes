@@ -753,9 +753,12 @@ describe( 'canonical UI appearance', () => {
 				'border-bottom':
 					'1px solid var(--paper-shadow,var(--np-border-strong))',
 			} );
+			// Plain chrome only: a button carrying a role brings its own fill
+			// AND text, and painting it ink left the armed Ask trigger pale on
+			// its own accent.
 			for ( const chrome of [
 				'.components-modal__header-heading',
-				'.components-modal__header > button',
+				'.components-modal__header > button:not(.is-active):not(.button-primary):not(.is-danger):not(.button-link-delete):not(.is-paused)',
 			] ) {
 				expect(
 					exactSelectorRule( `${ root } ${ chrome }` )?.declarations
