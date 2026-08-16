@@ -612,7 +612,7 @@ describe( 'useCommandOnce', () => {
 	// A Reset Graph rebuilds the result node, whose `seq` starts again at 1
 	// while the hook's watermark survives in a ref. Reading the restart as
 	// "already seen" swallowed every reply until the count caught up — and on
-	// `useAwaitableCommand` that is a promise nobody ever settles.
+	// a promise nobody ever settles.
 	it( 'keeps answering after a rebuild restarts the reply count', async () => {
 		const onDone = jest.fn();
 		const { result } = renderHook( () =>
