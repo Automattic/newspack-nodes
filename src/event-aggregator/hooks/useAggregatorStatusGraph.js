@@ -31,15 +31,13 @@
  * `_shell/_http/<ci>` path as the slices (unlocked between poll ticks →
  * the same tick as the poll), and the answer names the spoke it is about.
  *
- * Returns the refresh control (`setRefreshInterval` / `refreshInterval`), the
- * `probe(id)` dispatch, and `answerFor(id)` — which asks the probe's own node
- * whether its outstanding command or its last reply was about that spoke. React reads each
+ * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) only.
+ * The deep probe belongs to the CARD that sends it, scoped to its spoke, so a
+ * second card's answer cannot land where the first's did. React reads each
  * polled slice via its own useNodeState('<slice>:view','view').
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element';
-import { formatCommandArgs } from '@newspack-nodes/runtime';
-import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
+import { useEffect, useState } from '@wordpress/element';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import { views } from '../nodes/register';
@@ -50,7 +48,8 @@ const SERVER = 'aggregator';
 const TARGET = egressPath( SERVER );
 
 // One on-demand probe node per spoke; the name IS the addressing.
-const PROBE_PREFIX = 'aggregator:probe';
+export const PROBE_PREFIX = 'aggregator:probe';
+export { SERVER as AGGREGATOR_CI };
 
 // Refresh-interval options offered to the user (the select in the dashboard).
 export const REFRESH_OPTIONS = [
@@ -97,12 +96,9 @@ const SLICES = [
 ];
 
 /**
- * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => void, answerFor: ( id: string ) => ?Object }}
- *   The controls the thin React view needs: `setRefreshInterval` takes a
- *   REFRESH_OPTIONS value (string ms), `probe` deep-probes one spoke by id and
- *   returns nothing — `answerFor( id )` reports what came back for the
- *   settled result of that spoke's last probe. Each polled slice is read
- *   separately via useNodeState.
+ * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string }}
+ *   `setRefreshInterval` takes a REFRESH_OPTIONS value (string ms). Each polled
+ *   slice is read separately via useNodeState.
  */
 export function useAggregatorStatusGraph() {
 	// The persisted refresh interval (string ms); seeds from localStorage.
@@ -128,17 +124,6 @@ export function useAggregatorStatusGraph() {
 			parseInt( DEFAULT_REFRESH_MS, 10 ),
 	} );
 
-	// On-demand deep probe, filed under the spoke its arguments name.
-	const { run: runProbe, answerFor } = useCommandOnce( {
-		ci: SERVER,
-		command: 'probe',
-		scope: PROBE_PREFIX,
-	} );
-	const probe = useCallback(
-		( id ) => runProbe( formatCommandArgs( [ id ] ) ),
-		[ runProbe ]
-	);
-
 	// Persist the refresh choice to localStorage.
 	useEffect( () => {
 		localStorage.setItem( REFRESH_KEY, refreshInterval );
@@ -149,5 +134,5 @@ export function useAggregatorStatusGraph() {
 		setRefreshIntervalState( value );
 	};
 
-	return { setRefreshInterval, refreshInterval, probe, answerFor };
+	return { setRefreshInterval, refreshInterval };
 }

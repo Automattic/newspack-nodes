@@ -14,7 +14,9 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useSessionsGraph } from './hooks/useSessionsGraph';
+import { useSessionsGraph, SESSIONS_CI } from './hooks/useSessionsGraph';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
+import { formatCommandArgs } from '../runtime/command-args';
 import Modal from '@newspack-nodes/shared/components/Modal';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
@@ -72,20 +74,30 @@ function when( seconds ) {
  * graph keeps that answer per handle for the row to render.
  *
  * @param {Object}   props
- * @param {Object}   props.session  A row from the view model.
- * @param {Function} props.onRevoke Revoke callback (handle).
- * @param {?Object}  props.answer   The graph's last answer for this handle.
+ * @param {Object}   props.session   A row from the view model.
+ * @param {Function} props.onChanged Called when this row changed the list.
  * @return {import('react').ReactElement} The rendered row.
  */
-function SessionRow( { session, onRevoke, answer } ) {
+function SessionRow( { session, onChanged } ) {
 	const { handle, label, scope, expires, created, live } = session;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
-	const busy = Boolean( answer?.busy );
-	const status = answerStatus( answer, REVOKE_TEXTS ).text;
+
+	// The row's OWN verb, scoped to this session (see the docblock).
+	const revoke = useCommandOnce( {
+		ci: SESSIONS_CI,
+		command: 'revoke',
+		scope: `${ SESSIONS_CI }:revoke:${ handle }`,
+		onDone: onChanged,
+	} );
+	const busy = revoke.pending;
+	const status = answerStatus(
+		busy || revoke.answeredArgs ? { busy, error: revoke.error } : null,
+		REVOKE_TEXTS
+	).text;
 
 	const confirmRevoke = () => {
 		setIsConfirmOpen( false );
-		onRevoke( handle );
+		revoke.run( formatCommandArgs( [ handle ] ) );
 	};
 
 	return (
@@ -165,25 +177,47 @@ function SessionRow( { session, onRevoke, answer } ) {
  * recoverable from the listing.
  *
  * @param {Object}     props
- * @param {Function}   props.onCreate Create callback (fields).
- * @param {?Object}    props.answer   The graph's last answer for the submitted label.
- * @param {() => void} props.onCancel Dismisses the modal.
- * @param {string[]}   props.scopes   Scope vocabulary from the view model.
- * @param {number}     props.ttlMax   Server-side TTL ceiling, in seconds.
+ * @param {Function}   props.onIssued  Called with the issued session on success.
+ * @param {Function}   props.onChanged Called on any reply, to refresh the list.
+ * @param {() => void} props.onCancel  Dismisses the modal.
+ * @param {string[]}   props.scopes    Scope vocabulary from the view model.
+ * @param {number}     props.ttlMax    Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The rendered form.
  */
-function CreateSessionForm( { onCreate, answer, onCancel, scopes, ttlMax } ) {
+function CreateSessionForm( {
+	onIssued,
+	onChanged,
+	onCancel,
+	scopes,
+	ttlMax,
+} ) {
 	const [ label, setLabel ] = useState( '' );
 	const [ scope, setScope ] = useState( scopes[ 0 ] ?? 'read' );
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
-	// Local validation only; the graph's answer supplies everything else.
+	// Local validation only; the reply below supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
 	const labelRef = useRef( null );
 
-	const busy = Boolean( answer?.busy );
+	const create = useCommandOnce( {
+		ci: SESSIONS_CI,
+		command: 'create',
+		onDone: ( { error, result } ) => {
+			onChanged();
+			if ( ! error ) {
+				onIssued( result );
+			}
+		},
+	} );
+
+	const busy = create.pending;
 	const status = invalid
 		? invalid
-		: answerStatus( answer, CREATE_TEXTS ).text;
+		: answerStatus(
+				busy || create.answeredArgs
+					? { busy, error: create.error }
+					: null,
+				CREATE_TEXTS
+		  ).text;
 
 	useEffect( () => {
 		labelRef.current?.focus();
@@ -201,7 +235,9 @@ function CreateSessionForm( { onCreate, answer, onCancel, scopes, ttlMax } ) {
 			return;
 		}
 		setInvalid( '' );
-		onCreate( { label: trimmed, scope, ttl: Number( ttl ) } );
+		create.run(
+			formatCommandArgs( [ trimmed ], { scope, ttl: Number( ttl ) } )
+		);
 	};
 
 	return (
@@ -355,23 +391,13 @@ function IssuedKeyPanel( { session, onClose } ) {
  */
 export default function SessionsAdmin( { headerControlsSlot } ) {
 	const [ isCreateOpen, setIsCreateOpen ] = useState( false );
+	// Disclosed once, so the create hands the key over, never publishes it.
 	const [ issued, setIssued ] = useState( null );
-	const [ submitted, setSubmitted ] = useState( null );
-	// Disclosed once, so the graph hands the key over, never publishes it.
-	const {
-		createSession,
-		revokeSession,
-		answerFor,
-		sessions,
-		scopes,
-		ttlMax,
-		error,
-	} = useSessionsGraph( { onIssued: setIssued } );
+	const { sessions, scopes, ttlMax, error, refresh } = useSessionsGraph();
 
 	const closeCreate = () => {
 		setIsCreateOpen( false );
 		setIssued( null );
-		setSubmitted( null );
 	};
 
 	const controls = (
@@ -421,8 +447,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 							<SessionRow
 								key={ session.handle }
 								session={ session }
-								onRevoke={ revokeSession }
-								answer={ answerFor( session.handle ) }
+								onChanged={ refresh }
 							/>
 						) )
 					) : (
@@ -455,11 +480,8 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 						/>
 					) : (
 						<CreateSessionForm
-							onCreate={ ( fields ) => {
-								setSubmitted( fields.label );
-								createSession( fields );
-							} }
-							answer={ answerFor( submitted ) }
+							onIssued={ setIssued }
+							onChanged={ refresh }
 							onCancel={ closeCreate }
 							scopes={
 								scopes.length

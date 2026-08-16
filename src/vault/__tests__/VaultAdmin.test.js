@@ -18,7 +18,18 @@ jest.mock( '../hooks/useVaultGraph', () => {
 	};
 } );
 
+// Each row and the add form own their verbs, so the double stands in for the
+// wire and lets a test answer any one of them by scope.
+jest.mock( '@newspack-nodes/shared/hooks/useCommandOnce', () =>
+	require( '@newspack-nodes/shared/test-utils/mockCommandOnce' ).factory()
+);
+
 import { render, act } from '@testing-library/react';
+import {
+	answerCommand,
+	sentTo,
+	resetCommands,
+} from '@newspack-nodes/shared/test-utils/mockCommandOnce';
 import { Core } from '../../runtime/core';
 import VaultAdmin from '../VaultAdmin';
 
@@ -85,48 +96,35 @@ function dialogButton( label ) {
 // The graph publishes the last answer PER SERVER; a row renders it.
 
 describe( 'VaultAdmin', () => {
-	let addServer;
-	let removeServer;
-	let testServer;
-	let answers;
-	let graphOpts = {};
+	let refresh;
 	const mounted = [];
 
-	// Publish an answer, as a reply landing on the verb's node would. A
-	// successful add also fires the graph's `onAdded`, which is what closes the
-	// modal — the same one call the real `onDone` makes.
+	// A reply landing on the node that asked. `subject` names the row, which
+	// is what scopes the verb — the add form has no row, so it has no subject.
 	function answer( verb, { subject, error = null } ) {
-		answers[ subject ] = { verb, busy: false, error, result: null };
-		publish();
-		if ( 'add' === verb && ! error ) {
-			graphOpts.onAdded?.();
-		}
+		// The add form has no row, so its verb is scoped by the CI alone.
+		const scope =
+			'add' === verb ? 'vault:add' : `vault:${ verb }:${ subject }`;
+		answerCommand(
+			scope,
+			{ error, result: error ? null : { ok: 1 } },
+			act
+		);
 	}
 
 	publish = function () {
-		useVaultGraph.mockImplementation( ( opts = {} ) => {
-			graphOpts = opts;
-			return {
-				...model,
-				addServer,
-				updateServer: jest.fn(),
-				removeServer,
-				testServer,
-				// The screen asks per row, as the real hook does.
-				answerFor: ( id ) => answers[ id ] ?? null,
-			};
-		} );
+		useVaultGraph.mockImplementation( () => ( {
+			...model,
+			refresh,
+		} ) );
 		mounted.forEach( ( r ) => r.rerender( <VaultAdmin /> ) );
 	};
 
 	beforeEach( () => {
 		Core.reset();
-		addServer = jest.fn();
-		removeServer = jest.fn();
-		testServer = jest.fn();
-		answers = {};
+		resetCommands();
+		refresh = jest.fn();
 		model = { servers: null, loading: true, error: null };
-		graphOpts = {};
 		useVaultGraph.mockClear();
 		publish();
 	} );
@@ -278,7 +276,7 @@ describe( 'VaultAdmin', () => {
 			);
 		} );
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
-		expect( addServer ).not.toHaveBeenCalled();
+		expect( sentTo( 'vault:add' ) ).toEqual( [] );
 	} );
 
 	it( 'closes the add modal after a successful add', async () => {
@@ -295,7 +293,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( addServer ).toHaveBeenCalled();
+		expect( sentTo( 'vault:add' ) ).not.toEqual( [] );
 		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
 		// The modal is gone once the add's answer lands.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
@@ -318,12 +316,13 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( addServer ).toHaveBeenCalledWith( {
-			id: 'spoke-09',
-			url: 'https://spoke.example',
-			auth_username: 'admin',
-			auth_password: 'secret',
-		} );
+		// The form builds argv itself now: id positional, credentials named.
+		expect( sentTo( 'vault:add' )[ 0 ] ).toEqual( [
+			'spoke-09',
+			'--url=https://spoke.example',
+			'--auth_username=admin',
+			'--auth_password=secret',
+		] );
 	} );
 
 	it( 'blocks add submission and shows a message when the id is empty', async () => {
@@ -339,7 +338,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( addServer ).not.toHaveBeenCalled();
+		expect( sentTo( 'vault:add' ) ).toEqual( [] );
 		expect( container.textContent ).toContain( 'ID is required' );
 		// A blocked submission keeps the modal open so the user can correct it.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
@@ -359,7 +358,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( addServer ).not.toHaveBeenCalled();
+		expect( sentTo( 'vault:add' ) ).toEqual( [] );
 		expect( container.textContent ).toContain( 'https://' );
 	} );
 
@@ -376,7 +375,7 @@ describe( 'VaultAdmin', () => {
 		expect( document.body.textContent ).toContain(
 			'Are you sure you want to remove this server?'
 		);
-		expect( removeServer ).not.toHaveBeenCalled();
+		expect( sentTo( 'vault:delete:spoke-01' ) ).toEqual( [] );
 	} );
 
 	it( 'calls removeServer when the dialog confirm is clicked', async () => {
@@ -393,7 +392,9 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( removeServer ).toHaveBeenCalledWith( 'spoke-01' );
+		expect( sentTo( 'vault:delete:spoke-01' ) ).toContainEqual( [
+			'spoke-01',
+		] );
 	} );
 
 	it( 'does NOT call removeServer when the dialog is cancelled', async () => {
@@ -410,7 +411,7 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( removeServer ).not.toHaveBeenCalled();
+		expect( sentTo( 'vault:delete:spoke-01' ) ).toEqual( [] );
 		// Closing the dialog removes it from the document.
 		expect( document.body.textContent ).not.toContain(
 			'Are you sure you want to remove this server?'
@@ -429,11 +430,48 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( testServer ).toHaveBeenCalledWith( 'spoke-01' );
+		expect( sentTo( 'vault:test:spoke-01' ) ).toContainEqual( [
+			'spoke-01',
+		] );
 		await act( async () => answer( 'test', { subject: 'spoke-01' } ) );
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'Connected'
 		);
+	} );
+
+	// @longform Two rows probed in the same second are two subjects, and each
+	// row shows its OWN answer. One node per verb across every row cannot do
+	// that: the second reply lands where the first did, and the first row's
+	// status line goes blank while its result is still the current truth.
+	it( 'keeps each row’s answer when a second row is probed', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		const rows = () => container.querySelectorAll( 'tbody tr' );
+
+		act( () =>
+			rows()[ 0 ]
+				.querySelector( '.event-aggregator-test' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) )
+		);
+		answer( 'test', { subject: 'spoke-01' } );
+		expect(
+			rows()[ 0 ].querySelector( '.test-status' ).textContent
+		).toContain( 'Connected' );
+
+		act( () =>
+			rows()[ 1 ]
+				.querySelector( '.event-aggregator-test' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) )
+		);
+		answer( 'test', { subject: 'spoke-02', error: 'refused' } );
+
+		// The second row's failure did not erase the first row's success.
+		expect(
+			rows()[ 0 ].querySelector( '.test-status' ).textContent
+		).toContain( 'Connected' );
+		expect(
+			rows()[ 1 ].querySelector( '.test-status' ).textContent
+		).toContain( 'refused' );
 	} );
 
 	it( 'shows the per-row test failure message when the probe is refused', async () => {

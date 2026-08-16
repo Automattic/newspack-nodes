@@ -11,6 +11,12 @@
  * Core so each widget can read its model via useNodeState.
  */
 
+// Each card owns its probe, scoped to its spoke, so the double stands in for
+// the wire and lets a test answer one card without touching the others.
+jest.mock( '@newspack-nodes/shared/hooks/useCommandOnce', () =>
+	require( '@newspack-nodes/shared/test-utils/mockCommandOnce' ).factory()
+);
+
 jest.mock( '../hooks/useAggregatorStatusGraph', () => {
 	const actual = jest.requireActual( '../hooks/useAggregatorStatusGraph' );
 	return {
@@ -23,6 +29,11 @@ jest.mock( '../hooks/useAggregatorStatusGraph', () => {
 import { createElement } from '@wordpress/element';
 import { render, act } from '@testing-library/react';
 import { Core } from '@newspack-nodes/runtime';
+import {
+	answerCommand,
+	sentTo,
+	resetCommands,
+} from '@newspack-nodes/shared/test-utils/mockCommandOnce';
 import AggregatorStatus from '../AggregatorStatus';
 
 const {
@@ -131,20 +142,26 @@ function registerSlices( { summary = {}, servers = {} } = {} ) {
 
 describe( 'AggregatorStatus', () => {
 	let setRefreshInterval;
-	let probe;
+	const probeScope = ( id ) => `aggregator:probe:${ id }`;
+
+	// Fire the nth card's Probe button.
+	const clickProbe = ( container, n ) =>
+		act( () =>
+			container
+				.querySelectorAll( '.aggregator-fleet-probe-button' )
+				[ n ].dispatchEvent( new Event( 'click', { bubbles: true } ) )
+		);
 	const mounted = [];
 
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
 		setRefreshInterval = jest.fn();
-		probe = jest.fn().mockResolvedValue( {} );
+		resetCommands();
 		useAggregatorStatusGraph.mockClear();
 		useAggregatorStatusGraph.mockReturnValue( {
 			setRefreshInterval,
 			refreshInterval: '2000',
-			probe,
-			answerFor: () => null,
 		} );
 	} );
 
@@ -613,39 +630,30 @@ describe( 'AggregatorStatus', () => {
 		} );
 		// The probe verb takes the VAULT credential key, not the node name —
 		// they differ in real topologies, so this must not regress to `id`.
-		expect( probe ).toHaveBeenCalledWith( 'server1-vault-cred' );
+		expect( sentTo( probeScope( 'server1-vault-cred' ) ) ).toContainEqual( [
+			'server1-vault-cred',
+		] );
 	} );
 
 	it( 'renders the fleet roll-up when a probe result is present', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
-		// Keyed by vault_id (what onProbe dispatches), NOT `id` — a lookup
-		// that regresses to server.id must render nothing.
-		useAggregatorStatusGraph.mockReturnValue( {
-			setRefreshInterval,
-			refreshInterval: '2000',
-			probe,
-			answerFor: ( id ) =>
-				'server1-vault-cred' === id
-					? {
-							verb: 'probe',
-							busy: false,
-							error: null,
-							result: {
-								workers: {
-									total: 4,
-									live: 3,
-									stale: 1,
-									dead: 0,
-								},
-								worst_distance: 128,
-								deadletter_segments: 5,
-							},
-					  }
-					: null,
-		} );
 		const { container } = mount();
+		// Scoped by vault_id (what the card probes), NOT `id` — a scope that
+		// regresses to server.id answers a node no card is reading.
+		clickProbe( container, 0 );
+		answerCommand(
+			probeScope( 'server1-vault-cred' ),
+			{
+				result: {
+					workers: { total: 4, live: 3, stale: 1, dead: 0 },
+					worst_distance: 128,
+					deadletter_segments: 5,
+				},
+			},
+			act
+		);
 		expect( container.textContent ).toContain(
 			'3 live / 1 stale / 0 dead'
 		);
@@ -657,21 +665,13 @@ describe( 'AggregatorStatus', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
-		useAggregatorStatusGraph.mockReturnValue( {
-			setRefreshInterval,
-			refreshInterval: '2000',
-			probe,
-			answerFor: ( id ) =>
-				'server1-vault-cred' === id
-					? {
-							verb: 'probe',
-							busy: false,
-							result: null,
-							error: 'could not connect to server',
-					  }
-					: null,
-		} );
 		const { container } = mount();
+		clickProbe( container, 0 );
+		answerCommand(
+			probeScope( 'server1-vault-cred' ),
+			{ error: 'could not connect to server' },
+			act
+		);
 		const err = container.querySelector(
 			'.aggregator-fleet-rollup.is-error'
 		);

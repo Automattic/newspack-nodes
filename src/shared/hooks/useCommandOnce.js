@@ -57,10 +57,9 @@ const RETRY_AFTER_MS = 5000;
  *                              once per reply; `args` are the ones it answered,
  *                              read off the reply itself.
  * @param {boolean}  [o.retry]  True for an idempotent READ; see above.
- * @return {{run: (args: string[]) => void, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], answerFor: (subject: string) => ?Object, pending: boolean}}
- *   `answerFor( subject )` says whether a command about that subject is still
- *   out, or what the last reply about it said — the question a row asks instead
- *   of indexing a table.
+ * @return {{run: (args: string[]) => void, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
+ *   `answeredArgs` are the arguments the published reply answered, so a caller
+ *   that sends about several subjects can say which one it is looking at.
  */
 export function useCommandOnce( {
 	command,
@@ -204,28 +203,9 @@ export function useCommandOnce( {
 	// One source for "what was answered": the reply the node published.
 	const answeredArgs = model ? model.args ?? [] : null;
 
-	// The row asks the node that holds its reply, never a table (ADR-7).
-	const answerFor = ( subject ) => {
-		if (
-			outboxRef.current.some( ( send ) => send.args[ 0 ] === subject )
-		) {
-			return { verb: command, busy: true, error: null, result: null };
-		}
-		if ( answeredArgs?.[ 0 ] === subject ) {
-			return {
-				verb: command,
-				busy: false,
-				error: model?.error ?? null,
-				result: model?.ok ? model.payload : null,
-			};
-		}
-		return null;
-	};
-
 	return {
 		run,
 		answeredArgs,
-		answerFor,
 		result: model?.ok ? model.payload : null,
 		error: model?.error ?? null,
 		errorData: model?.errorData ?? null,
