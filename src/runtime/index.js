@@ -24,7 +24,12 @@ export { DumperNode } from './dumper-node';
 export { UptimeNode } from './uptime-node';
 export { commandTransport, defaultTransport } from './command-transport';
 export { formatCommandArgs, parseCommandArgs } from './command-args';
-export { useNodeState, useNodeFill, useGraphGeneration } from './react';
+export {
+	useNodeState,
+	useNodeEvent,
+	useNodeFill,
+	useGraphGeneration,
+} from './react';
 export {
 	ensureSession,
 	hasSession,
