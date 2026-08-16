@@ -29,13 +29,19 @@ function chainFrom( el ) {
 }
 
 /**
- * The `?` picker: click the Ask button, the cursor becomes a `?`, and the next
+ * The `?` picker: click an Ask button, the cursor becomes a `?`, and the next
  * click asks about whatever you point at.
  *
  * A per-surface "Ask AI" button has to guess what you meant. This inverts it —
  * THE TARGET IS THE SCOPE — so the payload is that thing plus enough context to
- * explain it, and there is no per-surface branching at all: one button, and
- * what you click decides everything.
+ * explain it, and there is no per-surface branching at all: what you click
+ * decides everything.
+ *
+ * ONE picker, though, however many triggers open it. The mode is document-level
+ * — it marks the body, retargets every `[data-ask]` and swallows the next click
+ * in the capture phase — so a second instance fights the first over that one
+ * mode, and an unmounting one clears the body class mid-pick. Hold it once and
+ * render as many triggers as there are places worth asking from.
  *
  * While picking, the target's own handler is suppressed in the CAPTURE phase,
  * for modified and unmodified clicks alike. That matters more than it looks:

@@ -5,6 +5,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Node;
 use Newspack_Nodes\Probe_Record;
 use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -18,6 +19,7 @@ use Newspack_Nodes\Tests\TestCase;
  * totals are derived downstream, never logged.
  */
 #[CoversClass( Topic_Probe_Node::class )]
+#[CoversClass( Probe_Node::class )]
 class TopicProbeTest extends TestCase {
 
 	protected function setUp(): void {
@@ -33,6 +35,25 @@ class TopicProbeTest extends TestCase {
 	 * retunes the probe would otherwise have every healthy reader read as
 	 * departed, recomputing off disk on every poll and reporting a zero rate.
 	 */
+	/**
+	 * ADR-14: a broad catch on the drain path re-throws Worker_Should_Stop
+	 * first. The sweep runs off the Router TIMER inside a worker, so a stop
+	 * raised while a probe reads segment sizes would otherwise be logged as a
+	 * skipped node and the worker would run past its deadline.
+	 */
+	public function test_a_cooperative_stop_escapes_the_per_node_catch(): void {
+		$probe = new class() extends Probe_Node {
+			protected function probe( \Newspack_Nodes\Node $node ): array {
+				throw new \Newspack_Nodes\Worker_Should_Stop( 'deadline' );
+			}
+		};
+		$probe->name( 'stopprobe' );
+		$probe->sink( new Capture_Sink_Node() );
+
+		$this->expectException( \Newspack_Nodes\Worker_Should_Stop::class );
+		$probe->fire_cb();
+	}
+
 	public function test_stale_after_reads_the_declared_sweep_cadence(): void {
 		// 47 is distinct from the stock 15 and from any fallback, so a lookup
 		// that quietly missed the file cannot produce 94 by coincidence.
@@ -169,6 +190,32 @@ class TopicProbeTest extends TestCase {
 		$this->assertInstanceOf( \Newspack_Nodes\Shutdown_Sweeper::class, $probe );
 		$probe->shutdown_sweep();
 		$this->assertCount( 2, $capture->captured, 'the final window rides out on a clean stop' );
+	}
+
+	public function test_fire_emits_a_consumer_record_verbatim_without_fitting(): void {
+		// Only Job_Probe fits: a Jobstats_Record carries a free-text LAST_MESSAGE
+		// that can overflow PIPE_BUF, a Probe_Record carries no such field. Halving
+		// a SOURCE would corrupt the partition identity a reader keys on, so an
+		// oversize record must ride out whole and let Partition refuse it.
+		$consumer                                  = $this->stub_consumer( 'firehose' );
+		$consumer->canned[ Probe_Record::SOURCE ] = \str_repeat( 'p', 6000 );
+
+		$capture = new Capture_Sink_Node();
+		$probe   = new Topic_Probe_Node();
+		$probe->name( 'topicprobe' );
+		$probe->sink( $capture );
+		$probe->fire_cb();
+
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame(
+			\str_repeat( 'p', 6000 ),
+			$capture->captured[0][ Message::VALUE ][ Probe_Record::SOURCE ],
+			'untrimmed — no Line_Fitter on the consumer sweep'
+		);
+		$this->assertGreaterThan(
+			\Newspack_Nodes\Partition_Node::MAX_LINE_SIZE,
+			Message::packed_size( $capture->captured[0] )
+		);
 	}
 
 	public function test_fire_emits_nothing_when_no_consumers(): void {

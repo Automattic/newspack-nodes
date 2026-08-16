@@ -102,14 +102,16 @@ export async function answerBatch( messages, replyFor, options = {} ) {
 
 /**
  * The server's reply envelope, as both interpreters build it: TO = FROM, with
- * ID, KEY and the request's `arguments` echoed back.
+ * ID, KEY and the request's `arguments` echoed back. Exported because a suite
+ * that builds its own transport double must still answer like the server — a
+ * reply naming only its verb cannot say which ask it is about.
  *
  * @param {Array}  sent    The command being answered.
  * @param {*}      payload The reply payload.
- * @param {number} kind    TM_RESPONSE or TM_ERROR.
+ * @param {number} [kind]  TM_RESPONSE or TM_ERROR.
  * @return {Array} The reply Message.
  */
-function commandReply( sent, payload, kind ) {
+export function commandReply( sent, payload, kind = TM_RESPONSE ) {
 	const reply = newMessage();
 	reply[ TYPE ] = TM_COMMAND | kind;
 	reply[ FROM ] = '_command_interpreter';

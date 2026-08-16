@@ -44,6 +44,8 @@ function failureReply( sent, reason ) {
 	reply[ TO ] = sent[ FROM ];
 	reply[ VALUE ] = {
 		name: sent[ VALUE ]?.name,
+		// A refusal is a reply, and a reply says which ask it answers.
+		arguments: sent[ VALUE ]?.arguments ?? [],
 		payload: `Command not delivered: ${ reason }`,
 		undelivered: true,
 	};

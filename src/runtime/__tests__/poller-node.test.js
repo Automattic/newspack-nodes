@@ -1,14 +1,18 @@
 /**
- * Uptime node tests — the `_uptime` node. `_router` delivers the uptime poll
- * reply (a POSITIONAL Message); the node trims the `up ...` half and publishes
- * it ( useNodeState( '_uptime', 'uptime' ) ). Never touches the transcript.
+ * Poller tests — the self-timed verb poller and its two console subclasses.
+ * `_router` delivers each poll reply (a POSITIONAL Message) back to the node
+ * that minted it, which publishes it as node state. Never touches the
+ * transcript.
  */
 
+import { PollerNode } from '../poller-node';
+import { DmesgNode } from '../dmesg-node';
 import { UptimeNode } from '../uptime-node';
 import { Node } from '../node';
 import { TimerNode } from '../timer-node';
 import { RouterNode } from '../router-node';
 import { Core } from '../core';
+import { forgetSession } from '../command-auth';
 import names from '../reserved-node-names.json';
 import {
 	newMessage,
@@ -21,6 +25,8 @@ import {
 	TM_RESPONSE,
 } from '../message';
 
+beforeEach( () => Core.reset() );
+
 function msg( type, value ) {
 	const m = newMessage();
 	m[ TYPE ] = type;
@@ -28,7 +34,151 @@ function msg( type, value ) {
 	return m;
 }
 
-describe( 'Uptime node', () => {
+// Drive a dmesg tail through fill() and read back the published level counts.
+function tally( payload ) {
+	const node = new DmesgNode();
+	node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload } ) );
+	return node.setStateCache.dmesg;
+}
+
+describe( 'dmesg level classification', () => {
+	it( 'classifies dmesg lines (WARNING wins over ERROR), ignoring blanks', () => {
+		const text = [
+			'2026-01-01 12:00:00 ERROR: boom',
+			'2026-01-01 12:00:01 WARNING: careful',
+			'2026-01-01 12:00:02 WARNING: ERROR: warning wins',
+			'2026-01-01 12:00:03 plain debug line',
+			'',
+			'   ',
+		].join( '\n' );
+		expect( tally( text ) ).toEqual( {
+			errors: 1,
+			warnings: 2,
+			debug: 1,
+		} );
+	} );
+
+	it( 'is zero-safe for empty / missing input', () => {
+		expect( tally( '' ) ).toEqual( {
+			errors: 0,
+			warnings: 0,
+			debug: 0,
+		} );
+		expect( tally( undefined ).errors ).toBe( 0 );
+	} );
+} );
+
+describe( 'PollerNode', () => {
+	it( 'fire() emits the CONFIGURED verb + arguments to its target', () => {
+		const node = new PollerNode();
+		node.name = '_logs:poller';
+		node.target = '_http';
+		node.verb = 'taillog';
+		node.pollArgs = [ 'php' ];
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node.fire();
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+			name: 'taillog',
+			arguments: [ 'php' ],
+		} );
+		expect( sent[ 0 ][ TO ] ).toBe( '_http' );
+	} );
+
+	it( 'publishes a structured reply verbatim as `reply`', () => {
+		const node = new PollerNode();
+		node.name = 'runtime:timers';
+		node.fill(
+			msg( TM_COMMAND | TM_RESPONSE, {
+				payload: [ { name: 'tick0', fires: 7 } ],
+			} )
+		);
+		expect( node.setStateCache.reply ).toEqual( [
+			{ name: 'tick0', fires: 7 },
+		] );
+	} );
+
+	// A `profile on` ack lands on the poller that minted it; publishing it
+	// would blank the grid the same node's row list feeds.
+	it( 'drops a text reply rather than replacing the row list', () => {
+		const node = new PollerNode();
+		node.name = 'runtime:timers';
+		node.fill( msg( TM_COMMAND | TM_RESPONSE, { payload: [ 'rows' ] } ) );
+		node.fill(
+			msg( TM_COMMAND | TM_RESPONSE, { payload: 'profiling on' } )
+		);
+		expect( node.setStateCache.reply ).toEqual( [ 'rows' ] );
+	} );
+} );
+
+describe( 'DmesgNode', () => {
+	it( 'publishes {errors,warnings,debug} from a dmesg reply payload', () => {
+		const node = new DmesgNode();
+		node.name = '_dmesg';
+		node.fill(
+			msg( TM_COMMAND | TM_RESPONSE, {
+				payload: 'ERROR: a\nWARNING: b\ndebug c',
+			} )
+		);
+		expect( node.setStateCache.dmesg ).toEqual( {
+			errors: 1,
+			warnings: 1,
+			debug: 1,
+		} );
+	} );
+
+	it( 'publishes an object reply payload as `reply` (e.g. a `-s` row list), leaving the text state untouched', () => {
+		const node = new DmesgNode();
+		node.name = 'runtime:poller';
+		node.fill(
+			msg( TM_COMMAND | TM_RESPONSE, {
+				payload: {
+					timers: [ { name: 'tick0', fires: 7 } ],
+					handles: [],
+				},
+			} )
+		);
+		expect( node.setStateCache.reply ).toEqual( {
+			timers: [ { name: 'tick0', fires: 7 } ],
+			handles: [],
+		} );
+		expect( node.setStateCache.dmesg ).toBeUndefined();
+	} );
+
+	it( 'fire() emits a dmesg poll command to its target', () => {
+		const node = new DmesgNode();
+		node.name = '_dmesg';
+		node.target = '_cwd';
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node.fire();
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ VALUE ] ).toMatchObject( {
+			name: 'dmesg',
+			arguments: [],
+		} );
+	} );
+
+	// An unmintable tick emits nothing, so it must not count as a message
+	// either — `counter` is what the inspector reports as messages passed on.
+	// Last in the block: the void ensureSession() this triggers re-establishes
+	// the session before the next test mints.
+	it( 'fire() counts nothing when the mint is refused (no session)', () => {
+		forgetSession();
+		const node = new DmesgNode();
+		node.name = '_dmesg';
+		node.target = '_cwd';
+		node.counter = 41;
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node.fire();
+		expect( sent ).toHaveLength( 0 );
+		expect( node.counter ).toBe( 41 );
+	} );
+} );
+
+describe( 'UptimeNode', () => {
 	it( 'keeps the right half of a bytestream uptime line', () => {
 		const node = new UptimeNode();
 		node.fill( msg( TM_BYTESTREAM, '09:44:52  up 0 days, 00:01:00\n' ) );
@@ -137,6 +287,17 @@ describe( 'Uptime node', () => {
 			const node = new UptimeNode();
 			node.target = '_cwd';
 			expect( () => node.fire() ).not.toThrow();
+		} );
+
+		// See the DmesgNode counterpart: an unmintable tick counts nothing.
+		it( 'counts nothing when the mint is refused (no session)', () => {
+			forgetSession();
+			const { node, sent } = build();
+			node.target = '_cwd';
+			node.counter = 41;
+			node.fire();
+			expect( sent ).toHaveLength( 0 );
+			expect( node.counter ).toBe( 41 );
 		} );
 	} );
 

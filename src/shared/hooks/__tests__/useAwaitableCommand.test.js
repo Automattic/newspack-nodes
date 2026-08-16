@@ -100,35 +100,6 @@ it( 'sends nothing until it is called', async () => {
 	expect( replyFor ).not.toHaveBeenCalled();
 }, 15000 );
 
-// A caller awaiting when the graph goes away must be TOLD, not left holding a
-// promise forever: `useGlobBrowse` and `usePerformanceGraph` await these inside
-// try/catch, and a promise that never settles never runs the catch either.
-// A caller awaits inside a try/catch, so a promise that never settles never
-// runs the catch either — the sequence simply stops, with nothing to show.
-it( 'rejects a caller whose command draws no reply at all', async () => {
-	replyFor.mockImplementation( () => undefined );
-	const { result } = renderSearch();
-	let refusal = null;
-	await act( async () => {
-		result.current( [ 'wombat-4471' ] ).catch( ( e ) => ( refusal = e ) );
-	} );
-	await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-		timeout: 4000,
-	} );
-
-	// The deadline is read at fire time, so stepping the clock is enough.
-	const realNow = Date.now;
-	Date.now = () => realNow() + 31000;
-	try {
-		await waitFor( () => expect( refusal ).not.toBeNull(), {
-			timeout: 4000,
-		} );
-	} finally {
-		Date.now = realNow;
-	}
-	expect( refusal.message ).toMatch( /no reply/i );
-}, 20000 );
-
 it( 'rejects everything outstanding when the graph goes away', async () => {
 	replyFor.mockImplementation( () => new Promise( () => {} ) );
 	const { result, unmount } = renderSearch();

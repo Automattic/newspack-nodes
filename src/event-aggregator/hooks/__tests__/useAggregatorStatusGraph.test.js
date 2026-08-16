@@ -255,11 +255,12 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		expect( probeMsg[ VALUE ].arguments ).toEqual( [ 'spokeX' ] );
 	}, 15000 );
 
-	// Two spokes probed in the same second are two writes that both have to
-	// go, and each answer is filed against the spoke it NAMES — which is what
-	// makes one node enough.
-	test( 'two spokes probed at once are filed independently', async () => {
-		installWire( { rollup: { id: 'either' } } );
+	// Two spokes probed in the same second are two writes that both have to go,
+	// and each answer NAMES its spoke. One node holds one command, so the node
+	// speaks for whichever it was last asked about — a spoke that wants its own
+	// remembered answer wants its own node (ADR-7).
+	test( 'two spokes probed at once both go, in order', async () => {
+		const wire = installWire( { rollup: { id: 'either' } } );
 		const { result } = renderHook( () => useAggregatorStatusGraph( {} ) );
 		act( () => {
 			result.current.probe( 'spoke1' );
@@ -267,15 +268,20 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		} );
 
 		await waitFor(
-			() => {
-				expect( result.current.probes.spoke1?.ok ).toBe( true );
-				expect( result.current.probes.spoke2?.ok ).toBe( true );
-			},
+			() =>
+				expect( result.current.answerFor( 'spoke2' )?.busy ).toBe(
+					false
+				),
 			{ timeout: 6000 }
 		);
+		expect( result.current.answerFor( 'spoke2' ).error ).toBeNull();
+		const probes = wire.batches
+			.flat()
+			.filter( ( m ) => 'probe' === m[ VALUE ]?.name );
+		expect( probes.length ).toBeGreaterThanOrEqual( 2 );
 	}, 15000 );
 
-	test( 'a probe reply files the roll-up under its spoke', async () => {
+	test( 'a probe reply names the spoke it answered', async () => {
 		const rollup = {
 			id: 'spoke1',
 			workers: { total: 2, live: 2, stale: 0, dead: 0 },
@@ -288,12 +294,16 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 
 		await waitFor(
 			() =>
-				expect( result.current.probes.spoke1 ).toEqual( {
-					ok: true,
-					rollup,
+				expect( result.current.answerFor( 'spoke1' ) ).toEqual( {
+					verb: 'probe',
+					busy: false,
+					result: rollup,
+					error: null,
 				} ),
 			{ timeout: 6000 }
 		);
+		// Another spoke's row asks the same node and is told nothing.
+		expect( result.current.answerFor( 'spoke2' ) ).toBeNull();
 	}, 15000 );
 
 	test( 'a refused probe files the failure for that spoke', async () => {
@@ -302,10 +312,13 @@ describe( 'useAggregatorStatusGraph — on-demand fleet probe', () => {
 		act( () => result.current.probe( 'spoke9' ) );
 
 		await waitFor(
-			() => expect( result.current.probes.spoke9?.ok ).toBe( false ),
+			() =>
+				expect( result.current.answerFor( 'spoke9' )?.busy ).toBe(
+					false
+				),
 			{ timeout: 6000 }
 		);
-		expect( result.current.probes.spoke9.error ).toContain(
+		expect( result.current.answerFor( 'spoke9' ).error ).toContain(
 			'spoke unreachable'
 		);
 	}, 15000 );

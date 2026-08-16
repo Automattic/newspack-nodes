@@ -2,7 +2,8 @@
  * useVaultGraph tests — the Vault server-credential admin graph.
  *
  *   _http (HttpOut)
- *   vault:listIn (Tee) → vault:list (VaultListView)   — the credential table
+ *   vault:list:fetch → :in → :view (VaultListView)    — the credential table,
+ *                                                       polled as a slice
  *   vault:{add,update,delete,test}:in → :result       — one one-shot per verb
  *
  * What every test here leans on: nothing correlates. Each verb is minted FROM
@@ -31,8 +32,8 @@ const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
 const CONSOLE_TAP = '_shell';
-const LIST_RECV = 'vault:listIn';
-const LIST_VIEW = 'vault:list';
+const LIST_RECV = 'vault:list:in';
+const LIST_VIEW = 'vault:list:view';
 const ADD = 'vault:add:in';
 const UPDATE = 'vault:update:in';
 const DELETE = 'vault:delete:in';
@@ -67,26 +68,30 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 	test( 'routes Vault commands through the _shell Tap so they are observable via `connect _shell`', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
-		// The mount list waits on the session; flush the /auth microtask.
-		await act( async () => {} );
-		// The mount-time list goes through _shell, so the Tap counts it.
-		expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 );
+		// The table's own poll goes through _shell, so the Tap counts it.
+		await waitFor(
+			() =>
+				expect( Core.node( CONSOLE_TAP ).counter ).toBeGreaterThan( 0 ),
+			{ timeout: 6000 }
+		);
 	} );
 
-	test( 'mounts the backbone + _http + the table edge + one node per awaited verb', () => {
+	test( 'mounts the backbone + _http + the table slice + one node per verb', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
+		await act( async () => {} );
 		const interpreter = Core.node( INTERPRETER );
 		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		for ( const name of ALL_GRAPH_NAMES ) {
 			expect( Core.node( name ) ).toBeTruthy();
 		}
-		// Everything sinks into the interpreter; each verb's Fetcher reaches
-		// `_shell` as a TARGET hop so `connect _shell` still sees it.
+		// Everything sinks into the interpreter; every Fetcher — the table's
+		// included — reaches `_shell` as a TARGET hop, so `connect _shell`
+		// still sees the lot.
 		expect( Core.node( LIST_RECV ).sink ).toBe( interpreter );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( interpreter );
-		for ( const name of VERB_RECEIVERS ) {
+		for ( const name of [ ...VERB_RECEIVERS, LIST_RECV ] ) {
 			expect( Core.node( name ).sink ).toBe( interpreter );
 			const fetcher = name.replace( /:in$/, ':fetch' );
 			expect( Core.node( fetcher ).target ).toBe(
@@ -95,15 +100,17 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		}
 	} );
 
-	test( 'the receiver Tee fans to exactly the list view', () => {
+	test( 'the table receiver fans to exactly the list view', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
+		await act( async () => {} );
 		expect( Core.node( LIST_RECV ).target ).toEqual( [ LIST_VIEW ] );
 	} );
 
-	test( 'does NOT mount the old god vault:view or the REPL-only nodes', () => {
+	test( 'does NOT mount the old god vault:view or the REPL-only nodes', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
+		await act( async () => {} );
 		for ( const name of [
 			'vault:view',
 			'vault:testIn',
@@ -125,21 +132,22 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( wire.batches.flat() ).not.toHaveLength( 0 );
 	} );
 
-	test( 'fires one immediate list() on mount, FROM the list receiver', async () => {
+	// The table is the poll's first load, so it arrives without anyone asking
+	// and keeps arriving — which is what makes a refused tick recoverable.
+	test( 'lists on the first tick, FROM the table receiver', async () => {
 		const wire = installWire();
 		renderHook( () => useVaultGraph() );
-		// The mount list waits on the session; flush the /auth microtask.
 		await act( async () => {} );
-		expect( wire.batches.length ).toBeGreaterThanOrEqual( 1 );
-		const msg = wire.batches[ 0 ][ 0 ];
+		await waitForVerb( wire, 'list' );
+		const msg = findVerb( wire.batches, 'list' );
 		expect( msg[ TO ] ).toBe( 'vault' );
 		expect( msg[ FROM ] ).toBe( LIST_RECV );
-		expect( msg[ VALUE ].name ).toBe( 'list' );
 	} );
 
-	test( 'returns the four CRUD callbacks', () => {
+	test( 'returns the four CRUD callbacks', async () => {
 		installWire();
 		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
 		expect( typeof result.current.addServer ).toBe( 'function' );
 		expect( typeof result.current.updateServer ).toBe( 'function' );
 		expect( typeof result.current.removeServer ).toBe( 'function' );
@@ -275,7 +283,7 @@ describe( 'useVaultGraph — each CRUD verb mints from its own node, then re-lis
 				),
 			{ timeout: 6000 }
 		);
-	} );
+	}, 15000 );
 } );
 
 describe( 'useVaultGraph — the probe is its own node', () => {
@@ -303,9 +311,12 @@ describe( 'useVaultGraph — the probe is its own node', () => {
 		expect( t[ VALUE ].arguments ).toEqual(
 			formatCommandArgs( [ 'spoke-01' ] )
 		);
+		// The answer names the server, so the row can ask whether it is its own.
 		await waitFor(
 			() =>
-				expect( result.current.testResult.subject ).toBe( 'spoke-01' ),
+				expect( result.current.answerFor( 'spoke-01' )?.busy ).toBe(
+					false
+				),
 			{ timeout: 6000 }
 		);
 
@@ -335,12 +346,11 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 		// The refusal is published on the add's own result, not thrown.
 		await waitFor(
 			() =>
-				expect( result.current.addResult.error ).toContain(
+				expect( result.current.answerFor( 'dup' )?.error ).toContain(
 					'duplicate id'
 				),
 			{ timeout: 6000 }
 		);
-		expect( result.current.addResult.subject ).toBe( 'dup' );
 		expect( Core.node( LIST_VIEW ).setStateCache.view.error ).toBeNull();
 	}, 15000 );
 
@@ -358,13 +368,41 @@ describe( 'useVaultGraph — errors reject to the caller per concern', () => {
 
 		await waitFor(
 			() =>
-				expect( result.current.testResult.error ).toContain(
-					'unauthorized'
-				),
+				expect(
+					result.current.answerFor( 'spoke-01' )?.error
+				).toContain( 'unauthorized' ),
 			{ timeout: 6000 }
 		);
 		expect( Core.node( LIST_VIEW ).setStateCache.view.error ).toBeNull();
 	}, 15000 );
+} );
+
+// Two verbs answer about the SAME server, and the row shows one status line.
+// Whichever was asked LAST is the one it must show — a fixed spread order shows
+// whichever verb happens to be last in the merge instead.
+describe( 'useVaultGraph — one row, four verbs, one answer', () => {
+	test( 'a later verb supersedes an earlier answer about the same server', async () => {
+		installWire( { list: {}, test: { id: 'spoke-01' } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () => result.current.testServer( 'spoke-01' ) );
+		await waitFor(
+			() =>
+				expect( result.current.answerFor( 'spoke-01' )?.verb ).toBe(
+					'test'
+				),
+			{ timeout: 6000 }
+		);
+
+		// Removing the SAME server must take the row over immediately.
+		await act( async () => {
+			result.current.removeServer( 'spoke-01' );
+		} );
+		expect( result.current.answerFor( 'spoke-01' ) ).toMatchObject( {
+			verb: 'delete',
+		} );
+	}, 20000 );
 } );
 
 describe( 'useVaultGraph — teardown', () => {

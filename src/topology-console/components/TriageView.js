@@ -22,7 +22,7 @@ import {
 } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { CallbackNode } from '../../runtime/callback-node';
-import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { TYPE, VALUE, TM_ERROR, payloadOf } from '../../runtime/message';
 import { formatMessageEnvelope } from '../../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './triage-view.scss';
@@ -120,8 +120,7 @@ export default function TriageView( { node, onAction } ) {
 					return;
 				}
 				const value = message[ VALUE ];
-				const payload =
-					value && 'object' === typeof value ? value.payload : value;
+				const payload = payloadOf( value );
 				handler( payload, !! ( message[ TYPE ] & TM_ERROR ) );
 			} );
 			receiver.name = name;

@@ -399,12 +399,12 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		delete window.NewspackNodesData;
 	} );
 
-	const posted = ( from ) => {
+	const posted = ( from, args = [] ) => {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = from;
 		m[ TO ] = 'topologies';
-		m[ VALUE ] = { name: 'list', arguments: [] };
+		m[ VALUE ] = { name: 'list', arguments: args };
 		return m;
 	};
 
@@ -423,14 +423,19 @@ describe( 'the command transport — a refusal answers the minter', () => {
 
 		const replies = await client.postBatch( [
 			posted( 'topologies:list' ),
-			posted( 'topologies:get' ),
+			posted( 'vault:remove', [ 'spoke-4471' ] ),
 		] );
 
 		expect( replies ).toHaveLength( 2 );
 		expect( replies[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 		expect( replies[ 0 ][ TO ] ).toBe( 'topologies:list' );
-		expect( replies[ 1 ][ TO ] ).toBe( 'topologies:get' );
+		expect( replies[ 1 ][ TO ] ).toBe( 'vault:remove' );
 		expect( String( replies[ 0 ][ VALUE ].payload ) ).toMatch( /401/ );
+		// @longform And it says which ask it answers. A minter retires its
+		// outstanding send by matching the arguments back; naming only the
+		// verb left a refused write outstanding forever, its button disabled
+		// and the refusal never shown.
+		expect( replies[ 1 ][ VALUE ].arguments ).toEqual( [ 'spoke-4471' ] );
 	} );
 
 	it( 'records a TM_ERROR reply WITH its cause, so the list shows a diagnosis', async () => {

@@ -36,10 +36,8 @@ jest.mock( '../../topology-console/hooks/useJsCatalog', () => ( {
 		formatters: {},
 	} ),
 } ) );
-jest.mock( '../../topology-console/hooks/useClassCatalog', () => ( {
+jest.mock( '../../topology-console/hooks/useCatalogs', () => ( {
 	useClassCatalog: () => ( { classes: [], loading: false, formatters: {} } ),
-} ) );
-jest.mock( '../../topology-console/hooks/useVaults', () => ( {
 	useVaults: () => ( {
 		vaults: [ { id: 'austin', url: '' } ],
 		loading: false,

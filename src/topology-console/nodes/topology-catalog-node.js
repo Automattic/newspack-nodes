@@ -8,13 +8,12 @@
  * request as `dump_metadata` / `uptime` / `dmesg`. A batch carries whatever TO
  * each line holds — the server routes them independently.
  *
- * Poll + receive in one node, the MetadataNode shape: `fire()` mints the command
- * (Node.command stamps FROM=name, TO=target and signs it), the reply comes back
- * TO=FROM, and `fill()` publishes the parsed catalog via setState.
+ * Poll + receive in one node, the PollerNode shape: the base mints the command
+ * on the tick (Node.command stamps FROM=name, TO=target and signs it), the
+ * reply comes back TO=FROM, and `publish()` turns it into the catalog.
  */
 
-import { TimerNode } from '../../runtime/timer-node';
-import { VALUE } from '../../runtime/message';
+import { PollerNode } from '../../runtime/poller-node';
 
 export const CATALOG_NODE = 'topologies:catalog';
 
@@ -90,31 +89,28 @@ function defaultPartitionCount() {
  * seeded from the page-load localize payload so the menu is populated before
  * the first reply lands.
  */
-export class TopologyCatalogNode extends TimerNode {
+export class TopologyCatalogNode extends PollerNode {
 	/**
-	 * Publish the localized seed immediately, so a subscriber mounting before
-	 * the first reply still renders a catalog.
+	 * Poll `topologies list`, and publish the localized seed immediately so a
+	 * subscriber mounting before the first reply still renders a catalog.
 	 */
 	constructor() {
 		super();
+		this.verb = 'list';
 		// Last published signature; an identical reply is a no-op.
 		this.lastSig = null;
 		this.setState( 'catalog', seedFromGlobal() );
 	}
 
 	/**
-	 * Reply leg: parse a `topologies list` response and publish it on the
-	 * `catalog` registration, skipping a reply identical to the last one.
-	 * A malformed body keeps the last-good catalog — a transient error must not
-	 * blank the Path menu, which is the whole reason this polls rather than
-	 * loads.
+	 * Parse a `topologies list` reply and publish it on the `catalog`
+	 * registration, skipping a reply identical to the last one. A malformed
+	 * body keeps the last-good catalog — a transient error must not blank the
+	 * Path menu, which is the whole reason this polls rather than loads.
 	 *
-	 * @param {Array} message The 7-field positional message; VALUE holds the reply body.
+	 * @param {*} body The unwrapped reply body.
 	 */
-	fill( message ) {
-		this.counter++;
-		const value = message[ VALUE ];
-		const body = value?.payload ?? value;
+	publish( body ) {
 		if ( ! body || ! Array.isArray( body.topologies ) ) {
 			return;
 		}
@@ -131,22 +127,6 @@ export class TopologyCatalogNode extends TimerNode {
 	}
 
 	/**
-	 * Poll leg, called on each Router TIMER tick: mint `topologies list` and
-	 * emit it through the sink into `_http`, inside the lock — so it batches
-	 * into the same POST as the console's other per-tick commands.
-	 */
-	fire() {
-		if ( ! this.sink ) {
-			return;
-		}
-		const m = this.command( 'list' );
-		if ( m ) {
-			this.counter++;
-			this.sink.fill( m ); // else unauthenticated; the next tick carries it
-		}
-	}
-
-	/**
 	 * Console-palette entry. Hidden console infrastructure: it accepts no
 	 * `fill()` from the graph — only its own command reply — and takes no
 	 * positional configuration.
@@ -155,13 +135,10 @@ export class TopologyCatalogNode extends TimerNode {
 	 */
 	static nodeSchema() {
 		return {
-			category: 'Hidden',
-			accepts_fill: false,
+			...PollerNode.nodeSchema(),
 			description:
 				'Polls `topologies list` and publishes the Path menu catalog.',
-			arguments: [],
-			commands: [],
-			registrations: [ 'catalog', 'FIRE' ],
+			registrations: [ 'catalog' ],
 		};
 	}
 }

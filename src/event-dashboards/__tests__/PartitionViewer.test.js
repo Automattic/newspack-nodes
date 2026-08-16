@@ -32,13 +32,11 @@ jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
 } ) );
 
 // Own suite exercises this hook; mock it — 1 call/render = a render probe.
-jest.mock( '../hooks/usePartitionViewerGraph', () => ( {
+jest.mock( '../hooks/useLogReaderGraph', () => ( {
 	usePartitionViewerGraph: jest.fn(),
 } ) );
 
-const {
-	usePartitionViewerGraph,
-} = require( '../hooks/usePartitionViewerGraph' );
+const { usePartitionViewerGraph } = require( '../hooks/useLogReaderGraph' );
 
 // Stand-in partition:view node: model in setStateCache.view, ring on the node.
 function registerViewFixture( {

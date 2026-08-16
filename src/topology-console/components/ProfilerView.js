@@ -7,7 +7,7 @@
  * fixed-width text — same derivation, so the grid and the REPL can never
  * disagree. `--total--` rides in as the last row and is pinned to the footer.
  *
- * One `Dmesg` poller (a router-TIMER-hitchhiking TimerNode publishing its reply
+ * One `Poller` node (a router-TIMER-hitchhiking TimerNode publishing its reply
  * as `reply`) is mounted on the backbone while the modal is open, routed
  * through `_cwd` so it reports the current scope — browser-local at root, the
  * cd'd worker when pivoted. PHP and JS emit the same keys, so either renders
@@ -61,7 +61,7 @@ export default function ProfilerView() {
 	useEffect( () => {
 		const build = ( { interpreter } ) => {
 			interpreterRef.current = interpreter;
-			const poller = interpreter.makeNode( 'Dmesg', POLLER );
+			const poller = interpreter.makeNode( 'Poller', POLLER );
 			poller.verb = 'list_profiles';
 			poller.pollArgs = [ '-s' ];
 			// `_cwd` routes to the current scope; default it to browser-local.
@@ -69,7 +69,7 @@ export default function ProfilerView() {
 				interpreter.makeNode( 'Node', names.CWD );
 			}
 			poller.target = names.CWD;
-			poller.setTimer(); // hitchhike the _router TIMER (Dmesg throttles)
+			poller.setTimer(); // hitchhike the _router TIMER (Poller throttles)
 			poller.fire(); // poll immediately
 			pollerRef.current = poller;
 			bumpBuild( ( n ) => n + 1 );

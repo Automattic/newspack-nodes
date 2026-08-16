@@ -57,6 +57,24 @@ const TYPE_NAMES = [
 ];
 
 /**
+ * The result inside a reply VALUE.
+ *
+ * A command reply wraps its result in `{ name, arguments, payload }` so the
+ * reply can say which ask it answers; every other VALUE — a list, a line, a
+ * refusal string — IS the result. Absent means null, never undefined, so a
+ * consumer's `??` fallback fires on both.
+ *
+ * @param {*} value The message VALUE.
+ * @return {*} The payload, or the value itself.
+ */
+export function payloadOf( value ) {
+	if ( null === value || undefined === value || 'object' !== typeof value ) {
+		return value ?? null;
+	}
+	return Array.isArray( value ) ? value : value.payload ?? null;
+}
+
+/**
  * Names of every flag set in `type`, in TYPE_NAMES order. Empty when no known
  * flag matches — the caller names that case (the drop audit says TYPE_UNKNOWN,
  * the Dumper prints the unmatched bits in hex). Mirror of PHP

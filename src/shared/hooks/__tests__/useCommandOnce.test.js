@@ -152,19 +152,21 @@ describe( 'useCommandOnce', () => {
 	// Two saves of the same topology answer identically. The second still has
 	// to register as an answer, or the caller's confirmation never fires.
 	it( 'reports a second run even when the answer is identical', async () => {
-		const { result } = renderSave();
+		const onDone = jest.fn();
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'topologies', command: 'save', onDone } )
+		);
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( result.current.result ).not.toBeNull(), {
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
 			timeout: 4000,
 		} );
-		const first = result.current.seq;
 
 		act( () => {
 			result.current.run( [ 'wombat-4471', '' ] );
 		} );
-		await waitFor( () => expect( result.current.seq ).toBe( first + 1 ), {
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 2 ), {
 			timeout: 4000,
 		} );
 		expect( replyFor ).toHaveBeenCalledTimes( 2 );
@@ -333,6 +335,37 @@ describe( 'useCommandOnce', () => {
 		expect( replyFor ).toHaveBeenCalledTimes( answered );
 	} );
 
+	// @longform The mirror of the retried read above. A WRITE does not re-ask,
+	// so a transport refusal has to SETTLE it: the row's button must re-enable
+	// and the refusal must reach the caller. It only works because the refusal
+	// echoes the arguments it was answering, exactly as the server does — a
+	// reply naming just the verb left the send outstanding forever.
+	it( 'settles a WRITE the transport refused, and says so', async () => {
+		const onDone = jest.fn();
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'vault', command: 'remove', onDone } )
+		);
+		global.fetch = /** @type {typeof fetch} */ (
+			async () => ( {
+				ok: false,
+				status: 401,
+				text: async () => '{"code":"rest_forbidden"}',
+			} )
+		);
+		global.expectConsoleWarn( 'ERROR: /command failed - HTTP 401' );
+		act( () => {
+			result.current.run( [ 'spoke-4471' ] );
+		} );
+
+		await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 8000,
+		} );
+		expect( onDone.mock.calls[ 0 ][ 0 ].args ).toEqual( [ 'spoke-4471' ] );
+		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toMatch( /401/ );
+		expect( result.current.pending ).toBe( false );
+		expect( result.current.answerFor( 'spoke-4471' ).busy ).toBe( false );
+	}, 30000 );
+
 	// A write that got no reply may already have been applied; sending it
 	// again would write twice.
 	it( 'never retries an unanswered WRITE', async () => {
@@ -347,6 +380,9 @@ describe( 'useCommandOnce', () => {
 
 		await new Promise( ( r ) => setTimeout( r, 2200 ) );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+		// It is still outstanding, and says so: a send leaves the outbox only
+		// when a reply names it, so a verb answering nothing stays pending.
+		expect( result.current.pending ).toBe( true );
 	} );
 
 	// Two rows removed in the same second are two writes that BOTH have to go.
@@ -367,79 +403,6 @@ describe( 'useCommandOnce', () => {
 		);
 		expect( sent ).toEqual( [ 'wombat-4471', 'quokka-8823' ] );
 	}, 15000 );
-
-	// One command in flight at a time, which is what `RequestNode` guaranteed
-	// structurally. Two writes in two POSTs can be answered in either order,
-	// and pairing each reply with the oldest send then names the wrong row.
-	it( 'holds the queue until the outstanding write is answered', async () => {
-		let answerFirst;
-		replyFor.mockImplementationOnce(
-			() => new Promise( ( r ) => ( answerFirst = r ) )
-		);
-		const { result } = renderSave();
-		act( () => {
-			result.current.run( [ 'wombat-4471', '' ] );
-			result.current.run( [ 'quokka-8823', '' ] );
-		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
-
-		// Several ticks pass; the second write waits on the first's answer.
-		await new Promise( ( r ) => setTimeout( r, 2200 ) );
-		expect( replyFor ).toHaveBeenCalledTimes( 1 );
-
-		await act( async () => {
-			answerFirst( { restarted_fleets: [] } );
-		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ), {
-			timeout: 4000,
-		} );
-		expect(
-			replyFor.mock.calls.map( ( [ m ] ) => m[ VALUE ].arguments[ 0 ] )
-		).toEqual( [ 'wombat-4471', 'quokka-8823' ] );
-	}, 20000 );
-
-	// A verb whose result is the empty string draws NO reply at all
-	// (`Command_Interpreter_Node::interpret`), and TM_NOREPLY draws none by
-	// design. Without a deadline that write holds the slot forever: `pending`
-	// never clears and every later reply answers the wrong arguments.
-	it( 'gives up on a write that draws no reply, and says so', async () => {
-		replyFor.mockImplementation( () => undefined );
-		const onDone = jest.fn();
-		const { result } = renderHook( () =>
-			useCommandOnce( {
-				ci: 'topologies',
-				command: 'save',
-				onDone,
-			} )
-		);
-		act( () => {
-			result.current.run( [ 'wombat-4471', '' ] );
-		} );
-		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
-		expect( result.current.pending ).toBe( true );
-
-		const realNow = Date.now;
-		Date.now = () => realNow() + 31000;
-		try {
-			await waitFor( () => expect( onDone ).toHaveBeenCalledTimes( 1 ), {
-				timeout: 4000,
-			} );
-		} finally {
-			Date.now = realNow;
-		}
-		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toMatch( /no reply/i );
-		expect( onDone.mock.calls[ 0 ][ 0 ].args ).toEqual( [
-			'wombat-4471',
-			'',
-		] );
-		await waitFor( () => expect( result.current.pending ).toBe( false ), {
-			timeout: 4000,
-		} );
-	}, 20000 );
 
 	// A reply slower than the retry window means BOTH asks are answered. The
 	// second answer is about an ask already settled; firing `onDone` again
@@ -477,6 +440,124 @@ describe( 'useCommandOnce', () => {
 		await new Promise( ( r ) => setTimeout( r, 1200 ) );
 		expect( onDone ).toHaveBeenCalledTimes( 1 );
 	}, 40000 );
+
+	// A row asks the node that holds its reply — never a table. The hook has ONE
+	// command outstanding and knows what it is about, and the reply landed here
+	// because the server echoed TO=FROM.
+	it( 'answers for the subject its command was about, and no other', async () => {
+		replyFor.mockImplementation( () => new Error( 'vault sealed' ) );
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'vault', command: 'test' } )
+		);
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+		} );
+		// Outstanding from the moment it is asked for, not from the reply.
+		expect( result.current.answerFor( 'wombat-4471' ) ).toEqual( {
+			verb: 'test',
+			busy: true,
+			error: null,
+			result: null,
+		} );
+		expect( result.current.answerFor( 'quokka-8823' ) ).toBeNull();
+
+		await waitFor(
+			() =>
+				expect( result.current.answerFor( 'wombat-4471' )?.busy ).toBe(
+					false
+				),
+			{ timeout: 6000 }
+		);
+		expect( result.current.answerFor( 'wombat-4471' ).error ).toContain(
+			'vault sealed'
+		);
+		expect( result.current.answerFor( 'quokka-8823' ) ).toBeNull();
+	}, 20000 );
+
+	// A row's spinner has to last until the ANSWER, not until the send. The
+	// outbox used to drop a write the moment it went on the wire, so a screen
+	// that re-renders on its own clock (the aggregator's per-tick clock) showed
+	// the row go idle mid-flight and re-enabled its button.
+	it( 'stays busy from the run until the reply lands, not until it is sent', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			() => new Promise( ( resolve ) => held.push( () => resolve( {} ) ) )
+		);
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'vault', command: 'test' } )
+		);
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+		} );
+		// Wait until it is demonstrably ON THE WIRE and still unanswered.
+		await waitFor( () => expect( held.length ).toBe( 1 ), {
+			timeout: 6000,
+		} );
+		expect( result.current.answerFor( 'wombat-4471' ) ).toEqual( {
+			verb: 'test',
+			busy: true,
+			error: null,
+			result: null,
+		} );
+		expect( result.current.pending ).toBe( true );
+
+		await act( async () => {
+			held.forEach( ( release ) => release() );
+		} );
+		await waitFor(
+			() =>
+				expect( result.current.answerFor( 'wombat-4471' )?.busy ).toBe(
+					false
+				),
+			{ timeout: 6000 }
+		);
+		expect( result.current.pending ).toBe( false );
+	}, 30000 );
+
+	// Two rows acted on in the same second are two commands in flight. Neither
+	// waits for the other: the reply carries the arguments it answered, so the
+	// node it lands on can say which row it is about — no queue, no pairing.
+	it( 'sends two commands while neither is answered, and matches each reply to its own arguments', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () =>
+						resolve( { echoed: m[ VALUE ].arguments[ 0 ] } )
+					)
+				)
+		);
+		const seen = [];
+		const { result } = renderHook( () =>
+			useCommandOnce( {
+				ci: 'vault',
+				command: 'delete',
+				onDone: ( { args, result: r } ) =>
+					seen.push( [ args[ 0 ], r?.echoed ] ),
+			} )
+		);
+		await act( async () => {} );
+
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+			result.current.run( [ 'quokka-8823' ] );
+		} );
+		// BOTH are on the wire while neither has been answered.
+		await new Promise( ( r ) => setTimeout( r, 4000 ) );
+		expect( held.length ).toBe( 2 );
+
+		await act( async () => {
+			held.forEach( ( release ) => release() );
+		} );
+		await waitFor( () => expect( seen.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+		// Each answer names the row it was about — nothing paired by order.
+		expect( seen.sort() ).toEqual( [
+			[ 'quokka-8823', 'quokka-8823' ],
+			[ 'wombat-4471', 'wombat-4471' ],
+		] );
+	}, 30000 );
 
 	// A read is the opposite: opening one topology and then another must not
 	// fetch the first, whose answer nobody wants any more.

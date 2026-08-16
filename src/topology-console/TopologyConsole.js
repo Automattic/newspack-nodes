@@ -21,13 +21,16 @@ import { ConfirmModal, PromptModal, NewNodeModal } from './components/Modal';
 import OpenTopologyModal from './components/OpenTopologyModal';
 import TopologySettingsPanel from './components/TopologySettingsPanel';
 
-import { useClassCatalog } from './hooks/useClassCatalog';
-import { useVaults } from './hooks/useVaults';
+import {
+	useClassCatalog,
+	useTopology,
+	useTopologyList,
+	useVaults,
+} from './hooks/useCatalogs';
 import { useJsCatalog } from './hooks/useJsCatalog';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
-import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useTopologyCatalog } from './hooks/useTopologyCatalog';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useCanonicalNodes, driftNodeIds } from './hooks/useCanonicalNodes';
@@ -78,6 +81,7 @@ import {
 	TM_BYTESTREAM,
 	TM_ERROR,
 	applyComposeFields,
+	payloadOf,
 } from '../runtime/message';
 import { CallbackNode } from '../runtime/callback-node';
 import names from '../runtime/reserved-node-names.json';
@@ -1537,8 +1541,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		const receiver = new CallbackNode( ( reply ) => {
 			receiver.removeNode();
 			const value = reply[ VALUE ];
-			const payload =
-				value && 'object' === typeof value ? value.payload : value;
+			const payload = payloadOf( value );
 			const tsl = String( payload ?? '' );
 			if ( reply[ TYPE ] & TM_ERROR || '' === tsl.trim() ) {
 				setToast( {

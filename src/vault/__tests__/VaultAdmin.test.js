@@ -39,36 +39,18 @@ const SAMPLE_SERVERS = [
 	},
 ];
 
-// Minimal vault:list view stand-in: setState notifies like the real Node.
+let model;
+let publish = () => {};
+
+// The graph hook owns the table's model now; the fixture seeds what it returns.
 function registerViewFixture( overrides = {} ) {
-	const model = {
+	model = {
 		servers: null,
 		loading: true,
 		error: null,
 		...overrides,
 	};
-	const node = {
-		registrations: { view: {} },
-		setStateCache: {},
-		register( event, listener, cb ) {
-			this.registrations[ event ][ listener ] = cb;
-			if ( event in this.setStateCache ) {
-				cb( this.setStateCache[ event ] );
-			}
-		},
-		unregister( event, listener ) {
-			delete this.registrations[ event ]?.[ listener ];
-		},
-		setState( event, payload ) {
-			this.setStateCache[ event ] = payload;
-			Object.values( this.registrations[ event ] || {} ).forEach(
-				( cb ) => cb( payload )
-			);
-		},
-	};
-	node.setState( 'view', model );
-	Core.nodes.set( 'vault:list', node );
-	return node;
+	publish();
 }
 
 // Set an input's value the React-controlled way and dispatch the input event.
@@ -100,51 +82,51 @@ function dialogButton( label ) {
 	);
 }
 
-// Each verb's answer, as the hook publishes it: which server it was about,
-// what it said, and a number so a repeat still registers.
-const NO_ANSWER = { seq: 0, subject: null, error: null, pending: false };
+// The graph publishes the last answer PER SERVER; a row renders it.
 
 describe( 'VaultAdmin', () => {
 	let addServer;
 	let removeServer;
 	let testServer;
 	let answers;
+	let graphOpts = {};
 	const mounted = [];
 
-	// Publish an answer, as a reply landing on the verb's node would.
+	// Publish an answer, as a reply landing on the verb's node would. A
+	// successful add also fires the graph's `onAdded`, which is what closes the
+	// modal — the same one call the real `onDone` makes.
 	function answer( verb, { subject, error = null } ) {
-		answers[ verb ] = {
-			seq: answers[ verb ].seq + 1,
-			subject,
-			error,
-			pending: false,
-		};
+		answers[ subject ] = { verb, busy: false, error, result: null };
 		publish();
+		if ( 'add' === verb && ! error ) {
+			graphOpts.onAdded?.();
+		}
 	}
 
-	function publish() {
-		useVaultGraph.mockReturnValue( {
-			addServer,
-			updateServer: jest.fn(),
-			removeServer,
-			testServer,
-			addResult: answers.add,
-			removeResult: answers.remove,
-			testResult: answers.test,
+	publish = function () {
+		useVaultGraph.mockImplementation( ( opts = {} ) => {
+			graphOpts = opts;
+			return {
+				...model,
+				addServer,
+				updateServer: jest.fn(),
+				removeServer,
+				testServer,
+				// The screen asks per row, as the real hook does.
+				answerFor: ( id ) => answers[ id ] ?? null,
+			};
 		} );
 		mounted.forEach( ( r ) => r.rerender( <VaultAdmin /> ) );
-	}
+	};
 
 	beforeEach( () => {
 		Core.reset();
 		addServer = jest.fn();
 		removeServer = jest.fn();
 		testServer = jest.fn();
-		answers = {
-			add: NO_ANSWER,
-			remove: NO_ANSWER,
-			test: NO_ANSWER,
-		};
+		answers = {};
+		model = { servers: null, loading: true, error: null };
+		graphOpts = {};
 		useVaultGraph.mockClear();
 		publish();
 	} );
@@ -165,22 +147,6 @@ describe( 'VaultAdmin', () => {
 		registerViewFixture();
 		mount();
 		expect( useVaultGraph ).toHaveBeenCalled();
-	} );
-
-	it( 'reads the table from the vault:list view (de-god split), not the old vault:view god node', () => {
-		// Register the model under the OLD name; the table must NOT pick it up.
-		const stale = registerViewFixture( {
-			servers: SAMPLE_SERVERS,
-			loading: false,
-		} );
-		Core.nodes.delete( 'vault:list' );
-		Core.nodes.set( 'vault:view', stale );
-		const { container } = mount();
-		expect(
-			container.querySelector( 'tr[data-server-id="spoke-01"]' )
-		).toBeNull();
-		// Now register under the new name — the table renders from vault:list.
-		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 	} );
 
 	it( 'renders the server table with only the canonical table class', () => {
@@ -511,7 +477,7 @@ describe( 'VaultAdmin', () => {
 			);
 		} );
 		await act( async () =>
-			answer( 'remove', {
+			answer( 'delete', {
 				subject: 'spoke-01',
 				error: 'vault write refused',
 			} )

@@ -1,14 +1,6 @@
 <?php
 /**
- * Job_Probe: periodic Job_Worker-stats sweep. The jobs analog of Topic_Probe — each
- * worker process runs one, sweeping ITS local Job_Workers (`Core::$nodes_by_name`)
- * and emitting one snapshot record per job IDENTITY per tick into the shared
- * `jobstats` log. A Job_Worker owns many identities, so one worker yields many
- * records (unlike Topic_Probe, where one Consumer yields one). Each record is
- * SELF-CONTAINED — the work done since that identity's previous sweep plus the
- * interval it covers — so a reader divides ONE record and a ~595s worker recycle
- * is just another window, not a counter reset. Because the sweep DRAINS each
- * accumulator, exactly one Job_Probe may run per process.
+ * Job_Probe: the Job_Worker-stats sweep. See Probe_Node for the sweep itself.
  *
  * @package Newspack_Nodes
  */
@@ -17,85 +9,35 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Job_Probe_Node extends Timer_Node implements Shutdown_Sweeper {
+/**
+ * Job_Probe: the Job_Worker-stats sweep, the jobs analog of Topic_Probe. A
+ * Job_Worker owns many job IDENTITIES, so one swept worker yields MANY records
+ * into the shared `jobstats` log where one Consumer yields one, and each carries
+ * a free-text last-run message that has to be trimmed to stay under PIPE_BUF.
+ */
+class Job_Probe_Node extends Probe_Node {
 
-	private const DEFAULT_INTERVAL_S = 15;
-
-	/**
-	 * The N-second sweep cadence is the base Timer's interval_ms (> 1000), so it
-	 * hitchhikes the Router TIMER and Timer_Node::fire_cb() throttles to it. Default
-	 * to the 15s cadence so a probe never given arguments still sweeps every 15s.
-	 */
-	public function __construct() {
-		parent::__construct();
-		$this->interval_ms = self::DEFAULT_INTERVAL_S * 1000;
-	}
-
-	public function arguments( ?array $args = null ): array {
-		if ( null === $args ) {
-			return $this->arguments;
+	/** Every Job_Worker; one with no runs yet has an empty accumulator. */
+	protected function probe( Node $node ): array {
+		if ( ! $node instanceof Job_Worker_Node ) {
+			return [];
 		}
-		$this->arguments = $args;
-		$trimmed         = ( $args[0] ?? '' );
-		if ( '' !== $trimmed && ! \preg_match( '/^[0-9]+$/', $trimmed ) ) {
-			throw new \InvalidArgumentException( 'Bad arguments for Job_Probe' );
-		}
-		$interval_s = '' === $trimmed ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $trimmed );
-		// set_timer registers TIMER hitchhike; fire_cb() gates to interval_ms.
-		$this->set_timer( $interval_s * 1000 );
-		return $this->arguments;
+		return $node->probe_stats();
 	}
 
 	/**
-	 * Called by the base fire_cb() once interval_ms has elapsed (the throttle). Emit
-	 * ONE small TM_STRUCT record PER job identity across this process's Job_Workers —
-	 * the lean positional Jobstats_Record snapshot. One record per identity (not a
-	 * batch) keeps every write under PIPE_BUF so the shared jobstats log stays
-	 * multi-writer atomic. The Message TIMESTAMP is the snapshot time. No workers (or
-	 * a worker with no runs yet) → nothing. A worker whose probe_stats throws is
-	 * skipped, never failing the whole snapshot.
+	 * A handler's last-run message is arbitrary text, so it is the one field worth
+	 * sacrificing to keep the record writable; a record that will not fit even
+	 * emptied is dropped loud rather than emitted for Partition to refuse.
 	 */
-	protected function fire(): void {
-		$this->notify( 'FIRE', Core::$now );
-		$sink = $this->sink;
-		if ( null === $sink ) {
-			return;
+	protected function fit_to_line( array $message ): ?array {
+		$fitted = Line_Fitter::fit( $message, [ Jobstats_Record::LAST_MESSAGE ] );
+		if ( null === $fitted ) {
+			$record = $message[ Message::VALUE ];
+			$key    = \is_array( $record ) ? Core::as_string( $record[ Jobstats_Record::IDENTITY ] ?? '' ) : '';
+			$this->print_less_often( 'Job_Probe dropped an unfittable record: ', $key );
 		}
-		foreach ( Core::$nodes_by_name as $node ) {
-			if ( ! $node instanceof Job_Worker_Node ) {
-				continue;
-			}
-			try {
-				$records = $node->probe_stats();
-			} catch ( \Throwable $e ) {
-				$this->print_less_often( "Job_Probe skipped {$node->name()}: ", $e->getMessage() );
-				continue;
-			}
-			foreach ( $records as $record ) {
-				$message                       = Message::new_message();
-				$message[ Message::TYPE ]      = Message::TM_STRUCT;
-				$message[ Message::TIMESTAMP ] = Core::$now;
-				$message[ Message::FROM ]      = $this->name;
-				$message[ Message::TO ]        = $this->target;
-				$message[ Message::VALUE ]     = $record;
-				$message                       = Line_Fitter::fit( $message, [ Jobstats_Record::LAST_MESSAGE ] );
-				if ( null === $message ) {
-					$key = Core::as_string( $record[ Jobstats_Record::IDENTITY ] ?? '' );
-					$this->print_less_often( 'Job_Probe dropped an unfittable record: ', $key );
-					continue;
-				}
-				++$this->counter;
-				$sink->fill( $message );
-			}
-		}
-	}
-
-	/**
-	 * Clean-shutdown opt-in: emit the window since the last tick, which the timer
-	 * gate would otherwise swallow when the worker recycles mid-interval.
-	 */
-	public function shutdown_sweep(): void {
-		$this->fire();
+		return $fitted;
 	}
 
 	public static function node_schema(): array {

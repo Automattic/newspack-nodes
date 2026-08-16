@@ -7,6 +7,8 @@ use Newspack_Nodes\Jobstats_Record;
 use Newspack_Nodes\Job_Probe_Node;
 use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Probe_Node;
+use Newspack_Nodes\Topic_Probe_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -17,7 +19,26 @@ use Newspack_Nodes\Tests\TestCase;
  * is the sweep instant; the cumulative counters are folded downstream into rates.
  */
 #[CoversClass( Job_Probe_Node::class )]
+#[CoversClass( Probe_Node::class )]
 class JobProbeTest extends TestCase {
+
+	/**
+	 * Job_Probe and Topic_Probe are ONE mechanism with two filters. The cadence
+	 * argument, the timer default, the sweep loop and the clean-shutdown flush
+	 * live in `Probe_Node`; a subclass that redeclares any of them is the
+	 * copy-paste coming back.
+	 */
+	public function test_both_probes_inherit_one_sweep_implementation(): void {
+		foreach ( [ Job_Probe_Node::class, Topic_Probe_Node::class ] as $probe ) {
+			foreach ( [ '__construct', 'arguments', 'fire', 'shutdown_sweep' ] as $method ) {
+				$this->assertSame(
+					Probe_Node::class,
+					( new \ReflectionMethod( $probe, $method ) )->getDeclaringClass()->getName(),
+					"{$probe}::{$method}() must not redeclare the shared sweep"
+				);
+			}
+		}
+	}
 
 	protected function setUp(): void {
 		parent::setUp();

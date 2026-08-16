@@ -28,7 +28,7 @@ import { StdoutNode } from '../../runtime/stdout-node';
 import { OutgoingGateNode } from '../core/outgoingGate';
 import { ShellNode } from '../../runtime/shell-node';
 import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
-import { useTopology } from './useTopologyList';
+import { useTopology } from './useCatalogs';
 import { graphFromTsl } from '../utils/draftToGraph';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
 import {

@@ -14,18 +14,18 @@
  * Pair it with `useBatchedPoll`, whose `build` calls this once per slice and
  * which owns the `_shell`/`_http`/Timer/lock-flush boilerplate.
  *
- * @param {Object}   interpreter         The mounted CommandInterpreter node.
- * @param {Object}   slice
- * @param {string}   slice.fetcher       Fetcher node name (e.g. `fetch-counts`).
- * @param {string}   slice.receiver      Receiver Tee name; the reply routes back here (Fetcher FROM).
- * @param {string}   slice.command       The verb the Fetcher sends.
- * @param {string}   slice.view          View node name.
- * @param {string}   slice.viewClass     Registered class name for the view node.
- * @param {Object}   slice.tee           The fan-out Tee node the tick fans through.
- * @param {string}   slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
- * @param {string}   [slice.controlFrom] Optional control origin for views that take local controls: the FROM their dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view planted an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
- * @param {Object}   [slice.transform]   Optional `{ name, nodeClass, args }` (args a ctor-token array) node inserted on the receiver-Tee → view edge.
- * @param {Function} [slice.argsFn]      Optional fire-time getter `() => argsTokens`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
+ * @param {Object}     interpreter         The mounted CommandInterpreter node.
+ * @param {Object}     slice
+ * @param {string}     slice.fetcher       Fetcher node name (e.g. `fetch-counts`).
+ * @param {string}     slice.receiver      Receiver Tee name; the reply routes back here (Fetcher FROM).
+ * @param {string}     slice.command       The verb the Fetcher sends.
+ * @param {string}     slice.view          View node name.
+ * @param {string|any} slice.viewClass     The view node's class, or its registered name. Hand the CLASS when you have it: the name map is a per-bundle static, so a hub tab building its graph through another bundle's interpreter cannot resolve a name its own bundle registered.
+ * @param {Object}     slice.tee           The fan-out Tee node the tick fans through.
+ * @param {string}     slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
+ * @param {string}     [slice.controlFrom] Optional control origin for views that take local controls: the FROM their dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view planted an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
+ * @param {Object}     [slice.transform]   Optional `{ name, nodeClass, args }` (args a ctor-token array) node inserted on the receiver-Tee → view edge.
+ * @param {Function}   [slice.argsFn]      Optional fire-time getter `() => argsTokens`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
  * @return {string} The receiver Tee name.
  */
 export function addSliceFetcher(

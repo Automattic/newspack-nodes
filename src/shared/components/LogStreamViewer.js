@@ -11,13 +11,14 @@
  * runtime-free like its `LogRowList` sibling.
  */
 
-import { useEffect, useState, createPortal } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../../runtime/core';
 import LogRowList from './LogRowList';
 import LogListHeader from './LogListHeader';
 import ConnectionBanner from './ConnectionBanner';
+import { HeaderSlot } from './HeaderSlot';
 
 // What the toolbar shows before the first frame, and after a Clear.
 const EMPTY_STATS = { total: 0, visible: 0, lps: 0 };
@@ -347,12 +348,6 @@ export default function LogStreamViewer( {
 			</button>
 		</div>
 	);
-	let renderedControls = null;
-	if ( headerControlsSlot ) {
-		renderedControls = createPortal( controls, headerControlsSlot );
-	} else if ( undefined === headerControlsSlot ) {
-		renderedControls = controls;
-	}
 
 	// Debug builds its own; a column-picking consumer supplies both.
 	const activeHeader = debug
@@ -385,10 +380,14 @@ export default function LogStreamViewer( {
 					className={ `newspack-nodes-request-stream-header ${ className }__header` }
 				>
 					<h1 className="newspack-dashboard-title">{ title }</h1>
-					{ renderedControls }
+					<HeaderSlot slot={ headerControlsSlot }>
+						{ controls }
+					</HeaderSlot>
 				</div>
 			) : (
-				renderedControls
+				<HeaderSlot slot={ headerControlsSlot }>
+					{ controls }
+				</HeaderSlot>
 			) }
 
 			<ConnectionBanner

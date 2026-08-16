@@ -12,7 +12,7 @@ import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
 import { NewNodeModal } from '../../topology-console/components/Modal';
 import { useJsCatalog } from '../../topology-console/hooks/useJsCatalog';
-import { useClassCatalog } from '../../topology-console/hooks/useClassCatalog';
+import { useClassCatalog } from '../../topology-console/hooks/useCatalogs';
 import { ShellNode } from '../../runtime/shell-node';
 import { useNodeState } from '../../runtime/react';
 import { useCompletion } from '../../topology-console/hooks/useCompletion';

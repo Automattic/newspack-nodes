@@ -9,7 +9,7 @@ import {
 	installFakeCommandWire,
 	makeFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { useClassCatalog } from '../useClassCatalog';
+import { useClassCatalog } from '../useCatalogs';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const CATALOG = { classes: [ 'Echo', 'Tee' ], formatters: [ 'Plain' ] };
@@ -96,7 +96,7 @@ describe( 'useClassCatalog', () => {
 
 	it( 'returns the empty initial shape when disabled', () => {
 		const { result } = renderHook( () => useClassCatalog() );
-		expect( result.current ).toEqual( {
+		expect( result.current ).toMatchObject( {
 			classes: [],
 			formatters: [],
 			loading: false,

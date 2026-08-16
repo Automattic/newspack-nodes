@@ -8,7 +8,7 @@
  */
 
 import { Node } from './node';
-import { VALUE } from './message';
+import { VALUE, payloadOf } from './message';
 
 /**
  * Longest common prefix of a list of strings. Pure helper.
@@ -86,8 +86,7 @@ export class CompletionNode extends Node {
 		this.counter++;
 		const value = message[ VALUE ];
 		// Reply VALUE is `{ name, payload }`; candidate list is the payload.
-		let text =
-			value && typeof value === 'object' ? value.payload ?? '' : value;
+		let text = payloadOf( value );
 		if ( typeof text !== 'string' ) {
 			text = '';
 		}

@@ -3,9 +3,9 @@
  *
  * A slice keeps the last good model and swallows a bad tick; a one-shot must do
  * the opposite. Its caller asked for exactly one thing and is waiting to hear
- * how it went, so EVERY reply publishes, failures included, and each one is
- * numbered so "the answer to what I just sent" is tellable from "the answer to
- * what I sent before".
+ * how it went, so EVERY reply publishes, failures included, and every one
+ * notifies — a listener hears each reply, where a re-render would collapse two
+ * that landed in the same batch into the later one.
  */
 
 import {
@@ -24,25 +24,25 @@ const replyWith = ( node, payload, isError = false ) => {
 	node.fill( m );
 };
 
+const replyWithArgs = ( node, args ) => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ VALUE ] = { name: 'delete', arguments: args, payload: { ok: 1 } };
+	node.fill( m );
+};
+
 describe( 'CommandResultNode', () => {
 	it( 'publishes nothing until a reply lands', () => {
 		const node = new CommandResultNode();
-		expect( node.setStateCache.result ).toEqual( {
-			seq: 0,
-			ok: false,
-			payload: null,
-			error: null,
-			errorData: null,
-			undelivered: false,
-		} );
+		expect( node.setStateCache.result ).toBeUndefined();
 	} );
 
-	it( 'publishes the payload and numbers the reply', () => {
+	it( 'publishes the payload', () => {
 		const node = new CommandResultNode();
 		replyWith( node, { restarted_fleets: [ 'wombat-4471' ] } );
 		expect( node.setStateCache.result ).toEqual( {
-			seq: 1,
 			ok: true,
+			args: [],
 			payload: { restarted_fleets: [ 'wombat-4471' ] },
 			error: null,
 			errorData: null,
@@ -52,11 +52,10 @@ describe( 'CommandResultNode', () => {
 
 	// The failure is the whole point of waiting: a refused save must reach the
 	// caller, not be swallowed to keep a widget looking healthy.
-	it( 'publishes a refusal as an error, still numbered', () => {
+	it( 'publishes a refusal as an error', () => {
 		const node = new CommandResultNode();
 		replyWith( node, 'unparseable tsl: line 3', true );
 		expect( node.setStateCache.result ).toMatchObject( {
-			seq: 1,
 			ok: false,
 			error: 'unparseable tsl: line 3',
 		} );
@@ -88,13 +87,34 @@ describe( 'CommandResultNode', () => {
 		expect( node.setStateCache.result.undelivered ).toBe( false );
 	} );
 
-	// Two saves in a row publish two DIFFERENT results even when the server's
-	// answer is byte-identical; without the number the second is invisible.
-	it( 'numbers a repeat of the same answer as its own reply', () => {
+	// The reply names the command it answers, so a node that sent several can
+	// tell them apart without keeping a queue.
+	it( 'publishes the arguments the reply echoed back', () => {
 		const node = new CommandResultNode();
-		replyWith( node, { ok: 1 } );
-		replyWith( node, { ok: 1 } );
-		expect( node.setStateCache.result.seq ).toBe( 2 );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = {
+			name: 'delete',
+			arguments: [ 'wombat-4471' ],
+			payload: { ok: 1 },
+		};
+		node.fill( m );
+		expect( node.setStateCache.result.args ).toEqual( [ 'wombat-4471' ] );
+	} );
+
+	// Two replies in one batch are two notifications. A consumer comparing
+	// rendered state sees only the later, which is why anything acting on each
+	// reply registers instead — and why the count is what this asserts.
+	it( 'notifies once per reply, even when the answers are identical', () => {
+		const node = new CommandResultNode();
+		const heard = [];
+		node.register( 'result', 'test', ( model ) => {
+			heard.push( model.args[ 0 ] );
+			return true;
+		} );
+		replyWithArgs( node, [ 'wombat-4471' ] );
+		replyWithArgs( node, [ 'quokka-8823' ] );
+		expect( heard ).toEqual( [ 'wombat-4471', 'quokka-8823' ] );
 	} );
 
 	// A refusal often carries more than prose — `topologies save` reports the

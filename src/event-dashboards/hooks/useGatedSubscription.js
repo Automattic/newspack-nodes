@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { stepPosition } from '@newspack-nodes/shared/hooks/useLogPositions';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { controlMsg } from '../../shared/helpers/controlMsg';
 
 // Reopen: explicit seek wins; else resume the same dir (tail a changed dir).
@@ -44,30 +45,25 @@ function reopenSeed( link, { subscribe, positions } ) {
  * the reopen target so a selection made while paused can never revive the
  * closed stream. See the module docblock for the full gating contract.
  *
- * @param {Object}   o
- * @param {Object}   o.linkRef       Ref to the RemoteLink node, whose
- *                                   `setSubscribe`/`close`/`resumePositions`
- *                                   open, close, and resume the stream.
- * @param {Object}   o.viewRef       Ref to the view node the pause control
- *                                   and stepped records are published to.
- * @param {Function} [o.requestStep] One-record read over the command channel,
- *                                   behind the paused single-step:
- *                                   `( sub, position )`, answered later on the
- *                                   node that asked. Without it, `step` is a
- *                                   no-op.
- * @param {Object}   [o.stepAnswer]  That read's last answer —
- *                                   `{ seq, result: { message, cursor } }`.
+ * @param {Object} o
+ * @param {Object} o.linkRef  Ref to the RemoteLink node, whose
+ *                            `setSubscribe`/`close`/`resumePositions`
+ *                            open, close, and resume the stream.
+ * @param {Object} o.viewRef  Ref to the view node the pause control
+ *                            and stepped records are published to.
+ * @param {Object} o.stepRead The one-record read behind the paused
+ *                            single-step: `{ ci, command, scope,
+ *                            argsFor( sub, position ), subOf( args ) }`.
+ *                            This hook owns both halves — it sends the read
+ *                            and applies the record — so `subOf` must be
+ *                            `argsFor` read backwards; a verb with a
+ *                            sub-verb does not carry the source at args[0].
  * @return {{ isPausedRef: Object, resubscribe: Function, setPaused: Function, step: () => void }}
  *   `isPausedRef` (for a mount rebuild to re-apply a surviving pause), `resubscribe`,
  *   `setPaused` (flips the gate + publishes the pause control for the UI), and
  *   `step` (paused-only: deliver one frame from the cursor, then close).
  */
-export function useGatedSubscription( {
-	linkRef,
-	viewRef,
-	requestStep,
-	stepAnswer,
-} ) {
+export function useGatedSubscription( { linkRef, viewRef, stepRead } ) {
 	const isPageVisible = usePageVisibility();
 
 	// Pause closes the SSE stream (frees the server slot); play resumes.
@@ -143,15 +139,36 @@ export function useGatedSubscription( {
 	);
 
 	// @longform Paused-only single-step: the stream stays OFFLINE; one record
-	// is asked for over the command channel (`requestStep( sub, cursor )`,
-	// answered a tick later as `{ message, cursor }`), admitted through the
-	// view's paused belt, and the recorded reopen target advances to the
-	// post-step cursor — so the NEXT step continues from there and Play
-	// resumes streaming from the stepped point.
+	// is asked for over the command channel, answered a tick later as
+	// `{ message, cursor }`, admitted through the view's paused belt, and the
+	// recorded reopen target advances to the post-step cursor — so the NEXT
+	// step continues from there and Play resumes streaming from the stepped
+	// point.
+	const { run: runStep } = useCommandOnce( {
+		ci: stepRead.ci,
+		command: stepRead.command,
+		scope: stepRead.scope,
+		// The reply names the dir it read; the pending target may have moved.
+		onDone: ( { result, args } ) => {
+			const view = viewRef.current;
+			if ( ! result?.message || ! view || ! isPausedRef.current ) {
+				return;
+			}
+			const sub = stepRead.subOf( args );
+			view.fill( controlMsg( view, { action: 'step', frames: 1 } ) );
+			view.fill( result.message );
+			pendingTargetRef.current = {
+				subscribe: [ sub ],
+				positions: { [ sub ]: { ...result.cursor } },
+			};
+		},
+	} );
+
+	const argsFor = stepRead.argsFor;
 	const step = useCallback( () => {
 		const link = linkRef.current;
 		const target = pendingTargetRef.current;
-		if ( ! isPausedRef.current || ! link || ! target || ! requestStep ) {
+		if ( ! isPausedRef.current || ! link || ! target ) {
 			return;
 		}
 		const sub = target.subscribe[ 0 ];
@@ -159,36 +176,8 @@ export function useGatedSubscription( {
 		if ( null === position ) {
 			return;
 		}
-		requestStep( sub, position );
-	}, [ linkRef, requestStep ] );
-
-	// The stepped record lands on the node that asked for it, a tick later.
-	const seenStepRef = useRef( 0 );
-	useEffect( () => {
-		const seq = stepAnswer?.seq ?? 0;
-		if ( 0 === seq || seq === seenStepRef.current ) {
-			return;
-		}
-		seenStepRef.current = seq;
-		const result = stepAnswer.result;
-		const view = viewRef.current;
-		const target = pendingTargetRef.current;
-		if (
-			! result?.message ||
-			! view ||
-			! target ||
-			! isPausedRef.current
-		) {
-			return;
-		}
-		const sub = target.subscribe[ 0 ];
-		view.fill( controlMsg( view, { action: 'step', frames: 1 } ) );
-		view.fill( result.message );
-		pendingTargetRef.current = {
-			subscribe: target.subscribe,
-			positions: { [ sub ]: { ...result.cursor } },
-		};
-	}, [ stepAnswer, viewRef ] );
+		runStep( argsFor( sub, position ) );
+	}, [ linkRef, runStep, argsFor ] );
 
 	return { isPausedRef, resubscribe, setPaused, step };
 }

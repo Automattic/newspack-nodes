@@ -8,7 +8,6 @@
 
 import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
-import { mountExospine } from '../../runtime/exospine';
 import LogViewer from '../LogViewer';
 
 let logRowListProps;
@@ -29,11 +28,11 @@ jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
 	},
 } ) );
 
-jest.mock( '../hooks/useLogViewerGraph', () => ( {
+jest.mock( '../hooks/useLogReaderGraph', () => ( {
 	useLogViewerGraph: jest.fn(),
 } ) );
 
-const { useLogViewerGraph } = require( '../hooks/useLogViewerGraph' );
+const { useLogViewerGraph } = require( '../hooks/useLogReaderGraph' );
 
 const GATE_SEGMENTS = [
 	{ id: 3, size: 977 },
@@ -119,7 +118,6 @@ describe( 'LogViewer', () => {
 	let setPaused;
 	let seek;
 	let step;
-	let fetchSources;
 	let clearGraph;
 
 	function mockGraph( sources = SOURCES ) {
@@ -129,7 +127,6 @@ describe( 'LogViewer', () => {
 			seek,
 			sources,
 			step,
-			fetchSources,
 			clear: clearGraph,
 			setFilter: ( term ) => {
 				const view = Core.nodes.get( 'logviewer:view' );
@@ -148,46 +145,11 @@ describe( 'LogViewer', () => {
 		setPaused = jest.fn();
 		seek = jest.fn();
 		step = jest.fn();
-		fetchSources = jest.fn().mockResolvedValue( SOURCES );
 		clearGraph = jest.fn();
 		useLogViewerGraph.mockClear();
 		mockGraph();
 		window.history.replaceState( {}, '', '/' );
 		window.localStorage.clear();
-	} );
-
-	it( 'the source catalog refreshes on an interval while a source streams', () => {
-		jest.useFakeTimers();
-		// The rail rides the Router TIMER; the graph hook is mocked out here,
-		// so stand in the backbone the real useLogViewerGraph brings up.
-		const host = mountExospine( () => {} );
-		registerViewFixture( { selected: 'gate' } );
-		render( <LogViewer /> );
-		expect( fetchSources ).not.toHaveBeenCalled();
-		act( () => {
-			jest.advanceTimersByTime( 10000 );
-		} );
-		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
-		host.teardown();
-		jest.useRealTimers();
-	} );
-
-	it( 'a record from an unknown segment re-catalogs once', () => {
-		const node = registerViewFixture( { selected: 'gate' } );
-		render( <LogViewer /> );
-		expect( fetchSources ).not.toHaveBeenCalled();
-		act( () => {
-			node.setState( 'view', {
-				...node.setStateCache.view,
-				lastReceivedSegment: 6,
-			} );
-		} );
-		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
-		// The SAME unknown segment must not re-catalog again (no loop).
-		act( () => {
-			node.setState( 'view', { ...node.setStateCache.view } );
-		} );
-		expect( fetchSources ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'renders the sources as a toolbar dropdown, unavailable ones disabled', () => {
@@ -370,17 +332,6 @@ describe( 'LogViewer', () => {
 		fireEvent.keyDown( input, { key: 'Enter' } );
 		expect( seek ).not.toHaveBeenCalled();
 		expect( setPaused ).not.toHaveBeenCalled();
-	} );
-
-	it( 'no selected source: the rail-maintenance interval stays unarmed', () => {
-		jest.useFakeTimers();
-		registerViewFixture( { selected: '' } );
-		render( <LogViewer /> );
-		act( () => {
-			jest.advanceTimersByTime( 10000 );
-		} );
-		expect( fetchSources ).not.toHaveBeenCalled();
-		jest.useRealTimers();
 	} );
 
 	it( 'the pause button toggles through the graph callback', () => {

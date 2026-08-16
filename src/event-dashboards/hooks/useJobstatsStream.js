@@ -7,6 +7,7 @@
  */
 
 import { useLogTailStream } from './useLogTailStream';
+import { views } from '../nodes/register';
 
 /**
  * @param {Object} [opts]
@@ -17,7 +18,7 @@ export function useJobstatsStream( { mode = 'follow' } = {} ) {
 		name: 'jobstats',
 		// Explicit .p0 hits the no-worker log-feed fallback (1-partition).
 		subscribe: 'jobstats.p0',
-		viewType: 'JobstatsView',
+		viewType: views.JobstatsView,
 		mode,
 	} );
 }

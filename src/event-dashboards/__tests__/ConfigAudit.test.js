@@ -1,13 +1,13 @@
 /**
  * ConfigAudit — the hub's config-audit timeline over the durable settings.p0 log.
- * useSettingsAuditStream (link) is stubbed; the view model is fed via useNodeState.
+ * useLogTailStream (the link) is stubbed; the view model is fed via useNodeState.
  */
 
 import { render, fireEvent } from '@testing-library/react';
 import ConfigAudit from '../ConfigAudit';
 
-jest.mock( '../hooks/useSettingsAuditStream', () => ( {
-	useSettingsAuditStream: jest.fn(),
+jest.mock( '../hooks/useLogTailStream', () => ( {
+	useLogTailStream: jest.fn(),
 } ) );
 jest.mock( '../../runtime/react', () => ( {
 	...jest.requireActual( '../../runtime/react' ),
@@ -28,6 +28,21 @@ function model() {
 		],
 	};
 }
+
+// The wiring the deleted hook used to own: Config Audit is a timeline, so it
+// replays the whole retention rather than tailing from now.
+it( 'tails settings.p0 in history mode, into the audit view', () => {
+	const { useLogTailStream } = require( '../hooks/useLogTailStream' );
+	const { views } = require( '../nodes/register' );
+	render( <ConfigAudit /> );
+	// The CLASS, not its name: the map is a per-bundle static (ADR-16).
+	expect( useLogTailStream ).toHaveBeenCalledWith( {
+		name: 'settingsaudit',
+		subscribe: 'settings.p0',
+		viewType: views.SettingsAuditView,
+		mode: 'history',
+	} );
+} );
 
 describe( 'ConfigAudit', () => {
 	it( 'renders a row per change with the option name, newest-first', () => {

@@ -1,4 +1,10 @@
-import { Node, TYPE, VALUE, TM_ERROR } from '@newspack-nodes/runtime';
+import {
+	Node,
+	TYPE,
+	VALUE,
+	TM_ERROR,
+	payloadOf,
+} from '@newspack-nodes/runtime';
 import { errorMessage } from '../errorMessage';
 
 /**
@@ -11,30 +17,12 @@ import { errorMessage } from '../errorMessage';
  * reply publishes, refusals included, or the caller waits forever for news that
  * already arrived.
  *
- * Each reply carries `seq`, incremented here. Two saves that both answer `ok`
- * are otherwise byte-identical, and the second would be invisible to a consumer
- * comparing published state — the number is what makes a repeat observable.
- * It is NOT a correlation id: the reply is already addressed to this node,
- * which is the only reason nothing here has to be told apart (ADR-7).
+ * Every reply NOTIFIES `result`, so a listener registered on this node runs
+ * once per reply. Two replies landing in one batch are two notifications; a
+ * consumer that instead renders the published state sees only the last, which
+ * is why anything acting on each reply registers rather than re-renders.
  */
 export class CommandResultNode extends Node {
-	/**
-	 * Publishes the shaped "nothing sent yet" result, so a consumer rendering
-	 * before the first reply reads a model rather than nothing.
-	 */
-	constructor() {
-		super();
-		this.seq = 0;
-		this.setState( 'result', {
-			seq: 0,
-			ok: false,
-			payload: null,
-			error: null,
-			errorData: null,
-			undelivered: false,
-		} );
-	}
-
 	/**
 	 * Publish this reply, whatever it says.
 	 *
@@ -44,11 +32,13 @@ export class CommandResultNode extends Node {
 		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
 		const value = message[ VALUE ];
-		const payload =
-			value && 'object' === typeof value ? value.payload : value;
+		const payload = payloadOf( value );
+		// Both interpreters echo the verb and arguments they answered.
+		const args = Array.isArray( value?.arguments ) ? value.arguments : [];
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			this._publish( {
+			this.setState( 'result', {
 				ok: false,
+				args,
 				payload: null,
 				error: errorMessage( payload ),
 				// More than prose: a save reports the line it stopped on.
@@ -59,8 +49,9 @@ export class CommandResultNode extends Node {
 			} );
 			return;
 		}
-		this._publish( {
+		this.setState( 'result', {
 			ok: true,
+			args,
 			payload: payload ?? null,
 			error: null,
 			errorData: null,
@@ -69,10 +60,16 @@ export class CommandResultNode extends Node {
 	}
 
 	/**
-	 * @param {Object} result The reply, minus its number.
+	 * @return {Object} The node schema.
 	 */
-	_publish( result ) {
-		this.seq += 1;
-		this.setState( 'result', { seq: this.seq, ...result } );
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: "Receives a one-shot command's reply; publishes it.",
+			registrations: [ 'result' ],
+			arguments: [],
+			commands: [],
+			has_target: false,
+		};
 	}
 }

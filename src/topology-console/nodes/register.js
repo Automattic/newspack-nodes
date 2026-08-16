@@ -9,7 +9,7 @@
 
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-/** The classes, for the tests that instantiate them. @testonly */
+/** The view classes, handed to `makeNode` — a name is per-bundle. */
 export const views = registerSliceViews( {
 	// Both lists or nothing: half a palette is worse than one a tick stale.
 	ClassCatalogView: {
@@ -32,22 +32,6 @@ export const views = registerSliceViews( {
 				? {
 						topologies: body.topologies,
 						userDir: body.user_dir || '',
-						error: null,
-				  }
-				: null,
-	},
-
-	// The vault_id dropdown, from the map `vault list` returns.
-	VaultCatalogView: {
-		empty: { vaults: null, loading: true, error: null },
-		parse: ( body ) =>
-			body && 'object' === typeof body
-				? {
-						vaults: Object.values( body ).map( ( v ) => ( {
-							id: v.id,
-							url: v.url ?? '',
-						} ) ),
-						loading: false,
 						error: null,
 				  }
 				: null,
