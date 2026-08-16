@@ -4697,12 +4697,37 @@ describe( 'TopologyConsole boot', () => {
 	const waitForTick = ( check ) => waitFor( check, { timeout: 6000 } );
 
 	describe( 'edit mode: topology includes', () => {
-		function mockTopologyGet( name, tsl, extra = {} ) {
+		const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
+
+		// @longform The server ALWAYS ships `expanded` with a get
+		// (Topologies_CI::get), and the console now requires it — loading a
+		// document without one marks every included node as OWNED and the next
+		// save writes the borrowed graph into the file. So this refuses to
+		// build a reply that could not come off the wire: a TSL that declares
+		// includes must be given the expansion they resolve to. `mockExpand`
+		// is that same shape, since in production both come from one server
+		// read of one topology.
+		// `false` says the omission is DELIBERATE — the case the console must
+		// refuse loudly rather than load with every included node marked own.
+		function mockTopologyGet( name, tsl, mockExpand = null ) {
+			if ( false === mockExpand ) {
+				hooks.fetchTopology.mockResolvedValueOnce( {
+					tsl,
+					name,
+					source: 'user',
+				} );
+				return;
+			}
+			if ( /^include\s/m.test( tsl ) && ! mockExpand ) {
+				throw new Error(
+					`mockTopologyGet( '${ name }' ): the TSL declares includes, so the reply needs its expansion`
+				);
+			}
 			hooks.fetchTopology.mockResolvedValueOnce( {
 				tsl,
 				name,
 				source: 'user',
-				...extra,
+				expanded: mockExpand ?? EMPTY_EXPANSION,
 			} );
 		}
 
@@ -4942,11 +4967,7 @@ describe( 'TopologyConsole boot', () => {
 			// Opening one and leaving edit mode must not prompt "discard unsaved
 			// changes?" — the user changed nothing. The async include reconcile
 			// runs after the draft is set, so it must land content-identical.
-			mockTopologyGet(
-				'wombat-top',
-				'include job-intake\nmake_node Echo own-echo\n'
-			);
-			mockTopologyExpand( [ 'job-intake' ], {
+			const expansion = {
 				nodes: [
 					{
 						name: 'zebra:consumer',
@@ -4974,7 +4995,13 @@ describe( 'TopologyConsole boot', () => {
 				hulls: {
 					'job-intake': [ 'zebra:consumer', 'zebra:partition' ],
 				},
-			} );
+			};
+			mockTopologyGet(
+				'wombat-top',
+				'include job-intake\nmake_node Echo own-echo\n',
+				expansion
+			);
+			mockTopologyExpand( [ 'job-intake' ], expansion );
 
 			const { getByText, queryByText } = await renderConsoleInEditMode();
 			// Let the reconcile effect settle after the baseline lands.
@@ -5094,11 +5121,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 
 		it( 'reopening a topology with an existing include re-derives its borrowed nodes', async () => {
-			mockTopologyGet(
-				'wombat-top',
-				'include performance\nmake_node Echo own-echo\n'
-			);
-			mockTopologyExpand( [ 'performance' ], {
+			const expansion = {
 				nodes: [
 					{
 						name: 'shared-tee',
@@ -5111,7 +5134,13 @@ describe( 'TopologyConsole boot', () => {
 				edges: [],
 				tree: { performance: {} },
 				hulls: { performance: [ 'shared-tee' ] },
-			} );
+			};
+			mockTopologyGet(
+				'wombat-top',
+				'include performance\nmake_node Echo own-echo\n',
+				expansion
+			);
+			mockTopologyExpand( [ 'performance' ], expansion );
 
 			await renderConsoleInEditMode();
 
@@ -5166,12 +5195,17 @@ describe( 'TopologyConsole boot', () => {
 			expect( lastPaletteProps.declaredIncludes ).toEqual( [] );
 		} );
 
-		it( 'auto-loading a topology whose declared include fails to expand toasts the error (not a silent blank canvas)', async () => {
+		// A document whose includes could not be expanded arrives WITHOUT an
+		// expansion — `Topologies_CI::get` computes it inline, so a cycle
+		// fails there. Loading it anyway would mark every included node as
+		// owned and the next save would write the borrowed graph into the
+		// file, so the console refuses and says so.
+		it( 'auto-loading a topology whose expansion is missing toasts the error (not a silent blank canvas)', async () => {
 			mockTopologyGet(
 				'wombat-top',
-				'include performance\nmake_node Echo own-echo\n'
+				'include performance\nmake_node Echo own-echo\n',
+				false
 			);
-			mockTopologyExpandFailure( 'topology include cycle: a -> b -> a' );
 
 			const { container } = await renderConsoleInEditMode();
 
@@ -5281,8 +5315,7 @@ describe( 'TopologyConsole boot', () => {
 			// loads. Re-seeding from it marks the child's OWN node borrowed,
 			// after which the document stops declaring it and a save writes an
 			// empty file — the node is gone from disk.
-			mockTopologyGet( 'wombat-top', 'include performance\n' );
-			mockTopologyExpand( [ 'performance' ], {
+			const expansion = {
 				nodes: [
 					{
 						name: 'n1',
@@ -5302,7 +5335,9 @@ describe( 'TopologyConsole boot', () => {
 				edges: [],
 				tree: { performance: {} },
 				hulls: { performance: [ 'n1', 'sibling-echo' ] },
-			} );
+			};
+			mockTopologyGet( 'wombat-top', 'include performance\n', expansion );
+			mockTopologyExpand( [ 'performance' ], expansion );
 			const { getByText } = await renderConsoleInEditMode();
 			await waitForTick( () =>
 				expect(
@@ -5339,12 +5374,11 @@ describe( 'TopologyConsole boot', () => {
 			).not.toContain( 'sibling-echo' );
 		} );
 
-		it( 'reopening a topology only round-trips `topologies expand` once (fetchIncludeBaseline result is cached for useExpandedIncludes)', async () => {
-			mockTopologyGet(
-				'wombat-top',
-				'include performance\nmake_node Echo own-echo\n'
-			);
-			mockTopologyExpand( [ 'performance' ], {
+		// `topologies get` ships the expansion with the file, so opening one
+		// costs NO expand round trip at all — the reactive pass is a cache hit
+		// on what the open already primed.
+		it( 'opening a topology round-trips `topologies expand` not at all', async () => {
+			const expansion = {
 				nodes: [
 					{
 						name: 'shared-tee',
@@ -5357,7 +5391,13 @@ describe( 'TopologyConsole boot', () => {
 				edges: [],
 				tree: { performance: {} },
 				hulls: { performance: [ 'shared-tee' ] },
-			} );
+			};
+			mockTopologyGet(
+				'wombat-top',
+				'include performance\nmake_node Echo own-echo\n',
+				expansion
+			);
+			mockTopologyExpand( [ 'performance' ], expansion );
 
 			await renderConsoleInEditMode();
 
@@ -5373,7 +5413,7 @@ describe( 'TopologyConsole boot', () => {
 				( [ msg ] ) =>
 					msg && msg.to === 'topologies' && msg.verb === 'expand'
 			);
-			expect( expandCalls ).toHaveLength( 1 );
+			expect( expandCalls ).toHaveLength( 0 );
 		} );
 
 		it( 'onAddInclude/onRemoveInclude keep a stable identity across an unrelated re-render (no full-canvas re-render per keystroke)', async () => {

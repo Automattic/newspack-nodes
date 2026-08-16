@@ -31,10 +31,9 @@ import { RemoteIpcNode } from '../../runtime/remote-ipc-node';
 import { useTopology } from './useCatalogs';
 import { graphFromTsl } from '../utils/draftToGraph';
 import { DraftInterpreterNode } from '../../runtime/draft-interpreter-node';
-import {
-	fetchExpandedIncludes,
-	primeExpandedIncludes,
-} from './useExpandedIncludes';
+import { primeExpandedIncludes } from './useExpandedIncludes';
+
+const EMPTY_EXPANSION = { nodes: [], edges: [], tree: {}, hulls: {} };
 import { withReplAnchor, withResolvedConfigEdges } from '../utils/consoleGraph';
 import { augmentWithVirtualEdges } from '../utils/virtualEdges';
 import { scopeFromCwd } from '../utils/scope';
@@ -269,8 +268,10 @@ export function useConsoleGraph( {
 			const { tsl, expanded } = seedTopology;
 			const resolvedConfigEdges = seedTopology.resolved_config_edges;
 			const includes = DraftInterpreterNode.includesOf( tsl );
-			const baseline =
-				expanded ?? ( await fetchExpandedIncludes( includes ) );
+			// @longform `topologies get` always ships the expansion; VIEW
+			// mode is read-only, so a document that somehow arrives without
+			// one paints unmarked rather than blocking the graph.
+			const baseline = expanded ?? EMPTY_EXPANSION;
 			primeExpandedIncludes( includes, baseline );
 			if ( cancelled ) {
 				return;

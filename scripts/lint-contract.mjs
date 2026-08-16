@@ -36,11 +36,8 @@ const EXEMPT = [ 'src/runtime/', 'scripts/lint-contract.mjs' ];
 // Files that DO violate and are queued for deletion. Kept apart from EXEMPT
 // and reported on EVERY run: a violation parked in a quiet allow-list is how
 // a gate ends up certifying the shape it was built to catch. Each entry
-// names what replaces it, and goes when the file does.
-const CONDEMNED = {
-	'src/topology-console/hooks/useExpandedIncludes.js':
-		'keyed resolver registry — the console load path becomes reply-driven',
-};
+// names what replaces it, and goes when the file does. Empty is the goal.
+const CONDEMNED = {};
 
 // This repo's runtime, or the sibling substrate a consumer builds against.
 const RUNTIME = [

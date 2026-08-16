@@ -1218,11 +1218,27 @@ describe( 'useConsoleGraph — the pre-dump_metadata seed', () => {
 		// dump_metadata — the staged paint. The seed must expand its includes.
 		mockSend.mockImplementation( ( msg ) => {
 			if ( 'topologies' === msg?.to && 'get' === msg?.verb ) {
+				// `topologies get` ships the expansion with the file; the
+				// seed uses it rather than asking a second time.
 				return Promise.resolve(
 					reply( {
 						name: 'demo',
 						source: 'user',
 						tsl: 'include zebra-base\nmake_node Tee wombat:tee\n',
+						expanded: {
+							nodes: [
+								{
+									name: 'zebra:consumer',
+									class: 'Consumer',
+									args: [],
+									origin: [ 'zebra-base' ],
+									via: [ 'zebra-base' ],
+								},
+							],
+							edges: [],
+							tree: { 'zebra-base': {} },
+							hulls: {},
+						},
 					} )
 				);
 			}

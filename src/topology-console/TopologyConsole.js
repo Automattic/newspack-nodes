@@ -45,7 +45,6 @@ import { useNodeState, useNodeFill } from '../runtime/react';
 import {
 	useExpandedIncludes,
 	expansionMatchesIncludes,
-	fetchExpandedIncludes,
 	invalidateExpandedIncludes,
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
@@ -534,9 +533,19 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		);
 		return entry?.includes || [];
 	}, [ topologyEntries, scope.label ] );
+	// @longform An uploaded .tsl is the one document that arrives with NO
+	// expansion — `topologies get` ships one, a file does not — and it cannot
+	// be loaded without it: every included node would read as OWNED and the
+	// next save would write them into the file. So an upload is parked here,
+	// the expand below is pointed at ITS includes, and `handleUpload`'s effect
+	// loads the document once the answer names them.
+	const [ pendingUpload, setPendingUpload ] = useState( null );
+
 	const activeIncludes = useMemo(
-		() => ( 'edit' === mode ? draft.includes || [] : viewedIncludes ),
-		[ mode, draft.includes, viewedIncludes ]
+		() =>
+			pendingUpload?.includes ??
+			( 'edit' === mode ? draft.includes || [] : viewedIncludes ),
+		[ pendingUpload, mode, draft.includes, viewedIncludes ]
 	);
 
 	// The composed `topologies expand` result for that include set.
@@ -593,7 +602,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 *
 	 * @param {Object}  doc                       The document to load.
 	 * @param {string}  doc.tsl                   Source text.
-	 * @param {Object}  [doc.expansion]           Pre-fetched include expansion.
+	 * @param {Object}  doc.expansion             The expansion this document's
+	 *                                            borrowed nodes come from.
+	 *                                            REQUIRED: loading without it
+	 *                                            marks every included node as
+	 *                                            OWNED, and the next save writes
+	 *                                            them into the file.
 	 * @param {Object}  [doc.resolvedConfigEdges] Server-resolved config edges.
 	 * @param {string}  doc.name                  Editor identity.
 	 * @param {string}  [doc.source]              'stock' | 'user' | '' for local.
@@ -603,20 +617,28 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	 *                                            edges can be asserted against the server's resolved list. An upload is
 	 *                                            unsaved work the moment it lands, so leaving still prompts — and with
 	 *                                            no resolved list, asserting would throw on any `<config:…>` token.
-	 * @return {Promise<void>} Resolves once the editor holds the document.
+	 * @return {void} The editor holds the document when this returns.
 	 */
 	const loadIntoEditor = useCallback(
-		async ( {
+		( {
 			tsl,
-			expansion: preExpanded = null,
+			expansion: fetchedExpansion,
 			resolvedConfigEdges = null,
 			name,
 			source = '',
 			fromServer = true,
 		} ) => {
 			const includes = DraftInterpreterNode.includesOf( tsl );
-			const fetchedExpansion =
-				preExpanded ?? ( await fetchExpandedIncludes( includes ) );
+			// @longform Loud, because the silent version is data loss: with
+			// no expansion every included node reads as OWNED, and the next
+			// save writes the borrowed graph into the file.
+			if ( includes.length && ! fetchedExpansion ) {
+				throw new Error(
+					`loadIntoEditor( '${ name }' ): includes ${ includes.join(
+						' '
+					) } but no expansion`
+				);
+			}
 			primeExpandedIncludes( includes, fetchedExpansion );
 			setDraftCatalog( catalogClasses );
 			// Sync ref: re-fetch diffs vs THIS, not EMPTY.
@@ -676,17 +698,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			return;
 		}
 		setOpening( null );
-		loadIntoEditor( {
-			tsl: openedTopology.tsl,
-			expansion: openedTopology.expanded,
-			resolvedConfigEdges: openedTopology.resolved_config_edges,
-			name: openedTopology.name,
-			source: openedTopology.source,
-		} )
-			.then( () => {
-				if ( ! opening.announce ) {
-					return;
-				}
+		try {
+			loadIntoEditor( {
+				tsl: openedTopology.tsl,
+				expansion: openedTopology.expanded,
+				resolvedConfigEdges: openedTopology.resolved_config_edges,
+				name: openedTopology.name,
+				source: openedTopology.source,
+			} );
+			if ( opening.announce ) {
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -696,15 +716,15 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 						openedTopology.source
 					),
 				} );
-			} )
-			.catch( ( e ) => {
-				// Draft stays blank; surface WHY, don't go silent.
-				const msg =
-					e?.data?.message ||
-					e?.message ||
-					__( 'Failed to load topology.', 'newspack-nodes' );
-				setToast( { kind: 'error', text: msg } );
-			} );
+			}
+		} catch ( e ) {
+			// Draft stays blank; surface WHY, don't go silent.
+			const msg =
+				e?.data?.message ||
+				e?.message ||
+				__( 'Failed to load topology.', 'newspack-nodes' );
+			setToast( { kind: 'error', text: msg } );
+		}
 	}, [
 		opening,
 		openedTopology,
@@ -1638,34 +1658,53 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		window.URL.revokeObjectURL( url );
 	}, [ ownExpansion, editingName, dumpDraft ] );
 
-	// UPLOAD: load a .tsl into the draft; the snapshot stays → dirty.
-	const handleUpload = useCallback(
-		async ( file ) => {
-			try {
-				const text = await file.text();
-				// Takes over the identity; no server home until it is saved.
-				await loadIntoEditor( {
-					tsl: text,
-					name: file.name.replace( /\.tsl$/, '' ),
-					fromServer: false,
-				} );
-				setToast( {
-					kind: 'success',
-					text: sprintf(
-						// translators: %s: uploaded file name.
-						__( 'Loaded %s into the editor.', 'newspack-nodes' ),
-						file.name
-					),
-				} );
-			} catch ( e ) {
-				const msg =
-					( e && e.message ) ||
-					__( 'Upload failed', 'newspack-nodes' );
-				setToast( { kind: 'error', text: msg } );
-			}
-		},
-		[ loadIntoEditor ]
-	);
+	// @longform UPLOAD: an uploaded .tsl is the one document that arrives with
+	// no expansion — `topologies get` ships one, a file does not. It cannot be
+	// loaded until its includes are expanded: without that, every included
+	// node reads as OWNED and the next save writes them into the file. So the
+	// upload is PARKED, the expand hook below is pointed at its includes, and
+	// the effect after it loads the document once the answer names them.
+	// The parked upload lands the moment its expansion does — and only then.
+	useEffect( () => {
+		if (
+			! pendingUpload ||
+			! expansionMatchesIncludes( expansion, pendingUpload.includes )
+		) {
+			return;
+		}
+		// Takes over the identity; no server home until it is saved.
+		loadIntoEditor( {
+			tsl: pendingUpload.tsl,
+			expansion,
+			name: pendingUpload.name,
+			fromServer: false,
+		} );
+		setToast( {
+			kind: 'success',
+			text: sprintf(
+				// translators: %s: uploaded file name.
+				__( 'Loaded %s into the editor.', 'newspack-nodes' ),
+				pendingUpload.fileName
+			),
+		} );
+		setPendingUpload( null );
+	}, [ pendingUpload, expansion, loadIntoEditor ] );
+
+	const handleUpload = useCallback( async ( file ) => {
+		try {
+			const text = await file.text();
+			setPendingUpload( {
+				tsl: text,
+				name: file.name.replace( /\.tsl$/, '' ),
+				includes: DraftInterpreterNode.includesOf( text ),
+				fileName: file.name,
+			} );
+		} catch ( e ) {
+			const msg =
+				( e && e.message ) || __( 'Upload failed', 'newspack-nodes' );
+			setToast( { kind: 'error', text: msg } );
+		}
+	}, [] );
 
 	/**
 	 * What used to follow the awaited save. `args[0]` is the topology name the

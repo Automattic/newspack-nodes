@@ -559,6 +559,41 @@ describe( 'useCommandOnce', () => {
 		] );
 	}, 30000 );
 
+	// @longform A caller that re-asks for the SUBJECT ALREADY OUTSTANDING is
+	// saying nothing new — the retry window already owns "ask again for this".
+	// Treating it as a fresh ask resets that window and pokes a router tick,
+	// so a caller whose dependency identity churns (an object literal rebuilt
+	// each render) puts a command and a whole tick on the wire per render.
+	it( 'ignores a re-ask for the subject already outstanding', async () => {
+		let held;
+		replyFor.mockImplementation(
+			() => new Promise( ( resolve ) => ( held = resolve ) )
+		);
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'topologies', command: 'get', retry: true } )
+		);
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+		} );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 1 ), {
+			timeout: 6000,
+		} );
+
+		// Twenty re-asks for the same subject, as a churning dep would make.
+		act( () => {
+			for ( let i = 0; i < 20; i++ ) {
+				result.current.run( [ 'wombat-4471' ] );
+			}
+		} );
+		await new Promise( ( r ) => setTimeout( r, 2500 ) );
+		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+
+		held?.( { ok: 1 } );
+		await waitFor( () => expect( result.current.pending ).toBe( false ), {
+			timeout: 6000,
+		} );
+	}, 30000 );
+
 	// A read is the opposite: opening one topology and then another must not
 	// fetch the first, whose answer nobody wants any more.
 	it( 'supersedes a read rather than queueing it', async () => {
