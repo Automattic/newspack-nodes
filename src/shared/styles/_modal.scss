@@ -57,10 +57,21 @@
 			background: var(--paper-2, var(--np-surface-subtle));
 			border-bottom: 1px solid
 				var(--paper-shadow, var(--np-border-strong));
+
+			// WordPress pads headerActions off the close button with a Spacer.
+			.components-spacer {
+				display: none;
+			}
 		}
 
+		// Plain header chrome only — heading, close, back. A button carrying a
+		// role brings its own fill AND text; painting it ink leaves the toggle
+		// pale on its own accent.
 		.components-modal__header-heading,
-		.components-modal__header > button {
+		.components-modal__header
+			> button:not(.is-active):not(.button-primary):not(.is-danger):not(
+				.button-link-delete
+			):not(.is-paused) {
 			color: var(--ink, var(--np-text));
 		}
 

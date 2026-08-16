@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.1] - 2026-08-16
+
+### Fixed
+- **A role-coloured button in a modal header kept its own text colour.** The header painted every `> button` with `--ink` to out-specify the Emotion rules WordPress injects, which beat `.button.is-active`'s own `--on-cyan` — the armed Ask trigger came out ink-on-accent, and only inside a modal, since that is the only place a modal header exists. Plain chrome (heading, close, back) still takes ink; a button carrying a role brings its own pair.
+- **WordPress's header `Spacer` no longer opens a hole beside the close button.** A modal given `headerActions` renders `<div class="components-spacer">` between them, which reads as a gap that arrived with whatever action was added.
+
+### Removed
+- **`useAskPicker`'s `onNothing`.** Added in 2.33.0 and never worth having: a click on nothing askable is not a failure, and routing it to a consumer's error channel turned a routine miss into a red banner. The picker stays armed and the `?` cursor is what says so.
+
 ## [2.33.0] - 2026-08-16
 
 ### Added

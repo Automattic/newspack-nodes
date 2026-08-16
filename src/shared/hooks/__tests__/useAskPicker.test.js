@@ -12,12 +12,8 @@
 import { render, act, fireEvent } from '@testing-library/react';
 import { useAskPicker } from '../useAskPicker';
 
-function Harness( { onPick, onNothing, onAbandon, onRowClick } ) {
-	const { active, start, cancel } = useAskPicker( {
-		onPick,
-		onNothing,
-		onAbandon,
-	} );
+function Harness( { onPick, onAbandon, onRowClick } ) {
+	const { active, start, cancel } = useAskPicker( { onPick, onAbandon } );
 	return (
 		<div>
 			<button
@@ -48,18 +44,16 @@ function Harness( { onPick, onNothing, onAbandon, onRowClick } ) {
 
 function setup() {
 	const onPick = jest.fn();
-	const onNothing = jest.fn();
 	const onAbandon = jest.fn();
 	const onRowClick = jest.fn();
 	const utils = render(
 		<Harness
 			onPick={ onPick }
-			onNothing={ onNothing }
 			onAbandon={ onAbandon }
 			onRowClick={ onRowClick }
 		/>
 	);
-	return { onPick, onNothing, onAbandon, onRowClick, ...utils };
+	return { onPick, onAbandon, onRowClick, ...utils };
 }
 
 function startPicking( getByTestId ) {
@@ -178,17 +172,30 @@ test( 'clicking something unaskable never asks about the page', () => {
 /**
  * A missed click used to disarm silently, which reads as the picker being
  * broken and hands the next click to the element underneath — on a flame graph
- * that zooms. Saying so and staying armed lets the second click land.
+ * that zooms. Staying armed lets the second click land, and the `?` cursor is
+ * what says the picker is still on.
  */
-test( 'a missed click says so and leaves the picker armed', () => {
-	const { getByTestId, onNothing } = setup();
+test( 'a missed click leaves the picker armed', () => {
+	const { getByTestId } = setup();
 	startPicking( getByTestId );
 
 	act( () => {
 		fireEvent.click( getByTestId( 'outside' ) );
 	} );
 
-	expect( onNothing ).toHaveBeenCalledTimes( 1 );
+	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
+		true
+	);
+} );
+
+// The cursor IS the picker's state. A re-render that dropped the body class
+// would take the `?` away while the picker was still armed.
+test( 'the cursor survives a re-render while armed', () => {
+	const { getByTestId, rerender, onPick } = setup();
+	startPicking( getByTestId );
+
+	rerender( <Harness onPick={ onPick } onRowClick={ jest.fn() } /> );
+
 	expect( document.body.classList.contains( 'newspack-nodes-asking' ) ).toBe(
 		true
 	);
