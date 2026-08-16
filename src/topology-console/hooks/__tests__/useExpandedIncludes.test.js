@@ -8,7 +8,7 @@ import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
 	expansionMatchesIncludes,
-	fetchExpandedIncludes,
+	primeExpandedIncludes,
 	invalidateExpandedIncludes,
 	useExpandedIncludes,
 } from '../useExpandedIncludes';
@@ -78,125 +78,58 @@ describe( 'useExpandedIncludes', () => {
 	// The console mounts ONE expand hook — it owns graph nodes — so a second
 	// caller is not a second hook: it is `fetchExpandedIncludes`, which parks
 	// its key and takes the answer from the same cache.
-	it( 'serves a second caller from the cache, with no second round trip', async () => {
-		send.mockReturnValue( {
-			nodes: [ { name: 'cached-node' } ],
+	// The cache's real second entry point: `topologies get` ships the
+	// expansion with the file, so an OPEN primes it and the reactive pass
+	// costs no round trip at all. (Two simultaneous mounts are not a case —
+	// this is the console's ONE expand hook, and a second would collide on
+	// its node names.)
+	it( 'costs no round trip for a set an open already primed', async () => {
+		const primed = {
+			nodes: [ { name: 'primed-node' } ],
 			edges: [],
 			tree: { 'cache-source': {} },
-		} );
+			hulls: {},
+		};
+		primeExpandedIncludes( [ 'cache-source' ], primed );
+
 		const { result } = renderHook( () =>
 			useExpandedIncludes( [ 'cache-source' ] )
 		);
-		await waitFor( () => expect( result.current.loading ).toBe( false ), {
-			timeout: 4000,
-		} );
-		expect( send ).toHaveBeenCalledTimes( 1 );
+		expect( result.current.loading ).toBe( false );
+		expect( result.current.expansion ).toEqual( primed );
 
-		await expect(
-			fetchExpandedIncludes( [ 'cache-source' ] )
-		).resolves.toBe( result.current.expansion );
-		expect( send ).toHaveBeenCalledTimes( 1 );
-	}, 15000 );
-
-	// An upload's .tsl declares includes but ships no expansion, so the load
-	// path asks for one mid-flow. It mints nothing: the mounted hook asks on
-	// the tick, and the parked promise settles when the answer lands.
-	it( 'answers a key parked by fetchExpandedIncludes', async () => {
-		send.mockReturnValue( {
-			nodes: [ { name: 'parked-tee' } ],
-			edges: [],
-			tree: { 'parked-source': {} },
+		// Give a round trip every chance to happen before denying it.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 1500 ) );
 		} );
-		renderHook( () => useExpandedIncludes( [] ) );
 		expect( send ).not.toHaveBeenCalled();
-
-		// Parking wakes the hook, which asks — a state update, so: act.
-		let answer;
-		act( () => {
-			answer = fetchExpandedIncludes( [ 'parked-source' ] );
-		} );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
-		await expect( answer ).resolves.toMatchObject( {
-			nodes: [ { name: 'parked-tee' } ],
-		} );
-		expect( args() ).toEqual( [ [ 'parked-source' ] ] );
 	}, 15000 );
 
-	// A refused expansion is an answer: the waiter is told, rather than left
-	// hanging on a promise that never settles.
-	// Opening a topology queues the draft's own key AND parks a second for
-	// `applyLoadedBaseline`. Draining one and stopping left the second promise
-	// unsettled, so the load hung with no error to show for it.
-	it( 'works through the queue rather than stopping after one key', async () => {
+	// @longform Opening a second document while the first is still expanding
+	// must ask for the SECOND. A read supersedes rather than queueing, so the
+	// abandoned ask is dropped instead of arriving later and painting the
+	// document the operator already left.
+	it( 'supersedes an outstanding ask when the include set changes', async () => {
 		send.mockImplementation( ( m ) => ( {
-			nodes: [ { name: `n-${ m[ VALUE ].arguments[ 0 ] }` } ],
+			nodes: [ { name: `node-for-${ m[ VALUE ].arguments[ 0 ] }` } ],
 			edges: [],
-			tree: {},
+			tree: { [ m[ VALUE ].arguments[ 0 ] ]: {} },
 		} ) );
-		const { result } = renderHook( () =>
-			useExpandedIncludes( [ 'first-source' ] )
+		const { result, rerender } = renderHook(
+			( { includes } ) => useExpandedIncludes( includes ),
+			{ initialProps: { includes: [ 'first-source' ] } }
 		);
+		act( () => rerender( { includes: [ 'second-source' ] } ) );
 
-		let parked;
-		act( () => {
-			parked = fetchExpandedIncludes( [ 'second-source' ] );
-		} );
-
-		await waitFor(
-			() =>
-				expect( result.current.expansion.nodes ).toEqual( [
-					{ name: 'n-first-source' },
-				] ),
-			{ timeout: 6000 }
-		);
-		// The second key settles a tick later; waitFor absorbs that render.
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 2 ), {
+		await waitFor( () => expect( result.current.loading ).toBe( false ), {
 			timeout: 6000,
 		} );
-		await expect( parked ).resolves.toMatchObject( {
-			nodes: [ { name: 'n-second-source' } ],
-		} );
+		expect( result.current.expansion.nodes ).toEqual( [
+			{ name: 'node-for-second-source' },
+		] );
+		expect( args().map( ( a ) => a[ 0 ] ) ).not.toContain( 'first-source' );
 	}, 20000 );
 
-	it( 'rejects a parked key the server refuses', async () => {
-		send.mockReturnValue( new Error( 'unknown topology: nope-4471' ) );
-		renderHook( () => useExpandedIncludes( [] ) );
-
-		// Catch on the spot: the refusal arrives before any later assertion
-		// could attach a handler, and an unhandled rejection fails the run.
-		let refusal;
-		act( () => {
-			refusal = fetchExpandedIncludes( [ 'nope-4471' ] ).catch(
-				( e ) => e
-			);
-		} );
-		await waitFor( () => expect( send ).toHaveBeenCalledTimes( 1 ), {
-			timeout: 4000,
-		} );
-		expect( ( await refusal ).message ).toMatch( /nope-4471/ );
-	}, 15000 );
-
-	// Nobody is left to ask once the hook unmounts, so a still-parked key
-	// would never settle — and its caller (`applyLoadedBaseline`, mid-load)
-	// awaits it forever rather than unwinding.
-	it( 'rejects a still-parked key when the hook unmounts', async () => {
-		send.mockReturnValue( new Promise( () => {} ) );
-		const { unmount } = renderHook( () => useExpandedIncludes( [] ) );
-
-		let outcome;
-		act( () => {
-			outcome = fetchExpandedIncludes( [ 'orphan-8813' ] ).catch(
-				( e ) => e
-			);
-		} );
-		act( () => unmount() );
-		expect( ( await outcome ).message ).toMatch( /torn down/ );
-	}, 15000 );
-} );
-
-describe( 'invalidateExpandedIncludes', () => {
 	it( 'drops the cache so a saved topology re-expands', async () => {
 		// Editing performance.tsl and saving it CHANGES what `include
 		// performance` expands to. Without invalidation, reopening combined.tsl

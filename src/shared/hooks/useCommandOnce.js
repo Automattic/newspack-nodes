@@ -175,6 +175,20 @@ export function useCommandOnce( {
 	const run = useCallback(
 		( args ) => {
 			const tokens = Array.isArray( args ) ? args : [];
+			// @longform Re-asking for the subject ALREADY OUTSTANDING says
+			// nothing new — the retry window owns "ask again for this". Taking
+			// it as a fresh ask resets that window and pokes a tick, so a
+			// caller whose dep identity churns (an object literal rebuilt each
+			// render) would put a command and a whole router tick on the wire
+			// per render.
+			const [ outstanding ] = outboxRef.current;
+			if (
+				retryRef.current &&
+				outstanding &&
+				outstanding.args.join( '\u0000' ) === tokens.join( '\u0000' )
+			) {
+				return;
+			}
 			const send = { args: tokens, askedAt: 0 };
 			// A read supersedes: nobody wants the answer to the older ask.
 			outboxRef.current = retryRef.current
