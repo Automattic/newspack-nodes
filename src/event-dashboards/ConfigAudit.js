@@ -1,7 +1,7 @@
 /**
  * Config Audit — the hub's change timeline over the durable settings.p0 log.
  *
- * A thin view over `useSettingsAuditStream` (full-replay) + the `settingsaudit:view`
+ * A thin view over `useLogTailStream` (full-replay) + the `settingsaudit:view`
  * model: a newest-first table of watched-option changes, each a Time (UTC), the
  * option NAME, and an Old → New value pair. The option name is recorded for every
  * change; values ride only for options on the substrate's explicit allowlist, so
@@ -11,10 +11,11 @@
 
 import { createPortal, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
-import { useSettingsAuditStream } from './hooks/useSettingsAuditStream';
+import { useLogTailStream } from './hooks/useLogTailStream';
 import { useNodeState } from '../runtime/react';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/config-audit.scss';
+import { views } from './nodes/register';
 
 const VIEW_NODE = 'settingsaudit:view';
 const EM_DASH = '—';
@@ -48,7 +49,14 @@ function valueCell( modifier, value ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function ConfigAudit( { headerControlsSlot } ) {
-	useSettingsAuditStream();
+	// A TIMELINE: replay the whole retention, then follow.
+	useLogTailStream( {
+		name: 'settingsaudit',
+		// Explicit .p0 hits the no-worker fallback (settings is 1-partition).
+		subscribe: 'settings.p0',
+		viewType: views.SettingsAuditView,
+		mode: 'history',
+	} );
 	const view = useNodeState( VIEW_NODE, 'view' );
 	const entries = view?.entries ?? [];
 

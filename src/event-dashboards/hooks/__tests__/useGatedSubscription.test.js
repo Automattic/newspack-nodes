@@ -10,8 +10,10 @@
  * asserted through what Play hands `setSubscribe`.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useRef } from '@wordpress/element';
+import { Core, VALUE } from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useGatedSubscription } from '../useGatedSubscription';
 
 let mockPageVisible = true;
@@ -28,9 +30,31 @@ function fakeLink( resume = null ) {
 	};
 }
 
+// The read the hook owns; `argsFor` is what each dashboard varies.
+const STEP_READ = {
+	ci: 'raw-logs',
+	command: 'read_message',
+	scope: 'gated:read',
+	argsFor: ( sub, position ) => [ sub, position ],
+	subOf: ( args ) => args[ 0 ],
+};
+
+let replyFor;
+
 beforeEach( () => {
 	mockPageVisible = true;
+	Core.reset();
+	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	replyFor = jest.fn( () => null );
+	installFakeCommandWire( ( m ) => replyFor( m ) );
 } );
+
+// Every read_message the fake wire was asked for, as [ sub, position ] pairs.
+const stepArgs = () =>
+	replyFor.mock.calls
+		.map( ( [ m ] ) => m[ VALUE ] )
+		.filter( ( v ) => 'read_message' === v?.name )
+		.map( ( v ) => v.arguments );
 
 // A view as the graph builds it: it declares the origin it trusts.
 const fakeView = () => ( {
@@ -39,20 +63,16 @@ const fakeView = () => ( {
 	fill: jest.fn(),
 } );
 
-function mount( link, view, requestStep, stepAnswer ) {
-	return renderHook(
-		( props ) => {
-			const linkRef = useRef( link );
-			const viewRef = useRef( view );
-			return useGatedSubscription( {
-				linkRef,
-				viewRef,
-				requestStep,
-				stepAnswer: props?.stepAnswer,
-			} );
-		},
-		{ initialProps: { stepAnswer } }
-	);
+function mount( link, view ) {
+	return renderHook( () => {
+		const linkRef = useRef( link );
+		const viewRef = useRef( view );
+		return useGatedSubscription( {
+			linkRef,
+			viewRef,
+			stepRead: STEP_READ,
+		} );
+	} );
 }
 
 describe( 'useGatedSubscription', () => {
@@ -150,10 +170,9 @@ describe( 'useGatedSubscription', () => {
 		} );
 	} );
 
-	test( 'step after a same-tick pause+seek asks for the SEEK cursor', () => {
+	test( 'step after a same-tick pause+seek asks for the SEEK cursor', async () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const requestStep = jest.fn();
-		const { result } = mount( link, fakeView(), requestStep );
+		const { result } = mount( link, fakeView() );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], {
@@ -161,34 +180,60 @@ describe( 'useGatedSubscription', () => {
 			} );
 		} );
 		act( () => result.current.step() );
-		// requestStep takes the formatted read position, not a cursor object.
-		expect( requestStep ).toHaveBeenCalledWith( 'x.p0', '2:0' );
-	} );
+		// The read takes the formatted position, not a cursor object.
+		await waitFor(
+			() => expect( stepArgs() ).toContainEqual( [ 'x.p0', '2:0' ] ),
+			{ timeout: 4000 }
+		);
+	}, 20000 );
 
 	/**
 	 * Replay seeks the magic 'start' token, so the cursor is a STRING. The old
 	 * object-only guard silently returned here — pause → Replay → Step did
 	 * nothing until a segment click replaced the token with a {segment,offset}.
 	 */
-	test( 'steps from the magic start token a Replay seeks', () => {
+	test( 'steps from the magic start token a Replay seeks', async () => {
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
-		const requestStep = jest.fn();
-		const { result } = mount( link, fakeView(), requestStep );
+		const { result } = mount( link, fakeView() );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], { 'x.p0': 'start' } );
 		} );
 		act( () => result.current.step() );
-		expect( requestStep ).toHaveBeenCalledWith( 'x.p0', 'start' );
-	} );
+		await waitFor(
+			() => expect( stepArgs() ).toContainEqual( [ 'x.p0', 'start' ] ),
+			{ timeout: 4000 }
+		);
+	}, 20000 );
 
 	// The stepped record arrives later, on the node that asked; admitting it
 	// is what advances the reopen target so the NEXT step continues from it.
-	test( 'admits the stepped record and advances the reopen target', () => {
+	// @longform A verb with a SUB-VERB does not carry the source at args[0] —
+	// `taillog read <sub> <pos>` puts the literal 'read' there. Reading the
+	// reply's args positionally re-pointed the stream at a source called
+	// 'read', which blanked the Log Viewer on the next Play. The partition
+	// shape hides this, because there args[0] IS the source.
+	test( 'advances the target using the SOURCE, not args[0], for a sub-verb', async () => {
+		replyFor.mockImplementation( () => ( {
+			message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
+			cursor: { segment: 2, offset: 9 },
+		} ) );
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
 		const view = fakeView();
-		const requestStep = jest.fn();
-		const { result, rerender } = mount( link, view, requestStep );
+		const { result } = renderHook( () => {
+			const linkRef = useRef( link );
+			const viewRef = useRef( view );
+			return useGatedSubscription( {
+				linkRef,
+				viewRef,
+				stepRead: {
+					command: 'taillog',
+					scope: 'gated:subverb',
+					argsFor: ( sub, position ) => [ 'read', sub, position ],
+					subOf: ( args ) => args[ 1 ],
+				},
+			} );
+		} );
 		act( () => {
 			result.current.setPaused( true );
 			result.current.resubscribe( [ 'x.p0' ], {
@@ -197,25 +242,41 @@ describe( 'useGatedSubscription', () => {
 		} );
 		act( () => result.current.step() );
 
-		act( () =>
-			rerender( {
-				stepAnswer: {
-					seq: 1,
-					result: {
-						message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
-						cursor: { segment: 2, offset: 9 },
-					},
-				},
-			} )
-		);
-
-		expect( view.fill ).toHaveBeenCalled();
+		await waitFor( () => expect( view.fill ).toHaveBeenCalled(), {
+			timeout: 4000,
+		} );
 		link.setSubscribe.mockClear();
 		act( () => result.current.setPaused( false ) );
 		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
 			'x.p0': { segment: 2, offset: 9 },
 		} );
-	} );
+	}, 20000 );
+
+	test( 'admits the stepped record and advances the reopen target', async () => {
+		replyFor.mockImplementation( () => ( {
+			message: [ 1, 'from', '', '0:0:9', '', 0, 'v' ],
+			cursor: { segment: 2, offset: 9 },
+		} ) );
+		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
+		const view = fakeView();
+		const { result } = mount( link, view );
+		act( () => {
+			result.current.setPaused( true );
+			result.current.resubscribe( [ 'x.p0' ], {
+				'x.p0': { segment: 2, offset: 0 },
+			} );
+		} );
+		act( () => result.current.step() );
+
+		await waitFor( () => expect( view.fill ).toHaveBeenCalled(), {
+			timeout: 4000,
+		} );
+		link.setSubscribe.mockClear();
+		act( () => result.current.setPaused( false ) );
+		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
+			'x.p0': { segment: 2, offset: 9 },
+		} );
+	}, 20000 );
 
 	// @longform The symmetric hole: play flips the gate refs synchronously,
 	// so a same-tick seek delivers immediately and is marked consumed — the

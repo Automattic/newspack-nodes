@@ -4,7 +4,7 @@
  * grid. A timer that is due every tick (NEXT <= 0) whose FIRES keep climbing is
  * a drain spinner — those rows are flagged red with a ⚠.
  *
- * Shown inside the Inspector's Runtime modal. It mounts TWO `Dmesg` pollers
+ * Shown inside the Inspector's Runtime modal. It mounts TWO `Poller` nodes
  * (router-TIMER-hitchhiking TimerNodes publishing their reply as `reply`) on the
  * backbone while the modal is open — one per verb, `list_timers -s` and
  * `list_handles -s` — each routed through `_cwd` so it reports the current scope
@@ -61,11 +61,11 @@ export default function RuntimeView() {
 				interpreter.makeNode( 'Node', names.CWD );
 			}
 			const mount = ( name, verb ) => {
-				const poller = interpreter.makeNode( 'Dmesg', name );
+				const poller = interpreter.makeNode( 'Poller', name );
 				poller.verb = verb;
 				poller.pollArgs = [ '-s' ];
 				poller.target = names.CWD;
-				poller.setTimer(); // hitchhike _router TIMER (Dmesg throttles)
+				poller.setTimer(); // hitchhike _router TIMER (Poller throttles)
 				poller.fire(); // poll immediately
 				return poller;
 			};

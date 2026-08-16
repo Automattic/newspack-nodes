@@ -32,13 +32,14 @@ globalThis.__untitledHooks = {
 	fetchLayout: jest.fn( () => new Promise( () => {} ) ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
 };
-jest.mock( '../hooks/useTopologyList', () => ( {
+jest.mock( '../hooks/useCatalogs', () => ( {
+	// Only what this suite drives is stubbed; useVaults stays real.
+	...jest.requireActual( '../hooks/useCatalogs' ),
 	useTopologyList: () => ( {
 		topologies: [],
 		userDir: '',
 		loading: false,
 		error: null,
-		reload: () => {},
 	} ),
 	useTopology: () => {
 		const { useCallback, useState } = require( '@wordpress/element' );
@@ -61,8 +62,6 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 		}, [] );
 		return { open, topology, error, loading: null === topology };
 	},
-} ) );
-jest.mock( '../hooks/useClassCatalog', () => ( {
 	useClassCatalog: () => ( {
 		classes: [],
 		formatters: [],

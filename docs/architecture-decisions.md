@@ -771,3 +771,56 @@ already forgotten.
 asymmetric signing buys, and it would earn its keep then — **or** a command must be
 authorized between two sites that share no secret, **or** session state needs to outlive the
 cache tier it lives in.
+
+## ADR-16: JS node-class resolution — names are the TSL surface, classes are the API
+
+**Status:** Accepted
+
+**Context:** The browser runtime resolves `make_node <Type>` through
+`CommandInterpreterNode.includeNodes`, a flat name→class table each bundle extends at import
+time via `registerNodeClasses()`. That table is a **per-bundle static**: two bundles loaded on
+the same page hold two copies. It works for TSL and the console palette, where the graph is
+authored as text and the interpreter reading it is the one whose bundle registered the class.
+
+It fails the moment a graph is built through *someone else's* interpreter. The devtools hub
+mounts tabs from several bundles against one backbone, so a hook resolving `makeNode(
+'ClassCatalogView' )` asks an interpreter whose bundle never registered that name and gets
+`unknown class: ClassCatalogView` — at runtime, in the browser, with every test green,
+because a test loads exactly one bundle. ADR-10 governs the PHP side and explicitly refuses a
+class map; the JS side has always had one, and this is the consequence nobody wrote down.
+
+**Decision:** A NAME is for the text path — TSL, the palette, `make_node` typed in the REPL.
+A programmatic builder hands `makeNode` the **class itself**, imported from the `register.js`
+that owns it, which therefore exports its classes rather than only registering them:
+
+```js
+export const views = { ClassCatalogView: ClassCatalogViewNode };
+CommandInterpreterNode.registerNodeClasses( views );
+```
+
+`makeNode( type, name, args )` accepts either — `'function' === typeof type` selects the class
+directly and skips resolution entirely. Registration is still required, for TSL and the
+palette; it is no longer what a hook depends on. Enforced mechanically by
+`scripts/lint-contract.mjs` rule `name-lookup-in-hook`, whose builtin allow-list is read from
+`includeNodes`' own declaration — the runtime's own classes ship in every bundle, so resolving
+one by name is always safe.
+
+**Alternatives considered:**
+
+- **A window-global registry**, as `src/shared/devtools/tabRegistry.js` uses for tabs.
+  Rejected for classes: it makes every bundle's node classes globally visible and collides on
+  name, which is exactly the ambiguity the per-bundle static avoids. The tab registry earns it
+  because a hub tab is *meant* to be reachable across bundles; a view class is not.
+- **Requiring every bundle to register every class.** Rejected: it couples each plugin's build
+  to the union of all of them, and the failure is still silent until the missing one is asked
+  for.
+- **Resolving by name lazily against a chain of interpreters.** Rejected: it re-invents dynamic
+  scope, and picks arbitrarily between two bundles that both registered the name.
+
+**Consequences:** `register.js` files export a `views` map and hooks import it, so a dead view
+class is now a normal unused-export finding instead of a name nobody notices is unreachable.
+The name and the class are declared in one place. A hook that still passes a name fails the
+contract gate rather than the browser.
+
+**Revisit if:** the runtime gains a single cross-bundle class registry with collision handling
+— then names become safe again everywhere and the rule retires with the decision.

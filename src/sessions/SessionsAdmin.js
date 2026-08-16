@@ -11,23 +11,15 @@
  * digest. That is also why the TTL ceiling is bounded rather than optional.
  */
 
-import { useEffect, useRef, useState, createPortal } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useNodeState } from '../runtime/react';
-import { LIST_VIEW, useSessionsGraph } from './hooks/useSessionsGraph';
+import { useSessionsGraph } from './hooks/useSessionsGraph';
 import Modal from '@newspack-nodes/shared/components/Modal';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import './sessions-admin.scss';
-
-// The view model before the first list publishes one — drives the loading gate.
-const EMPTY_MODEL = {
-	sessions: null,
-	scopes: [],
-	ttlMax: 0,
-	loading: true,
-	error: null,
-};
+import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
 /** What each scope actually admits, in the operator's words. */
 const SCOPE_BLURB = {
@@ -47,6 +39,19 @@ const SCOPE_BLURB = {
 
 const DEFAULT_TTL_S = 3600;
 
+const REVOKE_TEXTS = {
+	failed: ( e ) =>
+		// translators: %s: revocation error message.
+		sprintf( __( 'Revoke failed: %s', 'newspack-nodes' ), e ),
+};
+
+const CREATE_TEXTS = {
+	busy: __( 'Issuing…', 'newspack-nodes' ),
+	failed: ( e ) =>
+		// translators: %s: error message.
+		sprintf( __( 'Error: %s', 'newspack-nodes' ), e ),
+};
+
 /**
  * Absolute time, or an em dash when the stamp is missing.
  *
@@ -61,47 +66,25 @@ function when( seconds ) {
 }
 
 /**
- * One issued session — label / scope / liveness / expiry + Revoke. Owns its own
- * status line, since a failed revoke leaves the row on screen with nothing else
- * to say so.
+ * One issued session — label / scope / liveness / expiry + Revoke.
+ *
+ * It owns no answer state: the revoke answers once, naming its handle, and the
+ * graph keeps that answer per handle for the row to render.
  *
  * @param {Object}   props
- * @param {Object}   props.session     A row from the view model.
- * @param {Function} props.onRevoke    Revoke callback (handle).
- * @param {Object}   props.revokeState Last revoke answer: `{ seq, subject, error }`.
+ * @param {Object}   props.session  A row from the view model.
+ * @param {Function} props.onRevoke Revoke callback (handle).
+ * @param {?Object}  props.answer   The graph's last answer for this handle.
  * @return {import('react').ReactElement} The rendered row.
  */
-function SessionRow( { session, onRevoke, revokeState } ) {
+function SessionRow( { session, onRevoke, answer } ) {
 	const { handle, label, scope, expires, created, live } = session;
-	const [ status, setStatus ] = useState( '' );
-	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
-
-	// The revoke's answer names its handle; that is how this row knows.
-	const seenRef = useRef( 0 );
-	useEffect( () => {
-		if (
-			revokeState.subject !== handle ||
-			revokeState.seq === seenRef.current
-		) {
-			return;
-		}
-		seenRef.current = revokeState.seq;
-		setBusy( false );
-		if ( revokeState.error ) {
-			setStatus(
-				sprintf(
-					// translators: %s: revocation error message.
-					__( 'Revoke failed: %s', 'newspack-nodes' ),
-					revokeState.error
-				)
-			);
-		}
-	}, [ revokeState, handle ] );
+	const busy = Boolean( answer?.busy );
+	const status = answerStatus( answer, REVOKE_TEXTS ).text;
 
 	const confirmRevoke = () => {
 		setIsConfirmOpen( false );
-		setBusy( true );
 		onRevoke( handle );
 	};
 
@@ -182,31 +165,25 @@ function SessionRow( { session, onRevoke, revokeState } ) {
  * recoverable from the listing.
  *
  * @param {Object}     props
- * @param {Function}   props.onCreate    Create callback (fields).
- * @param {Object}     props.createState Last create answer: `{ seq, subject, result, error }`.
- * @param {Function}   props.onIssued    Called with the issued session.
- * @param {() => void} props.onCancel    Dismisses the modal.
- * @param {string[]}   props.scopes      Scope vocabulary from the view model.
- * @param {number}     props.ttlMax      Server-side TTL ceiling, in seconds.
+ * @param {Function}   props.onCreate Create callback (fields).
+ * @param {?Object}    props.answer   The graph's last answer for the submitted label.
+ * @param {() => void} props.onCancel Dismisses the modal.
+ * @param {string[]}   props.scopes   Scope vocabulary from the view model.
+ * @param {number}     props.ttlMax   Server-side TTL ceiling, in seconds.
  * @return {import('react').ReactElement} The rendered form.
  */
-function CreateSessionForm( {
-	onCreate,
-	createState,
-	onIssued,
-	onCancel,
-	scopes,
-	ttlMax,
-} ) {
+function CreateSessionForm( { onCreate, answer, onCancel, scopes, ttlMax } ) {
 	const [ label, setLabel ] = useState( '' );
 	const [ scope, setScope ] = useState( scopes[ 0 ] ?? 'read' );
 	const [ ttl, setTtl ] = useState( String( DEFAULT_TTL_S ) );
-	const [ status, setStatus ] = useState( '' );
-	const [ busy, setBusy ] = useState( false );
+	// Local validation only; the graph's answer supplies everything else.
+	const [ invalid, setInvalid ] = useState( '' );
 	const labelRef = useRef( null );
-	// The label this form submitted, so it recognises its own answer.
-	const submittedRef = useRef( null );
-	const seenRef = useRef( 0 );
+
+	const busy = Boolean( answer?.busy );
+	const status = invalid
+		? invalid
+		: answerStatus( answer, CREATE_TEXTS ).text;
 
 	useEffect( () => {
 		labelRef.current?.focus();
@@ -215,7 +192,7 @@ function CreateSessionForm( {
 	const handleCreate = () => {
 		const trimmed = label.trim();
 		if ( ! trimmed ) {
-			setStatus(
+			setInvalid(
 				__(
 					'A label is required — it is how you will recognise this later.',
 					'newspack-nodes'
@@ -223,34 +200,9 @@ function CreateSessionForm( {
 			);
 			return;
 		}
-		setBusy( true );
-		setStatus( __( 'Issuing…', 'newspack-nodes' ) );
-		submittedRef.current = trimmed;
+		setInvalid( '' );
 		onCreate( { label: trimmed, scope, ttl: Number( ttl ) } );
 	};
-
-	// The key rides the create's own answer, named by its label.
-	useEffect( () => {
-		if (
-			createState.subject !== submittedRef.current ||
-			createState.seq === seenRef.current
-		) {
-			return;
-		}
-		seenRef.current = createState.seq;
-		setBusy( false );
-		if ( createState.error ) {
-			setStatus(
-				sprintf(
-					// translators: %s: error message.
-					__( 'Error: %s', 'newspack-nodes' ),
-					createState.error
-				)
-			);
-			return;
-		}
-		onIssued( createState.result );
-	}, [ createState, onIssued ] );
 
 	return (
 		<>
@@ -402,18 +354,24 @@ function IssuedKeyPanel( { session, onClose } ) {
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function SessionsAdmin( { headerControlsSlot } ) {
-	const { createSession, revokeSession, createResult, revokeResult } =
-		useSessionsGraph();
-
-	const model = useNodeState( LIST_VIEW, 'view' ) ?? EMPTY_MODEL;
-	const { sessions, scopes, ttlMax, error } = model;
-
 	const [ isCreateOpen, setIsCreateOpen ] = useState( false );
 	const [ issued, setIssued ] = useState( null );
+	const [ submitted, setSubmitted ] = useState( null );
+	// Disclosed once, so the graph hands the key over, never publishes it.
+	const {
+		createSession,
+		revokeSession,
+		answerFor,
+		sessions,
+		scopes,
+		ttlMax,
+		error,
+	} = useSessionsGraph( { onIssued: setIssued } );
 
 	const closeCreate = () => {
 		setIsCreateOpen( false );
 		setIssued( null );
+		setSubmitted( null );
 	};
 
 	const controls = (
@@ -425,12 +383,6 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 			{ __( '+ Issue Session', 'newspack-nodes' ) }
 		</button>
 	);
-	let renderedControls = null;
-	if ( headerControlsSlot ) {
-		renderedControls = createPortal( controls, headerControlsSlot );
-	} else if ( undefined === headerControlsSlot ) {
-		renderedControls = controls;
-	}
 
 	return (
 		<div className="nodes-sessions">
@@ -439,7 +391,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 					<p>{ error }</p>
 				</div>
 			) }
-			{ renderedControls }
+			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
 			<table className="newspack-nodes-table">
 				<thead>
 					<tr>
@@ -470,7 +422,7 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 								key={ session.handle }
 								session={ session }
 								onRevoke={ revokeSession }
-								revokeState={ revokeResult }
+								answer={ answerFor( session.handle ) }
 							/>
 						) )
 					) : (
@@ -503,9 +455,11 @@ export default function SessionsAdmin( { headerControlsSlot } ) {
 						/>
 					) : (
 						<CreateSessionForm
-							onCreate={ createSession }
-							createState={ createResult }
-							onIssued={ setIssued }
+							onCreate={ ( fields ) => {
+								setSubmitted( fields.label );
+								createSession( fields );
+							} }
+							answer={ answerFor( submitted ) }
 							onCancel={ closeCreate }
 							scopes={
 								scopes.length

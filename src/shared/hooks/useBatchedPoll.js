@@ -34,12 +34,22 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { Core, mountExospine, hasSession } from '@newspack-nodes/runtime';
+import {
+	Core,
+	mountExospine,
+	hasSession,
+	useNodeState,
+} from '@newspack-nodes/runtime';
+import { addSliceFetcher } from '../helpers/addSliceFetcher';
+import { egressPath } from '../helpers/egressPath';
 import names from '../../runtime/reserved-node-names.json';
 import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
 const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
+
+/** Every router tick — the floor `useBatchedPoll` enforces. */
+const TICK_MS = 1000;
 
 function isFirstLoadPending( timer ) {
 	return Object.prototype.hasOwnProperty.call(
@@ -227,4 +237,65 @@ export function useBatchedPoll( opts ) {
 	const pollNow = useCallback( () => fireTickRef.current?.(), [] );
 
 	return { interpreterRef, pollNow };
+}
+
+/**
+ * useCatalogSlice — poll one CI's `list` verb as a slice and read what it
+ * published: the whole of a catalog hook that is not its own field names.
+ *
+ * Every catalog wants this — the palette's classes, the OPEN dialog's saved
+ * topologies, the vault_id dropdown's vaults. Each was its own one-shot load
+ * behind a latch or a memoised promise, so one failure emptied its list for the
+ * life of the page. Polled, the tick IS the retry, and a save owes the list no
+ * reload. It rides every router tick, and batched it costs no request of its
+ * own. Not `useCatalog` — that name is the console's catalog CONTEXT.
+ *
+ * @param {Object}  o              Options.
+ * @param {string}  o.scope        Names this catalog's own nodes.
+ * @param {string}  o.ci           The server CI mount owning `list`.
+ * @param {string}  o.viewClass    The registered view class publishing the slice.
+ * @param {string}  o.key          The model field holding the list — empty until the
+ *                                 first reply lands, which is what `loading` reads.
+ * @param {boolean} [o.enabled]    False costs no request at all, so a surface that
+ *                                 is never opened is free.
+ * @param {number}  [o.intervalMs] Cadence; defaults to every router tick. A
+ *                                 catalog that only changes when someone edits it
+ *                                 can ride a slower one and still be its own retry.
+ * @return {Object} The published model, plus `loading`, `error`, and a
+ *                  `refresh()` for the caller that just CHANGED the list and
+ *                  should not wait out the cadence to see it.
+ */
+export function useCatalogSlice( {
+	scope,
+	ci,
+	viewClass,
+	key,
+	enabled = true,
+	intervalMs = TICK_MS,
+} ) {
+	const { pollNow } = useBatchedPoll( {
+		build: ( { interpreter, tee } ) =>
+			addSliceFetcher( interpreter, {
+				fetcher: `${ scope }:fetch`,
+				receiver: `${ scope }:in`,
+				command: 'list',
+				view: `${ scope }:view`,
+				viewClass,
+				tee,
+				target: egressPath( ci ),
+			} ),
+		timerName: `${ scope }:timer`,
+		teeName: `${ scope }:tee`,
+		enabled,
+		intervalMs,
+	} );
+
+	const model = useNodeState( `${ scope }:view`, 'view' ) ?? {};
+
+	return {
+		...model,
+		loading: enabled && ! model[ key ] && ! model.error,
+		error: model.error ?? null,
+		refresh: pollNow,
+	};
 }

@@ -55,7 +55,7 @@ import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import { globalRates } from '../globalRates';
 import { etaSeconds } from '@newspack-nodes/shared/utils/formatters';
 import { partitionSummaries } from '../partitionSummaries';
-import '../nodes/register';
+import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // Stale once the last successful poll is older than this many poll intervals.
@@ -78,11 +78,11 @@ const SLICES = [
 		receiver: 'workerstatus:in',
 		command: 'dump_graph',
 		view: WORKER_VIEW,
-		viewClass: 'WorkerStatusView',
+		viewClass: views.WorkerStatusView,
 		target: egressPath( WORKERS_CI ),
 		transform: {
 			name: 'workerstatus:transform',
-			nodeClass: 'WorkerStatusTransform',
+			nodeClass: views.WorkerStatusTransform,
 		},
 	},
 	{
@@ -90,7 +90,7 @@ const SLICES = [
 		receiver: 'topologymanager:in',
 		command: 'list',
 		view: TOPOLOGY_VIEW,
-		viewClass: 'TopologyManagerView',
+		viewClass: views.TopologyManagerView,
 		target: egressPath( TOPOLOGIES_CI ),
 	},
 ];

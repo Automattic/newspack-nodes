@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo } from '@wordpress/element';
-import { useTopology } from './useTopologyList';
+import { useTopology } from './useCatalogs';
 import { graphFromTsl } from '../utils/draftToGraph';
 
 /**

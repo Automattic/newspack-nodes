@@ -245,14 +245,34 @@ globalThis.__fakeOneShot = ( fixture, key ) => ( onDone ) => ( {
 				} )
 			),
 } );
-jest.mock( '../hooks/useTopologyList', () => ( {
+// Mutable catalog the hoisted mock reads at call time; tests seed classes.
+globalThis.__catalog = { classes: [], formatters: [] };
+jest.mock( '../hooks/useCatalogs', () => ( {
 	useTopologyList: () => ( {
 		topologies: globalThis.__hooks.topologies,
 		userDir: '',
 		loading: false,
 		error: null,
-		reload: () => {},
 	} ),
+	// `__catalogBump()` republishes, standing in for the poll's next tick.
+	useClassCatalog: () => {
+		const { useEffect, useState } = require( '@wordpress/element' );
+		const [ , bump ] = useState( 0 );
+		useEffect( () => {
+			globalThis.__catalogBump = () => bump( ( n ) => n + 1 );
+			return () => {
+				globalThis.__catalogBump = null;
+			};
+		} );
+		return {
+			classes: globalThis.__catalog.classes,
+			formatters: globalThis.__catalog.formatters,
+			loading: !! globalThis.__catalog.loading,
+			error: globalThis.__catalog.error ?? null,
+		};
+	},
+	// Stubbed so the vault catalog answers rather than sitting unresolved.
+	useVaults: () => ( { vaults: [], loading: false, error: null } ),
 	// The slice, faked over the promise the fixtures still seed: `open()` asks
 	// `fetchTopology`, and what it resolves becomes the published answer.
 	useTopology: () => {
@@ -297,31 +317,6 @@ jest.mock( '../hooks/useTopologyCatalog', () => ( {
 			reload: globalThis.__hooks.reloadCatalog,
 		};
 	},
-} ) );
-// Mutable catalog the hoisted mock reads at call time; tests seed classes.
-globalThis.__catalog = { classes: [], formatters: [] };
-jest.mock( '../hooks/useClassCatalog', () => ( {
-	// `__catalogBump()` republishes, standing in for the poll's next tick.
-	useClassCatalog: () => {
-		const { useEffect, useState } = require( '@wordpress/element' );
-		const [ , bump ] = useState( 0 );
-		useEffect( () => {
-			globalThis.__catalogBump = () => bump( ( n ) => n + 1 );
-			return () => {
-				globalThis.__catalogBump = null;
-			};
-		} );
-		return {
-			classes: globalThis.__catalog.classes,
-			formatters: globalThis.__catalog.formatters,
-			loading: !! globalThis.__catalog.loading,
-			error: globalThis.__catalog.error ?? null,
-		};
-	},
-} ) );
-// Stub useVaults so vault.list doesn't hit unwrapCommandResponse's throw.
-jest.mock( '../hooks/useVaults', () => ( {
-	useVaults: () => ( { vaults: [], loading: false, error: null } ),
 } ) );
 jest.mock( '../hooks/useLayout', () => ( {
 	// Faked over the promises the fixtures still seed: what settles becomes the

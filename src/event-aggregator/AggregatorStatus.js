@@ -15,7 +15,7 @@
  * pure display, re-rendering the relative timestamps without re-polling.
  */
 
-import { useState, useCallback, createPortal } from '@wordpress/element';
+import { useState, useCallback } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '@newspack-nodes/runtime';
@@ -27,6 +27,7 @@ import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import './styles/aggregator-status.scss';
+import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
 // Slice-model defaults before first poll — drive the loading gates.
 const EMPTY_SUMMARY = {
@@ -274,17 +275,24 @@ function PartitionStatus( { partition, status, now } ) {
  * after a Probe click; an error probe surfaces the error line instead.
  *
  * @param {Object} props        Component props.
- * @param {Object} props.result Fleet-probe result: `{ ok, rollup | error }`.
+ * @param {Object} props.answer The probe's answer: `{ busy, result, error }`.
  * @return {import('react').ReactElement} Rendered component.
  */
-function FleetRollup( { result } ) {
-	if ( ! result.ok ) {
+function FleetRollup( { answer } ) {
+	if ( answer.busy ) {
+		return (
+			<div className="aggregator-fleet-rollup">
+				{ __( 'Probing…', 'newspack-nodes' ) }
+			</div>
+		);
+	}
+	if ( answer.error ) {
 		return (
 			<div
 				className="aggregator-fleet-rollup is-error"
-				title={ result.error }
+				title={ answer.error }
 			>
-				{ result.error }
+				{ answer.error }
 			</div>
 		);
 	}
@@ -292,7 +300,7 @@ function FleetRollup( { result } ) {
 		workers = {},
 		worst_distance: worstDistance = 0,
 		deadletter_segments: dlq = 0,
-	} = result.rollup || {};
+	} = answer.result || {};
 	return (
 		<div className="aggregator-fleet-rollup">
 			<span className="aggregator-fleet-stat">
@@ -331,7 +339,7 @@ function FleetRollup( { result } ) {
  * @param {Object}   props               Component props.
  * @param {Object}   props.server        Server status data.
  * @param {number}   props.now           Server snapshot clock for relative-time calc.
- * @param {Object}   [props.probeResult] On-demand fleet-probe result for this spoke.
+ * @param {Object}   [props.probeResult] This spoke's last probe answer, if any.
  * @param {Function} props.onProbe       Fire an on-demand deep probe by server id.
  * @return {import('react').ReactElement} Rendered component.
  */
@@ -346,14 +354,9 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
 	).length;
 
-	const [ probing, setProbing ] = useState( false );
-	const runProbe = () => {
-		setProbing( true );
-		// cmd_probe wants the vault credential key, not the node name.
-		Promise.resolve( onProbe( server.vault_id ) )
-			.catch( () => {} )
-			.finally( () => setProbing( false ) );
-	};
+	// cmd_probe wants the vault credential key, not the node name.
+	const runProbe = () => onProbe( server.vault_id );
+	const probing = true === probeResult?.busy;
 
 	return (
 		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
@@ -383,7 +386,9 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 				</button>
 			</div>
 
-			{ probeResult && <FleetRollup result={ probeResult } /> }
+			{ probeResult && ! probing && (
+				<FleetRollup answer={ probeResult } />
+			) }
 
 			{ /* Partition Status Grid */ }
 			<div className="aggregator-partitions">
@@ -409,7 +414,7 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
 	// Mount the graph (poll slices + interval) + the on-demand probe dispatch.
-	const { setRefreshInterval, refreshInterval, probe, probes } =
+	const { setRefreshInterval, refreshInterval, probe, answerFor } =
 		useAggregatorStatusGraph();
 
 	// Two independent read surfaces — one per slice the graph publishes.
@@ -473,16 +478,10 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 			</select>
 		</div>
 	);
-	let renderedControls = null;
-	if ( headerControlsSlot ) {
-		renderedControls = createPortal( controls, headerControlsSlot );
-	} else if ( undefined === headerControlsSlot ) {
-		renderedControls = controls;
-	}
 
 	return (
 		<div className="aggregator-status-dashboard">
-			{ renderedControls }
+			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
 
 			{ /* Loading State */ }
 			{ loading && (
@@ -511,7 +510,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
-								probeResult={ probes?.[ server.vault_id ] }
+								probeResult={ answerFor( server.vault_id ) }
 								onProbe={ probe }
 							/>
 						) )

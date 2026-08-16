@@ -1,4 +1,5 @@
 import {
+	payloadOf,
 	typeLabels,
 	TYPE,
 	TIMESTAMP,
@@ -224,5 +225,39 @@ describe( 'typeLabels', () => {
 
 	it( 'returns nothing when no known flag matches, so callers name that case', () => {
 		expect( typeLabels( 0 ) ).toEqual( [] );
+	} );
+} );
+
+// Eight files each spelled this ternary out by hand, and two of them wrote it
+// the wrong way round. It is the envelope's own accessor, so it lives beside
+// the envelope: a command reply wraps its result in `{ name, arguments,
+// payload }`, and everything else IS the value.
+describe( 'payloadOf', () => {
+	it( 'unwraps a command reply to its payload', () => {
+		expect(
+			payloadOf( {
+				name: 'save',
+				arguments: [ 'wombat-4471' ],
+				payload: { restarted: 3 },
+			} )
+		).toEqual( { restarted: 3 } );
+	} );
+
+	it( 'passes a bare value through untouched', () => {
+		expect( payloadOf( 'no such topology' ) ).toBe( 'no such topology' );
+		expect( payloadOf( 4471 ) ).toBe( 4471 );
+	} );
+
+	it( 'passes an array through — a list reply IS the value', () => {
+		expect( payloadOf( [ 'a', 'b' ] ) ).toEqual( [ 'a', 'b' ] );
+	} );
+
+	it( 'reads an envelope whose payload is absent as null, not undefined', () => {
+		expect( payloadOf( { name: 'activate' } ) ).toBeNull();
+	} );
+
+	it( 'reads null and undefined as null', () => {
+		expect( payloadOf( null ) ).toBeNull();
+		expect( payloadOf( undefined ) ).toBeNull();
 	} );
 } );

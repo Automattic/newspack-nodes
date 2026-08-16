@@ -8,7 +8,7 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { Core, renewSession, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { useVaults } from '../useVaults';
+import { useVaults } from '../useCatalogs';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {

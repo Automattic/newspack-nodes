@@ -10,6 +10,7 @@ import useLogPositions, {
 	segmentPositions,
 	replayPositions,
 	stepPosition,
+	useSegmentBrowse,
 } from '../useLogPositions';
 
 describe( 'pure position helpers', () => {
@@ -175,5 +176,122 @@ describe( 'the actions return the seed they compute', () => {
 			'replay',
 			'segmentId',
 		] );
+	} );
+} );
+
+/**
+ * The whole browse controller both log-stream dashboards drive: the rail's
+ * maintenance, the four seek intents, and the rail itself. The Partition Viewer
+ * and the Log Viewer each wrote all three out longhand, identically.
+ */
+describe( 'useSegmentBrowse', () => {
+	const SUB = 'quartz.p7';
+	const SEGMENTS = [ { id: 41, size: 2048 } ];
+	// A segmented source carries `segments`; a file source carries `bytes`.
+	const SOURCE = { segments: SEGMENTS, bytes: 8191 };
+
+	function browse( overrides = {} ) {
+		const calls = {
+			seek: jest.fn(),
+			setPaused: jest.fn(),
+			step: jest.fn(),
+			refresh: jest.fn(),
+		};
+		const props = {
+			sub: SUB,
+			source: SOURCE,
+			railName: 'quartz:refresh',
+			mode: 'replay',
+			lastReceivedSegment: null,
+			...calls,
+			...overrides,
+		};
+		const view = renderHook( ( p ) => useSegmentBrowse( p ), {
+			initialProps: props,
+		} );
+		return { ...view, ...calls, props };
+	}
+
+	it( 'renders the segment rail: the segments, their labels and sizes', () => {
+		const { result } = browse();
+		const rail = result.current.sidebar.props;
+		expect( rail.items ).toBe( SEGMENTS );
+		expect( rail.title ).toBe( 'Segments' );
+		expect( rail.itemKey( SEGMENTS[ 0 ] ) ).toBe( 41 );
+		expect( rail.itemLabel( SEGMENTS[ 0 ] ) ).toBe( 'Segment 41' );
+		expect( rail.itemMeta( SEGMENTS[ 0 ] ) ).toBe( '2 KB' );
+	} );
+
+	it( 'highlights the received segment over the clicked one', () => {
+		const { result } = browse( { lastReceivedSegment: 77 } );
+		expect( result.current.sidebar.props.mode ).toBe( 'replay' );
+		expect( result.current.sidebar.props.activeKey ).toBe( 77 );
+	} );
+
+	it( 'browsing a segment pauses and seeks it, carrying the source row', () => {
+		const { result, seek, setPaused } = browse();
+		act( () => result.current.sidebar.props.onSelectItem( SEGMENTS[ 0 ] ) );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+		expect( seek ).toHaveBeenCalledWith(
+			SUB,
+			{ [ SUB ]: { segment: 41, offset: 0 } },
+			SOURCE
+		);
+		expect( result.current.sidebar.props.selectedKey ).toBe( 41 );
+	} );
+
+	it( 'Replay seeks start with the boundary; Live drops the positions', () => {
+		const { result, seek } = browse();
+		act( () => result.current.sidebar.props.onReplay() );
+		expect( seek ).toHaveBeenCalledWith(
+			SUB,
+			{ [ SUB ]: 'start' },
+			SOURCE
+		);
+		act( () => result.current.sidebar.props.onFollow() );
+		expect( seek ).toHaveBeenLastCalledWith( SUB, null );
+	} );
+
+	it( 'a pasted message ID pauses, seeks that offset and steps it', () => {
+		const { result, seek, setPaused, step } = browse();
+		act( () => result.current.jump( '41:8191:12' ) );
+		expect( setPaused ).toHaveBeenCalledWith( true );
+		expect( seek ).toHaveBeenCalledWith(
+			SUB,
+			{ [ SUB ]: { segment: 41, offset: 8191 } },
+			SOURCE
+		);
+		expect( step ).toHaveBeenCalled();
+	} );
+
+	it( 'a bare offset lands in the last-received segment', () => {
+		const { result, seek } = browse( { lastReceivedSegment: 77 } );
+		act( () => result.current.jump( '8191' ) );
+		expect( seek ).toHaveBeenCalledWith(
+			SUB,
+			{ [ SUB ]: { segment: 77, offset: 8191 } },
+			SOURCE
+		);
+	} );
+
+	it( 'garbage in the offset input seeks nothing', () => {
+		const { result, seek, setPaused } = browse();
+		act( () => result.current.jump( 'nonsense-9x' ) );
+		expect( seek ).not.toHaveBeenCalled();
+		expect( setPaused ).not.toHaveBeenCalled();
+	} );
+
+	it( 'a record from an unknown segment re-catalogs once, not in a loop', () => {
+		const { rerender, refresh, props } = browse();
+		expect( refresh ).not.toHaveBeenCalled();
+		rerender( { ...props, lastReceivedSegment: 77 } );
+		expect( refresh ).toHaveBeenCalledTimes( 1 );
+		rerender( { ...props, lastReceivedSegment: 77 } );
+		expect( refresh ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'a record from a listed segment leaves the rail alone', () => {
+		const { refresh } = browse( { lastReceivedSegment: 41 } );
+		expect( refresh ).not.toHaveBeenCalled();
 	} );
 } );

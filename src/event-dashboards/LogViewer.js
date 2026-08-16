@@ -4,31 +4,25 @@
  * A THIN view over the `logviewer:*` graph (mounted by `useLogViewerGraph`),
  * which opens the substrate's `GET /log/stream` and catalogs sources via
  * `taillog sources`. The chrome (toolbar dropdown, filter, counts, pause,
- * clear, banner, body split) is the shared `LogStreamViewer`; the sidebar is
- * the shared `LogBrowser` browsing the selected source's SEGMENTS (a file
- * source has none — Live/Replay still apply). The rows are RAW log-file lines
- * (no partition column).
+ * clear, banner, body split) is the shared `LogStreamViewer`; browsing the
+ * selected source's SEGMENTS (a file source has none — Live/Replay still
+ * apply) is the shared `useSegmentBrowse`, which also renders the rail. The
+ * rows are RAW log-file lines (no partition column).
  */
 
-import { useCallback, useEffect, useMemo, useRef } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { useCallback, useMemo } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
-import { useLogViewerGraph } from './hooks/useLogViewerGraph';
+import { useLogViewerGraph } from './hooks/useLogReaderGraph';
 import LogStreamViewer from '@newspack-nodes/shared/components/LogStreamViewer';
-import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
-import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
-import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
-import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import useLogPositions from '@newspack-nodes/shared/hooks/useLogPositions';
+import { useSegmentBrowse } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { LIVE } from '@newspack-nodes/shared/nodes/seekTracker';
 import './styles/log-viewer.scss';
 
 const ROW_HEIGHT = 33;
-// Catalog maintenance cadence (segment rotation + size growth).
-const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'logviewer:view';
 
 const EMPTY_VIEW = {
@@ -59,16 +53,8 @@ const renderRawRow = ( row ) => (
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function LogViewer( { headerControlsSlot } ) {
-	const {
-		selectSource,
-		setPaused,
-		seek,
-		sources,
-		step,
-		fetchSources,
-		clear,
-		setFilter,
-	} = useLogViewerGraph();
+	const { selectSource, setPaused, seek, sources, step, clear, setFilter } =
+		useLogViewerGraph();
 
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
 	const {
@@ -93,61 +79,16 @@ export default function LogViewer( { headerControlsSlot } ) {
 		() => sources.find( ( s ) => s.name === currentSource ) ?? {},
 		[ sources, currentSource ]
 	);
-	const segments = useMemo( () => sourceRow.segments ?? [], [ sourceRow ] );
 
-	// Maintain the rail: re-catalog on a cadence while a source streams.
-	useRouterTick( {
-		name: 'logviewer:refresh',
-		onTick: fetchSources,
-		intervalMs: SEGMENTS_REFRESH_MS,
-		enabled: Boolean( currentSource ),
+	const { jump, sidebar } = useSegmentBrowse( {
+		sub: currentSource,
+		source: sourceRow,
+		mode: displayMode,
+		lastReceivedSegment,
+		seek,
+		setPaused,
+		step,
 	} );
-
-	// A record from an unknown segment = rotation; re-catalog once (no loops).
-	const staleSegmentRef = useRef( null );
-	useEffect( () => {
-		if (
-			null === lastReceivedSegment ||
-			staleSegmentRef.current === lastReceivedSegment ||
-			0 === segments.length ||
-			segments.some( ( s ) => s.id === lastReceivedSegment )
-		) {
-			return;
-		}
-		staleSegmentRef.current = lastReceivedSegment;
-		fetchSources();
-	}, [ lastReceivedSegment, segments, fetchSources ] );
-
-	// Seek intent; the DISPLAYED Live/Replay mode comes from the view.
-	const { segmentId, follow, browseSegment, replay } =
-		useLogPositions( currentSource );
-	const handleFollow = () => {
-		seek( currentSource, follow() );
-	};
-	const handleReplay = () => {
-		seek( currentSource, replay(), sourceRow );
-	};
-	// Time-travel: a past segment pauses; Step walks it, Play streams.
-	const handleBrowseSegment = ( segment ) => {
-		setPaused( true );
-		seek( currentSource, browseSegment( segment.id ), sourceRow );
-	};
-
-	// Offset jump: a full ID or a bare offset pauses and steps that message.
-	const handleJump = ( text ) => {
-		const position = parseOffsetJump(
-			text,
-			lastReceivedSegment ??
-				( 'number' === typeof segmentId ? segmentId : null )
-		);
-		if ( ! position ) {
-			return;
-		}
-		setPaused( true );
-		browseSegment( position.segment );
-		seek( currentSource, { [ currentSource ]: position }, sourceRow );
-		step();
-	};
 
 	// Read the view node per call, so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
@@ -169,32 +110,11 @@ export default function LogViewer( { headerControlsSlot } ) {
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
-			onJump={ handleJump }
+			onJump={ jump }
 			getViewNode={ getViewNode }
 			onClear={ clear }
 			onFilter={ setFilter }
-			sidebar={
-				<LogBrowser
-					mode={ displayMode }
-					onFollow={ handleFollow }
-					onReplay={ handleReplay }
-					items={ segments }
-					selectedKey={ segmentId }
-					activeKey={ lastReceivedSegment }
-					onSelectItem={ handleBrowseSegment }
-					itemKey={ ( s ) => s.id }
-					itemLabel={ ( s ) =>
-						sprintf(
-							// translators: %d: log segment number.
-							__( 'Segment %d', 'newspack-nodes' ),
-							s.id
-						)
-					}
-					itemMeta={ ( s ) => formatBytes( s.size ) }
-					title={ __( 'Segments', 'newspack-nodes' ) }
-					emptyLabel={ __( 'No segments', 'newspack-nodes' ) }
-				/>
-			}
+			sidebar={ sidebar }
 			renderRow={ renderRawRow }
 			rowHeight={ ROW_HEIGHT }
 			hasKeyColumn={ false }

@@ -5,17 +5,17 @@
  * `usePartitionViewerGraph`): `partition:link` holds the SSE connection and
  * `partition:view` holds the ring + view model. The chrome (toolbar dropdown,
  * filter, counts, pause, clear, banner, body split) is the shared
- * `LogStreamViewer`; the sidebar is the shared `LogBrowser` browsing the
- * selected log's segments (`log_status`). Rows are packed partition envelopes,
- * one cell per message field the Cols picker has enabled.
+ * `LogStreamViewer`; browsing the selected log's segments (`log_status`) is the
+ * shared `useSegmentBrowse`, which also renders the rail. Rows are packed
+ * partition envelopes, one cell per message field the Cols picker has enabled.
  */
 
-import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { useState, useEffect, useCallback } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
-import { usePartitionViewerGraph } from './hooks/usePartitionViewerGraph';
+import { usePartitionViewerGraph } from './hooks/useLogReaderGraph';
 import LogStreamViewer, {
 	debugValue,
 } from '@newspack-nodes/shared/components/LogStreamViewer';
@@ -24,18 +24,12 @@ import { useColumnPicker } from '@newspack-nodes/shared/hooks/useColumnPicker';
 import { formatTypeLabel } from '../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import LogListHeader from '@newspack-nodes/shared/components/LogListHeader';
-import LogBrowser from '@newspack-nodes/shared/components/LogBrowser';
-import { formatBytes } from '@newspack-nodes/shared/utils/formatters';
-import parseOffsetJump from '@newspack-nodes/shared/utils/parseOffsetJump';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
-import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
-import useLogPositions from '@newspack-nodes/shared/hooks/useLogPositions';
+import { useSegmentBrowse } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { LIVE } from '@newspack-nodes/shared/nodes/seekTracker';
 import './styles/partition-viewer.scss';
 
 const ROW_HEIGHT = 33;
-// Segment-rail maintenance cadence (rotation + size growth).
-const SEGMENTS_REFRESH_MS = 10000;
 const VIEW_NODE = 'partition:view';
 
 const EMPTY_VIEW = {
@@ -206,10 +200,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		select: selectLog,
 	} );
 
-	// Seek intent drives positions; displayed mode comes from the view.
-	const { segmentId, follow, browseSegment, replay } =
-		useLogPositions( selectedLog );
-	const [ segments, setSegments ] = useState( [] );
+	const [ segments, setSegments ] = useState( NO_SEGMENTS );
 	// The answer NAMES its partition; no cancellation flag, nothing keyed.
 	useEffect( () => {
 		if ( logStatus.log !== selectedLog ) {
@@ -232,57 +223,17 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		refreshSegments();
 	}, [ selectedLog, refreshSegments ] );
 
-	// Maintain the rail: rotation and size growth while streaming.
-	useRouterTick( {
-		name: 'partition:refresh',
-		onTick: refreshSegments,
-		intervalMs: SEGMENTS_REFRESH_MS,
-		enabled: Boolean( selectedLog ),
+	const { jump, sidebar } = useSegmentBrowse( {
+		sub: selectedLog,
+		source: { segments },
+		refresh: refreshSegments,
+		railName: 'partition:refresh',
+		mode: displayMode,
+		lastReceivedSegment,
+		seek,
+		setPaused,
+		step,
 	} );
-
-	// A record from an unknown segment = rotation; refetch once (no loops).
-	const staleSegmentRef = useRef( null );
-	useEffect( () => {
-		if (
-			null === lastReceivedSegment ||
-			staleSegmentRef.current === lastReceivedSegment ||
-			0 === segments.length ||
-			segments.some( ( s ) => s.id === lastReceivedSegment )
-		) {
-			return;
-		}
-		staleSegmentRef.current = lastReceivedSegment;
-		refreshSegments();
-	}, [ lastReceivedSegment, segments, refreshSegments ] );
-
-	// Browse: update seek intent, reposition, and carry the end for catch-up.
-	const handleFollow = () => {
-		seek( selectedLog, follow() );
-	};
-	const handleReplay = () => {
-		seek( selectedLog, replay(), { segments } );
-	};
-	// Time-travel: a past segment pauses; Step walks it, Play streams.
-	const handleBrowseSegment = ( segment ) => {
-		setPaused( true );
-		seek( selectedLog, browseSegment( segment.id ), { segments } );
-	};
-
-	// Offset jump: a full ID or a bare offset pauses and steps that message.
-	const handleJump = ( text ) => {
-		const position = parseOffsetJump(
-			text,
-			lastReceivedSegment ??
-				( 'number' === typeof segmentId ? segmentId : null )
-		);
-		if ( ! position ) {
-			return;
-		}
-		setPaused( true );
-		browseSegment( position.segment );
-		seek( selectedLog, { [ selectedLog ]: position }, { segments } );
-		step();
-	};
 
 	// Read the view node per call, so a graph reinit is picked up.
 	const getViewNode = useCallback( () => Core.node( VIEW_NODE ), [] );
@@ -303,32 +254,11 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
 			onStep={ step }
-			onJump={ handleJump }
+			onJump={ jump }
 			getViewNode={ getViewNode }
 			onClear={ clear }
 			onFilter={ setFilter }
-			sidebar={
-				<LogBrowser
-					mode={ displayMode }
-					onFollow={ handleFollow }
-					onReplay={ handleReplay }
-					items={ segments }
-					selectedKey={ segmentId }
-					activeKey={ lastReceivedSegment }
-					onSelectItem={ handleBrowseSegment }
-					itemKey={ ( s ) => s.id }
-					itemLabel={ ( s ) =>
-						sprintf(
-							// translators: %d: log segment number.
-							__( 'Segment %d', 'newspack-nodes' ),
-							s.id
-						)
-					}
-					itemMeta={ ( s ) => formatBytes( s.size ) }
-					title={ __( 'Segments', 'newspack-nodes' ) }
-					emptyLabel={ __( 'No segments', 'newspack-nodes' ) }
-				/>
-			}
+			sidebar={ sidebar }
 			renderRow={ renderRow }
 			renderDebugRow={ renderDebugRow }
 			renderDebugHeader={ header }

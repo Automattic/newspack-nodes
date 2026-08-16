@@ -32,7 +32,8 @@
  * the same tick as the poll), and the answer names the spoke it is about.
  *
  * Returns the refresh control (`setRefreshInterval` / `refreshInterval`), the
- * `probe(id)` dispatch, and the per-spoke `probes` map it fills. React reads each
+ * `probe(id)` dispatch, and `answerFor(id)` — which asks the probe's own node
+ * whether its outstanding command or its last reply was about that spoke. React reads each
  * polled slice via its own useNodeState('<slice>:view','view').
  */
 
@@ -41,7 +42,7 @@ import { formatCommandArgs } from '@newspack-nodes/runtime';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
-import '../nodes/register';
+import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // Server CI mount + egress path the Fetchers target (owns _shell/_http).
@@ -84,22 +85,22 @@ const SLICES = [
 		receiver: 'summaryIn',
 		command: 'summary',
 		view: 'summary:view',
-		viewClass: 'AggregatorSummaryView',
+		viewClass: views.AggregatorSummaryView,
 	},
 	{
 		fetcher: 'fetch-servers',
 		receiver: 'serversIn',
 		command: 'servers_status',
 		view: 'servers:view',
-		viewClass: 'AggregatorServersView',
+		viewClass: views.AggregatorServersView,
 	},
 ];
 
 /**
- * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => void, probes: Object<string, { ok: boolean, rollup?: *, error?: string }> }}
+ * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probe: ( id: string ) => void, answerFor: ( id: string ) => ?Object }}
  *   The controls the thin React view needs: `setRefreshInterval` takes a
  *   REFRESH_OPTIONS value (string ms), `probe` deep-probes one spoke by id and
- *   returns nothing — the answer lands in `probes`, which maps spoke id to the
+ *   returns nothing — `answerFor( id )` reports what came back for the
  *   settled result of that spoke's last probe. Each polled slice is read
  *   separately via useNodeState.
  */
@@ -127,21 +128,11 @@ export function useAggregatorStatusGraph() {
 			parseInt( DEFAULT_REFRESH_MS, 10 ),
 	} );
 
-	// Per-spoke roll-ups, filed as each probe settles.
-	const [ probes, setProbes ] = useState( {} );
-
-	// On-demand deep probe; the answer NAMES the spoke it is about.
-	const { run: runProbe } = useCommandOnce( {
+	// On-demand deep probe, filed under the spoke its arguments name.
+	const { run: runProbe, answerFor } = useCommandOnce( {
 		ci: SERVER,
 		command: 'probe',
 		scope: PROBE_PREFIX,
-		onDone: ( { result, error, args } ) =>
-			setProbes( ( prev ) => ( {
-				...prev,
-				[ args[ 0 ] ]: error
-					? { ok: false, error }
-					: { ok: true, rollup: result },
-			} ) ),
 	} );
 	const probe = useCallback(
 		( id ) => runProbe( formatCommandArgs( [ id ] ) ),
@@ -158,5 +149,5 @@ export function useAggregatorStatusGraph() {
 		setRefreshIntervalState( value );
 	};
 
-	return { setRefreshInterval, refreshInterval, probe, probes };
+	return { setRefreshInterval, refreshInterval, probe, answerFor };
 }

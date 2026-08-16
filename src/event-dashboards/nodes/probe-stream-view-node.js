@@ -1,5 +1,6 @@
 import { Node } from '../../runtime/node';
 import { TIMESTAMP, VALUE } from '../../runtime/message';
+// Namespaced: the two record layouts both export ELAPSED_MS.
 
 // Fixed 24h live window; older records dropped/pruned. Seconds (epoch).
 const RETENTION_S = 86400;
@@ -11,46 +12,51 @@ const PUBLISH_THROTTLE_MS = 500;
 const ENTRY_TTL_MS = 300000; // 5 min
 
 /**
- * The field mapping every concrete probe-stream view node supplies.
+ * The layout mapping every concrete probe-stream view node supplies.
  *
- * The base owns the ring, the throttle, the TTL and the prune; a subclass owns
- * only which slot of a record carries the per-key identity, how one record
- * folds into that key's entry, and what the published per-key snapshot is.
+ * The base owns the whole entry lifecycle — admit, create, touch, push, cap,
+ * prune, evict, publish — so a subclass owns only which slot of a record
+ * carries the per-key identity, how one record folds into an entry, and what
+ * the published per-key snapshot is.
  *
  * @typedef  {Object} ProbeStreamMapping
- * @property {( value: Array<string|number> ) => string|number}                 _identityOf Reads the per-key identity out of a positional record.
- * @property {( key: string, value: Array<string|number>, ts: number ) => void} _accumulate Folds one record into that key's entry and pushes a derived sample.
- * @property {( entry: Object ) => Object}                                      _entryView  Builds the published snapshot for one key's entry.
+ * @property {number}                                                               identitySlot Record slot carrying the per-key identity.
+ * @property {string}                                                               modelKey     Wrapper key the published model uses.
+ * @property {( entry: Object, value: Array<string|number>, ts: number ) => Object} _fold        Folds one record into its entry and returns the sample to push.
+ * @property {( entry: Object ) => Object}                                          _entryView   Builds the published snapshot for one key's entry.
  */
 
 /**
- * A concrete probe-stream view node: this base plus a subclass's field mapping.
+ * A concrete probe-stream view node: this base plus a subclass's layout mapping.
  *
  * @typedef {ProbeStreamViewNode & ProbeStreamMapping} ProbeStreamSubclass
  */
 
 /**
- * Shared base for the durable-probe stream view nodes (Topic_Probe + Jobstats).
+ * Shared base for the durable-probe stream view nodes (Topic_Probe + Jobstats),
+ * both of which live below it in this file.
  *
- * Owns the ring/throttle/TTL/eviction/prune machinery a probe stream needs so the
- * subclasses supply ONLY their field mapping: `_identityOf(value)` (which slot is
- * the per-key id), `_accumulate(key, value, ts)` (fold one record into an entry +
- * push a derived sample), `_entryView(entry)` (the per-key snapshot object), and
- * `modelKey` (the published model's wrapper key). Everything is O(1) per record and
- * does NOT publish; setState('view', …) is time-throttled so a 24h replay burst
- * doesn't thrash React. The series is bounded two ways: a hard ring cap at
- * `maxSamples`, and the live 24h window (records older than RETENTION_S are dropped
- * on arrival and pruned as wall-clock advances past them).
+ * Owns everything a probe stream needs that is not its record layout: the
+ * per-key entries, the ring, the throttle, the TTL, the eviction and the prune.
+ * A subclass supplies `identitySlot`, `_fold(entry, value, ts)`,
+ * `_entryView(entry)` and `modelKey`. Everything is O(1) per record and does NOT
+ * publish; setState('view', …) is time-throttled so a 24h replay burst doesn't
+ * thrash React. The series is bounded two ways: a hard ring cap at `maxSamples`,
+ * and the live 24h window (records older than RETENTION_S are dropped on arrival
+ * and pruned as wall-clock advances past them).
  *
  * @param {number} [maxSamples] Per-key ring cap (defaults to MAX_SAMPLES).
  * @param {number} [ttlMs]      Per-key liveness TTL (defaults to ENTRY_TTL_MS).
  */
 export class ProbeStreamViewNode extends Node {
+	static description =
+		'Durable probe-stream render-model sink (the React view node).';
+
 	/**
 	 * Sizes the per-key ring and the liveness TTL, and starts with no entries.
 	 *
-	 * A subclass overrides `modelKey` after `super()` to name the wrapper key
-	 * its published model uses.
+	 * A subclass declares `modelKey` and `identitySlot` as class fields, which
+	 * initialize after this runs.
 	 *
 	 * @param {number} [maxSamples] Per-key ring cap; MAX_SAMPLES when omitted.
 	 * @param {number} [ttlMs]      Per-key liveness TTL in ms; ENTRY_TTL_MS when omitted.
@@ -61,7 +67,6 @@ export class ProbeStreamViewNode extends Node {
 		this.ttlMs = ttlMs || ENTRY_TTL_MS;
 		// key → subclass-shaped entry (always carries series + _lastSeen).
 		this.entries = {};
-		this.modelKey = 'entries';
 		this._lastPublish = 0;
 		this._flushTimer = null;
 		this._lastFill = 0;
@@ -75,6 +80,9 @@ export class ProbeStreamViewNode extends Node {
 	 * non-empty string, is ignored. A gap longer than the TTL means the stream
 	 * was hidden rather than every producer dying, so each entry's lease shifts
 	 * forward by the outage instead of the whole model evicting on this frame.
+	 * A record predating the live window is not folded at all: the durable
+	 * replay tail is longer than the window, so dropping it on arrival beats
+	 * carrying it until the next prune.
 	 *
 	 * @this {ProbeStreamSubclass}
 	 * @param {Array} message The 7-field positional message; VALUE is the
@@ -89,7 +97,7 @@ export class ProbeStreamViewNode extends Node {
 		if ( ! Array.isArray( value ) ) {
 			return; // not a positional probe record — ignore.
 		}
-		const key = this._identityOf( value );
+		const key = value[ this.identitySlot ];
 		if ( 'string' !== typeof key || '' === key ) {
 			return;
 		}
@@ -104,7 +112,20 @@ export class ProbeStreamViewNode extends Node {
 		}
 		this._lastFill = now;
 
-		this._accumulate( key, value, Number( message[ TIMESTAMP ] ) || 0 );
+		const ts = Number( message[ TIMESTAMP ] ) || 0;
+		if ( ts >= now / 1000 - RETENTION_S ) {
+			let c = this.entries[ key ];
+			if ( ! c ) {
+				c = { key, series: [], _lastSeen: 0 };
+				this.entries[ key ] = c;
+			}
+			c._lastSeen = now;
+			c.series.push( this._fold( c, value, ts ) );
+			// Cap sits above the window, so this only bounds a fast stream.
+			if ( c.series.length > this.maxSamples ) {
+				c.series.shift();
+			}
+		}
 		this._evictStale();
 		this._maybePublish();
 	}
@@ -202,18 +223,6 @@ export class ProbeStreamViewNode extends Node {
 	}
 
 	/**
-	 * Whether a record predates the live 24h window. The durable replay tail is
-	 * longer than the window, so a subclass drops these on arrival rather than
-	 * folding them in and waiting for the prune.
-	 *
-	 * @param {number} ts Record instant in epoch SECONDS.
-	 * @return {boolean} True when the record is older than the window.
-	 */
-	_isExpired( ts ) {
-		return ts < Date.now() / 1000 - RETENTION_S;
-	}
-
-	/**
 	 * One record slot as a non-negative number. A probe record carries the work
 	 * done in its OWN window, so the only way to see a negative is a corrupt
 	 * frame; the clamp keeps one from subtracting out of a windowed total.
@@ -223,20 +232,6 @@ export class ProbeStreamViewNode extends Node {
 	 */
 	_delta( raw ) {
 		return Math.max( 0, Number( raw ) || 0 );
-	}
-
-	/**
-	 * Enforce the ring cap in place, right after a subclass pushes a sample.
-	 * The cap sits above the 24h window, so the prune is the real boundary and
-	 * this only bounds memory when records arrive faster than expected.
-	 *
-	 * @param {Array<Object>} series One key's sample ring, mutated in place.
-	 * @return {void}
-	 */
-	_capSeries( series ) {
-		if ( series.length > this.maxSamples ) {
-			series.shift();
-		}
 	}
 
 	/**
@@ -251,5 +246,22 @@ export class ProbeStreamViewNode extends Node {
 			this._flushTimer = null;
 		}
 		super.removeNode();
+	}
+
+	/**
+	 * Hidden from the node palette — a dashboard wires these sinks itself — and
+	 * terminal: no arguments and no target. `description` is the one part a
+	 * subclass varies, as a static field.
+	 *
+	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
+	 */
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: this.description,
+			has_target: false,
+			arguments: [],
+			commands: [],
+		};
 	}
 }

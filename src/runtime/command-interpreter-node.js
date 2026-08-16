@@ -9,8 +9,9 @@ import { Core } from './core';
 import { dumpMetadataPayload, MetadataNode } from './metadata-node';
 import { DumperNode } from './dumper-node';
 import { CompletionNode } from './completion-node';
-import { UptimeNode } from './uptime-node';
+import { PollerNode } from './poller-node';
 import { DmesgNode } from './dmesg-node';
+import { UptimeNode } from './uptime-node';
 import { SseInNode } from './sse-in-node';
 import { RemoteLinkNode } from './remote-link-node';
 import { RemoteIpcNode } from './remote-ipc-node';
@@ -321,13 +322,23 @@ export class CommandInterpreterNode extends Node {
 	 * A node whose arguments throw is torn down before the throw escapes, so a
 	 * bad make_node leaves no half-built node behind.
 	 *
-	 * @param {string}   type   Shell class name, as `make_node` spells it.
-	 * @param {string}   name   Name to register the node under.
-	 * @param {string[]} [args] Constructor argument tokens.
+	 * @param {string|Function} type   Shell class name, as `make_node` spells it —
+	 *                                 or the class itself. A caller that already
+	 *                                 HOLDS the class hands it over: the name map
+	 *                                 is a static per bundle, so a name registered
+	 *                                 in one bundle does not resolve in another,
+	 *                                 and a hub tab builds its graph through
+	 *                                 whichever interpreter it was handed.
+	 * @param {string}          name   Name to register the node under.
+	 * @param {string[]}        [args] Constructor argument tokens.
 	 * @return {Node} The constructed node, named and sunk to this interpreter.
 	 */
 	makeNode( type, name, args = [] ) {
-		const NodeClass = CommandInterpreterNode.resolveClass( type );
+		const NodeClass = /** @type {any} */ (
+			'function' === typeof type
+				? type
+				: CommandInterpreterNode.resolveClass( type )
+		);
 		if ( ! NodeClass ) {
 			throw new Error( `unknown class: ${ type }` );
 		}
@@ -1892,6 +1903,7 @@ CommandInterpreterNode.includeNodes = {
 	Heartbeat: HeartbeatNode,
 	HttpOut: HttpOutNode,
 	Metadata: MetadataNode,
+	Poller: PollerNode,
 	RemoteIpc: RemoteIpcNode,
 	RemoteLink: RemoteLinkNode,
 	SseIn: SseInNode,
@@ -1901,7 +1913,11 @@ CommandInterpreterNode.includeNodes = {
 	Uptime: UptimeNode,
 };
 
-// Plugins register node classes by merging a name→class map into includeNodes.
+// @longform
+// Plugins register node classes by merging a name→class map into includeNodes,
+// and get the map back: a NAME is the TSL/palette surface, but a hook hands
+// `makeNode` the CLASS (ADR-16), so both come from one declaration.
 CommandInterpreterNode.registerNodeClasses = function ( map ) {
 	Object.assign( CommandInterpreterNode.includeNodes, map );
+	return map;
 };

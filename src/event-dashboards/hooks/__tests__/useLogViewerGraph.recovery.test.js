@@ -11,7 +11,7 @@ import { renderHook, act } from '@testing-library/react';
 import { VALUE } from '../../../runtime/message';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { Core } from '../../../runtime/core';
-import { useLogViewerGraph } from '../useLogViewerGraph';
+import { useLogViewerGraph } from '../useLogReaderGraph';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -83,11 +83,12 @@ describe( 'useLogViewerGraph — recovery from a refused catalog', () => {
 		await act( async () => {} );
 		await act( async () => result.current.selectSource( 'debug' ) );
 
-		// Every later catalog read must leave the pick alone.
+		// Every later catalog TICK must leave the pick alone — the catalog is
+		// polled now, so this is the thing that would clobber it.
 		await act( async () => {
 			jest.advanceTimersByTime( 5000 );
 		} );
-		await act( async () => result.current.fetchSources() );
+		await act( async () => {} );
 
 		expect( Core.node( 'logviewer:view' ).selected ).toBe( 'debug' );
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=debug' );

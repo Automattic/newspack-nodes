@@ -14,21 +14,15 @@
  * are local component state.
  */
 
-import { useEffect, useRef, useState, createPortal } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useNodeState } from '../runtime/react';
-import { LIST_VIEW, useVaultGraph } from './hooks/useVaultGraph';
+import { useVaultGraph } from './hooks/useVaultGraph';
 import './vault-admin.scss';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
+import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
 import Modal from '@newspack-nodes/shared/components/Modal';
-
-// The view model before the first list publishes one — drives the loading gate.
-const EMPTY_MODEL = {
-	servers: null,
-	loading: true,
-	error: null,
-};
+import { HeaderSlot } from '@newspack-nodes/shared/components/HeaderSlot';
 
 /**
  * Minimal confirm dialog. The confirm button focuses on mount.
@@ -73,96 +67,47 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 	);
 }
 
+// What each verb says on a row, in that verb's own words.
+const ROW_TEXTS = {
+	test: {
+		busy: __( 'Testing…', 'newspack-nodes' ),
+		failed: ( e ) =>
+			// translators: %s: connection error message.
+			sprintf( __( 'Failed: %s', 'newspack-nodes' ), e ),
+		ok: __( 'Connected!', 'newspack-nodes' ),
+	},
+	delete: {
+		busy: __( 'Working…', 'newspack-nodes' ),
+		failed: ( e ) =>
+			// translators: %s: removal error message.
+			sprintf( __( 'Remove failed: %s', 'newspack-nodes' ), e ),
+	},
+};
+
 /**
- * A single server row — id / url / status + Test / Remove actions. Owns its own
- * per-row status string: both actions report their outcome through it, since a
- * failed one leaves the row on screen with nothing else to say so.
+ * A single server row — id / url / status + Test / Remove actions.
  *
- * Neither action is awaited. Each answer arrives as published state carrying
- * the arguments that produced it, so a row recognises its own by the server id
- * it names — nothing correlated, and no promise per row.
+ * It owns no answer state of its own. Each verb answers exactly once, naming
+ * the server it was about, and the graph keeps that answer per id — so the row
+ * RENDERS an answer rather than working out whether one is its own.
  *
- * @param {Object}   props             Component props.
- * @param {Object}   props.server      Public server shape from the view model.
- * @param {Function} props.onRemove    Remove callback (id).
- * @param {Function} props.onTest      Test callback (id).
- * @param {Object}   props.testState   Last probe answer: `{ seq, subject, error }`.
- * @param {Object}   props.removeState Last remove answer, same shape.
+ * @param {Object}   props          Component props.
+ * @param {Object}   props.server   Public server shape from the view model.
+ * @param {Function} props.onRemove Remove callback (id).
+ * @param {Function} props.onTest   Test callback (id).
+ * @param {?Object}  props.answer   The graph's last answer for this server.
  * @return {import('react').ReactElement} The rendered row.
  */
-function ServerRow( { server, onRemove, onTest, testState, removeState } ) {
+function ServerRow( { server, onRemove, onTest, answer } ) {
 	const { id, url } = server;
-	const [ status, setStatus ] = useState( { text: '', tone: '' } );
-	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
-
-	// The last answer this row has already reacted to, per verb.
-	const seenRef = useRef( { test: 0, remove: 0 } );
-
-	useEffect( () => {
-		if (
-			testState.subject !== id ||
-			testState.seq === seenRef.current.test
-		) {
-			return;
-		}
-		seenRef.current.test = testState.seq;
-		setBusy( false );
-		setStatus(
-			testState.error
-				? {
-						text: sprintf(
-							// translators: %s: connection error message.
-							__( 'Failed: %s', 'newspack-nodes' ),
-							testState.error
-						),
-						tone: 'is-error',
-				  }
-				: {
-						text: __( 'Connected!', 'newspack-nodes' ),
-						tone: 'is-success',
-				  }
-		);
-	}, [ testState, id ] );
-
-	useEffect( () => {
-		if (
-			removeState.subject !== id ||
-			removeState.seq === seenRef.current.remove
-		) {
-			return;
-		}
-		seenRef.current.remove = removeState.seq;
-		setBusy( false );
-		if ( removeState.error ) {
-			// The row is still here; the row is where the failure belongs.
-			setStatus( {
-				text: sprintf(
-					// translators: %s: removal error message.
-					__( 'Remove failed: %s', 'newspack-nodes' ),
-					removeState.error
-				),
-				tone: 'is-error',
-			} );
-		}
-	}, [ removeState, id ] );
-
-	const handleTest = () => {
-		setBusy( true );
-		setStatus( { text: __( 'Testing…', 'newspack-nodes' ), tone: '' } );
-		onTest( id );
-	};
-
-	// Remove opens a confirm dialog; onConfirm runs the removal.
-	const handleRemove = () => setIsConfirmOpen( true );
+	const busy = Boolean( answer?.busy );
+	const status = answerStatus( answer, ROW_TEXTS[ answer?.verb ] ?? {} );
 
 	const confirmRemove = () => {
 		setIsConfirmOpen( false );
-		setBusy( true );
 		onRemove( id );
 	};
-
-	const cancelRemove = () => setIsConfirmOpen( false );
 
 	return (
 		<tr data-server-id={ id }>
@@ -183,7 +128,7 @@ function ServerRow( { server, onRemove, onTest, testState, removeState } ) {
 					className="button button-small event-aggregator-test"
 					data-server-id={ id }
 					disabled={ busy }
-					onClick={ handleTest }
+					onClick={ () => onTest( id ) }
 				>
 					{ __( 'Test', 'newspack-nodes' ) }
 				</button>{ ' ' }
@@ -192,13 +137,13 @@ function ServerRow( { server, onRemove, onTest, testState, removeState } ) {
 					className="button button-small button-link-delete event-aggregator-remove"
 					data-server-id={ id }
 					disabled={ busy }
-					onClick={ handleRemove }
+					onClick={ () => setIsConfirmOpen( true ) }
 				>
 					{ __( 'Remove', 'newspack-nodes' ) }
 				</button>
 				{ isConfirmOpen && (
 					<ConfirmRemoveModal
-						onCancel={ cancelRemove }
+						onCancel={ () => setIsConfirmOpen( false ) }
 						onConfirm={ confirmRemove }
 					/>
 				) }
@@ -207,28 +152,59 @@ function ServerRow( { server, onRemove, onTest, testState, removeState } ) {
 	);
 }
 
+const ADD_TEXTS = {
+	busy: __( 'Adding…', 'newspack-nodes' ),
+	failed: ( e ) =>
+		// translators: %s: error message.
+		sprintf( __( 'Error: %s', 'newspack-nodes' ), e ),
+};
+
+/**
+ * The form's own refusal, before anything is sent.
+ *
+ * @param {string} id  Trimmed server id.
+ * @param {string} url Trimmed server URL.
+ * @return {string} The refusal text, or '' when the fields are usable.
+ */
+function validate( id, url ) {
+	if ( ! id ) {
+		return __( 'ID is required', 'newspack-nodes' );
+	}
+	if ( ! url ) {
+		return __( 'Server URL is required', 'newspack-nodes' );
+	}
+	if ( ! url.startsWith( 'https://' ) ) {
+		return __( 'URL must start with https://', 'newspack-nodes' );
+	}
+	return '';
+}
+
 /**
  * The "Add New Server" form — id / url / username / password + submit. Owns the
  * field state + the validation/status line. Rendered inside the add-server modal.
  *
- * @param {Object}     props           Component props.
- * @param {Function}   props.onAdd     Add callback (fields).
- * @param {Object}     props.addState  Last add answer: `{ seq, subject, error }`.
- * @param {Function}   props.onSuccess Called after a successful add (closes the modal).
- * @param {() => void} props.onCancel  Dismisses the modal from the footer Cancel button.
+ * The modal closes on a successful add because the GRAPH says so (`onAdded`),
+ * not because this form watched for its own answer coming back.
+ *
+ * @param {Object}     props          Component props.
+ * @param {Function}   props.onAdd    Add callback (fields).
+ * @param {?Object}    props.answer   The graph's last answer for the submitted id.
+ * @param {() => void} props.onCancel Dismisses the modal from the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
-function AddServerForm( { onAdd, addState, onSuccess, onCancel } ) {
+function AddServerForm( { onAdd, answer, onCancel } ) {
 	const [ id, setId ] = useState( '' );
 	const [ url, setUrl ] = useState( '' );
-	// The id this form submitted, so it recognises its own answer.
-	const submittedRef = useRef( null );
-	const seenRef = useRef( 0 );
 	const [ username, setUsername ] = useState( '' );
 	const [ password, setPassword ] = useState( '' );
-	const [ status, setStatus ] = useState( { text: '', tone: '' } );
-	const [ busy, setBusy ] = useState( false );
+	// Local validation only; the graph's answer supplies everything else.
+	const [ invalid, setInvalid ] = useState( '' );
 	const idRef = useRef( null );
+
+	const busy = Boolean( answer?.busy );
+	const status = invalid
+		? { text: invalid, tone: 'is-error' }
+		: answerStatus( answer, ADD_TEXTS );
 
 	// Focus the first field when the modal opens.
 	useEffect( () => {
@@ -237,35 +213,12 @@ function AddServerForm( { onAdd, addState, onSuccess, onCancel } ) {
 
 	const handleAdd = () => {
 		const trimmedId = id.trim();
-		if ( ! trimmedId ) {
-			setStatus( {
-				text: __( 'ID is required', 'newspack-nodes' ),
-				tone: 'is-error',
-			} );
-			return;
-		}
 		const trimmedUrl = url.trim();
-		if ( ! trimmedUrl ) {
-			setStatus( {
-				text: __( 'Server URL is required', 'newspack-nodes' ),
-				tone: 'is-error',
-			} );
+		const refusal = validate( trimmedId, trimmedUrl );
+		setInvalid( refusal );
+		if ( refusal ) {
 			return;
 		}
-		if ( ! trimmedUrl.startsWith( 'https://' ) ) {
-			setStatus( {
-				text: __( 'URL must start with https://', 'newspack-nodes' ),
-				tone: 'is-error',
-			} );
-			return;
-		}
-
-		setBusy( true );
-		setStatus( {
-			text: __( 'Adding…', 'newspack-nodes' ),
-			tone: '',
-		} );
-		submittedRef.current = trimmedId;
 		onAdd( {
 			id: trimmedId,
 			url: trimmedUrl,
@@ -273,35 +226,6 @@ function AddServerForm( { onAdd, addState, onSuccess, onCancel } ) {
 			auth_password: password,
 		} );
 	};
-
-	// The add's answer names its id; that is how this form knows it is ours.
-	useEffect( () => {
-		if (
-			addState.subject !== submittedRef.current ||
-			addState.seq === seenRef.current
-		) {
-			return;
-		}
-		seenRef.current = addState.seq;
-		setBusy( false );
-		if ( addState.error ) {
-			setStatus( {
-				text: sprintf(
-					// translators: %s: error message.
-					__( 'Error: %s', 'newspack-nodes' ),
-					addState.error
-				),
-				tone: 'is-error',
-			} );
-			return;
-		}
-		// Success: hook re-lists, table re-renders, modal closes.
-		setId( '' );
-		setUrl( '' );
-		setUsername( '' );
-		setPassword( '' );
-		onSuccess?.();
-	}, [ addState, onSuccess ] );
 
 	return (
 		<>
@@ -436,13 +360,13 @@ function AddServerForm( { onAdd, addState, onSuccess, onCancel } ) {
  * The add-server modal: the heading + the AddServerForm. Closes on a successful
  * add (onSuccess → onClose) or on ESC / backdrop / Cancel.
  *
- * @param {Object}     props          Component props.
- * @param {Function}   props.onAdd    Add callback (fields).
- * @param {Object}     props.addState Last add answer: `{ seq, subject, error }`.
- * @param {() => void} props.onClose  Dismisses the modal; also the form's success handler.
+ * @param {Object}     props         Component props.
+ * @param {Function}   props.onAdd   Add callback (fields).
+ * @param {?Object}    props.answer  The graph's last answer for the submitted id.
+ * @param {() => void} props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The modal.
  */
-function AddServerModal( { onAdd, addState, onClose } ) {
+function AddServerModal( { onAdd, answer, onClose } ) {
 	return (
 		<Modal
 			ariaLabel={ __( 'Add new server', 'newspack-nodes' ) }
@@ -453,8 +377,7 @@ function AddServerModal( { onAdd, addState, onClose } ) {
 			</h4>
 			<AddServerForm
 				onAdd={ onAdd }
-				addState={ addState }
-				onSuccess={ onClose }
+				answer={ answer }
 				onCancel={ onClose }
 			/>
 		</Modal>
@@ -471,20 +394,11 @@ function AddServerModal( { onAdd, addState, onClose } ) {
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
 	// Mount the node graph (owns list-on-mount, CRUD, re-list).
-	const {
-		addServer,
-		removeServer,
-		testServer,
-		addResult,
-		removeResult,
-		testResult,
-	} = useVaultGraph();
-
-	// The table reads the vault:list view model (probes live in vault:test).
-	const model = useNodeState( LIST_VIEW, 'view' ) ?? EMPTY_MODEL;
-	const { servers, error } = model;
-
 	const [ isAddOpen, setIsAddOpen ] = useState( false );
+	const [ submitted, setSubmitted ] = useState( null );
+	// A successful add closes the modal; the graph says so, once.
+	const { addServer, removeServer, testServer, answerFor, servers, error } =
+		useVaultGraph( { onAdded: () => setIsAddOpen( false ) } );
 
 	// Portal the +Add trigger into the hub header slot (undefined=inline).
 	const controls = (
@@ -496,12 +410,6 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 			{ __( '+ Add Server', 'newspack-nodes' ) }
 		</button>
 	);
-	let renderedControls = null;
-	if ( headerControlsSlot ) {
-		renderedControls = createPortal( controls, headerControlsSlot );
-	} else if ( undefined === headerControlsSlot ) {
-		renderedControls = controls;
-	}
 
 	return (
 		<div className="event-aggregator-servers-admin">
@@ -510,7 +418,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 					<p>{ error }</p>
 				</div>
 			) }
-			{ renderedControls }
+			<HeaderSlot slot={ headerControlsSlot }>{ controls }</HeaderSlot>
 			<table className="newspack-nodes-table">
 				<thead>
 					<tr>
@@ -536,8 +444,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 								server={ server }
 								onRemove={ removeServer }
 								onTest={ testServer }
-								testState={ testResult }
-								removeState={ removeResult }
+								answer={ answerFor( server.id ) }
 							/>
 						) )
 					) : (
@@ -555,9 +462,15 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 
 			{ isAddOpen && (
 				<AddServerModal
-					onAdd={ addServer }
-					addState={ addResult }
-					onClose={ () => setIsAddOpen( false ) }
+					onAdd={ ( fields ) => {
+						setSubmitted( fields.id );
+						addServer( fields );
+					} }
+					answer={ answerFor( submitted ) }
+					onClose={ () => {
+						setIsAddOpen( false );
+						setSubmitted( null );
+					} }
 				/>
 			) }
 		</div>

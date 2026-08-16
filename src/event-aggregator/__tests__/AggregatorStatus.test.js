@@ -144,7 +144,7 @@ describe( 'AggregatorStatus', () => {
 			setRefreshInterval,
 			refreshInterval: '2000',
 			probe,
-			probes: {},
+			answerFor: () => null,
 		} );
 	} );
 
@@ -626,16 +626,24 @@ describe( 'AggregatorStatus', () => {
 			setRefreshInterval,
 			refreshInterval: '2000',
 			probe,
-			probes: {
-				'server1-vault-cred': {
-					ok: true,
-					rollup: {
-						workers: { total: 4, live: 3, stale: 1, dead: 0 },
-						worst_distance: 128,
-						deadletter_segments: 5,
-					},
-				},
-			},
+			answerFor: ( id ) =>
+				'server1-vault-cred' === id
+					? {
+							verb: 'probe',
+							busy: false,
+							error: null,
+							result: {
+								workers: {
+									total: 4,
+									live: 3,
+									stale: 1,
+									dead: 0,
+								},
+								worst_distance: 128,
+								deadletter_segments: 5,
+							},
+					  }
+					: null,
 		} );
 		const { container } = mount();
 		expect( container.textContent ).toContain(
@@ -653,12 +661,15 @@ describe( 'AggregatorStatus', () => {
 			setRefreshInterval,
 			refreshInterval: '2000',
 			probe,
-			probes: {
-				'server1-vault-cred': {
-					ok: false,
-					error: 'could not connect to server',
-				},
-			},
+			answerFor: ( id ) =>
+				'server1-vault-cred' === id
+					? {
+							verb: 'probe',
+							busy: false,
+							result: null,
+							error: 'could not connect to server',
+					  }
+					: null,
 		} );
 		const { container } = mount();
 		const err = container.querySelector(

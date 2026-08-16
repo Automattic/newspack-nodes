@@ -65,7 +65,7 @@ beforeEach( () => {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
-import { usePartitionViewerGraph } from '../usePartitionViewerGraph';
+import { usePartitionViewerGraph } from '../useLogReaderGraph';
 
 const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
@@ -260,6 +260,9 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
 		expect( Core.node( LINK ).arguments ).toEqual( [ 'raw-logs' ] );
+		// No endpoint override: the Log Viewer's /log/stream must not leak
+		// through the mount both dashboards share.
+		expect( Core.node( LINK ).endpoint ).toBe( '' );
 	} );
 } );
 

@@ -10,7 +10,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
-import { useTopologyList, useTopology } from '../useTopologyList';
+import { useTopologyList, useTopology } from '../useCatalogs';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {
@@ -78,6 +78,18 @@ describe( 'useTopologyList', () => {
 				] ),
 			{ timeout: 4000 }
 		);
+	} );
+
+	// And it hands out nothing to trigger it with: the `reload()` a save used to
+	// call forwarded to nothing, which is one more thing for a caller to read.
+	it( 'hands out no reload — the tick is the only refresh', async () => {
+		const { result } = renderHook( () =>
+			useTopologyList( { enabled: true } )
+		);
+		await waitFor( () =>
+			expect( result.current.topologies ).toEqual( LISTED.topologies )
+		);
+		expect( result.current.reload ).toBeUndefined();
 	} );
 
 	it( 'captures verb errors into state.error', async () => {

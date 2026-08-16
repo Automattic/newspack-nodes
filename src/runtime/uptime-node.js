@@ -1,101 +1,52 @@
 /**
- * Uptime — the `_uptime` node. `_router` delivers the `uptime` poll reply here;
- * it publishes the trimmed uptime string ( useNodeState( '_uptime', 'uptime' ) ).
+ * UptimeNode — the console's uptime readout. See PollerNode for the
+ * ask-on-the-tick, publish-the-reply mechanism it shares with DmesgNode.
  */
 
-import { TimerNode } from './timer-node';
-import { VALUE } from './message';
+import { PollerNode } from './poller-node';
 
-// Poll cadence (ms) — the base Timer throttle paces it (interval_ms > 1000).
-const POLL_INTERVAL_MS = 5000;
+/** Uptime moves faster than dmesg, so it asks more often than the default. */
+const UPTIME_INTERVAL_MS = 5000;
 
 /**
- * The `_uptime` node: poll `uptime` on the Router TIMER, publish the trimmed
- * result. Its own reply is its only input — nothing is forwarded onward, and
- * subscribers read the value through the published `uptime` state.
+ * The `_uptime` node: poll `uptime` and publish the trimmed result
+ * ( useNodeState( '_uptime', 'uptime' ) ) for the canvas footer.
  */
-export class UptimeNode extends TimerNode {
+export class UptimeNode extends PollerNode {
 	/**
-	 * Seed the `uptime` state slot subscribers register on.
+	 * Poll `uptime`, faster than the default cadence.
 	 */
 	constructor() {
 		super();
-		this.registrations.uptime = {};
+		this.verb = 'uptime';
+		this.pollIntervalMs = UPTIME_INTERVAL_MS;
 	}
 
 	/**
-	 * Publish the poll reply. The payload arrives either as a reply envelope
-	 * (`{ name, arguments, payload }`) or as a bare string; anything else, and
-	 * any text without an `up ...` run, publishes nothing.
+	 * Keep the right half of `09:44:52  up 0 days, 00:01:00`. Anything else —
+	 * an object reply, text with no `up …` run — publishes nothing.
 	 *
-	 * @param {Array} message The 7-field positional message.
+	 * @param {*} payload The unwrapped reply body.
 	 */
-	fill( message ) {
-		this.counter++;
-		const value = message[ VALUE ];
-		let text = '';
-		if (
-			value &&
-			typeof value === 'object' &&
-			typeof value.payload === 'string'
-		) {
-			text = value.payload;
-		} else if ( typeof value === 'string' ) {
-			text = value;
-		}
-		// `09:44:52  up 0 days, 00:01:00` → keep the right half.
-		const match = text.match( /up\s+(.+)$/m );
+	publish( payload ) {
+		const match =
+			typeof payload === 'string' ? payload.match( /up\s+(.+)$/m ) : null;
 		if ( match ) {
 			this.setState( 'uptime', match[ 1 ].trim() );
 		}
 	}
 
 	/**
-	 * Router TIMER subscriber: emit the `uptime` poll. Does nothing without a
-	 * sink.
-	 */
-	fire() {
-		if ( ! this.sink ) {
-			return;
-		}
-		this.counter++;
-		const m = this._pollMessage( 'uptime' );
-		if ( m ) {
-			this.sink.fill( m ); // else unauthenticated; next tick carries it
-		}
-	}
-
-	/**
-	 * Build the poll TM_COMMAND for `this.target` (`_cwd`); FROM=name is the
-	 * reply path and LOCAL authorizes it.
+	 * Console palette entry.
 	 *
-	 * @param {string} verb Command verb to poll (`uptime`).
-	 * @return {?Array} A LOCAL-marked Message, or null if unauthenticated.
-	 */
-	_pollMessage( verb ) {
-		return this.command( verb );
-	}
-
-	/**
-	 * Hitchhike the Router TIMER, letting the base `fireCb()` throttle the
-	 * per-second tick down to this node's 5s cadence.
-	 */
-	setTimer() {
-		super.setTimer( POLL_INTERVAL_MS );
-	}
-
-	/**
-	 * Console palette entry — hidden, takes no arguments, and accepts no
-	 * user-routed fill (its only input is its own poll reply).
+	 * @return {Object} The node schema.
 	 */
 	static nodeSchema() {
 		return {
-			category: 'Hidden',
+			...PollerNode.nodeSchema(),
 			description:
 				'Receives `uptime` poll reply; publishes for the canvas footer.',
-			accepts_fill: false,
-			arguments: [],
-			commands: [],
+			registrations: [ 'uptime' ],
 		};
 	}
 }

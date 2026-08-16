@@ -40,7 +40,10 @@ beforeEach( () => {
 
 it( 'mints create on the tick with no ID and no KEY, then re-lists', async () => {
 	const wire = installFakeCommandWire( ( m ) => replyFor( m ) );
-	const { result } = renderHook( () => useSessionsGraph() );
+	let issued = null;
+	const { result } = renderHook( () =>
+		useSessionsGraph( { onIssued: ( session ) => ( issued = session ) } )
+	);
 	await act( async () => {} );
 	const listsBefore = wire.batches
 		.flat()
@@ -64,16 +67,17 @@ it( 'mints create on the tick with no ID and no KEY, then re-lists', async () =>
 		formatCommandArgs( [ 'hub-aggregator' ], { scope: 'read', ttl: 900 } )
 	);
 
-	// The one-time key comes back on the create's own answer, named by the
-	// label it was issued for — nothing correlated.
-	await waitFor(
-		() =>
-			expect( result.current.createResult ).toMatchObject( {
-				subject: 'hub-aggregator',
-				result: ISSUED,
-			} ),
-		{ timeout: 6000 }
-	);
+	// The one-time key is HANDED to the caller on the create's own answer —
+	// never published, because it is disclosed exactly once.
+	await waitFor( () => expect( issued ).toEqual( ISSUED ), {
+		timeout: 6000,
+	} );
+	// The answer itself is filed under the label it was issued for.
+	expect( result.current.answerFor( 'hub-aggregator' ) ).toMatchObject( {
+		verb: 'create',
+		busy: false,
+		error: null,
+	} );
 
 	// Issuing changes the table, so the answer re-lists.
 	await waitFor(
@@ -102,10 +106,13 @@ it( 'publishes a refused revoke against the handle it was about', async () => {
 	} );
 	await waitFor(
 		() =>
-			expect( result.current.revokeResult ).toMatchObject( {
-				subject: 'h-4471',
+			expect( result.current.answerFor( 'h-4471' ) ).toMatchObject( {
+				verb: 'revoke',
+				busy: false,
 			} ),
 		{ timeout: 6000 }
 	);
-	expect( result.current.revokeResult.error ).toContain( 'no such session' );
+	expect( result.current.answerFor( 'h-4471' ).error ).toContain(
+		'no such session'
+	);
 }, 20000 );

@@ -4,6 +4,7 @@ import {
 	TYPE,
 	VALUE,
 	TM_ERROR,
+	payloadOf,
 } from '@newspack-nodes/runtime';
 import { errorMessage } from '../errorMessage';
 
@@ -58,8 +59,7 @@ export class SliceViewNode extends Node {
 		const value = message[ VALUE ];
 		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
-			const payload =
-				value && 'object' === typeof value ? value.payload : value;
+			const payload = payloadOf( value );
 			this.model = {
 				...this.model,
 				error: errorMessage( payload ),
@@ -165,7 +165,7 @@ export function sliceView( { empty, parse, json = false, description } ) {
  * names, which is what `viewClass` resolves against.
  *
  * @param {Object<string,Object>} views Name to `sliceView()` declaration.
- * @return {Object<string,typeof SliceViewNode>} The classes, by name.
+ * @return {Object<string,any>} The classes, by name.
  */
 export function registerSliceViews( views ) {
 	const classes = Object.fromEntries(

@@ -4,7 +4,7 @@
 
 import { registerSliceViews } from '@newspack-nodes/shared/nodes/slice-view-node';
 
-/** The classes, for the tests that instantiate them. @testonly */
+/** The view classes, handed to `makeNode` — a name is per-bundle. */
 export const views = registerSliceViews( {
 	// `vault list` answers a live `{ id: public_shape }` map; take the rows.
 	VaultListView: {

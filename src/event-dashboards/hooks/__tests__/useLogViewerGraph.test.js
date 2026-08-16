@@ -53,9 +53,10 @@ beforeEach( () => {
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 } );
 
-import { useLogViewerGraph } from '../useLogViewerGraph';
+import { useLogViewerGraph } from '../useLogReaderGraph';
 
 const LINK = 'logviewer:link';
+const TEE = 'logviewer:stream';
 const VIEW = 'logviewer:view';
 const HTTP = names.HTTP;
 
@@ -84,6 +85,10 @@ function mountGraph() {
 }
 
 describe( 'useLogViewerGraph', () => {
+	// The shared mount is parameterised, so these values must be the Log
+	// Viewer's own — the endpoint override and the `php` subscribe placeholder
+	// distinguish it from the Partition Viewer's `raw-logs` on the default
+	// endpoint, and the node names come from this dashboard's prefix.
 	test( 'mounts a RemoteLink pointed at /log/stream and the raw-line view', async () => {
 		installWire( { taillog: sourcesReply() } );
 		mountGraph();
@@ -91,6 +96,10 @@ describe( 'useLogViewerGraph', () => {
 		const link = Core.node( LINK );
 		expect( link ).toBeTruthy();
 		expect( link.endpoint ).toBe( 'newspack-nodes/v1/log/stream' );
+		expect( link.arguments ).toEqual( [ 'php' ] );
+		expect( link.target ).toBe( TEE );
+		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
+		expect( Core.node( VIEW ).controlFrom ).toBe( VIEW );
 		expect( Core.node( VIEW ) ).toBeTruthy();
 		expect( Core.node( VIEW ).sink ).toBe(
 			Core.node( '_command_interpreter' )

@@ -15,9 +15,28 @@
  * No new server verb is needed — the segment list rides the existing catalog
  * verbs (`log_status` for the Partition Viewer, `taillog sources` for the Log
  * Viewer).
+ *
+ * `useSegmentBrowse` at the foot of the file composes this into the whole
+ * browse controller a dashboard mounts: rail maintenance, the seek handlers,
+ * and the rail itself.
  */
 
-import { useState, useEffect, useCallback } from '@wordpress/element';
+import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
+
+import LogBrowser from '../components/LogBrowser';
+import { formatBytes } from '../utils/formatters';
+import parseOffsetJump from '../utils/parseOffsetJump';
+import useRouterTick from './useRouterTick';
+
+// Rail maintenance cadence (segment rotation + size growth).
+const SEGMENTS_REFRESH_MS = 10000;
+
+/** A rail with nothing to re-catalog still needs a callable for the tick. */
+const NOOP = () => {};
+
+// One array, so "no segments" is the same value every render.
+const NO_SEGMENTS = [];
 
 /**
  * The live-tail positions: none at all. Sending no position for a
@@ -115,4 +134,117 @@ export default function useLogPositions( sub ) {
 	}, [ sub ] );
 
 	return { segmentId, follow, browseSegment, replay };
+}
+
+/**
+ * The whole browse controller for a segmented stream: it keeps the rail fresh,
+ * turns Live / Replay / segment-click / offset-jump into `seek()` calls, and
+ * renders the rail. Both log-stream dashboards drive exactly this, so they get
+ * it from here instead of writing all three out again — they differ in where
+ * the source row COMES FROM (the Log Viewer reads it out of the catalog it
+ * already holds; the Partition Viewer fetches `log_status` per partition), not
+ * in what browsing one means.
+ *
+ * The source row rides every seek because it carries the replay boundary, and
+ * both of its shapes matter: `segments` for a segmented log, `bytes` for a
+ * file-mode source that has none (see `browseControl`).
+ *
+ * @param {Object}   o                     Controller inputs.
+ * @param {string}   o.sub                 The subscription; '' disarms the rail.
+ * @param {Object}   o.source              The source row (`{segments, bytes}`).
+ * @param {Function} [o.refresh]           Re-catalog the rail, for a source whose
+ *                                         segment list is not itself polled. Omit
+ *                                         it and no rail timer is mounted.
+ * @param {string}   [o.railName]          Timer node name for the refresh tick.
+ * @param {string}   o.mode                Displayed 'live' | 'replay' (the view's).
+ * @param {?number}  o.lastReceivedSegment Segment the last record arrived from.
+ * @param {Function} o.seek                `(sub, positions, source?) => void`.
+ * @param {Function} o.setPaused           Pause the stream for time travel.
+ * @param {Function} o.step                Deliver one record while paused.
+ * @return {{ jump: (text: string) => void, sidebar: import('react').ReactElement }}
+ *   The offset-input handler and the configured rail.
+ */
+export function useSegmentBrowse( {
+	sub,
+	source,
+	refresh,
+	railName,
+	mode,
+	lastReceivedSegment,
+	seek,
+	setPaused,
+	step,
+} ) {
+	const segments = source.segments ?? NO_SEGMENTS;
+	const { segmentId, follow, browseSegment, replay } = useLogPositions( sub );
+
+	useRouterTick( {
+		name: railName ?? 'lograil:unused',
+		onTick: refresh ?? NOOP,
+		intervalMs: SEGMENTS_REFRESH_MS,
+		enabled: Boolean( sub ) && Boolean( refresh ),
+	} );
+
+	// A record from an unknown segment = rotation; re-catalog once (no loops).
+	const staleSegmentRef = useRef( null );
+	useEffect( () => {
+		if (
+			! refresh ||
+			null === lastReceivedSegment ||
+			staleSegmentRef.current === lastReceivedSegment ||
+			0 === segments.length ||
+			segments.some( ( s ) => s.id === lastReceivedSegment )
+		) {
+			return;
+		}
+		staleSegmentRef.current = lastReceivedSegment;
+		refresh?.();
+	}, [ lastReceivedSegment, segments, refresh ] );
+
+	// Time-travel: a past segment pauses; Step walks it, Play streams.
+	const handleBrowseSegment = ( segment ) => {
+		setPaused( true );
+		seek( sub, browseSegment( segment.id ), source );
+	};
+
+	// A full ID or a bare offset pauses and steps that one message.
+	const jump = ( text ) => {
+		const position = parseOffsetJump(
+			text,
+			lastReceivedSegment ??
+				( 'number' === typeof segmentId ? segmentId : null )
+		);
+		if ( ! position ) {
+			return;
+		}
+		setPaused( true );
+		browseSegment( position.segment );
+		seek( sub, { [ sub ]: position }, source );
+		step();
+	};
+
+	const sidebar = (
+		<LogBrowser
+			mode={ mode }
+			onFollow={ () => seek( sub, follow() ) }
+			onReplay={ () => seek( sub, replay(), source ) }
+			items={ segments }
+			selectedKey={ segmentId }
+			activeKey={ lastReceivedSegment }
+			onSelectItem={ handleBrowseSegment }
+			itemKey={ ( s ) => s.id }
+			itemLabel={ ( s ) =>
+				sprintf(
+					// translators: %d: log segment number.
+					__( 'Segment %d', 'newspack-nodes' ),
+					s.id
+				)
+			}
+			itemMeta={ ( s ) => formatBytes( s.size ) }
+			title={ __( 'Segments', 'newspack-nodes' ) }
+			emptyLabel={ __( 'No segments', 'newspack-nodes' ) }
+		/>
+	);
+
+	return { jump, sidebar };
 }

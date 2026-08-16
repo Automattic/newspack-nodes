@@ -180,6 +180,24 @@ test( 'move_node without both names returns usage', () => {
 	expect( got[ 0 ][ VALUE ].payload ).toContain( 'usage: move_node' );
 } );
 
+// A bundle's class map is its own static, so a name only resolves in the bundle
+// that registered it. Anything holding the class already — a hook building its
+// own graph — hands it over and needs no registry at all.
+describe( 'makeNode with a class', () => {
+	it( 'constructs from a class, with no name registration anywhere', () => {
+		const interpreter = new CommandInterpreterNode();
+		interpreter.name = '_command_interpreter';
+		class UnregisteredView extends Node {}
+		const node = interpreter.makeNode( UnregisteredView, 'ad-hoc:view' );
+		expect( node ).toBeInstanceOf( UnregisteredView );
+		expect( Core.node( 'ad-hoc:view' ) ).toBe( node );
+		expect( node.sink ).toBe( interpreter );
+		expect(
+			CommandInterpreterNode.resolveClass( 'UnregisteredView' )
+		).toBeFalsy();
+	} );
+} );
+
 describe( 'a refusal replies TM_ERROR', () => {
 	// A machine consumer must tell refusal from success without parsing English.
 	it.each( [
@@ -1613,6 +1631,16 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const node = Core.node( 'violet-ipc-947' );
 			expect( node ).toBeInstanceOf( RemoteIpcNode );
 			expect( node.reader ).toBe( 'aggregator.p13' );
+		} );
+
+		// The map is ALSO what a hook hands `makeNode` (ADR-16), so returning it
+		// means the registration and the export cannot drift apart.
+		it( 'registerNodeClasses returns the map it registered', () => {
+			class WombatNode extends Node {}
+			const map = { Wombat4471: WombatNode };
+			expect( CommandInterpreterNode.registerNodeClasses( map ) ).toBe(
+				map
+			);
 		} );
 
 		it( 'registerNodeClasses merges plugin classes into includeNodes', () => {

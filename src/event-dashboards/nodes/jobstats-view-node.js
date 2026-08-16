@@ -1,19 +1,10 @@
+/**
+ * JobstatsViewNode — the job-throughput stream. See ProbeStreamViewNode for
+ * the ring, the retention window and the record decoding it shares.
+ */
+
+import * as Job from '../../runtime/jobstats-record';
 import { ProbeStreamViewNode } from './probe-stream-view-node';
-import {
-	IDENTITY,
-	HANDLER,
-	RUNS_DELTA,
-	ERRORS_DELTA,
-	DURATION_MS_DELTA,
-	QUEUE_MS_DELTA,
-	ITEMS_OK_DELTA,
-	ITEMS_ERR_DELTA,
-	LAST_TS,
-	LAST_DURATION_MS,
-	LAST_STATUS,
-	LAST_MESSAGE,
-	ELAPSED_MS,
-} from '../../runtime/jobstats-record';
 
 /**
  * `jobstats:view` — owns the Jobstats stream view model.
@@ -27,23 +18,16 @@ import {
  * counter reset to detect. Windowed totals (runs, errors, items, delta-weighted
  * avg duration) are summed over the retained window in `_entryView`, so they
  * shrink with the series as old samples prune. Last-run detail comes from the
- * latest record. Shares ProbeStreamViewNode's ring/throttle/TTL machinery;
- * supplies only the IDENTITY identity + the jobstats field mapping.
+ * latest record.
  *
  * @param {number} [maxSamples] Per-identity ring cap.
  * @param {number} [ttlMs]      Identity liveness TTL.
  */
 export class JobstatsViewNode extends ProbeStreamViewNode {
-	/**
-	 * Publishes under the `handlers` model key; the rest is the base's machinery.
-	 *
-	 * @param {number} [maxSamples] Per-identity ring cap; base default when omitted.
-	 * @param {number} [ttlMs]      Identity liveness TTL (ms); base default when omitted.
-	 */
-	constructor( maxSamples, ttlMs ) {
-		super( maxSamples, ttlMs );
-		this.modelKey = 'handlers';
-	}
+	identitySlot = Job.IDENTITY;
+	modelKey = 'handlers';
+	static description =
+		'Jobstats stream render-model sink (the React view node).';
 
 	/**
 	 * The published per-identity snapshot: the windowed rollup the table reads, the
@@ -104,84 +88,46 @@ export class JobstatsViewNode extends ProbeStreamViewNode {
 	}
 
 	/**
-	 * Push one jobstats record onto its identity's series.
+	 * Fold one jobstats record into its identity's entry and yield its sample.
 	 *
 	 * Every value is read off THIS record: its deltas (clamped non-negative) are
 	 * what the table sums, `elapsed` is the interval they cover, and the rates are
 	 * their quotient — 0 for an empty window rather than a division by zero. The
-	 * last-run detail rides as the entry's newest values. A record older than the
-	 * live window is dropped; an unseen identity gets a fresh entry.
+	 * last-run detail rides as the entry's newest values.
 	 *
-	 * @param {string}               key   Job identity (`handler:id` or `handler`).
+	 * @param {Object}               c     The identity's entry (`handler:id` or `handler`).
 	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
 	 * @param {number}               ts    Snapshot instant (epoch seconds) from TIMESTAMP.
-	 * @return {void}
+	 * @return {Object} The sample to push onto the entry's series.
 	 */
-	_accumulate( key, value, ts ) {
-		if ( this._isExpired( ts ) ) {
-			return;
-		}
-		let c = this.entries[ key ];
-		if ( ! c ) {
-			c = { key, handler: '', series: [], _lastSeen: 0 };
-			this.entries[ key ] = c;
-		}
-		c._lastSeen = Date.now();
-		c.handler = String( value[ HANDLER ] ?? c.handler );
+	_fold( c, value, ts ) {
+		c.handler = String( value[ Job.HANDLER ] ?? c.handler ?? '' );
 
 		// Last-run detail — the newest table columns.
-		c.lastTs = Number( value[ LAST_TS ] ) || 0;
-		c.lastDurationMs = Number( value[ LAST_DURATION_MS ] ) || 0;
-		c.lastStatus = String( value[ LAST_STATUS ] || '' );
-		c.lastMessage = String( value[ LAST_MESSAGE ] || '' );
+		c.lastTs = Number( value[ Job.LAST_TS ] ) || 0;
+		c.lastDurationMs = Number( value[ Job.LAST_DURATION_MS ] ) || 0;
+		c.lastStatus = String( value[ Job.LAST_STATUS ] || '' );
+		c.lastMessage = String( value[ Job.LAST_MESSAGE ] || '' );
 
-		const runsDelta = this._delta( value[ RUNS_DELTA ] );
-		const queueDelta = this._delta( value[ QUEUE_MS_DELTA ] );
-		const errorsDelta = this._delta( value[ ERRORS_DELTA ] );
-		const itemsOkDelta = this._delta( value[ ITEMS_OK_DELTA ] );
-		const elapsed = this._delta( value[ ELAPSED_MS ] ) / 1000;
-		c.series.push( {
+		const runsDelta = this._delta( value[ Job.RUNS_DELTA ] );
+		const queueDelta = this._delta( value[ Job.QUEUE_MS_DELTA ] );
+		const errorsDelta = this._delta( value[ Job.ERRORS_DELTA ] );
+		const itemsOkDelta = this._delta( value[ Job.ITEMS_OK_DELTA ] );
+		const elapsed = this._delta( value[ Job.ELAPSED_MS ] ) / 1000;
+		return {
 			ts,
 			elapsed,
 			runsDelta,
 			errorsDelta,
 			itemsOkDelta,
 			queueDelta,
-			itemsErrDelta: this._delta( value[ ITEMS_ERR_DELTA ] ),
-			durationDelta: this._delta( value[ DURATION_MS_DELTA ] ),
+			itemsErrDelta: this._delta( value[ Job.ITEMS_ERR_DELTA ] ),
+			durationDelta: this._delta( value[ Job.DURATION_MS_DELTA ] ),
 			runsRate: elapsed > 0 ? runsDelta / elapsed : 0,
 			errorsRate: elapsed > 0 ? errorsDelta / elapsed : 0,
 			itemsRate: elapsed > 0 ? itemsOkDelta / elapsed : 0,
 			// Per-window avg queue wait — the latency chart's metric.
 			queueLatencyMs: runsDelta > 0 ? queueDelta / runsDelta : 0,
-		} );
-		this._capSeries( c.series );
-	}
-
-	/**
-	 * The per-entry identity the base folds on: a jobstats record's `IDENTITY` slot.
-	 *
-	 * @param {Array<string|number>} value The positional `Jobstats_Record` VALUE.
-	 * @return {string|number} Job identity (`handler:id` or `handler`).
-	 */
-	_identityOf( value ) {
-		return value[ IDENTITY ];
-	}
-
-	/**
-	 * Hidden from the node palette: the dashboard wires this sink itself, and it
-	 * takes no arguments and no target.
-	 *
-	 * @return {Object} The `node_schema()` descriptor the console and `help` read.
-	 */
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description:
-				'Jobstats stream render-model sink (the React view node).',
-			has_target: false,
-			arguments: [],
-			commands: [],
 		};
 	}
 }
