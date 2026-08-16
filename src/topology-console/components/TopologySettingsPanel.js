@@ -5,7 +5,8 @@
  * as `var` whenever it changes (empty values are filtered, never emitted).
  */
 
-import { useState, createPortal } from '@wordpress/element';
+import { useRef, useState, createPortal } from '@wordpress/element';
+import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { useDraft } from '../DraftContext';
 import { __, sprintf } from '@wordpress/i18n';
 
@@ -77,6 +78,10 @@ export default function TopologySettingsPanel( {
 	const [ newName, setNewName ] = useState( '' );
 	const [ newValue, setNewValue ] = useState( '' );
 	const [ addError, setAddError ] = useState( '' );
+
+	// ESC and a click outside, as every other dialog in the console closes.
+	const panelRef = useRef( null );
+	useDismissable( panelRef, onClose );
 
 	const valueOf = ( key ) => {
 		const hit = entries.find( ( [ n ] ) => n === key );
@@ -170,6 +175,7 @@ export default function TopologySettingsPanel( {
 
 	const panel = (
 		<div
+			ref={ panelRef }
 			className={ `newspack-nodes-card newspack-nodes-card--elevated topology-settings-panel${
 				isBodyPortal
 					? ' newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui'

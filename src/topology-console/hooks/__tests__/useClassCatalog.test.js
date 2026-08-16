@@ -9,6 +9,7 @@ import {
 	installFakeCommandWire,
 	makeFakeCommandWire,
 } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
+import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
 import { useClassCatalog } from '../useCatalogs';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
@@ -17,6 +18,8 @@ const CATALOG = { classes: [ 'Echo', 'Tee' ], formatters: [ 'Plain' ] };
 let replyFor;
 
 beforeEach( () => {
+	jest.restoreAllMocks();
+	runClockFast();
 	Core.reset();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( () => CATALOG );
@@ -40,8 +43,8 @@ describe( 'useClassCatalog', () => {
 			renewSession();
 		} );
 
-		// The generation change is noticed on the reconcile tick (1s), then
-		// the round trip runs — past waitFor's 1s default.
+		// The generation change is noticed on the reconcile tick, then the
+		// round trip runs — past waitFor's 1s default.
 		await waitFor(
 			() => expect( result.current.classes ).toEqual( [ 'Echo', 'Tee' ] ),
 			{ timeout: 4000 }
@@ -120,16 +123,23 @@ describe( 'useClassCatalog', () => {
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	it( 'only fetches once even if enabled flips off and back on', async () => {
+	// A surface that closes owns nothing while it is shut — not a request, and
+	// not the nodes under the names the catalog uses. Re-opening it is one
+	// fresh load, never one per render.
+	it( 'costs exactly one load each time it is enabled', async () => {
 		const { result, rerender } = renderHook(
 			( { enabled } ) => useClassCatalog( { enabled } ),
 			{ initialProps: { enabled: true } }
 		);
 		await waitFor( () => expect( result.current.loading ).toBe( false ) );
 		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+
 		rerender( { enabled: false } );
 		rerender( { enabled: true } );
-		expect( replyFor ).toHaveBeenCalledTimes( 1 );
+		await waitFor( () => expect( replyFor ).toHaveBeenCalledTimes( 2 ) );
+
+		rerender( { enabled: true } );
+		expect( replyFor ).toHaveBeenCalledTimes( 2 );
 	} );
 
 	it( 'captures verb errors into state.error', async () => {

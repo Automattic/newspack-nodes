@@ -13,6 +13,51 @@ import {
 } from './message';
 
 /**
+ * Where the whole grid sits on the wall clock — ONE offset for every cadence,
+ * never one per interval.
+ *
+ * Harmonics are the point: a 10s boundary is every second 5s boundary and a 30s
+ * boundary every sixth, so with a shared origin all four cadences on a page meet
+ * every 30s and ride ONE POST. A per-interval phase destroys exactly that,
+ * sliding each cadence a few hundred milliseconds off the others so they never
+ * share a tick again. The offset itself only keeps the grid off :00, where every
+ * other cron already is.
+ *
+ * @testonly Exported for tests that pin a clock to a boundary; the grid is
+ * TimerNode's alone, and `lint-contract`'s `grid-math` rule keeps it that way.
+ */
+export const GRID_PHASE_MS = 360;
+
+/**
+ * The first grid boundary strictly after `after`.
+ *
+ * The grid is a pure function of the wall clock, so two surfaces
+ * polling on the same cadence land on the same boundary however far apart they
+ * were opened — which is what puts their commands in ONE batched POST instead
+ * of one each. Paced from its own arming time, a 5s poll opened at :02 and
+ * another opened at :04 never share a tick again. Borrowed from `LRU_Cache`'s
+ * bucket rotation, where the same property makes a restarted process keep its
+ * predecessor's phase.
+ *
+ * @testonly Exported for the tests that pin a clock to a boundary; every
+ * caller inside the runtime is in this file.
+ *
+ * @param {number} after      Seconds; the last fire.
+ * @param {number} intervalMs The cadence.
+ * @return {number} The next boundary, in seconds.
+ */
+export function nextBoundary( after, intervalMs ) {
+	const interval = intervalMs / 1000;
+	if ( ! ( interval > 0 ) ) {
+		return after;
+	}
+	const phase = GRID_PHASE_MS / 1000;
+	return (
+		( Math.floor( ( after - phase ) / interval ) + 1 ) * interval + phase
+	);
+}
+
+/**
  * Timer — periodic / one-shot fire in two modes (Tachikoma parity):
  *  - own slot: `setTimer(ms)` / `make_node Timer t 1000` — a setInterval slot.
  *  - Router-hitchhike: `setTimer()` (no args) / `make_node Timer t` — registers
@@ -95,7 +140,7 @@ export class TimerNode extends Node {
 		// Paces the 1s router tick; an own slot already fires at interval_ms.
 		if ( 'router' === this.mode && this.interval_ms > 1000 ) {
 			const now = Core.now();
-			if ( now - this.lastFireTime < this.interval_ms / 1000 ) {
+			if ( now < nextBoundary( this.lastFireTime, this.interval_ms ) ) {
 				return;
 			}
 			this.lastFireTime = now;
@@ -234,6 +279,31 @@ export class TimerNode extends Node {
 			clearInterval( this._handle );
 			this._handle = null;
 		}
+	}
+
+	/**
+	 * Due on the next tick, whatever the cadence says — what a caller means by
+	 * "this changed, poll now". The grid resumes from wherever that fire lands.
+	 *
+	 * @return {void}
+	 */
+	markDue() {
+		this.lastFireTime = 0;
+	}
+
+	/**
+	 * The caller just did this poll itself, so the next one owes a FULL
+	 * interval. The inverse of `markDue()`.
+	 *
+	 * Not `lastFireTime = now`: the next boundary after an arbitrary instant is
+	 * anywhere in `(0, interval]`, so arming just before one fires again a tick
+	 * later — the duplicate request this exists to suppress. It counts from the
+	 * NEXT boundary instead: a full interval at minimum, still on the grid.
+	 *
+	 * @return {void}
+	 */
+	markFired() {
+		this.lastFireTime = nextBoundary( Core.now(), this.interval_ms );
 	}
 
 	/**

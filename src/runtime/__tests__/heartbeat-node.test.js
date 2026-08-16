@@ -117,8 +117,9 @@ describe( 'Heartbeat node', () => {
 			expect( sent ).toHaveLength( 0 );
 		} );
 
-		it( 'throttles: two fireCb() ticks <5s apart emit once', () => {
-			// 5s cadence = base Timer throttle in fireCb(); fire() unthrottled.
+		// The cadence is a wall-clock GRID (`nextBoundary`): one emit per 5s
+		// period, rather than 5s between any two emits.
+		it( 'throttles: ticks inside one period emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
@@ -126,12 +127,15 @@ describe( 'Heartbeat node', () => {
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
-			nowSpy.mockReturnValue( 103 );
-			node.fireCb();
-			expect( sent ).toHaveLength( 1 );
+			const emitted = sent.length;
+			for ( let t = 100.5; t < 105; t += 0.5 ) {
+				nowSpy.mockReturnValue( t );
+				node.fireCb();
+			}
+			expect( sent.length - emitted ).toBeLessThanOrEqual( 1 );
 		} );
 
-		it( 'emits twice when ticks are >=5s apart', () => {
+		it( 'emits once per period across a run of ticks', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
@@ -139,9 +143,12 @@ describe( 'Heartbeat node', () => {
 			node.interval_ms = 5000;
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
-			nowSpy.mockReturnValue( 105 );
-			node.fireCb();
-			expect( sent ).toHaveLength( 2 );
+			sent.length = 0;
+			for ( let t = 101; t <= 120; t++ ) {
+				nowSpy.mockReturnValue( t );
+				node.fireCb();
+			}
+			expect( sent ).toHaveLength( 4 );
 		} );
 
 		it( 'clearSlot() disables emission (SSE stream closed)', () => {

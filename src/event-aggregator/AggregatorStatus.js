@@ -18,14 +18,11 @@
 import { useState, useCallback } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useNodeState, formatCommandArgs } from '@newspack-nodes/runtime';
+import { useNodeState } from '@newspack-nodes/runtime';
 import {
 	useAggregatorStatusGraph,
 	REFRESH_OPTIONS,
-	AGGREGATOR_CI,
-	PROBE_PREFIX,
 } from './hooks/useAggregatorStatusGraph';
-import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
@@ -339,12 +336,15 @@ function FleetRollup( { answer } ) {
 /**
  * Server Card Component.
  *
- * @param {Object} props        Component props.
- * @param {Object} props.server Server status data.
- * @param {number} props.now    Server snapshot clock for relative-time calc.
+ * @param {Object}   props         Component props.
+ * @param {Object}   props.server  Server status data.
+ * @param {number}   props.now     Server snapshot clock for relative-time calc.
+ * @param {?Object}  props.answer  This spoke's last probe answer, or null.
+ * @param {boolean}  props.probing Whether a probe of this spoke is outstanding.
+ * @param {Function} props.onProbe Probe callback (vault id).
  * @return {import('react').ReactElement} Rendered component.
  */
-function ServerCard( { server, now } ) {
+function ServerCard( { server, now, answer, probing, onProbe } ) {
 	const partitions = server.partitions || {};
 	const partitionKeys = Object.keys( partitions ).sort(
 		( a, b ) => Number( a ) - Number( b )
@@ -354,22 +354,6 @@ function ServerCard( { server, now } ) {
 	const connectedPartitions = partitionKeys.filter(
 		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
 	).length;
-
-	// @longform The card OWNS its probe, scoped to this spoke: one node per
-	// spoke, so a second card's answer lands on its own node instead of
-	// replacing this one's rollup. cmd_probe wants the vault credential key,
-	// not the node name.
-	const probe = useCommandOnce( {
-		ci: AGGREGATOR_CI,
-		command: 'probe',
-		scope: `${ PROBE_PREFIX }:${ server.vault_id }`,
-	} );
-	const runProbe = () =>
-		probe.run( formatCommandArgs( [ server.vault_id ] ) );
-	const probing = probe.pending;
-	const probeResult = probe.answeredArgs
-		? { busy: false, error: probe.error, result: probe.result }
-		: null;
 
 	return (
 		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
@@ -390,7 +374,7 @@ function ServerCard( { server, now } ) {
 				<button
 					type="button"
 					className="button aggregator-fleet-probe-button"
-					onClick={ runProbe }
+					onClick={ () => onProbe( server.vault_id ) }
 					disabled={ probing }
 				>
 					{ probing
@@ -399,9 +383,7 @@ function ServerCard( { server, now } ) {
 				</button>
 			</div>
 
-			{ probeResult && ! probing && (
-				<FleetRollup answer={ probeResult } />
-			) }
+			{ answer && ! probing && <FleetRollup answer={ answer } /> }
 
 			{ /* Partition Status Grid */ }
 			<div className="aggregator-partitions">
@@ -426,8 +408,19 @@ function ServerCard( { server, now } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
-	// The poll slices and their cadence; each card owns its own probe.
-	const { setRefreshInterval, refreshInterval } = useAggregatorStatusGraph();
+	// @longform Each spoke's last probe answer, put there BY the reply that
+	// named it. Not a correlation table: the graph did the matching in the
+	// ADDRESS, before this screen saw it — which is why one card keeps its
+	// roll-up while a sibling is probed.
+	const [ answers, setAnswers ] = useState( {} );
+	const { setRefreshInterval, refreshInterval, probeServer, isPending } =
+		useAggregatorStatusGraph( {
+			onAnswer: ( { subject, result, error: refusal } ) =>
+				setAnswers( ( prior ) => ( {
+					...prior,
+					[ subject ]: { result, error: refusal },
+				} ) ),
+		} );
 
 	// Two independent read surfaces — one per slice the graph publishes.
 	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
@@ -522,6 +515,9 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
+								answer={ answers[ server.vault_id ] ?? null }
+								probing={ isPending( server.vault_id ) }
+								onProbe={ probeServer }
 							/>
 						) )
 					) : (

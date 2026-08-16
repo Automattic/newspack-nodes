@@ -61,3 +61,27 @@ test( 'the listener is removed on unmount', () => {
 	fireEvent.keyDown( document, { key: 'Escape' } );
 	expect( onClose ).not.toHaveBeenCalled();
 } );
+
+// The backdrop is where position and z-index live, so a dialog opened OVER
+// another modal layer — the Ask brief over a `@wordpress/components` one —
+// raises itself there rather than inside the box.
+test( 'puts backdropClassName on the backdrop, not the dialog', () => {
+	const { container } = render(
+		<Modal
+			ariaLabel="x"
+			onClose={ () => {} }
+			className="on-the-box"
+			backdropClassName="on-the-backdrop"
+		>
+			body
+		</Modal>
+	);
+	const backdrop = container.querySelector(
+		'.newspack-nodes-modal__backdrop'
+	);
+	expect( backdrop.className ).toContain( 'on-the-backdrop' );
+	expect( backdrop.className ).not.toContain( 'on-the-box' );
+	expect( container.querySelector( '[role="dialog"]' ).className ).toContain(
+		'on-the-box'
+	);
+} );

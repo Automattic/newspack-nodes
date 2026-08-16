@@ -184,6 +184,33 @@ class ClassesCITest extends TestCase {
 		);
 	}
 
+	public function test_list_carries_the_action_flag_on_an_action_verb(): void {
+		// An `action: true` verb RUNS something on a live node — `Table`'s `rm`
+		// deletes an entry — so it is not configuration and the editor must not
+		// offer it. The console decides that with `isConfigurableVerb`, which
+		// reads this flag; dropping it in the strip made every action verb look
+		// like a setting, one an edit could write into the .tsl.
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$table  = null;
+		foreach ( $result['classes'] as $entry ) {
+			if ( 'Table' === $entry['shell_name'] ) {
+				$table = $entry;
+				break;
+			}
+		}
+		$this->assertNotNull( $table, 'Table absent from catalog — class discovery broken (run composer dump-autoload -o)' );
+
+		$by_name = [];
+		foreach ( $table['commands'] as $verb ) {
+			$by_name[ $verb['name'] ] = $verb;
+		}
+		$this->assertArrayHasKey( 'rm', $by_name, 'rm verb must be in the catalog' );
+		$this->assertTrue(
+			$by_name['rm']['action'] ?? false,
+			'rm must carry action:true through the catalog strip'
+		);
+	}
+
 	public function test_list_carries_the_hidden_flag_on_a_hidden_verb(): void {
 		// A `hidden: true` verb (Consumer's time-travel PAUSE, driven by the
 		// Inspector's transport bar) must carry that flag through the catalog strip

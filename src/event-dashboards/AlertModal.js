@@ -1,5 +1,6 @@
 import { useEffect, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 
 /**
  * Minimal one-button alert dialog for the Topology Manager. Used to surface a
@@ -16,29 +17,15 @@ import { __ } from '@wordpress/i18n';
 export default function AlertModal( { title, message, onClose } ) {
 	const okRef = useRef( null );
 
-	useEffect( () => {
-		okRef.current?.focus();
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onClose();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onClose ] );
+	const dialogRef = useRef( null );
+	useEffect( () => okRef.current?.focus(), [] );
+	// ESC + click-outside; the backdrop is the region outside the dialog.
+	useDismissable( dialogRef, onClose );
 
 	return (
-		<div
-			className="nodes-tm__alert-backdrop"
-			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onClose();
-				}
-			} }
-		>
+		<div className="nodes-tm__alert-backdrop" role="presentation">
 			<div
+				ref={ dialogRef }
 				className="nodes-tm__alert newspack-nodes-modal"
 				role="alertdialog"
 				aria-modal="true"

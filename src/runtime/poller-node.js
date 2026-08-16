@@ -59,6 +59,13 @@ export class PollerNode extends TimerNode {
 		}
 		const m = this.command( this.verb, this.pollArgs );
 		if ( ! m ) {
+			// @longform Still due: `fireCb` stamped the cadence before calling
+			// here, and a tick that sent NOTHING must not spend it. The tick
+			// that lands mid-auth is the first one on every cold page load, so
+			// spending it put the first poll a whole period out — ten seconds
+			// before the console could read the topology catalog its include
+			// hulls come from.
+			this.markDue();
 			return; // unauthenticated; the next tick carries it
 		}
 		this.counter++;

@@ -24,32 +24,30 @@
  * Nothing is injected: HttpOut lazily defaults its own client, and tests seam
  * at `fetch` (`installFakeCommandWire`) so the whole egress runs for real.
  * Alongside the polled slices it serves the on-demand deep probe, and there the
- * same principle decides the shape: each spoke gets its OWN `aggregator:probe:<id>`
- * Request node. One shared node would have to tell N roll-ups apart — which is
- * the correlator this design does not have — so it is a node each, and the reply
- * that lands on one IS that spoke's answer. They take the same
- * `_shell/_http/<ci>` path as the slices (unlocked between poll ticks →
- * the same tick as the poll), and the answer names the spoke it is about.
+ * same principle decides the shape: ONE probe node serves every card, because
+ * the SUBJECT rides in the ADDRESS. A probe of `spoke-01` is minted FROM
+ * `aggregator:probe:in/spoke-01`; the server echoes TO = FROM; the Router peels
+ * `aggregator:probe:in` off and the answer arrives there carrying `spoke-01` as
+ * its remaining TO. So the reply says which spoke it is about without an id, a
+ * table, or a node per card ([ADR-7](../../../docs/architecture-decisions.md)).
  *
- * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) only.
- * The deep probe belongs to the CARD that sends it, scoped to its spoke, so a
- * second card's answer cannot land where the first's did. React reads each
- * polled slice via its own useNodeState('<slice>:view','view').
+ * Returns the refresh control (`setRefreshInterval` / `refreshInterval`) and
+ * `probeServer`; each probe answer reaches the caller through `onAnswer`,
+ * naming its spoke. React reads each polled slice via its own
+ * useNodeState('<slice>:view','view').
  */
 
-import { useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useState } from '@wordpress/element';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { views } from '../nodes/register';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
 
 // Server CI mount + egress path the Fetchers target (owns _shell/_http).
 const SERVER = 'aggregator';
 const TARGET = egressPath( SERVER );
-
-// One on-demand probe node per spoke; the name IS the addressing.
-export const PROBE_PREFIX = 'aggregator:probe';
-export { SERVER as AGGREGATOR_CI };
 
 // Refresh-interval options offered to the user (the select in the dashboard).
 export const REFRESH_OPTIONS = [
@@ -58,6 +56,9 @@ export const REFRESH_OPTIONS = [
 	{ label: '5s', value: '5000' },
 	{ label: '10s', value: '10000' },
 ];
+
+// One probe node for the whole fleet; the subject rides in the reply path.
+const PROBE_SCOPE = 'aggregator:probe';
 
 const DEFAULT_REFRESH_MS = '2000';
 const REFRESH_KEY = 'aggregator-status-refresh';
@@ -96,11 +97,14 @@ const SLICES = [
 ];
 
 /**
- * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string }}
+ * @param {Object}   [o]
+ * @param {Function} [o.onAnswer] `( { subject, result, error } )` — once per
+ *                                probe reply, naming the spoke it was about.
+ * @return {{ setRefreshInterval: ( value: string ) => void, refreshInterval: string, probeServer: ( id: string ) => void, isPending: ( id: string ) => boolean }}
  *   `setRefreshInterval` takes a REFRESH_OPTIONS value (string ms). Each polled
  *   slice is read separately via useNodeState.
  */
-export function useAggregatorStatusGraph() {
+export function useAggregatorStatusGraph( { onAnswer } = {} ) {
 	// The persisted refresh interval (string ms); seeds from localStorage.
 	const [ refreshInterval, setRefreshIntervalState ] =
 		useState( initialRefresh );
@@ -124,6 +128,22 @@ export function useAggregatorStatusGraph() {
 			parseInt( DEFAULT_REFRESH_MS, 10 ),
 	} );
 
+	// ONE deep probe for every card; the reply names the spoke it answered.
+	const probe = useCommandOnce( {
+		ci: SERVER,
+		command: 'probe',
+		scope: PROBE_SCOPE,
+		onDone: ( { subject, result, error } ) =>
+			onAnswer?.( { subject, result, error } ),
+	} );
+	const { run: runProbe, isPending } = probe;
+
+	// cmd_probe wants the vault credential key, not the node name.
+	const probeServer = useCallback(
+		( vaultId ) => runProbe( formatCommandArgs( [ vaultId ] ) ),
+		[ runProbe ]
+	);
+
 	// Persist the refresh choice to localStorage.
 	useEffect( () => {
 		localStorage.setItem( REFRESH_KEY, refreshInterval );
@@ -134,5 +154,5 @@ export function useAggregatorStatusGraph() {
 		setRefreshIntervalState( value );
 	};
 
-	return { setRefreshInterval, refreshInterval };
+	return { setRefreshInterval, refreshInterval, probeServer, isPending };
 }

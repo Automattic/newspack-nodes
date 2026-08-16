@@ -54,6 +54,13 @@ export class FetcherNode extends Node {
 		 * @type {string|string[]|Function}
 		 */
 		this.command_args = '';
+		/**
+		 * Fire-time getter for the subject this send is ABOUT, appended to
+		 * FROM so the reply names it. Null or absent sends the bare receiver.
+		 *
+		 * @type {?Function}
+		 */
+		this.reply_path = null;
 	}
 
 	/**
@@ -105,9 +112,17 @@ export class FetcherNode extends Node {
 		if ( null === args || undefined === args ) {
 			return; // nothing pending; a one-shot between its sends
 		}
+		// @longform The reply routes back along FROM, and the Router peels it
+		// one segment at a time — so a subject appended here arrives at the
+		// receiver AS the remaining TO. That is how ONE node answers about
+		// many subjects with no table: `vault:test:in/tw0` lands on
+		// `vault:test:in` reading TO `tw0`, and the Tee onward to the view
+		// carries the rest of the path with it.
+		const path =
+			'function' === typeof this.reply_path ? this.reply_path() : null;
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.receiver;
+		m[ FROM ] = path ? `${ this.receiver }/${ path }` : this.receiver;
 		m[ VALUE ] = {
 			name: this.verb,
 			arguments: Array.isArray( args ) ? args : [],

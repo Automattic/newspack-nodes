@@ -76,13 +76,13 @@ export function replayPositions( sub ) {
  * Replay) rides through verbatim — the read verbs speak the same vocabulary as
  * the seek transport — and an explicit cursor formats as `<segment>:<offset>`.
  *
- * @param {Object}  link      The RemoteLink (for resumePositions()).
+ * @param {Object}  link      The RemoteLink, for the cursor it has reached.
  * @param {string}  sub       The subscription being stepped.
  * @param {?Object} positions The pending target's positions, if any.
  * @return {?string} The position argument, or null if there is no cursor.
  */
 export function stepPosition( link, sub, positions ) {
-	const cursor = positions?.[ sub ] ?? link.resumePositions()?.[ sub ];
+	const cursor = positions?.[ sub ] ?? link.cursor( sub );
 	if ( 'string' === typeof cursor ) {
 		return cursor;
 	}

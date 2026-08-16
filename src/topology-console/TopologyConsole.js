@@ -1081,9 +1081,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Live-canvas poll gating (WIRING-PLAN §4/§5): point _cwd.target at cwd.
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
-		if ( cwdNode ) {
+		if ( cwdNode && cwdNode.target !== cwd ) {
 			// Track the cwd verbatim; a pidless worker cwd's POST no-ops.
 			cwdNode.target = cwd;
+			// A new directory repaints now, not at the end of the cadence.
+			Core.node( names.METADATA )?.markDue();
 		}
 		// Keep the Shell's status lines current with the session/cwd.
 		if ( shell ) {

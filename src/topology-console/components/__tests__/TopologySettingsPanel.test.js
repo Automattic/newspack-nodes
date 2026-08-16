@@ -42,6 +42,32 @@ function setup( frontmatter = {}, extra = {} ) {
 }
 
 describe( 'TopologySettingsPanel', () => {
+	// A settings dialog you can only leave through its × is a dialog you have
+	// to aim at. Every other dialog in the console closes on ESC and on a click
+	// outside; this one closed on neither.
+	it( 'closes on a click outside it', () => {
+		const onClose = jest.fn();
+		setup( {}, { onClose } );
+		fireEvent.mouseDown( document.body );
+		expect( onClose ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'stays open on a click inside it', () => {
+		const onClose = jest.fn();
+		setup( {}, { onClose } );
+		fireEvent.mouseDown(
+			document.querySelector( '.topology-settings-panel' )
+		);
+		expect( onClose ).not.toHaveBeenCalled();
+	} );
+
+	it( 'closes on ESC', () => {
+		const onClose = jest.fn();
+		setup( {}, { onClose } );
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		expect( onClose ).toHaveBeenCalledTimes( 1 );
+	} );
+
 	it( 'owns the canonical non-graph provider classes when portaled to body', () => {
 		setup( {} );
 		const dialog = screen.getByRole( 'dialog', {

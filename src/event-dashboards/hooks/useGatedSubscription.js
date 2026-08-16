@@ -16,7 +16,7 @@
  * An explicit seek is SINGLE-USE: the instant it's delivered (immediately if
  * active, else on the next Play/refocus), the recorded target reverts to
  * `positions: null` — so a LATER pause/play or visibility cycle resumes from
- * wherever the live tail actually is (`resumePositions()`) instead of
+ * wherever the live tail actually is (the stream's own cursor) instead of
  * re-applying the same seek forever. This matters because a Replay's
  * catch-up-to-live flip is a display-only signal (SeekTracker) that never
  * re-calls `resubscribe` — without single-use consumption, pausing any time
@@ -29,17 +29,6 @@ import { stepPosition } from '@newspack-nodes/shared/hooks/useLogPositions';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { controlMsg } from '../../shared/helpers/controlMsg';
 
-// Reopen: explicit seek wins; else resume the same dir (tail a changed dir).
-function reopenSeed( link, { subscribe, positions } ) {
-	if ( positions ) {
-		return positions;
-	}
-	const resume = link.resumePositions();
-	return resume && 1 === subscribe.length && resume[ subscribe[ 0 ] ]
-		? { [ subscribe[ 0 ] ]: resume[ subscribe[ 0 ] ] }
-		: null;
-}
-
 /**
  * Gate an SSE subscription on tab visibility and an explicit pause, and own
  * the reopen target so a selection made while paused can never revive the
@@ -47,8 +36,8 @@ function reopenSeed( link, { subscribe, positions } ) {
  *
  * @param {Object} o
  * @param {Object} o.linkRef  Ref to the RemoteLink node, whose
- *                            `setSubscribe`/`close`/`resumePositions`
- *                            open, close, and resume the stream.
+ *                            `setSubscribe`/`reconnect`/`close` open,
+ *                            reopen, and close the stream.
  * @param {Object} o.viewRef  Ref to the view node the pause control
  *                            and stepped records are published to.
  * @param {Object} o.stepRead The one-record read behind the paused
@@ -118,9 +107,20 @@ export function useGatedSubscription( { linkRef, viewRef, stepRead } ) {
 		}
 		const target = pendingTargetRef.current;
 		// A same-tick play+seek already delivered; don't overwrite its seek.
-		if ( target && ! deliveredRef.current ) {
-			deliver( target.subscribe, reopenSeed( link, target ) );
+		if ( ! target || deliveredRef.current ) {
+			return;
 		}
+		if ( target.positions ) {
+			deliver( target.subscribe, target.positions );
+			return;
+		}
+		// No seek to state: the stream resumes where it read to on its own.
+		pendingTargetRef.current = {
+			subscribe: target.subscribe,
+			positions: null,
+		};
+		deliveredRef.current = true;
+		link.reconnect( target.subscribe );
 	}, [ isActive, linkRef, deliver ] );
 
 	// Pause closes the stream (isActive effect); flag drives button + label.

@@ -30,6 +30,7 @@ import {
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
+import { GRID_PHASE_MS } from '../../runtime/timer-node';
 import { forgetSession } from '../../runtime/command-auth';
 import {
 	answerBatch,
@@ -789,9 +790,10 @@ jest.mock( '../components/Modal', () => ( {
 // payload (an Error answers TM_ERROR, undefined answers nothing at all).
 globalThis.__activateSend = jest.fn();
 // Only a command with a reply address is answered here — a one-shot's
-// `<scope>:in` receiver. A worker-bound poll gets silence, as the live server
-// gives it: its reply rides the SSE stream.
-const ONE_SHOT_RECEIVER = /^topologies:[a-z]+:in$/;
+// `<scope>:in` receiver, plus the subject it appended to address the reply.
+// A worker-bound poll gets silence, as the live server gives it: its reply
+// rides the SSE stream.
+const ONE_SHOT_RECEIVER = /^topologies:[a-z]+:in(\/.+)?$/;
 const answerCommand = ( m ) => {
 	const from = String( m[ FROM ] );
 	if ( ! ONE_SHOT_RECEIVER.test( from ) ) {
@@ -911,8 +913,19 @@ describe( 'TopologyConsole boot', () => {
 		] );
 	} );
 
+	// @longform The 5s cadence is a wall-clock GRID (`nextBoundary`), so which
+	// second a window opens in decides whether it contains a boundary. Pin the
+	// clock 10ms past one: without that this test reads the real clock's phase
+	// and passes or fails by the minute it is run in.
 	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply routes to _metadata/_uptime)', async () => {
 		jest.useFakeTimers();
+		// Forward to 10ms past the next boundary — never backwards, which
+		// would read to every watchdog as a stream gone silent.
+		jest.setSystemTime(
+			( Math.floor( ( Date.now() - GRID_PHASE_MS ) / 5000 ) + 1 ) * 5000 +
+				GRID_PHASE_MS +
+				10
+		);
 		try {
 			globalThis.__httpPosts = [];
 			window.history.replaceState( {}, '', '/?topology=demo' );

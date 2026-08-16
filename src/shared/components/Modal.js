@@ -1,4 +1,5 @@
-import { useEffect } from '@wordpress/element';
+import { useRef } from '@wordpress/element';
+import { useDismissable } from '../hooks/useDismissable';
 import './Modal.scss';
 
 /**
@@ -10,40 +11,34 @@ import './Modal.scss';
  * focus, so each dialog can focus the element that fits it.
  *
  * @param {Object}                    props
- * @param {string}                    props.ariaLabel   Accessible dialog label.
- * @param {Function}                  props.onClose     Dismiss handler (ESC / backdrop).
- * @param {string}                    [props.className] Extra classes on the dialog box.
- * @param {import('react').ReactNode} props.children    Dialog body.
+ * @param {string}                    props.ariaLabel           Accessible dialog label.
+ * @param {Function}                  props.onClose             Dismiss handler (ESC / backdrop).
+ * @param {string}                    [props.className]         Extra classes on the dialog box.
+ * @param {string}                    [props.backdropClassName] Extra classes on the BACKDROP — where
+ *                                                              `position`/`z-index` live, so a dialog
+ *                                                              opened over another modal layer raises
+ *                                                              itself here.
+ * @param {import('react').ReactNode} props.children            Dialog body.
  * @return {import('react').ReactElement} The modal.
  */
 export default function Modal( {
 	ariaLabel,
 	onClose,
 	className = '',
+	backdropClassName = '',
 	children,
 } ) {
-	useEffect( () => {
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onClose();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onClose ] );
+	// ESC + click-outside; the backdrop IS the region outside the dialog.
+	const dialogRef = useRef( null );
+	useDismissable( dialogRef, onClose );
 
 	return (
 		<div
-			className="newspack-nodes-modal__backdrop"
+			className={ `newspack-nodes-modal__backdrop ${ backdropClassName }`.trim() }
 			role="presentation"
-			onMouseDown={ ( e ) => {
-				if ( e.target === e.currentTarget ) {
-					onClose();
-				}
-			} }
 		>
 			<div
+				ref={ dialogRef }
 				className={ `newspack-nodes-modal ${ className }`.trim() }
 				role="dialog"
 				aria-modal="true"

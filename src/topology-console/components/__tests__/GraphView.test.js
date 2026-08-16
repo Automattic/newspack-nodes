@@ -1,6 +1,9 @@
 import { fireEvent, act } from '@testing-library/react';
 import GraphView from '../GraphView';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
+import { Core } from '../../../runtime/core';
+import { MetadataNode } from '../../../runtime/metadata-node';
+import names from '../../../runtime/reserved-node-names.json';
 
 // Minimal frame stub: renders children (the console passes CanvasFrame).
 const Frame = ( { children } ) => <div data-testid="frame">{ children }</div>;
@@ -491,6 +494,40 @@ describe( 'GraphView — hull selection', () => {
 
 			const graphIn = global.__inspectorProps.rateSeries.in;
 			expect( graphIn[ graphIn.length - 1 ] ).toBe( 400 );
+		} );
+	} );
+
+	// @longform A sparkline point is a dump_metadata SNAPSHOT, and the canvas
+	// graph is rebuilt far more often than one arrives — a catalog republishing
+	// was enough. Sampling per rebuild filed four empty points for every real
+	// one, so the chart read as a spike every fifth second and its 60-point ring
+	// covered a minute instead of the five its label claims.
+	it( 'records one sample per metadata snapshot, not per canvas rebuild', () => {
+		withClock( ( tick ) => {
+			const metadata = new MetadataNode();
+			metadata.name = names.METADATA;
+			const snapshot = ( a, b ) => hullNodesGraph( a, b );
+			let published = snapshot( 10, 100 );
+			act( () => metadata.setState( 'metadata', published ) );
+
+			const { rerender } = renderWithCatalog( hullView( published ) );
+			// Three canvas rebuilds, seconds apart, one unchanged snapshot.
+			for ( let i = 0; i < 3; i++ ) {
+				tick();
+				rerender( hullView( { ...published } ) );
+			}
+			expect( global.__inspectorProps.rateSeries.in ).toEqual( [] );
+
+			// A real poll lands: ONE point, over the whole elapsed interval.
+			tick();
+			published = snapshot( 40, 500 );
+			act( () => metadata.setState( 'metadata', published ) );
+			rerender( hullView( published ) );
+
+			expect( global.__inspectorProps.rateSeries.in ).toEqual( [
+				107.5,
+			] );
+			Core.reset();
 		} );
 	} );
 

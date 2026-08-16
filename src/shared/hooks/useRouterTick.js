@@ -132,7 +132,7 @@ export default function useRouterTick( {
 		// already loads once on mount, and re-arming on tab focus repeats it.
 		// Only the throttled hitchhike reads this.
 		if ( intervalMs > 1000 ) {
-			timer.lastFireTime = Core.now();
+			timer.markFired();
 		}
 	}, [ name, enabled, isPageVisible, intervalMs, attachEpoch ] );
 }

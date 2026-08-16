@@ -275,6 +275,8 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 				if ( cwdNode ) {
 					cwdNode.target = s.path;
 				}
+				// A new directory repaints now, not at the end of the cadence.
+				Core.node( names.METADATA )?.markDue();
 				setCwd( s.path );
 			}
 			// `trace` mutates the interpreter's debug_state; persist [87].

@@ -15,7 +15,7 @@
  * per tick. Nothing is injected: the seam is `fetch`, so the whole egress runs.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import {
 	FROM,
@@ -221,3 +221,43 @@ describe( 'useAggregatorStatusGraph — graphGeneration Reset Graph', () => {
 } );
 
 // The whole shape: no fleet view, no correlator — a node per spoke.
+
+// @longform The subject rides in the ADDRESS. A probe of `spoke-01` is minted
+// FROM `aggregator:probe:in/spoke-01`, the server echoes TO = FROM, the Router
+// peels `aggregator:probe:in` off, and the answer arrives there carrying
+// `spoke-01`. So ONE node answers about every card — no id in the message, no
+// table, and no node per spoke.
+describe( 'useAggregatorStatusGraph — the probe reply names its spoke', () => {
+	test( 'two spokes probed at once each get their own answer', async () => {
+		const answers = [];
+		const wire = installWire( { rollup: { worst_distance: 4471 } } );
+		const { result } = renderHook( () =>
+			useAggregatorStatusGraph( {
+				onAnswer: ( a ) => answers.push( a ),
+			} )
+		);
+		await act( async () => {} );
+
+		act( () => {
+			result.current.probeServer( 'spoke-01' );
+			result.current.probeServer( 'spoke-02' );
+		} );
+
+		await waitFor( () => expect( answers.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+		expect( answers.map( ( a ) => a.subject ).sort() ).toEqual( [
+			'spoke-01',
+			'spoke-02',
+		] );
+		expect(
+			wire.batches
+				.flat()
+				.filter( ( m ) => 'probe' === m[ VALUE ]?.name )
+				.map( ( m ) => m[ FROM ] )
+		).toEqual( [
+			'aggregator:probe:in/spoke-01',
+			'aggregator:probe:in/spoke-02',
+		] );
+	}, 30000 );
+} );

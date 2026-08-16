@@ -25,8 +25,9 @@ jest.mock( '@newspack-nodes/shared/hooks/usePageVisibility', () => ( {
 function fakeLink( resume = null ) {
 	return {
 		setSubscribe: jest.fn(),
+		reconnect: jest.fn(),
 		close: jest.fn(),
-		resumePositions: jest.fn( () => resume ),
+		cursor: jest.fn( ( sub ) => resume?.[ sub ] ),
 	};
 }
 
@@ -76,19 +77,21 @@ function mount( link, view ) {
 }
 
 describe( 'useGatedSubscription', () => {
-	test( 'Play resumes the SAME dir from its recorded offset', () => {
+	// Play states no seek: the stream is the one that knows where it read to,
+	// and asking it to reopen is how a stream that read NOTHING keeps the
+	// replay it was opened with instead of being downgraded to a tail.
+	test( 'Play reopens the SAME dir without restating a seek', () => {
 		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
 		const { result } = mount( link, fakeView() );
 		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
 		act( () => result.current.setPaused( true ) );
 		link.setSubscribe.mockClear();
 		act( () => result.current.setPaused( false ) );
-		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'x.p0' ], {
-			'x.p0': { segment: 5, offset: 7 },
-		} );
+		expect( link.reconnect ).toHaveBeenCalledWith( [ 'x.p0' ] );
+		expect( link.setSubscribe ).not.toHaveBeenCalled();
 	} );
 
-	test( 'Play tails a CHANGED dir — the old dir’s offset never applies', () => {
+	test( 'Play re-points a CHANGED dir — the old dir’s offset never applies', () => {
 		const link = fakeLink( { 'x.p0': { segment: 5, offset: 7 } } );
 		const { result } = mount( link, fakeView() );
 		act( () => result.current.resubscribe( [ 'x.p0' ], null ) );
@@ -97,7 +100,7 @@ describe( 'useGatedSubscription', () => {
 		act( () => result.current.resubscribe( [ 'y.p0' ], null ) );
 		link.setSubscribe.mockClear();
 		act( () => result.current.setPaused( false ) );
-		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'y.p0' ], null );
+		expect( link.reconnect ).toHaveBeenCalledWith( [ 'y.p0' ] );
 	} );
 
 	test( 'resubscribe while active setSubscribes immediately', () => {
@@ -117,15 +120,15 @@ describe( 'useGatedSubscription', () => {
 		expect( link.setSubscribe ).not.toHaveBeenCalled();
 		// Play re-applies the recorded selection, not the old one.
 		act( () => result.current.setPaused( false ) );
-		expect( link.setSubscribe ).toHaveBeenCalledWith( [ 'b' ], null );
+		expect( link.reconnect ).toHaveBeenCalledWith( [ 'b' ] );
 	} );
 
 	test( 'an explicit seek is single-use: a LATER pause/play resumes live, not the stale seek', () => {
 		// Mirrors Replay-then-catch-up-then-pause: the stream keeps tailing
 		// live long after the seek was delivered (SeekTracker's Replay->Live
 		// flip is a display-only signal — it never re-calls resubscribe), so
-		// resumePositions() has since moved on to a live offset distinct from
-		// the original replay target.
+		// the stream's own cursor has since moved on to a live offset distinct
+		// from the original replay target.
 		const link = fakeLink( { 'x.p0': { segment: 9, offset: 40 } } );
 		const { result } = mount( link, fakeView() );
 
@@ -142,9 +145,8 @@ describe( 'useGatedSubscription', () => {
 		act( () => result.current.setPaused( true ) );
 		act( () => result.current.setPaused( false ) );
 
-		expect( link.setSubscribe ).toHaveBeenLastCalledWith( [ 'x.p0' ], {
-			'x.p0': { segment: 9, offset: 40 },
-		} );
+		expect( link.reconnect ).toHaveBeenLastCalledWith( [ 'x.p0' ] );
+		expect( link.setSubscribe ).not.toHaveBeenCalled();
 	} );
 
 	// @longform The segment-click handlers pause AND seek in one synchronous

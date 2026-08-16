@@ -52,3 +52,10 @@ $space-xl: 24px;
 
 // Focus
 $focus-shadow: 0 0 0 2px rgba(0, 61, 165, 0.25);
+
+// Dialog layers. A dialog summoned FROM another modal has to paint over it, and
+// a tooltip inside a modal over that — WordPress's own modal sits at 100000, so
+// these are the two rungs above it rather than a tie broken by source order.
+$layer-modal: 100000;
+$layer-modal-tooltip: 100001;
+$layer-modal-over: 100002;

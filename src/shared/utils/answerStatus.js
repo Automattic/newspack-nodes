@@ -7,15 +7,20 @@
  */
 
 /**
- * @param {?Object}  answer         `{ busy, error }` for this subject, if any.
+ * Outstanding beats answered: a row asked about again shows the work, not the
+ * last result. The caller reads `busy` from the hook that owns the outbox
+ * rather than keeping a flag of its own.
+ *
+ * @param {?Object}  answer         `{ error }` for this subject, if any.
  * @param {Object}   texts          The words this surface uses.
  * @param {string}   [texts.busy]   Shown while the verb is outstanding.
  * @param {Function} [texts.failed] `( error ) => string` for a refusal.
  * @param {string}   [texts.ok]     Shown on success; omit to say nothing.
+ * @param {boolean}  [busy]         Whether a verb about this subject is outstanding.
  * @return {{text: string, tone: string}} The status line.
  */
-export function answerStatus( answer, texts ) {
-	if ( answer?.busy ) {
+export function answerStatus( answer, texts, busy = false ) {
+	if ( busy ) {
 		return { text: texts.busy ?? '', tone: '' };
 	}
 	if ( answer?.error ) {

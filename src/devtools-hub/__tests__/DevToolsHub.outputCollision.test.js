@@ -27,10 +27,17 @@ import { Core } from '../../runtime/core';
 import { DumperNode } from '../../runtime/dumper-node';
 import names from '../../runtime/reserved-node-names.json';
 import InspectorTab from '../../debug-overlay/tabs/InspectorTab';
+import { useClassCatalog } from '../../topology-console/hooks/useCatalogs';
 import {
 	registerDevtoolsTab,
 	resetDevtoolsTabs,
 } from '@newspack-nodes/shared/devtools/tabRegistry';
+
+// The hub Console's own class catalog, under the names the palette uses.
+function CatalogTab() {
+	useClassCatalog( { enabled: true } );
+	return <div data-testid="catalog" />;
+}
 
 // Faithful console-ish tab: registers `_output` on mount, removes on unmount.
 function ConsoleishTab() {
@@ -79,6 +86,43 @@ describe( 'DevToolsHub _output collision on switch-to-Console', () => {
 			component: ConsoleishTab,
 		} );
 	};
+
+	// @longform The same collision from the other side: the hub's Console tab
+	// holds the class catalog, and opening the OVERLAY's Console tab on top of
+	// it mounts a second copy of the same graph. Its catalog is disabled there
+	// — the page's own Console owns the graph and REPL — and a disabled slice
+	// that still builds its nodes claims names the enabled one is using.
+	it( 'does not throw when the overlay Console opens over the hub Console', () => {
+		registerDevtoolsTab( {
+			id: 'topology-manager',
+			label: 'Topologies',
+			host: 'hub',
+			order: 0,
+			component: () => <div data-testid="manager" />,
+		} );
+		registerDevtoolsTab( {
+			id: 'topology-console',
+			label: 'Console',
+			host: 'hub',
+			order: 10,
+			component: CatalogTab,
+		} );
+		registerDevtoolsTab( {
+			id: 'console',
+			label: 'Console',
+			host: 'overlay',
+			order: 1,
+			fullBleed: true,
+			component: InspectorTab,
+		} );
+		const { getByRole, getAllByRole } = render( <DevToolsHub /> );
+
+		fireEvent.click( getAllByRole( 'tab', { name: 'Console' } )[ 0 ] );
+		fireEvent.click( getByRole( 'button', { name: /node debugger/i } ) );
+
+		const overlayConsole = getAllByRole( 'tab', { name: 'Console' } )[ 1 ];
+		expect( () => fireEvent.click( overlayConsole ) ).not.toThrow();
+	} );
 
 	it( 'does not throw a node-name collision when switching to Console with the overlay open', () => {
 		registerTabs();

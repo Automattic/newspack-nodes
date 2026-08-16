@@ -10,6 +10,9 @@ import {
 	__setAuthFetch,
 	__setBackoffClock,
 } from '../command-auth';
+import { Core } from '../core';
+import { RouterNode } from '../router-node';
+import names from '../reserved-node-names.json';
 import {
 	newMessage,
 	TIMESTAMP,
@@ -327,6 +330,44 @@ describe( 'authentication gates minting, and recovers', () => {
 		forgetSession();
 		__setAuthFetch( null );
 		__setBackoffClock( null );
+	} );
+
+	// @longform Every poller that ticked while /auth was in flight sent
+	// nothing and stayed due. Waiting for the next router tick to notice adds
+	// a second to a cold page load for no reason — and they all go in ONE
+	// batched POST when they go together, so waking the router the moment the
+	// session lands is both faster and cheaper.
+	it( 'wakes the router the moment a session lands', async () => {
+		Core.reset();
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		const asked = jest.spyOn( router, 'requestTick' );
+		__setAuthFetch( async () => ( {
+			handle: HANDLE,
+			key: KEY,
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+
+		await ensureSession();
+
+		expect( asked ).toHaveBeenCalled();
+		router.stopTimer();
+		Core.reset();
+	} );
+
+	it( 'does not wake the router when /auth refuses', async () => {
+		Core.reset();
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		const asked = jest.spyOn( router, 'requestTick' );
+		__setAuthFetch( async () => null );
+
+		await ensureSession();
+
+		expect( asked ).not.toHaveBeenCalled();
+		router.stopTimer();
+		Core.reset();
 	} );
 
 	it( 'reports no session before /auth resolves', () => {

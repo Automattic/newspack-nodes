@@ -293,3 +293,44 @@ test( 'an unauthenticated tick does not consume the pending arguments', () => {
 		expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'wombat-4471' ] );
 	} );
 } );
+
+// @longform The reply routes back along FROM, and the Router peels it one
+// segment at a time — so a subject appended to the receiver arrives AS the
+// remaining TO. That is how one node answers about many subjects without a
+// table: `vault:test:in/tw0` lands on `vault:test:in` reading TO `tw0`.
+describe( 'FetcherNode — the reply path carries the subject', () => {
+	const mount = ( receiver, verb ) => {
+		const f = new FetcherNode();
+		f.arguments = [ receiver, verb ];
+		f.target = '_http/vault';
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	it( 'stamps FROM as receiver/<reply_path> when one is given', () => {
+		const { f, sent } = mount( 'vault:test:in', 'test' );
+		f.command_args = () => [ 'tw0' ];
+		f.reply_path = () => 'tw0';
+
+		f.fill( newMessage() );
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in/tw0' );
+	} );
+
+	it( 'stamps the bare receiver when there is no subject', () => {
+		const { f, sent } = mount( 'vault:list:in', 'list' );
+		f.command_args = () => [];
+
+		f.fill( newMessage() );
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:list:in' );
+	} );
+
+	it( 'stamps the bare receiver when the getter reports no subject', () => {
+		const { f, sent } = mount( 'vault:test:in', 'test' );
+		f.command_args = () => [ 'tw0' ];
+		f.reply_path = () => null;
+
+		f.fill( newMessage() );
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in' );
+	} );
+} );

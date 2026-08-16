@@ -133,48 +133,21 @@ describe( 'Metadata node', () => {
 			expect( m[ FROM ] ).toBe( '_metadata' );
 		} );
 
-		it( 'throttles repeated ticks within interval_ms (first fires, second does not)', () => {
+		// The cadence itself belongs to TimerNode now: `fireCb` decides when
+		// `fire()` runs, on the shared grid, and these cases are covered where
+		// that lives (timer-node.test.js). What is left here is what Metadata
+		// itself does with a tick: mint the verb at the live cwd.
+		it( 'mints dump_metadata at the cwd every time it is fired', () => {
 			const node = new MetadataNode();
 			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.pollIntervalMs = 5000;
-			node.fire(); // first tick: lastFired=0 -> fires
-			node.fire(); // same instant, < 5s elapsed, same path -> throttled
-			expect( sent ).toHaveLength( 1 );
-		} );
-
-		it( 're-polls once pollIntervalMs has elapsed', () => {
-			const node = new MetadataNode();
-			node.name = '_metadata';
-			const sent = [];
-			node.sink = { fill: ( m ) => sent.push( m ) };
-			node.target = '_cwd';
-			node.pollIntervalMs = 2000;
-			node.fire(); // fires, lastFired = now
-			node.fire(); // throttled (< 2s) — proves the gate is closed
-			node.lastFired = Core.now() - 3; // pretend 3s passed (> 2s gate)
-			node.fire(); // gate reopened -> fires
-			expect( sent ).toHaveLength( 2 );
-		} );
-
-		it( 're-polls immediately when the cwd path changes (within pollIntervalMs)', () => {
-			const cwd = new Node();
-			cwd.name = '_cwd';
-			cwd.target = '_sse/a';
-			const node = new MetadataNode();
-			node.name = '_metadata';
-			const sent = [];
-			node.sink = { fill: ( m ) => sent.push( m ) };
-			node.target = '_cwd';
-			node.pollIntervalMs = 60000; // long gate so only a path change can re-fire
-			node.fire(); // path '_sse/a' -> fires, lastPath = '_sse/a'
-			node.fire(); // same path, < 60s -> throttled (proves the gate)
-			cwd.target = '_sse/b'; // user cd'd to another worker
-			node.fire(); // same instant, but path changed -> fires
+			node.fire();
+			node.fire();
 			expect( sent ).toHaveLength( 2 );
 			expect( sent[ 1 ][ TO ] ).toBe( '_cwd' );
+			expect( sent[ 1 ][ VALUE ].name ).toBe( 'dump_metadata' );
 		} );
 
 		it( 'emits nothing when there is no sink', () => {
@@ -237,7 +210,11 @@ describe( 'Metadata node', () => {
 			node.stopTimer();
 		} );
 
-		it( 're-polls on a cd through the REAL router fireCb even with a large pollIntervalMs (the base interval_ms stays 0 so it never double-throttles)', () => {
+		// @longform A cd has to repaint at once, and the base throttle is what
+		// makes that a question: a tick it swallows never reaches `fire()`, so
+		// the node cannot notice the change itself. The console marks the poll
+		// DUE where it repoints `_cwd`, which is the one place that knows.
+		it( 'polls on the next tick after markDue(), whatever the cadence', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const router = new RouterNode();
 			router.name = names.ROUTER;
@@ -250,20 +227,20 @@ describe( 'Metadata node', () => {
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = names.CWD;
-			node.setTimer();
-			node.pollIntervalMs = 30000; // a fill() scaled the self-throttle large
+			node.setTimer( 30000 );
 
 			nowSpy.mockReturnValue( 100 );
-			router.notifyTimer(); // fires, lastPath = '_sse/a'
+			router.notifyTimer();
 			expect( sent ).toHaveLength( 1 );
 
 			nowSpy.mockReturnValue( 101 );
-			router.notifyTimer(); // same path, < 30s → throttled
+			router.notifyTimer(); // inside the 30s period → throttled
 			expect( sent ).toHaveLength( 1 );
 
-			cwd.target = '_sse/b'; // user cd'd
+			cwd.target = '_sse/b'; // user cd'd; the console marks it due
+			node.markDue();
 			nowSpy.mockReturnValue( 102 );
-			router.notifyTimer(); // path changed → must re-poll the same tick
+			router.notifyTimer();
 			expect( sent ).toHaveLength( 2 );
 			node.stopTimer();
 			nowSpy.mockRestore();

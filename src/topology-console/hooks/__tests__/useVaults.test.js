@@ -9,6 +9,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 import { Core, renewSession, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useVaults } from '../useCatalogs';
+import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {
@@ -25,6 +26,7 @@ let replyFor;
 
 beforeEach( () => {
 	Core.reset();
+	runClockFast();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( () => LISTED );
 	installFakeCommandWire( ( m ) => replyFor( m ) );

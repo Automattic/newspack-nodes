@@ -127,7 +127,7 @@ export class SseInNode extends TimerNode {
 		 *
 		 * @type {?Object<string,{segment:number,offset:number}|number|string>}
 		 */
-		this.positions = null;
+		this._positions = null;
 		// Last record position per `[sub][partition]`, from each ID+FROM.
 		this.lastPositions = {};
 		this._es = null;
@@ -300,7 +300,6 @@ export class SseInNode extends TimerNode {
 	 */
 	_restart( reason, mayRenewNonce = this._mayRenewNonce ) {
 		this.setState( 'RECONNECTING', reason );
-		this.positions = this.resumePositions();
 		this.start( mayRenewNonce );
 	}
 
@@ -387,8 +386,6 @@ export class SseInNode extends TimerNode {
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);
 		this._lastForce = now;
-		// Resume from the last seen offset (no gap/replay); null → tail.
-		this.positions = this.resumePositions();
 		this.start( this._mayRenewNonce );
 	}
 
@@ -569,19 +566,16 @@ export class SseInNode extends TimerNode {
 	}
 
 	/**
-	 * @return {Object<string,{segment:number,offset:number}>|null} Seek seed for every partition directory seen so far, or null when none has been (tail-seek).
-	 */
-	resumePositions() {
-		return Object.keys( this.lastPositions ).length > 0
-			? { ...this.lastPositions }
-			: null;
-	}
-
-	/**
 	 * What to ask for per subscription: the position this stream reached, or
 	 * SEEK_END when it has none. Stating the seek is the point — carrying "tail"
 	 * by OMITTING the parameter is what left a real `{segment: 0, offset: 0}`
 	 * unable to mean the start of the log on the PHP side.
+	 *
+	 * A reopen resumes past what it read, so a position reached wins over the
+	 * seed that opened the stream. A stream that read NOTHING — refused by the
+	 * slot pool before its first frame — has none, and there the seed stands:
+	 * overwriting it with "wherever we got to" is what turned a chart asking to
+	 * replay from the start of the log into one showing a single live point.
 	 *
 	 * A GLOB is the one seek a client cannot state: the server expands it into
 	 * concrete dirs and keys positions by those, so an entry filed under
@@ -593,7 +587,19 @@ export class SseInNode extends TimerNode {
 	 * @return {Object<string,{segment:number,offset:number}|number|string>} Per-subscription seek.
 	 */
 	seekMap() {
-		const stated = { ...( this.positions || {} ) };
+		const stated = { ...( this._positions || {} ) };
+		// A glob's dirs are named by the server, and only by the server.
+		const anyGlob = this.subscribe.some( ( sub ) => sub.includes( '*' ) );
+		for ( const [ dir, at ] of Object.entries( this.lastPositions ) ) {
+			const carried =
+				anyGlob ||
+				this.subscribe.some(
+					( sub ) => sub === dir || dir.startsWith( `${ sub }.` )
+				);
+			if ( carried ) {
+				stated[ dir ] = at;
+			}
+		}
 		for ( const sub of this.subscribe ) {
 			if ( ! sub.includes( '*' ) && undefined === stated[ sub ] ) {
 				stated[ sub ] = SEEK_END;
@@ -663,6 +669,24 @@ export class SseInNode extends TimerNode {
 					offset,
 				};
 			} );
+	}
+
+	/**
+	 * @return {?Object<string,{segment:number,offset:number}|number|string>} The seek this stream was asked to open at.
+	 */
+	get positions() {
+		return this._positions;
+	}
+
+	/**
+	 * A new seek supersedes where the old stream got to — otherwise a seek back
+	 * to the start of the log would be beaten by the resume it is replacing.
+	 *
+	 * @param {?Object<string,{segment:number,offset:number}|number|string>} value Per-subscription seek, or null to tail every name.
+	 */
+	set positions( value ) {
+		this._positions = value;
+		this.lastPositions = {};
 	}
 
 	/**

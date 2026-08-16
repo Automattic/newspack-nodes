@@ -97,6 +97,11 @@ const RULES = [
 		why: 'minting a correlation id into message[ID]; TO=FROM is the return address',
 	},
 	{
+		id: 'grid-math',
+		test: /\b(?:nextBoundary|GRID_PHASE_MS)\b/,
+		why: 'the wall-clock grid lives in TimerNode; a subclass picks a harmonic interval and never computes a boundary (ADR-17)',
+	},
+	{
 		id: 'key-demux',
 		test: /\[\s*KEY\s*\]\s*===/,
 		why: 'using KEY to tell replies apart; KEY is a client tag, not a demultiplexer',

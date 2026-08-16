@@ -26,6 +26,7 @@
  * @param {string}     [slice.controlFrom] Optional control origin for views that take local controls: the FROM their dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view planted an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
  * @param {Object}     [slice.transform]   Optional `{ name, nodeClass, args }` (args a ctor-token array) node inserted on the receiver-Tee → view edge.
  * @param {Function}   [slice.argsFn]      Optional fire-time getter `() => argsTokens`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
+ * @param {Function}   [slice.replyPathFn] Optional fire-time getter `() => subject`; appended to the Fetcher's FROM, so the reply arrives at the receiver with the subject as its remaining TO. That is how ONE result node answers about many subjects. Refused alongside `transform`, which would not peel the subject back off.
  * @return {string} The receiver Tee name.
  */
 export function addSliceFetcher(
@@ -41,6 +42,7 @@ export function addSliceFetcher(
 		target,
 		transform,
 		argsFn,
+		replyPathFn,
 	}
 ) {
 	// Fetcher: turns the tick into ONE command (FROM=receiver) at the egress.
@@ -48,6 +50,19 @@ export function addSliceFetcher(
 	// A getter makes the Fetcher emit live args each tick, else static (empty).
 	if ( argsFn ) {
 		f.command_args = argsFn;
+	}
+	if ( replyPathFn ) {
+		// @longform A subject rides as a trailing path segment, and a plain
+		// transform node does not peel it: it would leave a non-empty TO for
+		// the interpreter to route to a node named after the subject, which
+		// does not exist. The two are compatible only once a transform peels,
+		// so refuse the pair here rather than dropping replies at runtime.
+		if ( transform ) {
+			throw new TypeError(
+				`addSliceFetcher( '${ receiver }' ): replyPathFn cannot be combined with transform — the transform would have to peel the subject off TO`
+			);
+		}
+		f.reply_path = replyPathFn;
 	}
 	f.connectNode( target );
 	tee.connectNode( fetcher );

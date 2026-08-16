@@ -9,7 +9,7 @@
  */
 
 import { renderHook, act, waitFor } from '@testing-library/react';
-import { Core, VALUE } from '@newspack-nodes/runtime';
+import { Core, FROM, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useCommandOnce } from '../useCommandOnce';
 
@@ -208,6 +208,8 @@ describe( 'useCommandOnce', () => {
 		} );
 		expect( onDone ).toHaveBeenCalledWith( {
 			result: { restarted_fleets: [ 'demo.p0' ] },
+			// The subject rides in the reply's address, not in its payload.
+			subject: 'wombat-4471',
 			error: null,
 			errorData: null,
 			args: [ 'wombat-4471', '' ],
@@ -493,6 +495,107 @@ describe( 'useCommandOnce', () => {
 		expect( result.current.answeredArgs ).toEqual( [ 'wombat-4471' ] );
 	}, 30000 );
 
+	// @longform The subject rides in the ADDRESS: FROM is `<receiver>/<id>`,
+	// the server echoes TO = FROM, the Router peels the receiver off and the
+	// answer arrives naming the row it is about. One node, many rows, and
+	// nothing filed under anything — which is why there is no node per row.
+	it( 'addresses each send by its subject, and answers naming it', async () => {
+		const held = [];
+		const seen = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () => resolve( { asked: m[ FROM ] } ) )
+				)
+		);
+		const { result } = renderHook( () =>
+			useCommandOnce( {
+				ci: 'vault',
+				command: 'test',
+				onDone: ( { subject } ) => seen.push( subject ),
+			} )
+		);
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+			result.current.run( [ 'quokka-8823' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+
+		// Each command carries its own reply path.
+		const from = replyFor.mock.calls.map( ( [ m ] ) => m[ FROM ] );
+		expect( from ).toEqual( [
+			'vault:test:in/wombat-4471',
+			'vault:test:in/quokka-8823',
+		] );
+
+		await act( async () => {
+			held.forEach( ( release ) => release() );
+		} );
+		await waitFor( () => expect( seen.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+		expect( seen.sort() ).toEqual( [ 'quokka-8823', 'wombat-4471' ] );
+		expect( result.current.pending ).toBe( false );
+	}, 30000 );
+
+	// A subject is an ADDRESS segment, so it is escaped going out and read back
+	// as what the caller named — otherwise a label holding a slash would peel
+	// as two hops and the answer would arrive somewhere else entirely.
+	it( 'escapes a subject that would otherwise change the address', async () => {
+		const seen = [];
+		const { result } = renderHook( () =>
+			useCommandOnce( {
+				ci: 'sessions',
+				command: 'create',
+				onDone: ( { subject } ) => seen.push( subject ),
+			} )
+		);
+		act( () => result.current.run( [ 'laptop mcp' ] ) );
+
+		await waitFor( () => expect( seen.length ).toBe( 1 ), {
+			timeout: 8000,
+		} );
+		expect( replyFor.mock.calls[ 0 ][ 0 ][ FROM ] ).toBe(
+			'sessions:create:in/laptop%20mcp'
+		);
+		expect( seen[ 0 ] ).toBe( 'laptop mcp' );
+	}, 30000 );
+
+	// @longform A BODY is not a subject. Left to the default, a verb whose
+	// first token is a JSON document or a pasted URL would address its reply
+	// with the whole thing — past the substrate's FROM cap, and the reply is
+	// dropped. It sends WITHOUT a subject instead: a save the operator clicked
+	// must not become an exception out of the click handler because the caller
+	// forgot an option. The console says which command needs `subjectOf`.
+	it( 'sends without a subject when one is too long to address a reply', async () => {
+		expectConsoleWarn( 'ERROR: useCommandOnce' );
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'rules', command: 'upsert' } )
+		);
+		await act( async () => {} );
+		const document_ = JSON.stringify( { pattern: 'x'.repeat( 200 ) } );
+
+		expect( () =>
+			act( () => result.current.run( [ document_ ] ) )
+		).not.toThrow();
+
+		await waitFor(
+			() =>
+				expect(
+					replyFor.mock.calls.some(
+						( [ m ] ) => m[ VALUE ]?.name === 'upsert'
+					)
+				).toBe( true ),
+			{ timeout: 8000 }
+		);
+		const sent = replyFor.mock.calls.find(
+			( [ m ] ) => m[ VALUE ]?.name === 'upsert'
+		)[ 0 ];
+		expect( sent[ FROM ] ).toBe( 'rules:upsert:in' );
+	}, 30000 );
+
 	// Two rows acted on in the same second are two commands in flight. Neither
 	// waits for the other: the reply carries the arguments it answered, so the
 	// node it lands on can say which row it is about — no queue, no pairing.
@@ -575,6 +678,75 @@ describe( 'useCommandOnce', () => {
 
 	// A read is the opposite: opening one topology and then another must not
 	// fetch the first, whose answer nobody wants any more.
+	// @longform Three admin screens each kept a `busy` flag per row, flipped on
+	// the click and cleared by the answer — a re-derivation of the outbox this
+	// hook already keeps, in the one place that cannot get it wrong. The screen
+	// asks instead.
+	it( 'says which subjects are outstanding, and stops when each is answered', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () =>
+						resolve( { asked: m[ VALUE ].arguments[ 0 ] } )
+					)
+				)
+		);
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'vault', command: 'test' } )
+		);
+		expect( result.current.isPending( 'wombat-4471' ) ).toBe( false );
+
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+			result.current.run( [ 'quokka-8823' ] );
+		} );
+		expect( result.current.isPending( 'wombat-4471' ) ).toBe( true );
+		expect( result.current.isPending( 'quokka-8823' ) ).toBe( true );
+		expect( result.current.isPending( 'never-asked' ) ).toBe( false );
+
+		await waitFor( () => expect( held.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+		await act( async () => {
+			held[ 0 ]();
+		} );
+		await waitFor( () =>
+			expect( result.current.isPending( 'wombat-4471' ) ).toBe( false )
+		);
+		// The other is still out; one answer does not clear the table.
+		expect( result.current.isPending( 'quokka-8823' ) ).toBe( true );
+	}, 30000 );
+
+	// @longform A write has no cadence — only `run()` pokes it — so it arms at
+	// a minute rather than fanning out every second to find an empty outbox.
+	// The queue behind a send then has to ask for its own tick: two rows
+	// deleted in the same second are two commands, and the second must not wait
+	// out that minute.
+	it( 'sends a queued write on the next tick, not the next cadence', async () => {
+		const held = [];
+		replyFor.mockImplementation(
+			( m ) =>
+				new Promise( ( resolve ) =>
+					held.push( () =>
+						resolve( { asked: m[ VALUE ].arguments[ 0 ] } )
+					)
+				)
+		);
+		const { result } = renderHook( () =>
+			useCommandOnce( { ci: 'vault', command: 'delete' } )
+		);
+		act( () => {
+			result.current.run( [ 'wombat-4471' ] );
+			result.current.run( [ 'quokka-8823' ] );
+		} );
+
+		// Both on the wire inside a few router ticks — nowhere near a minute.
+		await waitFor( () => expect( held.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+	}, 30000 );
+
 	it( 'supersedes a read rather than queueing it', async () => {
 		const { result } = renderHook( () =>
 			useCommandOnce( {

@@ -237,7 +237,7 @@ describe( 'RemoteLinkNode', () => {
 		expect( Core.node( 'empty-link-439' ) ).toBeNull();
 	} );
 
-	it( 'resumePositions() exposes the SseIn last-seen offset so a reconnect resumes', () => {
+	it( 'reconnect() resumes past the last record it read', () => {
 		const { link } = makeLink( 'errors' );
 		link.connect();
 		const m = newMessage();
@@ -248,9 +248,24 @@ describe( 'RemoteLinkNode', () => {
 		FakeEventSource.last.listeners.msg[ 0 ]( {
 			data: JSON.stringify( m ),
 		} );
-		expect( link.resumePositions() ).toEqual( {
+
+		link.reconnect();
+		expect( link.sseIn.seekMap() ).toEqual( {
 			'errors.p0': { segment: 3, offset: 99 + 70 },
+			errors: -1,
 		} );
+	} );
+
+	// @longform The chart asked to replay the whole log; the slot pool refused
+	// the stream before a frame arrived. Recomputing the seek from what was
+	// read — nothing — and handing THAT back was what silently downgraded the
+	// retry to a tail, so the chart came up holding one live point.
+	it( 'reconnect() keeps the replay a refused stream never got', () => {
+		const { link } = makeLink( 'errors' );
+		link.connect( { errors: 0 } );
+
+		link.reconnect();
+		expect( link.sseIn.seekMap() ).toEqual( { errors: 0 } );
 	} );
 
 	it( 'subscribes its SseIn to the configured topic, forwarding to the link sink/target', () => {

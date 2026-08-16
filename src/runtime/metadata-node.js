@@ -6,10 +6,10 @@
  */
 
 import { Core } from './core';
-import { TimerNode } from './timer-node';
+import { PollerNode } from './poller-node';
+import { VALUE, payloadOf } from './message';
 import { RouterNode } from './router-node';
 import reservedNames from './reserved-node-names.json';
-import { VALUE } from './message';
 
 /**
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
@@ -273,44 +273,51 @@ export function computePollIntervalMs( nodeCount ) {
 }
 
 /**
- * Metadata — `_metadata`. A TimerNode hitchhiking the _router: `fire()` runs
- * every tick (the _router calls fireCb -> fire directly) but self-throttles to
- * its own `interval_ms` — staying bound to the shared TIMER so the poll batches
- * with the other per-tick requests. The reply lands on fill() and publishes the
- * parsed graph for the canvas ( useNodeState( '_metadata', 'metadata' ) ).
+ * Metadata — `_metadata`. A Poller on `dump_metadata`: it rides the `_router`
+ * TIMER, mints the verb at the live cwd, and publishes the parsed graph for the
+ * canvas ( useNodeState( '_metadata', 'metadata' ) ). It holds no throttle of
+ * its own — the base times it on the shared grid, so this poll leaves in the
+ * same POST as everything else due that tick — and a cwd change repaints at
+ * once because the console `markDue()`s it where it repoints `_cwd`.
  */
-export class MetadataNode extends TimerNode {
+export class MetadataNode extends PollerNode {
 	/**
-	 * Seed the `metadata` publish slot and the self-throttle state: the poll
-	 * cadence starts at 1s and `fire()` rescales it to the graph it receives.
+	 * Seed the `metadata` publish slot. The cadence starts at one tick and
+	 * `publish()` rescales it to the graph it receives.
 	 */
 	constructor() {
 		super();
 		this.registrations.metadata = {};
-		// Self-throttle state: lastFired (s), lastPath, pollIntervalMs.
+		this.verb = 'dump_metadata';
 		this.pollIntervalMs = 1000;
-		this.lastFired = 0;
-		this.lastPath = null;
 	}
 
 	/**
-	 * Take the `dump_metadata` poll reply — a bare struct VALUE, a
-	 * `{ name, payload }` command-response envelope, or a JSON string — keep the
-	 * raw name→meta map for later optimistic patches, rescale the poll cadence
-	 * to the graph size, and publish the parsed graph as `metadata`. Anything
-	 * that does not decode to an object is dropped.
+	 * Reply leg. `dump_metadata` answers BARE as often as enveloped — the map
+	 * itself, with no `payload` key — and the base unwrap returns null for
+	 * that, deliberately, so a payload-less ack cannot blank a poller's grid.
+	 * Here the bare object IS the answer.
 	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
 	fill( message ) {
 		this.counter++;
 		const value = message[ VALUE ];
-		const isStruct = value && typeof value === 'object';
-		const meta = isStruct ? value.payload ?? value : value;
+		this.publish( payloadOf( value, value ) );
+	}
+
+	/**
+	 * Take the `dump_metadata` reply — the base has already unwrapped the
+	 * envelope — keep the raw name→meta map for later optimistic patches,
+	 * rescale the cadence to the graph size, and publish the parsed graph.
+	 * Anything that does not decode to an object is dropped.
+	 *
+	 * @param {*} meta The unwrapped payload: a name→meta object, or its JSON.
+	 */
+	publish( meta ) {
 		if ( meta === null || meta === undefined || meta === '' ) {
 			return;
 		}
-		// Coerce to the raw name->meta object; keep it for future merges.
 		let incoming = meta;
 		if ( typeof meta === 'string' ) {
 			try {
@@ -324,50 +331,16 @@ export class MetadataNode extends TimerNode {
 		}
 		this.rawMap = incoming;
 		const parsed = parseMetadata( incoming );
-		// Scale the self-managed poll cadence to the graph we just received.
+		// Scale the cadence to the graph, re-arming only when it changes.
 		this.pollIntervalMs = computePollIntervalMs( parsed.nodes.length );
-		this.setState( 'metadata', parsed );
-	}
-
-	/**
-	 * Router TIMER subscriber. Runs every tick but self-throttles: it polls
-	 * only once `pollIntervalMs` has elapsed, or immediately when the cwd path
-	 * changed, so a directory change repaints without waiting out the interval.
-	 * Does nothing without a sink.
-	 */
-	fire() {
-		if ( ! this.sink ) {
-			return;
-		}
-		const now = Core.now();
-		// Poll routes through `_cwd` (this.target); `.target` is the live cwd.
-		const cwd = Core.node( this.target );
-		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
-		const intervalMs = this.pollIntervalMs || 1000;
+		// Re-arm only when the cadence actually moved (the substrate rule).
 		if (
-			( now - this.lastFired ) * 1000 >= intervalMs ||
-			path !== this.lastPath
+			'inactive' !== this.mode &&
+			this.pollIntervalMs !== this.interval_ms
 		) {
-			this.lastFired = now;
-			this.lastPath = path;
-			this.counter++;
-			const m = this._pollMessage( 'dump_metadata' );
-			if ( m ) {
-				this.sink.fill( m ); // else unauthenticated; next tick carries it
-			}
+			this.setTimer( this.pollIntervalMs );
 		}
-	}
-
-	/**
-	 * Build the poll TM_COMMAND for `this.target` (the `_cwd` node); FROM=name
-	 * is the reply path and LOCAL authorizes it.
-	 *
-	 * @param {string}   verb   Command verb to poll (`dump_metadata`).
-	 * @param {string[]} [args] Positional argument tokens for the verb.
-	 * @return {?Array} A signed, LOCAL-marked Message, or null if unauthenticated.
-	 */
-	_pollMessage( verb, args = [] ) {
-		return this.command( verb, args );
+		this.setState( 'metadata', parsed );
 	}
 
 	/**

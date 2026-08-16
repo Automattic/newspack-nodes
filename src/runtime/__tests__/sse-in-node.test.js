@@ -273,7 +273,7 @@ test( 'a grouped stamp keys resume positions by its full offsets/<dir> key', () 
 	m[ VALUE ] = 'cursor frame';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 
-	expect( sse.resumePositions() ).toEqual( {
+	expect( sse.seekMap() ).toEqual( {
 		'offsets/combined.firehose.p0': { segment: 3, offset: 150 },
 	} );
 } );
@@ -355,7 +355,7 @@ test( 'an advertised interval is used as-is and never widened', () => {
 } );
 
 test( 'the connected envelope seeds positions for a zero-message stream', () => {
-	const { sse } = makeSseIn();
+	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 	sse.start();
 	FakeEventSource.last.dispatch(
 		'connected',
@@ -364,13 +364,13 @@ test( 'the connected envelope seeds positions for a zero-message stream', () => 
 
 	// Nothing was delivered, so the ID breadcrumb never fired — without the
 	// envelope's seed the reopen would tail-seek and drop the gap.
-	expect( sse.resumePositions() ).toEqual( {
+	expect( sse.seekMap() ).toEqual( {
 		'firehose.p0': { segment: 11647, offset: 1306456 },
 	} );
 } );
 
 test( 'a delivered record advances past the envelope seed', () => {
-	const { sse } = makeSseIn();
+	const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
 	sse.start();
 	const stream = FakeEventSource.last;
 	stream.dispatch(
@@ -384,7 +384,7 @@ test( 'a delivered record advances past the envelope seed', () => {
 	m[ VALUE ] = 'a line\n';
 	stream.dispatch( 'msg', JSON.stringify( m ) );
 
-	expect( sse.resumePositions() ).toEqual( {
+	expect( sse.seekMap() ).toEqual( {
 		'firehose.p0': { segment: 11647, offset: 140 },
 	} );
 } );
@@ -466,6 +466,47 @@ describe( 'seekMap — what this node asks each subscription for', () => {
 		expect(
 			mapFor( [ 'a.p0', 'b.p0' ], { 'a.p0': { segment: 2, offset: 7 } } )
 		).toEqual( { 'a.p0': { segment: 2, offset: 7 }, 'b.p0': SEEK_END } );
+	} );
+} );
+
+// @longform A dashboard that asks to replay from the START of the log is
+// asking for the WHOLE chart. Switch tabs quickly enough and the slot pool
+// refuses the stream with a 429 before a single frame arrives — and the reopen
+// used to overwrite the stated seek with "wherever we got to", which for a
+// stream that got nowhere is the tail. The chart then filled from `end`: one
+// live point instead of a day of history, and only a full reload fixed it.
+test( 'a stream refused before its first frame still asks to replay from the start', () => {
+	jest.useFakeTimers();
+	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
+	sse.positions = { 'jobstats.p0': SEEK_START };
+	sse.start();
+	const refused = FakeEventSource.last;
+
+	refused.dispatchError( FakeEventSource.CONNECTING );
+	jest.advanceTimersByTime( 30000 );
+	const reopened = FakeEventSource.last;
+	expect( reopened ).not.toBe( refused );
+
+	expect( seeksAsked( sse ) ).toEqual( { 'jobstats.p0': SEEK_START } );
+} );
+
+// The resume wins where there IS one: replaying what has already been read
+// would double every record on the chart.
+test( 'a reopen resumes past what it read, not from the seek it opened with', () => {
+	const { sse } = makeSseIn( { subscribe: [ 'jobstats.p0' ] } );
+	sse.positions = { 'jobstats.p0': SEEK_START };
+	sse.start();
+	const first = FakeEventSource.last;
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = 'jobstats.p0';
+	m[ ID ] = '4:471:29';
+	m[ VALUE ] = 'a record\n';
+	first.dispatch( 'msg', JSON.stringify( m ) );
+
+	sse._restart( 'test' );
+	expect( seeksAsked( sse ) ).toEqual( {
+		'jobstats.p0': { segment: 4, offset: 500 },
 	} );
 } );
 
@@ -1178,23 +1219,34 @@ test( 'close() stops the watchdog (no reconnect, no throw long after close)', ()
 	}
 } );
 
-test( 'a forced reconnect with nothing tracked tail-follows — it does NOT re-replay the original seed', () => {
+// @longform A stream that CONNECTED has been answered: the envelope states
+// where the server started it, and every reopen resumes from there rather than
+// replaying what this client already holds. What separates that from the
+// refused-before-the-handshake case is exactly this envelope — which is why a
+// blanket "reopen always tail-follows" threw away the seed of a stream that had
+// read nothing at all.
+test( 'a forced reconnect resumes from the cursor the handshake stated, not the seed', () => {
 	jest.useFakeTimers();
 	try {
 		expectConsoleWarn(
 			'ERROR: SseInNode: reconnecting - SSE silent past timeout'
 		);
-		const { sse } = makeSseIn();
-		sse.positions = { x: { 0: 'start' } };
+		const { sse } = makeSseIn( { subscribe: [ 'firehose.p0' ] } );
+		sse.positions = { 'firehose.p0': SEEK_START };
 		sse.start();
-		expect( sse.seekMap() ).toEqual( { x: { 0: 'start' } } ); // replay
+		expect( sse.seekMap() ).toEqual( { 'firehose.p0': SEEK_START } );
+		FakeEventSource.last.dispatch(
+			'connected',
+			connectedFrame( { cursors: 'firehose.p0=8:4471' } )
+		);
 		// The fake's job is the STIMULUS: a stream that goes silent long enough
 		// for the watchdog to force a reconnect. What it recorded is not the
 		// question — what this node asks for next is.
 		sse._es.readyState = FakeEventSource.OPEN;
 		jest.advanceTimersByTime( 13000 );
-		// Reopens LIVE — it ASKS for the tail, rather than replaying the seed.
-		expect( sse.seekMap() ).toEqual( { x: SEEK_END } );
+		expect( sse.seekMap() ).toEqual( {
+			'firehose.p0': { segment: 8, offset: 4471 },
+		} );
 	} finally {
 		jest.useRealTimers();
 	}
@@ -1210,8 +1262,9 @@ test( 'tracks segment:offset:length from each frame, resuming at offset+length',
 	m[ VALUE ] = 'a line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 	// Keyed by the opaque partition dir name; offset = record offset + length.
-	expect( sse.resumePositions() ).toEqual( {
+	expect( sse.seekMap() ).toEqual( {
 		'completed.p0': { segment: 4, offset: 623851 + 120 },
+		completed: SEEK_END,
 	} );
 } );
 
@@ -1224,7 +1277,7 @@ test( 'a command-reply ID (not a breadcrumb) is not tracked as a position', () =
 	m[ ID ] = 'byckewr4dozme4rx5j1erloi1tjvmo29';
 	m[ VALUE ] = {};
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
-	expect( sse.resumePositions() ).toBeNull();
+	expect( sse.seekMap() ).toEqual( { completed: SEEK_END } );
 } );
 
 test( 'a forced reconnect RESUMES from the last tracked offset (no gap, no replay)', () => {

@@ -1,4 +1,4 @@
-import { TimerNode } from '../timer-node';
+import { TimerNode, GRID_PHASE_MS } from '../timer-node';
 import { RouterNode } from '../router-node';
 import { Core } from '../core';
 import names from '../reserved-node-names.json';
@@ -273,6 +273,137 @@ describe( 'hitchhike + throttle (setTimer(ms) with ms >= 1000)', () => {
 		r.setTimer( 1000 );
 		expect( r.mode ).toBe( 'event_framework' );
 		r.stopTimer();
+	} );
+
+	// @longform Every timer on the same interval must land on the SAME router
+	// tick, whatever second it was armed in. Paced from its own arming time, a
+	// 5s poll armed at :02 and another armed at :04 fire on different ticks
+	// forever — two POSTs a cycle where the batch exists to make one. The grid
+	// is a pure function of the wall clock, so they converge with nothing
+	// shared and nothing persisted.
+	// @longform Harmonics have to line up: a 10s boundary IS every second 5s
+	// boundary, and every cadence in the set meets at 30s. A phase computed per
+	// interval breaks exactly that — the 10s timer lands 360ms off the 5s one
+	// and they never share a tick again, which is one extra POST per cycle for
+	// every cadence on the page.
+	test( 'harmonic intervals share ticks, and all of them meet at 30s', () => {
+		const epoch = 1_700_000_000_000;
+		const at = ( ms ) => jest.setSystemTime( epoch + ms );
+		at( 0 );
+		const r = makeRouter();
+		const armed = ( name, intervalMs ) => {
+			const t = new TimerNode();
+			t.name = name;
+			t.fired = [];
+			t.sink = { fill: () => t.fired.push( Core.now() ) };
+			t.target = '_output';
+			t.setTimer( intervalMs );
+			return t;
+		};
+		const five = armed( 'five', 5000 );
+		const ten = armed( 'ten', 10000 );
+		const fifteen = armed( 'fifteen', 15000 );
+		const thirty = armed( 'thirty', 30000 );
+
+		for ( let i = 1; i <= 90; i++ ) {
+			at( i * 1000 );
+			r.notifyTimer();
+		}
+
+		// Every slower cadence lands on ticks the 5s one also fires on.
+		for ( const t of [ ten, fifteen, thirty ] ) {
+			expect( t.fired.length ).toBeGreaterThan( 1 );
+			expect(
+				t.fired.filter( ( when ) => ! five.fired.includes( when ) )
+			).toEqual( [] );
+		}
+		// And they all meet: every 30s fire is shared by all four.
+		for ( const when of thirty.fired ) {
+			expect( ten.fired ).toContain( when );
+			expect( fifteen.fired ).toContain( when );
+		}
+		[ five, ten, fifteen, thirty ].forEach( ( t ) => t.stopTimer() );
+	} );
+
+	// @longform `markFired()` is the caller saying "I just loaded this myself"
+	// — so the next fire owes a FULL interval, not merely the next boundary,
+	// which an arming instant just before one makes ~0. Every adopter loads on
+	// mount and re-arms on tab focus, so the near-boundary case is a duplicate
+	// request about a second after the one it was meant to suppress.
+	test( 'markFired holds off a full interval, and stays on the grid', () => {
+		const epoch = 1_700_000_000_000;
+		// Arm 10ms before a boundary: the next one is no interval at all.
+		jest.setSystemTime(
+			( Math.floor( ( epoch - GRID_PHASE_MS ) / 5000 ) + 2 ) * 5000 +
+				GRID_PHASE_MS -
+				10
+		);
+		const r = makeRouter();
+		const t = new TimerNode();
+		t.name = 'held';
+		const fired = [];
+		t.sink = { fill: () => fired.push( Core.now() ) };
+		t.target = '_output';
+		t.setTimer( 5000 );
+		t.markFired();
+		const armedAt = Core.now();
+
+		for ( let i = 1; i <= 12; i++ ) {
+			jest.setSystemTime( Date.now() + 1000 );
+			r.notifyTimer();
+		}
+
+		expect( fired.length ).toBeGreaterThan( 0 );
+		expect( fired[ 0 ] - armedAt ).toBeGreaterThanOrEqual( 5 );
+		// Still the shared grid: every fire sits on a boundary.
+		fired.forEach( ( when ) =>
+			expect(
+				Math.abs(
+					( ( when - GRID_PHASE_MS / 1000 ) % 5 ) -
+						Math.round( ( when - GRID_PHASE_MS / 1000 ) % 5 )
+				)
+			).toBeLessThan( 1.01 )
+		);
+		t.stopTimer();
+	} );
+
+	test( 'two timers on one interval fire on the same tick, however they were armed', () => {
+		// A real epoch, not 0: `lastFireTime = 0` reads as "due now" there, so
+		// each timer fires on the first tick after arming and paces from that.
+		const epoch = 1_700_000_000_000;
+		const at = ( ms ) => jest.setSystemTime( epoch + ms );
+		at( 0 );
+		const r = makeRouter();
+		const armed = ( name ) => {
+			const t = new TimerNode();
+			t.name = name;
+			t.fired = [];
+			t.sink = { fill: () => t.fired.push( Core.now() ) };
+			t.target = '_output';
+			t.setTimer( 5000 );
+			return t;
+		};
+
+		const early = armed( 'early-poll' );
+		at( 1000 );
+		r.notifyTimer();
+		// The second surface opens two seconds into the first one's cycle.
+		at( 2000 );
+		const late = armed( 'late-poll' );
+
+		for ( let i = 3; i <= 40; i++ ) {
+			at( i * 1000 );
+			r.notifyTimer();
+		}
+
+		const shared = early.fired.filter( ( t ) => late.fired.includes( t ) );
+		expect( early.fired.length ).toBeGreaterThan( 4 );
+		expect( shared.length ).toBeGreaterThan(
+			early.fired.length - 3,
+			'each surface polls on its own tick, so the batch that exists to make one POST makes two'
+		);
+		early.stopTimer();
+		late.stopTimer();
 	} );
 
 	test( 'fire_cb throttles fire() to interval_ms across router ticks', () => {
