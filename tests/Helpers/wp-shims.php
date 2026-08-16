@@ -819,3 +819,83 @@ if ( ! function_exists( 'absint' ) ) {
 		return \abs( (int) $v );
 	}
 }
+
+// @longform The user half of the WP API, for `wp nodes hub-user`: a store of
+// users keyed by login, a `set_role()` that REPLACES rather than adds (the
+// command's least-privilege claim rests on that), and an application-password
+// issuer that hands back a plaintext password exactly once, as the real one
+// does. Tests read `$GLOBALS['_wp_test_users']` to assert what was created.
+if ( ! class_exists( 'WP_User_Stub' ) ) {
+	class WP_User_Stub {
+		public int $ID;
+		public string $user_login;
+
+		public function __construct( int $id, string $login ) {
+			$this->ID         = $id;
+			$this->user_login = $login;
+		}
+
+		/** Sole role, as `set_role()` is in WordPress: it replaces the set. */
+		public function set_role( string $role ): void {
+			$GLOBALS['_wp_test_users'][ $this->user_login ]['roles'] = [ $role ];
+		}
+	}
+}
+
+if ( ! function_exists( 'wp_insert_user' ) ) {
+	function wp_insert_user( array $args ) {
+		if ( ! empty( $GLOBALS['_wp_test_insert_user_error'] ) ) {
+			return new WP_Error( 'user_login_invalid', 'Sorry, that username is not allowed.' );
+		}
+		$login = (string) ( $args['user_login'] ?? '' );
+		if ( '' === $login ) {
+			return new WP_Error( 'empty_user_login', 'Cannot create a user with an empty login name.' );
+		}
+		if ( isset( $GLOBALS['_wp_test_users'][ $login ] ) ) {
+			return new WP_Error( 'existing_user_login', 'Sorry, that username already exists!' );
+		}
+		$id = 1 + \count( $GLOBALS['_wp_test_users'] ?? [] );
+		$GLOBALS['_wp_test_users'][ $login ] = [
+			'ID'    => $id,
+			'email' => (string) ( $args['user_email'] ?? '' ),
+			'roles' => [ (string) ( $args['role'] ?? '' ) ],
+		];
+		return $id;
+	}
+}
+
+if ( ! function_exists( 'get_user_by' ) ) {
+	function get_user_by( string $field, $value ) {
+		// A user created and then unreadable is the branch a caller cannot
+		// provoke but must still handle; this is how a test provokes it.
+		if ( ! empty( $GLOBALS['_wp_test_unreadable_user'] ) && 'id' === $field ) {
+			return false;
+		}
+		foreach ( $GLOBALS['_wp_test_users'] ?? [] as $login => $user ) {
+			$hit = 'id' === $field ? $user['ID'] === (int) $value : $login === $value;
+			if ( $hit ) {
+				return new WP_User_Stub( $user['ID'], $login );
+			}
+		}
+		return false;
+	}
+}
+
+if ( ! function_exists( 'wp_generate_password' ) ) {
+	function wp_generate_password( int $length = 12, bool $special = true, bool $extra = false ): string {
+		return \str_repeat( 'x', $length );
+	}
+}
+
+if ( ! class_exists( 'WP_Application_Passwords' ) ) {
+	class WP_Application_Passwords {
+		/** @return array{0:string,1:array<string,mixed>}|WP_Error */
+		public static function create_new_application_password( int $user_id, array $args ) {
+			if ( ! empty( $GLOBALS['_wp_test_app_password_error'] ) ) {
+				return new WP_Error( 'application_passwords_disabled', 'Application passwords are not available.' );
+			}
+			$GLOBALS['_wp_test_app_passwords'][] = [ 'user' => $user_id, 'name' => (string) ( $args['name'] ?? '' ) ];
+			return [ 'shown-once-password', [ 'name' => (string) ( $args['name'] ?? '' ) ] ];
+		}
+	}
+}

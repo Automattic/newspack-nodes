@@ -66,4 +66,42 @@ class CapabilitiesTest extends TestCase {
 		$this->assertTrue( Capabilities::can( Capabilities::READ ) );
 		$this->assertFalse( Capabilities::can( Capabilities::MANAGE ) );
 	}
+
+	/**
+	 * `highest_held()` is what clamps a REQUESTED session scope to what the
+	 * minting user can actually do: asking for `manage` as a tune-holder issues
+	 * a `tune` session, so a listed scope states the truth rather than the ask.
+	 */
+	public function test_highest_held_is_the_top_role_the_user_holds(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->assertSame( Capabilities::MANAGE, Capabilities::highest_held() );
+	}
+
+	public function test_highest_held_is_capped_by_the_ceiling_it_is_given(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+		$this->assertSame(
+			Capabilities::TUNE,
+			Capabilities::highest_held( Capabilities::TUNE ),
+			'a ceiling can only ever subtract'
+		);
+	}
+
+	/** Holding none of them is a refusal, not an empty scope. */
+	public function test_highest_held_is_null_when_the_user_holds_nothing(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => false ];
+		$this->assertNull( Capabilities::highest_held() );
+	}
+
+	/**
+	 * A map that answers with an empty capability would gate on `current_user_can( '' )`
+	 * — true for nobody, or worse, silently true. It throws at the boundary instead.
+	 */
+	public function test_an_empty_capability_in_the_map_throws(): void {
+		add_filter(
+			'newspack_nodes/capability_map',
+			static fn ( array $map ): array => [ 'tune' => '' ] + $map
+		);
+		$this->expectException( \InvalidArgumentException::class );
+		Capabilities::cap_for( Capabilities::TUNE );
+	}
 }
