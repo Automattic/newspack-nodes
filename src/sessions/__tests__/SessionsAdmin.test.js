@@ -143,3 +143,193 @@ it( 'marks only the outstanding row busy', () => {
 	expect( revokeButton( rowsOf( container )[ 0 ] ).disabled ).toBe( true );
 	expect( revokeButton( rowsOf( container )[ 1 ] ).disabled ).toBe( false );
 } );
+
+// Everything below covers the surfaces a reader of this screen actually uses:
+// the create form (validation, the args it sends), the one-time key panel, and
+// the states the table can be in. They were reachable only by hand before.
+
+const openCreate = ( container ) =>
+	act( () =>
+		Array.from( container.querySelectorAll( 'button' ) )
+			.find( ( b ) => /issue session/i.test( b.textContent ) )
+			.dispatchEvent( new Event( 'click', { bubbles: true } ) )
+	);
+
+const dialogButton = ( label ) =>
+	Array.from(
+		(
+			document.querySelector( '[role="dialog"]' ) || document
+		).querySelectorAll( 'button' )
+	).find( ( b ) => label.test( b.textContent ) );
+
+// Set a controlled input the React way.
+const setInput = ( el, value ) => {
+	const setter = Object.getOwnPropertyDescriptor(
+		window.HTMLInputElement.prototype,
+		'value'
+	).set;
+	act( () => {
+		setter.call( el, value );
+		el.dispatchEvent( new Event( 'input', { bubbles: true } ) );
+	} );
+};
+
+it( 'refuses to issue a session with no label, and says why', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+
+	act( () =>
+		dialogButton( /issue session/i ).dispatchEvent(
+			new Event( 'click', { bubbles: true } )
+		)
+	);
+
+	expect( createSession ).not.toHaveBeenCalled();
+	expect( document.querySelector( '[role="dialog"]' ).textContent ).toMatch(
+		/label is required/i
+	);
+} );
+
+it( 'issues with the label, scope and lifetime the form holds', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
+	setInput( document.querySelector( '#new-session-ttl' ), '4471' );
+
+	act( () =>
+		dialogButton( /issue session/i ).dispatchEvent(
+			new Event( 'click', { bubbles: true } )
+		)
+	);
+
+	expect( createSession ).toHaveBeenCalledWith( {
+		label: 'laptop mcp',
+		scope: 'read',
+		ttl: 4471,
+	} );
+} );
+
+// The key is recoverable from nothing: the create answer is the only place it
+// is ever shown, so the panel replaces the form rather than closing it.
+it( 'discloses the issued key once, in place of the form', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
+	act( () =>
+		dialogButton( /issue session/i ).dispatchEvent(
+			new Event( 'click', { bubbles: true } )
+		)
+	);
+
+	answer( 'create', {
+		subject: 'laptop mcp',
+		result: {
+			handle: 'h-9001',
+			key: 'k-secret',
+			scope: 'read',
+			expires_in: 3600,
+		},
+	} );
+
+	const dialog = document.querySelector( '[role="dialog"]' );
+	expect( dialog.textContent ).toContain( 'h-9001.k-secret' );
+	expect( dialog.textContent ).toMatch( /shown once/i );
+	// The form is gone: there is no way back to a key.
+	expect( document.querySelector( '#new-session-label' ) ).toBeNull();
+} );
+
+it( 'keeps the form open on a refusal, with the reason on it', () => {
+	const { container } = render( <SessionsAdmin /> );
+	openCreate( container );
+	setInput( document.querySelector( '#new-session-label' ), 'laptop mcp' );
+	act( () =>
+		dialogButton( /issue session/i ).dispatchEvent(
+			new Event( 'click', { bubbles: true } )
+		)
+	);
+
+	answer( 'create', { subject: 'laptop mcp', error: 'scope refused' } );
+
+	expect( document.querySelector( '#new-session-label' ) ).not.toBeNull();
+	expect( document.querySelector( '[role="dialog"]' ).textContent ).toContain(
+		'scope refused'
+	);
+} );
+
+it( 'renders each session with its scope, state and times', () => {
+	const { container } = render( <SessionsAdmin /> );
+	const row = rowsOf( container )[ 0 ];
+	expect( row.textContent ).toContain( 'hub-aggregator' );
+	expect( row.querySelector( '.nodes-sessions__scope' ).textContent ).toBe(
+		'read'
+	);
+	expect( row.textContent ).toContain( 'live' );
+} );
+
+it( 'says an expired session is expired', () => {
+	useSessionsGraph.mockImplementation( ( opts = {} ) => {
+		graphOpts = opts;
+		return {
+			sessions: [ { ...SESSIONS[ 0 ], live: false } ],
+			scopes: [ 'read' ],
+			ttlMax: 86400,
+			loading: false,
+			error: null,
+			createSession,
+			revokeSession,
+			pendingVerb: () => null,
+		};
+	} );
+	const { container } = render( <SessionsAdmin /> );
+	expect( rowsOf( container )[ 0 ].textContent ).toContain( 'expired' );
+} );
+
+it( 'says so when no session has been issued', () => {
+	useSessionsGraph.mockImplementation( ( opts = {} ) => {
+		graphOpts = opts;
+		return {
+			sessions: [],
+			scopes: [],
+			ttlMax: 0,
+			loading: false,
+			error: null,
+			createSession,
+			revokeSession,
+			pendingVerb: () => null,
+		};
+	} );
+	const { container } = render( <SessionsAdmin /> );
+	expect( container.textContent ).toContain( 'No sessions issued.' );
+} );
+
+it( 'surfaces a graph error in the banner', () => {
+	useSessionsGraph.mockImplementation( ( opts = {} ) => {
+		graphOpts = opts;
+		return {
+			sessions: SESSIONS,
+			scopes: [ 'read' ],
+			ttlMax: 86400,
+			loading: false,
+			error: 'sessions unavailable',
+			createSession,
+			revokeSession,
+			pendingVerb: () => null,
+		};
+	} );
+	const { container } = render( <SessionsAdmin /> );
+	expect(
+		container.querySelector( '.newspack-nodes-error-banner' ).textContent
+	).toContain( 'sessions unavailable' );
+} );
+
+it( 'cancels a revoke without sending it', () => {
+	const { container } = render( <SessionsAdmin /> );
+	clickRevoke( rowsOf( container )[ 0 ] );
+	act( () =>
+		dialogButton( /cancel/i ).dispatchEvent(
+			new Event( 'click', { bubbles: true } )
+		)
+	);
+	expect( revokeSession ).not.toHaveBeenCalled();
+	expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+} );
