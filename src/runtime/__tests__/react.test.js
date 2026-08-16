@@ -1,5 +1,10 @@
 import { renderHook, act } from '@testing-library/react';
-import { useNodeState, useNodeFill, useGraphGeneration } from '../react';
+import {
+	useNodeState,
+	useNodeEvent,
+	useNodeFill,
+	useGraphGeneration,
+} from '../react';
 import { Node } from '../node';
 import { Core } from '../core';
 import { newMessage, VALUE } from '../message';
@@ -108,4 +113,57 @@ test( 'useGraphGeneration returns the current generation and re-renders on bump'
 	expect( result.current ).toBe( 1 );
 	act( () => Core.bumpGraphGeneration() );
 	expect( result.current ).toBe( 2 );
+} );
+
+// @longform Delivery PER NOTIFY, not per render: two notifications inside one
+// React batch are one re-render carrying only the later, so anything that ACTS
+// on each publication has to register rather than read rendered state.
+describe( 'useNodeEvent', () => {
+	it( 'runs its callback once per notify, not once per render', () => {
+		const n = new Node();
+		n.name = 'svc';
+		n.registrations.data = {};
+
+		const seen = [];
+		renderHook( () =>
+			useNodeEvent( 'svc', 'data', ( v ) => seen.push( v ) )
+		);
+		act( () => {
+			n.setState( 'data', 'first' );
+			n.setState( 'data', 'second' );
+		} );
+		expect( seen ).toEqual( [ 'first', 'second' ] );
+	} );
+
+	// @longform `removeNode()` WIPES `registrations`, so a torn-down node has
+	// no declared events and `register()` throws on it. Switching devtools
+	// tabs tears one graph down while the next mounts, and a subscriber that
+	// still holds the old node crashes the incoming tab. `useNodeState` never
+	// hit this because it re-seeds the event first; so does this.
+	it( 'subscribes to a node whose registrations teardown wiped', () => {
+		const n = new Node();
+		n.name = 'svc';
+		// The state `removeNode()` leaves: the allow-list is emptied, so
+		// `register()` throws on every event the class declared.
+		n.registrations = {};
+
+		const seen = [];
+		expect( () =>
+			renderHook( () =>
+				useNodeEvent( 'svc', 'data', ( v ) => seen.push( v ) )
+			)
+		).not.toThrow();
+		act( () => n.setState( 'data', 'landed' ) );
+		expect( seen ).toEqual( [ 'landed' ] );
+	} );
+
+	it( 'is a no-op for a node that does not exist', () => {
+		const seen = [];
+		expect( () =>
+			renderHook( () =>
+				useNodeEvent( 'nope', 'data', ( v ) => seen.push( v ) )
+			)
+		).not.toThrow();
+		expect( seen ).toEqual( [] );
+	} );
 } );

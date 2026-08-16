@@ -3,12 +3,55 @@ import {
 	useEffect,
 	useCallback,
 	useId,
+	useRef,
 	useSyncExternalStore,
 } from '@wordpress/element';
 import { Core } from './core';
 
 /**
- * Subscribe a component to a Node's `setState` cache (auto-declares the event).
+ * Subscribe a component to a Node's `setState`, once per NOTIFY.
+ *
+ * Two notifications inside one React batch are one re-render carrying only the
+ * later, so anything that ACTS on each publication — rather than rendering the
+ * latest — has to register instead of reading state.
+ *
+ * The event is auto-declared, and that is load-bearing rather than lenient:
+ * `removeNode()` empties `registrations`, so a node torn down between this
+ * component's render and its effect would make `register()` throw. Switching
+ * devtools tabs does exactly that — one graph comes down while the next goes
+ * up — and the incoming tab took the crash.
+ *
+ * @param {string}   nodeName Registered node name.
+ * @param {string}   event    Event key on `node.registrations`.
+ * @param {Function} onNotify Called with each payload, including the cached
+ *                            one replayed at registration.
+ * @return {?Object} The node subscribed to, or null.
+ */
+export function useNodeEvent( nodeName, event, onNotify ) {
+	const onNotifyRef = useRef( onNotify );
+	onNotifyRef.current = onNotify;
+	const reactId = useId();
+	// Key the effect on the node instance so a name swap re-subscribes.
+	const node = Core.node( nodeName );
+	useEffect( () => {
+		if ( ! node ) {
+			return undefined;
+		}
+		if ( ! ( event in node.registrations ) ) {
+			node.registrations[ event ] = {};
+		}
+		const listenerId = `react/${ reactId }/${ event }`;
+		node.register( event, listenerId, ( payload ) => {
+			onNotifyRef.current( payload );
+			return true;
+		} );
+		return () => node.unregister( event, listenerId );
+	}, [ node, event, reactId ] );
+	return node;
+}
+
+/**
+ * Subscribe a component to a Node's `setState` cache — the LATEST payload.
  *
  * @param {string} nodeName Registered node name.
  * @param {string} event    Event key on `node.registrations`.
@@ -18,27 +61,11 @@ export function useNodeState( nodeName, event ) {
 	const [ value, setValue ] = useState(
 		() => Core.node( nodeName )?.setStateCache?.[ event ]
 	);
-	const reactId = useId();
-	// Key the effect on the node instance so a name swap re-subscribes.
-	const node = Core.node( nodeName );
+	const node = useNodeEvent( nodeName, event, setValue );
 	useEffect( () => {
-		if ( ! node ) {
-			// No node: drop any stale value.
-			setValue( undefined );
-			return undefined;
-		}
-		if ( ! ( event in node.registrations ) ) {
-			node.registrations[ event ] = {};
-		}
-		// Re-seed from the new node's cache so a swap doesn't strand state.
-		setValue( node.setStateCache?.[ event ] );
-		const listenerId = `react/${ reactId }/${ event }`;
-		node.register( event, listenerId, ( payload ) => {
-			setValue( payload );
-			return true;
-		} );
-		return () => node.unregister( event, listenerId );
-	}, [ node, event, reactId ] );
+		// A swap re-seeds, so a name change cannot strand the old state.
+		setValue( node ? node.setStateCache?.[ event ] : undefined );
+	}, [ node, event ] );
 	return value;
 }
 

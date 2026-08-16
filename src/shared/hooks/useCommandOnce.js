@@ -22,14 +22,8 @@
  * commands that both have to go.
  */
 
-import {
-	useCallback,
-	useEffect,
-	useId,
-	useRef,
-	useState,
-} from '@wordpress/element';
-import { Core, CommandInterpreterNode } from '@newspack-nodes/runtime';
+import { useCallback, useRef, useState } from '@wordpress/element';
+import { CommandInterpreterNode, useNodeEvent } from '@newspack-nodes/runtime';
 import { useBatchedPoll } from './useBatchedPoll';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
@@ -151,25 +145,14 @@ export function useCommandOnce( {
 		} );
 	};
 
-	// Per reply, not per render: two answers in a batch are one re-render.
-	const reactId = useId();
-	const node = Core.node( view );
-	// Registering re-delivers the cached reply, so this outlives a remount.
+	// Registering re-delivers the cached reply; this outlives a remount.
 	const seenRef = useRef( null );
-	useEffect( () => {
-		if ( ! node ) {
-			return undefined;
+	useNodeEvent( view, 'result', ( reply ) => {
+		if ( seenRef.current !== reply ) {
+			seenRef.current = reply;
+			onReplyRef.current( reply );
 		}
-		const listener = `useCommandOnce/${ reactId }`;
-		node.register( 'result', listener, ( reply ) => {
-			if ( seenRef.current !== reply ) {
-				seenRef.current = reply;
-				onReplyRef.current( reply );
-			}
-			return true;
-		} );
-		return () => node.unregister( 'result', listener );
-	}, [ node, reactId ] );
+	} );
 
 	const run = useCallback(
 		( args ) => {
