@@ -38,8 +38,6 @@ const EXEMPT = [ 'src/runtime/', 'scripts/lint-contract.mjs' ];
 // a gate ends up certifying the shape it was built to catch. Each entry
 // names what replaces it, and goes when the file does.
 const CONDEMNED = {
-	'src/shared/hooks/useAwaitableCommand.js':
-		'FIFO resolver queue — callers move to useCommandOnce + onDone',
 	'src/topology-console/hooks/useExpandedIncludes.js':
 		'keyed resolver registry — the console load path becomes reply-driven',
 };
