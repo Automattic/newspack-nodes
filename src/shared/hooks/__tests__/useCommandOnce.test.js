@@ -363,7 +363,7 @@ describe( 'useCommandOnce', () => {
 		expect( onDone.mock.calls[ 0 ][ 0 ].args ).toEqual( [ 'spoke-4471' ] );
 		expect( onDone.mock.calls[ 0 ][ 0 ].error ).toMatch( /401/ );
 		expect( result.current.pending ).toBe( false );
-		expect( result.current.answerFor( 'spoke-4471' ).busy ).toBe( false );
+		expect( result.current.answeredArgs ).toEqual( [ 'spoke-4471' ] );
 	}, 30000 );
 
 	// A write that got no reply may already have been applied; sending it
@@ -441,10 +441,10 @@ describe( 'useCommandOnce', () => {
 		expect( onDone ).toHaveBeenCalledTimes( 1 );
 	}, 40000 );
 
-	// A row asks the node that holds its reply — never a table. The hook has ONE
-	// command outstanding and knows what it is about, and the reply landed here
-	// because the server echoed TO=FROM.
-	it( 'answers for the subject its command was about, and no other', async () => {
+	// A reply says which command it answers: both interpreters echo the verb
+	// and its arguments. That is what lets a caller sending about several
+	// subjects say which one it is looking at — no table, no id.
+	it( 'names the subject its reply answered', async () => {
 		replyFor.mockImplementation( () => new Error( 'vault sealed' ) );
 		const { result } = renderHook( () =>
 			useCommandOnce( { ci: 'vault', command: 'test' } )
@@ -452,26 +452,14 @@ describe( 'useCommandOnce', () => {
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
 		} );
-		// Outstanding from the moment it is asked for, not from the reply.
-		expect( result.current.answerFor( 'wombat-4471' ) ).toEqual( {
-			verb: 'test',
-			busy: true,
-			error: null,
-			result: null,
-		} );
-		expect( result.current.answerFor( 'quokka-8823' ) ).toBeNull();
+		expect( result.current.answeredArgs ).toBeNull();
+		expect( result.current.pending ).toBe( true );
 
-		await waitFor(
-			() =>
-				expect( result.current.answerFor( 'wombat-4471' )?.busy ).toBe(
-					false
-				),
-			{ timeout: 6000 }
-		);
-		expect( result.current.answerFor( 'wombat-4471' ).error ).toContain(
-			'vault sealed'
-		);
-		expect( result.current.answerFor( 'quokka-8823' ) ).toBeNull();
+		await waitFor( () => expect( result.current.pending ).toBe( false ), {
+			timeout: 6000,
+		} );
+		expect( result.current.answeredArgs ).toEqual( [ 'wombat-4471' ] );
+		expect( result.current.error ).toContain( 'vault sealed' );
 	}, 20000 );
 
 	// A row's spinner has to last until the ANSWER, not until the send. The
@@ -493,25 +481,16 @@ describe( 'useCommandOnce', () => {
 		await waitFor( () => expect( held.length ).toBe( 1 ), {
 			timeout: 6000,
 		} );
-		expect( result.current.answerFor( 'wombat-4471' ) ).toEqual( {
-			verb: 'test',
-			busy: true,
-			error: null,
-			result: null,
-		} );
 		expect( result.current.pending ).toBe( true );
+		expect( result.current.answeredArgs ).toBeNull();
 
 		await act( async () => {
 			held.forEach( ( release ) => release() );
 		} );
-		await waitFor(
-			() =>
-				expect( result.current.answerFor( 'wombat-4471' )?.busy ).toBe(
-					false
-				),
-			{ timeout: 6000 }
-		);
-		expect( result.current.pending ).toBe( false );
+		await waitFor( () => expect( result.current.pending ).toBe( false ), {
+			timeout: 6000,
+		} );
+		expect( result.current.answeredArgs ).toEqual( [ 'wombat-4471' ] );
 	}, 30000 );
 
 	// Two rows acted on in the same second are two commands in flight. Neither

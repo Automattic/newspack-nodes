@@ -18,11 +18,14 @@
 import { useState, useCallback } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useNodeState } from '@newspack-nodes/runtime';
+import { useNodeState, formatCommandArgs } from '@newspack-nodes/runtime';
 import {
 	useAggregatorStatusGraph,
 	REFRESH_OPTIONS,
+	AGGREGATOR_CI,
+	PROBE_PREFIX,
 } from './hooks/useAggregatorStatusGraph';
+import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import useRouterTick from '@newspack-nodes/shared/hooks/useRouterTick';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
@@ -336,14 +339,12 @@ function FleetRollup( { answer } ) {
 /**
  * Server Card Component.
  *
- * @param {Object}   props               Component props.
- * @param {Object}   props.server        Server status data.
- * @param {number}   props.now           Server snapshot clock for relative-time calc.
- * @param {Object}   [props.probeResult] This spoke's last probe answer, if any.
- * @param {Function} props.onProbe       Fire an on-demand deep probe by server id.
+ * @param {Object} props        Component props.
+ * @param {Object} props.server Server status data.
+ * @param {number} props.now    Server snapshot clock for relative-time calc.
  * @return {import('react').ReactElement} Rendered component.
  */
-function ServerCard( { server, now, probeResult, onProbe } ) {
+function ServerCard( { server, now } ) {
 	const partitions = server.partitions || {};
 	const partitionKeys = Object.keys( partitions ).sort(
 		( a, b ) => Number( a ) - Number( b )
@@ -354,9 +355,21 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
 		( p ) => 'disconnected' !== partitionState( partitions[ p ] )
 	).length;
 
-	// cmd_probe wants the vault credential key, not the node name.
-	const runProbe = () => onProbe( server.vault_id );
-	const probing = true === probeResult?.busy;
+	// @longform The card OWNS its probe, scoped to this spoke: one node per
+	// spoke, so a second card's answer lands on its own node instead of
+	// replacing this one's rollup. cmd_probe wants the vault credential key,
+	// not the node name.
+	const probe = useCommandOnce( {
+		ci: AGGREGATOR_CI,
+		command: 'probe',
+		scope: `${ PROBE_PREFIX }:${ server.vault_id }`,
+	} );
+	const runProbe = () =>
+		probe.run( formatCommandArgs( [ server.vault_id ] ) );
+	const probing = probe.pending;
+	const probeResult = probe.answeredArgs
+		? { busy: false, error: probe.error, result: probe.result }
+		: null;
 
 	return (
 		<div className="newspack-nodes-card newspack-nodes-card--elevated aggregator-server-card">
@@ -413,9 +426,8 @@ function ServerCard( { server, now, probeResult, onProbe } ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function AggregatorStatus( { headerControlsSlot } ) {
-	// Mount the graph (poll slices + interval) + the on-demand probe dispatch.
-	const { setRefreshInterval, refreshInterval, probe, answerFor } =
-		useAggregatorStatusGraph();
+	// The poll slices and their cadence; each card owns its own probe.
+	const { setRefreshInterval, refreshInterval } = useAggregatorStatusGraph();
 
 	// Two independent read surfaces — one per slice the graph publishes.
 	const summary = useNodeState( 'summary:view', 'view' ) ?? EMPTY_SUMMARY;
@@ -510,8 +522,6 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 								key={ server.id }
 								server={ server }
 								now={ serverNow }
-								probeResult={ answerFor( server.vault_id ) }
-								onProbe={ probe }
 							/>
 						) )
 					) : (
