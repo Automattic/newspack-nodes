@@ -11,12 +11,6 @@
  * Core so each widget can read its model via useNodeState.
  */
 
-// Each card owns its probe, scoped to its spoke, so the double stands in for
-// the wire and lets a test answer one card without touching the others.
-jest.mock( '@newspack-nodes/shared/hooks/useCommandOnce', () =>
-	require( '@newspack-nodes/shared/test-utils/mockCommandOnce' ).factory()
-);
-
 jest.mock( '../hooks/useAggregatorStatusGraph', () => {
 	const actual = jest.requireActual( '../hooks/useAggregatorStatusGraph' );
 	return {
@@ -29,11 +23,6 @@ jest.mock( '../hooks/useAggregatorStatusGraph', () => {
 import { createElement } from '@wordpress/element';
 import { render, act } from '@testing-library/react';
 import { Core } from '@newspack-nodes/runtime';
-import {
-	answerCommand,
-	sentTo,
-	resetCommands,
-} from '@newspack-nodes/shared/test-utils/mockCommandOnce';
 import AggregatorStatus from '../AggregatorStatus';
 
 const {
@@ -64,6 +53,7 @@ const SAMPLE_SERVERS = [
 	},
 	{
 		id: 'server2',
+		vault_id: 'server2-vault-cred',
 		url: 'https://b.example.test',
 		partitions: {},
 	},
@@ -142,7 +132,23 @@ function registerSlices( { summary = {}, servers = {} } = {} ) {
 
 describe( 'AggregatorStatus', () => {
 	let setRefreshInterval;
-	const probeScope = ( id ) => `aggregator:probe:${ id }`;
+	let probeServer;
+	let graphOpts = {};
+	// What the graph reports as outstanding; the card asks rather than keeping
+	// a flag of its own.
+	let pendingSubjects = [];
+
+	// A reply, already addressed: the graph hands the screen the answer and
+	// the SUBJECT it named, exactly as the reply path delivered it.
+	const answerProbe = ( subject, answer ) =>
+		act( () =>
+			graphOpts.onAnswer?.( {
+				subject,
+				result: null,
+				error: null,
+				...answer,
+			} )
+		);
 
 	// Fire the nth card's Probe button.
 	const clickProbe = ( container, n ) =>
@@ -157,11 +163,18 @@ describe( 'AggregatorStatus', () => {
 		Core.reset();
 		window.localStorage.clear();
 		setRefreshInterval = jest.fn();
-		resetCommands();
+		probeServer = jest.fn();
+		graphOpts = {};
+		pendingSubjects = [];
 		useAggregatorStatusGraph.mockClear();
-		useAggregatorStatusGraph.mockReturnValue( {
-			setRefreshInterval,
-			refreshInterval: '2000',
+		useAggregatorStatusGraph.mockImplementation( ( opts = {} ) => {
+			graphOpts = opts;
+			return {
+				setRefreshInterval,
+				refreshInterval: '2000',
+				probeServer,
+				isPending: ( subject ) => pendingSubjects.includes( subject ),
+			};
 		} );
 	} );
 
@@ -604,6 +617,23 @@ describe( 'AggregatorStatus', () => {
 		jest.useRealTimers();
 	} );
 
+	// The card asks the graph what it is waiting on; the outbox is the only
+	// thing that knows, and a flag flipped at the click goes stale the moment
+	// one path forgets to clear it.
+	it( 'shows only the outstanding card as probing', () => {
+		pendingSubjects = [ 'server1-vault-cred' ];
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const buttons = container.querySelectorAll(
+			'.aggregator-fleet-probe-button'
+		);
+		expect( buttons[ 0 ].disabled ).toBe( true );
+		expect( buttons[ 0 ].textContent ).toContain( 'Probing…' );
+		expect( buttons[ 1 ].disabled ).toBe( false );
+	} );
+
 	it( 'renders one Probe button per server card', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
@@ -615,24 +645,16 @@ describe( 'AggregatorStatus', () => {
 		).toBe( SAMPLE_SERVERS.length );
 	} );
 
-	it( 'clicking Probe fires the hook probe(id)', async () => {
+	it( 'clicking Probe fires the hook probe(id)', () => {
 		registerSlices( {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		const button = container.querySelector(
-			'.aggregator-fleet-probe-button'
-		);
-		await act( async () => {
-			button.dispatchEvent(
-				new window.MouseEvent( 'click', { bubbles: true } )
-			);
-		} );
+		clickProbe( container, 0 );
 		// The probe verb takes the VAULT credential key, not the node name —
 		// they differ in real topologies, so this must not regress to `id`.
-		expect( sentTo( probeScope( 'server1-vault-cred' ) ) ).toContainEqual( [
-			'server1-vault-cred',
-		] );
+		expect( probeServer ).toHaveBeenCalledWith( 'server1-vault-cred' );
+		expect( probeServer ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'renders the fleet roll-up when a probe result is present', () => {
@@ -640,25 +662,44 @@ describe( 'AggregatorStatus', () => {
 			servers: { servers: SAMPLE_SERVERS, loading: false },
 		} );
 		const { container } = mount();
-		// Scoped by vault_id (what the card probes), NOT `id` — a scope that
-		// regresses to server.id answers a node no card is reading.
+		// Keyed by vault_id (what the card probes), NOT `id` — an answer
+		// naming server.id would reach no card at all.
 		clickProbe( container, 0 );
-		answerCommand(
-			probeScope( 'server1-vault-cred' ),
-			{
-				result: {
-					workers: { total: 4, live: 3, stale: 1, dead: 0 },
-					worst_distance: 128,
-					deadletter_segments: 5,
-				},
+		answerProbe( 'server1-vault-cred', {
+			result: {
+				workers: { total: 4, live: 3, stale: 1, dead: 0 },
+				worst_distance: 128,
+				deadletter_segments: 5,
 			},
-			act
-		);
+		} );
 		expect( container.textContent ).toContain(
 			'3 live / 1 stale / 0 dead'
 		);
 		expect( container.textContent ).toContain( '128' );
 		expect( container.textContent ).toContain( 'DLQ 5' );
+	} );
+
+	// @longform Two spokes probed in the same second are two subjects, and each
+	// card shows its OWN roll-up. A screen reading one shared result cannot:
+	// the second answer replaces the first, and a card that is up starts
+	// displaying its neighbour's numbers.
+	it( 'keeps each card’s roll-up when a second spoke is probed', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const cards = () =>
+			container.querySelectorAll( '.aggregator-server-card' );
+
+		clickProbe( container, 0 );
+		answerProbe( 'server1-vault-cred', {
+			result: { worst_distance: 4471 },
+		} );
+		clickProbe( container, 1 );
+		answerProbe( 'server2-vault-cred', { error: 'could not connect' } );
+
+		expect( cards()[ 0 ].textContent ).toContain( '4471' );
+		expect( cards()[ 1 ].textContent ).toContain( 'could not connect' );
 	} );
 
 	it( 'renders the probe error line on a failed probe', () => {
@@ -667,11 +708,9 @@ describe( 'AggregatorStatus', () => {
 		} );
 		const { container } = mount();
 		clickProbe( container, 0 );
-		answerCommand(
-			probeScope( 'server1-vault-cred' ),
-			{ error: 'could not connect to server' },
-			act
-		);
+		answerProbe( 'server1-vault-cred', {
+			error: 'could not connect to server',
+		} );
 		const err = container.querySelector(
 			'.aggregator-fleet-rollup.is-error'
 		);

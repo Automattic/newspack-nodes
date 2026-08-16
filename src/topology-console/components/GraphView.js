@@ -4,6 +4,8 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
+import { useNodeState } from '../../runtime/react';
+import names from '../../runtime/reserved-node-names.json';
 import { hullNodes } from '../utils/hullNodes';
 import { aggregateSeries } from '../utils/aggregateSeries';
 
@@ -106,7 +108,16 @@ export default function GraphView( {
 		setSelectedEdge( null );
 	}, [ selection ] );
 
-	const { rateRef, rateVersion } = useGraphRates( graph, resetKey );
+	// @longform A sparkline point is a dump_metadata SNAPSHOT. The canvas graph
+	// is rebuilt far more often than one arrives — a catalog republishing was
+	// enough — and sampling per rebuild files an empty point for every rebuild
+	// in between, which reads as a spike at the poll and shrinks the ring's
+	// window to a fraction of what its label claims.
+	const snapshot = useNodeState( names.METADATA, 'metadata' );
+	const { rateRef, rateVersion } = useGraphRates(
+		snapshot ?? graph,
+		resetKey
+	);
 	// One derivation for both scopes, off the per-node rate histories.
 	const rateSeries = useMemo(
 		() => aggregateSeries( rateRef.current, graph.nodes ),

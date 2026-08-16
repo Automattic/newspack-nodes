@@ -8,7 +8,7 @@
  *   <timer> (Timer) ─> <tee> (Tee) ─> N Fetchers ─> _shell/_http/<ci>   ONE POST/tick
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useEffect } from '@wordpress/element';
 import {
@@ -234,6 +234,34 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		expect( wire.batches.length ).toBe( 1 );
 	} );
 
+	// @longform The first load already refuses to spend a tick it could not
+	// sign. Every LATER tick has the same problem and had no such guard: a
+	// session that turns over mid-session leaves the next tick unsigned, and
+	// spending it costs a whole cadence — half a minute on a catalog — before
+	// anything asks again.
+	test( 'a tick that cannot sign does not spend the cadence', async () => {
+		const wire = installWire();
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				intervalMs: 30000,
+			} )
+		);
+		await waitFor( () => expect( wire.batches.length ).toBe( 1 ), {
+			timeout: 6000,
+		} );
+		const timer = Core.node( 'insights:timer' );
+
+		// The session turns over; the next tick can sign nothing.
+		forgetSession();
+		timer.lastFireTime = Core.now();
+		act( () => timer.notify( 'FIRE', Core.now() ) );
+
+		expect( timer.lastFireTime ).toBe( 0 );
+	}, 20000 );
+
 	test( 'enabled:false costs no request at all — not even the first load', async () => {
 		const wire = installWire();
 		renderHook( () =>
@@ -250,6 +278,49 @@ describe( 'useBatchedPoll — initial poll on mount', () => {
 		// `paused` deliberately still delivers ONE first load; a surface that
 		// is never opened must cost nothing, which is a different gate.
 		expect( wire.batches.length ).toBe( 0 );
+	} );
+
+	// @longform "Costs nothing" has to mean the NODES too. A disabled slice
+	// still built its Tee, Fetcher, view and Timer under the names the enabled
+	// one uses — so the moment two surfaces on one page held the same catalog,
+	// one of them disabled, the second mount collided on a name and took the
+	// screen down with it.
+	test( 'enabled:false builds no nodes either', async () => {
+		installWire();
+		renderHook( () =>
+			useBatchedPoll( {
+				build: buildSlices,
+				timerName: 'insights:timer',
+				teeName: 'insights:tee',
+				enabled: false,
+				intervalMs: 5000,
+			} )
+		);
+		await act( async () => {} );
+
+		expect( Core.node( 'insights:tee' ) ).toBeNull();
+		expect( Core.node( 'insights:timer' ) ).toBeNull();
+	} );
+
+	test( 'enabling later builds the nodes then', async () => {
+		installWire();
+		const { rerender } = renderHook(
+			( { enabled } ) =>
+				useBatchedPoll( {
+					build: buildSlices,
+					timerName: 'insights:timer',
+					teeName: 'insights:tee',
+					enabled,
+					intervalMs: 5000,
+				} ),
+			{ initialProps: { enabled: false } }
+		);
+		await act( async () => {} );
+		expect( Core.node( 'insights:tee' ) ).toBeNull();
+
+		rerender( { enabled: true } );
+		await act( async () => {} );
+		expect( Core.node( 'insights:tee' ) ).toBeTruthy();
 	} );
 
 	test( 'enabling later delivers the first load then', async () => {

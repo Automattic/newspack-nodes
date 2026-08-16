@@ -11,6 +11,7 @@
 import {
 	newMessage,
 	TYPE,
+	TO,
 	VALUE,
 	TM_COMMAND,
 	TM_ERROR,
@@ -42,6 +43,7 @@ describe( 'CommandResultNode', () => {
 		replyWith( node, { restarted_fleets: [ 'wombat-4471' ] } );
 		expect( node.setStateCache.result ).toEqual( {
 			ok: true,
+			subject: null,
 			args: [],
 			payload: { restarted_fleets: [ 'wombat-4471' ] },
 			error: null,
@@ -137,5 +139,28 @@ describe( 'CommandResultNode', () => {
 		const node = new CommandResultNode();
 		replyWith( node, 'no such topology', true );
 		expect( node.setStateCache.result.errorData ).toBeNull();
+	} );
+} );
+
+// @longform The Router peels FROM one segment at a time, so a reply minted
+// from `vault:test:in/tw0` reaches this node with TO `tw0` — the subject it
+// is about, carried by the ADDRESS. One node answers about every row that
+// way, and nothing has to be filed under anything.
+describe( 'the subject rides in the address', () => {
+	it( 'publishes the remaining TO as the subject', () => {
+		const node = new CommandResultNode();
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ TO ] = 'tw0';
+		m[ VALUE ] = { name: 'test', arguments: [ 'tw0' ], payload: { ok: 1 } };
+		node.fill( m );
+
+		expect( node.setStateCache.result.subject ).toBe( 'tw0' );
+	} );
+
+	it( 'publishes a null subject for a reply addressed to the node itself', () => {
+		const node = new CommandResultNode();
+		replyWith( node, { rows: [] } );
+		expect( node.setStateCache.result.subject ).toBeNull();
 	} );
 } );

@@ -11,6 +11,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { Core, VALUE } from '@newspack-nodes/runtime';
 import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import { useTopologyList, useTopology } from '../useCatalogs';
+import { runClockFast } from '@newspack-nodes/shared/test-utils/fastClock';
 
 // Distinct from every default so a wrong-field read fails rather than coincides.
 const LISTED = {
@@ -25,6 +26,7 @@ const verbs = () => replyFor.mock.calls.map( ( [ m ] ) => m[ VALUE ].name );
 
 beforeEach( () => {
 	Core.reset();
+	runClockFast();
 	window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
 	replyFor = jest.fn( ( m ) =>
 		'get' === m[ VALUE ].name ? FETCHED : LISTED

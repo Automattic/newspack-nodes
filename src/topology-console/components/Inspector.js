@@ -986,7 +986,7 @@ function EditForm( {
 										className="button button-small topology-edit-verb__add"
 										onClick={ handleAdd }
 									>
-										{ `+ Add ${ cspec.name }` }
+										{ `+ ${ cspec.name }` }
 									</button>
 								</div>
 							);

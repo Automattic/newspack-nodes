@@ -18,18 +18,7 @@ jest.mock( '../hooks/useVaultGraph', () => {
 	};
 } );
 
-// Each row and the add form own their verbs, so the double stands in for the
-// wire and lets a test answer any one of them by scope.
-jest.mock( '@newspack-nodes/shared/hooks/useCommandOnce', () =>
-	require( '@newspack-nodes/shared/test-utils/mockCommandOnce' ).factory()
-);
-
 import { render, act } from '@testing-library/react';
-import {
-	answerCommand,
-	sentTo,
-	resetCommands,
-} from '@newspack-nodes/shared/test-utils/mockCommandOnce';
 import { Core } from '../../runtime/core';
 import VaultAdmin from '../VaultAdmin';
 
@@ -93,37 +82,44 @@ function dialogButton( label ) {
 	);
 }
 
-// The graph publishes the last answer PER SERVER; a row renders it.
-
 describe( 'VaultAdmin', () => {
-	let refresh;
+	let addServer;
+	let removeServer;
+	let testServer;
+	let graphOpts = {};
+	// What the graph reports as outstanding (as a `test`); the screen asks
+	// rather than keeping a flag of its own.
+	let pendingSubjects = [];
 	const mounted = [];
 
-	// A reply landing on the node that asked. `subject` names the row, which
-	// is what scopes the verb — the add form has no row, so it has no subject.
+	// A reply, already addressed: the graph hands the screen the answer and
+	// the SUBJECT it named, exactly as the reply path delivered it.
 	function answer( verb, { subject, error = null } ) {
-		// The add form has no row, so its verb is scoped by the CI alone.
-		const scope =
-			'add' === verb ? 'vault:add' : `vault:${ verb }:${ subject }`;
-		answerCommand(
-			scope,
-			{ error, result: error ? null : { ok: 1 } },
-			act
-		);
+		act( () => graphOpts.onAnswer?.( { verb, subject, error } ) );
 	}
 
 	publish = function () {
-		useVaultGraph.mockImplementation( () => ( {
-			...model,
-			refresh,
-		} ) );
+		useVaultGraph.mockImplementation( ( opts = {} ) => {
+			graphOpts = opts;
+			return {
+				...model,
+				addServer,
+				removeServer,
+				testServer,
+				pendingVerb: ( subject ) =>
+					pendingSubjects.includes( subject ) ? 'test' : null,
+			};
+		} );
 		mounted.forEach( ( r ) => r.rerender( <VaultAdmin /> ) );
 	};
 
 	beforeEach( () => {
 		Core.reset();
-		resetCommands();
-		refresh = jest.fn();
+		addServer = jest.fn();
+		removeServer = jest.fn();
+		testServer = jest.fn();
+		graphOpts = {};
+		pendingSubjects = [];
 		model = { servers: null, loading: true, error: null };
 		useVaultGraph.mockClear();
 		publish();
@@ -140,6 +136,24 @@ describe( 'VaultAdmin', () => {
 		mounted.push( r );
 		return r;
 	}
+
+	// @longform The row shows the work while a verb about it is outstanding —
+	// and it asks the graph, which owns the outbox, instead of keeping a flag
+	// flipped at the click and cleared in the answer. A flag beside every call
+	// site is the thing that goes stale when a path forgets to clear it.
+	it( 'shows the outstanding row as working, and only that row', () => {
+		pendingSubjects = [ 'spoke-01' ];
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		const rows = container.querySelectorAll( 'tbody tr' );
+		const testButton = ( row ) =>
+			Array.from( row.querySelectorAll( 'button' ) ).find( ( b ) =>
+				/test/i.test( b.textContent )
+			);
+		expect( rows[ 0 ].textContent ).toContain( 'Testing…' );
+		expect( testButton( rows[ 0 ] ).disabled ).toBe( true );
+		expect( testButton( rows[ 1 ] ).disabled ).toBe( false );
+	} );
 
 	it( 'mounts the graph (calls useVaultGraph)', () => {
 		registerViewFixture();
@@ -276,7 +290,7 @@ describe( 'VaultAdmin', () => {
 			);
 		} );
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
-		expect( sentTo( 'vault:add' ) ).toEqual( [] );
+		expect( addServer ).not.toHaveBeenCalled();
 	} );
 
 	it( 'closes the add modal after a successful add', async () => {
@@ -293,7 +307,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( sentTo( 'vault:add' ) ).not.toEqual( [] );
+		expect( addServer ).toHaveBeenCalled();
 		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
 		// The modal is gone once the add's answer lands.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
@@ -316,13 +330,12 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		// The form builds argv itself now: id positional, credentials named.
-		expect( sentTo( 'vault:add' )[ 0 ] ).toEqual( [
-			'spoke-09',
-			'--url=https://spoke.example',
-			'--auth_username=admin',
-			'--auth_password=secret',
-		] );
+		expect( addServer ).toHaveBeenCalledWith( {
+			id: 'spoke-09',
+			url: 'https://spoke.example',
+			auth_username: 'admin',
+			auth_password: 'secret',
+		} );
 	} );
 
 	it( 'blocks add submission and shows a message when the id is empty', async () => {
@@ -338,7 +351,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( sentTo( 'vault:add' ) ).toEqual( [] );
+		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'ID is required' );
 		// A blocked submission keeps the modal open so the user can correct it.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
@@ -358,7 +371,7 @@ describe( 'VaultAdmin', () => {
 				.querySelector( '#event-aggregator-add-server' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
-		expect( sentTo( 'vault:add' ) ).toEqual( [] );
+		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'https://' );
 	} );
 
@@ -375,7 +388,7 @@ describe( 'VaultAdmin', () => {
 		expect( document.body.textContent ).toContain(
 			'Are you sure you want to remove this server?'
 		);
-		expect( sentTo( 'vault:delete:spoke-01' ) ).toEqual( [] );
+		expect( removeServer ).not.toHaveBeenCalled();
 	} );
 
 	it( 'calls removeServer when the dialog confirm is clicked', async () => {
@@ -392,9 +405,7 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( sentTo( 'vault:delete:spoke-01' ) ).toContainEqual( [
-			'spoke-01',
-		] );
+		expect( removeServer ).toHaveBeenCalledWith( 'spoke-01' );
 	} );
 
 	it( 'does NOT call removeServer when the dialog is cancelled', async () => {
@@ -411,7 +422,7 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( sentTo( 'vault:delete:spoke-01' ) ).toEqual( [] );
+		expect( removeServer ).not.toHaveBeenCalled();
 		// Closing the dialog removes it from the document.
 		expect( document.body.textContent ).not.toContain(
 			'Are you sure you want to remove this server?'
@@ -430,9 +441,7 @@ describe( 'VaultAdmin', () => {
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
-		expect( sentTo( 'vault:test:spoke-01' ) ).toContainEqual( [
-			'spoke-01',
-		] );
+		expect( testServer ).toHaveBeenCalledWith( 'spoke-01' );
 		await act( async () => answer( 'test', { subject: 'spoke-01' } ) );
 		expect( row.querySelector( '.test-status' ).textContent ).toContain(
 			'Connected'

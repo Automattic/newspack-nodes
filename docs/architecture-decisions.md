@@ -278,6 +278,19 @@ sets none is unaffected. `SSE_In` is deliberately exempt: a subscribed `_repl` s
   into a remote socket and removes the local interpreter; here nothing rewires — the graph
   stays put and only the address changes.
 - **TO=FROM replies need no correlation table.** The breadcrumb is the return address.
+- **A subject rides in the address, so one node answers about many rows.** A minter that
+  serves N subjects appends the one it is asking about to its own FROM —
+  `vault:test:in/spoke-01`. The server echoes `TO = FROM`, `_router` peels the receiver, and
+  the reply arrives at `vault:test:in` carrying `spoke-01` as its remaining TO: the answer
+  says which row it is about, with no id in the message and nothing correlating it. A screen
+  serving many rows then FILES that answer under the subject it arrived naming; a per-row map
+  is view state, not correlation, because the matching already happened in the address. What
+  this ADR forbids is a table that decides WHICH ask a reply belongs to. This is what
+  "ONE node doing N jobs — make it N nodes" does NOT mean: a table of ten servers is one node
+  per verb, not fifty. Split by JOB (a verb, a poll, a stream), never by SUBJECT. A subject
+  is one path segment, so it is escaped going out and read back on arrival
+  (`useCommandOnce`'s `subjectOf`), and a first token too long to be an address — a document
+  rather than an identity — is refused where the caller can fix it.
 - **Late binding.** Targets resolve at fill-time: any construction order, cyclic graphs
   wireable. Eager reference-binding breaks reordered and cyclic graphs.
 - **In practice, targets route everything — data included.** The discipline in both realms
@@ -824,3 +837,57 @@ contract gate rather than the browser.
 
 **Revisit if:** the runtime gains a single cross-bundle class registry with collision handling
 — then names become safe again everywhere and the rule retires with the decision.
+
+---
+
+## ADR-17: Timers fire on a shared wall-clock grid
+
+**Status:** Accepted
+
+**Context:** Every browser poll rides the `_router` TIMER, and `HTTP_Out` batches whatever was
+minted during one tick into a single POST. That batching is the whole reason the graph has one
+heartbeat — but a hitchhiking timer whose interval exceeds the 1s tick threw the benefit away.
+It paced itself from its OWN last fire, so *when* a surface was opened decided which second it
+polled in: a 5s catalog opened at :02 and another opened at :04 never shared a tick again, and
+each paid its own POST forever. A page with four cadences paid four requests where one would
+do, and no test could see it — every poll worked.
+
+**Decision:** `TimerNode.fireCb()` fires on a boundary of a wall-clock GRID, not on elapsed
+time since its own last fire:
+
+```js
+nextBoundary( after, intervalMs ) // ( floor( ( after - phase ) / interval ) + 1 ) * interval + phase
+```
+
+The grid is a pure function of the clock, so two timers on one cadence converge with nothing
+shared, nothing persisted and no coordination — the same property that lets `LRU_Cache`'s
+bucket rotation survive a process restart with its predecessor's phase intact.
+
+**ONE phase serves every cadence** (`GRID_PHASE_MS`), never one per interval. That is what
+keeps the harmonics: a 10s boundary is every second 5s boundary and a 30s boundary every sixth,
+so 5s/10s/15s/30s polls all meet every 30 seconds and leave together. A per-interval phase —
+the first implementation — slides each cadence a few hundred milliseconds off the others and
+destroys exactly the alignment the grid exists for. The offset itself only keeps the grid off
+:00, where every other periodic job on the box already is.
+
+**The grid lives in `TimerNode` and nowhere else.** A subclass picks a harmonic interval and
+nothing more; it never computes a boundary. `MetadataNode` used to keep a second throttle of
+its own and is the cautionary case: its poll drifted off the grid, and the fix had to be
+written twice before it became a `PollerNode` like the others.
+
+**Alternatives considered:**
+
+- **Per-interval phase.** Rejected on the harmonics, above.
+- **A shared scheduler node every timer registers with.** Rejected: the Router already IS the
+  one heartbeat, and a second coordinator is state where arithmetic suffices.
+- **Snapping each timer to the first tick after arming.** Rejected — that is the behaviour this
+  replaces; it is exactly what made the phase depend on when a surface opened.
+
+**Consequences:** The first period after arming is the short remainder of the period the timer
+opened in, so a poll can fire twice in quick succession at mount. That is the cost of
+converging immediately, and it is paid once. Tests that assert "no second fire within N
+seconds" become clock-dependent unless they pin the clock — pin it FORWARD to just past a
+boundary, since moving it back reads to every watchdog as a stream gone silent.
+
+**Revisit if:** the runtime gains sub-second cadences, where a 360ms phase is a large fraction
+of a period and the grid would need its own scale.

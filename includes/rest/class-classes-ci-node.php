@@ -111,7 +111,8 @@ class Classes_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Strip a node_schema's commands[] to the serializable palette shape
-	 * `{name, description, args}`, dropping the non-serializable `handler`.
+	 * `{name, description, args}` plus the flags the console renders by
+	 * (`multiple`, `hidden`, `action`), dropping the non-serializable `handler`.
 	 *
 	 * Fail-soft: a malformed command (non-array entry, or one with no/empty name)
 	 * is skipped rather than throwing — a single bad class must not fatal the
@@ -145,6 +146,10 @@ class Classes_CI_Node extends Service_CI_Node {
 			// Carry the hidden flag → inspector drops the standalone verb.
 			if ( ! empty( $command['hidden'] ) ) {
 				$stripped_command['hidden'] = true;
+			}
+			// Carry the action flag → the editor drops it (not configuration).
+			if ( ! empty( $command['action'] ) ) {
+				$stripped_command['action'] = true;
 			}
 			$stripped[] = $stripped_command;
 		}

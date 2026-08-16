@@ -64,14 +64,20 @@ const TYPE_NAMES = [
  * refusal string — IS the result. Absent means null, never undefined, so a
  * consumer's `??` fallback fires on both.
  *
- * @param {*} value The message VALUE.
+ * An enveloped VALUE with no `payload` unwraps to `fallback` — null by
+ * default, so a payload-less ack cannot blank a poller's grid. `_metadata`
+ * passes the value itself, because `dump_metadata` answers bare as often as
+ * enveloped and the bare map IS the answer.
+ *
+ * @param {*} value      The message VALUE.
+ * @param {*} [fallback] What an enveloped value with no payload unwraps to.
  * @return {*} The payload, or the value itself.
  */
-export function payloadOf( value ) {
+export function payloadOf( value, fallback = null ) {
 	if ( null === value || undefined === value || 'object' !== typeof value ) {
 		return value ?? null;
 	}
-	return Array.isArray( value ) ? value : value.payload ?? null;
+	return Array.isArray( value ) ? value : value.payload ?? fallback;
 }
 
 /**

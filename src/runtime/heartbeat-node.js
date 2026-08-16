@@ -103,6 +103,8 @@ export class HeartbeatNode extends TimerNode {
 		for ( const lease of this._leases.values() ) {
 			const m = this._pollMessage( lease );
 			if ( ! m ) {
+				// Still due: an unsent tick does not spend the cadence.
+				this.markDue();
 				return; // unauthenticated: the next tick carries it
 			}
 			this.counter++;

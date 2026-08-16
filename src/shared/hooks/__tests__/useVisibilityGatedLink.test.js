@@ -15,9 +15,7 @@ function fakeLink() {
 		connect: jest.fn(),
 		close: jest.fn(),
 		removeNode: jest.fn(),
-		resumePositions: jest.fn( () => ( {
-			'x.p0': { segment: 1, offset: 2 },
-		} ) ),
+		reconnect: jest.fn(),
 	};
 }
 

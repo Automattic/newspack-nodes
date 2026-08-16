@@ -17,9 +17,7 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
-import { useVaultGraph, VAULT_CI } from './hooks/useVaultGraph';
-import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
-import { formatCommandArgs } from '../runtime/command-args';
+import { useVaultGraph } from './hooks/useVaultGraph';
 import './vault-admin.scss';
 import { primaryButtonClass } from '@newspack-nodes/shared/utils/buttonClass';
 import { answerStatus } from '@newspack-nodes/shared/utils/answerStatus';
@@ -89,44 +87,32 @@ const ROW_TEXTS = {
 /**
  * A single server row — id / url / status + Test / Remove actions.
  *
- * The row OWNS its two verbs, each scoped to this server, so their replies land
- * on nodes that serve this row and no other. One node per verb across every row
- * would be one node doing N jobs: the second row's reply lands where the
- * first's did and blanks the first row's status line.
+ * The row renders the answer that NAMED it. Each reply arrives already
+ * addressed to one server — the sender put it in the reply path — so the table
+ * hands each row its own, and a sibling being tested cannot blank this line.
  *
- * @param {Object}   props           Component props.
- * @param {Object}   props.server    Public server shape from the view model.
- * @param {Function} props.onChanged Called when this row changed the list.
+ * @param {Object}   props          Component props.
+ * @param {Object}   props.server   Public server shape from the view model.
+ * @param {?Object}  props.answer   This row's last answer, or null.
+ * @param {?string}  props.pending  The verb outstanding about this row, if any.
+ * @param {Function} props.onRemove Remove callback (id).
+ * @param {Function} props.onTest   Test callback (id).
  * @return {import('react').ReactElement} The rendered row.
  */
-function ServerRow( { server, onChanged } ) {
+function ServerRow( { server, answer, pending, onRemove, onTest } ) {
 	const { id, url } = server;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
-
-	const test = useCommandOnce( {
-		ci: VAULT_CI,
-		command: 'test',
-		scope: `${ VAULT_CI }:test:${ id }`,
-	} );
-	const remove = useCommandOnce( {
-		ci: VAULT_CI,
-		command: 'delete',
-		scope: `${ VAULT_CI }:delete:${ id }`,
-		onDone: onChanged,
-	} );
-
-	// Its own two verbs, and one status line: a removal outranks a probe.
-	const verb = remove.pending || remove.answeredArgs ? 'delete' : 'test';
-	const active = 'delete' === verb ? remove : test;
-	const busy = active.pending;
+	const busy = Boolean( pending );
+	// The outstanding verb picks the words; the answered one after.
 	const status = answerStatus(
-		busy || active.answeredArgs ? { busy, error: active.error } : null,
-		ROW_TEXTS[ verb ]
+		answer,
+		ROW_TEXTS[ pending ?? answer?.verb ] ?? {},
+		busy
 	);
 
 	const confirmRemove = () => {
 		setIsConfirmOpen( false );
-		remove.run( formatCommandArgs( [ id ] ) );
+		onRemove( id );
 	};
 
 	return (
@@ -148,7 +134,7 @@ function ServerRow( { server, onChanged } ) {
 					className="button button-small event-aggregator-test"
 					data-server-id={ id }
 					disabled={ busy }
-					onClick={ () => test.run( formatCommandArgs( [ id ] ) ) }
+					onClick={ () => onTest( id ) }
 				>
 					{ __( 'Test', 'newspack-nodes' ) }
 				</button>{ ' ' }
@@ -203,42 +189,28 @@ function validate( id, url ) {
  * The "Add New Server" form — id / url / username / password + submit. Owns the
  * field state + the validation/status line. Rendered inside the add-server modal.
  *
- * The add is this form's OWN verb, so its reply lands here: a success closes
- * the modal, a refusal fills the status line and leaves the fields alone.
+ * The add's answer arrives named after the id it submitted, like every other
+ * verb here, so the form renders it the same way a row does.
  *
- * @param {Object}     props           Component props.
- * @param {Function}   props.onAdded   Called when the add succeeded.
- * @param {Function}   props.onChanged Called on any reply, to refresh the list.
- * @param {() => void} props.onCancel  Dismisses the modal from the footer Cancel button.
+ * @param {Object}     props          Component props.
+ * @param {Function}   props.onAdd    Add callback (fields).
+ * @param {?Object}    props.answer   The answer for the submitted id, if any.
+ * @param {boolean}    props.busy     Whether the add is outstanding.
+ * @param {() => void} props.onCancel Dismisses the modal from the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
-function AddServerForm( { onAdded, onChanged, onCancel } ) {
+function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 	const [ id, setId ] = useState( '' );
 	const [ url, setUrl ] = useState( '' );
 	const [ username, setUsername ] = useState( '' );
 	const [ password, setPassword ] = useState( '' );
-	// Local validation only; the reply below supplies everything else.
+	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
 	const idRef = useRef( null );
 
-	const add = useCommandOnce( {
-		ci: VAULT_CI,
-		command: 'add',
-		onDone: ( { error } ) => {
-			onChanged();
-			if ( ! error ) {
-				onAdded();
-			}
-		},
-	} );
-
-	const busy = add.pending;
 	const status = invalid
 		? { text: invalid, tone: 'is-error' }
-		: answerStatus(
-				busy || add.answeredArgs ? { busy, error: add.error } : null,
-				ADD_TEXTS
-		  );
+		: answerStatus( answer, ADD_TEXTS, busy );
 
 	// Focus the first field when the modal opens.
 	useEffect( () => {
@@ -253,14 +225,12 @@ function AddServerForm( { onAdded, onChanged, onCancel } ) {
 		if ( refusal ) {
 			return;
 		}
-		// id is positional; credentials are named args.
-		add.run(
-			formatCommandArgs( [ trimmedId ], {
-				url: trimmedUrl,
-				auth_username: username.trim(),
-				auth_password: password,
-			} )
-		);
+		onAdd( {
+			id: trimmedId,
+			url: trimmedUrl,
+			auth_username: username.trim(),
+			auth_password: password,
+		} );
 	};
 
 	return (
@@ -396,12 +366,14 @@ function AddServerForm( { onAdded, onChanged, onCancel } ) {
  * The add-server modal: the heading + the AddServerForm. Closes on a successful
  * add (onSuccess → onClose) or on ESC / backdrop / Cancel.
  *
- * @param {Object}     props           Component props.
- * @param {Function}   props.onChanged Called on any reply, to refresh the list.
- * @param {() => void} props.onClose   Dismisses the modal.
+ * @param {Object}     props         Component props.
+ * @param {Function}   props.onAdd   Add callback (fields).
+ * @param {?Object}    props.answer  The answer for the submitted id, if any.
+ * @param {boolean}    props.busy    Whether the add is outstanding.
+ * @param {() => void} props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The modal.
  */
-function AddServerModal( { onChanged, onClose } ) {
+function AddServerModal( { onAdd, answer, busy, onClose } ) {
 	return (
 		<Modal
 			ariaLabel={ __( 'Add new server', 'newspack-nodes' ) }
@@ -411,8 +383,9 @@ function AddServerModal( { onChanged, onClose } ) {
 				{ __( 'Add New Server', 'newspack-nodes' ) }
 			</h4>
 			<AddServerForm
-				onAdded={ onClose }
-				onChanged={ onChanged }
+				onAdd={ onAdd }
+				answer={ answer }
+				busy={ busy }
 				onCancel={ onClose }
 			/>
 		</Modal>
@@ -429,8 +402,26 @@ function AddServerModal( { onChanged, onClose } ) {
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
 	const [ isAddOpen, setIsAddOpen ] = useState( false );
-	// The list; every verb belongs to the row or the form that sends it.
-	const { servers, error, refresh } = useVaultGraph();
+	const [ submitted, setSubmitted ] = useState( null );
+	// @longform Each row's last answer, put there BY the reply that named it.
+	// This is the screen laying out answers it was handed, not a correlation
+	// table: the graph did the matching, in the address, before it got here —
+	// which is why a row keeps its line when a sibling is tested.
+	const [ answers, setAnswers ] = useState( {} );
+	const { servers, error, addServer, removeServer, testServer, pendingVerb } =
+		useVaultGraph( {
+			onAnswer: ( { verb, subject, error: refusal } ) => {
+				setAnswers( ( prior ) => ( {
+					...prior,
+					[ subject ]: { verb, error: refusal },
+				} ) );
+				// A successful add closes the modal, on its own answer.
+				if ( 'add' === verb && ! refusal ) {
+					setIsAddOpen( false );
+					setSubmitted( null );
+				}
+			},
+		} );
 
 	// Portal the +Add trigger into the hub header slot (undefined=inline).
 	const controls = (
@@ -474,7 +465,10 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 							<ServerRow
 								key={ server.id }
 								server={ server }
-								onChanged={ refresh }
+								answer={ answers[ server.id ] ?? null }
+								pending={ pendingVerb( server.id ) }
+								onRemove={ removeServer }
+								onTest={ testServer }
 							/>
 						) )
 					) : (
@@ -492,8 +486,16 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 
 			{ isAddOpen && (
 				<AddServerModal
-					onChanged={ refresh }
-					onClose={ () => setIsAddOpen( false ) }
+					onAdd={ ( fields ) => {
+						setSubmitted( fields.id );
+						addServer( fields );
+					} }
+					answer={ answers[ submitted ] ?? null }
+					busy={ 'add' === pendingVerb( submitted ) }
+					onClose={ () => {
+						setIsAddOpen( false );
+						setSubmitted( null );
+					} }
 				/>
 			) }
 		</div>

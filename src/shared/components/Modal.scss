@@ -1,9 +1,11 @@
+@use "../styles/tokens" as *;
+
 // Layout for the shared modal shell. Appearance (surface, border, radius,
 // shadow) is the canonical `.newspack-nodes-modal` role in styles/_modal.scss.
 .newspack-nodes-modal__backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 100000;
+	z-index: $layer-modal;
 	display: flex;
 	align-items: center;
 	justify-content: center;

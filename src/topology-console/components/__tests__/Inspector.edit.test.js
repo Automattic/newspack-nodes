@@ -275,6 +275,29 @@ describe( 'Inspector (edit mode)', () => {
 		expect( getByDisplayValue( 'beta-sink' ).disabled ).toBe( true );
 	} );
 
+	// An action RUNS something on a live node — `Table rm` deletes an entry,
+	// `Request_Builder purge` drops every in-flight request — so it is not
+	// configuration, and a draft has no live node to run it on.
+	it( 'hides verbs flagged action in node_schema from the edit Verbs list', () => {
+		const { getByText, queryByText } = renderWithCatalog(
+			<Inspector { ...baseProps } />,
+			{
+				classes: [
+					{
+						shell_name: 'Echo',
+						arguments: [],
+						commands: [
+							{ name: 'visible_verb', args: [] },
+							{ name: 'purge', args: [], action: true },
+						],
+					},
+				],
+			}
+		);
+		expect( getByText( 'visible_verb' ) ).not.toBeNull();
+		expect( queryByText( 'purge' ) ).toBeNull();
+	} );
+
 	it( 'hides verbs flagged hidden in node_schema from the edit Verbs list', () => {
 		const { getByText, queryByText } = renderWithCatalog(
 			<Inspector { ...baseProps } />,
@@ -563,7 +586,7 @@ describe( 'Inspector (edit mode)', () => {
 					classCatalog: multiProps.classCatalog,
 				}
 			);
-			fireEvent.click( getByText( /Add add_setting/ ) );
+			fireEvent.click( getByText( /^\+ add_setting$/ ) );
 			expect( onUpdateVerbs ).toHaveBeenCalledWith(
 				'ss',
 				expect.arrayContaining( [

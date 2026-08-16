@@ -1,6 +1,7 @@
 import {
 	Node,
 	TYPE,
+	TO,
 	VALUE,
 	TM_ERROR,
 	payloadOf,
@@ -35,10 +36,17 @@ export class CommandResultNode extends Node {
 		const payload = payloadOf( value );
 		// Both interpreters echo the verb and arguments they answered.
 		const args = Array.isArray( value?.arguments ) ? value.arguments : [];
+		// @longform What is LEFT of the reply's address after the Router
+		// peeled this node off it: the subject the command was about. The
+		// sender appended it to FROM, the server echoed TO = FROM, and the
+		// path routed the answer here — so one node answers about many
+		// subjects and none of them is filed under anything.
+		const subject = message[ TO ] || null;
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			this.setState( 'result', {
 				ok: false,
 				args,
+				subject,
 				payload: null,
 				error: errorMessage( payload ),
 				// More than prose: a save reports the line it stopped on.
@@ -52,6 +60,7 @@ export class CommandResultNode extends Node {
 		this.setState( 'result', {
 			ok: true,
 			args,
+			subject,
 			payload: payload ?? null,
 			error: null,
 			errorData: null,

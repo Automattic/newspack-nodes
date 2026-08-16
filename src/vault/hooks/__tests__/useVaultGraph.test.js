@@ -4,7 +4,7 @@
  *   _http (HttpOut)
  *   vault:list:fetch → :in → :view (VaultListView)    — the credential table,
  *                                                       polled as a slice
- *   vault:{add,update,delete,test}:in → :result       — one one-shot per verb
+ *   vault:{add,delete,test}:in → :result              — one one-shot per verb
  *
  * What every test here leans on: nothing correlates. Each verb is minted FROM
  * the node that wants its answer, the reply comes back TO = FROM, and it lands
@@ -22,7 +22,6 @@ import { TO, FROM, VALUE } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { mountExospine } from '../../../runtime/exospine';
 import { useNodeState } from '../../../runtime/react';
-import {} from '../../../runtime/command-args';
 import { useVaultGraph } from '../useVaultGraph';
 
 const INTERPRETER = '_command_interpreter';
@@ -32,10 +31,9 @@ const CONSOLE_TAP = '_shell';
 const LIST_RECV = 'vault:list:in';
 const LIST_VIEW = 'vault:list:view';
 const ADD = 'vault:add:in';
-const UPDATE = 'vault:update:in';
 const DELETE = 'vault:delete:in';
 const TEST = 'vault:test:in';
-const VERB_RECEIVERS = [ ADD, UPDATE, DELETE, TEST ];
+const VERB_RECEIVERS = [ ADD, DELETE, TEST ];
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...VERB_RECEIVERS ];
 
 // A verb's command is on the wire within a tick of the click.
@@ -73,9 +71,9 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		);
 	} );
 
-	// The verbs are NOT here — each belongs to the row or form that sends it,
-	// scoped to the server it is about. This hook mounts the table.
-	test( 'mounts the backbone + _http + the table slice, and no verb nodes', async () => {
+	// ONE node per verb serves every row: the subject rides in the reply
+	// PATH, not in the node name.
+	test( 'mounts the backbone + _http + the table slice + one node per verb', async () => {
 		installWire();
 		renderHook( () => useVaultGraph() );
 		await act( async () => {} );
@@ -84,11 +82,12 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		expect( Core.node( LIST_RECV ).sink ).toBe( interpreter );
 		expect( Core.node( LIST_VIEW ).sink ).toBe( interpreter );
-		expect(
-			Core.node( LIST_RECV.replace( /:in$/, ':fetch' ) ).target
-		).toBe( `${ CONSOLE_TAP }/${ HTTP }/vault` );
-		for ( const name of VERB_RECEIVERS ) {
-			expect( Core.node( name ) ).toBeNull();
+		for ( const name of [ ...VERB_RECEIVERS, LIST_RECV ] ) {
+			expect( Core.node( name ).sink ).toBe( interpreter );
+			const fetcher = name.replace( /:in$/, ':fetch' );
+			expect( Core.node( fetcher ).target ).toBe(
+				`${ CONSOLE_TAP }/${ HTTP }/vault`
+			);
 		}
 	} );
 
@@ -136,16 +135,13 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( msg[ FROM ] ).toBe( LIST_RECV );
 	} );
 
-	test( 'returns the table and its refresh, and no verbs', async () => {
+	test( 'returns the table plus the three CRUD callbacks', async () => {
 		installWire();
 		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
-		expect( Object.keys( result.current ).sort() ).toEqual( [
-			'error',
-			'loading',
-			'refresh',
-			'servers',
-		] );
+		expect( typeof result.current.addServer ).toBe( 'function' );
+		expect( typeof result.current.removeServer ).toBe( 'function' );
+		expect( typeof result.current.testServer ).toBe( 'function' );
 	} );
 } );
 
@@ -167,6 +163,49 @@ describe( 'useVaultGraph — list lands in the list view', () => {
 		expect( view.setStateCache.view.loading ).toBe( false );
 		expect( view.setStateCache.view.error ).toBeNull();
 	} );
+} );
+
+// @longform The subject rides in the ADDRESS. A test of `spoke-01` is minted
+// FROM `vault:test:in/spoke-01`, the server echoes TO = FROM, the Router peels
+// `vault:test:in` off, and the answer arrives there carrying `spoke-01`. So
+// ONE node answers about every row — no id in the message, no table, and no
+// node per row.
+describe( 'useVaultGraph — the reply names the row it is about', () => {
+	test( 'two servers tested at once each get their own answer', async () => {
+		const answers = [];
+		const wire = installWire( { list: {}, test: { ok: 1 } } );
+		const { result } = renderHook( () =>
+			useVaultGraph( {
+				onAnswer: ( a ) => answers.push( a ),
+			} )
+		);
+		await act( async () => {} );
+
+		act( () => {
+			result.current.testServer( 'spoke-01' );
+			result.current.testServer( 'spoke-02' );
+		} );
+
+		await waitFor( () => expect( answers.length ).toBe( 2 ), {
+			timeout: 8000,
+		} );
+		expect( answers.map( ( a ) => a.subject ).sort() ).toEqual( [
+			'spoke-01',
+			'spoke-02',
+		] );
+		expect( answers.every( ( a ) => 'test' === a.verb ) ).toBe( true );
+
+		// Each command carried its own reply path; the ADDRESS is the whole
+		// of the correlation.
+		const from = wire.batches
+			.flat()
+			.filter( ( m ) => 'test' === m[ VALUE ]?.name )
+			.map( ( m ) => m[ FROM ] );
+		expect( from ).toEqual( [
+			'vault:test:in/spoke-01',
+			'vault:test:in/spoke-02',
+		] );
+	}, 30000 );
 } );
 
 describe( 'useVaultGraph — teardown', () => {

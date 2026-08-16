@@ -77,7 +77,10 @@ describe( 'useRouterTick', () => {
 	// tick always passed the throttle regardless of intervalMs — every adopter
 	// that also does its own immediate load paid a duplicate request ~1s after
 	// arming, and re-armed on every tab focus. The caller owns the leading edge.
-	it( 'does not fire before intervalMs has elapsed', () => {
+	// The cadence is a wall-clock GRID (`nextBoundary`), so a slow tick fires
+	// on the first boundary of its own period rather than intervalMs after it
+	// was armed — which is what puts every 7s consumer on one tick.
+	it( 'fires once per interval, not once per router tick', () => {
 		const onTick = jest.fn();
 
 		mountHost();
@@ -89,20 +92,21 @@ describe( 'useRouterTick', () => {
 			} )
 		);
 
+		// Three full periods of 1s router ticks: a couple of fires, never 21.
+		// The first is a full interval out — `useRouterTick` marks the window
+		// started, since its adopters load once themselves on mount.
 		act( () => {
-			jest.advanceTimersByTime( 6000 );
+			jest.advanceTimersByTime( 21000 );
 		} );
-		expect( onTick ).not.toHaveBeenCalled();
+		const afterTwo = onTick.mock.calls.length;
+		expect( afterTwo ).toBeGreaterThanOrEqual( 2 );
+		expect( afterTwo ).toBeLessThanOrEqual( 3 );
 
-		act( () => {
-			jest.advanceTimersByTime( 2000 );
-		} );
-		expect( onTick ).toHaveBeenCalledTimes( 1 );
-
+		// One more period, one more fire — never one per router tick.
 		act( () => {
 			jest.advanceTimersByTime( 7000 );
 		} );
-		expect( onTick ).toHaveBeenCalledTimes( 2 );
+		expect( onTick.mock.calls.length ).toBe( afterTwo + 1 );
 	} );
 
 	// A throwing callback used to abort RouterNode.notifyTimer mid-iteration and

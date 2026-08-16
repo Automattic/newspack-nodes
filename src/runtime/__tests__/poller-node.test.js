@@ -12,7 +12,7 @@ import { Node } from '../node';
 import { TimerNode } from '../timer-node';
 import { RouterNode } from '../router-node';
 import { Core } from '../core';
-import { forgetSession } from '../command-auth';
+import { forgetSession, ensureSession, __setAuthFetch } from '../command-auth';
 import names from '../reserved-node-names.json';
 import {
 	newMessage,
@@ -160,6 +160,45 @@ describe( 'DmesgNode', () => {
 		} );
 	} );
 
+	// @longform The tick that lands mid-auth is the FIRST one, on every cold
+	// page load — /auth is still in flight. Stamping the cadence for a tick
+	// that sent nothing pushes the first poll a whole period out: five seconds
+	// for uptime, ten for the topology catalog the console reads its include
+	// hulls from. "The next tick carries it" has to be true.
+	it( 'an unmintable tick does not consume the cadence', async () => {
+		forgetSession();
+		const router = new RouterNode();
+		router.name = names.ROUTER;
+		const node = new DmesgNode();
+		node.name = '_dmesg';
+		node.target = '_cwd';
+		const sent = [];
+		node.sink = { fill: ( m ) => sent.push( m ) };
+		node.setTimer( 5000 );
+		const nowSpy = jest.spyOn( Core, 'now' );
+
+		expect( node.mode ).toBe( 'router' );
+		nowSpy.mockReturnValue( 100 );
+		node.fireCb();
+		expect( sent ).toHaveLength( 0 );
+
+		// The session lands a moment later, and the next router tick sends —
+		// not the next five-second boundary.
+		__setAuthFetch( async () => ( {
+			handle: 'aaaa4471aaaa4471aaaa4471aaaa4471',
+			key: 'poller-cadence-key',
+			expires_in: 3600,
+			now: 1771000000,
+		} ) );
+		await ensureSession();
+		nowSpy.mockReturnValue( 100.1 );
+		node.fireCb();
+		expect( sent ).toHaveLength( 1 );
+		node.stopTimer();
+		router.stopTimer();
+		__setAuthFetch( null );
+	} );
+
 	// An unmintable tick emits nothing, so it must not count as a message
 	// either — `counter` is what the inspector reports as messages passed on.
 	// Last in the block: the void ensureSession() this triggers re-establishes
@@ -259,28 +298,38 @@ describe( 'UptimeNode', () => {
 			expect( node.pollTo ).toBeUndefined();
 		} );
 
-		it( 'throttles: two fireCb() ticks <5s apart emit once', () => {
-			// 5s cadence = base Timer throttle in fireCb(); fire() unthrottled.
+		// The cadence is a wall-clock GRID (see `nextBoundary`), so the
+		// guarantee is one emit per 5s period — not 5s between any two emits.
+		// The first period after arming is the short remainder of the one the
+		// timer opened in, which is what converges every 5s poll onto one tick.
+		it( 'throttles: ticks inside one period emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build( { armed: true } );
 			node.target = '_cwd';
 			expect( node.mode ).toBe( 'router' );
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
-			nowSpy.mockReturnValue( 103 ); // 3s later
-			node.fireCb();
-			expect( sent ).toHaveLength( 1 );
+			const emitted = sent.length;
+			for ( let t = 100.5; t < 105; t += 0.5 ) {
+				nowSpy.mockReturnValue( t );
+				node.fireCb();
+			}
+			expect( sent.length - emitted ).toBeLessThanOrEqual( 1 );
 		} );
 
-		it( 'emits twice when ticks are >=5s apart', () => {
+		it( 'emits once per period across a run of ticks', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build( { armed: true } );
 			node.target = '_cwd';
+			// Four full periods of 1s ticks, from an already-fired timer.
 			nowSpy.mockReturnValue( 100 );
 			node.fireCb();
-			nowSpy.mockReturnValue( 105 ); // 5s later
-			node.fireCb();
-			expect( sent ).toHaveLength( 2 );
+			sent.length = 0;
+			for ( let t = 101; t <= 120; t++ ) {
+				nowSpy.mockReturnValue( t );
+				node.fireCb();
+			}
+			expect( sent ).toHaveLength( 4 );
 		} );
 
 		it( 'emits nothing when there is no sink', () => {

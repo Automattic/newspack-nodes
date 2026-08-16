@@ -47,9 +47,13 @@ import usePageVisibility from './usePageVisibility';
 
 // `_http` and `_shell` are permanent exospine fixtures; the build reuses them.
 const FIRST_LOAD_LISTENER = 'useBatchedPoll:first-load';
+const UNSIGNED_LISTENER = 'useBatchedPoll:unsigned';
 
-/** Every router tick — the floor `useBatchedPoll` enforces. */
-const TICK_MS = 1000;
+// @longform A catalog changes when someone EDITS it, so its poll is a retry
+// rather than a feed: slow enough that the palette's whole class list is not
+// on the wire every second, often enough that a turned-over session recovers
+// without a reload. A list that moves on a clock of its own states its own.
+const CATALOG_MS = 30000;
 
 function isFirstLoadPending( timer ) {
 	return Object.prototype.hasOwnProperty.call(
@@ -116,7 +120,13 @@ export function useBatchedPoll( opts ) {
 	// Pause polling while the tab is hidden.
 	const isPageVisible = usePageVisibility();
 
+	// A surface nobody opened owns NOTHING — no request, and no named node.
+	const enabled = false !== opts.enabled;
+
 	useEffect( () => {
+		if ( ! enabled ) {
+			return undefined;
+		}
 		const build = ( { interpreter } ) => {
 			// `_shell` Tap is a backbone fixture; no mounting needed here.
 
@@ -143,10 +153,17 @@ export function useBatchedPoll( opts ) {
 			// hitchhiker whose interval exceeds the 1s tick. `requestTick`
 			// coalesces, so three mounts in one commit are one tick.
 			const fireTick = () => {
-				timer.lastFireTime = 0;
+				timer.markDue();
 				Core.node( names.ROUTER )?.requestTick();
 			};
 			fireTickRef.current = fireTick;
+
+			// Nothing signed, nothing went: a tick, unspent. Permanent.
+			timer.register( 'FIRE', UNSIGNED_LISTENER, () => {
+				if ( ! hasSession() ) {
+					timer.markDue();
+				}
+			} );
 
 			/**
 			 * A first load is delivered only when its Timer fires with a live
@@ -154,8 +171,6 @@ export function useBatchedPoll( opts ) {
 			 */
 			timer.register( 'FIRE', FIRST_LOAD_LISTENER, () => {
 				if ( ! hasSession() ) {
-					// Nothing signed, so nothing went: not a spent tick.
-					timer.lastFireTime = 0;
 					return;
 				}
 				if ( optsRef.current.paused ) {
@@ -171,10 +186,9 @@ export function useBatchedPoll( opts ) {
 				timer,
 				visible,
 				optsRef.current.paused,
-				optsRef.current.intervalMs,
-				false !== optsRef.current.enabled
+				optsRef.current.intervalMs
 			);
-			if ( visible && false !== optsRef.current.enabled ) {
+			if ( visible ) {
 				fireTick();
 			}
 
@@ -196,7 +210,7 @@ export function useBatchedPoll( opts ) {
 			passenger: true === optsRef.current.passenger,
 		} );
 		return teardown;
-	}, [] );
+	}, [ enabled ] );
 
 	// Sync visibility/pause/cadence; a pending first load overrides pause.
 	useEffect( () => {
@@ -204,7 +218,6 @@ export function useBatchedPoll( opts ) {
 		if ( ! timer ) {
 			return;
 		}
-		const enabled = false !== opts.enabled;
 		const owed =
 			enabled &&
 			isPageVisible &&
@@ -222,7 +235,7 @@ export function useBatchedPoll( opts ) {
 		if ( owed ) {
 			fireTickRef.current?.();
 		}
-	}, [ isPageVisible, opts.paused, opts.intervalMs, opts.enabled ] );
+	}, [ isPageVisible, opts.paused, opts.intervalMs, enabled ] );
 
 	/**
 	 * Run the ROUTER's tick NOW, off-cadence, having said this poll is due —
@@ -258,9 +271,9 @@ export function useBatchedPoll( opts ) {
  *                                 first reply lands, which is what `loading` reads.
  * @param {boolean} [o.enabled]    False costs no request at all, so a surface that
  *                                 is never opened is free.
- * @param {number}  [o.intervalMs] Cadence; defaults to every router tick. A
- *                                 catalog that only changes when someone edits it
- *                                 can ride a slower one and still be its own retry.
+ * @param {number}  [o.intervalMs] Cadence; defaults to the catalog cadence. A
+ *                                 list that moves on a clock of its own — rows
+ *                                 that expire — states a faster one.
  * @return {Object} The published model, plus `loading`, `error`, and a
  *                  `refresh()` for the caller that just CHANGED the list and
  *                  should not wait out the cadence to see it.
@@ -271,7 +284,7 @@ export function useCatalogSlice( {
 	viewClass,
 	key,
 	enabled = true,
-	intervalMs = TICK_MS,
+	intervalMs = CATALOG_MS,
 } ) {
 	const { pollNow } = useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>

@@ -28,6 +28,7 @@
  */
 
 import { Core } from './core';
+import names from './reserved-node-names.json';
 import { hmac } from '@noble/hashes/hmac.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
@@ -311,6 +312,13 @@ export async function ensureSession() {
 				}
 				if ( session && 'number' === typeof issued.now ) {
 					clockOffset = issued.now - Math.floor( Date.now() / 1000 );
+				}
+				if ( session ) {
+					// @longform Everything that ticked while this was in flight
+					// sent nothing and is still due. Waking the router now
+					// carries all of them in ONE batched POST, instead of each
+					// waiting out the next tick of its own cadence.
+					Core.node( names.ROUTER )?.requestTick();
 				}
 				return session;
 			} )

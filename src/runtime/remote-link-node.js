@@ -33,7 +33,7 @@ import names from './reserved-node-names.json';
 
 /**
  * A resume seed: the next-record `{segment, offset}` for each partition
- * directory the stream has delivered, as `SseIn.resumePositions()` builds it.
+ * directory the stream has delivered, keyed as SseIn tracks it.
  * Passed back to the server as the `positions=` seek so a reopened stream
  * neither gaps nor replays.
  *
@@ -170,6 +170,22 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
+	 * Reopen, stating no seek. The stream resumes past whatever it read and
+	 * keeps the seek it opened with where it read nothing — a caller
+	 * recomputing that seek from the outside is how a refused stream's replay
+	 * became a tail.
+	 *
+	 * @param {?string[]} subscribe Re-point the subscription, or null to keep it.
+	 */
+	reconnect( subscribe = null ) {
+		this.ensureChildren();
+		if ( subscribe ) {
+			this.sseIn.subscribe = subscribe;
+		}
+		this.sseIn.start();
+	}
+
+	/**
 	 * Create + register the three children and wire the connected→slot bridge.
 	 * Idempotent — the first send() or connect() builds them; later calls no-op.
 	 */
@@ -270,6 +286,14 @@ export class RemoteLinkNode extends Node {
 	}
 
 	/**
+	 * @param {string} sub The subscription to read.
+	 * @return {?{segment: number, offset: number}} Where the stream has read to, or undefined before its first record.
+	 */
+	cursor( sub ) {
+		return this.sseIn?.lastPositions?.[ sub ];
+	}
+
+	/**
 	 * Composite stat delegation: the records arrive on the SseIn child, so its
 	 * tally is the link's own until a stream exists.
 	 *
@@ -309,15 +333,6 @@ export class RemoteLinkNode extends Node {
 	 */
 	get largestMsgSent() {
 		return this.sseIn ? this.sseIn.largestMsgSent : super.largestMsgSent;
-	}
-
-	/**
-	 * The seed a reconnect resumes from, one entry per partition seen.
-	 *
-	 * @return {?ResumePositions} Positions to resume at, or null to tail-seek.
-	 */
-	resumePositions() {
-		return this.sseIn?.resumePositions() ?? null;
 	}
 
 	/**

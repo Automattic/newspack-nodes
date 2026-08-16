@@ -371,8 +371,10 @@ describe( 'PartitionViewer', () => {
 		} );
 		await renderViewer();
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
+		// The rail loads once itself, so its window starts marked-fired: the
+		// refresh is a FULL interval out, counted from the next grid boundary.
 		await act( async () => {
-			jest.advanceTimersByTime( 10000 );
+			jest.advanceTimersByTime( 20000 );
 		} );
 		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
 		host.teardown();

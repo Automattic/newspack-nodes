@@ -4,6 +4,7 @@
  */
 
 import { createPortal, useEffect, useRef, useState } from '@wordpress/element';
+import { useDismissable } from '@newspack-nodes/shared/hooks/useDismissable';
 import { __, sprintf } from '@wordpress/i18n';
 import { CtorField } from './CtorField';
 import { serializeCtorArgs } from '../utils/tslArgs';
@@ -31,17 +32,8 @@ export function ModalShell( {
 	children,
 } ) {
 	const ref = useRef( null );
-
-	useEffect( () => {
-		const onKey = ( e ) => {
-			if ( 'Escape' === e.key ) {
-				e.preventDefault();
-				onDismiss();
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ onDismiss ] );
+	// ESC + click-outside; the backdrop is a scrim the hook already covers.
+	useDismissable( ref, onDismiss );
 
 	if ( typeof document === 'undefined' ) {
 		return null;
@@ -62,15 +54,7 @@ export function ModalShell( {
 			className="newspack-nodes-skin-root newspack-nodes-theme newspack-nodes-ui"
 			style={ { display: 'contents' } }
 		>
-			<div
-				className="topology-modal-backdrop"
-				role="presentation"
-				onMouseDown={ ( e ) => {
-					if ( e.target === e.currentTarget ) {
-						onDismiss();
-					}
-				} }
-			>
+			<div className="topology-modal-backdrop" role="presentation">
 				<div
 					className={ `topology-modal newspack-nodes-modal${
 						wide ? ' topology-modal--large' : ''

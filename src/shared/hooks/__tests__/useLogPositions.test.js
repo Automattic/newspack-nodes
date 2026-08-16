@@ -89,7 +89,7 @@ describe( 'useLogPositions', () => {
  * One resolver now serves both.
  */
 describe( 'stepPosition', () => {
-	const link = ( resume ) => ( { resumePositions: () => resume } );
+	const link = ( resume ) => ( { cursor: ( sub ) => resume?.[ sub ] } );
 
 	it( 'passes a magic token through verbatim', () => {
 		expect(

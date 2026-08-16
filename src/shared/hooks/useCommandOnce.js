@@ -23,7 +23,11 @@
  */
 
 import { useCallback, useRef, useState } from '@wordpress/element';
-import { CommandInterpreterNode, useNodeEvent } from '@newspack-nodes/runtime';
+import {
+	CommandInterpreterNode,
+	Core,
+	useNodeEvent,
+} from '@newspack-nodes/runtime';
 import { useBatchedPoll } from './useBatchedPoll';
 import { addSliceFetcher } from '../helpers/addSliceFetcher';
 import { egressPath } from '../helpers/egressPath';
@@ -36,24 +40,63 @@ CommandInterpreterNode.registerNodeClasses( {
 /** Every router tick; batched, this costs no request of its own. */
 const TICK_MS = 1000;
 
+/**
+ * A WRITE is poked by `run()` and by nothing else — it has no cadence to keep,
+ * so it arms slowly and rides `pollNow()` instead of fanning out every second
+ * to find an empty outbox. A retried READ genuinely needs the tick.
+ */
+const IDLE_MS = 60000;
+
 /** How long a retried READ waits before asking again. */
 const RETRY_AFTER_MS = 5000;
 
+/** An escaped subject longer than this is a body, not an identity. */
+const SUBJECT_MAX = 128;
+
 /**
- * @param {Object}   o          Options.
- * @param {string}   o.command  The verb to send.
- * @param {string}   [o.ci]     The server CI mount the verb lives on; omit for
- *                              an interpreter builtin, which has none.
- * @param {string}   [o.scope]  Names this verb's own nodes; defaults to
- *                              `<ci>:<command>`, and only needs giving when two
- *                              hooks would otherwise collide on it.
- * @param {Function} [o.onDone] `( { result, error, errorData, args } ) => void`,
- *                              once per reply; `args` are the ones it answered,
- *                              read off the reply itself.
- * @param {boolean}  [o.retry]  True for an idempotent READ; see above.
- * @return {{run: (args: string[]) => void, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
- *   `answeredArgs` are the arguments the published reply answered, so a caller
- *   that sends about several subjects can say which one it is looking at.
+ * A subject is one ADDRESS segment, so a slash or a space is escaped.
+ *
+ * @param {?string} subject What the send is about, as the caller named it.
+ * @return {?string} The escaped path segment, or null when there is none.
+ */
+const encodeSubject = ( subject ) =>
+	null === subject || undefined === subject
+		? null
+		: encodeURIComponent( subject );
+
+/**
+ * @param {?string} path The reply's remaining TO, as the address delivered it.
+ * @return {?string} The subject the sender named, or null.
+ */
+const decodeSubject = ( path ) =>
+	'string' === typeof path && path ? decodeURIComponent( path ) : null;
+
+/**
+ * @param {Object}   o             Options.
+ * @param {string}   o.command     The verb to send.
+ * @param {string}   [o.ci]        The server CI mount the verb lives on; omit for
+ *                                 an interpreter builtin, which has none.
+ * @param {string}   [o.scope]     Names this verb's own nodes; defaults to
+ *                                 `<ci>:<command>`, and only needs giving when two
+ *                                 hooks would otherwise collide on it.
+ * @param {Function} [o.onDone]    `( { result, error, errorData, args, subject
+ *                                 } ) => void`, once per reply. `args` are the
+ *                                 ones it answered and `subject` is what it was
+ *                                 ABOUT, both read off the reply itself.
+ * @param {boolean}  [o.retry]     True for an idempotent READ; see above.
+ * @param {Function} [o.subjectOf] `( args ) => subject` — what this send is
+ *                                 ABOUT. It rides in the reply's ADDRESS (FROM
+ *                                 becomes `<receiver>/<subject>`, so the answer
+ *                                 arrives with the subject as its remaining TO),
+ *                                 which is how ONE node answers about many
+ *                                 rows with no table. Defaults to the first
+ *                                 token; override it for a verb whose first
+ *                                 token is a sub-verb rather than a subject
+ *                                 (`taillog read <source> <position>`) or a
+ *                                 whole document (a rule as JSON).
+ * @return {{run: (args: string[]) => void, isPending: (subject: ?string) => boolean, result: ?Object, error: ?string, errorData: ?Object, answeredArgs: ?string[], pending: boolean}}
+ *   A screen serving many rows reads each answer through `onDone`, which
+ *   names the subject it was about; what is returned here is the last one.
  */
 export function useCommandOnce( {
 	command,
@@ -61,6 +104,7 @@ export function useCommandOnce( {
 	scope = ci ? `${ ci }:${ command }` : command,
 	onDone,
 	retry = false,
+	subjectOf = ( args ) => args[ 0 ] ?? null,
 	...rest
 } ) {
 	// An unknown option is a mistake: a stale `target` lost every reply.
@@ -77,11 +121,20 @@ export function useCommandOnce( {
 
 	// In flight: `askedAt` 0 until sent, and it leaves when a reply names it.
 	const outboxRef = useRef( [] );
+	// The send `argsFn` just handed over, so `replyPathFn` addresses THAT one.
+	const sendingRef = useRef( null );
 	const onDoneRef = useRef( onDone );
 	onDoneRef.current = onDone;
 	const retryRef = useRef( retry );
 	retryRef.current = retry;
-	const [ sending, setSending ] = useState( false );
+	const subjectOfRef = useRef( subjectOf );
+	subjectOfRef.current = subjectOf;
+	// The outstanding SUBJECTS, not a boolean: a table asks which row waits.
+	const [ outstanding, setOutstanding ] = useState( [] );
+	const publishOutstanding = () =>
+		setOutstanding( outboxRef.current.map( ( send ) => send.subject ) );
+	// `pollNow` arrives after the build body that needs it; hence the ref.
+	const pollAgainRef = useRef( null );
 
 	const { pollNow } = useBatchedPoll( {
 		build: ( { interpreter, tee } ) =>
@@ -101,8 +154,18 @@ export function useCommandOnce( {
 						return null;
 					}
 					next.askedAt = Date.now();
+					sendingRef.current = next;
+					// @longform One send per fire, so a queue behind this one
+					// asks for the next tick rather than waiting out the
+					// cadence — two rows deleted in the same second are two
+					// commands, and a write's cadence is a minute.
+					if ( outboxRef.current.some( ( s ) => 0 === s.askedAt ) ) {
+						pollAgainRef.current?.();
+					}
 					return next.args;
 				},
+				// Read in the same tick, right after argsFn chose the send.
+				replyPathFn: () => sendingRef.current?.path ?? null,
 				view,
 				viewClass: CommandResultNode,
 				tee,
@@ -110,7 +173,7 @@ export function useCommandOnce( {
 			} ),
 		timerName: `${ scope }:timer`,
 		teeName: `${ scope }:tee`,
-		intervalMs: TICK_MS,
+		intervalMs: retry ? TICK_MS : IDLE_MS,
 		// Part of a page, never its graph; the owner keeps Reset Graph.
 		passenger: true,
 	} );
@@ -125,9 +188,10 @@ export function useCommandOnce( {
 			return;
 		}
 		const args = reply.args ?? [];
-		// Retire the ask this answers; nothing waiting = already settled.
+		// Retire the ask this answers; its ADDRESS is what names it.
+		const subject = decodeSubject( reply.subject );
 		const at = outboxRef.current.findIndex(
-			( send ) => send.args[ 0 ] === args[ 0 ]
+			( send ) => send.subject === subject
 		);
 		if ( 0 > at ) {
 			return;
@@ -136,12 +200,13 @@ export function useCommandOnce( {
 			( _send, i ) => i !== at
 		);
 		setModel( reply );
-		setSending( 0 < outboxRef.current.length );
+		publishOutstanding();
 		onDoneRef.current?.( {
 			result: reply.ok ? reply.payload : null,
 			error: reply.error ?? null,
 			errorData: reply.errorData ?? null,
 			args,
+			subject,
 		} );
 	};
 
@@ -154,33 +219,52 @@ export function useCommandOnce( {
 		}
 	} );
 
+	pollAgainRef.current = pollNow;
+
 	const run = useCallback(
 		( args ) => {
 			const tokens = Array.isArray( args ) ? args : [];
+			// @longform A body is not an address. Left to the default, a verb
+			// whose first token is a document or a pasted URL would address
+			// its reply with the whole thing, past the substrate's FROM cap,
+			// and the reply would be dropped. Send it with NO subject and say
+			// which command needs `subjectOf` — a save the operator clicked
+			// must not become an exception out of the click handler because a
+			// caller forgot an option.
+			const named = subjectOfRef.current?.( tokens ) ?? null;
+			const encoded = encodeSubject( named );
+			const tooLong = encoded && SUBJECT_MAX < encoded.length;
+			if ( tooLong ) {
+				Core.printLessOften(
+					`ERROR: useCommandOnce(${ command }): subject of ${ encoded.length } chars is a body, not an address — pass subjectOf`
+				);
+			}
+			const subject = tooLong ? null : named;
+			const path = tooLong ? null : encoded;
 			// @longform Re-asking for the subject ALREADY OUTSTANDING says
 			// nothing new — the retry window owns "ask again for this". Taking
 			// it as a fresh ask resets that window and pokes a tick, so a
 			// caller whose dep identity churns (an object literal rebuilt each
 			// render) would put a command and a whole router tick on the wire
 			// per render.
-			const [ outstanding ] = outboxRef.current;
+			const [ inFlight ] = outboxRef.current;
 			if (
 				retryRef.current &&
-				outstanding &&
-				outstanding.args.join( '\u0000' ) === tokens.join( '\u0000' )
+				inFlight &&
+				inFlight.args.join( '\u0000' ) === tokens.join( '\u0000' )
 			) {
 				return;
 			}
-			const send = { args: tokens, askedAt: 0 };
+			const send = { args: tokens, subject, path, askedAt: 0 };
 			// A read supersedes: nobody wants the answer to the older ask.
 			outboxRef.current = retryRef.current
 				? [ send ]
 				: [ ...outboxRef.current, send ];
-			setSending( true );
+			publishOutstanding();
 			// A click waits for a tick, not for the heartbeat to come round.
 			pollNow();
 		},
-		[ pollNow ]
+		[ command, pollNow ]
 	);
 
 	// One source for "what was answered": the reply the node published.
@@ -192,6 +276,7 @@ export function useCommandOnce( {
 		result: model?.ok ? model.payload : null,
 		error: model?.error ?? null,
 		errorData: model?.errorData ?? null,
-		pending: sending,
+		pending: 0 < outstanding.length,
+		isPending: ( subject ) => outstanding.includes( subject ),
 	};
 }

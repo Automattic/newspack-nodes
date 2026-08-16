@@ -13,7 +13,7 @@
  *   - `hasConnectedRef` (reset per (re)build; a fresh link's SseIn has no tracked
  *     offset) tells `onConnect` whether this is the FIRST connect of a link
  *     (open at the caller's default seek) or a RECONNECT (resume from the last
- *     seen offset). Callers pass `isReconnect ? link.resumePositions() : <first>`.
+ *     seen offset). Callers pass `isReconnect ? link.reconnect() : link.connect( <first> )`.
  *   - `connectedLinkRef` records which link is currently streaming, so a
  *     redundant re-render never tears a live seek down into a tail reconnect
  *     (nor re-runs a pre-connect side effect like the gyroscope view-clear).
@@ -37,7 +37,7 @@ import { mountExospine } from '@newspack-nodes/runtime';
  * @param {boolean}  o.isActive   Whether the stream should be open right now
  *                                (typically `pageVisible && ! paused`). False closes the stream.
  * @param {Function} o.onConnect  `(link, { isReconnect, view }) => void` — open the
- *                                stream. Typically `link.connect( isReconnect ? link.resumePositions() : first )`.
+ *                                stream. Typically `isReconnect ? link.reconnect() : link.connect( first )`.
  * @return {{ viewRef: Object }} The live view-node ref, for the caller's control
  *   callbacks (e.g. setPaused / clear publishing through the view).
  */

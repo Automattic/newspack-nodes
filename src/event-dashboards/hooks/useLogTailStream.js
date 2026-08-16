@@ -13,7 +13,7 @@
  *   - 'follow'  → tail-seek: current + live.
  *
  * A visibility-driven RECONNECT resumes from the last seen offset
- * (`link.resumePositions()`) instead, so the chart fills the hidden gap exactly
+ * (the stream's own cursor) instead, so the chart fills the hidden gap exactly
  * — no dropped span, and no re-replay of the whole retention.
  *
  * React reads the model via `useNodeState( '<name>:view', 'view' )`.
@@ -77,7 +77,8 @@ export function useLogTailStream( {
 			return { link: remote };
 		},
 		isActive: isPageVisible,
+		// A reopen states no seek; the stream resumes itself.
 		onConnect: ( remote, { isReconnect } ) =>
-			remote.connect( isReconnect ? remote.resumePositions() : seek ),
+			isReconnect ? remote.reconnect() : remote.connect( seek ),
 	} );
 }

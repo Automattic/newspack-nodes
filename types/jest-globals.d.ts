@@ -18,7 +18,14 @@ declare function afterEach( fn: () => void ): void;
  * `fn` returns its implementation: enough to keep a double callable with the
  * signature it was written with, without claiming a mock-metadata surface no
  * checked file reads (the suites that call `.mockClear()` are excluded).
+ *
+ * `spyOn` returns the mock so a caller can chain `mockImplementation`; the
+ * shared `runClockFast` helper replaces `Core.now` with it.
  */
 declare const jest: {
 	fn< T extends ( ...args: any[] ) => any >( implementation: T ): T;
+	spyOn(
+		object: any,
+		method: string
+	): { mockImplementation( fn: ( ...args: any[] ) => any ): void };
 };
