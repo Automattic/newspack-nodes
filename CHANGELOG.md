@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.33.0] - 2026-08-16
+
+### Added
+- **`useAskPicker` reports a miss and an abandon.** A click that hit nothing askable used to disarm the picker in silence, which reads as the feature being broken and hands the next click to whatever sits underneath — on a flame graph, that zooms. It now calls `onNothing` and STAYS armed, so the second click can land, and `onAbandon` fires when Escape gives a selection up, which is not the same thing as finishing one.
+- **`ASK_TRIGGER_ATTR` marks the picker's own controls.** The capture-phase handler swallows every click while the picker is armed, so a trigger without it never receives its own `onClick` — Cancel only ever worked BY the silent-disarm path this release removes. The exemption covers `click` and `keydown` alike, so Enter on a focused trigger cancels rather than asking about the trigger.
+
 ## [2.32.1] - 2026-08-16
 
 ### Added
