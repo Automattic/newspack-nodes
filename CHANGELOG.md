@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.32.0] - 2026-08-15
+
 ### Changed
 - **A screen asks which row is waiting; it no longer keeps a flag of its own.** Vault, Sessions and the Aggregator each held a `busy` per subject, flipped beside every `run()` and cleared in every answer — three copies of state `useCommandOnce`'s outbox was already keeping in the one place that cannot get it wrong. The hook publishes its outstanding SUBJECTS (`isPending`), each graph hook resolves which VERB a row waits on (`pendingVerb`, since the verb is what picks the row's wording), and the screens keep only the answers they render. Three `useState`, three `asking()` helpers and six paired call sites are gone.
 - **Every timer fires on a shared wall-clock grid.** A hitchhiking timer paced from its own arming time never shares a tick with its neighbours: a 5s poll opened at :02 and another opened at :04 each pay their own POST, forever, which is precisely what the batch exists to avoid. `fireCb` now fires on `nextBoundary( lastFire, interval )`, borrowed from `LRU_Cache`'s bucket rotation, where the same property makes a restarted process keep its predecessor's phase. ONE offset (`GRID_PHASE_MS`) serves every cadence rather than one per interval, so the harmonics line up too: a 10s boundary is every second 5s boundary, and 5s/10s/15s/30s all meet every 30 seconds in a single POST. JS only; the PHP `Timer_Node` is unchanged.

@@ -6,6 +6,40 @@ Breaking changes that affect a plugin built on the substrate — topology files,
 
 ## Unreleased
 
+- **`RemoteLink::resumePositions()` is gone; reopen with `reconnect()`.**
+  A caller that recomputed the seek from outside the stream had only half the
+  question. `resumePositions()` returned where the stream had READ, so a reopen
+  after a refused connection — the SSE slot pool answering 429 before a single
+  frame arrived — handed back null and the reopened stream tailed the log,
+  discarding the replay the caller had asked for:
+
+  ```js
+  // before
+  link.connect( isReconnect ? link.resumePositions() : seek );
+  // after — the stream resumes past what it read, and keeps the seek it
+  // opened with where it read nothing
+  isReconnect ? link.reconnect() : link.connect( seek );
+  ```
+
+  `reconnect( subscribe )` also re-points the subscription, which is what a
+  paused-then-played browser wants. To READ the cursor rather than reopen — a
+  single-record step asks for it as a command argument — use
+  `link.cursor( sub )`, which returns that one subscription's
+  `{ segment, offset }`.
+
+- **`answerStatus( answer, texts )` takes `busy` as a third argument.**
+  The `busy` flag left the answer object: the hook that owns the outbox knows
+  which subject is outstanding, so a screen asks it instead of keeping a flag
+  beside every call site. `useCommandOnce` returns `isPending( subject )`, and
+  an answer now carries only what came back.
+
+  ```js
+  // before
+  answerStatus( { busy: true, error }, TEXTS );
+  // after
+  answerStatus( { error }, TEXTS, isPending( subject ) );
+  ```
+
 - **The SSE slot pool is host-wide, and its methods lost `$user_id` / `$ip_hash`.**
   The pool was keyed per user/IP, so it never bounded a host — each additional
   reader arrived with its own budget. Slots are now one pooled keyspace per
