@@ -208,6 +208,66 @@ describe( 'useVaultGraph — the reply names the row it is about', () => {
 	}, 30000 );
 } );
 
+// The screen asks WHICH verb a row waits on rather than keeping a flag beside
+// every click: the outbox is the only thing that knows, and a flag goes stale
+// the moment one path forgets to clear it.
+describe( 'useVaultGraph — what a row is waiting on', () => {
+	test( 'names the outstanding verb per subject, and nothing once answered', async () => {
+		const held = [];
+		installFakeCommandWire( ( m ) =>
+			'list' === m[ VALUE ]?.name
+				? {}
+				: new Promise( ( resolve ) => held.push( resolve ) )
+		);
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		expect( result.current.pendingVerb( 'spoke-01' ) ).toBeNull();
+
+		act( () => result.current.testServer( 'spoke-01' ) );
+		await waitFor( () =>
+			expect( result.current.pendingVerb( 'spoke-01' ) ).toBe( 'test' )
+		);
+		// A different row is not waiting on anything.
+		expect( result.current.pendingVerb( 'spoke-02' ) ).toBeNull();
+
+		act( () => result.current.removeServer( 'spoke-02' ) );
+		await waitFor( () =>
+			expect( result.current.pendingVerb( 'spoke-02' ) ).toBe( 'delete' )
+		);
+
+		await act( async () => held.forEach( ( resolve ) => resolve( {} ) ) );
+		await waitFor( () =>
+			expect( result.current.pendingVerb( 'spoke-01' ) ).toBeNull()
+		);
+	}, 30000 );
+
+	test( 'addServer sends the id positionally and the credentials as named args', async () => {
+		const wire = installWire( { list: {}, add: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.addServer( {
+				id: 'spoke-04',
+				url: 'https://d.example.test',
+				auth_username: 'reader',
+				auth_password: 'hunter2',
+			} )
+		);
+
+		await waitForVerb( wire, 'add' );
+		const add = findVerb( wire.batches, 'add' );
+		expect( add[ VALUE ].arguments ).toEqual( [
+			'spoke-04',
+			'--url=https://d.example.test',
+			'--auth_username=reader',
+			'--auth_password=hunter2',
+		] );
+		expect( add[ FROM ] ).toBe( 'vault:add:in/spoke-04' );
+	}, 30000 );
+} );
+
 describe( 'useVaultGraph — teardown', () => {
 	test( 'unmount unregisters every graph node + the backbone', () => {
 		installWire();

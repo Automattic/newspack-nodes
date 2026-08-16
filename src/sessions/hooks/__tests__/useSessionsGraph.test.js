@@ -93,3 +93,64 @@ it( 'lists again as soon as a revoke answers, ahead of the cadence', async () =>
 		timeout: 4000,
 	} );
 }, 30000 );
+
+// The screen asks WHICH verb a row waits on rather than keeping a flag beside
+// every click: the outbox is the only thing that knows.
+it( 'names the outstanding verb per handle, and nothing once answered', async () => {
+	const held = [];
+	installFakeCommandWire( ( m ) =>
+		'list' === m[ VALUE ]?.name
+			? LISTING
+			: new Promise( ( resolve ) => held.push( resolve ) )
+	);
+	const { result } = renderHook( () => useSessionsGraph() );
+	await act( async () => {} );
+
+	expect( result.current.pendingVerb( 'h-4471' ) ).toBeNull();
+
+	act( () => result.current.revokeSession( 'h-4471' ) );
+	await waitFor( () =>
+		expect( result.current.pendingVerb( 'h-4471' ) ).toBe( 'revoke' )
+	);
+	expect( result.current.pendingVerb( 'h-8823' ) ).toBeNull();
+
+	await act( async () => held.forEach( ( resolve ) => resolve( {} ) ) );
+	await waitFor( () =>
+		expect( result.current.pendingVerb( 'h-4471' ) ).toBeNull()
+	);
+}, 30000 );
+
+// A create carries the label positionally and the rest as named args, which is
+// what `Sessions_CI` parses back out.
+it( 'creates with the label positional and scope/ttl named', async () => {
+	const wire = installFakeCommandWire( () => LISTING );
+	const { result } = renderHook( () => useSessionsGraph() );
+	await act( async () => {} );
+
+	act( () =>
+		result.current.createSession( {
+			label: 'laptop mcp client',
+			scope: 'tune',
+			ttl: 4471,
+		} )
+	);
+
+	await waitFor(
+		() =>
+			expect(
+				wire.batches
+					.flat()
+					.some( ( m ) => 'create' === m[ VALUE ]?.name )
+			).toBe( true ),
+		{ timeout: 8000 }
+	);
+	const create = wire.batches
+		.flat()
+		.find( ( m ) => 'create' === m[ VALUE ]?.name );
+	expect( create[ VALUE ].arguments ).toEqual( [
+		'laptop mcp client',
+		'--scope=tune',
+		'--ttl=4471',
+	] );
+	expect( create[ FROM ] ).toBe( 'sessions:create:in/laptop%20mcp%20client' );
+}, 30000 );
