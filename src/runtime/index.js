@@ -6,7 +6,7 @@ export { TeeNode } from './tee-node';
 export { HookNode } from './hook-node';
 export { CallbackNode } from './callback-node';
 export { EchoNode } from './echo-node';
-export { TimerNode } from './timer-node';
+export { TimerNode, GRID_PHASE_MS } from './timer-node';
 export { HeartbeatNode } from './heartbeat-node';
 export { CommandInterpreterNode } from './command-interpreter-node';
 export { StubNode } from './stub-node';

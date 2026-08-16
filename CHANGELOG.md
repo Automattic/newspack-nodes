@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `GRID_PHASE_MS` is on the `@newspack-nodes/runtime` surface. A consumer testing anything that rides the wall-clock grid has to pin its clock to a boundary, and the phase is the substrate's to state — the alternative is every plugin hardcoding the same 360.
+
 ## [2.32.0] - 2026-08-15
 
 ### Changed
