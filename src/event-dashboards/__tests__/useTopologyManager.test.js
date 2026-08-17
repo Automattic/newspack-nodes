@@ -259,6 +259,31 @@ describe( 'useTopologyManager', () => {
 		] );
 	}, 15000 );
 
+	it( 'restart names one partition with the --partition option', async () => {
+		// cmd_restart reads --partition off the OPTIONS; a bare token lands in
+		// the positional TYPE filter instead, so the partition is ignored and
+		// every partition of the topology restarts while the UI reports success.
+		const { sent } = buildClient();
+		const { result } = renderHook( () => useTopologyManager( {} ) );
+		await act( async () => {} );
+
+		act( () => {
+			result.current.restart( 'a', 2 );
+		} );
+
+		await waitFor(
+			() =>
+				expect(
+					sent.find( ( s ) => 'restart' === s.verb )
+				).toBeTruthy(),
+			{ timeout: 6000 }
+		);
+		expect( sent.find( ( s ) => 'restart' === s.verb ).args ).toEqual( [
+			'a',
+			'--partition=2',
+		] );
+	}, 15000 );
+
 	// A refused mutation reaches the caller's handler with the topology name
 	// it was about — the answer lands on the node that asked, a tick later,
 	// so there is no promise to reject.

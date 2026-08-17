@@ -45,7 +45,7 @@ class Job_Probe_Node extends Probe_Node {
 			'category'    => 'Monitor',
 			'description' => 'Sweeps every Job_Worker in this process every N seconds; emits one stats snapshot (runs, errors, durations, last-run) per job identity into the jobstats log.',
 			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'required' => false, 'description' => 'Sweep cadence in seconds between Job_Worker-stats snapshots; empty or absent defaults to 15.' ],
+				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds between Job_Worker-stats snapshots; empty or absent defaults to 15.' ],
 			],
 		] );
 	}

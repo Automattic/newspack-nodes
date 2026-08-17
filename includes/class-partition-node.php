@@ -167,8 +167,6 @@ class Partition_Node extends Timer_Node {
 		}
 		$this->min_segments   = \max( self::MIN_SEGMENTS_FLOOR, $this->min_segments );
 		$this->num_segments   = \max( $this->min_segments, $this->num_segments );
-		$this->min_lifetime   = \max( 0, $this->min_lifetime );
-		$this->lifetime       = \max( 0, $this->lifetime );
 		$this->max_segments   = self::derive_max_segments( $this->num_segments, $this->max_segments );
 		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->write_quarantine_key() );
 		return $args;

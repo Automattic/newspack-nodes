@@ -16,11 +16,14 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_Sync_Node extends Timer_Node {
-	use Fanout_Targets;
 	use Schema_Reflection;
+	use Fanout_Targets;
 
 	/** Default sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
 	private const DEFAULT_INTERVAL_SECONDS = 300;
+
+	/** Re-push sweep cadence in seconds; positional 0. */
+	protected int $interval_seconds = self::DEFAULT_INTERVAL_SECONDS;
 
 	/**
 	 * Options-cache-invalidation seam. Lazily-defaulted to drop the WP options
@@ -56,9 +59,8 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
-		$this->arguments = $args;
-		$seconds         = $this->parse_interval( $args[0] ?? '', self::DEFAULT_INTERVAL_SECONDS, self::MIN_INTERVAL_S );
-		$this->set_timer( $seconds * 1000 );
+		$this->parse_schema_args( $args );
+		$this->set_timer( $this->cadence_ms( $this->interval_seconds ) );
 		return $this->arguments;
 	}
 
@@ -235,7 +237,7 @@ class Settings_Sync_Node extends Timer_Node {
 			'category'    => 'Control',
 			'description' => 'Pushes registered WP-option changes to connected spokes.',
 			'arguments'   => [
-				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS, 'description' => 'Re-push sweep cadence in seconds — how often every registered option is re-sent to spokes (digits only; default 300, floored at 1).' ],
+				[ 'name' => 'interval_seconds', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_SECONDS, 'description' => 'Re-push sweep cadence in seconds — how often every registered option is re-sent to spokes (digits only; default 300, floored at 1).' ],
 			],
 			'commands'    => [
 				[

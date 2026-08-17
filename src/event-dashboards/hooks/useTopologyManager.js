@@ -349,13 +349,14 @@ export function useTopologyManager( opts = {} ) {
 	const { run: runActivate } = activateOnce;
 	const { run: runDeactivate } = deactivateOnce;
 
-	// Request a graceful restart; the reply lands on the node that asked.
+	// Partition is an OPTION; positionally it reads as a second type filter.
 	const restart = useCallback(
 		( name, partition = -1 ) =>
 			runRestart(
-				partition >= 0
-					? formatCommandArgs( [ name, String( partition ) ] )
-					: formatCommandArgs( [ name ] )
+				formatCommandArgs(
+					[ name ],
+					partition >= 0 ? { partition } : {}
+				)
 			),
 		[ runRestart ]
 	);

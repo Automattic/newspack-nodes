@@ -155,6 +155,22 @@ class ValueTimeoutTest extends TestCase {
 		$this->node->arguments( [ '60', '300', 'gerbil' ] );
 	}
 
+	public function test_arguments_rejects_a_non_numeric_timeout(): void {
+		// A mistyped window read as 0 through the lenient cast and then took the
+		// 900s default — indistinguishable from asking for the default.
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'timeout' );
+
+		$this->node->arguments( [ '90O', '300', '5' ] );
+	}
+
+	public function test_arguments_rejects_a_non_numeric_expires(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'expires' );
+
+		$this->node->arguments( [ '60', 'soon', '5' ] );
+	}
+
 	/** A zero token still derives the default sweep from timeout, as the original's `||=` did. */
 	public function test_arguments_zero_interval_takes_the_derived_default(): void {
 		$this->node->arguments( [ '120', '300', '0' ] );

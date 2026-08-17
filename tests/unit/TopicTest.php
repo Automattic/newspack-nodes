@@ -150,17 +150,20 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_constructor_clamps_num_partitions_to_minimum_one(): void {
-		// max(1, $n) clamps zero/negative to 1 — callers that pass bad config don't
-		// trip a divide-by-zero in hash_to_partition.
+		// max(1, $n) clamps zero to 1 — a config default of 0 must not trip a
+		// divide-by-zero in hash_to_partition.
 		$t = new Topic_Node();
 		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "0", "65536", "2", "4", "86400", "0" ] );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( 1, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
+	}
 
-		$t2 = new Topic_Node();
-		$t2->arguments( [ "{$this->tmp}/firehose.p{partition}", "-3", "65536", "2", "4", "86400", "0" ] );
-		$ref2 = new \ReflectionClass( $t );
-		$this->assertSame( 1, $ref2->getProperty( 'num_partitions' )->getValue( $t2 ) );
+	public function test_arguments_refuses_a_negative_partition_count(): void {
+		// Clamping -3 to 1 hid the typo; a negative count is not a fleet size.
+		$t = new Topic_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'num_partitions' );
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "-3", "65536", "2", "4", "86400", "0" ] );
 	}
 
 	public function test_fill_packs_TM_REQUEST_TM_ERROR_TM_EOF(): void {

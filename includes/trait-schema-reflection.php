@@ -45,10 +45,15 @@ trait Schema_Reflection {
 			if ( ! \property_exists( $this, $name ) ) {
 				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
 			}
-			if ( isset( $args[ $i ] ) ) {
-				$this->{$name} = self::coerce_argument( $args[ $i ], $type );
+			$token = $args[ $i ] ?? null;
+			// A blank numeric positional is a placeholder for "not supplied".
+			if ( '' === $token && ( 'int' === $type || 'float' === $type ) ) {
+				$token = null;
+			}
+			if ( null !== $token ) {
+				$this->{$name} = $this->coerce_argument( $token, $type, $name );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$this->{$name} = self::resolve_default( $arg_spec['default'], $type );
+				$this->{$name} = $this->resolve_default( $arg_spec['default'], $type, $name );
 			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
 				throw new \InvalidArgumentException( \esc_html( "Missing required argument: {$name}" ) );
 			}
@@ -64,21 +69,59 @@ trait Schema_Reflection {
 	 * a positional token arrives pre-resolved but a default does not. Any other
 	 * default (constant, array, plain string) is used verbatim.
 	 */
-	private static function resolve_default( mixed $default, string $type ): mixed {
+	private function resolve_default( mixed $default, string $type, string $name ): mixed {
 		if ( \is_string( $default ) && \preg_match( '/<[a-zA-Z_]\w*:[a-zA-Z_]\w*>/', $default ) ) {
-			return self::coerce_argument( Core::resolve_config_tokens( $default, true ), $type );
+			return $this->coerce_argument( Core::resolve_config_tokens( $default, true ), $type, $name );
 		}
 		return $default;
 	}
 
-	/** Coerce a raw string token to the declared schema type; unknown types pass through as string. */
-	private static function coerce_argument( string $token, string $type ): mixed {
-		return match ( $type ) {
-			'int'   => (int) $token,
-			'float' => (float) $token,
-			'bool'  => self::truthy( $token ),
-			default => $token,
-		};
+	/**
+	 * Coerce a raw token to the declared schema type; unknown types pass through
+	 * as string.
+	 *
+	 * The numeric types REFUSE rather than cast. `(int) 'abc'` is 0, and 0 is a
+	 * live value for every retention knob and every timer cadence, so a typo'd
+	 * make_node token used to become a disabled rule or a free-spinning own slot
+	 * with nothing said. `int` reads through `Core::canonical_decimal()`, the
+	 * refusing operator-input parse, which also rejects a fractional token and
+	 * one past the platform maximum — it takes no sign, which every declared int
+	 * argument (a size, a count, a duration) wants; `float` accepts any numeric.
+	 *
+	 * @throws \InvalidArgumentException When a numeric token is not of its declared type.
+	 */
+	private function coerce_argument( string $token, string $type, string $name ): mixed {
+		switch ( $type ) {
+			case 'int':
+				$int = Core::canonical_decimal( $token );
+				if ( null === $int ) {
+					throw $this->bad_argument( $name, 'a whole number', $token );
+				}
+				return $int;
+			case 'float':
+				if ( ! \is_numeric( $token ) ) {
+					throw $this->bad_argument( $name, 'a number', $token );
+				}
+				return (float) $token;
+			case 'bool':
+				return self::truthy( $token );
+		}
+		return $token;
+	}
+
+	/**
+	 * The refusal a mistyped positional raises, naming the node the way the
+	 * make_node line does: its class as the shell spells it, then its instance
+	 * name — a boot with five Partitions needs to know which one.
+	 */
+	private function bad_argument( string $name, string $wanted, string $token ): \InvalidArgumentException {
+		$who = Command_Interpreter_Node::shell_name_for( $this );
+		if ( '' !== $this->name ) {
+			$who .= " '{$this->name}'";
+		}
+		return new \InvalidArgumentException(
+			\esc_html( "Bad arguments for {$who}: {$name} wants {$wanted}, got '{$token}'" )
+		);
 	}
 
 	/** THE bool parse for schema args and toggle verbs (JS mirror: `truthy` in runtime/node.js). */

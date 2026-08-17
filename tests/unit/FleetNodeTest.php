@@ -438,7 +438,7 @@ class FleetNodeTest extends TestCase {
 
 		$wake_ref = new \ReflectionProperty( Bootstrap::class, 'on_demand_wake_map' );
 		$wake_ref->setValue( null, [ '/marmot/stale-partition' => [] ] );
-		$probe_ref = new \ReflectionProperty( \Newspack_Nodes\Topic_Probe_Node::class, 'interval_s' );
+		$probe_ref = new \ReflectionProperty( \Newspack_Nodes\Topic_Probe_Node::class, 'declared_interval_s' );
 		$probe_ref->setValue( null, 8264 );
 
 		$this->signal_reload( 1730000731 );

@@ -30,6 +30,9 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 	/** The base's own default; a subclass sets its cadence via arguments. */
 	protected const DEFAULT_INTERVAL_S = 15;
 
+	/** Sweep cadence in seconds; every subclass declares it as positional 0. */
+	protected int $interval_s = self::DEFAULT_INTERVAL_S;
+
 	/**
 	 * The N-second sweep cadence is the base Timer's interval_ms (> 1000), so it
 	 * hitchhikes the Router TIMER and Timer_Node::fire_cb() throttles to it — no
@@ -45,10 +48,9 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
-		$this->arguments = $args;
-		$interval_s      = $this->parse_interval( $args[0] ?? '', self::DEFAULT_INTERVAL_S, self::MIN_INTERVAL_S );
+		$this->parse_schema_args( $args );
 		// set_timer registers TIMER hitchhike; fire_cb() gates to interval_ms.
-		$this->set_timer( $interval_s * 1000 );
+		$this->set_timer( $this->cadence_ms( $this->interval_s ) );
 		return $this->arguments;
 	}
 

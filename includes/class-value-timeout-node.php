@@ -37,6 +37,9 @@ class Value_Timeout_Node extends Timer_Node {
 	private int $timeout = self::DEFAULT_TIMEOUT;
 	private int $expires = self::DEFAULT_EXPIRES;
 
+	/** Sweep cadence in seconds; 0 derives it from timeout. Positional 2. */
+	private float $interval = 0.0;
+
 	/** @var array<string,float> Value → refresh deadline (last arrival + timeout). */
 	private array $recently_received = [];
 
@@ -56,15 +59,14 @@ class Value_Timeout_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$this->arguments         = $args;
-		$timeout                 = Core::num_int( $args[0] ?? 0, 0 );
-		$expires                 = Core::num_int( $args[1] ?? 0, 0 );
-		$this->timeout           = $timeout > 0 ? $timeout : self::DEFAULT_TIMEOUT;
-		$this->expires           = $expires > 0 ? $expires : self::DEFAULT_EXPIRES;
+		$this->parse_schema_args( $args );
+		// Tachikoma's `||=`: a ZERO token takes the default, not zero itself.
+		$this->timeout           = $this->timeout > 0 ? $this->timeout : self::DEFAULT_TIMEOUT;
+		$this->expires           = $this->expires > 0 ? $this->expires : self::DEFAULT_EXPIRES;
 		$this->recently_received = [];
 		$this->recently_sent     = [];
-		$this->set_timer( $this->parse_interval_ms( Core::as_string( $args[2] ?? '', '' ), $this->timeout / 60 ) );
-		return $args;
+		$this->set_timer( $this->cadence_ms( $this->interval > 0.0 ? $this->interval : $this->timeout / 60 ) );
+		return $this->arguments;
 	}
 
 	public function fill( array $message ): void {
@@ -162,7 +164,7 @@ class Value_Timeout_Node extends Timer_Node {
 			'arguments'   => [
 				[ 'name' => 'timeout', 'type' => 'int', 'default' => self::DEFAULT_TIMEOUT, 'description' => 'Suppression window in seconds.' ],
 				[ 'name' => 'expires', 'type' => 'int', 'default' => self::DEFAULT_EXPIRES, 'description' => 'Drop messages older than this many seconds.' ],
-				[ 'name' => 'interval', 'type' => 'float', 'default' => 0, 'description' => 'Sweep interval in seconds (numeric; 0 or empty takes timeout/60, floored at 1).' ],
+				[ 'name' => 'interval', 'type' => 'float', 'default' => 0.0, 'description' => 'Sweep interval in seconds (numeric; 0 or empty takes timeout/60, floored at 1).' ],
 			],
 			'commands'    => [],
 			'requests'    => [],

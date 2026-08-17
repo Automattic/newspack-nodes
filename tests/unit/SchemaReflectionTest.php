@@ -187,6 +187,120 @@ class SchemaReflectionTest extends TestCase {
 		$this->assertSame( [ 'ignored', '2.5' ], $node->arguments() );
 	}
 
+	/** Anon node with one `int` and one `float` positional, both defaulted well away from 0. */
+	private function numeric_node(): Node {
+		return new class extends Node {
+			use Schema_Reflection;
+
+			public int $count   = 0;
+			public float $ratio = 0.0;
+
+			public function parse( array $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'count', 'type' => 'int', 'default' => 6421 ],
+						[ 'name' => 'ratio', 'type' => 'float', 'default' => 3.75 ],
+					],
+				];
+			}
+		};
+	}
+
+	public function test_parse_schema_args_refuses_a_non_numeric_int_token(): void {
+		// (int) 'abc' is 0, and 0 is a live value for every retention knob and
+		// every timer cadence — a typo'd make_node token became a disabled rule
+		// or a free-spinning own slot with no trace. It must fail at construction.
+		$node = $this->numeric_node();
+		$node->name( 'numeric-probe' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'count' );
+
+		$node->parse( [ 'abc' ] );
+	}
+
+	public function test_parse_schema_args_refuses_a_fractional_int_token(): void {
+		// (int) '9.9' silently truncates to 9; the operator asked for neither.
+		$node = $this->numeric_node();
+
+		$this->expectException( \InvalidArgumentException::class );
+
+		$node->parse( [ '9.9' ] );
+	}
+
+	public function test_parse_schema_args_refuses_an_int_token_past_the_platform_max(): void {
+		// A cast saturates at PHP_INT_MAX, which reads as a deliberate ceiling.
+		$node = $this->numeric_node();
+
+		$this->expectException( \InvalidArgumentException::class );
+
+		$node->parse( [ '99999999999999999999' ] );
+	}
+
+	public function test_parse_schema_args_refuses_a_non_numeric_float_token(): void {
+		$node = $this->numeric_node();
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'ratio' );
+
+		$node->parse( [ '12', 'later' ] );
+	}
+
+	public function test_parse_schema_args_reads_an_empty_numeric_token_as_absent(): void {
+		// A blank positional is a placeholder for "not supplied" — every
+		// self-pacing Timer subclass spelled that rule by hand before the trait
+		// owned it. Blank must take the schema default, not coerce to zero.
+		$node = $this->numeric_node();
+
+		$node->parse( [ '', '' ] );
+
+		$this->assertSame( 6421, $node->count );
+		$this->assertSame( 3.75, $node->ratio );
+	}
+
+	public function test_parse_schema_args_names_the_node_in_a_refusal(): void {
+		// The operator typed a make_node line; the refusal must say which one.
+		$node = $this->numeric_node();
+		$node->name( 'numeric-probe' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'numeric-probe' );
+
+		$node->parse( [ 'nope' ] );
+	}
+
+	public function test_parse_schema_args_refuses_an_unresolvable_numeric_default(): void {
+		// A <config:key> default that resolves to junk is a deployment bug, and
+		// the cast turned it into 0 at every boot.
+		Core::register_config_namespace( 'tconf', static fn ( string $k ): mixed => 'junk_count' === $k ? 'not-a-number' : null );
+
+		$node = new class extends Node {
+			use Schema_Reflection;
+
+			public int $count = 0;
+
+			public function parse( array $args ): void {
+				$this->parse_schema_args( $args );
+			}
+
+			public static function node_schema(): array {
+				return [
+					'arguments' => [
+						[ 'name' => 'count', 'type' => 'int', 'default' => '<tconf:junk_count>' ],
+					],
+				];
+			}
+		};
+
+		$this->expectException( \InvalidArgumentException::class );
+
+		$node->parse( [] );
+	}
+
 	public function test_parse_schema_args_rejects_argument_spec_without_name(): void {
 		$node = new class extends Node {
 			use Schema_Reflection;
