@@ -70,6 +70,18 @@ class SessionsCINodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'key', $listed[0], 'the listing must never carry the key' );
 	}
 
+	/**
+	 * A credential lifetime is the last thing that may be guessed at: `--ttl=1h`
+	 * would mint a default-lifetime key and report success.
+	 */
+	public function test_create_refuses_a_malformed_ttl_rather_than_issuing_a_default_key(): void {
+		$result = $this->fire( 'create', [ 'typo bot', '--ttl=1h' ] );
+
+		$this->assertIsString( $result, 'a malformed --ttl must not mint a session' );
+		$this->assertStringContainsString( 'ttl', $result );
+		$this->assertSame( [], $this->fire( 'list' )['sessions'] );
+	}
+
 	public function test_create_clamps_the_scope_to_the_minting_user(): void {
 		add_filter(
 			'newspack_nodes/capability_map',

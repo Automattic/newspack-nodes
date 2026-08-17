@@ -256,6 +256,22 @@ describe( 'InspectorTab interactions', () => {
 		expect( latest.path ).toBe( '_http' );
 	} );
 
+	it( 'bumps the canvas identity key when the PATH selector changes scope', () => {
+		const publishHeader = jest.fn();
+		renderInspector( {
+			publishHeader,
+			storageKey: 'newspack-nodes:wombat',
+		} );
+		const before = mockCaptured.consoleShell.canvasProps.resetKey;
+		const cfg = publishHeader.mock.calls
+			.map( ( c ) => c[ 0 ] )
+			.find( ( c ) => c && 'function' === typeof c.onPathChange );
+		act( () => cfg.onPathChange( 'quokka.p3' ) );
+		const after = mockCaptured.consoleShell.canvasProps.resetKey;
+		expect( after ).not.toBe( before );
+		expect( after ).toContain( 'quokka.p3' );
+	} );
+
 	it( 'requestCompletion fills the local command interpreter', () => {
 		renderInspector();
 		const ci = Core.node( '_command_interpreter' );

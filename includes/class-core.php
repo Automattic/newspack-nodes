@@ -579,6 +579,37 @@ class Core {
 		return \is_numeric( $value ) ? (float) $value : $default;
 	}
 
+	/**
+	 * REFUSING read of an operator- or wire-supplied integer: an int, or a
+	 * canonical non-negative decimal string inside PHP's range, else null.
+	 *
+	 * The other families all resolve to a number, so a typo picks one silently:
+	 * `as_int('abc')` and `num_int('abc', -1)` both name a real partition. Null
+	 * is a refusal the caller reports — `WP_CLI::error()` on a flag, a throw in
+	 * a verb — so `--partition=2m` says so instead of restarting p2.
+	 *
+	 * @param mixed $value      Raw token.
+	 * @param bool  $allow_zero Whether '0' is acceptable.
+	 */
+	public static function canonical_decimal( mixed $value, bool $allow_zero = true ): ?int {
+		$token = \is_int( $value ) ? (string) $value : $value;
+		if ( ! \is_string( $token ) ) {
+			return null;
+		}
+		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
+		if ( 1 !== \preg_match( $pattern, $token ) ) {
+			return null;
+		}
+		$max = (string) \PHP_INT_MAX;
+		if (
+			\strlen( $token ) > \strlen( $max )
+			|| ( \strlen( $token ) === \strlen( $max ) && \strcmp( $token, $max ) > 0 )
+		) {
+			return null;
+		}
+		return (int) $token;
+	}
+
 	public static function register_node( string $name, Node $node ): void {
 		self::$nodes_by_name[ $name ] = $node;
 	}

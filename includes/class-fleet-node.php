@@ -107,20 +107,24 @@ class Fleet_Node extends Timer_Node {
 		}
 	}
 
-	/** Spawn every active-fleet worker whose lock reads as down, bounded per pass. */
+	/**
+	 * Spawn every active-fleet worker whose lock reads as down, bounded per pass.
+	 *
+	 * The list is what this node computes; posting it is the coordinator's ONE
+	 * spawn loop, which owns the throttle, the local record and the
+	 * write-conflict refusal. The throttle is consulted here too so a worker a
+	 * peer already spawned costs no slot of the per-tick cap.
+	 */
 	private function scan( float $now ): void {
 		$coordinator = $this->coordinator;
 		if ( null === $coordinator ) {
 			return;
 		}
 		$this->refresh_active_set( $coordinator, $now );
-		if ( empty( $this->workers ) ) {
-			return;
-		}
-		$spawned = 0;
+		$due = [];
 		foreach ( $this->workers as $worker ) {
-			if ( $spawned >= self::MAX_SPAWNS_PER_TICK ) {
-				return;
+			if ( \count( $due ) >= self::MAX_SPAWNS_PER_TICK ) {
+				break;
 			}
 			if ( ! $coordinator->worker_needs_spawn( $worker, $now ) ) {
 				continue;
@@ -131,12 +135,9 @@ class Fleet_Node extends Timer_Node {
 			if ( $coordinator->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
 				continue;
 			}
-			$this->post_spawn( $coordinator, $worker, $now );
-			// @longform Local only: the endpoint persists accepted spawns, and it
-			// records after we return, so the next tick has only our memory.
-			$coordinator->record_spawn_local( $worker['type'], $worker['partition'], $now );
-			++$spawned;
+			$due[] = $worker;
 		}
+		$coordinator->spawn_each( $due, 'spawn failed', $now );
 	}
 
 	/** True while a newly-appeared type is still inside its post-detect delay. */
@@ -150,25 +151,6 @@ class Fleet_Node extends Timer_Node {
 		}
 		unset( $this->spawn_after[ $type ] );
 		return false;
-	}
-
-	/**
-	 * Fire-and-forget spawn POST. Errors are reported: a fleet that cannot spawn must not fail silently.
-	 *
-	 * @param Spawn_Coordinator $coordinator Spawn coordinator.
-	 * @param Worker_Descriptor $worker      Descriptor from expand_workers().
-	 * @param float             $now         Tick clock.
-	 */
-	private function post_spawn( Spawn_Coordinator $coordinator, array $worker, float $now ): void {
-		$err = $coordinator->post_spawn(
-			\rest_url( 'newspack-nodes/v1/workers/spawn' ),
-			$worker['type'],
-			$worker['partition'],
-			$coordinator->generate_spawn_token( (int) $now )
-		);
-		if ( null !== $err ) {
-			$this->print_less_often( "spawn failed for {$worker['type']}.p{$worker['partition']}: ", $err );
-		}
 	}
 
 	/**
@@ -211,15 +193,6 @@ class Fleet_Node extends Timer_Node {
 			if ( $had_workers ) {
 				$this->drain_all_workers( $coordinator );
 			}
-			$this->workers = [];
-			return;
-		}
-
-		// @longform Two fleets on one partition corrupt it: refuse the whole
-		// set, as every spawner does — one that didn't would keep it alive.
-		$conflict = Spawn_Coordinator::conflict_description( \array_values( \array_unique( \array_column( $workers, 'type' ) ) ) );
-		if ( '' !== $conflict ) {
-			$this->print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
 			$this->workers = [];
 			return;
 		}

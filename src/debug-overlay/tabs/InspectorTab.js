@@ -347,7 +347,8 @@ export default function InspectorTab( {
 								canvasProps={ {
 									inspectorCollapsed,
 									onInspectorToggle: toggleInspectorCollapsed,
-									resetKey: storageKey,
+									// A PATH change is a different graph.
+									resetKey: `${ storageKey }|${ cwdScope }`,
 									// No cwd → local; header uses IoTelemetry.
 									local: ! cwd,
 									// Verbose toggle reads it.

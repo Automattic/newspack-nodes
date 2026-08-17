@@ -27,7 +27,7 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {Object}           props.graph              { nodes, edges } to render.
  * @param {FrameComponent}   props.frame              Component wrapping the canvas (CanvasFrame for the console; a plain frame for the overlay). Receives `frameProps` + children.
  * @param {Object}           props.frameProps         Props forwarded to `frame`.
- * @param {string}           props.resetKey           Identity key; bumps clears rate history.
+ * @param {string}           props.resetKey           Identity key; a bump clears rate history and the edge/hull selection.
  * @param {?Object}          [props.viewportDelta]    Persisted `{ dcx, dcy, zoom }` offset from autofit; forwarded to the canvas, which restores it on the first freeze. Null autofits.
  * @param {boolean}          props.interactive        Gesture machinery on (default true).
  * @param {boolean}          props.editMode           Draft-only canvas affordances.
@@ -43,7 +43,7 @@ import { aggregateSeries } from '../utils/aggregateSeries';
  * @param {Function}         props.onUpdateArgs       (id, args)
  * @param {Function}         props.onUpdateVerbs      (id, verbs)
  * @param {Function}         props.onSelectionChange  (selectedId) — optional side-effect.
- * @param {string}           props.selection          Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
+ * @param {string}           props.selection          Optional controlled NODE selection; when its value changes the internal node selection re-syncs to it (lets a consumer re-point selection after a rename or clear it). It never speaks for the edge or hull selection — null is the node selection's empty value, which is precisely the state an edge selection leaves behind. `undefined` leaves GraphView fully self-controlled.
  * @param {boolean}          props.inspectorCollapsed When true, the inspector collapses to a slim expand-rail (consumer-owned state, mirrors the palette). Default false.
  * @param {Function}         props.onInspectorToggle  () — fires when the inspector collapse/expand chevron is clicked; consumer toggles its `inspectorCollapsed` state.
  * @param {boolean}          props.local              When true the graph is the browser's own (local) graph, so the no-node header reads wire-accurate IoTelemetry (matching the Overview tab) instead of rolling up dump_metadata. Default false (remote/worker scope).
@@ -98,15 +98,23 @@ export default function GraphView( {
 	const [ selectedHull, setSelectedHull ] = useState( null );
 	const [ hoveredId, setHoveredId ] = useState( null );
 
-	// Re-sync to an external controlled selection (rename re-point / reset).
+	// Re-sync the NODE selection to an external value (rename re-point).
 	useEffect( () => {
 		if ( selection === undefined ) {
 			return;
 		}
 		setSelectedId( selection );
-		// A stale edge must not survive an external selection re-sync.
-		setSelectedEdge( null );
+		// Only a NODE supersedes an edge; null is the empty node selection.
+		if ( null !== selection ) {
+			setSelectedEdge( null );
+		}
 	}, [ selection ] );
+
+	// Identity change (scope / mode / topology): no edge or hull survives it.
+	useEffect( () => {
+		setSelectedEdge( null );
+		setSelectedHull( null );
+	}, [ resetKey ] );
 
 	// @longform A sparkline point is a dump_metadata SNAPSHOT. The canvas graph
 	// is rebuilt far more often than one arrives — a catalog republishing was

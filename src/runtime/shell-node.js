@@ -560,7 +560,7 @@ export class ShellNode extends Node {
 		this.path = '';
 		// `var`-set values, read back by <name> interpolation (PHP Core::$var).
 		this.vars = {};
-		// Read-only namespace via <config:foo> (PHP Core::$config).
+		// The `<ns:key>` namespace a host supplies; unset warns, never blanks.
 		this.config = {};
 		// Lines emitted by the local `status` builtin; host-populated.
 		this.statusLines = [];
@@ -999,7 +999,8 @@ export class ShellNode extends Node {
 	/**
 	 * Quote-aware single-tier interpolation (mirrors PHP Shell_Node::interpolate,
 	 * runs before tokenizing). Outside quotes and inside double quotes: `<name>` →
-	 * vars, `<config:foo>` → config, unknown → ''. Inside single quotes or
+	 * vars, `<ns:key>` → resolveConfigToken, unknown → '' with a warning on
+	 * stderr — neither branch may blank in silence. Inside single quotes or
 	 * backticks the `<…>` is left LITERAL (standard shell semantics) so a token
 	 * can be deferred to a downstream binder — e.g. a Topic line writes
 	 * `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now and handing
@@ -1050,8 +1051,12 @@ export class ShellNode extends Node {
 				const m = token.exec( line );
 				if ( m ) {
 					const key = m[ 1 ];
-					if ( key.startsWith( 'config:' ) ) {
-						out += String( this.config[ key.slice( 7 ) ] ?? '' );
+					const colon = key.indexOf( ':' );
+					if ( -1 !== colon ) {
+						out += this.resolveConfigToken(
+							key.slice( 0, colon ),
+							key.slice( colon + 1 )
+						);
 					} else {
 						// get_shared: undefined warns, defined-empty is silent.
 						if ( ! ( key in this.vars ) ) {
@@ -1070,6 +1075,48 @@ export class ShellNode extends Node {
 			i++;
 		}
 		return out;
+	}
+
+	/**
+	 * Resolve a `<ns:key>` token, mirroring PHP Core::resolve_config_token in its
+	 * non-strict form: an unresolvable token becomes '' with a rate-limited
+	 * warning, so a typo or a host that never handed the shell its map cannot
+	 * blank a path in silence. PHP resolves through a namespace REGISTRY; the
+	 * browser has exactly one namespace — `config`, the host-supplied map — so
+	 * every other namespace is unknown here.
+	 *
+	 * @param {string} ns  Namespace, the part before the colon.
+	 * @param {string} key Key within that namespace.
+	 * @return {string} The resolved value, or '' when nothing owns the key.
+	 */
+	resolveConfigToken( ns, key ) {
+		if ( 'config' !== ns ) {
+			Core.printLessOften(
+				'resolve_config_token: unknown namespace ',
+				`<${ ns }:${ key }>`
+			);
+			return '';
+		}
+		const value = this.config[ key ];
+		if ( null === value || undefined === value ) {
+			Core.printLessOften(
+				'resolve_config_token: resolver returned null for ',
+				`<${ ns }:${ key }>`
+			);
+			return '';
+		}
+		if ( 'object' === typeof value || 'function' === typeof value ) {
+			Core.printLessOften(
+				'resolve_config_token: resolver returned non-scalar for ',
+				`<${ ns }:${ key }>`
+			);
+			return '';
+		}
+		// PHP's `(string)` casts a bool to '1'/'', not JS's 'true'/'false'.
+		if ( 'boolean' === typeof value ) {
+			return value ? '1' : '';
+		}
+		return String( value );
 	}
 
 	/**

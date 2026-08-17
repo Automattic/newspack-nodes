@@ -75,6 +75,11 @@ class Log_Node extends Partition_Node {
 		return "{$this->file}.write.lock.d";
 	}
 
+	/** Path seam: sibling Logs share a directory, so the FILE keys the quarantine. */
+	protected function write_quarantine_key(): string {
+		return $this->file;
+	}
+
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'description' => 'Append-only segmented log of message VALUEs ({file}.{seg}).',

@@ -391,7 +391,7 @@ class SSE_In_Node extends Node {
 				break;
 			case 'retry':
 				// Our SSE_Out sends an EVENT; this covers plain-SSE servers.
-				$this->server_retry_ms = self::canonical_decimal( $value, true ) ?? $this->server_retry_ms;
+				$this->server_retry_ms = Core::canonical_decimal( $value ) ?? $this->server_retry_ms;
 				break;
 			case 'data':
 				$this->current_event['data'] .= $value;
@@ -431,7 +431,7 @@ class SSE_In_Node extends Node {
 				// Per the SSE spec a malformed retry is ignored, not an error.
 				return true;
 			}
-			$advertised = self::canonical_decimal( Core::as_string( $message[ Message::VALUE ] ), true );
+			$advertised = Core::canonical_decimal( $message[ Message::VALUE ] );
 			// 0 is "no schedule", not a schedule of zero.
 			if ( null !== $advertised && $advertised > 0 ) {
 				$this->server_retry_ms = $advertised;
@@ -528,15 +528,15 @@ class SSE_In_Node extends Node {
 			$info[ $tokens[ $i ] ] = $tokens[ $i + 1 ];
 		}
 
-		$slot = self::canonical_decimal( $info['SLOT'] ?? null, true );
+		$slot = Core::canonical_decimal( $info['SLOT'] ?? null );
 		if ( null === $slot ) {
 			return $this->reject_connected( 'connected envelope missing or invalid SLOT' );
 		}
-		$owner = self::canonical_decimal( $info['OWNER'] ?? null, false );
+		$owner = Core::canonical_decimal( $info['OWNER'] ?? null, false );
 		if ( null === $owner ) {
 			return $this->reject_connected( 'connected envelope missing or invalid OWNER' );
 		}
-		$pid = self::canonical_decimal( $info['PID'] ?? null, false );
+		$pid = Core::canonical_decimal( $info['PID'] ?? null, false );
 		if ( null === $pid ) {
 			return $this->reject_connected( 'connected envelope missing or invalid PID' );
 		}
@@ -560,24 +560,6 @@ class SSE_In_Node extends Node {
 		$this->set_state( 'ERROR', $reason );
 		$this->stderr( "ERROR: {$reason}" );
 		return false;
-	}
-
-	/**
-	 * Parse a PHP-range canonical decimal token without lossy integer coercion.
-	 */
-	private static function canonical_decimal( ?string $value, bool $allow_zero ): ?int {
-		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
-		if ( null === $value || 1 !== \preg_match( $pattern, $value ) ) {
-			return null;
-		}
-		$max = (string) \PHP_INT_MAX;
-		if (
-			\strlen( $value ) > \strlen( $max )
-			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
-		) {
-			return null;
-		}
-		return (int) $value;
 	}
 
 	/** Single-line, bounded text safe for operator diagnostics. */

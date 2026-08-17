@@ -342,6 +342,54 @@ class SettingsSyncNodeTest extends TestCase {
 		$this->assertFalse( $node->oneshot );
 	}
 
+	public function test_arguments_arms_explicit_non_default_cadence(): void {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+
+		$node->arguments( [ '7' ] );
+
+		$this->assertSame( 7000, $node->interval_ms );
+	}
+
+	public function test_arguments_rejects_non_numeric_interval(): void {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+
+		$this->expectException( \InvalidArgumentException::class );
+
+		$node->arguments( [ 'abc' ] );
+	}
+
+	public function test_arguments_rejects_negative_interval(): void {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+
+		$this->expectException( \InvalidArgumentException::class );
+
+		$node->arguments( [ '-7' ] );
+	}
+
+	/** A zero interval must never take an own 0 ms slot: that free-spins the drain. */
+	public function test_arguments_floors_zero_interval_onto_the_router_hitchhike(): void {
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$node = new Settings_Sync_Node();
+		$node->name( 'settings-sync' );
+
+		$node->arguments( [ '0' ] );
+
+		$ref  = new \ReflectionObject( $node );
+		$mode = $ref->getProperty( 'mode' );
+		$this->assertSame( 1000, $node->interval_ms );
+		$this->assertSame( 'router', $mode->getValue( $node ) );
+	}
+
 	/**
 	 * The spoke `set` handler parses arguments via Command_Args::parse()['positional'].
 	 * format([$remote,$value],[]) MUST round-trip back to those two positionals — including

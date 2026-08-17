@@ -429,6 +429,33 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( [ 'demo-workers' => true ], $fake_cli->called_with['filter'] );
 	}
 
+	/**
+	 * The dashboard sibling of the CLI footgun: `(int) 'abc'` is 0, so a
+	 * malformed option would restart partition 0 and report a success count.
+	 */
+	public function test_restart_verb_refuses_a_malformed_partition_option(): void {
+		$fake_cli = new class {
+			public ?array $called_with = null;
+			public function ls_workers(): array {
+				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
+			}
+			public function read_probe_frames(): array { return []; }
+			public function live_position( array $index, string $type, int $partition ): ?array { return null; }
+			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
+				$this->called_with = [ 'partition' => $partition ];
+				return \count( $workers );
+			}
+		};
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $fake_cli;
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'demo-workers', '--partition=abc' ] );
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'partition', $result );
+		$this->assertNull( $fake_cli->called_with, 'a refused command must not reach the fleet' );
+	}
+
 	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
 		// The client sends only the exact lease pair; the server applies its own
 		// deliberately non-default TTL (47), not a client-provided fallback.

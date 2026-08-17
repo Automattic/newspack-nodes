@@ -67,7 +67,7 @@ class Worker_CLI_Command {
 	 */
 	public function stop( array $args, array $assoc_args ): void {
 		unset( $args );
-		$timeout = self::entry_int( $assoc_args, 'timeout', self::STOP_TIMEOUT_S );
+		$timeout = CLI::require_flag_int( $assoc_args, 'timeout', self::STOP_TIMEOUT_S );
 
 		// Hold FIRST, or a worker flagged before it respawns itself.
 		Spawn_Coordinator::set_hold( \time() );
@@ -236,7 +236,7 @@ class Worker_CLI_Command {
 		$workers = $this->workers();
 		$valid   = \array_unique( \array_column( $workers, 'type' ) );
 		// -1 means every partition, which is the default.
-		$partition = self::entry_int( $assoc_args, 'partition', -1 );
+		$partition = CLI::require_flag_int( $assoc_args, 'partition', -1 );
 
 		if ( 'all' !== $target && ! \in_array( $target, $valid, true ) ) {
 			$available = \array_merge( $valid, [ 'all' ] );
@@ -581,7 +581,7 @@ class Worker_CLI_Command {
 		$valid   = \array_unique( \array_column( $workers, 'type' ) );
 
 		$type      = $args[0] ?? '';
-		$partition = self::entry_int( $assoc_args, 'partition', 0 );
+		$partition = CLI::require_flag_int( $assoc_args, 'partition', 0 );
 
 		if ( '' === $type ) {
 			\WP_CLI::error( 'Worker type required. Use: wp nodes run <type>' );
@@ -640,6 +640,23 @@ class Worker_CLI_Command {
 		\WP_CLI::success( 'Worker exited with status: ' . $result['status'] . ( '' !== $detail ? " ({$detail})" : '' ) );
 	}
 
+	/**
+	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
+	 *
+	 * Topology entries come from the `newspack_nodes/topologies` filter, not from
+	 * the operator — a malformed one must not take down an unrelated listing, so
+	 * this keeps the silent default. Operator flags go through
+	 * `CLI::require_flag_int()`.
+	 *
+	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key      Key to read.
+	 * @param int    $fallback Default when missing/non-scalar.
+	 */
+	private static function entry_int( $entry, string $key, int $fallback ): int {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
+		return Core::as_int( $value, $fallback );
+	}
+
 	private function base_dir(): string {
 		return Config::get_base_directory();
 	}
@@ -653,18 +670,6 @@ class Worker_CLI_Command {
 	private static function entry_string( $entry, string $key ): string {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
 		return Core::as_string( $value );
-	}
-
-	/**
-	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
-	 *
-	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
-	 * @param string $key      Key to read.
-	 * @param int    $fallback Default when missing/non-scalar.
-	 */
-	private static function entry_int( $entry, string $key, int $fallback ): int {
-		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
-		return Core::as_int( $value, $fallback );
 	}
 
 	/**

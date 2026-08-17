@@ -76,6 +76,22 @@ class CoreTest extends TestCase {
 		$this->assertSame( 0, Core::num_int( [ 3 ] ) );
 	}
 
+	public function test_canonical_decimal_refuses_instead_of_defaulting(): void {
+		$this->assertSame( 42, Core::canonical_decimal( '42' ) );
+		$this->assertSame( 0, Core::canonical_decimal( '0' ) );
+		$this->assertSame( 7, Core::canonical_decimal( 7 ), 'an int needs no parsing' );
+		$this->assertNull( Core::canonical_decimal( 'abc' ) );
+		$this->assertNull( Core::canonical_decimal( '2m' ), 'a partial-numeric prefix must not parse' );
+		$this->assertNull( Core::canonical_decimal( '1,2' ) );
+		$this->assertNull( Core::canonical_decimal( '007' ), 'non-canonical spelling is a refusal' );
+		$this->assertNull( Core::canonical_decimal( true ), 'a bare flag is not a number' );
+		$this->assertNull( Core::canonical_decimal( null ) );
+		$this->assertNull( Core::canonical_decimal( -1 ) );
+		$this->assertNull( Core::canonical_decimal( '0', false ), 'allow_zero=false rejects zero' );
+		$this->assertNull( Core::canonical_decimal( '9223372036854775808' ), 'past PHP_INT_MAX' );
+		$this->assertSame( \PHP_INT_MAX, Core::canonical_decimal( (string) \PHP_INT_MAX ) );
+	}
+
 	public function test_coercion_helpers_take_an_optional_default_for_the_miss_case(): void {
 		$this->assertSame( 7, Core::as_int( null, 7 ) );
 		$this->assertSame( 42, Core::as_int( '42', 7 ), 'default only applies on a miss' );

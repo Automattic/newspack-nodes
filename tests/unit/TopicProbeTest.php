@@ -271,6 +271,19 @@ class TopicProbeTest extends TestCase {
 		$probe->arguments( [ 'every-15s' ] );
 	}
 
+	/** A zero cadence must never take an own 0 ms slot: the floor puts it on the Router hitchhike. */
+	public function test_arguments_floors_zero_interval_onto_the_router_hitchhike(): void {
+		( new \Newspack_Nodes\Router_Node() )->name( '_router' );
+		$probe = new Topic_Probe_Node();
+		$probe->name( 'topicprobe' );
+
+		$probe->arguments( [ '0' ] );
+
+		$mode = ( new \ReflectionObject( $probe ) )->getProperty( 'mode' );
+		$this->assertSame( 1000, $probe->interval_ms );
+		$this->assertSame( 'router', $mode->getValue( $probe ) );
+	}
+
 	public function test_fire_notifies_then_bails_before_sweeping_when_no_sink(): void {
 		// fire() guards against a null sink independently of fire_cb's gate. Invoke
 		// fire() directly (fire_cb would short-circuit before reaching it): the FIRE

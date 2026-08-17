@@ -549,11 +549,11 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( 2 !== \count( $args ) ) {
 			throw new \RuntimeException( 'heartbeat requires exactly <slot> <owner>' );
 		}
-		$slot = self::canonical_decimal( $args[0], true );
+		$slot = Core::canonical_decimal( $args[0] );
 		if ( null === $slot ) {
 			throw new \RuntimeException( 'invalid heartbeat slot' );
 		}
-		$owner = self::canonical_decimal( $args[1], false );
+		$owner = Core::canonical_decimal( $args[1], false );
 		if ( null === $owner ) {
 			throw new \RuntimeException( 'invalid heartbeat owner' );
 		}
@@ -566,22 +566,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			throw new \RuntimeException( \esc_html( 'SSE slot lease not owned: ' . $diagnosis['lease_state'] ) );
 		}
 		return [ 'success' => true, 'slot' => $slot ];
-	}
-
-	/** Parse a PHP-range canonical decimal argument without lossy coercion. */
-	private static function canonical_decimal( string $value, bool $allow_zero ): ?int {
-		$pattern = $allow_zero ? '/^(?:0|[1-9][0-9]*)$/' : '/^[1-9][0-9]*$/';
-		if ( 1 !== \preg_match( $pattern, $value ) ) {
-			return null;
-		}
-		$max = (string) \PHP_INT_MAX;
-		if (
-			\strlen( $value ) > \strlen( $max )
-			|| ( \strlen( $value ) === \strlen( $max ) && \strcmp( $value, $max ) > 0 )
-		) {
-			return null;
-		}
-		return (int) $value;
 	}
 
 	/**
@@ -643,9 +627,10 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed>
 	 */
 	public static function cmd_restart( Workers_CI_Node $self, array $args ): array {
-		$parsed    = Command_Args::parse( $args );
-		$types     = $parsed['positional'];
-		$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
+		$parsed = Command_Args::parse( $args );
+		$types  = $parsed['positional'];
+		// -1 means every partition; a malformed one must not collapse to p0.
+		$partition = self::require_option_int( $parsed['options'], 'partition', -1 );
 		$filter    = [];
 		foreach ( $types as $t ) {
 			$filter[ $t ] = true;

@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
@@ -283,5 +284,70 @@ class LogTest extends TestCase {
 		$log = new Log_Node();
 		$log->arguments( [ $this->tmp . '/inside.log' ] );
 		$this->assertSame( [ $this->tmp . '/inside.log' ], $log->arguments() );
+	}
+
+	/**
+	 * A Log writes through Partition's stall path, so it needs the same
+	 * write-quarantine. Its key is the FILE, not the directory — sibling Logs
+	 * share one dir and would otherwise collide on a single quarantine.
+	 */
+	public function test_a_log_derives_its_write_quarantine_from_the_file_path(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$digest = new Log_Node();
+		$digest->name( 'digest:log' );
+		$digest->arguments( [ "{$this->tmp}/logs/digest.md", '4096', '2', '3' ] );
+		$this->assertSame(
+			"{$this->tmp}/deadletter/logs.digest.md",
+			$this->read_private( $digest, 'deadletter_dir' )
+		);
+
+		$gate = new Log_Node();
+		$gate->name( 'gate:log' );
+		$gate->arguments( [ "{$this->tmp}/logs/gate.md", '4096', '2', '3' ] );
+		$this->assertSame(
+			"{$this->tmp}/deadletter/logs.gate.md",
+			$this->read_private( $gate, 'deadletter_dir' ),
+			'two Logs in one directory must not share a quarantine'
+		);
+	}
+
+	public function test_a_stalled_write_quarantines_the_unwritten_records(): void {
+		$this->use_base_dir( $this->tmp );
+
+		$log = new Log_Node();
+		$log->name( 'digest:log' );
+		$log->arguments( [ "{$this->tmp}/logs/digest.md", '4096', '2', '3' ] );
+		foreach ( [ 'alpha-verse', 'beta-verse', 'gamma-verse' ] as $value ) {
+			$this->write_value( $log, $value );
+		}
+
+		// Tear 4 bytes into the second record, then refuse; the quarantine's
+		// own disk stays healthy (selective-EIO / read-only source segment).
+		$budget                 = \strlen( 'alpha-verse' ) + 4;
+		Partition_Node::$fwrite = static function ( $fh, string $bytes ) use ( &$budget ) {
+			$uri = (string) ( \stream_get_meta_data( $fh )['uri'] ?? '' );
+			if ( ! \str_contains( $uri, '/logs/digest.md.' ) ) {
+				return \fwrite( $fh, $bytes );
+			}
+			if ( $budget <= 0 ) {
+				return false;
+			}
+			$written = \fwrite( $fh, \substr( $bytes, 0, $budget ) );
+			$budget  = 0;
+			return $written;
+		};
+		Core::set_stderr_handler( static function () { /* swallow the loud give-up */ } );
+		try {
+			$log->flush();
+		} finally {
+			Partition_Node::$fwrite = null;
+		}
+
+		$this->assertSame( 'alpha-verse', (string) \file_get_contents( "{$this->tmp}/logs/digest.md.0" ) );
+
+		$quarantined = (string) \file_get_contents( "{$this->tmp}/deadletter/logs.digest.md/0.log" );
+		$this->assertStringContainsString( 'beta-verse', $quarantined );
+		$this->assertStringContainsString( 'gamma-verse', $quarantined );
 	}
 }

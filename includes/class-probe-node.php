@@ -46,13 +46,7 @@ abstract class Probe_Node extends Timer_Node implements Shutdown_Sweeper {
 			return $this->arguments;
 		}
 		$this->arguments = $args;
-		$first           = ( $args[0] ?? '' );
-		if ( '' !== $first && ! \preg_match( '/^[0-9]+$/', $first ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( 'Bad arguments for ' . Command_Interpreter_Node::shell_name_for( $this ) )
-			);
-		}
-		$interval_s = '' === $first ? self::DEFAULT_INTERVAL_S : \max( 1, (int) $first );
+		$interval_s      = $this->parse_interval( $args[0] ?? '', self::DEFAULT_INTERVAL_S, self::MIN_INTERVAL_S );
 		// set_timer registers TIMER hitchhike; fire_cb() gates to interval_ms.
 		$this->set_timer( $interval_s * 1000 );
 		return $this->arguments;

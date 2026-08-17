@@ -3,10 +3,18 @@
  * ProbeToGraphite
  *
  * Modeled on Tachikoma's `TopicProbeToGraphite.pm` over the substrate's
- * positional Probe_Record: fill() accumulates the latest record per reader,
- * fire() formats `<prefix>.<reader>.<field> value ts` plaintext lines
- * (fields: distance, msgs_delta, bytes_read_delta, cache_size), batches
- * them 16 per TM_BYTESTREAM message to its sink, and clears state.
+ * positional Probe_Record: fill() accumulates one entry per reader, fire()
+ * formats `<prefix>.<reader>.<field> value ts` plaintext lines (fields:
+ * distance, msgs_delta, bytes_read_delta, cache_size), batches them 16 per
+ * TM_BYTESTREAM message to its sink, and clears state.
+ *
+ * Accumulation is per FIELD TYPE, which is where this parts from the original.
+ * Tachikoma's `msg_sent` was the cumulative `$node->{counter}`, so its
+ * latest-record-wins assignment was lossless; our MSGS_DELTA and
+ * BYTES_READ_DELTA are per-sweep deltas that `drain_probe_window()` has already
+ * re-baselined, so consecutive records PARTITION the work and the window's
+ * truth is their SUM. DISTANCE (backlog bytes) and CACHE_SIZE (offsetlog
+ * segment size) are levels, and keep the reference's latest-wins sampling.
  *
  * Wire: `Consumer topicprobe.p0 → Probe_To_Graphite → Graphite` (and/or
  * `→ Newspack_Log`). The reader id is sanitized `\W+ → _` for the metric
@@ -36,6 +44,9 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		'cache_size'       => Probe_Record::CACHE_SIZE,
 	];
 
+	/** Fields that PARTITION work across sweeps: summed over the window, never sampled. */
+	private const SUMMED = [ Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA ];
+
 	private string $prefix = 'nodes.topics';
 
 	/** @var array<string,array{record: array<int,int|string>,ts: float}> Latest record per reader. */
@@ -46,6 +57,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
+	 * @throws \InvalidArgumentException When the interval token isn't numeric.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -54,10 +66,8 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		$this->arguments = $args;
 		$prefix          = Core::as_string( $args[0] ?? '', '' );
 		$this->prefix    = '' !== $prefix ? $prefix : 'nodes.topics';
-		$interval        = Core::num_float( $args[1] ?? 0, 0.0 );
-		$interval        = $interval > 0 ? $interval : self::DEFAULT_INTERVAL_S;
 		$this->readers   = [];
-		$this->set_timer( (int) ( $interval * 1000 ) );
+		$this->set_timer( $this->parse_interval_ms( Core::as_string( $args[1] ?? '', '' ), self::DEFAULT_INTERVAL_S ) );
 		return $args;
 	}
 
@@ -73,6 +83,13 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		$reader = Core::str( $record[ Probe_Record::READER ] ?? null, '' );
 		if ( '' === $reader ) {
 			return;
+		}
+		$prior = $this->readers[ $reader ]['record'] ?? null;
+		if ( \is_array( $prior ) ) {
+			foreach ( self::SUMMED as $index ) {
+				$record[ $index ] = Core::num_int( $prior[ $index ] ?? 0, 0 )
+					+ Core::num_int( $record[ $index ] ?? 0, 0 );
+			}
 		}
 		$this->readers[ $reader ] = [
 			'record' => $record,
@@ -111,7 +128,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 			'description' => 'Formats topicprobe records into Graphite plaintext lines (Tachikoma TopicProbeToGraphite variant).',
 			'arguments'   => [
 				[ 'name' => 'prefix', 'type' => 'string', 'default' => 'nodes.topics', 'description' => 'Metric path prefix.' ],
-				[ 'name' => 'interval', 'type' => 'float', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Emit interval in seconds.' ],
+				[ 'name' => 'interval', 'type' => 'float', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Emit interval in seconds (numeric; 0 or empty takes the 15s default, floored at 1).' ],
 			],
 			'commands'    => [],
 			'requests'    => [],

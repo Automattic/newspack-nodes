@@ -228,4 +228,25 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 		}
 		return $name;
 	}
+
+	/**
+	 * Read an operator-supplied `--key=<n>` option, throwing when it is
+	 * malformed. The throw becomes a TM_COMMAND|TM_ERROR reply, so the caller
+	 * hears which flag it fumbled rather than an answer for partition 0.
+	 *
+	 * @param array<string,mixed> $options    The `options` half of Command_Args::parse().
+	 * @param string              $key        Option name.
+	 * @param int                 $fallback   Value when the option is absent.
+	 * @param bool                $allow_zero Whether 0 is acceptable.
+	 */
+	protected static function require_option_int( array $options, string $key, int $fallback, bool $allow_zero = true ): int {
+		$value = Command_Args::option_int( $options, $key, $fallback, $allow_zero );
+		if ( null === $value ) {
+			$bound = $allow_zero ? 'non-negative' : 'positive';
+			throw new \RuntimeException(
+				\esc_html( "--{$key} must be a {$bound} integer; got: " . Core::as_string( $options[ $key ] ) )
+			);
+		}
+		return $value;
+	}
 }

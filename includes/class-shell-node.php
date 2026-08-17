@@ -1084,14 +1084,25 @@ class Shell_Node extends Node {
 		$this->stdout( 'got EOF while waiting for tokens: ' . \trim( $pending ) . "\n" );
 	}
 
+	/**
+	 * Shell output. Only `wp nodes cli` registers `_stdout`, so a Shell loading
+	 * a .tsl at worker boot has no terminal and the fifteen refusals routed
+	 * through here were discarded whole — a typo skipped its statement and
+	 * booted a half-built graph leaving no trace anywhere. With no terminal the
+	 * line takes the node stderr chain instead (`newspack_nodes/stderr` →
+	 * error_log, and ELN's Diagnostics_Bridge → the Error Log dashboard),
+	 * rate-limited so a topology refusing on every statement can't flood.
+	 */
 	public function stdout( string $line ): void {
+		$stdout = Core::node( Node_Names::STDOUT );
+		if ( ! $stdout instanceof Stdout_Node ) {
+			$this->print_less_often( $line );
+			return;
+		}
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$message[ Message::VALUE ] = $line;
-		$stdout = Core::node( Node_Names::STDOUT );
-		if ( $stdout instanceof Stdout_Node ) {
-			$stdout->fill( $message );
-		}
+		$stdout->fill( $message );
 	}
 
 	/** A topology NAME resolves through the registry; a literal path is taken as-is. */
