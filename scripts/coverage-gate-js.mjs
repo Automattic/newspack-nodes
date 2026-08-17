@@ -25,9 +25,10 @@ function parseArgs( argv ) {
 	for ( let i = 0; i < argv.length; i++ ) {
 		if ( '--threshold' === argv[ i ] ) {
 			const raw = argv[ ++i ];
-			args.threshold = Number( raw );
-			// A NaN threshold compares false against every pct: passes all.
-			if ( undefined === raw || ! Number.isFinite( args.threshold ) ) {
+			// Number( '' ) is 0, and a 0 threshold gates nothing.
+			args.threshold =
+				'' === String( raw ?? '' ).trim() ? NaN : Number( raw );
+			if ( ! Number.isFinite( args.threshold ) ) {
 				process.stderr.write(
 					`coverage-gate-js: --threshold needs a number, got '${
 						raw ?? ''

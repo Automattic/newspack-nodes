@@ -110,14 +110,22 @@ trait Schema_Reflection {
 			default:
 				return $token;
 		}
-		// Class then instance: a boot with five Partitions says which one.
+		throw $this->bad_argument( "{$name} wants {$wanted}, got '{$token}'" );
+	}
+
+	/**
+	 * THE refusal a node raises for an argument it will not take, naming itself
+	 * the way the make_node line does: class as the shell spells it, then
+	 * instance name — a boot with five Partitions says which one.
+	 *
+	 * @param string $detail What was wrong, in the caller's words.
+	 */
+	protected function bad_argument( string $detail ): \InvalidArgumentException {
 		$who = Command_Interpreter_Node::shell_name_for( $this );
 		if ( '' !== $this->name ) {
 			$who .= " '{$this->name}'";
 		}
-		throw new \InvalidArgumentException(
-			\esc_html( "Bad arguments for {$who}: {$name} wants {$wanted}, got '{$token}'" )
-		);
+		return new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
 	}
 
 	/** THE bool parse for schema args and toggle verbs (JS mirror: `truthy` in runtime/node.js). */

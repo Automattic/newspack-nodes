@@ -12,14 +12,14 @@ namespace Newspack_Nodes;
 class Grep_Node extends Node {
 	use Schema_Reflection;
 
+	/** Grep.pm's default: any single character, so every non-empty VALUE passes. */
+	private const MATCH_EVERYTHING = '.';
+
 	/** The PCRE body as the operator typed it — the schema-declared argument. */
 	private string $pattern = self::MATCH_EVERYTHING;
 
 	/** Bracket-delimited form fill() matches with (mirrors Grep.pm's qr{}). */
 	private string $compiled = '{' . self::MATCH_EVERYTHING . '}';
-
-	/** Grep.pm's default: any single character, so every non-empty VALUE passes. */
-	private const MATCH_EVERYTHING = '.';
 
 	/**
 	 * `[ <pattern> ]` — a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
@@ -45,13 +45,10 @@ class Grep_Node extends Node {
 		$compiled = '{' . $this->pattern . '}';
 		// @ turns the compile warning into the refusal below, not silence.
 		if ( false === @\preg_match( $compiled, '' ) ) {
-			$who = Command_Interpreter_Node::shell_name_for( $this );
-			if ( '' !== $this->name ) {
-				$who .= " '{$this->name}'";
-			}
-			throw new \InvalidArgumentException(
-				\esc_html( "Bad arguments for {$who}: pattern is not a valid regex, got '{$this->pattern}'" )
-			);
+			$why = Core::as_string( \error_get_last()['message'] ?? '', '' );
+			// preg_last_error_msg() says INTERNAL_ERROR for a compile failure.
+			$why = '' === $why ? '' : ' — ' . \preg_replace( '/^preg_match\(\): /', '', $why );
+			throw $this->bad_argument( "pattern is not a valid regex, got '{$this->pattern}'{$why}" );
 		}
 		$this->compiled = $compiled;
 		return $this->arguments;
