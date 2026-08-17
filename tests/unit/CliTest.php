@@ -598,4 +598,44 @@ class CliTest extends TestCase {
 		$this->assertSame( '1024GB', CLI::format_bytes( 1024 * 1024 * 1024 * 1024 ) );
 	}
 
+	// ── require_flag_int() ─────────────────────────────────────────────────────
+
+	public function test_require_flag_int_returns_the_fallback_when_the_flag_is_absent(): void {
+		$this->assertSame( -7, CLI::require_flag_int( [ 'other' => '3' ], 'partition', -7 ) );
+	}
+
+	public function test_require_flag_int_returns_null_when_absent_with_no_fallback(): void {
+		$this->assertNull( CLI::require_flag_int( [], 'partition' ) );
+	}
+
+	public function test_require_flag_int_reads_a_canonical_decimal(): void {
+		$this->assertSame( 4271, CLI::require_flag_int( [ 'partition' => '4271' ], 'partition', -7 ) );
+	}
+
+	public function test_require_flag_int_errors_on_a_malformed_flag_naming_it(): void {
+		$GLOBALS['_test_wp_cli_errors'] = [];
+		try {
+			CLI::require_flag_int( [ 'partition' => 'abc' ], 'partition', -7 );
+			$this->fail( 'a malformed operator flag must not resolve to a partition' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString(
+				'--partition must be a non-negative integer; got: abc',
+				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+			);
+		}
+	}
+
+	public function test_require_flag_int_errors_on_zero_when_zero_is_disallowed(): void {
+		$GLOBALS['_test_wp_cli_errors'] = [];
+		try {
+			CLI::require_flag_int( [ 'segment_size' => '0' ], 'segment_size', 1024, false );
+			$this->fail( 'a zero segment size stores nothing and must be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString(
+				'--segment_size must be a positive integer; got: 0',
+				$GLOBALS['_test_wp_cli_errors'][0] ?? ''
+			);
+		}
+	}
+
 }
