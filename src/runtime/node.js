@@ -811,11 +811,11 @@ export function truthy( token ) {
  * Coerce a raw token to its declared schema type; unknown types pass through.
  *
  * The numeric types REFUSE rather than cast, mirroring PHP
- * `Schema_Reflection::coerce_argument()`. `parseInt( 'abc', 10 )` is NaN, which
+ * `Schema_Reflection::coerce_argument()`: `parseInt( 'abc', 10 )` is NaN, which
  * poisons every later comparison silently, and `parseInt( '9.9', 10 )` is 9 —
  * neither is what the operator typed. `int` takes a canonical non-negative
- * decimal, as every declared int argument (a size, a count, a duration) wants;
- * `float` takes any finite number.
+ * decimal, which is what every declared int argument (a size, a count, a
+ * duration) wants; `float` takes any finite number.
  *
  * @param {string} token A raw argument token.
  * @param {string} type  Declared schema type.
