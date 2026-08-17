@@ -211,12 +211,12 @@ class Timer_Node extends Node {
 
 	/**
 	 * Milliseconds for an operator-supplied cadence declared in SECONDS — the one
-	 * conversion every self-pacing Timer subclass shares. The token itself is
-	 * parsed by `Schema_Reflection::parse_schema_args()`, which refuses anything
-	 * that isn't the declared numeric type; what is left is the floor, and the
-	 * floor is the footgun: `(int) ( 0.0005 * 1000 )` is a free-spinning 0 ms own
-	 * slot, not a fast timer, so a sub-second cadence stays on the Router
-	 * hitchhike instead of taking the drain hostage.
+	 * conversion every self-pacing Timer subclass shares. `parse_schema_args()`
+	 * has already refused anything that is not the declared numeric type, so what
+	 * this adds is the floor, and the floor is the footgun: `(int) ( 0.0005 *
+	 * 1000 )` is a free-spinning 0 ms own slot rather than a fast timer, so a
+	 * sub-second cadence stays on the Router hitchhike instead of taking the
+	 * drain hostage.
 	 *
 	 * @param float $seconds Cadence in seconds, already coerced from its token.
 	 * @return int Interval in milliseconds, floored at MIN_INTERVAL_S.

@@ -80,13 +80,13 @@ trait Schema_Reflection {
 	 * Coerce a raw token to the declared schema type; unknown types pass through
 	 * as string.
 	 *
-	 * The numeric types REFUSE rather than cast. `(int) 'abc'` is 0, and 0 is a
-	 * live value for every retention knob and every timer cadence, so a typo'd
-	 * make_node token used to become a disabled rule or a free-spinning own slot
-	 * with nothing said. `int` reads through `Core::canonical_decimal()`, the
-	 * refusing operator-input parse, which also rejects a fractional token and
-	 * one past the platform maximum — it takes no sign, which every declared int
-	 * argument (a size, a count, a duration) wants; `float` accepts any numeric.
+	 * The numeric types REFUSE rather than cast, because 0 is a live value for
+	 * every retention knob and every timer cadence: a cast would make a mistyped
+	 * token indistinguishable from a disabled rule or a free-spinning own slot.
+	 * `int` reads through `Core::canonical_decimal()`, which also rejects a
+	 * fractional token and one past the platform maximum, and takes no sign —
+	 * every declared int argument is a size, a count or a duration. `float`
+	 * accepts any numeric.
 	 *
 	 * @throws \InvalidArgumentException When a numeric token is not of its declared type.
 	 */

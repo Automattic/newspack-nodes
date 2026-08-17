@@ -24,11 +24,10 @@ class Grep_Node extends Node {
 	/**
 	 * `[ <pattern> ]` — a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
 	 *
-	 * The pattern is compiled HERE rather than at first fill(). An unparseable
-	 * regex used to be accepted, then re-fail on every single message: a warning
-	 * per message and a `false` return, which drops it. One typo silently
-	 * discarded the whole stream. The operator typed it on one line, so that
-	 * line is where it is refused.
+	 * The pattern compiles HERE, not at first fill(): `preg_match` answers a bad
+	 * pattern with a warning and `false`, and a `false` return drops the message,
+	 * so deferring the compile would trade one refusal for a silently discarded
+	 * stream. The operator typed it on one line; that line is where it fails.
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
