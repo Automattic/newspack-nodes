@@ -229,12 +229,72 @@ describe( 'RemoteLinkNode', () => {
 		expect( stream.closed ).toBe( true );
 	} );
 
-	it( 'fails make_node when the required subscription is missing', () => {
+	// A subscription CHOSEN later is a real flow (a dashboard whose catalog
+	// picks one), so the link builds bare and refuses at the point of use —
+	// which is the refusal that cannot be talked around with a placeholder.
+	it( 'builds with no subscription and refuses to open until it has one', () => {
 		const { interpreter } = mountExospine();
-		expect( () =>
-			interpreter.makeNode( 'RemoteLink', 'empty-link-439' )
-		).toThrow( 'Missing required argument: subscribe' );
-		expect( Core.node( 'empty-link-439' ) ).toBeNull();
+		const link = interpreter.makeNode( 'RemoteLink', 'empty-link-439' );
+		expect( link.arguments ).toEqual( [] );
+		expect( () => link.connect() ).toThrow(
+			'RemoteLink requires an SSE subscription'
+		);
+		expect( link.sseIn ).toBeNull();
+	} );
+
+	it( 'reconnect supplies it too — either verb configures the link', () => {
+		const { interpreter } = mountExospine();
+		const link = interpreter.makeNode( 'RemoteLink', 'late-link-813' );
+		link.reconnect( [ 'quartz.p7' ] );
+		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
+		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
+	} );
+
+	it( 'setSubscribe supplies it, and `arguments` then reports it', () => {
+		const { interpreter } = mountExospine();
+		const link = interpreter.makeNode( 'RemoteLink', 'late-link-812' );
+		link.setSubscribe( [ 'quartz.p7' ] );
+		expect( link.arguments ).toEqual( [ 'quartz.p7' ] );
+		expect( link.sseIn.subscribe ).toEqual( [ 'quartz.p7' ] );
+	} );
+
+	// `arguments` is what dump_config re-emits, so a link that reports the
+	// token it was BUILT with saves a graph replaying the log the dashboard
+	// opened on rather than the one it was showing.
+	it( 're-pointing a configured link updates what it reports', () => {
+		const { interpreter } = mountExospine();
+		const link = interpreter.makeNode( 'RemoteLink', 'moved-link-903', [
+			'gyroscope.p7',
+		] );
+		link.connect();
+		link.setSubscribe( [ 'quartz.p3' ] );
+		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
+		expect( link.sseIn.arguments ).toEqual( [ 'quartz.p3' ] );
+		expect( link.dumpConfig() ).toContain(
+			'make_node RemoteLink moved-link-903 quartz.p3'
+		);
+	} );
+
+	it( 'reconnect re-points what it reports too', () => {
+		const { interpreter } = mountExospine();
+		const link = interpreter.makeNode( 'RemoteLink', 'moved-link-904', [
+			'gyroscope.p7',
+		] );
+		link.reconnect( [ 'quartz.p3' ] );
+		expect( link.arguments ).toEqual( [ 'quartz.p3' ] );
+	} );
+
+	// An empty list would blank a live link's subscription while its stream
+	// kept delivering, which is the reported-wrong bug in reverse.
+	it( 'refuses an empty subscription rather than de-configuring', () => {
+		const { interpreter } = mountExospine();
+		const link = interpreter.makeNode( 'RemoteLink', 'kept-link-905', [
+			'gyroscope.p7',
+		] );
+		expect( () => link.setSubscribe( [] ) ).toThrow(
+			'RemoteLink requires an SSE subscription'
+		);
+		expect( link.arguments ).toEqual( [ 'gyroscope.p7' ] );
 	} );
 
 	it( 'reconnect() resumes past the last record it read', () => {

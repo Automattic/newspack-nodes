@@ -108,8 +108,10 @@ export class RemoteLinkNode extends Node {
 	 * @param {?SeekSeed} positions Where to resume each partition; null tail-seeks every name.
 	 */
 	setSubscribe( subscribe, positions = null ) {
+		this._recordSubscription( subscribe );
 		this.ensureChildren();
 		this.sseIn.close();
+		this.sseIn.arguments = this.arguments;
 		this.sseIn.subscribe = subscribe;
 		this.sseIn.positions = positions;
 		this.sseIn.start();
@@ -178,11 +180,36 @@ export class RemoteLinkNode extends Node {
 	 * @param {?string[]} subscribe Re-point the subscription, or null to keep it.
 	 */
 	reconnect( subscribe = null ) {
+		if ( subscribe ) {
+			this._recordSubscription( subscribe );
+		}
 		this.ensureChildren();
 		if ( subscribe ) {
+			this.sseIn.arguments = this.arguments;
 			this.sseIn.subscribe = subscribe;
 		}
 		this.sseIn.start();
+	}
+
+	/**
+	 * Record a subscription supplied AFTER construction, so `arguments` — what
+	 * `dump_config()` re-emits — reports what is streaming rather than whatever
+	 * the constructor happened to be given.
+	 *
+	 * It assigns past this class's own `arguments` setter because the value is
+	 * already parsed: re-running the schema walk would blank `subscribe`
+	 * mid-call for no gain.
+	 *
+	 * @param {string[]} subscribe Subscriptions the stream will carry.
+	 * @throws {Error} When the list is empty — that de-configures a live link.
+	 */
+	_recordSubscription( subscribe ) {
+		const joined = subscribe.join( ',' );
+		if ( '' === joined ) {
+			throw new Error( 'RemoteLink requires an SSE subscription' );
+		}
+		this.subscribe = joined;
+		super.arguments = [ joined ];
 	}
 
 	/**
@@ -358,7 +385,16 @@ export class RemoteLinkNode extends Node {
 				'Full-duplex SSE+HTTP channel: composes a SseIn, HttpOut and Heartbeat as one node.',
 			accepts_fill: false,
 			has_target: true,
-			arguments: SseInNode.nodeSchema().arguments,
+			// @longform Optional where SseIn declares it required: a link whose
+			// subscription is CHOSEN builds bare and is refused at the point of
+			// use by `_assertConfigured()`. Requiring it at construction only
+			// makes a deferred caller invent a placeholder, which moves the
+			// failure from loud to silent (ADR-11).
+			arguments: SseInNode.nodeSchema().arguments.map( ( argument ) =>
+				'subscribe' === argument.name
+					? { ...argument, required: false }
+					: argument
+			),
 			commands: [],
 		};
 	}

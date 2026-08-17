@@ -28,8 +28,10 @@ describe( 'useJsCatalog', () => {
 		);
 
 		expect( byName.RemoteLink.category ).toBe( 'I/O' );
+		// Optional: a link whose subscription is CHOSEN builds bare and is
+		// refused at the point of use instead.
 		expect( byName.RemoteLink.arguments ).toEqual( [
-			{ name: 'subscribe', type: 'string', required: true },
+			{ name: 'subscribe', type: 'string', required: false },
 		] );
 		expect( byName.RemoteIpc.category ).toBe( 'I/O' );
 		expect( byName.RemoteIpc.arguments ).toEqual( [
