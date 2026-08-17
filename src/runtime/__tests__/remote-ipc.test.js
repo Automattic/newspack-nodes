@@ -100,6 +100,18 @@ function command( { from = '', to = '' } = {} ) {
 }
 
 describe( 'RemoteIpcNode', () => {
+	// RemoteIpc's ctor argument is its READER, not a subscription — so the
+	// inherited re-point verbs must not write one over the worker address.
+	it( 'setSubscribe leaves the reader it is addressed by alone', () => {
+		const { interpreter } = mountExospine();
+		const ipc = interpreter.makeNode( 'RemoteIpc', 'ipc-841', [
+			'combined.p7',
+		] );
+		ipc.setSubscribe( [ 'firehose.p0' ] );
+		expect( ipc.reader ).toBe( 'combined.p7' );
+		expect( ipc.arguments ).toEqual( [ 'combined.p7' ] );
+	} );
+
 	it( 'is registered at the runtime level so the console resolves it via make_node', () => {
 		expect( CommandInterpreterNode.includeNodes.RemoteIpc ).toBe(
 			RemoteIpcNode

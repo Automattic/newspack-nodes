@@ -477,6 +477,23 @@ properties declare no required positionals and construct bare.
 **Revisit if:** throw-on-required proves too strict for a legitimate deferred-config flow
 that must build a bare node before configuring it.
 
+**Amendment:** that flow arrived — a dashboard whose subscription is CHOSEN from a catalog
+must build its `RemoteLink` before anything names one. A required positional is therefore
+enforced at construction UNLESS the node refuses the same invariant at the point of USE.
+Where both exist the point-of-use refusal is the contract and the positional is optional:
+`RemoteLink` declares `subscribe` optional and `_assertConfigured()` throws on any verb that
+would open a stream. A required token whose only effect is to make a deferred caller invent a
+placeholder moves the failure from loud to silent — the placeholder has to name something,
+and a live-looking name streams a log nobody asked for. The corollary is that a verb handed
+the missing value CONFIGURES the node with it: `setSubscribe()` and `reconnect( subscribe )`
+assign through `arguments`, so the getter reports what is streaming rather than whatever the
+constructor was given — and past this class's own setter, so a subclass declaring a
+DIFFERENT positional (`RemoteIpc`'s `reader`) does not have it overwritten with a
+subscription. The cost is real and accepted: a graph dumped while a node is still
+unconfigured emits a `make_node` line that REFUSES on replay. That is the deferred flow
+being loud about its own window, and it is strictly better than the placeholder it
+replaces, which replayed cleanly into the wrong log.
+
 ---
 
 ## ADR-12: Dead-letter poison / crash lifecycle

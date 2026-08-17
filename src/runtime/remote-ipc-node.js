@@ -150,6 +150,13 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	}
 
 	/**
+	 * This link is addressed by its READER, and its subscription is derived
+	 * from it rather than declared — so a subscription supplied later records
+	 * nothing, where the parent would rewrite the worker address with it.
+	 */
+	_recordSubscription() {}
+
+	/**
 	 * Close the composed stream and release this session's live-connection
 	 * claim, so nothing holds the slot until another link connects.
 	 */
