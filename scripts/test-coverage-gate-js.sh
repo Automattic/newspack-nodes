@@ -52,6 +52,13 @@ out="$( "${GATE[@]}" "$tmp/summary.json" --threshold abc 2>&1 )"; rc=$?
 out="$( "${GATE[@]}" "$tmp/summary.json" --threshold 2>&1 )"; rc=$?
 [[ "$rc" -eq 2 ]] && pass "refuses a --threshold with no value" || bad "empty --threshold must exit 2, got $rc"
 
+# (E2) an EMPTY --threshold must refuse: Number( '' ) is 0, not NaN, and every
+#      pct < 0 is false — the gate would report success having gated nothing.
+out="$( "${GATE[@]}" "$tmp/summary.json" --threshold '' 2>&1 )"; rc=$?
+[[ "$rc" -eq 2 ]] && pass "refuses an empty --threshold" || bad "empty-string --threshold must exit 2, got $rc"
+out="$( "${GATE[@]}" "$tmp/summary.json" --threshold '   ' 2>&1 )"; rc=$?
+[[ "$rc" -eq 2 ]] && pass "refuses a whitespace --threshold" || bad "whitespace --threshold must exit 2, got $rc"
+
 # (F) an unreadable pct is an offender, never a silent pass
 cat > "$tmp/nan.json" <<'JSON'
 { "total": { "statements": { "pct": 0 } }, "/plugin/src/broken.js": { "statements": { "pct": "n/a" } } }

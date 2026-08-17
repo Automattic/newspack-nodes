@@ -118,6 +118,17 @@ if [[ -f "$commenttest" ]]; then
 	ok "comment gate clean"
 fi
 
+# The coverage gates decide whether a push is allowed at all, so a hole in one
+# passes the whole tree silently. Both self-tests run over fixtures; neither
+# needs a real coverage run.
+for gatetest in test-coverage-gate.sh test-coverage-gate-js.sh; do
+	path="$(git rev-parse --show-toplevel)/scripts/$gatetest"
+	[[ -f "$path" ]] || continue
+	step "$gatetest (the coverage gate's own tests)"
+	bash "$path" || fail "$gatetest failed — the coverage gate is broken (see above)"
+	ok "${gatetest%.sh} clean"
+done
+
 # Classify the diff by file type. Exclude generated / vendored paths.
 changed="$(git diff --name-only "$range" 2>/dev/null || true)"
 php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"

@@ -588,7 +588,7 @@ class LruCacheTest extends TestCase {
 
 	// ── Promotion ──────────────────────────────────────────────────────────
 
-	public function test_promotion_is_on_by_default(): void {
+	public function test_a_read_promotes_its_entry(): void {
 		$cache = new LRU_Cache( 1, 3 );
 		$cache->set( 'a', 'first' );
 		$cache->set( 'b', 'second' );

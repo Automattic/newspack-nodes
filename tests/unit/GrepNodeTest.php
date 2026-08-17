@@ -28,11 +28,9 @@ class GrepNodeTest extends TestCase {
 	}
 
 	/**
-	 * An unparseable regex was accepted at config time and only failed at USE
-	 * time — `preg_match` then emitted a warning and returned false for every
-	 * message, so a typo'd `make_node Grep g '[unclosed'` silently dropped the
-	 * whole stream behind a warning storm. The operator typed it on one line;
-	 * the refusal belongs on that line.
+	 * The operator types the pattern on one line, so that line is where an
+	 * unparseable one has to fail: `preg_match` answers a bad pattern with a
+	 * warning and `false`, and a `false` return drops the message.
 	 */
 	public function test_arguments_refuses_an_unparseable_pattern(): void {
 		$g = new Grep_Node();
