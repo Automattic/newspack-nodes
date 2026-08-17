@@ -94,32 +94,28 @@ trait Schema_Reflection {
 		switch ( $type ) {
 			case 'int':
 				$int = Core::canonical_decimal( $token );
-				if ( null === $int ) {
-					throw $this->bad_argument( $name, 'a whole number', $token );
+				if ( null !== $int ) {
+					return $int;
 				}
-				return $int;
+				$wanted = 'a whole number';
+				break;
 			case 'float':
-				if ( ! \is_numeric( $token ) ) {
-					throw $this->bad_argument( $name, 'a number', $token );
+				if ( \is_numeric( $token ) ) {
+					return (float) $token;
 				}
-				return (float) $token;
+				$wanted = 'a number';
+				break;
 			case 'bool':
 				return self::truthy( $token );
+			default:
+				return $token;
 		}
-		return $token;
-	}
-
-	/**
-	 * The refusal a mistyped positional raises, naming the node the way the
-	 * make_node line does: its class as the shell spells it, then its instance
-	 * name — a boot with five Partitions needs to know which one.
-	 */
-	private function bad_argument( string $name, string $wanted, string $token ): \InvalidArgumentException {
+		// Class then instance: a boot with five Partitions says which one.
 		$who = Command_Interpreter_Node::shell_name_for( $this );
 		if ( '' !== $this->name ) {
 			$who .= " '{$this->name}'";
 		}
-		return new \InvalidArgumentException(
+		throw new \InvalidArgumentException(
 			\esc_html( "Bad arguments for {$who}: {$name} wants {$wanted}, got '{$token}'" )
 		);
 	}
