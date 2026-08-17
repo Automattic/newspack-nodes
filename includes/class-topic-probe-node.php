@@ -29,7 +29,7 @@ class Topic_Probe_Node extends Probe_Node {
 	private const STALE_SWEEPS = 2;
 
 	/** Memoized declared cadence; null until read. */
-	private static ?int $interval_s = null;
+	private static ?int $declared_interval_s = null;
 
 	/**
 	 * How old a probe record may be before it is nobody reporting rather than a
@@ -43,7 +43,7 @@ class Topic_Probe_Node extends Probe_Node {
 	 * for workers that are running fine.
 	 */
 	public static function stale_after_s(): int {
-		return self::interval_s() * self::STALE_SWEEPS;
+		return self::declared_interval_s() * self::STALE_SWEEPS;
 	}
 
 	/**
@@ -51,9 +51,9 @@ class Topic_Probe_Node extends Probe_Node {
 	 * topology is unreachable. Memoized: read once per request, off a graph the
 	 * analyzer already caches.
 	 */
-	public static function interval_s(): int {
-		if ( null !== self::$interval_s ) {
-			return self::$interval_s;
+	public static function declared_interval_s(): int {
+		if ( null !== self::$declared_interval_s ) {
+			return self::$declared_interval_s;
 		}
 		$declared = 0;
 		try {
@@ -69,7 +69,7 @@ class Topic_Probe_Node extends Probe_Node {
 			// An unreadable topology is a default, never a "never stale".
 			$declared = 0;
 		}
-		return self::$interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
+		return self::$declared_interval_s = $declared > 0 ? $declared : self::DEFAULT_INTERVAL_S;
 	}
 
 	/** A Consumer that has reached READY; an uninitialized one has no cursor. */
@@ -82,7 +82,7 @@ class Topic_Probe_Node extends Probe_Node {
 
 	/** Drop the memoized cadence. Tests, and any stock-dir change. */
 	public static function forget_interval(): void {
-		self::$interval_s = null;
+		self::$declared_interval_s = null;
 	}
 
 	public static function node_schema(): array {
@@ -90,7 +90,7 @@ class Topic_Probe_Node extends Probe_Node {
 			'category'    => 'Monitor',
 			'description' => 'Sweeps every Consumer in this process every N seconds; emits one stats snapshot (seg:off, bytes_read, backlog) into the topicprobe log.',
 			'arguments'   => [
-				[ 'name' => 'interval_s', 'type' => 'int', 'required' => false, 'description' => 'Sweep cadence in seconds between Consumer-stats snapshots; empty or absent defaults to 15.' ],
+				[ 'name' => 'interval_s', 'type' => 'int', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Sweep cadence in seconds between Consumer-stats snapshots; empty or absent defaults to 15.' ],
 			],
 		] );
 	}

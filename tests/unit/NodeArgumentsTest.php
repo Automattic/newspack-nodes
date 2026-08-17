@@ -94,8 +94,8 @@ class NodeArgumentsTest extends TestCase {
 		// single-quoted so parseTsl/the Shell re-read it as one token.
 		$n = new Test_Args_Node();
 		$n->name( 'zebra' );
-		$n->arguments( [ 'a b', 'c' ] );
-		$this->assertStringContainsString( "make_node Test_Args zebra 'a b' c", $n->dump_config() );
+		$n->arguments( [ 'a b', '3' ] );
+		$this->assertStringContainsString( "make_node Test_Args zebra 'a b' 3", $n->dump_config() );
 	}
 
 	public function test_dump_config_quotes_spaced_node_sink_and_target_names(): void {

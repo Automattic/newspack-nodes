@@ -807,13 +807,37 @@ export function truthy( token ) {
 	);
 }
 
-// Coerce a raw token to its declared schema type; unknown types pass through.
-function coerceArgument( token, type ) {
+/**
+ * Coerce a raw token to its declared schema type; unknown types pass through.
+ *
+ * The numeric types REFUSE rather than cast, mirroring PHP
+ * `Schema_Reflection::coerce_argument()`. `parseInt( 'abc', 10 )` is NaN, which
+ * poisons every later comparison silently, and `parseInt( '9.9', 10 )` is 9 —
+ * neither is what the operator typed. `int` takes a canonical non-negative
+ * decimal, as every declared int argument (a size, a count, a duration) wants;
+ * `float` takes any finite number.
+ *
+ * @param {string} token A raw argument token.
+ * @param {string} type  Declared schema type.
+ * @param {string} name  Argument name, for the refusal.
+ * @return {*} The coerced value.
+ */
+function coerceArgument( token, type, name ) {
 	switch ( type ) {
 		case 'int':
+			if ( ! /^(?:0|[1-9][0-9]*)$/.test( token ) ) {
+				throw new Error(
+					`Bad argument ${ name }: wants a whole number, got '${ token }'`
+				);
+			}
 			return parseInt( token, 10 );
 		case 'float':
-			return parseFloat( token );
+			if ( '' === token.trim() || ! Number.isFinite( Number( token ) ) ) {
+				throw new Error(
+					`Bad argument ${ name }: wants a number, got '${ token }'`
+				);
+			}
+			return Number( token );
 		case 'bool':
 			return truthy( token );
 		default:
@@ -861,8 +885,13 @@ export function parseSchemaArgs( node, args ) {
 		if ( ! Object.prototype.hasOwnProperty.call( node, name ) ) {
 			throw new Error( `Invalid argument specification: ${ name }` );
 		}
-		if ( i < tokens.length ) {
-			node[ name ] = coerceArgument( String( tokens[ i ] ), type );
+		const token = i < tokens.length ? String( tokens[ i ] ) : null;
+		// A blank numeric positional is a placeholder for "not supplied".
+		const supplied =
+			null !== token &&
+			! ( '' === token && ( 'int' === type || 'float' === type ) );
+		if ( supplied ) {
+			node[ name ] = coerceArgument( token, type, name );
 		} else if ( tokens.length > 0 && 'default' in spec ) {
 			node[ name ] = spec.default;
 		} else if ( spec.required ) {

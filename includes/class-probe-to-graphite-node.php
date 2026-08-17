@@ -34,6 +34,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	use Schema_Reflection;
 
 	public const DEFAULT_INTERVAL_S = 15;
+	public const DEFAULT_PREFIX     = 'nodes.topics';
 	public const LINES_PER_MESSAGE  = 16;
 
 	/** Metric fields emitted per reader, in Probe_Record positions. */
@@ -47,7 +48,10 @@ class Probe_To_Graphite_Node extends Timer_Node {
 	/** Fields that PARTITION work across sweeps: summed over the window, never sampled. */
 	private const SUMMED = [ Probe_Record::MSGS_DELTA, Probe_Record::BYTES_READ_DELTA ];
 
-	private string $prefix = 'nodes.topics';
+	private string $prefix = self::DEFAULT_PREFIX;
+
+	/** Emit cadence in seconds; 0 takes DEFAULT_INTERVAL_S. Positional 1. */
+	private float $interval = self::DEFAULT_INTERVAL_S;
 
 	/** @var array<string,array{record: array<int,int|string>,ts: float}> Latest record per reader. */
 	private array $readers = [];
@@ -63,12 +67,13 @@ class Probe_To_Graphite_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$this->arguments = $args;
-		$prefix          = Core::as_string( $args[0] ?? '', '' );
-		$this->prefix    = '' !== $prefix ? $prefix : 'nodes.topics';
-		$this->readers   = [];
-		$this->set_timer( $this->parse_interval_ms( Core::as_string( $args[1] ?? '', '' ), self::DEFAULT_INTERVAL_S ) );
-		return $args;
+		$this->parse_schema_args( $args );
+		// A blank prefix is "not supplied"; the default only covers absent.
+		$this->prefix  = '' !== $this->prefix ? $this->prefix : self::DEFAULT_PREFIX;
+		$this->readers = [];
+		// Tachikoma's `||=`: a ZERO token takes the default, not zero itself.
+		$this->set_timer( $this->cadence_ms( $this->interval > 0.0 ? $this->interval : self::DEFAULT_INTERVAL_S ) );
+		return $this->arguments;
 	}
 
 	public function fill( array $message ): void {
@@ -127,7 +132,7 @@ class Probe_To_Graphite_Node extends Timer_Node {
 			'category'    => 'Transform',
 			'description' => 'Formats topicprobe records into Graphite plaintext lines (Tachikoma TopicProbeToGraphite variant).',
 			'arguments'   => [
-				[ 'name' => 'prefix', 'type' => 'string', 'default' => 'nodes.topics', 'description' => 'Metric path prefix.' ],
+				[ 'name' => 'prefix', 'type' => 'string', 'default' => self::DEFAULT_PREFIX, 'description' => 'Metric path prefix.' ],
 				[ 'name' => 'interval', 'type' => 'float', 'default' => self::DEFAULT_INTERVAL_S, 'description' => 'Emit interval in seconds (numeric; 0 or empty takes the 15s default, floored at 1).' ],
 			],
 			'commands'    => [],

@@ -346,18 +346,28 @@ class PartitionTest extends TestCase {
 
 	/**
 	 * arguments() override re-normalizes after the base walker — dir gets
-	 * trailing slashes stripped, min/num_segments clamped to ≥2,
-	 * min_lifetime/lifetime to ≥0; partition_dir is the resolved dir.
-	 * segment_size is NOT clamped: 0 throws (see the zero-segment-size test).
+	 * trailing slashes stripped, min/num_segments clamped to ≥2; partition_dir
+	 * is the resolved dir. segment_size is NOT clamped: 0 throws (see the
+	 * zero-segment-size test).
 	 */
 	public function test_arguments_setter_normalizes_and_rederives_partition_dir(): void {
 		$p = new Partition_Node();
-		$p->arguments( [ "{$this->tmp}.p1/", "4096", "2", "1", "0", "-5", "0" ] );
+		$p->arguments( [ "{$this->tmp}.p1/", "4096", "2", "1", "0", "0", "0" ] );
 		$ref = new \ReflectionClass( $p );
 		$this->assertSame( 4096,              $ref->getProperty( 'segment_size' )->getValue( $p ) );
 		$this->assertSame( 2,                 $ref->getProperty( 'num_segments' )->getValue( $p ) );
 		$this->assertSame( 0,                 $ref->getProperty( 'min_lifetime' )->getValue( $p ) );
 		$this->assertSame( "{$this->tmp}.p1", $p->partition_dir() );
+	}
+
+	public function test_arguments_refuses_a_negative_retention_token(): void {
+		// Clamping -5 to 0 turned a typo into "keep nothing extra", which reads
+		// as a deliberate setting. The settings layer already bounds the field,
+		// so a negative here only ever comes from a hand-typed make_node line.
+		$p = new Partition_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'min_lifetime' );
+		$p->arguments( [ "{$this->tmp}.p1/", "4096", "2", "1", "0", "-5", "0" ] );
 	}
 
 	public function test_arguments_empty_string_throws(): void {

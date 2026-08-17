@@ -97,9 +97,9 @@ class TopicProbeTest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		Topic_Probe_Node::forget_interval();
 
-		$this->assertSame( 23, Topic_Probe_Node::interval_s() );
+		$this->assertSame( 23, Topic_Probe_Node::declared_interval_s() );
 		\file_put_contents( "{$stock}/topic-probe.tsl", "make_node Topic_Probe topicprobe 99\n" );
-		$this->assertSame( 23, Topic_Probe_Node::interval_s(), 'memoized, not re-read' );
+		$this->assertSame( 23, Topic_Probe_Node::declared_interval_s(), 'memoized, not re-read' );
 
 		Topic_Probe_Node::forget_interval();
 		\Newspack_Nodes\Topology_Registry::reset();

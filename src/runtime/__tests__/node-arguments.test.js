@@ -78,6 +78,47 @@ describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
 		expect( n.y ).toBe( 'ctor' );
 	} );
 
+	it( 'refuses a non-numeric int token instead of assigning NaN', () => {
+		// parseInt( 'abc', 10 ) is NaN, and NaN silently poisons every later
+		// comparison — the PHP mirror refuses, so this must too.
+		const n = new TestArgsNode();
+		expect( () => parseSchemaArgs( n, [ 'hello', 'abc' ] ) ).toThrow(
+			'count'
+		);
+	} );
+
+	it( 'refuses a fractional int token', () => {
+		const n = new TestArgsNode();
+		expect( () => parseSchemaArgs( n, [ 'hello', '9.9' ] ) ).toThrow(
+			'count'
+		);
+	} );
+
+	it( 'reads an empty numeric token as absent', () => {
+		const n = new TestArgsNode();
+		parseSchemaArgs( n, [ 'hello', '', 'true' ] );
+		expect( n.count ).toBe( 0 );
+		expect( n.flag ).toBe( true );
+	} );
+
+	it( 'refuses a non-numeric float token', () => {
+		class RatioNode extends Node {
+			constructor() {
+				super();
+				this.ratio = 0;
+			}
+			static nodeSchema() {
+				return {
+					arguments: [ { name: 'ratio', type: 'float' } ],
+					commands: [],
+				};
+			}
+		}
+		expect( () => parseSchemaArgs( new RatioNode(), [ 'soon' ] ) ).toThrow(
+			'ratio'
+		);
+	} );
+
 	it( 'missing required arguments fail at the schema boundary', () => {
 		const n = new TestArgsNode();
 		expect( () => parseSchemaArgs( n, [] ) ).toThrow(
