@@ -72,7 +72,7 @@ class CLI {
 
 	/**
 	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
-	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
+	 * snapshot (`read_probe_frames()`). Topology attribution (which topology/targets
 	 * a reader belongs to) is NOT here: the dashboard joins these rows onto the
 	 * `.tsl` graph by `reader`/`source`; `wp nodes status` renders them directly,
 	 * unattributed. Keyed in the array by insertion; `reader` is the id.
@@ -128,7 +128,7 @@ class CLI {
 	 * it as absent would call the whole partition backlog, a worse lie than the
 	 * stale record it replaces.
 	 *
-	 * Paths come off `$this->base_dir`, as `read_probe_index()`'s do, NOT the
+	 * Paths come off `$this->base_dir`, as `read_probe_frames()`'s do, NOT the
 	 * `<config:logs_dir>` token: that resolves against the global base, and this
 	 * class is instance-scoped, so the two disagree for any CLI built on another
 	 * tree — recomputing one base's rows against another's partitions.

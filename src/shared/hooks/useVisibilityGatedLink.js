@@ -18,9 +18,10 @@
  *     redundant re-render never tears a live seek down into a tail reconnect
  *     (nor re-runs a pre-connect side effect like the gyroscope view-clear).
  *
- * The Partition/Log Viewers deliberately do NOT use this hook: their
- * catalog-driven, user-selected `setSubscribe([selected], …)` flow is not
- * visibility-gated connect and does not fit the `mountNodes`/`onConnect` shape.
+ * A catalog-driven, user-selected `setSubscribe([selected], …)` flow fits too:
+ * a caller records the chosen target and re-applies it from `onConnect`. The
+ * Partition/Log Viewers reach the same behaviour through `useGatedSubscription`
+ * instead, which holds its own pause state.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
