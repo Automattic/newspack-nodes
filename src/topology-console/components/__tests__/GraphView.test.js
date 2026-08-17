@@ -1,4 +1,5 @@
 import { fireEvent, act } from '@testing-library/react';
+import { useState } from '@wordpress/element';
 import GraphView from '../GraphView';
 import { renderWithCatalog } from '../../__tests__/catalogTestUtils';
 import { Core } from '../../../runtime/core';
@@ -23,6 +24,9 @@ jest.mock( '../SchematicCanvas', () => ( props ) => {
 				onClick={ () => props.onSelectEdge( { from: 'a', to: 'b' } ) }
 			>
 				select-edge
+			</button>
+			<button onClick={ () => props.onSelectHull( 'quokka.tsl' ) }>
+				select-hull
 			</button>
 		</div>
 	);
@@ -186,9 +190,10 @@ describe( 'GraphView', () => {
 		expect( onSelectionChange ).toHaveBeenLastCalledWith( null );
 	} );
 
-	it( 'external null-clear also clears a selected edge', () => {
+	it( 'an external null-clear leaves a selected edge alone', () => {
 		const onRemoveEdge = jest.fn();
-		// Self-controlled; selection→null forces re-sync (bug: edge stale).
+		// Null is the node selection's EMPTY value, which is exactly what an
+		// edge selection leaves behind — it can never mean "drop the edge".
 		const { getByText, rerender } = renderWithCatalog(
 			<GraphView
 				graph={ graph }
@@ -210,7 +215,125 @@ describe( 'GraphView', () => {
 			/>
 		);
 		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveEdge ).toHaveBeenCalledWith( 'a', 'b' );
+	} );
+
+	it( 'an external re-point to a NODE clears a selected edge', () => {
+		const onRemoveEdge = jest.fn();
+		const onRemoveNode = jest.fn();
+		const { getByText, rerender } = renderWithCatalog(
+			<GraphView
+				graph={ twoNodeGraph }
+				frame={ Frame }
+				resetKey="k"
+				editMode
+				onRemoveEdge={ onRemoveEdge }
+				onRemoveNode={ onRemoveNode }
+			/>
+		);
+		fireEvent.click( getByText( 'select-edge' ) );
+		rerender(
+			<GraphView
+				graph={ twoNodeGraph }
+				frame={ Frame }
+				resetKey="k"
+				editMode
+				selection="n2"
+				onRemoveEdge={ onRemoveEdge }
+				onRemoveNode={ onRemoveNode }
+			/>
+		);
+		fireEvent.keyDown( document, { key: 'Delete' } );
 		expect( onRemoveEdge ).not.toHaveBeenCalled();
+		expect( onRemoveNode ).toHaveBeenCalledWith( 'n2' );
+	} );
+
+	it( 'a resetKey change clears a selected edge', () => {
+		const onRemoveEdge = jest.fn();
+		const { getByText, rerender } = renderWithCatalog(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="wombat|view|alpha"
+				editMode
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		fireEvent.click( getByText( 'select-edge' ) );
+		rerender(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="quokka|edit|beta"
+				editMode
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveEdge ).not.toHaveBeenCalled();
+	} );
+
+	it( 'a resetKey change clears a selected hull', () => {
+		const onRemoveInclude = jest.fn();
+		const { getByText, rerender } = renderWithCatalog(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="wombat|view|alpha"
+				editMode
+				includes={ [ 'quokka.tsl' ] }
+				onRemoveInclude={ onRemoveInclude }
+			/>
+		);
+		fireEvent.click( getByText( 'select-hull' ) );
+		expect( global.__canvasProps.selectedHull ).toBe( 'quokka.tsl' );
+		rerender(
+			<GraphView
+				graph={ graph }
+				frame={ Frame }
+				resetKey="numbat|edit|beta"
+				editMode
+				includes={ [ 'quokka.tsl' ] }
+				onRemoveInclude={ onRemoveInclude }
+			/>
+		);
+		expect( global.__canvasProps.selectedHull ).toBeNull();
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveInclude ).not.toHaveBeenCalled();
+	} );
+
+	// The console mirrors GraphView's selection straight back as `selection`,
+	// so an edge click — which reports the NODE selection as null — used to
+	// echo in as an external clear and wipe the edge the user just picked.
+	it( 'keeps an edge selected after a node selection, through the controlled round-trip', () => {
+		const onRemoveEdge = jest.fn();
+		const Controlled = ( props ) => {
+			const [ selection, setSelection ] = useState( null );
+			return (
+				<GraphView
+					{ ...props }
+					selection={ selection }
+					onSelectionChange={ setSelection }
+				/>
+			);
+		};
+		const { getByText } = renderWithCatalog(
+			<Controlled
+				graph={ graph }
+				frame={ Frame }
+				resetKey="k"
+				editMode
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.click( getByText( 'select-edge' ) );
+		expect( global.__canvasProps.selectedEdge ).toEqual( {
+			from: 'a',
+			to: 'b',
+		} );
+		fireEvent.keyDown( document, { key: 'Delete' } );
+		expect( onRemoveEdge ).toHaveBeenCalledWith( 'a', 'b' );
 	} );
 
 	it( 'forwards onDropNode to the Palette (which owns the pointer-drag drop)', () => {

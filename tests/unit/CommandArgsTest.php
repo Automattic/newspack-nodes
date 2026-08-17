@@ -106,4 +106,34 @@ class CommandArgsTest extends TestCase {
 		$this->assertSame( 'a.log,b.log', $parsed['options']['logs'] );
 		$this->assertSame( 'foo bar', $parsed['options']['search'] );
 	}
+
+	// ── option_int: the one typed read of an operator-supplied option ──────
+
+	public function test_option_int_takes_the_fallback_only_when_the_option_is_absent(): void {
+		$this->assertSame( -1, Command_Args::option_int( [], 'partition', -1 ) );
+		$this->assertNull( Command_Args::option_int( [], 'num_partitions', null ) );
+	}
+
+	public function test_option_int_reads_a_canonical_value(): void {
+		$this->assertSame( 3, Command_Args::option_int( [ 'partition' => '3' ], 'partition', -1 ) );
+		$this->assertSame( 0, Command_Args::option_int( [ 'partition' => '0' ], 'partition', -1 ) );
+		$this->assertSame( 12, Command_Args::option_int( [ 'limit' => 12 ], 'limit', 20 ), 'an int needs no parsing' );
+	}
+
+	/** Every cast answers a NUMBER here, so the typo picks a real target. */
+	public function test_option_int_refuses_a_malformed_value_instead_of_casting(): void {
+		$this->assertNull( Command_Args::option_int( [ 'partition' => 'abc' ], 'partition', -1 ) );
+		$this->assertNull( Command_Args::option_int( [ 'timeout' => '2m' ], 'timeout', 30 ) );
+		$this->assertNull( Command_Args::option_int( [ 'segment_size' => '2.9' ], 'segment_size', 4096 ) );
+		$this->assertNull( Command_Args::option_int( [ 'num_partitions' => '-1' ], 'num_partitions', null ) );
+	}
+
+	public function test_option_int_refuses_a_bare_flag(): void {
+		// parse() renders `--partition` as true; casting it selects p1.
+		$this->assertNull( Command_Args::option_int( [ 'partition' => true ], 'partition', -1 ) );
+	}
+
+	public function test_option_int_refuses_zero_when_the_caller_forbids_it(): void {
+		$this->assertNull( Command_Args::option_int( [ 'num_partitions' => '0' ], 'num_partitions', null, false ) );
+	}
 }

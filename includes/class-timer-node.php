@@ -19,6 +19,9 @@ namespace Newspack_Nodes;
 
 class Timer_Node extends Node {
 
+	/** Floor for an operator-supplied cadence (seconds): below a second a node leaves the Router hitchhike for a spinning own slot. */
+	protected const MIN_INTERVAL_S = 1;
+
 	public int $interval_ms = 0;
 	public float $next_fire = 0.0;
 	public bool $oneshot    = false;
@@ -50,10 +53,8 @@ class Timer_Node extends Node {
 		$first           = $args[0] ?? '';
 		if ( '' === $first ) {
 			$this->set_timer();
-		} elseif ( preg_match( '/^[0-9]+$/', $first ) ) {
-			$this->set_timer( (int) $first );
 		} else {
-			throw new \InvalidArgumentException( 'Bad arguments for Timer' );
+			$this->set_timer( $this->parse_interval( $first ) );
 		}
 		return $this->arguments;
 	}
@@ -95,6 +96,62 @@ class Timer_Node extends Node {
 			$this->sink->fill( $message );
 		}
 		$this->notify( 'FIRE', Core::$now );
+	}
+
+	/**
+	 * THE interval-token parse every self-pacing Timer subclass shares: digits
+	 * only, floored at $min, with an empty token taking $default. Casting the
+	 * token instead turns `abc` into a 0 ms own slot, which free-spins the drain
+	 * and fires the node on every iteration — so the guard lives here, once,
+	 * rather than in each subclass that overrides arguments().
+	 *
+	 * The unit is the CALLER's (milliseconds for Timer itself, seconds for a
+	 * subclass whose schema declares its cadence that way).
+	 *
+	 * @param string $token   Raw positional token.
+	 * @param int    $default Interval for an empty token; omitted by a caller that
+	 *                        has already branched on the empty token itself.
+	 * @param int    $min     Floor applied to a parsed token.
+	 * @return int Interval in the caller's unit.
+	 * @throws \InvalidArgumentException When the token isn't a run of digits.
+	 */
+	protected function parse_interval( string $token, int $default = 0, int $min = 0 ): int {
+		if ( '' === $token ) {
+			return $default;
+		}
+		if ( ! \preg_match( '/^[0-9]+$/', $token ) ) {
+			throw $this->bad_interval();
+		}
+		return \max( $min, (int) $token );
+	}
+
+	/**
+	 * The DECIMAL twin of parse_interval(): a fractional number of SECONDS in,
+	 * milliseconds out, for the subclasses whose schema declares a float
+	 * cadence. A zero or absent token takes $default_s — Tachikoma's `||=`
+	 * fallback, which those ports preserve — and every result is floored at
+	 * MIN_INTERVAL_S, because `(int) ( 0.0005 * 1000 )` is a free-spinning 0 ms
+	 * own slot, not a fast timer.
+	 *
+	 * @param string $token     Raw positional token, a decimal number of seconds.
+	 * @param float  $default_s Cadence for an absent or zero token.
+	 * @return int Interval in milliseconds.
+	 * @throws \InvalidArgumentException When the token isn't numeric.
+	 */
+	protected function parse_interval_ms( string $token, float $default_s ): int {
+		if ( '' !== $token && ! \is_numeric( $token ) ) {
+			throw $this->bad_interval();
+		}
+		$seconds = (float) $token;
+		$seconds = $seconds > 0.0 ? $seconds : $default_s;
+		return (int) \round( \max( (float) self::MIN_INTERVAL_S, $seconds ) * 1000 );
+	}
+
+	/** The refusal both parses raise, naming the node as the shell spells it. */
+	private function bad_interval(): \InvalidArgumentException {
+		return new \InvalidArgumentException(
+			\esc_html( 'Bad arguments for ' . Command_Interpreter_Node::shell_name_for( $this ) )
+		);
 	}
 
 	/**

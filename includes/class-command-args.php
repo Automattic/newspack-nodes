@@ -52,6 +52,31 @@ class Command_Args {
 	}
 
 	/**
+	 * The ONE typed read of an operator-supplied option: absent takes the
+	 * fallback, present must be a canonical decimal, anything else is null.
+	 *
+	 * Null is a REFUSAL, not a value — every `Core` coercion family resolves to
+	 * a number instead, so `--partition=abc` picks p0 and `--timeout=2m` picks
+	 * 2 seconds, and the command reports success on the wrong target. Reporting
+	 * belongs to the caller, in its own voice: `CLI::require_flag_int` errors
+	 * out of WP-CLI, `Service_CI_Node::require_option_int` throws for a verb.
+	 *
+	 * The map is the one `parse()` mints (`--key=value` => 'value', bare
+	 * `--key` => true); WP-CLI's `$assoc_args` has the same shape.
+	 *
+	 * @param array<string,mixed> $options    Classified options.
+	 * @param string              $key        Option name.
+	 * @param int|null            $fallback   Value when the option is absent.
+	 * @param bool                $allow_zero Whether 0 is acceptable.
+	 */
+	public static function option_int( array $options, string $key, ?int $fallback = null, bool $allow_zero = true ): ?int {
+		if ( ! isset( $options[ $key ] ) ) {
+			return $fallback;
+		}
+		return Core::canonical_decimal( $options[ $key ], $allow_zero );
+	}
+
+	/**
 	 * Inverse of parse(): build the token list. Boolean true renders as a bare
 	 * `--key`; false as `--key=false`; arrays comma-joined; scalars stringified.
 	 * No quoting — a value with spaces stays inside one token (its own array

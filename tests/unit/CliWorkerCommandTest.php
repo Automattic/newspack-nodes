@@ -166,7 +166,75 @@ class CliWorkerCommandTest extends TestCase {
 		}
 	}
 
+	/**
+	 * A typo'd partition must NAME itself. Silently casting it to 0 restarts one
+	 * partition of six, reports success, and leaves the rest on the old code.
+	 */
+	public function test_restart_errors_on_a_malformed_partition_flag(): void {
+		$this->register_topology( 'firehose-workers', 3 );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
+		}
+
+		$refused = false;
+		try {
+			( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [ 'partition' => 'abc' ] );
+		} catch ( \RuntimeException ) {
+			$refused = true;
+		}
+
+		$this->assertTrue( $refused, 'a malformed --partition must not restart anything' );
+		$this->assertStringContainsString( '--partition', \implode( ' ', $GLOBALS['_test_wp_cli_errors'] ) );
+
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->assertFalse(
+				Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
+				"p{$p} must not be flagged by a refused command"
+			);
+		}
+		$this->assertEmpty( $GLOBALS['_test_wp_cli_success'] );
+	}
+
+	/** Same for `run`, whose fallback (0) happens to match the silent cast. */
+	public function test_run_errors_on_a_malformed_partition_flag(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+
+		$refused = false;
+		try {
+			( new Worker_CLI_Command() )->run( [ 'firehose-workers' ], [ 'partition' => '1,2' ] );
+		} catch ( \RuntimeException ) {
+			$refused = true;
+		}
+
+		$this->assertTrue( $refused, 'a malformed --partition must not select a partition' );
+		$this->assertStringContainsString( '--partition', \implode( ' ', $GLOBALS['_test_wp_cli_errors'] ) );
+	}
+
 	// ── stop / start: the deploy hold ──────────────────────────────────────
+
+	/**
+	 * `--timeout=2m` means two minutes to an operator and 2 seconds to a cast.
+	 * The refusal lands BEFORE the hold, so a typo cannot park the fleet.
+	 */
+	public function test_stop_errors_on_a_malformed_timeout_flag(): void {
+		$this->register_topology( 'firehose-workers', 1 );
+		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+		Worker_CLI_Command::$sleep = static function (): void {};
+
+		$refused = false;
+		try {
+			( new Worker_CLI_Command() )->stop( [], [ 'timeout' => '2m' ] );
+		} catch ( \RuntimeException ) {
+			$refused = true;
+		}
+
+		$errors = \implode( ' ', $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertTrue( $refused, 'a malformed --timeout must not become 2 seconds' );
+		$this->assertStringContainsString( '--timeout', $errors );
+		$this->assertStringNotContainsString( 'Timed out', $errors );
+
+		$this->assertSame( 0, \Newspack_Nodes\Spawn_Coordinator::hold(), 'a refused flag must not hold the fleet' );
+	}
 
 	/**
 	 * `stop` is `restart` plus a hold: without the persisted refusal, cron, the
@@ -201,7 +269,11 @@ class CliWorkerCommandTest extends TestCase {
 		// Pin ONE coordinator so the in-flight mark stays instance-local: a
 		// persisted record_spawn would outlive the test in a shared cache tier.
 		$fleet = new \Newspack_Nodes\Spawn_Coordinator( $this->tmp, 'TEST_SALT' );
-		$fleet->record_spawn_local( 'firehose-workers', 0, \Newspack_Nodes\Core::right_now() );
+		$fleet->spawn_each(
+			[ [ 'type' => 'firehose-workers', 'partition' => 0 ] ],
+			'spawn failed',
+			\Newspack_Nodes\Core::right_now()
+		);
 		\Newspack_Nodes\Bootstrap::$spawn_coordinator_factory = static fn () => $fleet;
 		Worker_CLI_Command::$sleep = static function (): void {};
 

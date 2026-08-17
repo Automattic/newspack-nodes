@@ -95,7 +95,63 @@ class ProbeToGraphiteTest extends TestCase {
 		$this->assertStringStartsWith( 'nodes.topics.combined_firehose_p0.', $sink->captured[0][ Message::VALUE ] );
 	}
 
-	public function test_latest_record_per_reader_wins_and_state_clears_after_fire(): void {
+	/**
+	 * A positive sub-millisecond cadence must never truncate to an own 0 ms
+	 * slot, whose next_fire never exceeds now: the drain then stops sleeping
+	 * and fires the node on every iteration. Assert the MODE too — a fix that
+	 * floored the number but stayed on its own slot would still spin.
+	 */
+	public function test_arguments_floors_subsecond_interval_onto_the_router_hitchhike(): void {
+		$this->node->arguments( [ 'eve', '0.0005' ] );
+
+		$mode = ( new \ReflectionObject( $this->node ) )->getProperty( 'mode' );
+		$this->assertSame( 1000, $this->node->interval_ms );
+		$this->assertSame( 'router', $mode->getValue( $this->node ) );
+	}
+
+	public function test_arguments_rejects_non_numeric_interval(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		$this->node->arguments( [ 'eve', 'gerbil' ] );
+	}
+
+	/** A zero token still takes the declared default, as the Perl original's `||=` did. */
+	public function test_arguments_zero_interval_takes_the_default_cadence(): void {
+		$this->node->arguments( [ 'eve', '0' ] );
+
+		$this->assertSame( 15000, $this->node->interval_ms );
+	}
+
+	public function test_delta_fields_sum_across_sweeps_while_gauges_sample_the_latest(): void {
+		// Four 15s probe sweeps inside one 60s emit window. MSGS_DELTA and
+		// BYTES_READ_DELTA partition the work (Consumer re-baselines each sweep),
+		// so the window's truth is their SUM; DISTANCE and CACHE_SIZE are levels.
+		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 500, 45, null, 7331, 1111 ) );
+		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 410, 60, null, 9004, 2222 ) );
+		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 260, 55, null, 8112, 3333 ) );
+		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 120, 40, null, 4877, 4242 ) );
+		$this->node->fire();
+
+		$lines = explode( "\n", rtrim( $this->sink->captured[0][ Message::VALUE ], "\n" ) );
+		sort( $lines );
+		$this->assertSame(
+			[
+				'eve.combined_firehose_p0.bytes_read_delta 29324 1000000',
+				'eve.combined_firehose_p0.cache_size 4242 1000000',
+				'eve.combined_firehose_p0.distance 120 1000000',
+				'eve.combined_firehose_p0.msgs_delta 200 1000000',
+			],
+			$lines
+		);
+
+		// Sums belong to the window: the next window starts from zero again.
+		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 90, 7, null, 613, 4242 ) );
+		$this->node->fire();
+		$this->assertStringContainsString( 'msgs_delta 7 ', $this->sink->captured[1][ Message::VALUE ] );
+		$this->assertStringContainsString( 'bytes_read_delta 613 ', $this->sink->captured[1][ Message::VALUE ] );
+	}
+
+	public function test_gauges_sample_the_latest_record_and_state_clears_after_fire(): void {
 		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 500, 1 ) );
 		$this->node->fill( $this->probe_message( 'combined.firehose.p0', 120, 45 ) );
 		$this->node->fire();

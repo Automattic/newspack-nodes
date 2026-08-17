@@ -101,12 +101,13 @@ class Ingest_CLI_Command {
 			}
 		}
 
-		$requested                = $this->int_flag( $assoc_args, 'num_partitions', null );
+		// A geometry of zero is a topic that stores nothing; refuse it too.
+		$requested                = CLI::require_flag_int( $assoc_args, 'num_partitions', null, false );
 		[ $tpl, $num_partitions ] = $this->resolve_destination( $topic_arg, $requested );
 
 		// Every geometry default is the config key the Topic schema names.
-		$segment_size = (int) $this->int_flag( $assoc_args, 'segment_size', self::config_int( 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE ) );
-		$num_segments = (int) $this->int_flag( $assoc_args, 'num_segments', self::config_int( 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS ) );
+		$segment_size = CLI::require_flag_int( $assoc_args, 'segment_size', self::config_int( 'segment_size', Partition_Node::DEFAULT_SEGMENT_SIZE ), false );
+		$num_segments = CLI::require_flag_int( $assoc_args, 'num_segments', self::config_int( 'num_segments', Partition_Node::DEFAULT_NUM_SEGMENTS ), false );
 
 		\WP_CLI::log( "Destination: {$tpl} ({$num_partitions} partition(s), {$segment_size}-byte segments)" );
 
@@ -303,22 +304,4 @@ class Ingest_CLI_Command {
 		return Core::num_int( Config::value( $key ), $default );
 	}
 
-	/**
-	 * Parse an optional integer flag, defaulting when absent and erroring on a
-	 * non-numeric value. A null default means "the operator didn't say", which
-	 * `resolve_destination` distinguishes from an explicit count.
-	 *
-	 * @param array<string,mixed> $assoc_args
-	 */
-	private function int_flag( array $assoc_args, string $key, ?int $default ): ?int {
-		$raw = $assoc_args[ $key ] ?? null;
-		if ( null === $raw ) {
-			return $default;
-		}
-		if ( ! \is_numeric( $raw ) ) {
-			\WP_CLI::error( "--{$key} must be an integer." );
-		}
-		// is_scalar narrows the cast; is_numeric already rejected non-nums.
-		return Core::as_int( $raw );
-	}
 }

@@ -50,6 +50,7 @@ class Value_Timeout_Node extends Timer_Node {
 	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
+	 * @throws \InvalidArgumentException When the interval token isn't numeric.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
@@ -58,13 +59,11 @@ class Value_Timeout_Node extends Timer_Node {
 		$this->arguments         = $args;
 		$timeout                 = Core::num_int( $args[0] ?? 0, 0 );
 		$expires                 = Core::num_int( $args[1] ?? 0, 0 );
-		$interval                = Core::num_float( $args[2] ?? 0, 0.0 );
 		$this->timeout           = $timeout > 0 ? $timeout : self::DEFAULT_TIMEOUT;
 		$this->expires           = $expires > 0 ? $expires : self::DEFAULT_EXPIRES;
-		$interval                = $interval > 0 ? $interval : $this->timeout / 60;
 		$this->recently_received = [];
 		$this->recently_sent     = [];
-		$this->set_timer( (int) ( $interval * 1000 ) );
+		$this->set_timer( $this->parse_interval_ms( Core::as_string( $args[2] ?? '', '' ), $this->timeout / 60 ) );
 		return $args;
 	}
 
@@ -163,7 +162,7 @@ class Value_Timeout_Node extends Timer_Node {
 			'arguments'   => [
 				[ 'name' => 'timeout', 'type' => 'int', 'default' => self::DEFAULT_TIMEOUT, 'description' => 'Suppression window in seconds.' ],
 				[ 'name' => 'expires', 'type' => 'int', 'default' => self::DEFAULT_EXPIRES, 'description' => 'Drop messages older than this many seconds.' ],
-				[ 'name' => 'interval', 'type' => 'float', 'default' => 0, 'description' => 'Sweep interval in seconds (default timeout/60).' ],
+				[ 'name' => 'interval', 'type' => 'float', 'default' => 0, 'description' => 'Sweep interval in seconds (numeric; 0 or empty takes timeout/60, floored at 1).' ],
 			],
 			'commands'    => [],
 			'requests'    => [],

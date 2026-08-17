@@ -513,19 +513,21 @@ class SpawnCoordinatorTest extends TestCase {
 		);
 	}
 
-	// ── post_spawn ────────────────────────────────────────────────────────
+	// ── the spawn POST ────────────────────────────────────────────────────
 
-	public function test_post_spawn_body_carries_type_partition_and_token(): void {
-		$GLOBALS['_test_outbound_posts'] = [];
-		$s                               = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
+	public function test_the_spawn_post_body_carries_type_partition_and_token(): void {
+		$this->with_active_fleet( [
+			'cold-start-workers' => [ 'num_partitions' => 3, 'topology' => '/cs.tsl', 'stale_timeout' => 45 ],
+		] );
+		$s = new Spawn_Coordinator( $this->tmp, 'COLD_START_SALT' );
 
-		$s->post_spawn( 'http://example.test/spawn', 'cold-start-workers', 2, 'TOKEN_XYZ' );
+		$s->spawn_each( [ [ 'type' => 'cold-start-workers', 'partition' => 2 ] ], 'spawn failed', 1700000000.0 );
 
 		$posts = $GLOBALS['_test_outbound_posts'];
 		$this->assertCount( 1, $posts );
 		$this->assertSame( 'cold-start-workers', $posts[0]['args']['body']['type'] );
 		$this->assertSame( 2, $posts[0]['args']['body']['partition'] );
-		$this->assertSame( 'TOKEN_XYZ', $posts[0]['args']['body']['nonce'] );
+		$this->assertTrue( $s->validate_spawn_token( $posts[0]['args']['body']['nonce'], 1700000000 ) );
 	}
 
 	// ── spawn_due_workers: the cold-start pass ────────────────────────────

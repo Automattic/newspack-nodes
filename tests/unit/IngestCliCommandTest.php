@@ -498,6 +498,28 @@ class IngestCliCommandTest extends TestCase {
 		);
 	}
 
+	/** `is_numeric` accepts a negative; `max(1, -1)` then hides it as one partition. */
+	public function test_ingest_rejects_a_negative_num_partitions(): void {
+		$src = "{$this->tmp}/src.log";
+		$this->write_packed_records( $src, [ [ 'k1', 'a' ] ] );
+		$this->expectException( \RuntimeException::class );
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => '-1' ]
+		);
+	}
+
+	/** A fractional segment size truncates to a geometry the operator never asked for. */
+	public function test_ingest_rejects_a_fractional_segment_size(): void {
+		$src = "{$this->tmp}/src.log";
+		$this->write_packed_records( $src, [ [ 'k1', 'a' ] ] );
+		$this->expectException( \RuntimeException::class );
+		( new Ingest_CLI_Command() )->ingest(
+			[ "{$this->tmp}/dest/firehose.p{partition}", $src ],
+			[ 'num_partitions' => 1, 'segment_size' => '2.9' ]
+		);
+	}
+
 	public function test_ingest_allow_large_writes_releases_the_write_lock(): void {
 		// allow_large_writes acquires a held per-partition lock; the run must release
 		// it (remove_node) so a back-to-back ingest / live worker isn't blocked.

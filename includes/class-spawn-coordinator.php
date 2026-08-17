@@ -194,15 +194,7 @@ class Spawn_Coordinator {
 	 */
 	public function spawn_due_workers( float $now ): int {
 		$workers = Bootstrap::expand_workers();
-		if ( empty( $workers ) ) {
-			return 0;
-		}
-		$conflict = self::conflict_description( \array_values( \array_unique( \array_column( $workers, 'type' ) ) ) );
-		if ( '' !== $conflict ) {
-			Core::print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
-			return 0;
-		}
-		$due = \array_filter( $workers, fn ( array $worker ): bool => $this->worker_needs_spawn( $worker, $now ) );
+		$due     = \array_filter( $workers, fn ( array $worker ): bool => $this->worker_needs_spawn( $worker, $now ) );
 		return $this->spawn_each( $due, 'spawn failed', $now );
 	}
 
@@ -483,12 +475,6 @@ class Spawn_Coordinator {
 	 * @return int Spawn POSTs requested — never a count of workers started.
 	 */
 	public function spawn_fleet( string $name ): int {
-		$active   = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
-		$conflict = self::conflict_description( $active );
-		if ( '' !== $conflict ) {
-			Core::print_less_often( 'refusing to spawn_fleet — topology write-conflict: ', $conflict );
-			return 0;
-		}
 		$fleet = \array_filter(
 			Bootstrap::expand_workers(),
 			static fn ( array $worker ): bool => $name === $worker['type']
@@ -497,45 +483,67 @@ class Spawn_Coordinator {
 	}
 
 	/**
-	 * The ONE spawn loop: resolve the endpoint and mint one token for the pass,
-	 * then per worker honor the shared throttle, POST, report under `$label`,
-	 * and record the POST locally.
+	 * The ONE spawn loop: drop what the shared throttle suppresses, refuse a
+	 * write-conflicting active set, resolve the endpoint and mint one token for
+	 * the pass, then POST each survivor, report under `$label`, and record the
+	 * POST locally.
 	 *
 	 * Four hand-copied versions of this had drifted — one skipped the local
 	 * record and re-posted what it had just spawned, one discarded the transport
-	 * error and reported a fleet that never came up. Each public entry point now
+	 * error and reported a fleet that never came up. Each entry point now
 	 * differs only in the worker list it computes, which is its actual job.
+	 *
+	 * The refusal is a property of the SET, so it is judged over the configured
+	 * active topologies rather than the workers handed in — a single fleet cannot
+	 * see the peer it would collide with. Hand-copied to four callers, it was absent
+	 * from the three wake paths, which are the only ones that revive an
+	 * on-demand worker at all.
+	 *
+	 * The throttle runs FIRST because the refusal parses every configured `.tsl`
+	 * and `wake_on_demand()` is driven by a write: judged the other way round,
+	 * every request that writes pays a full topology parse for the whole window.
 	 *
 	 * Counts POSTS REQUESTED, not workers started: `fire_and_forget_post` hangs
 	 * up before any outcome, and the endpoint records accepted spawns only after
 	 * control has returned here — which is why the local record cannot wait.
 	 *
-	 * @param iterable<array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
-	 * @param string                           $label   Failure-report verb, e.g. 'wake failed'.
-	 * @param float                            $now     Pass clock.
+	 * @param array<array-key,array<array-key,mixed>> $workers Descriptors to spawn (fleet or wake-map shape).
+	 * @param string                                  $label   Failure-report verb, e.g. 'wake failed'.
+	 * @param float                                   $now     Pass clock.
 	 * @return int Spawn POSTs fired.
 	 */
-	private function spawn_each( iterable $workers, string $label, float $now ): int {
+	public function spawn_each( array $workers, string $label, float $now ): int {
+		$due = [];
+		foreach ( $workers as $worker ) {
+			$type      = Core::as_string( $worker['type'] );
+			$partition = Core::as_int( $worker['partition'] );
+			if ( ! $this->is_recently_spawned( $type, $partition, $now ) ) {
+				$due[] = [ $type, $partition ];
+			}
+		}
+		if ( [] === $due ) {
+			return 0; // Nothing to POST: don't pay for the conflict walk.
+		}
+		// Configured names, not the catalog — asking it re-globs every .tsl.
+		$names    = \array_filter( Core::arr( Config::value( 'topologies' ) ), static fn ( mixed $n ): bool => \is_string( $n ) );
+		$conflict = self::conflict_description( \array_values( $names ) );
+		if ( '' !== $conflict ) {
+			Core::print_less_often( 'refusing to spawn — topology write-conflict: ', $conflict );
+			return 0;
+		}
 		$spawn_url = \function_exists( 'rest_url' ) ? \rest_url( 'newspack-nodes/v1/workers/spawn' ) : '';
 		if ( '' === $spawn_url ) {
 			return 0;
 		}
-		$token   = $this->generate_spawn_token( (int) $now );
-		$spawned = 0;
-		foreach ( $workers as $worker ) {
-			$type      = Core::as_string( $worker['type'] );
-			$partition = Core::as_int( $worker['partition'] );
-			if ( $this->is_recently_spawned( $type, $partition, $now ) ) {
-				continue;
-			}
+		$token = $this->generate_spawn_token( (int) $now );
+		foreach ( $due as [ $type, $partition ] ) {
 			$err = $this->post_spawn( $spawn_url, $type, $partition, $token );
 			if ( null !== $err ) {
 				Core::print_less_often( "{$label} for {$type}.p{$partition}: ", $err );
 			}
 			$this->record_spawn_local( $type, $partition, $now );
-			++$spawned;
 		}
-		return $spawned;
+		return \count( $due );
 	}
 
 	/**
@@ -543,14 +551,13 @@ class Spawn_Coordinator {
 	 * here would make the endpoint (which records on accept) reject the very
 	 * POST this record announces.
 	 */
-	public function record_spawn_local( string $type, int $partition, float $when ): void {
+	private function record_spawn_local( string $type, int $partition, float $when ): void {
 		$this->last_spawn_time[ "{$type}|{$partition}" ] = $when;
 	}
 
 	/**
-	 * Fire-and-forget spawn POST. Returns the transport error so each caller
-	 * reports in its own voice — a node through `print_less_often`, a cron pass
-	 * through `Core`.
+	 * Fire-and-forget spawn POST. Returns the transport error rather than
+	 * reporting it, so `spawn_each` names the pass the failure belongs to.
 	 *
 	 * @param string $spawn_url Fully-qualified spawn endpoint URL.
 	 * @param string $type      Worker type.
@@ -558,12 +565,31 @@ class Spawn_Coordinator {
 	 * @param string $token     Current HMAC spawn token.
 	 * @return string|null Error description, or null on success.
 	 */
-	public function post_spawn( string $spawn_url, string $type, int $partition, string $token ): ?string {
+	private function post_spawn( string $spawn_url, string $type, int $partition, string $token ): ?string {
 		return Core::fire_and_forget_post( $spawn_url, [
 			'type'      => $type,
 			'partition' => $partition,
 			'nonce'     => $token,
 		] );
+	}
+
+	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */
+	public function generate_spawn_token( int $now ): string {
+		return Internal_Request_Token::generate( Internal_Request_Token::PURPOSE_SPAWN, $now, $this->nonce_salt );
+	}
+
+	/**
+	 * Describe the write-conflicts in a topology set, or '' when it is safe to
+	 * spawn. Two topologies writing one partition log corrupt it, so the spawn
+	 * loop refuses the whole set — better no workers than two fleets. Activation
+	 * consults the same analyzer to refuse persisting one in the first place.
+	 *
+	 * @param list<string> $types Topology names.
+	 * @return string Human-readable conflict list, or '' when there is none.
+	 */
+	public static function conflict_description( array $types ): string {
+		$conflicts = Topology_Analyzer::find_conflicts( $types );
+		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
 	}
 
 	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
@@ -600,25 +626,6 @@ class Spawn_Coordinator {
 			}
 		}
 		return null;
-	}
-
-	/** HMAC spawn token for $now's 10s window. Per-site, never logged. */
-	public function generate_spawn_token( int $now ): string {
-		return Internal_Request_Token::generate( Internal_Request_Token::PURPOSE_SPAWN, $now, $this->nonce_salt );
-	}
-
-	/**
-	 * Describe the write-conflicts in a topology set, or '' when it is safe to
-	 * spawn. Two topologies writing one partition log corrupt it, so every
-	 * spawner refuses the whole set — better no workers than two fleets. Each
-	 * caller logs the description in its own voice.
-	 *
-	 * @param list<string> $types Topology names.
-	 * @return string Human-readable conflict list, or '' when there is none.
-	 */
-	public static function conflict_description( array $types ): string {
-		$conflicts = Topology_Analyzer::find_conflicts( $types );
-		return empty( $conflicts ) ? '' : Topology_Analyzer::describe_conflicts( $conflicts );
 	}
 
 	/**

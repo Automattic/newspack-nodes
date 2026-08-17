@@ -24,6 +24,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Job_Intake;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Spawn_Coordinator;
+use Newspack_Nodes\Topology_Analyzer;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -283,6 +284,32 @@ class OnDemandWakeTest extends TestCase {
 	}
 
 	/**
+	 * The write-conflict walk parses every configured `.tsl`, and a write drives
+	 * `wake_on_demand()` — so a walk that runs ahead of the throttle is a full
+	 * topology parse on every request that writes, for the whole 15s window.
+	 */
+	public function test_a_wake_the_throttle_suppresses_parses_no_topology(): void {
+		$this->activate( 'marmot-ondemand', 23 );
+		$coordinator = $this->coordinator();
+		$now         = (float) \time();
+		$coordinator->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", $now );
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken(), 'the first wake posts' );
+
+		Topology_Analyzer::reset_caches();
+		$coordinator->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", $now + 3.5 );
+
+		$this->assertSame( [], $this->parsed_topologies(), 'a suppressed wake parsed a topology' );
+		$this->assertSame( [ 'marmot-ondemand.p1' ], $this->woken(), 'and it still posts nothing' );
+	}
+
+	/** @return list<string> Topologies parsed for their write set since the last reset. */
+	private function parsed_topologies(): array {
+		/** @var array<string,mixed> $cache */
+		$cache = ( new \ReflectionProperty( Topology_Analyzer::class, 'write_set_cache' ) )->getValue();
+		return \array_keys( $cache );
+	}
+
+	/**
 	 * A parked job is not due, and no special case says so: nothing CONSUMES
 	 * jobdelay — Job_Delay circulates it on the cron pass — so the reads map
 	 * answers it. "Is it due" collapses into "does anything read that log".
@@ -419,6 +446,58 @@ class OnDemandWakeTest extends TestCase {
 		$this->activate( 'marmot-resident', 0 );
 
 		$this->assertSame( [], Bootstrap::on_demand_wake_map() );
+	}
+
+	// ── the write-conflict gate ─────────────────────────────────────────────
+
+	/**
+	 * Two topologies tailing one log through one cursor corrupt it, and the
+	 * per-worker lock is blind to a cross-type collision. A wake is a spawner
+	 * like any other, so it refuses the whole set — and says so.
+	 */
+	public function test_a_wake_refuses_a_write_conflicting_set(): void {
+		$this->conflicting_pair();
+		$seen = [];
+		Core::set_stderr_handler( static function ( string $line ) use ( &$seen ): void {
+			$seen[] = $line;
+		} );
+
+		$this->coordinator()->wake_on_demand( "{$this->tmp}/logs/jobintake.p1", (float) \time() );
+
+		$this->assertSame( [], $this->woken(), 'a conflicting set must not be woken' );
+		$this->assertNotEmpty(
+			\array_filter( $seen, static fn ( string $l ): bool => \str_contains( $l, 'topology write-conflict' ) ),
+			'a refused wake must not be silent'
+		);
+	}
+
+	public function test_the_backlog_sweep_refuses_a_write_conflicting_set(): void {
+		$this->conflicting_pair();
+		$this->seed_partition( 'jobintake.p1', 512 );
+		$this->seed_offsetlog( 'jobintake.p1', 0, 200 );
+
+		$this->coordinator()->wake_readers_with_backlog( (float) \time() );
+
+		$this->assertSame( [], $this->woken() );
+	}
+
+	/** The cli-attach / dashboard-mount entry, which delegates to the wake. */
+	public function test_waking_a_named_sleeping_worker_refuses_a_conflicting_set(): void {
+		$this->conflicting_pair();
+
+		$found = $this->coordinator()->wake_sleeping_worker( 'marmot-jobs.p1', (float) \time() );
+
+		$this->assertTrue( $found, 'the worker is still named by the fleet' );
+		$this->assertSame( [], $this->woken() );
+	}
+
+	/**
+	 * Two on-demand topologies tailing `jobintake` through the SAME offsetlog:
+	 * a sole-writer cursor two fleets would both advance.
+	 */
+	private function conflicting_pair(): void {
+		$this->activate( 'marmot-jobs', 23, 'jobintake' );
+		$this->activate( 'quokka-jobs', 23, 'jobintake' );
 	}
 
 	// ── the gate ────────────────────────────────────────────────────────────

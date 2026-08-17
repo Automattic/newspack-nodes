@@ -71,17 +71,6 @@ class CLI {
 	}
 
 	/**
-	 * Make an untrusted worker id safe to echo in a TERMINAL error message:
-	 * strip C0 control characters + DEL so a crafted id can't inject an ANSI /
-	 * escape sequence, while keeping the printable text and the message's literal
-	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
-	 * wrong tool here (it renders `'` as `&#039;` in the shell).
-	 */
-	private static function cli_safe( string $worker_id ): string {
-		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
-	}
-
-	/**
 	 * One row per active Consumer — the lean per-reader STATE from the topicprobe
 	 * snapshot (`read_probe_index()`). Topology attribution (which topology/targets
 	 * a reader belongs to) is NOT here: the dashboard joins these rows onto the
@@ -265,6 +254,46 @@ class CLI {
 		$provider = self::$uid_provider
 			?? static fn (): int => \function_exists( 'posix_geteuid' ) ? \posix_geteuid() : -1;
 		return Core::as_int( $provider(), -1 );
+	}
+
+	/**
+	 * Read an operator-supplied `--flag=<n>`: absent takes the fallback, a
+	 * malformed one is a WP_CLI::error (which exits non-zero).
+	 *
+	 * A cast would answer 0 for `--partition=abc` and 2 for `--timeout=2m`, so
+	 * the typo selects a different fleet — or a different deadline — and the
+	 * command reports success on it.
+	 *
+	 * @param array<string,mixed> $assoc_args WP-CLI associative args.
+	 * @param string              $key        Flag name.
+	 * @param int|null            $fallback   Value when the flag is absent.
+	 * @param bool                $allow_zero Whether 0 is acceptable.
+	 * @return ($fallback is null ? int|null : int)
+	 * @throws \RuntimeException When a stubbed WP_CLI::error returns instead of exiting.
+	 */
+	public static function require_flag_int( array $assoc_args, string $key, ?int $fallback = null, bool $allow_zero = true ): ?int {
+		if ( ! isset( $assoc_args[ $key ] ) ) {
+			return $fallback;
+		}
+		$value = Command_Args::option_int( $assoc_args, $key, $fallback, $allow_zero );
+		if ( null === $value ) {
+			$bound = $allow_zero ? 'non-negative' : 'positive';
+			\WP_CLI::error( "--{$key} must be a {$bound} integer; got: " . self::cli_safe( Core::as_string( $assoc_args[ $key ] ) ) );
+			// The real error() exits; a stub returning must not fall through.
+			throw new \RuntimeException( \esc_html( "invalid --{$key}" ) );
+		}
+		return $value;
+	}
+
+	/**
+	 * Make an untrusted worker id safe to echo in a TERMINAL error message:
+	 * strip C0 control characters + DEL so a crafted id can't inject an ANSI /
+	 * escape sequence, while keeping the printable text and the message's literal
+	 * quotes. This is terminal sanitization, not HTML output — esc_html() is the
+	 * wrong tool here (it renders `'` as `&#039;` in the shell).
+	 */
+	private static function cli_safe( string $worker_id ): string {
+		return (string) \preg_replace( '/[\x00-\x1F\x7F]/', '', $worker_id );
 	}
 
 	/**

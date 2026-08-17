@@ -50,14 +50,14 @@ class Settings_Sync_Node extends Timer_Node {
 	 *
 	 * @param list<string>|null $args Interval in seconds (digits) at token 0, empty for the default, or null to read back.
 	 * @return list<string> Last-set argument tokens.
+	 * @throws \InvalidArgumentException When the interval token isn't a run of digits.
 	 */
 	public function arguments( ?array $args = null ): array {
 		if ( null === $args ) {
 			return $this->arguments;
 		}
 		$this->arguments = $args;
-		$first           = $args[0] ?? '';
-		$seconds         = '' === $first ? self::DEFAULT_INTERVAL_SECONDS : (int) $first;
+		$seconds         = $this->parse_interval( $args[0] ?? '', self::DEFAULT_INTERVAL_SECONDS, self::MIN_INTERVAL_S );
 		$this->set_timer( $seconds * 1000 );
 		return $this->arguments;
 	}
@@ -235,7 +235,7 @@ class Settings_Sync_Node extends Timer_Node {
 			'category'    => 'Control',
 			'description' => 'Pushes registered WP-option changes to connected spokes.',
 			'arguments'   => [
-				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS, 'description' => 'Re-push sweep cadence in seconds — how often every registered option is re-sent to spokes (default 300).' ],
+				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS, 'description' => 'Re-push sweep cadence in seconds — how often every registered option is re-sent to spokes (digits only; default 300, floored at 1).' ],
 			],
 			'commands'    => [
 				[

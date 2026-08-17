@@ -170,7 +170,7 @@ class Partition_Node extends Timer_Node {
 		$this->min_lifetime   = \max( 0, $this->min_lifetime );
 		$this->lifetime       = \max( 0, $this->lifetime );
 		$this->max_segments   = self::derive_max_segments( $this->num_segments, $this->max_segments );
-		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->partition_dir );
+		$this->deadletter_dir = self::derive_write_deadletter_dir( $this->write_quarantine_key() );
 		return $args;
 	}
 
@@ -317,6 +317,15 @@ class Partition_Node extends Timer_Node {
 		$num_segments = \max( self::MIN_SEGMENTS_FLOOR, $num_segments );
 		$cap          = $max_segments > 0 ? $max_segments : 2 * $num_segments;
 		return \max( $num_segments, $cap );
+	}
+
+	/**
+	 * Seam (Log overrides): the on-disk path identifying this writer, which
+	 * derive_write_deadletter_dir() turns into its quarantine dir. Partition =
+	 * the segment dir, one writer identity per dir.
+	 */
+	protected function write_quarantine_key(): string {
+		return $this->partition_dir;
 	}
 
 	/**

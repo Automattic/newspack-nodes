@@ -618,6 +618,81 @@ describe( 'Shell node — var + interpolation', () => {
 		expect( filled[ 0 ][ TO ] ).toBe( 'firehose-in' );
 	} );
 
+	it( 'a resolved <config:foo> warns about nothing', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.config = { spool_dir: '/srv/quarantine' };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <config:spool_dir>' );
+		expect( warn ).not.toHaveBeenCalled();
+		warn.mockRestore();
+	} );
+
+	it( 'a config key no namespace owns warns instead of blanking silently', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { spool_dir: '/srv/quarantine' };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <config:quarantine_dir>relay' );
+		// `<config:quarantine_dir>` → '' so the token is `relay`.
+		expect( filled[ 0 ][ TO ] ).toBe( 'relay' );
+		expect( warn.mock.calls.join( ' ' ) ).toContain(
+			'resolve_config_token: resolver returned null for <config:quarantine_dir>'
+		);
+		warn.mockRestore();
+	} );
+
+	it( 'an unregistered namespace warns as unknown, not as an unset var', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { spool_dir: '/srv/quarantine' };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <vault:spool_dir>relay' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'relay' );
+		expect( warn.mock.calls.join( ' ' ) ).toContain(
+			'resolve_config_token: unknown namespace <vault:spool_dir>'
+		);
+		warn.mockRestore();
+	} );
+
+	it( 'a non-scalar config value warns instead of stringifying to junk', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { spool_dir: [ '/srv/quarantine' ] };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <config:spool_dir>relay' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'relay' );
+		expect( warn.mock.calls.join( ' ' ) ).toContain(
+			'resolve_config_token: resolver returned non-scalar for <config:spool_dir>'
+		);
+		warn.mockRestore();
+	} );
+
+	it( 'stringifies a boolean config value the way PHP casts it', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { is_hub: false, is_spoke: true };
+		send( shell, 'ping relay<config:is_hub>' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'relay' );
+		send( shell, 'ping relay<config:is_spoke>' );
+		expect( filled[ 1 ][ TO ] ).toBe( 'relay1' );
+	} );
+
+	it( 'passes a URL in <…> through verbatim — a colon alone is not a namespace', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { spool_dir: '/srv/quarantine' };
+		const warn = jest
+			.spyOn( Core, '_stderr' )
+			.mockImplementation( () => {} );
+		send( shell, 'ping <https://wombat.example/quokka>' );
+		expect( filled[ 0 ][ TO ] ).toBe( '<https://wombat.example/quokka>' );
+		expect( warn ).not.toHaveBeenCalled();
+		warn.mockRestore();
+	} );
+
 	it( 'unknown <var> interpolates to empty, warning like Shell3 get_shared', () => {
 		const { shell, filled } = makeShell( { path: '' } );
 		const warn = jest

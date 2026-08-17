@@ -135,6 +135,33 @@ class ValueTimeoutTest extends TestCase {
 		$this->assertSame( [ "warm_homepage\n" ], array_map( static fn ( $m ) => $m[ Message::VALUE ], $successor->captured ), 'the trailing re-emit must survive the restart' );
 	}
 
+	/**
+	 * A positive sub-millisecond sweep cadence must never truncate to an own
+	 * 0 ms slot, whose next_fire never exceeds now: the drain then stops
+	 * sleeping and fires the node on every iteration. Assert the MODE too — a
+	 * fix that floored the number but stayed on its own slot would still spin.
+	 */
+	public function test_arguments_floors_subsecond_interval_onto_the_router_hitchhike(): void {
+		$this->node->arguments( [ '60', '300', '0.0005' ] );
+
+		$mode = ( new \ReflectionObject( $this->node ) )->getProperty( 'mode' );
+		$this->assertSame( 1000, $this->node->interval_ms );
+		$this->assertSame( 'router', $mode->getValue( $this->node ) );
+	}
+
+	public function test_arguments_rejects_non_numeric_interval(): void {
+		$this->expectException( \InvalidArgumentException::class );
+
+		$this->node->arguments( [ '60', '300', 'gerbil' ] );
+	}
+
+	/** A zero token still derives the default sweep from timeout, as the original's `||=` did. */
+	public function test_arguments_zero_interval_takes_the_derived_default(): void {
+		$this->node->arguments( [ '120', '300', '0' ] );
+
+		$this->assertSame( 2000, $this->node->interval_ms );
+	}
+
 	public function test_defaults_match_tachikoma(): void {
 		$node = new Value_Timeout_Node();
 		$node->name( 'value-gate-defaults' );

@@ -76,8 +76,9 @@ class Sessions_CI_Node extends Service_CI_Node {
 		if ( null === $granted ) {
 			throw new \RuntimeException( 'no capability to mint a session with' );
 		}
+		// A credential lifetime is the last thing to guess at from `--ttl=1h`.
 		$ttl     = Command_Auth::bounded_ttl(
-			Core::num_int( $parsed['options']['ttl'] ?? null, Command_Auth::SESSION_TTL_S )
+			self::require_option_int( $parsed['options'], 'ttl', Command_Auth::SESSION_TTL_S, false )
 		);
 		$session = Command_Auth::mint_session( $granted, $ttl );
 		Sessions::record( $session['handle'], $granted, $label, $ttl );
