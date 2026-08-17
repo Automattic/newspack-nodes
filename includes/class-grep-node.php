@@ -10,17 +10,51 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Grep_Node extends Node {
+	use Schema_Reflection;
 
-	/** Bracket-delimited PCRE (mirrors Grep.pm's qr{}); default matches everything. */
-	private string $pattern = '{.}';
+	/** The PCRE body as the operator typed it — the schema-declared argument. */
+	private string $pattern = self::MATCH_EVERYTHING;
 
+	/** Bracket-delimited form fill() matches with (mirrors Grep.pm's qr{}). */
+	private string $compiled = '{' . self::MATCH_EVERYTHING . '}';
+
+	/** Grep.pm's default: any single character, so every non-empty VALUE passes. */
+	private const MATCH_EVERYTHING = '.';
+
+	/**
+	 * `[ <pattern> ]` — a PCRE body, wrapped in `{}` the way Grep.pm wraps qr{}.
+	 *
+	 * The pattern is compiled HERE rather than at first fill(). An unparseable
+	 * regex used to be accepted, then re-fail on every single message: a warning
+	 * per message and a `false` return, which drops it. One typo silently
+	 * discarded the whole stream. The operator typed it on one line, so that
+	 * line is where it is refused.
+	 *
+	 * @param list<string>|null $args
+	 * @return list<string>
+	 * @throws \InvalidArgumentException When the pattern will not compile.
+	 */
 	public function arguments( ?array $args = null ): array {
-		if ( null !== $args ) {
-			$this->arguments = $args;
-			$token           = $args[0] ?? '';
-			$pattern         = '' !== $token ? $token : '.';
-			$this->pattern   = '{' . $pattern . '}';
+		if ( null === $args ) {
+			return parent::arguments();
 		}
+		$this->parse_schema_args( $args );
+		// A blank token is "not supplied"; the schema default covers absent.
+		if ( '' === $this->pattern ) {
+			$this->pattern = self::MATCH_EVERYTHING;
+		}
+		$compiled = '{' . $this->pattern . '}';
+		// @ turns the compile warning into the refusal below, not silence.
+		if ( false === @\preg_match( $compiled, '' ) ) {
+			$who = Command_Interpreter_Node::shell_name_for( $this );
+			if ( '' !== $this->name ) {
+				$who .= " '{$this->name}'";
+			}
+			throw new \InvalidArgumentException(
+				\esc_html( "Bad arguments for {$who}: pattern is not a valid regex, got '{$this->pattern}'" )
+			);
+		}
+		$this->compiled = $compiled;
 		return $this->arguments;
 	}
 
@@ -30,7 +64,7 @@ class Grep_Node extends Node {
 		$subject = \is_string( $value )
 			? $value
 			: (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES | \JSON_INVALID_UTF8_SUBSTITUTE );
-		if ( 1 === \preg_match( $this->pattern, $subject ) ) {
+		if ( 1 === \preg_match( $this->compiled, $subject ) ) {
 			parent::fill( $message );
 		}
 	}
@@ -40,7 +74,7 @@ class Grep_Node extends Node {
 			'category'    => 'Filtering',
 			'description' => 'Forwards a message only when its VALUE matches a regex; drops the rest.',
 			'arguments'   => [
-				[ 'name' => 'pattern', 'type' => 'string', 'default' => '.', 'description' => 'PCRE regex matched against the message VALUE; forwards a message only on a match. Default (.) matches everything.' ],
+				[ 'name' => 'pattern', 'type' => 'string', 'default' => self::MATCH_EVERYTHING, 'description' => 'PCRE regex matched against the message VALUE; forwards a message only on a match. Default (.) matches everything.' ],
 			],
 		] );
 	}
