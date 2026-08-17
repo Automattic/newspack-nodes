@@ -7,6 +7,7 @@ import {
 	payloadOf,
 } from '@newspack-nodes/runtime';
 import { errorMessage } from '../errorMessage';
+import { isControl } from '../helpers/controlMsg';
 
 /**
  * SliceViewNode — the thin per-widget view-node base every dashboard rebuild's
@@ -24,6 +25,11 @@ import { errorMessage } from '../errorMessage';
  * Subclasses supply only `emptySlice()` — the shaped-but-empty model so a render
  * before the first reply is valid.
  *
+ * A dashboard that drives its own slice — a modal opening, closing, or refusing
+ * a bad id — sets `controlFrom` and fills `loading` / `clear` / `error`
+ * controls straight in. A control is recognised by WHO SENT IT, never by what
+ * its payload looks like: a reply carrying an `action` field is still a reply.
+ *
  * A slice, and only a slice. A verb somebody awaits is minted from its own node
  * and its reply is addressed there — so nothing that lands here needs telling
  * apart from anything else that lands here.
@@ -40,6 +46,16 @@ export class SliceViewNode extends Node {
 	constructor() {
 		super();
 		this.model = this.emptySlice();
+		// The status fields THIS shape declares; fixed per class, so read once.
+		this.settled = {};
+		if ( 'loading' in this.model ) {
+			this.settled.loading = false;
+		}
+		if ( 'error' in this.model ) {
+			this.settled.error = null;
+		}
+		// FROM of whoever drives this view's controls; unset means nobody does.
+		this.controlFrom = '';
 		this.setState( 'view', this.model );
 	}
 
@@ -57,6 +73,12 @@ export class SliceViewNode extends Node {
 		// Terminal node (no sink): count here for the overlay's throughput.
 		this.counter += 1;
 		const value = message[ VALUE ];
+		// ORIGIN first: only the declared driver can send a control.
+		if ( isControl( this, message ) ) {
+			this._control( value );
+			this.setState( 'view', this.model );
+			return;
+		}
 		// TM_ERROR FIRST: may arrive as a bare STRING VALUE, not an object.
 		if ( 0 !== ( ( message[ TYPE ] || 0 ) & TM_ERROR ) ) {
 			const payload = payloadOf( value );
@@ -74,8 +96,33 @@ export class SliceViewNode extends Node {
 		}
 		const slice = this._parse( value.payload );
 		if ( null !== slice ) {
-			this.model = slice;
+			this.model = { ...this.settled, ...slice };
 			this.setState( 'view', this.model );
+		}
+	}
+
+	/**
+	 * Apply one control verb: `loading` flips the spinner and clears the error
+	 * while keeping the data on screen, `clear` resets to the empty slice, and
+	 * `error` surfaces a caller-side failure without blanking the data.
+	 *
+	 * Subclasses with their own verbs extend this and call `super._control()`.
+	 *
+	 * @param {?{action?: string, error?: string}} value The control payload;
+	 *                                                   `action` picks the verb. An unrecognised or absent verb is a no-op.
+	 */
+	_control( value ) {
+		const action = value?.action;
+		if ( 'loading' === action ) {
+			this.model = { ...this.model, loading: true, error: null };
+		} else if ( 'clear' === action ) {
+			this.model = this.emptySlice();
+		} else if ( 'error' === action ) {
+			this.model = {
+				...this.model,
+				loading: false,
+				error: value.error || errorMessage( null ),
+			};
 		}
 	}
 
@@ -133,14 +180,20 @@ export class SliceViewNode extends Node {
  *
  * @param {Object}   o               The declaration.
  * @param {Object}   o.empty         The shaped-but-empty model, copied per node.
- * @param {Function} o.parse         `( payload ) => model|null`; null keeps the
- *                                   model already on screen.
+ * @param {Function} [o.parse]       `( payload ) => model|null`; null keeps the
+ *                                   model already on screen. Omit it for a view
+ *                                   whose reply IS its slice.
  * @param {boolean}  [o.json]        True when the verb answers a JSON STRING —
  *                                   `parse` then receives the decoded body.
  * @param {string}   [o.description] Overrides the palette description.
  * @return {typeof SliceViewNode} The view class.
  */
-export function sliceView( { empty, parse, json = false, description } ) {
+export function sliceView( {
+	empty,
+	parse = ( payload ) => payload,
+	json = false,
+	description,
+} ) {
 	return class extends SliceViewNode {
 		emptySlice() {
 			return { ...empty };

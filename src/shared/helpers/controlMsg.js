@@ -13,6 +13,22 @@ import {
 } from '../../runtime/message';
 
 /**
+ * Whether an arriving message is a CONTROL for this view.
+ *
+ * A control is recognised by WHO SENT IT, never by what its payload looks like
+ * — a record whose VALUE happens to carry an `action` field is still a record,
+ * and sniffing for one swallowed whole streams. A view with no `controlFrom`
+ * takes no controls, so nothing can pass for one.
+ *
+ * @param {Object} view    The view node receiving it.
+ * @param {Array}  message The 7-field positional message.
+ * @return {boolean} True when the view should apply it as a control.
+ */
+export function isControl( view, message ) {
+	return '' !== view.controlFrom && message[ FROM ] === view.controlFrom;
+}
+
+/**
  * Mint a control the given view will apply, stamped with the origin that view
  * was told to trust.
  *

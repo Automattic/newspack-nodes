@@ -54,7 +54,7 @@ export default function ConfigAudit( { headerControlsSlot } ) {
 		name: 'settingsaudit',
 		// Explicit .p0 hits the no-worker fallback (settings is 1-partition).
 		subscribe: 'settings.p0',
-		viewType: views.SettingsAuditView,
+		viewClass: views.SettingsAuditView,
 		mode: 'history',
 	} );
 	const view = useNodeState( VIEW_NODE, 'view' );

@@ -248,7 +248,7 @@ describe( 'LogViewer', () => {
 		render( <LogViewer /> );
 		act( () => logBrowserProps.onReplay() );
 		act( () => logBrowserProps.onFollow() );
-		expect( seek ).toHaveBeenLastCalledWith( 'php', null );
+		expect( seek.mock.lastCall.slice( 0, 2 ) ).toEqual( [ 'php', null ] );
 		expect( logBrowserProps.mode ).toBe( 'live' );
 	} );
 

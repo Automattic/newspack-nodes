@@ -39,7 +39,7 @@ it( 'tails settings.p0 in history mode, into the audit view', () => {
 	expect( useLogTailStream ).toHaveBeenCalledWith( {
 		name: 'settingsaudit',
 		subscribe: 'settings.p0',
-		viewType: views.SettingsAuditView,
+		viewClass: views.SettingsAuditView,
 		mode: 'history',
 	} );
 } );

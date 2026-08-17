@@ -18,7 +18,7 @@ export function useJobstatsStream( { mode = 'follow' } = {} ) {
 		name: 'jobstats',
 		// Explicit .p0 hits the no-worker log-feed fallback (1-partition).
 		subscribe: 'jobstats.p0',
-		viewType: views.JobstatsView,
+		viewClass: views.JobstatsView,
 		mode,
 	} );
 }

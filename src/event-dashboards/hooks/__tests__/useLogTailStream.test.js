@@ -43,7 +43,7 @@ import { SEEK_START, SEEK_END } from '../../../runtime/sse-in-node';
 const STREAM = {
 	name: 'cachecozy',
 	subscribe: 'cachecozy.p0',
-	viewType: 'TopicProbeView',
+	viewClass: 'TopicProbeView',
 };
 
 describe( 'useLogTailStream', () => {

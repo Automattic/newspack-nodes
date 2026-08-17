@@ -21,13 +21,23 @@
  * and the rail itself.
  */
 
-import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useCallback,
+	useMemo,
+	useRef,
+} from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 
 import LogBrowser from '../components/LogBrowser';
 import { formatBytes } from '../utils/formatters';
 import parseOffsetJump from '../utils/parseOffsetJump';
 import useRouterTick from './useRouterTick';
+import { useCommandOnce } from './useCommandOnce';
+
+// The substrate service CI that catalogs and reads the on-disk logs.
+const RAW_LOGS_CI = 'raw-logs';
 
 // Rail maintenance cadence (segment rotation + size growth).
 const SEGMENTS_REFRESH_MS = 10000;
@@ -95,12 +105,10 @@ export function stepPosition( link, sub, positions ) {
 /**
  * The clicked-segment state, plus the actions that move it. Each action RETURNS
  * the SSE positions seed it just selected, because every caller needs that seed
- * in the same tick to hand to `seek()` — derived state arrives a render too
- * late, which is why the previous derived `positions` had no reader.
+ * in the same tick to hand to `seek()`; derived state arrives a render too late.
  *
  * The displayed Live/Replay mode is the VIEW's (`SeekTracker.mode`), not this
- * hook's: a second mode here meant two state machines over one concept, with
- * divergent vocabularies ('browse' vs 'replay').
+ * hook's — one concept, one state machine.
  *
  * @param {string} sub The subscription (partition dir or log-source name).
  * @return {{ segmentId: (number|string|null), follow: Function, browseSegment: Function, replay: Function }}
@@ -134,6 +142,56 @@ export default function useLogPositions( sub ) {
 	}, [ sub ] );
 
 	return { segmentId, follow, browseSegment, replay };
+}
+
+/**
+ * One partition's segment rail, resolved from `log_status` and re-resolvable on
+ * demand — the `source` half of `useSegmentBrowse` for every dashboard that has
+ * to ASK for its segments. A dashboard whose catalog already carries them (the
+ * Log Viewer's `taillog sources` rows) passes its own `source` and skips this.
+ *
+ * The answer NAMES the dir it is about, so a selection that moved on while the
+ * reply was in flight is dropped without a cancellation flag (ADR-7).
+ *
+ * @param {Object} o
+ * @param {string} o.sub   The partition dir; '' empties the rail and asks nothing.
+ * @param {string} o.scope Names this read's own nodes.
+ * @return {{ source: Object, refresh: () => void }} The source row for
+ *   `useSegmentBrowse`, and the re-catalog its rail timer drives.
+ */
+export function useLogStatusSegments( { sub, scope } ) {
+	const [ segments, setSegments ] = useState( NO_SEGMENTS );
+	const subRef = useRef( sub );
+	subRef.current = sub;
+
+	const { run } = useCommandOnce( {
+		ci: RAW_LOGS_CI,
+		command: 'log_status',
+		scope,
+		retry: true,
+		onDone: ( { result, subject } ) => {
+			if ( subRef.current === subject ) {
+				setSegments( result?.segments ?? NO_SEGMENTS );
+			}
+		},
+	} );
+
+	const refresh = useCallback( () => {
+		if ( subRef.current ) {
+			run( [ subRef.current ] );
+		}
+	}, [ run ] );
+
+	useEffect( () => {
+		if ( ! sub ) {
+			setSegments( NO_SEGMENTS );
+			return;
+		}
+		refresh();
+	}, [ sub, refresh ] );
+
+	const source = useMemo( () => ( { segments } ), [ segments ] );
+	return { source, refresh };
 }
 
 /**
@@ -201,10 +259,16 @@ export function useSegmentBrowse( {
 		refresh?.();
 	}, [ lastReceivedSegment, segments, refresh ] );
 
+	// An empty `sub` would point the stream at an empty subscription.
+	const seekWithin = ( positions, row ) => sub && seek( sub, positions, row );
+
 	// Time-travel: a past segment pauses; Step walks it, Play streams.
 	const handleBrowseSegment = ( segment ) => {
+		if ( ! sub ) {
+			return;
+		}
 		setPaused( true );
-		seek( sub, browseSegment( segment.id ), source );
+		seekWithin( browseSegment( segment.id ), source );
 	};
 
 	// A full ID or a bare offset pauses and steps that one message.
@@ -214,20 +278,20 @@ export function useSegmentBrowse( {
 			lastReceivedSegment ??
 				( 'number' === typeof segmentId ? segmentId : null )
 		);
-		if ( ! position ) {
+		if ( ! sub || ! position ) {
 			return;
 		}
 		setPaused( true );
 		browseSegment( position.segment );
-		seek( sub, { [ sub ]: position }, source );
+		seekWithin( { [ sub ]: position }, source );
 		step();
 	};
 
 	const sidebar = (
 		<LogBrowser
 			mode={ mode }
-			onFollow={ () => seek( sub, follow() ) }
-			onReplay={ () => seek( sub, replay(), source ) }
+			onFollow={ () => seekWithin( follow() ) }
+			onReplay={ () => seekWithin( replay(), source ) }
 			items={ segments }
 			selectedKey={ segmentId }
 			activeKey={ lastReceivedSegment }
