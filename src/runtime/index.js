@@ -36,7 +36,6 @@ export {
 	readyToMint,
 	renewSession,
 	forgetSession,
-	authGeneration,
 	invalidateAuth,
 	markLocal,
 	signCommand,

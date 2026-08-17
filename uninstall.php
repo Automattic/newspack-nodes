@@ -15,9 +15,6 @@ if ( ! \defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 require __DIR__ . '/vendor/autoload.php';
 require __DIR__ . '/includes/uninstall-cleanup.php';
 
-// @longform Roles FIRST: it reads the option the
-// sweep below deletes, and the role plus its three
-// capabilities live in the ROLES option, which no
-// `newspack_nodes_` prefix match would ever reach.
+// Caps live in WP's roles option; a newspack_nodes_ sweep never reaches it.
 \Newspack_Nodes\Roles::uninstall();
 \Newspack_Nodes\uninstall_cleanup( 'newspack_nodes_' );

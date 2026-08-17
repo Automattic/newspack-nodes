@@ -109,7 +109,11 @@ let attempted = false;
  */
 let generation = 0;
 
-/** @return {number} The current invalidation generation. */
+/**
+ * @testonly Observability for command-auth.test.js, which asserts the counter
+ * advances on each auth-shaped failure and settles when nothing more happens.
+ * @return {number} The current invalidation generation.
+ */
 export function authGeneration() {
 	return generation;
 }

@@ -30,13 +30,18 @@ class JobProbeTest extends TestCase {
 	 */
 	public function test_both_probes_inherit_one_sweep_implementation(): void {
 		foreach ( [ Job_Probe_Node::class, Topic_Probe_Node::class ] as $probe ) {
-			foreach ( [ '__construct', 'arguments', 'fire', 'shutdown_sweep' ] as $method ) {
+			foreach ( [ 'arguments', 'fire', 'shutdown_sweep' ] as $method ) {
 				$this->assertSame(
 					Probe_Node::class,
 					( new \ReflectionMethod( $probe, $method ) )->getDeclaringClass()->getName(),
 					"{$probe}::{$method}() must not redeclare the shared sweep"
 				);
 			}
+			$this->assertNotSame(
+				$probe,
+				( new \ReflectionMethod( $probe, '__construct' ) )->getDeclaringClass()->getName(),
+				"{$probe} must not declare a constructor of its own"
+			);
 		}
 	}
 
