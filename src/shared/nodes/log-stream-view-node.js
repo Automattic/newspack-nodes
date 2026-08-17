@@ -1,7 +1,8 @@
 import { Node } from '../../runtime/node';
-import { VALUE, ID, FROM } from '../../runtime/message';
+import { VALUE, ID } from '../../runtime/message';
 import { SeekTracker } from './seekTracker';
 import { RateSmoother } from '../rateSmoother';
+import { isControl } from '../helpers/controlMsg';
 
 const MAX_LINES = 100000;
 
@@ -65,17 +66,13 @@ export class LogStreamViewNode extends Node {
 	 * `_control()` and republishes; anything else is a raw stream envelope the
 	 * subclass shapes into a row.
 	 *
-	 * A control is recognised by WHO SENT IT, never by what its payload looks
-	 * like — a record whose VALUE happens to carry an `action` field is still a
-	 * record, and sniffing for one swallowed whole streams.
-	 *
 	 * @param {Array} message The 7-field positional message.
 	 */
 	fill( message ) {
 		// Terminal node (no sink): count here for overlay throughput (not lps).
 		this.counter += 1;
 
-		if ( '' !== this.controlFrom && message[ FROM ] === this.controlFrom ) {
+		if ( isControl( this, message ) ) {
 			// Low-frequency control path; publish to re-render.
 			this._control( message[ VALUE ] );
 			this._publish();

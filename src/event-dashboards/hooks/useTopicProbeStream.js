@@ -18,7 +18,7 @@ export function useTopicProbeStream( { mode = 'follow' } = {} ) {
 		name: 'topicprobe',
 		// Explicit .p0 hits the no-worker log-feed fallback (probe is 1-part).
 		subscribe: 'topicprobe.p0',
-		viewType: views.TopicProbeView,
+		viewClass: views.TopicProbeView,
 		mode,
 	} );
 }

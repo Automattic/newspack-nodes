@@ -5,12 +5,15 @@
  * 'start'; paging back walks to the previous existing segment id from log_status.
  */
 
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { Core, TO, VALUE } from '@newspack-nodes/runtime';
+import { installFakeCommandWire } from '@newspack-nodes/shared/test-utils/fakeCommandWire';
 import useLogPositions, {
 	segmentPositions,
 	replayPositions,
 	stepPosition,
 	useSegmentBrowse,
+	useLogStatusSegments,
 } from '../useLogPositions';
 
 describe( 'pure position helpers', () => {
@@ -249,7 +252,7 @@ describe( 'useSegmentBrowse', () => {
 			SOURCE
 		);
 		act( () => result.current.sidebar.props.onFollow() );
-		expect( seek ).toHaveBeenLastCalledWith( SUB, null );
+		expect( seek.mock.lastCall.slice( 0, 2 ) ).toEqual( [ SUB, null ] );
 	} );
 
 	it( 'a pasted message ID pauses, seeks that offset and steps it', () => {
@@ -281,6 +284,20 @@ describe( 'useSegmentBrowse', () => {
 		expect( setPaused ).not.toHaveBeenCalled();
 	} );
 
+	// An empty `sub` is the whole-glob view: there is no dir to seek within,
+	// and seeking one would point the stream at an empty subscription.
+	// The rail renders before a dir is picked, so Live/Replay are clickable
+	// then; a seek into '' would point the stream at an empty subscription.
+	it( 'seeks nothing while no subscription is selected', () => {
+		const { result, seek, setPaused } = browse( { sub: '' } );
+		act( () => result.current.sidebar.props.onFollow() );
+		act( () => result.current.sidebar.props.onReplay() );
+		act( () => result.current.sidebar.props.onSelectItem( { id: 41 } ) );
+		act( () => result.current.jump( '7:120' ) );
+		expect( seek ).not.toHaveBeenCalled();
+		expect( setPaused ).not.toHaveBeenCalled();
+	} );
+
 	it( 'a record from an unknown segment re-catalogs once, not in a loop', () => {
 		const { rerender, refresh, props } = browse();
 		expect( refresh ).not.toHaveBeenCalled();
@@ -293,5 +310,110 @@ describe( 'useSegmentBrowse', () => {
 	it( 'a record from a listed segment leaves the rail alone', () => {
 		const { refresh } = browse( { lastReceivedSegment: 41 } );
 		expect( refresh ).not.toHaveBeenCalled();
+	} );
+} );
+
+describe( 'useLogStatusSegments', () => {
+	const DIR = 'quartz.p7';
+	const RAIL = [ { id: 41, size: 2048 } ];
+
+	beforeEach( () => {
+		Core.reset();
+		window.NewspackNodesData = { restUrl: '/wp-json/', nonce: 'NONCE' };
+	} );
+
+	it( 'resolves the rail for the selected dir', async () => {
+		const wire = installFakeCommandWire( ( m ) =>
+			'log_status' === m[ VALUE ]?.name ? { segments: RAIL } : null
+		);
+		const { result } = renderHook( ( p ) => useLogStatusSegments( p ), {
+			initialProps: { sub: DIR, scope: 'quartz:status' },
+		} );
+		await waitFor( () =>
+			expect( result.current.source.segments ).toEqual( RAIL )
+		);
+		// Addressed to the CI that owns the verb, and about the dir it names.
+		const asked = wire.batches
+			.flat()
+			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
+		expect( asked[ TO ] ).toBe( 'raw-logs' );
+		expect( asked[ VALUE ].arguments ).toEqual( [ DIR ] );
+	} );
+
+	it( 'asks about the dir it is on, and nothing while none is selected', async () => {
+		const asked = [];
+		installFakeCommandWire( ( m ) => {
+			if ( 'log_status' === m[ VALUE ]?.name ) {
+				asked.push( m[ VALUE ].arguments );
+			}
+			return { segments: RAIL };
+		} );
+		const { rerender } = renderHook( ( p ) => useLogStatusSegments( p ), {
+			initialProps: { sub: '', scope: 'quartz:status' },
+		} );
+		await act( async () => {} );
+		expect( asked ).toEqual( [] );
+		await act( async () =>
+			rerender( { sub: DIR, scope: 'quartz:status' } )
+		);
+		await waitFor( () => expect( asked ).toEqual( [ [ DIR ] ] ) );
+	} );
+
+	// A `source` whose identity changed every render re-ran every effect that
+	// took it, which is a render loop one dependency away.
+	it( 'keeps one source identity while the rail has not moved', async () => {
+		installFakeCommandWire( () => ( { segments: RAIL } ) );
+		const { result, rerender } = renderHook(
+			( p ) => useLogStatusSegments( p ),
+			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+		);
+		await waitFor( () =>
+			expect( result.current.source.segments ).toEqual( RAIL )
+		);
+		const first = result.current.source;
+		await act( async () =>
+			rerender( { sub: DIR, scope: 'quartz:status' } )
+		);
+		expect( result.current.source ).toBe( first );
+	} );
+
+	// A refusal must CLEAR the rail, not leave the last dir's segments under a
+	// new one; seeded so the assertion cannot hold on the initial state.
+	it( 'a refused answer leaves the rail empty', async () => {
+		let refuse = false;
+		installFakeCommandWire( ( m ) => {
+			if ( 'log_status' !== m[ VALUE ]?.name ) {
+				return null;
+			}
+			return refuse ? new Error( 'nope' ) : { segments: RAIL };
+		} );
+		const { result, rerender } = renderHook(
+			( p ) => useLogStatusSegments( p ),
+			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+		);
+		await waitFor( () =>
+			expect( result.current.source.segments ).toEqual( RAIL )
+		);
+		refuse = true;
+		await act( async () =>
+			rerender( { sub: 'quartz.p8', scope: 'quartz:status' } )
+		);
+		await act( async () => result.current.refresh() );
+		expect( result.current.source.segments ).toEqual( [] );
+	} );
+
+	it( 'deselecting empties the rail', async () => {
+		installFakeCommandWire( () => ( { segments: RAIL } ) );
+		const { result, rerender } = renderHook(
+			( p ) => useLogStatusSegments( p ),
+			{ initialProps: { sub: DIR, scope: 'quartz:status' } }
+		);
+		await waitFor( () =>
+			expect( result.current.source.segments ).toEqual( RAIL )
+		);
+		await act( async () =>
+			rerender( { sub: '', scope: 'quartz:status' } )
+		);
+		expect( result.current.source.segments ).toEqual( [] );
 	} );
 } );

@@ -14,6 +14,7 @@ import {
 	TM_ERROR,
 	newMessage,
 	Core,
+	FROM,
 } from '@newspack-nodes/runtime';
 import { SliceViewNode, sliceView } from '../slice-view-node';
 
@@ -224,5 +225,144 @@ describe( 'sliceView', () => {
 			'Worker Status render-model sink.'
 		);
 		expect( Described.nodeSchema().registrations ).toEqual( [ 'view' ] );
+	} );
+} );
+
+describe( 'SliceViewNode control seam', () => {
+	// A view that DECLARES the status fields it wants driven.
+	class DrivenView extends SliceViewNode {
+		emptySlice() {
+			return { sources: {}, loading: false, error: null };
+		}
+	}
+
+	function controlled() {
+		const node = new DrivenView();
+		node.name = 'counts:view';
+		node.controlFrom = 'counts:driver';
+		return node;
+	}
+
+	function control( from, value ) {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = from;
+		m[ VALUE ] = value;
+		return m;
+	}
+
+	test( 'a loading control from the driver spins without losing the slice', () => {
+		const v = controlled();
+		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( control( 'counts:driver', { action: 'loading' } ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: { releases: 7331 },
+			loading: true,
+			error: null,
+		} );
+	} );
+
+	test( 'a clear control resets to the empty slice', () => {
+		const v = controlled();
+		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( control( 'counts:driver', { action: 'clear' } ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: {},
+			loading: false,
+			error: null,
+		} );
+	} );
+
+	test( 'an error control surfaces its message and keeps the data', () => {
+		const v = controlled();
+		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill(
+			control( 'counts:driver', {
+				action: 'error',
+				error: 'bad rid 4219',
+			} )
+		);
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: { releases: 7331 },
+			loading: false,
+			error: 'bad rid 4219',
+		} );
+	} );
+
+	test( 'a control-shaped message from ANYONE ELSE is a reply, not a control', () => {
+		// A control is recognised by WHO SENT IT, never by its payload shape.
+		const v = controlled();
+		v.fill( control( 'somebody:else', { action: 'clear' } ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: {},
+			loading: false,
+			error: null,
+		} );
+	} );
+
+	test( 'controls are ignored entirely when no driver is declared', () => {
+		const v = new DrivenView();
+		v.name = 'counts:view';
+		v.fill( reply( JSON.stringify( { sources: { releases: 7331 } } ) ) );
+		v.fill( control( '', { action: 'clear' } ) );
+
+		expect( v.setStateCache.view.sources ).toEqual( { releases: 7331 } );
+	} );
+
+	test( 'a parsed slice is loaded and clean unless it says otherwise', () => {
+		// Every declaration used to spell `loading: false, error: null` itself.
+		const v = controlled();
+		v.fill( control( 'counts:driver', { action: 'loading' } ) );
+		v.fill( reply( JSON.stringify( { sources: { releases: 4219 } } ) ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: { releases: 4219 },
+			loading: false,
+			error: null,
+		} );
+	} );
+
+	test( 'a slice that sets loading itself wins over the default', () => {
+		const Paged = sliceView( {
+			empty: { rows: [], loading: false, error: null },
+			json: true,
+			parse: ( body ) => ( { rows: body.rows, loading: true } ),
+		} );
+		const v = new Paged();
+		v.name = 'paged:view';
+		v.fill( reply( JSON.stringify( { rows: [ 'a' ] } ) ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			rows: [ 'a' ],
+			loading: true,
+			error: null,
+		} );
+	} );
+} );
+
+describe( 'sliceView without a parse', () => {
+	test( 'a decode-only declaration publishes the decoded body', () => {
+		const Counts = sliceView( { empty: { sources: {} }, json: true } );
+		const v = new Counts();
+		v.name = 'counts:view';
+		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
+
+		expect( v.setStateCache.view ).toEqual( {
+			sources: { releases: 8264 },
+		} );
+	} );
+
+	test( 'a decode-only declaration keeps the prior slice on garbage', () => {
+		const Counts = sliceView( { empty: { sources: {} }, json: true } );
+		const v = new Counts();
+		v.name = 'counts:view';
+		v.fill( reply( JSON.stringify( { sources: { releases: 8264 } } ) ) );
+		v.fill( reply( 'not json' ) );
+
+		expect( v.setStateCache.view.sources ).toEqual( { releases: 8264 } );
 	} );
 } );

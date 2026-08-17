@@ -32,6 +32,19 @@ jest.mock( '@newspack-nodes/shared/components/LogBrowser', () => ( {
 } ) );
 
 // Own suite exercises this hook; mock it — 1 call/render = a render probe.
+// The rail's `log_status` resolver is the substrate's and has its own suite;
+// here it is a fixture, so these tests stay about what the viewer WIRES.
+const mockRefreshSegments = jest.fn();
+let mockRail = [];
+let mockRailSub;
+jest.mock( '@newspack-nodes/shared/hooks/useLogPositions', () => ( {
+	...jest.requireActual( '@newspack-nodes/shared/hooks/useLogPositions' ),
+	useLogStatusSegments: ( { sub } ) => {
+		mockRailSub = sub;
+		return { source: { segments: mockRail }, refresh: mockRefreshSegments };
+	},
+} ) );
+
 jest.mock( '../hooks/useLogReaderGraph', () => ( {
 	usePartitionViewerGraph: jest.fn(),
 } ) );
@@ -89,8 +102,6 @@ function registerViewFixture( {
 describe( 'PartitionViewer', () => {
 	let selectLog;
 	let setPaused;
-	let fetchLogStatus;
-	let logStatus;
 	let seek;
 	let step;
 	let clearGraph;
@@ -117,10 +128,9 @@ describe( 'PartitionViewer', () => {
 		logBrowserProps = undefined;
 		selectLog = jest.fn();
 		setPaused = jest.fn();
-		fetchLogStatus = jest.fn();
-		// The status answer names the log it is about; the viewer reads it
-		// rather than awaiting a promise. `answerStatus()` publishes one.
-		logStatus = { seq: 0, log: null, result: null };
+		mockRail = [];
+		mockRailSub = undefined;
+		mockRefreshSegments.mockClear();
 		seek = jest.fn();
 		step = jest.fn();
 		clearGraph = jest.fn();
@@ -134,8 +144,6 @@ describe( 'PartitionViewer', () => {
 		usePartitionViewerGraph.mockReturnValue( {
 			selectLog,
 			setPaused,
-			fetchLogStatus,
-			logStatus,
 			seek,
 			step,
 			clear: clearGraph,
@@ -148,10 +156,9 @@ describe( 'PartitionViewer', () => {
 		} );
 	}
 
-	// Publish a `log_status` answer, as a reply landing on its node would.
+	// Publish the rail `useLogStatusSegments` resolves for the selected dir.
 	function answerStatus( log, result ) {
-		logStatus = { seq: logStatus.seq + 1, log, result };
-		publishGraph();
+		mockRail = result?.segments ?? [];
 		mounted.forEach( ( r ) => r.rerender( <PartitionViewer /> ) );
 	}
 
@@ -311,7 +318,8 @@ describe( 'PartitionViewer', () => {
 			selected: 'firehose',
 		} );
 		await renderViewer();
-		expect( fetchLogStatus ).toHaveBeenCalledWith( 'firehose' );
+		// The rail is resolved for the SELECTED dir, not some other one.
+		expect( mockRailSub ).toBe( 'firehose' );
 		await act( async () =>
 			answerStatus( 'firehose', {
 				segments: [
@@ -370,13 +378,12 @@ describe( 'PartitionViewer', () => {
 			selected: 'firehose',
 		} );
 		await renderViewer();
-		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
 		// The rail loads once itself, so its window starts marked-fired: the
 		// refresh is a FULL interval out, counted from the next grid boundary.
 		await act( async () => {
 			jest.advanceTimersByTime( 20000 );
 		} );
-		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		expect( mockRefreshSegments ).toHaveBeenCalledTimes( 1 );
 		host.teardown();
 		jest.useRealTimers();
 	} );
@@ -390,7 +397,7 @@ describe( 'PartitionViewer', () => {
 		await act( async () =>
 			answerStatus( 'firehose', { segments: [ { id: 0, size: 10 } ] } )
 		);
-		expect( fetchLogStatus ).toHaveBeenCalledTimes( 1 );
+		expect( mockRefreshSegments ).not.toHaveBeenCalled();
 		// A rotation: the stream reports a segment the rail doesn't know.
 		await act( async () => {
 			node.setState( 'view', {
@@ -398,12 +405,12 @@ describe( 'PartitionViewer', () => {
 				lastReceivedSegment: 1,
 			} );
 		} );
-		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		expect( mockRefreshSegments ).toHaveBeenCalledTimes( 1 );
 		// The SAME unknown segment must not refetch again (no loop).
 		await act( async () => {
 			node.setState( 'view', { ...node.setStateCache.view } );
 		} );
-		expect( fetchLogStatus ).toHaveBeenCalledTimes( 2 );
+		expect( mockRefreshSegments ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'normal mode shows the default ID | Key | Value columns and split row cells', async () => {
@@ -681,7 +688,10 @@ describe( 'PartitionViewer', () => {
 		await renderViewer();
 		act( () => logBrowserProps.onSelectItem( { id: 7, size: 1 } ) );
 		act( () => logBrowserProps.onFollow() );
-		expect( seek ).toHaveBeenLastCalledWith( 'firehose', null );
+		expect( seek.mock.lastCall.slice( 0, 2 ) ).toEqual( [
+			'firehose',
+			null,
+		] );
 		expect( logBrowserProps.mode ).toBe( 'live' );
 	} );
 
@@ -717,32 +727,6 @@ describe( 'PartitionViewer', () => {
 	// keyed on that object runs every render. A refusal carries no segments,
 	// and a NEW empty array each time is a state change each time — the tab
 	// pins a core rather than showing an empty rail.
-	it( 'settles when the status answer is a new object every render', async () => {
-		registerViewFixture( {
-			logs: [ { key: 'firehose', label: 'Firehose' } ],
-			selected: 'firehose',
-		} );
-		let renders = 0;
-		usePartitionViewerGraph.mockImplementation( () => {
-			renders += 1;
-			if ( 50 < renders ) {
-				throw new Error( 'render loop over one status answer' );
-			}
-			return {
-				selectLog,
-				setPaused,
-				fetchLogStatus,
-				logStatus: { seq: 1, log: 'firehose', result: null },
-				seek,
-				step,
-				clear: clearGraph,
-				setFilter: () => {},
-			};
-		} );
-		await renderViewer();
-		expect( logBrowserProps.items ).toEqual( [] );
-	} );
-
 	describe( '?log= deep-linking', () => {
 		it( 'seeds selectLog from ?log= once the log is available', async () => {
 			window.history.replaceState( {}, '', '/?log=errors' );

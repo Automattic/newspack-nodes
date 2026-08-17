@@ -32,13 +32,6 @@ CommandInterpreterNode.registerNodeClasses( OWN_CLASSES );
 export const views = {
 	...OWN_CLASSES,
 	...registerSliceViews( {
-		// A catalog whose reply IS a list: `taillog sources`, `list_logs`.
-		CatalogListView: {
-			empty: { items: [], error: null },
-			parse: ( body ) =>
-				Array.isArray( body ) ? { items: body, error: null } : null,
-		},
-
 		// The Topology Manager list; an activate is answered on its own node.
 		TopologyManagerView: {
 			description:

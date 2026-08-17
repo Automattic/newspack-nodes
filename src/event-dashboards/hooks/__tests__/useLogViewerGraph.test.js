@@ -96,7 +96,9 @@ describe( 'useLogViewerGraph', () => {
 		const link = Core.node( LINK );
 		expect( link ).toBeTruthy();
 		expect( link.endpoint ).toBe( 'newspack-nodes/v1/log/stream' );
-		expect( link.arguments ).toEqual( [ 'php' ] );
+		// Only the subscription, and it reports the source actually streaming:
+		// the link is built bare and the catalog's default pick configures it.
+		expect( link.arguments ).toEqual( [ 'access' ] );
 		expect( link.target ).toBe( TEE );
 		expect( Core.node( TEE ).target ).toEqual( [ VIEW ] );
 		expect( Core.node( VIEW ).controlFrom ).toBe( VIEW );

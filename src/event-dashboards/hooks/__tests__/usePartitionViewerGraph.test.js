@@ -259,7 +259,9 @@ describe( 'usePartitionViewerGraph — exospine + RemoteLink wiring', () => {
 		mountGraph();
 		await act( async () => {} );
 		// baseUrl/nonce come from the localized global, NOT make_node tokens.
-		expect( Core.node( LINK ).arguments ).toEqual( [ 'raw-logs' ] );
+		// Only the subscription, and it reports the one actually streaming —
+		// the link is built bare and the catalog's pick configures it.
+		expect( Core.node( LINK ).arguments ).toEqual( [ 'firehose.p0' ] );
 		// No endpoint override: the Log Viewer's /log/stream must not leak
 		// through the mount both dashboards share.
 		expect( Core.node( LINK ).endpoint ).toBe( '' );
@@ -409,43 +411,6 @@ describe( 'usePartitionViewerGraph — control callbacks', () => {
 		// The whole reset, not just the rows a direct write would blank.
 		expect( view.lineCounter ).toBe( 0 );
 	} );
-
-	test( 'fetchLogStatus resolves a log_status reply addressed to raw-logs', async () => {
-		const wire = installWire( {
-			list_logs: oneLogReply(),
-			log_status: {
-				log_id: 'firehose.p0',
-				segments: [
-					{ id: 4, size: 100 },
-					{ id: 5, size: 200 },
-				],
-				segment_count: 2,
-				total_size: 300,
-			},
-		} );
-		const { result } = mountGraph();
-		await act( async () => {} );
-
-		act( () => result.current.fetchLogStatus( 'firehose.p0' ) );
-
-		// The answer NAMES the partition it is about — nothing correlated.
-		await waitFor(
-			() =>
-				expect( result.current.logStatus ).toMatchObject( {
-					log: 'firehose.p0',
-				} ),
-			{ timeout: 6000 }
-		);
-		const statusMsg = wire.batches
-			.flat()
-			.find( ( m ) => 'log_status' === m[ VALUE ]?.name );
-		expect( statusMsg[ TO ] ).toBe( 'raw-logs' );
-		expect( statusMsg[ VALUE ].arguments ).toEqual( [ 'firehose.p0' ] );
-		expect( result.current.logStatus.result.segments ).toEqual( [
-			{ id: 4, size: 100 },
-			{ id: 5, size: 200 },
-		] );
-	}, 15000 );
 
 	test( 'seek re-subscribes the stream at the given positions seed', async () => {
 		installWire( { list_logs: oneLogReply() } );

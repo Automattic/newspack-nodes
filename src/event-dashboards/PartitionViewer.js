@@ -10,7 +10,7 @@
  * partition envelopes, one cell per message field the Cols picker has enabled.
  */
 
-import { useState, useEffect, useCallback } from '@wordpress/element';
+import { useState, useCallback } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -25,7 +25,10 @@ import { formatTypeLabel } from '../runtime/dumper-node';
 import { formatLocalDateTime } from '@newspack-nodes/shared/utils/formatUtils';
 import LogListHeader from '@newspack-nodes/shared/components/LogListHeader';
 import useDeepLinkedSelection from '@newspack-nodes/shared/hooks/useDeepLinkedSelection';
-import { useSegmentBrowse } from '@newspack-nodes/shared/hooks/useLogPositions';
+import {
+	useSegmentBrowse,
+	useLogStatusSegments,
+} from '@newspack-nodes/shared/hooks/useLogPositions';
 import { LIVE } from '@newspack-nodes/shared/nodes/seekTracker';
 import './styles/partition-viewer.scss';
 
@@ -87,9 +90,6 @@ const COLUMNS = {
 
 // What the viewer showed before the picker existed, plus ID (debug's column).
 const DEFAULT_COLUMNS = [ 'id', 'key', 'value' ];
-
-// One array, so "no segments" is the same value every time it is published.
-const NO_SEGMENTS = [];
 
 // TYPE is a bitmask and TIMESTAMP epoch seconds; neither reads as itself.
 const cellText = ( col, row, debug ) => {
@@ -169,16 +169,8 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 	const header = makeHeader( visibleColumns );
 
 	// Mount the node graph; it returns the thin control callbacks.
-	const {
-		selectLog,
-		setPaused,
-		fetchLogStatus,
-		logStatus,
-		seek,
-		step,
-		clear,
-		setFilter,
-	} = usePartitionViewerGraph();
+	const { selectLog, setPaused, seek, step, clear, setFilter } =
+		usePartitionViewerGraph();
 
 	// Low-frequency view model (dropdown + pause button + selected value).
 	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
@@ -200,33 +192,15 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 		select: selectLog,
 	} );
 
-	const [ segments, setSegments ] = useState( NO_SEGMENTS );
-	// The answer NAMES its partition; no cancellation flag, nothing keyed.
-	useEffect( () => {
-		if ( logStatus.log !== selectedLog ) {
-			return;
-		}
-		setSegments( logStatus.result?.segments ?? NO_SEGMENTS );
-	}, [ logStatus, selectedLog ] );
-
-	const refreshSegments = useCallback( () => {
-		if ( selectedLog ) {
-			fetchLogStatus( selectedLog );
-		}
-	}, [ selectedLog, fetchLogStatus ] );
-
-	useEffect( () => {
-		if ( ! selectedLog ) {
-			setSegments( NO_SEGMENTS );
-			return;
-		}
-		refreshSegments();
-	}, [ selectedLog, refreshSegments ] );
+	const { source, refresh } = useLogStatusSegments( {
+		sub: selectedLog,
+		scope: 'partition:status',
+	} );
 
 	const { jump, sidebar } = useSegmentBrowse( {
 		sub: selectedLog,
-		source: { segments },
-		refresh: refreshSegments,
+		source,
+		refresh,
 		railName: 'partition:refresh',
 		mode: displayMode,
 		lastReceivedSegment,

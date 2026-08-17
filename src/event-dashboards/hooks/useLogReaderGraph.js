@@ -1,26 +1,12 @@
 /**
- * useLogReaderGraph — the durable log-reading dashboard graph, and the two
- * dashboards built on it: the Partition Viewer and the Log Viewer.
+ * useLogReaderGraph — the durable log-reading dashboard, and the two built on
+ * it: the Partition Viewer and the Log Viewer.
  *
- * Both mount the SAME backbone through `mountExospine`, so it is built once
- * here (a single substrate `RemoteLink` → stream `Tee` → view-model node):
- *
- *   <prefix>:link    RemoteLink — composes + registers three children,
- *                    `<prefix>:link:sse-in` (SseIn — EventSource ingress),
- *                    the shared `_http` (HttpOut — POST /command boundary) and
- *                    `_heartbeat` (slot keep-alive), and wires the
- *                    `connected → slot` bridge to that heartbeat.
- *   <prefix>:stream  Pass-through Tee; copies frames to the view, and is where
- *                    a debug-overlay `connect` taps the live stream.
- *   <prefix>:view    The view-model node React reads; envelope→row shaping is
- *                    inlined in its `fill()`.
- *
- * EVERY node sinks into the interpreter; flow is steered ONLY by each node's
- * `target`. The catalog is POLLED as a batched-poll slice, so a refusal at
- * mount, a session that expired while the tab slept, and a Reset Graph rebuild
- * all recover on the next tick without a loader of their own. Every reopen goes
- * through `resubscribe`, which RECORDS the target while paused or hidden rather
- * than reviving a closed stream.
+ * The graph, the pause/visibility gate and the recorded reopen target are the
+ * shared `useStreamGraph`; what belongs here is the CATALOG the subscription is
+ * chosen from. It is POLLED as a batched-poll slice, so a refusal at mount, a
+ * session that expired while the tab slept, and a Reset Graph rebuild all
+ * recover on the next tick without a loader of their own.
  *
  * The two dashboards differ in what they stream and how a default selection is
  * established, and those differences stay in their own hooks below:
@@ -40,58 +26,34 @@
  *   - Only the Log Viewer's `seek` guards against a stale selection.
  */
 
-import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
-import { mountExospine } from '../../runtime/exospine';
-import { browseControl } from '../../shared/nodes/seekTracker';
-import { useGatedSubscription } from './useGatedSubscription';
+import { useCallback, useEffect } from '@wordpress/element';
+import {
+	useStreamGraph,
+	useSteppedRead,
+	useLogCatalog,
+} from '@newspack-nodes/shared/hooks/useStreamGraph';
 import { views } from '../nodes/register';
-import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
-import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
-import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
-import { useNodeState } from '../../runtime/react';
-import { controlMsg } from '../../shared/helpers/controlMsg';
 import { egressPath } from '@newspack-nodes/shared/helpers/egressPath';
-
-/** Segments, sizes and partitions move slowly; no need for every tick. */
-const CATALOG_POLL_MS = 10000;
-
-const EMPTY_CATALOG = [];
 
 const LOG_STREAM_ENDPOINT = 'newspack-nodes/v1/log/stream';
 const SOURCES_ARGS = () => [ 'sources' ];
 
-// @longform
-// The CI mount and the placeholder subscription share a spelling by accident,
-// not by rule: one is where `list_logs` lives, the other is what the link
-// subscribes to until the catalog repoints it at a real partition. Keep them
-// apart so renaming the mount cannot silently retarget the stream.
+// Where `list_logs`, `log_status` and `read_message` live.
 const RAW_LOGS_CI = 'raw-logs';
-const SUBSCRIBE_PLACEHOLDER = 'raw-logs';
-// 'php' is a builtin source placeholder; the catalog repoints it.
-const SOURCE_PLACEHOLDER = 'php';
 
 // @longform
-// Each paused step's one-record read; `taillog` is a builtin, so it has no CI
-// — and it takes a SUB-VERB, so the source is not at args[0]. `subOf` is
-// `argsFor` read backwards: the reply echoes the tokens that were sent, and
-// declaring the two apart is how the reader guesses at the writer's layout.
+// `taillog` is an interpreter builtin, so it has no CI — and it takes a
+// SUB-VERB, so the source the reply is ABOUT is not at args[0].
 const LOGVIEWER_STEP_READ = {
-	scope: 'logviewer:read',
 	command: 'taillog',
 	argsFor: ( sub, position ) => [ 'read', sub, position ],
-	subOf: ( args ) => args[ 1 ],
+	subjectOf: ( args ) => args[ 1 ],
 };
-const PARTITION_STEP_READ = {
-	ci: RAW_LOGS_CI,
-	scope: 'partition:read',
-	command: 'read_message',
-	argsFor: ( sub, position ) => [ sub, position ],
-	subOf: ( args ) => args[ 0 ],
-};
+const PARTITION_STEP_READ = { ci: RAW_LOGS_CI, command: 'read_message' };
 
 /**
- * Mount the link → tee → view graph, poll its catalog, and own every control
- * that both dashboards share. See the module docblock for the backbone.
+ * Declare the shared graph, poll its catalog, and own every control the two
+ * dashboards share.
  *
  * @param {Object} opts
  * @param {string} opts.prefix     Names every node this graph owns:
@@ -99,113 +61,29 @@ const PARTITION_STEP_READ = {
  *                                 the `<prefix>:list:*` catalog slice.
  * @param {any}    opts.viewClass  The view-model node's class, handed over
  *                                 rather than named — see `addSliceFetcher`.
- * @param {string} opts.subscribe  The RemoteLink's placeholder subscription.
  * @param {string} [opts.endpoint] SSE endpoint override; omit for
  *                                 `/messages/stream`.
  * @param {Object} opts.catalog    `{ command, argsFn, target }` for the
  *                                 polled catalog slice.
- * @param {Object} opts.stepRead   `{ ci, command, scope, argsFor, subOf }` for
+ * @param {Object} opts.stepRead   `{ ci, command, argsFor, subjectOf }` for the
  *                                 one-record read behind the paused step.
- * @return {{ catalog: Array, viewRef: Object, control: Function, select: Function, resubscribe: Function, setPaused: Function, step: () => void, setFilter: (term: string) => void, clear: () => void }}
+ * @return {{ catalog: Array, viewRef: Object, control: Function, select: Function, seek: Function, resubscribe: Function, setPaused: Function, step: () => void, setFilter: (term: string) => void, clear: () => void }}
  *   The catalog rows, the live view node, and the shared controls.
  */
 function useLogReaderGraph( opts ) {
 	const { prefix } = opts;
-	const linkRef = useRef( null );
-	const viewRef = useRef( null );
-	// Read live inside the once-only mount + poll builds.
-	const optsRef = useRef( opts );
-	optsRef.current = opts;
-
-	// Pause/visibility gating + the record-then-reopen subscription control.
-	const { isPausedRef, resubscribe, setPaused, step } = useGatedSubscription(
-		{
-			linkRef,
-			viewRef,
-			stepRead: opts.stepRead,
-		}
-	);
-
-	// Bumped per (re)build so the view rebinds; monotonic, not a boolean latch.
-	const [ , bumpBuild ] = useState( 0 );
-
-	useEffect( () => {
-		// Soft view-nodes; mountExospine snapshots Core for reinit() rebuild.
-		const build = ( { interpreter } ) => {
-			const { viewClass, subscribe, endpoint } = optsRef.current;
-			const link = interpreter.makeNode(
-				'RemoteLink',
-				`${ prefix }:link`,
-				[ subscribe ]
-			);
-			if ( endpoint ) {
-				link.endpoint = endpoint;
-			}
-			link.target = `${ prefix }:stream`;
-			const tee = interpreter.makeNode( 'Tee', `${ prefix }:stream` );
-			tee.connectNode( `${ prefix }:view` );
-
-			const view = interpreter.makeNode( viewClass, `${ prefix }:view` );
-			// The view applies controls from this FROM; records never match.
-			view.controlFrom = `${ prefix }:view`;
-
-			linkRef.current = link;
-			viewRef.current = view;
-
-			// Re-publish a surviving pause to the fresh view on reinit.
-			if ( isPausedRef.current ) {
-				view.fill(
-					controlMsg( view, { action: 'pause', paused: true } )
-				);
-			}
-
-			bumpBuild( ( n ) => n + 1 );
-
-			// Tear down the RemoteLink before the exospine teardown.
-			return () => {
-				link.removeNode();
-				linkRef.current = null;
-				viewRef.current = null;
-			};
-		};
-
-		const { teardown } = mountExospine( build );
-		return teardown;
-		// Mount once; the shared-hook deps are stable.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [] );
-
-	// @longform
-	// The catalog, POLLED. It used to be fetched inside the graph build with
-	// its failure swallowed as "the picker stays empty", so a refusal at mount
-	// — or a session that expired while the tab slept — left the dashboard dead
-	// with no way back but a reload. A refusal is now one empty tick.
-	useBatchedPoll( {
-		build: ( { interpreter, tee } ) =>
-			addSliceFetcher( interpreter, {
-				fetcher: `${ prefix }:list:fetch`,
-				receiver: `${ prefix }:list:in`,
-				command: optsRef.current.catalog.command,
-				argsFn: optsRef.current.catalog.argsFn,
-				view: `${ prefix }:list:view`,
-				viewClass: views.CatalogListView,
-				tee,
-				target: optsRef.current.catalog.target,
-			} ),
-		timerName: `${ prefix }:list:timer`,
-		teeName: `${ prefix }:list:tee`,
-		intervalMs: CATALOG_POLL_MS,
+	// The subscription is CHOSEN: nothing opens until the catalog picks.
+	const graph = useStreamGraph( {
+		prefix,
+		subscribe: null,
+		viewClass: opts.viewClass,
+		endpoint: opts.endpoint,
 	} );
-	const catalog =
-		useNodeState( `${ prefix }:list:view`, 'view' )?.items ?? EMPTY_CATALOG;
+	const { viewRef, control, resubscribe, seek, setPaused, setFilter, clear } =
+		graph;
+	const step = useSteppedRead( { graph, ...opts.stepRead } );
 
-	// The ONE control minter: everything the dashboards drive goes through it.
-	const control = useCallback( ( value ) => {
-		const view = viewRef.current;
-		if ( view ) {
-			view.fill( controlMsg( view, value ) );
-		}
-	}, [] );
+	const catalog = useLogCatalog( { prefix, ...opts.catalog } );
 
 	// Record the pick in the view; resubscribe re-opens (tail) if active.
 	const select = useCallback(
@@ -216,23 +94,12 @@ function useLogReaderGraph( opts ) {
 		[ control, resubscribe ]
 	);
 
-	// Ingest gate: only matching rows enter the ring from here on.
-	const setFilter = useCallback(
-		( term ) => control( { action: 'filter', term } ),
-		[ control ]
-	);
-
-	// Clear as a control, so the view's ONE reset runs (rows, counter, rate).
-	const clear = useCallback(
-		() => control( { action: 'clear' } ),
-		[ control ]
-	);
-
 	return {
 		catalog,
 		viewRef,
 		control,
 		select,
+		seek,
 		resubscribe,
 		setPaused,
 		step,
@@ -258,9 +125,8 @@ export function useLogViewerGraph() {
 	const {
 		catalog: sources,
 		viewRef,
-		control,
 		select,
-		resubscribe,
+		seek: graphSeek,
 		setPaused,
 		step,
 		setFilter,
@@ -268,7 +134,6 @@ export function useLogViewerGraph() {
 	} = useLogReaderGraph( {
 		prefix: 'logviewer',
 		viewClass: views.LogViewerView,
-		subscribe: SOURCE_PLACEHOLDER,
 		endpoint: LOG_STREAM_ENDPOINT,
 		catalog: {
 			command: 'taillog',
@@ -290,23 +155,16 @@ export function useLogViewerGraph() {
 		}
 	}, [ sources, select, viewRef ] );
 
-	// The poll keeps the rail fresh on its own; nothing to trigger.
-
 	/**
 	 * Reposition the source + set the view mode. Live tail (null positions)
 	 * follows; Replay (positions) captures the source's live boundary for the
 	 * Replay→Live flip via `browseControl()` — newest segment for a segmented
 	 * source, byte size (null segment) for a file, `follow` for an empty one.
 	 *
-	 * The boundary comes from the row the CALLER holds, synchronously. This
-	 * used to re-dispatch `taillog sources` for a fresher size, which cost a
-	 * round trip on every Replay click and, on rejection, entered replay with
-	 * NO boundary — a state the user could only escape by clicking Live. Both
-	 * boundaries are approximate anyway: the head segment grows during the
-	 * round trip too, and the caller re-catalogs every SEGMENTS_REFRESH_MS and
-	 * on rotation. Trading a flip a few seconds early for a hard stuck state
-	 * was the wrong side of that trade, and it was the only one of three
-	 * consumers making it.
+	 * The boundary comes from the row the CALLER holds, synchronously — it is
+	 * approximate either way, since the head segment grows while any fresher
+	 * read is in flight, and the caller re-catalogs on its own cadence and on
+	 * rotation.
 	 *
 	 * @param {string}  name      The source name to (re)open.
 	 * @param {?Object} positions The SSE positions seed; null tails live.
@@ -314,17 +172,14 @@ export function useLogViewerGraph() {
 	 *                            capture the boundary from.
 	 */
 	const seek = useCallback(
-		( name, positions, source = {} ) => {
+		( name, positions, source ) => {
 			// Stale seek: the selection moved on before this ran.
 			if ( viewRef.current?.selected !== name ) {
 				return;
 			}
-			control(
-				positions ? browseControl( source ) : { action: 'follow' }
-			);
-			resubscribe( [ name ], positions );
+			graphSeek( name, positions, source );
 		},
-		[ control, resubscribe, viewRef ]
+		[ graphSeek, viewRef ]
 	);
 
 	return {
@@ -339,36 +194,22 @@ export function useLogViewerGraph() {
 }
 
 /**
- * @return {{ selectLog: Function, setPaused: Function, fetchLogStatus: Function, logStatus: { log: ?string, result: ?Object }, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
+ * @return {{ selectLog: Function, setPaused: Function, seek: Function, step: () => void, clear: () => void, setFilter: (term: string) => void }}
  *   Control callbacks for the thin React view (the view's own state is read via
  *   useNodeState): `selectLog( log )` re-points the stream at a partition,
- *   `setPaused( paused )` gates it, `fetchLogStatus( log )` asks for that
- *   partition's segment metadata (answered on `logStatus`, which names the log
- *   it is about), `seek( log, positions, source )` switches between
- *   follow and browse, `step()` delivers one record while paused, and
+ *   `setPaused( paused )` gates it, `seek( log, positions, source )` switches
+ *   between follow and browse, `step()` delivers one record while paused, and
  *   `clear()` empties the ring. Reset Graph is driven by a
  *   `Core.bumpGraphGeneration()` bump — mountExospine subscribes this reused
  *   mount's rebuild to it.
  */
 export function usePartitionViewerGraph() {
-	// Segment metadata for the rail, by partition; the answer names the log.
-	const status = useCommandOnce( {
-		ci: RAW_LOGS_CI,
-		command: 'log_status',
-		scope: 'partition:status',
-		retry: true,
-	} );
-	const { run: runStatus } = status;
-	const fetchLogStatus = useCallback(
-		( log ) => runStatus( [ log ] ),
-		[ runStatus ]
-	);
-
 	const {
 		catalog: logs,
 		viewRef,
 		control,
 		select,
+		seek,
 		resubscribe,
 		setPaused,
 		step,
@@ -377,7 +218,6 @@ export function usePartitionViewerGraph() {
 	} = useLogReaderGraph( {
 		prefix: 'partition',
 		viewClass: views.PartitionViewerView,
-		subscribe: SUBSCRIBE_PLACEHOLDER,
 		catalog: {
 			command: 'list_logs',
 			target: egressPath( RAW_LOGS_CI ),
@@ -398,32 +238,9 @@ export function usePartitionViewerGraph() {
 		}
 	}, [ logs, control, resubscribe, viewRef ] );
 
-	/**
-	 * Set the view mode; resubscribe re-opens if active (mode rides control).
-	 *
-	 * @param {string}  log       The partition to (re)open.
-	 * @param {?Object} positions The SSE positions seed; null tails live.
-	 * @param {Object}  [source]  The source row (`{segments, bytes}`) to
-	 *                            capture the replay boundary from.
-	 */
-	const seek = useCallback(
-		( log, positions, source = {} ) => {
-			control(
-				positions ? browseControl( source ) : { action: 'follow' }
-			);
-			resubscribe( [ log ], positions );
-		},
-		[ control, resubscribe ]
-	);
-
 	return {
 		selectLog: select,
 		setPaused,
-		fetchLogStatus,
-		logStatus: {
-			log: status.answeredArgs?.[ 0 ] ?? null,
-			result: status.result,
-		},
 		seek,
 		step,
 		clear,
