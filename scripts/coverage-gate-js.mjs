@@ -24,7 +24,17 @@ function parseArgs( argv ) {
 	const args = { summary: null, threshold: 90, filter: '/src/' };
 	for ( let i = 0; i < argv.length; i++ ) {
 		if ( '--threshold' === argv[ i ] ) {
-			args.threshold = parseFloat( argv[ ++i ] );
+			const raw = argv[ ++i ];
+			args.threshold = Number( raw );
+			// A NaN threshold compares false against every pct: passes all.
+			if ( undefined === raw || ! Number.isFinite( args.threshold ) ) {
+				process.stderr.write(
+					`coverage-gate-js: --threshold needs a number, got '${
+						raw ?? ''
+					}'\n`
+				);
+				process.exit( 2 );
+			}
 		} else if ( '--filter' === argv[ i ] ) {
 			args.filter = argv[ ++i ];
 		} else if ( null === args.summary ) {
@@ -68,8 +78,9 @@ for ( const [ file, metrics ] of Object.entries( data ) ) {
 		continue;
 	}
 	matched++;
-	const pct = metrics.statements?.pct ?? 0;
-	if ( pct < threshold ) {
+	const pct = Number( metrics.statements?.pct );
+	// Unreadable pct is an offender: `NaN < threshold` reads as covered.
+	if ( ! Number.isFinite( pct ) || pct < threshold ) {
 		offenders.push( [ norm( file ).split( filter ).pop(), pct ] );
 	}
 }
@@ -80,15 +91,16 @@ if ( 0 === matched ) {
 }
 
 if ( offenders.length ) {
-	offenders.sort( ( a, b ) => a[ 1 ] - b[ 1 ] );
+	// An unreadable pct sorts first: it is the least trustworthy number here.
+	const rank = ( p ) => ( Number.isFinite( p ) ? p : -1 );
+	offenders.sort( ( a, b ) => rank( a[ 1 ] ) - rank( b[ 1 ] ) );
 	process.stderr.write(
 		`\nJS COVERAGE GATE FAILED — ${ offenders.length } below ${ threshold }% (of ${ matched } files):\n\n`
 	);
 	const width = Math.max( ...offenders.map( ( [ name ] ) => name.length ) );
 	for ( const [ name, pct ] of offenders ) {
-		process.stderr.write(
-			`  * ${ name.padEnd( width ) }  ${ pct.toFixed( 1 ) }%\n`
-		);
+		const shown = Number.isFinite( pct ) ? `${ pct.toFixed( 1 ) }%` : '?';
+		process.stderr.write( `  * ${ name.padEnd( width ) }  ${ shown }\n` );
 	}
 	process.exit( 1 );
 }
