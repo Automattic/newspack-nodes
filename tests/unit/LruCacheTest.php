@@ -586,36 +586,6 @@ class LruCacheTest extends TestCase {
 		$this->assertNull( $cache->get( 'b' ) );
 	}
 
-	// ── Batch access ───────────────────────────────────────────────────────
-
-	public function test_get_multi_returns_found_keys_only(): void {
-		$cache = new LRU_Cache( 10, 3 );
-		$cache->set( 'alpha', 'a-val' );
-		$cache->set( 'gamma', 'g-val' );
-
-		$found = $cache->get_multi( [ 'alpha', 'beta', 'gamma' ] );
-
-		$this->assertSame( [ 'alpha' => 'a-val', 'gamma' => 'g-val' ], $found );
-	}
-
-	public function test_get_multi_keeps_a_stored_false(): void {
-		// get() answers null for absent, so a found-only sweep that filtered on
-		// null would drop a stored false — the shape a Table entry can hold.
-		$cache = new LRU_Cache( 10, 3 );
-		$cache->set( 'flag', false );
-
-		$this->assertSame( [ 'flag' => false ], $cache->get_multi( [ 'flag', 'absent' ] ) );
-	}
-
-	public function test_set_multi_stores_every_item(): void {
-		$cache = new LRU_Cache( 10, 3 );
-
-		$cache->set_multi( [ 'one' => 11, 'two' => 22 ] );
-
-		$this->assertSame( 11, $cache->get( 'one' ) );
-		$this->assertSame( 22, $cache->get( 'two' ) );
-	}
-
 	// ── Promotion ──────────────────────────────────────────────────────────
 
 	public function test_promotion_is_on_by_default(): void {

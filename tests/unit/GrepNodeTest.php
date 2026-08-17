@@ -28,6 +28,37 @@ class GrepNodeTest extends TestCase {
 	}
 
 	/**
+	 * An unparseable regex was accepted at config time and only failed at USE
+	 * time — `preg_match` then emitted a warning and returned false for every
+	 * message, so a typo'd `make_node Grep g '[unclosed'` silently dropped the
+	 * whole stream behind a warning storm. The operator typed it on one line;
+	 * the refusal belongs on that line.
+	 */
+	public function test_arguments_refuses_an_unparseable_pattern(): void {
+		$g = new Grep_Node();
+		$g->name( 'grep-probe' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'grep-probe' );
+
+		$g->arguments( [ '[unclosed' ] );
+	}
+
+	public function test_arguments_keeps_a_valid_pattern_with_regex_metacharacters(): void {
+		// The refusal must not reject legitimate PCRE — this one is valid.
+		$g = new Grep_Node();
+		$g->arguments( [ '^(alpha|beta)\d{2,4}$' ] );
+		$capture = new Capture_Sink_Node();
+		$g->sink( $capture );
+
+		$g->fill( $this->bytestream( 'beta4173' ) );
+		$g->fill( $this->bytestream( 'gamma4173' ) );
+
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame( 'beta4173', $capture->captured[0][ Message::VALUE ] );
+	}
+
+	/**
 	 * A struct VALUE with a nested non-UTF-8 string (e.g. a job `parameters`
 	 * field carrying raw latin1 SQL text) makes the stringify fallback's
 	 * wp_json_encode() fail. Before this fix, the failure silently coerced to

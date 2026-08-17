@@ -97,33 +97,7 @@ class LRU_Cache {
 	}
 
 	/**
-	 * Read many keys, found-only, keyed by cache key.
-	 *
-	 * Found-only rather than null-padded because a stored null and an absent
-	 * key are the same value here, and callers layering this over a slower tier
-	 * need the difference: what is missing is what they go and fetch.
-	 *
-	 * Keys come back `array-key` for the reason iterate() gives — a PHP array
-	 * turns an all-digit string key into an int on the way in. This promotes
-	 * like get() does, so a batch read can rotate a bucket and fire on_evict.
-	 *
-	 * @param list<string> $keys Cache keys.
-	 * @return array<array-key,mixed> Values for the keys that were present.
-	 * @api Sibling plugins batch-read a working set (Request_Builder, Reqgrep).
-	 */
-	public function get_multi( array $keys ): array {
-		$found = [];
-		foreach ( $keys as $key ) {
-			$i = $this->bucket_of( $key );
-			if ( null !== $i ) {
-				$found[ $key ] = $this->take( $i, $key );
-			}
-		}
-		return $found;
-	}
-
-	/**
-	 * Read a key from a known bucket, promoting it unless promotion is off.
+	 * Read a key from a known bucket, promoting it to the newest one.
 	 *
 	 * Promotion resets the entry's age and can itself trigger a rotation, so a
 	 * read may evict the oldest bucket.
@@ -160,28 +134,12 @@ class LRU_Cache {
 	}
 
 	/**
-	 * Store many items, each under the same rules as set().
-	 *
-	 * Keys are `array-key` for the reason iterate() gives: a PHP array turns an
-	 * all-digit string key into an int on the way in.
-	 *
-	 * @param array<array-key,mixed> $items Values keyed by cache key.
-	 * @api Sibling plugins batch-fill a working set.
-	 */
-	public function set_multi( array $items ): void {
-		foreach ( $items as $key => $value ) {
-			$this->set( (string) $key, $value );
-		}
-	}
-
-	/**
 	 * Store an item in the newest bucket, rotating once that bucket fills.
 	 *
 	 * Re-setting a key that still sits in an older bucket leaves that copy in
 	 * place, shadowed by this newer one — cleaning it here would put a bucket
 	 * walk on every write. get() returns the newer copy, delete() takes both,
-	 * and iterate() yields the key once; a read with promotion on retires the
-	 * shadow as it goes.
+	 * and iterate() yields the key once; a read retires the shadow as it goes.
 	 *
 	 * @param string $key   Cache key.
 	 * @param mixed  $value Value to store.
