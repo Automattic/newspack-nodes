@@ -11,7 +11,7 @@ The full live-investigation reference lives in **`docs/troubleshooting.md`** (pr
 Claude-specific notes on top of it:
 
 - `wp nodes doctor` first when the environment is suspect (memcache / WP-Cron / filesystem / ownership) — each failure line names the concrete degradation.
-- In the dndocker environment, run the cli as the web user (`docker exec -it -u bend eve-pyrobase1-1 wp nodes cli <reader>.p<N> --path=/var/www/html`); the per-env `base_directory` is `/volumes/pyrobase/tmp/newspack-nodes`.
+- Run the cli as the web user, never root — it refuses otherwise, because the workers own the IPC dirs it appends to: `wp nodes cli <reader>.p<N>`.
 - For the event-logger application's reqgrep pretty-printer, see the event-logger-nodes debugging skill — it unwraps the envelope and renders the inner entry.
 
 ## Related Skills
