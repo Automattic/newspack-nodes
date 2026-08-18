@@ -106,6 +106,7 @@ export default function LogViewer( { headerControlsSlot } ) {
 			selectedKey={ currentSource }
 			onPick={ pick }
 			pickerEmptyLabel={ __( 'No sources available', 'newspack-nodes' ) }
+			pickerLabel={ __( 'Browse a source', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }

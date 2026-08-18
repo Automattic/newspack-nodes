@@ -224,6 +224,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			selectedKey={ selectedLog }
 			onPick={ pick }
 			pickerEmptyLabel={ __( 'No logs available', 'newspack-nodes' ) }
+			pickerLabel={ __( 'Browse a log', 'newspack-nodes' ) }
 			isPaused={ isPaused }
 			connectionError={ connectionError }
 			onTogglePause={ () => setPaused( ! isPaused ) }
