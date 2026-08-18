@@ -543,12 +543,11 @@ A real plugin lives in its own repo and installs on a site that already has the 
 **Deploy installs a prebuilt zip — build first.** The setup script installs the existing `release/*.zip`; it does **not** build. So the loop is *build, then deploy*:
 
 ```bash
-cd services/pyrobase/sources/newspack-intelligence
-npm run release:archive    # builds release/newspack-intelligence.zip
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-intelligence.sh
+npm run release:archive    # builds release/<plugin>.zip
+# …then install that zip however this site installs plugins.
 ```
 
-Skip the build and your live `wp nodes` runs the *old* code — and because the PHPUnit suite runs from `/services`, the tests won't catch the stale deploy.
+Skip the build and your live `wp nodes` runs the *old* code — and because the PHPUnit suite runs from the source tree, not the installed copy, the tests won't catch the stale deploy.
 
 **After adding node classes, regenerate the autoloader.** The classmap is what `make_node` resolves against and what `Classes_CI` scans to populate the console palette. For local container testing run `composer dump-autoload -o` after adding or renaming a node. (The release zip is already optimized, so a freshly-built zip needs no separate dump.)
 
@@ -558,11 +557,12 @@ Wait until all topology-provider plugins have been installed and activated as
 WordPress plugins, then refresh the workers:
 
 ```bash
-docker exec -u bend eve-pyrobase1-1 wp nodes restart all --path=/var/www/html
+wp nodes restart all
 ```
 
-Run it as the worker's OS user: Nodes ownership-guards the runtime tree where
-those restart flags are written.
+Run it as the worker's OS user — the same account the web server runs as, not
+root: Nodes ownership-guards the runtime tree where those restart flags are
+written, and a root run leaves files there that the worker cannot then touch.
 
 Each restarted worker gets a fresh WordPress bootstrap, rebuilding its
 process-local topology catalog from the complete provider set. Restart only
@@ -572,16 +572,15 @@ directory was temporarily absent stays blind to it until its natural turnover.
 **Topologies register, but you activate them.** `register_plugin()` (in the bootstrap) makes every `.tsl` in `topologies/` a *catalog* entry; only a topology in the *active* set is spawned. Activate the aggregator — the four stage files are `include`d by it, so they need no activation of their own — from the Overview tab of the **Nodes** admin page or from the CLI, then confirm:
 
 ```bash
-docker exec eve-pyrobase1-1 wp nodes activate newspack-intelligence --allow-root --path=/var/www/html
-docker exec eve-pyrobase1-1 wp nodes status --allow-root --path=/var/www/html
-#   newspack-intelligence.p0  live  3s ago  2m 10s
+wp nodes activate <plugin-topology>
+wp nodes status
+#   <plugin-topology>.p0  live  3s ago  2m 10s
 ```
 
-**Tests run in the container, from `/services`, no network.** The closure-HTTP seam is what makes the connector suites hermetic — tests set `$http_get`/`$http_post` to return canned bodies, so nothing leaves the box:
+**Tests are hermetic — no network.** The closure-HTTP seam is what makes the connector suites so: tests set `$http_get`/`$http_post` to return canned bodies, so nothing leaves the box.
 
 ```bash
-docker exec -u bend eve-pyrobase1-1 bash -c \
-  'cd /services/pyrobase/sources/newspack-intelligence/tests && ../vendor/bin/phpunit'
+cd tests && ../vendor/bin/phpunit
 ```
 
 Lint to the same bar as the substrate — `npm run lint:php` (phpcs, VIP Go) and `npm run lint:phpstan` (level 10 + strict rules).
