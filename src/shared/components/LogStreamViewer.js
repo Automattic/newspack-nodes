@@ -98,11 +98,11 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}                 props.ariaLabel            The region's accessible name.
  * @param {string}                 [props.title]              Inline page heading (adopters without a hub header).
  * @param {?Element}               [props.headerControlsSlot] Hub shared-header slot to portal the controls into; null renders none, undefined renders them inline.
- * @param {?Array}                 props.pickerOptions        `{ key, label, disabled? }` rows for the source dropdown; null = no picker.
+ * @param {?Array}                 [props.pickerOptions]      `{ key, label, disabled? }` rows for the source dropdown; empty or absent = no picker.
  * @param {string}                 [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}               [props.onPick]             `(key) => void` — switch the source; required only with a picker.
- * @param {string}                 [props.pickerEmptyLabel]   Status text when the catalog is empty; required only with a picker.
- * @param {string}                 [props.pickerLabel]        The picker's accessible name; required only with a picker.
+ * @param {string}                 [props.pickerEmptyLabel]   Status text for an empty catalog; omit to say nothing about one.
+ * @param {string}                 [props.pickerLabel]        The picker's accessible name; defaulted, never absent.
  * @param {boolean}                props.isPaused             The view's paused flag.
  * @param {boolean}                props.connectionError      The view's reconnect flag.
  * @param {() => void}             props.onTogglePause        Pause/resume the stream.
@@ -135,7 +135,7 @@ export default function LogStreamViewer( {
 	selectedKey,
 	onPick,
 	pickerEmptyLabel,
-	pickerLabel,
+	pickerLabel = __( 'Browse a source', 'newspack-nodes' ),
 	isPaused,
 	connectionError,
 	onTogglePause,
@@ -247,18 +247,12 @@ export default function LogStreamViewer( {
 				</span>
 			</span>
 
-			{ pickerOptions && pickerOptions.length === 0 && (
-				<span className="newspack-nodes-toolbar-status">
-					{ pickerEmptyLabel }
-				</span>
-			) }
-			{ pickerOptions && pickerOptions.length > 0 && (
+			{ pickerOptions?.length ? (
 				<select
 					className="newspack-nodes-select"
 					value={ selectedKey }
 					onChange={ ( e ) => onPick( e.target.value ) }
 					aria-label={ pickerLabel }
-					title={ pickerLabel }
 				>
 					{ pickerOptions.map( ( option ) => (
 						<option
@@ -270,11 +264,18 @@ export default function LogStreamViewer( {
 						</option>
 					) ) }
 				</select>
+			) : (
+				pickerEmptyLabel && (
+					<span className="newspack-nodes-toolbar-status">
+						{ pickerEmptyLabel }
+					</span>
+				)
 			) }
 
 			<input
 				type="text"
 				className="newspack-nodes-search-input"
+				aria-label={ __( 'Filter the stream', 'newspack-nodes' ) }
 				placeholder={
 					filterPlaceholder ?? __( 'Filter…', 'newspack-nodes' )
 				}
@@ -289,6 +290,7 @@ export default function LogStreamViewer( {
 				<input
 					type="text"
 					className="newspack-nodes-offset-input"
+					aria-label={ __( 'Jump to an offset', 'newspack-nodes' ) }
 					placeholder={ __( 'seg:offset', 'newspack-nodes' ) }
 					value={ jumpText }
 					onChange={ ( e ) => setJumpText( e.target.value ) }
@@ -307,7 +309,7 @@ export default function LogStreamViewer( {
 			<button
 				className={ `button ${ isPaused ? 'is-paused' : '' }` }
 				onClick={ onTogglePause }
-				title={
+				aria-label={
 					isPaused
 						? __( 'Resume streaming', 'newspack-nodes' )
 						: __( 'Pause streaming', 'newspack-nodes' )
@@ -321,6 +323,7 @@ export default function LogStreamViewer( {
 					className="button"
 					onClick={ onStep }
 					disabled={ ! isPaused }
+					aria-label={ __( 'Step one message', 'newspack-nodes' ) }
 					title={ __(
 						'Step one message (paused only)',
 						'newspack-nodes'
@@ -417,7 +420,6 @@ export default function LogStreamViewer( {
 							onClick={ toggleRail }
 							aria-label={ railToggleLabel }
 							aria-expanded={ railOpen }
-							title={ railToggleLabel }
 						>
 							{ railOpen ? '\u2039' : '\u203a' }
 						</button>

@@ -102,8 +102,13 @@ const RULES = [
 		why: 'the wall-clock grid lives in TimerNode; a subclass picks a harmonic interval and never computes a boundary (ADR-17)',
 	},
 	{
+		// @longform
+		// Both operators, one order. The Yoda form cannot be mechanized: a
+		// demux (`'completion' === m[ KEY ]`) and a presence check
+		// (`'' === m[ KEY ]`) are the same shape, so a rule matching both
+		// would flag conformant code and teach everyone `contract-ok:`.
 		id: 'key-demux',
-		test: /\[\s*KEY\s*\]\s*===/,
+		test: /\[\s*KEY\s*\]\s*[!=]==/,
 		why: 'using KEY to tell replies apart; KEY is a client tag, not a demultiplexer',
 	},
 	{

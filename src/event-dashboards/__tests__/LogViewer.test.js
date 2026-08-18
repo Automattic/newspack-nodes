@@ -168,6 +168,18 @@ describe( 'LogViewer', () => {
 		expect( options[ 2 ].disabled ).toBe( true );
 	} );
 
+	// The only consumer taking the component's default name; the other three
+	// declare their own noun, so a changed default shows up only here.
+	it( 'takes the shared picker name', () => {
+		registerViewFixture( { selected: 'php' } );
+		const { container } = render( <LogViewer /> );
+		expect(
+			container
+				.querySelector( '.newspack-nodes-select' )
+				.getAttribute( 'aria-label' )
+		).toBe( 'Browse a source' );
+	} );
+
 	it( 'picking a source switches the stream and reflects ?source=', () => {
 		registerViewFixture( { selected: 'php' } );
 		const { container } = render( <LogViewer /> );

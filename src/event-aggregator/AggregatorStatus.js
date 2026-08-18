@@ -473,7 +473,7 @@ export default function AggregatorStatus( { headerControlsSlot } ) {
 				className="newspack-nodes-select"
 				value={ refreshInterval }
 				onChange={ ( e ) => setRefreshInterval( e.target.value ) }
-				title={ __( 'Refresh interval', 'newspack-nodes' ) }
+				aria-label={ __( 'Refresh interval', 'newspack-nodes' ) }
 			>
 				{ REFRESH_OPTIONS.map( ( opt ) => (
 					<option key={ opt.value } value={ opt.value }>
