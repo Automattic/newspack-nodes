@@ -48,7 +48,7 @@ class Grep_Node extends Node {
 			$why = Core::as_string( \error_get_last()['message'] ?? '', '' );
 			// preg_last_error_msg() says INTERNAL_ERROR for a compile failure.
 			$why = '' === $why ? '' : ' — ' . \preg_replace( '/^preg_match\(\): /', '', $why );
-			throw $this->bad_argument( "pattern is not a valid regex, got '{$this->pattern}'{$why}" );
+			$this->refuse_argument( "pattern is not a valid regex, got '{$this->pattern}'{$why}" );
 		}
 		$this->compiled = $compiled;
 		return $this->arguments;
