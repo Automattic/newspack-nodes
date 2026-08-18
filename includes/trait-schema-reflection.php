@@ -110,7 +110,7 @@ trait Schema_Reflection {
 			default:
 				return $token;
 		}
-		throw $this->bad_argument( "{$name} wants {$wanted}, got '{$token}'" );
+		$this->refuse_argument( "{$name} wants {$wanted}, got '{$token}'" );
 	}
 
 	/**
@@ -118,14 +118,19 @@ trait Schema_Reflection {
 	 * the way the make_node line does: class as the shell spells it, then
 	 * instance name — a boot with five Partitions says which one.
 	 *
+	 * It throws rather than returning the exception so that the ONE `throw`
+	 * carries its own escaping in plain sight; a caller that threw what this
+	 * returned put an unescaped string at every call site instead.
+	 *
 	 * @param string $detail What was wrong, in the caller's words.
+	 * @throws \InvalidArgumentException Always — the caller does not continue.
 	 */
-	protected function bad_argument( string $detail ): \InvalidArgumentException {
+	protected function refuse_argument( string $detail ): never {
 		$who = Command_Interpreter_Node::shell_name_for( $this );
 		if ( '' !== $this->name ) {
 			$who .= " '{$this->name}'";
 		}
-		return new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
+		throw new \InvalidArgumentException( \esc_html( "Bad arguments for {$who}: {$detail}" ) );
 	}
 
 	/** THE bool parse for schema args and toggle verbs (JS mirror: `truthy` in runtime/node.js). */
