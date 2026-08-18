@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.34.0] - 2026-08-17
+
 ### Changed
 - **`LogStreamViewer`'s `pickerOptions` is two values, not three — a contract change for adopters.** `null` meant "no picker", `[]` meant "say the empty label", and rows meant rows, so a dashboard with nothing to show had to choose between them and could not ask for silence. Empty and absent now mean the same thing, and `pickerEmptyLabel` alone decides whether an empty catalog gets words. An adopter passing `pickerOptions={ ready ? rows : null }` beside a `pickerEmptyLabel` previously got silence while loading and now gets the label; drop the label to keep the old behaviour.
 - **`contract lint`'s `key-demux` rule catches `!==` as well as `===`.** The Yoda spelling stays unmatched deliberately: a demux (`'completion' === m[ KEY ]`) and a presence check (`'' === m[ KEY ]`) are the same shape, so a rule flagging both would refuse conformant code and teach everyone to write `contract-ok:`.
