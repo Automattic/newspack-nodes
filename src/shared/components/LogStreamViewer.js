@@ -102,6 +102,7 @@ const debugHeader = ( hasKeyColumn ) => (
  * @param {string}                 [props.selectedKey]        The picked option's key; required only with a picker.
  * @param {Function}               [props.onPick]             `(key) => void` — switch the source; required only with a picker.
  * @param {string}                 [props.pickerEmptyLabel]   Status text when the catalog is empty; required only with a picker.
+ * @param {string}                 [props.pickerLabel]        The picker's accessible name; required only with a picker.
  * @param {boolean}                props.isPaused             The view's paused flag.
  * @param {boolean}                props.connectionError      The view's reconnect flag.
  * @param {() => void}             props.onTogglePause        Pause/resume the stream.
@@ -134,6 +135,7 @@ export default function LogStreamViewer( {
 	selectedKey,
 	onPick,
 	pickerEmptyLabel,
+	pickerLabel,
 	isPaused,
 	connectionError,
 	onTogglePause,
@@ -255,6 +257,8 @@ export default function LogStreamViewer( {
 					className="newspack-nodes-select"
 					value={ selectedKey }
 					onChange={ ( e ) => onPick( e.target.value ) }
+					aria-label={ pickerLabel }
+					title={ pickerLabel }
 				>
 					{ pickerOptions.map( ( option ) => (
 						<option

@@ -191,6 +191,17 @@ it( 'stats sit left of ALL inputs (picker included) — no control bounces', () 
 	expect( stats ).toBe( 0 );
 } );
 
+// Every other control in the toolbar carries a title; a bare combo box reads
+// as unnamed to a screen reader.
+it( 'the picker carries the accessible name its caller declares', () => {
+	const { container } = render(
+		<LogStreamViewer { ...BASE } pickerLabel="Browse a partition" />
+	);
+	const select = container.querySelector( '.newspack-nodes-select' );
+	expect( select.getAttribute( 'aria-label' ) ).toBe( 'Browse a partition' );
+	expect( select.getAttribute( 'title' ) ).toBe( 'Browse a partition' );
+} );
+
 it( 'pickerOptions null renders neither a picker nor the empty status', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } pickerOptions={ null } />
