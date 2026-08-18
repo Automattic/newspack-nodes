@@ -191,23 +191,76 @@ it( 'stats sit left of ALL inputs (picker included) — no control bounces', () 
 	expect( stats ).toBe( 0 );
 } );
 
-// Every other control in the toolbar carries a title; a bare combo box reads
-// as unnamed to a screen reader.
+// `aria-label` alone. The sibling buttons are named by their CONTENT, so their
+// `title` is a description; a select has no content, so a `title` beside an
+// aria-label is read as a second, duplicate announcement — and `title` alone is
+// the weakest source, surfaced on neither keyboard focus nor touch.
 it( 'the picker carries the accessible name its caller declares', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } pickerLabel="Browse a partition" />
 	);
 	const select = container.querySelector( '.newspack-nodes-select' );
 	expect( select.getAttribute( 'aria-label' ) ).toBe( 'Browse a partition' );
-	expect( select.getAttribute( 'title' ) ).toBe( 'Browse a partition' );
+	expect( select.getAttribute( 'title' ) ).toBeNull();
 } );
 
-it( 'pickerOptions null renders neither a picker nor the empty status', () => {
+// A caller that renders a picker and forgets the name is the defect this prop
+// exists to close, so the component names it rather than trusting four callers.
+it( 'the picker is named even when the caller declares nothing', () => {
+	const { container } = render( <LogStreamViewer { ...BASE } /> );
+	expect(
+		container
+			.querySelector( '.newspack-nodes-select' )
+			.getAttribute( 'aria-label' )
+	).toBeTruthy();
+} );
+
+// @longform
+// One policy for the whole strip: `aria-label` NAMES every control, and
+// `title` survives only where it says something the name does not. A glyph is
+// content, so accname reads "⏭" as the name of an unlabelled step button, and
+// a `title` repeating the name is announced a second time as its description.
+it( 'names every toolbar control, and repeats none of them', () => {
+	const { container } = render(
+		<LogStreamViewer { ...BASE } onJump={ () => {} } />
+	);
+	const named = [
+		'.newspack-nodes-select',
+		'.newspack-nodes-search-input',
+		'.newspack-nodes-offset-input',
+	].map( ( sel ) => container.querySelector( sel ) );
+	const glyphs = [ ...container.querySelectorAll( 'button' ) ].filter(
+		( b ) => /^[▶⏸⏭‹›]$/.test( b.textContent )
+	);
+	expect( glyphs.length ).toBeGreaterThan( 0 );
+	for ( const el of [ ...named, ...glyphs ] ) {
+		const label = el.getAttribute( 'aria-label' );
+		expect( label ).toBeTruthy();
+		expect( el.getAttribute( 'title' ) ).not.toBe( label );
+	}
+} );
+
+// An empty catalog says nothing unless the caller supplies the words for it.
+it( 'an empty catalog with no label renders neither picker nor status', () => {
+	const { container } = render(
+		<LogStreamViewer
+			{ ...BASE }
+			pickerOptions={ [] }
+			pickerEmptyLabel={ undefined }
+		/>
+	);
+	expect( container.querySelector( '.newspack-nodes-select' ) ).toBeNull();
+	expect(
+		container.querySelector( '.newspack-nodes-toolbar-status' )
+	).toBeNull();
+} );
+
+it( 'no rows renders no picker; the empty label is what speaks for them', () => {
 	const { container } = render(
 		<LogStreamViewer { ...BASE } pickerOptions={ null } />
 	);
 	expect( container.querySelector( '.newspack-nodes-select' ) ).toBeNull();
-	expect( container.textContent ).not.toContain( 'None' );
+	expect( container.textContent ).toContain( BASE.pickerEmptyLabel );
 } );
 
 describe( 'rail toggle', () => {

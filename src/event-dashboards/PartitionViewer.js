@@ -217,10 +217,7 @@ export default function PartitionViewer( { headerControlsSlot } ) {
 			className="newspack-nodes-partition-viewer"
 			ariaLabel={ __( 'Partition Viewer', 'newspack-nodes' ) }
 			headerControlsSlot={ headerControlsSlot }
-			pickerOptions={ availableLogs.map( ( log ) => ( {
-				key: log.key,
-				label: log.label,
-			} ) ) }
+			pickerOptions={ availableLogs }
 			selectedKey={ selectedLog }
 			onPick={ pick }
 			pickerEmptyLabel={ __( 'No logs available', 'newspack-nodes' ) }

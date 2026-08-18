@@ -203,7 +203,7 @@ describe( 'PartitionViewer', () => {
 		const { container } = await renderViewer();
 
 		const running = container.querySelector(
-			'button[title="Pause streaming"]'
+			'button[aria-label="Pause streaming"]'
 		);
 		expect( running ).not.toBeNull();
 		expect( running.classList.contains( 'is-paused' ) ).toBe( false );
@@ -224,7 +224,9 @@ describe( 'PartitionViewer', () => {
 		expect( pausedButtons ).toHaveLength( 1 );
 		const [ paused ] = pausedButtons;
 		expect( paused ).not.toBeNull();
-		expect( paused.getAttribute( 'title' ) ).toBe( 'Resume streaming' );
+		expect( paused.getAttribute( 'aria-label' ) ).toBe(
+			'Resume streaming'
+		);
 		fireEvent.click( paused );
 		expect( setPaused ).toHaveBeenLastCalledWith( false );
 	} );
