@@ -7,12 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **`Cache_Backend::write_multi()`** — the write-side counterpart of `read_multi()`. `Table_Node`'s read-through resolved a page of misses in one round trip and then stored them back one key at a time, which put the latency cliff back on the write half; it now groups by lifetime and writes once per distinct TTL.
-
 ## [2.35.0] - 2026-08-18
 
 ### Added
+- **`Cache_Backend::write_multi()`** — the write-side counterpart of `read_multi()`. `Table_Node`'s read-through resolved a page of misses in one round trip and then stored them back one key at a time, which put the latency cliff back on the write half; it now groups by lifetime and writes once per distinct TTL.
 - **`Table_Node::backed_by()` — a table can front a durable system of record.** `lookup()` and `lookup_multi()` now fall through on a miss to an optional backing closure, store what it returns, and serve it; `lookup_multi()` asks ONCE for every miss rather than per key. An entry may carry its own remaining `ttl` — that does not reopen "one table, one lifetime", which governs what a CALLER stores: a backing is re-materializing an entry that already had a life, and a stated lifetime that has run out is a miss rather than a resurrection. Warming the table is best-effort, so a backend that went away still serves the record it read. Two consumers in `newspack-event-logger-nodes` had grown their own copy of this — `Rule_Set::hooks_for()` over an option, and the stats mirror over a partition — which is what put it here.
 
 ## [2.34.0] - 2026-08-17
