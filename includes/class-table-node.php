@@ -276,16 +276,21 @@ class Table_Node extends Node {
 		if ( [] === $keys || null === $this->backing ) {
 			return [];
 		}
-		$out = [];
+		$out   = [];
+		$warm  = [];
 		foreach ( ( $this->backing )( $keys ) as $key => $entry ) {
 			// A STATED lifetime that ran out is a miss, not a resurrection.
 			if ( isset( $entry['ttl'] ) && $entry['ttl'] <= 0 ) {
 				continue;
 			}
-			$ttl = $entry['ttl'] ?? $this->ttl;
-			// Best-effort: a dead backend must not turn a read into a miss.
-			Cache_Backend::shared_first()?->set( self::entry_key( $this->namespace, (string) $key ), $entry['value'], $ttl );
+			// Grouped by lifetime: a round trip per TTL, not per key.
+			$warm[ $entry['ttl'] ?? $this->ttl ][ self::entry_key( $this->namespace, (string) $key ) ] = $entry['value'];
 			$out[ (string) $key ] = $entry['value'];
+		}
+		// Best-effort: a dead backend must not turn a read into a miss.
+		$backend = Cache_Backend::shared_first();
+		foreach ( $warm as $ttl => $items ) {
+			$backend?->write_multi( $items, $ttl );
 		}
 		return $out;
 	}
