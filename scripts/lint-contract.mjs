@@ -30,7 +30,13 @@ import { join, relative } from 'node:path';
 const ROOT = process.cwd();
 
 // Code that legitimately implements the routing itself.
-const EXEMPT = [ 'src/runtime/', 'scripts/lint-contract.mjs' ];
+const EXEMPT = [
+	'src/runtime/timer-node.js',
+	'src/runtime/index.js',
+	'src/runtime/command-interpreter-node.js',
+	'src/runtime/shell-node.js',
+	'scripts/lint-contract.mjs',
+];
 
 // @longform
 // Files that DO violate and are queued for deletion. Kept apart from EXEMPT

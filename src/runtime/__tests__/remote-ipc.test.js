@@ -64,17 +64,25 @@ beforeEach( () => {
 	posted = [];
 } );
 
+// Every POST this suite makes lands in `posted`.
+const capturingClient = () => ( {
+	postBatch: ( messages ) => {
+		posted.push( ...messages );
+		return Promise.resolve( [] );
+	},
+} );
+
+// How many worker mounts have gone out so far.
+const mounts = () =>
+	posted.filter( ( m ) => m[ VALUE ]?.name === 'connect_worker_input' )
+		.length;
+
 // A RemoteIpc on a shared exospine; its sends route through the _http fake.
 function makeRemoteIpc( reader, interpreter ) {
 	const node = new RemoteIpcNode();
 	node.name = reader;
 	node.sink = interpreter;
-	node.client = {
-		postBatch: ( messages ) => {
-			posted.push( ...messages );
-			return Promise.resolve( [] );
-		},
-	};
+	node.client = capturingClient();
 	node.arguments = [ reader ];
 	return node;
 }
@@ -125,10 +133,7 @@ describe( 'RemoteIpcNode', () => {
 		node.fill( command( { from: 'uptime' } ) );
 		http.flush();
 
-		const mounts = posted.filter(
-			( m ) => m[ VALUE ]?.name === 'connect_worker_input'
-		);
-		expect( mounts ).toHaveLength( 1 );
+		expect( mounts() ).toBe( 1 );
 		expect( posted ).toHaveLength( 3 );
 	} );
 
@@ -146,10 +151,7 @@ describe( 'RemoteIpcNode', () => {
 		node.fill( command( { from: 'uptime' } ) );
 		http.flush();
 
-		const mounts = posted.filter(
-			( m ) => m[ VALUE ]?.name === 'connect_worker_input'
-		);
-		expect( mounts ).toHaveLength( 2 );
+		expect( mounts() ).toBe( 2 );
 	} );
 
 	it( 'is registered at the runtime level so the console resolves it via make_node', () => {
@@ -203,12 +205,7 @@ describe( 'RemoteIpcNode', () => {
 			interpreter.dispatch( verb, args );
 		}
 		const reopened = Core.node( 'violet-ipc-947' );
-		Core.node( names.HTTP ).client = {
-			postBatch: ( messages ) => {
-				posted.push( ...messages );
-				return Promise.resolve( [] );
-			},
-		};
+		Core.node( names.HTTP ).client = capturingClient();
 		dispatchConnected( reopened, { pid: 6262, slot: 13 } );
 		reopened.fill( command( { from: names.OUTPUT } ) );
 
@@ -292,6 +289,73 @@ describe( 'RemoteIpcNode', () => {
 
 		expect( () => node.fill( command() ) ).not.toThrow();
 		expect( posted.length ).toBe( sentWhileAuthed );
+	} );
+
+	it( 'leaves _http unlocked when an unauthenticated send bails', () => {
+		// This node opened the lock, so it owes the flush even on the way out:
+		// otherwise _http stays locked and every direct fill() buffers silently
+		// until the next Router tick happens to flush it.
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() ); // boot the link while authenticated
+		forgetSession();
+		const http = Core.node( names.HTTP );
+		expect( http.locked ).toBe( false );
+
+		node.fill( command() );
+
+		expect( http.locked ).toBe( false );
+	} );
+
+	it( 'does not mark the batch mounted when the mint fails', () => {
+		// A mount that never reached the buffer must leave the batch unclaimed.
+		// Otherwise the next send in it skips a mount that never went out, and
+		// its command routes to a worker the server never attached.
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator.p0', interpreter );
+		node.fill( command() ); // boot the link while authenticated
+		const http = Core.node( names.HTTP );
+
+		http.lock(); // the Router's bracket: outlives an individual send
+		forgetSession();
+		node.fill( command( { from: '_metadata' } ) ); // mint refused
+
+		expect( http.onceInBatch( 'mount:aggregator.p0' ) ).toBe( true );
+	} );
+
+	it( 'mounts each reader in a batch that carries two different workers', () => {
+		// The claim is keyed per reader, so distinct workers each still mount.
+		const { interpreter } = mountExospine();
+		const a = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
+		const b = makeRemoteIpc( 'combined.p3', interpreter );
+		const http = Core.node( names.HTTP );
+
+		http.lock();
+		a.fill( command( { from: '_metadata' } ) );
+		b.fill( command( { from: '_metadata' } ) );
+		http.flush();
+
+		const mounted = posted
+			.filter( ( m ) => m[ VALUE ]?.name === 'connect_worker_input' )
+			.map( ( m ) => m[ VALUE ].arguments[ 0 ] );
+		expect( mounted ).toEqual( [ 'aggregator-hub.p0', 'combined.p3' ] );
+	} );
+
+	it( 'mounts again when _http itself is replaced', () => {
+		// A rebuilt backbone is a new POST boundary, so the worker must remount.
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
+		node.fill( command( { from: '_metadata' } ) );
+		const before = mounts();
+
+		// Exactly what exospine teardown does before rebuilding the backbone.
+		Core.node( names.HTTP ).removeNode();
+		const fresh = new HttpOutNode();
+		fresh.client = capturingClient();
+		fresh.name = names.HTTP;
+		node.fill( command( { from: '_metadata' } ) );
+
+		expect( mounts() ).toBe( before + 1 );
 	} );
 
 	it( 'boots its SseIn on the first send, subscribed to its worker', () => {

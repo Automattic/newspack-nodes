@@ -4,7 +4,8 @@
  * single positional Message with TO already routed; `fill()` POSTs it verbatim
  * (or buffers it while locked, so a Router TIMER tick's emissions ride in ONE
  * request). The worker-attach `connect_worker_input` bundling lives in RemoteIpc
- * (which owns its own HttpOut) — HttpOut is dumb: POST what it's given.
+ * — this is dumb: POST what it's given. It never inspects or drops a message;
+ * the sender decides what to send, and `onceInBatch()` is what it asks.
  *
  * Intake: a synchronous reply comes back as a packed Message in the POST body
  * (request-scope-interpreted commands). It's fed back into `this.sink`, which
@@ -70,8 +71,8 @@ export class HttpOutNode extends Node {
 		// When locked, fill() buffers; flush() drains it as ONE postBatch.
 		this.locked = false;
 		this.buffer = [];
-		// Monotonic batch id: this owns the boundary, so it owns the identity.
-		this.batch = 0;
+		// Keys claimed in the open batch. Owned here: it dies with the batch.
+		this.claimed = new Set();
 	}
 
 	/**
@@ -95,6 +96,8 @@ export class HttpOutNode extends Node {
 	 */
 	flush() {
 		this.locked = false;
+		// The batch is over, so what it carried is over with it.
+		this.claimed.clear();
 		if ( 0 === this.buffer.length ) {
 			return;
 		}
@@ -195,11 +198,35 @@ export class HttpOutNode extends Node {
 	 * emissions ride out in a single request.
 	 */
 	lock() {
-		// A re-lock inside an open one is not a new batch.
-		if ( ! this.locked ) {
-			this.batch++;
-		}
 		this.locked = true;
+	}
+
+	/**
+	 * Whether `key` still needs sending in the batch being built.
+	 *
+	 * A sender with a message that serves the WHOLE POST rather than its own
+	 * send — a worker mount, say — asks this instead of sending it every time.
+	 * The claim lives here because the batch does: `flush()` clears it, so it
+	 * cannot outlive, or disagree with, the POST it describes.
+	 *
+	 * Test and claim are separate on purpose. Minting can fail between them,
+	 * and a claim taken for a message that never reached the buffer would let
+	 * the next sender skip a mount that never went out.
+	 *
+	 * @param {string} key Sender's name for the thing being claimed.
+	 * @return {boolean} True when nobody has sent it in this batch yet.
+	 */
+	onceInBatch( key ) {
+		return ! this.claimed.has( key );
+	}
+
+	/**
+	 * Record that `key` is now IN the batch — call it after the `fill()`.
+	 *
+	 * @param {string} key The key `onceInBatch()` was asked about.
+	 */
+	claimInBatch( key ) {
+		this.claimed.add( key );
 	}
 
 	/**

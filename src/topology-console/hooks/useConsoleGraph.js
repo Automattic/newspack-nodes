@@ -4,11 +4,11 @@ const NO_CATALOG = { classes: [], loading: false, error: null };
 /**
  * useConsoleGraph — mounts the per-session in-browser node graph. Send: Shell →
  * _command_interpreter → _router ─[peel {worker}]→ the worker's RemoteIpc (which
- * bundles connect_worker_input + the command and POSTs through its OWN HttpOut).
+ * bundles connect_worker_input + the command and POSTs through the shared _http).
  * Receive: each worker's RemoteIpc owns a SseIn that forwards parsed frames →
  * _router ─[peel reply-node]→ _output (Dumper) | _metadata | _uptime. The
  * _metadata / _uptime poll nodes emit on the Router TIMER (batched into one POST
- * per tick by the ACTIVE RemoteIpc's HttpOut) addressed to `_cwd`; the active
+ * per tick by the shared _http) addressed to `_cwd`; the active
  * RemoteIpc's composed Heartbeat keeps its SSE slot alive. Mounted while
  * `enabled`; torn down on unmount or edit mode. Node names come from the
  * shared-canonical reserved-node-names.json.

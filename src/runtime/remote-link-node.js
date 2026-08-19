@@ -126,7 +126,12 @@ export class RemoteLinkNode extends Node {
 	 */
 	send( message ) {
 		this.ensureChildren();
-		Core.node( names.HTTP ).fill( message );
+		const h = Core.node( names.HTTP );
+		if ( ! h ) {
+			this.dropMessage( message, 'NOT_AVAILABLE' );
+			return;
+		}
+		h.fill( message );
 	}
 
 	/**
@@ -244,7 +249,10 @@ export class RemoteLinkNode extends Node {
 		this.sseIn = sse;
 
 		// Backbone singletons; configure, never alias per-link.
-		Core.node( names.HTTP ).client = this.client || defaultTransport();
+		const http = Core.node( names.HTTP );
+		if ( http ) {
+			http.client = this.client || defaultTransport();
+		}
 
 		// Not armed here: the connection lifecycle below arms/stops it.
 		const hb = Core.node( names.HEARTBEAT );
