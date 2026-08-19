@@ -305,6 +305,81 @@ class TableNodeTest extends TestCase {
 		$this->assertNull( $table->lookup( 'sku-9' ) );
 	}
 
+	// --- backed_by: read-through to a durable system of record ------------
+
+	public function test_a_miss_reads_through_to_the_backing_and_lands_in_the_table(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$asked = [];
+		$table->backed_by(
+			static function ( array $keys ) use ( &$asked ): array {
+				$asked[] = $keys;
+				return [ 'sku-9' => [ 'value' => [ 'usd' => 900 ] ] ];
+			}
+		);
+
+		$this->assertSame( [ 'usd' => 900 ], $table->lookup( 'sku-9' ), 'the miss was filled from the backing' );
+		$this->assertSame( [ [ 'sku-9' ] ], $asked );
+
+		// Landed in the table, so the next read never asks again.
+		$table->backed_by( static fn ( array $keys ): array => [] );
+		$this->assertSame( [ 'usd' => 900 ], $table->lookup( 'sku-9' ) );
+	}
+
+	public function test_a_hit_never_reaches_the_backing(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-1', [ 'usd' => 100 ] );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-1' => [ 'value' => [ 'usd' => 999 ] ] ] );
+
+		$this->assertSame( [ 'usd' => 100 ], $table->lookup( 'sku-1' ), 'the stored value wins over the backing' );
+	}
+
+	public function test_lookup_multi_asks_the_backing_once_for_every_miss(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$table->store( 'sku-1', [ 'usd' => 100 ] );
+		$calls = 0;
+		$table->backed_by(
+			static function ( array $keys ) use ( &$calls ): array {
+				++$calls;
+				return [ 'sku-2' => [ 'value' => [ 'usd' => 200 ] ], 'sku-3' => [ 'value' => [ 'usd' => 300 ] ] ];
+			}
+		);
+
+		$found = $table->lookup_multi( [ 'sku-1', 'sku-2', 'sku-3' ] );
+
+		$this->assertSame(
+			[ 'sku-1' => [ 'usd' => 100 ], 'sku-2' => [ 'usd' => 200 ], 'sku-3' => [ 'usd' => 300 ] ],
+			$found
+		);
+		$this->assertSame( 1, $calls, 'one backing call for every miss, not one per key' );
+	}
+
+	public function test_a_backing_entry_may_carry_its_own_remaining_lifetime(): void {
+		// A restored entry resumes the life it had left, not a fresh table TTL.
+		$table = Table_Node::table( 'prices', 600 );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-7' => [ 'value' => [ 'usd' => 700 ], 'ttl' => 5 ] ] );
+
+		$this->assertSame( [ 'usd' => 700 ], $table->lookup( 'sku-7' ) );
+		$expiry = $this->memd->expiries()[ Table_Node::entry_key( 'prices', 'sku-7' ) ] ?? 0;
+		$this->assertEqualsWithDelta( \time() + 5, $expiry, 2, 'stored under the entry\'s own remaining life, not the table\'s 600' );
+	}
+
+	public function test_the_record_is_still_served_when_the_backend_went_away(): void {
+		// Warming the table is best-effort. A store that cannot land must not
+		// turn a successful read of the system of record into a miss.
+		$table = Table_Node::table( 'prices', 60 );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-4' => [ 'value' => [ 'usd' => 400 ] ] ] );
+		Core::$memd = null;
+
+		$this->assertSame( [ 'usd' => 400 ], $table->lookup( 'sku-4' ) );
+	}
+
+	public function test_an_entry_whose_lifetime_ran_out_is_not_stored(): void {
+		$table = Table_Node::table( 'prices', 600 );
+		$table->backed_by( static fn ( array $keys ): array => [ 'sku-8' => [ 'value' => [ 'usd' => 800 ], 'ttl' => 0 ] ] );
+
+		$this->assertNull( $table->lookup( 'sku-8' ), 'a spent lifetime is a miss, not a resurrection' );
+	}
+
 	public function test_lookup_multi_returns_found_only_keyed_by_the_callers_key(): void {
 		// One backend round trip for a set of keys — what ELN's Stats_Store
 		// reads a page of URL buckets through.

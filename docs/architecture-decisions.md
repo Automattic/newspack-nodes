@@ -908,3 +908,58 @@ boundary, since moving it back reads to every watchdog as a stream gone silent.
 
 **Revisit if:** the runtime gains sub-second cadences, where a 360ms phase is a large fraction
 of a period and the grid would need its own scale.
+
+---
+
+## ADR-18: A Table can front a durable record; the walk that finds it stays in the app
+
+**Status:** Accepted
+
+**Context:** Two surfaces in `newspack-event-logger-nodes` independently grew the same
+mechanism — read a keyed store, miss, fall back to a durable system of record, store the
+answer back. `Rule_Set::hooks_for()` did it over a non-autoloaded option; the stats mirror
+did it over a `Partition`, with its own key translation, TTL decay and scope guard. Two
+shapes for one idea inside one plugin is the signal that the idea belongs lower down; the
+third consumer would have invented a third shape.
+
+The stats copy also reached PAST its own store to write — `Cache_Backend::shared_first()->set()`
+with a hand-rolled `str_starts_with` namespace check — because `Table_Node` fixes TTL at
+construction and a restored entry needs the life it has LEFT. Reaching under your own
+abstraction to write is the tell that the abstraction stops one parameter short.
+
+**Decision:** `Table_Node::backed_by( \Closure $backing )`. `lookup()` and `lookup_multi()`
+fall through on a miss, store what comes back, and serve it; `lookup_multi()` asks ONCE for
+every miss. An entry may carry its own remaining `ttl`.
+
+That does not reopen "one table, one lifetime", which governs what a CALLER stores: a
+backing is re-materializing an entry that already had a life, and handing it a fresh full
+TTL would extend what it is restoring. A stated lifetime that has run out is a miss, not a
+resurrection. Warming the table is best-effort — a backend that went away must still serve
+the record the backing read, or a cache failure silently becomes a data failure.
+
+**The complement, and the boundary this ADR is really about.** Finding WHICH durable record
+answers a key is the app's business, not the table's. `Partition_Node` treats index lines as
+opaque strings because the formatter that wrote them belongs to the caller, so
+`locate_by( \Closure $extract )` takes the line parser and returns key → position, and
+`read_many()` reads those positions one file handle per SEGMENT. Partition owns the walk,
+its extent-keyed memo and the syscalls; the app owns only what a line means.
+
+**Alternatives considered:**
+
+- **Leave it in the application.** Rejected: it was already there twice, and the second copy
+  is what proved the first was not a one-off.
+- **Push the line format down too**, so Partition parses index entries. Rejected: it would
+  put every consumer's fixed-width layout inside the substrate, and the formatter is
+  explicitly the caller's (`with_index`).
+- **Let the backing write through `store()`.** Rejected: `store()` applies the table's TTL,
+  which is exactly what a restore must not do.
+
+**Consequences:** A table with a backing can no longer report a miss the caller can
+distinguish from "absent everywhere" — that is the point, but a caller needing the
+distinction must ask the record directly. The backing is invoked on the read path, so a slow
+system of record becomes read latency; `lookup_multi()` batching and `locate_by()`'s memo are
+what keep that to one walk per reader rather than one per key.
+
+**Revisit if:** a consumer needs a miss to stay a miss (a negative cache), or a backing whose
+cost makes synchronous read-through wrong — at which point the fill belongs on a queue rather
+than in `lookup()`.

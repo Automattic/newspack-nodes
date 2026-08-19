@@ -142,6 +142,7 @@ Intentional, load-bearing choices — "fixing" one usually reintroduces a bug we
 | 15 | Command authorization — `Message::LOCAL` in-process, HMAC on the wire; the MINTER signs (never the ingress), session keys from `POST /v1/auth`, and the key choice is the destination binding | [ADR-15](docs/architecture-decisions.md#adr-15-command-authorization-local-taint--the-minter-signs) |
 | 16 | JS node-class resolution — a NAME is the TSL/palette surface; a programmatic builder hands `makeNode` the CLASS, because `includeNodes` is a per-bundle static | [ADR-16](docs/architecture-decisions.md#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api) |
 | 17 | Timers fire on a shared wall-clock GRID — ONE phase for every cadence, so harmonic intervals meet and batch | [ADR-17](docs/architecture-decisions.md#adr-17-timers-fire-on-a-shared-wall-clock-grid) |
+| 18 | A Table can front a durable record (`backed_by`); the walk that finds it (`locate_by` / `read_many`) stays in the app | [ADR-18](docs/architecture-decisions.md#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app) |
 
 ## Layout
 

@@ -84,6 +84,14 @@ class Partition_Node extends Timer_Node {
 
 	/** @var list<array{message:array<int,mixed>,size:int}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
+
+	/**
+	 * Locator tables per partition dir: `dir => [extent, key => position]`.
+	 * Shared across readers of one directory; see locate_by().
+	 *
+	 * @var array<string,array{0: string, 1: array<string,array{0: int, 1: int, 2: int}>}>
+	 */
+	private static array $locator_cache = [];
 	protected ?string $current_idx_path = null;
 	protected ?string $current_log_path = null;
 
@@ -397,10 +405,6 @@ class Partition_Node extends Timer_Node {
 			$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
 			$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
 		}
-	}
-
-	public function partition_dir(): string {
-		return $this->segment_dir();
 	}
 
 	public function __destruct() {
@@ -1032,12 +1036,49 @@ class Partition_Node extends Timer_Node {
 		return '';
 	}
 
-	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
-	public function get_segment_path( int $segment ): string {
-		if ( $segment < 0 ) {
-			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
+	/**
+	 * Map every key its index names to the newest record carrying it.
+	 *
+	 * ONE pass over the companion index, newest-first, so the first line for a
+	 * key IS its last write. The app supplies only the line format — `$extract`
+	 * returns `{ key, offset, length }`, or null for a line it does not
+	 * recognise — because Partition treats index lines as opaque and the
+	 * formatter that wrote them belongs to the caller.
+	 *
+	 * Cached against the partition's own EXTENT and shared by every reader of
+	 * this directory: a batch of misses costs one walk between them, and an
+	 * append invalidates rather than leaving a holder blind to what it wrote.
+	 *
+	 * @api Readers resolving many keys to positions before reading any of them.
+	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
+	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
+	 */
+	public function locate_by( \Closure $extract ): array {
+		$extent = '';
+		foreach ( $this->get_segments() as $segment ) {
+			$extent .= $segment['id'] . ':' . $segment['size'] . ',';
 		}
-		return "{$this->segment_dir()}/{$segment}.log";
+		$dir = $this->partition_dir();
+		if ( ( self::$locator_cache[ $dir ][0] ?? null ) === $extent ) {
+			return self::$locator_cache[ $dir ][1];
+		}
+		$locators = [];
+		$this->scan_index(
+			static function ( string $line, int $segment ) use ( $extract, &$locators ): bool {
+				$at = $extract( $line );
+				if ( null !== $at && ! isset( $locators[ $at['key'] ] ) ) {
+					$locators[ $at['key'] ] = [ $segment, $at['offset'], $at['length'] ];
+				}
+				return true;
+			},
+			true
+		);
+		self::$locator_cache[ $dir ] = [ $extent, $locators ];
+		return $locators;
+	}
+
+	public function partition_dir(): string {
+		return $this->segment_dir();
 	}
 
 	/**
@@ -1087,6 +1128,59 @@ class Partition_Node extends Timer_Node {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Read many located records, one file handle per SEGMENT rather than one
+	 * per record — `read_at()` opens and closes around every call, and a
+	 * recovery walk resolves hundreds of positions at once.
+	 *
+	 * @api Readers that resolved positions through locate_by().
+	 * @param array<array-key,array{0: int, 1: int, 2: int}> $positions caller key => [segment, offset, length].
+	 * @return array<array-key,array<int,mixed>> Decoded messages, under the caller's keys; torn records omitted.
+	 */
+	public function read_many( array $positions ): array {
+		$by_segment = [];
+		foreach ( $positions as $key => [ $segment, $offset, $length ] ) {
+			$by_segment[ $segment ][ $key ] = [ $offset, $length ];
+		}
+		$out = [];
+		foreach ( $by_segment as $segment => $wanted ) {
+			$path = $this->get_segment_path( $segment );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = \file_exists( $path ) ? @\fopen( $path, 'r' ) : false;
+			if ( false === $fh ) {
+				continue;
+			}
+			foreach ( $wanted as $key => [ $offset, $length ] ) {
+				if ( $offset < 0 || $length <= 0 ) {
+					continue;
+				}
+				@\fseek( $fh, $offset );
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+				$bytes = @\fread( $fh, $length );
+				if ( false === $bytes || '' === $bytes ) {
+					continue;
+				}
+				$this->bytes_read += \strlen( $bytes );
+				try {
+					$out[ $key ] = Message::unpacked( $bytes );
+				} catch ( \InvalidArgumentException ) {
+					continue;
+				}
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			@\fclose( $fh );
+		}
+		return $out;
+	}
+
+	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
+	public function get_segment_path( int $segment ): string {
+		if ( $segment < 0 ) {
+			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
+		}
+		return "{$this->segment_dir()}/{$segment}.log";
 	}
 
 	/**
