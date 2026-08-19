@@ -20,9 +20,10 @@
  * Single live connection: a send boots this link's SseIn, closing whichever
  * RemoteIpc held it (the same swap the console does when the cwd changes worker).
  * The PHP side will hold several at once — same composition, different start
- * policy. Both messages route through this link's OWN HttpOut as ONE POST
- * (lock/flush), so the per-request mount and the command land in the same server
- * process.
+ * policy. Both messages route through the process-wide `_http` singleton as ONE
+ * POST (lock/flush), so the per-request mount and the command land in the same
+ * server process. The mount serves that whole POST rather than this send, so
+ * `_http` — which owns the POST — is asked whether it has already been sent.
  */
 
 import { Core } from './core';
@@ -51,8 +52,6 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		this.reader = '';
 		// Attached IPC, not a subscription: keep worker TO=FROM, don't re-home.
 		this.rehomeReceived = false;
-		// _http batch this node last mounted its worker in; -1 = none yet.
-		this.mountedIn = -1;
 	}
 
 	/**
@@ -73,16 +72,15 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 */
 	set arguments( value ) {
 		this.reader = '';
-		// A re-pointed node has mounted nothing for its new reader.
-		this.mountedIn = -1;
 		super.arguments = value;
 	}
 
 	/**
 	 * Send path: a command routed in via TO={local-name} (the Router peeled this
 	 * node's name). Boot/steal the live connection, then route the bundled
-	 * `[connect_worker_input, command]` pair through this link's own HttpOut as
-	 * one POST.
+	 * `[connect_worker_input, command]` pair through the shared `_http` as one
+	 * POST. The mount rides once per batch, not once per send — `_http` owns
+	 * that claim, so it cannot outlive the batch it describes.
 	 *
 	 * @param {Array} message Positional Message; TO is the remainder past {worker}.
 	 */
@@ -103,26 +101,36 @@ export class RemoteIpcNode extends RemoteLinkNode {
 
 		// One POST: ride a pre-existing lock, else open one around this pair.
 		const h = Core.node( names.HTTP );
+		if ( ! h ) {
+			// Mid-rebuild: no reply is deliverable, but silence reads as a 202.
+			this.dropMessage( message, 'NOT_AVAILABLE' );
+			return;
+		}
 		const pre = h.locked;
-		if ( ! pre ) {
-			h.lock();
-		}
+		h.lock();
 
-		// Idempotent and serves the whole POST, so it rides once per batch.
-		if ( this.mountedIn !== h.batch ) {
-			// Our own mint beside the Shell's; TO after, since it isn't signed.
-			const connect = this.command( 'connect_worker_input', [ reader ] );
-			if ( null === connect ) {
-				return; // unauthenticated; re-auth is under way
+		try {
+			// Idempotent and serves the whole POST, so it rides once per batch.
+			const mount = `mount:${ reader }`;
+			if ( h.onceInBatch( mount ) ) {
+				// Our own mint beside the Shell's; TO after — it isn't signed.
+				const connect = this.command( 'connect_worker_input', [
+					reader,
+				] );
+				if ( null === connect ) {
+					return; // unauthenticated; re-auth is under way
+				}
+				connect[ TO ] = 'topologies';
+				h.fill( connect );
+				h.claimInBatch( mount );
 			}
-			connect[ TO ] = 'topologies';
-			h.fill( connect );
-			this.mountedIn = h.batch;
-		}
 
-		h.fill( command );
-		if ( ! pre ) {
-			h.flush();
+			h.fill( command );
+		} finally {
+			// Whoever opened the lock owes the flush, on every way out.
+			if ( ! pre ) {
+				h.flush();
+			}
 		}
 	}
 

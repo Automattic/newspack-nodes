@@ -1,10 +1,11 @@
 /**
  * HttpOut tests — the outbound `/command` POST boundary. `_router` (or the link
- * that owns it) delivers a single positional Message with TO already routed; HttpOut
- * POSTs it verbatim. The worker-attach `connect_worker_input` bundling moved up into
- * RemoteIpc (which owns its own HttpOut), so HttpOut itself is dumb: POST what it's
- * given, route every synchronous reply back into its sink (replies route by TO now —
- * there is no `_sse` convergence node).
+ * that owns it) delivers a single positional Message with TO already routed;
+ * HttpOut POSTs it verbatim. The worker-attach `connect_worker_input` bundling
+ * moved up into RemoteIpc, which asks `onceInBatch()` rather than sending it
+ * every time, so HttpOut itself is dumb: POST what it's given, route every
+ * synchronous reply back into its sink (replies route by TO now — there is no
+ * `_sse` convergence node).
  */
 
 import { HttpOutNode } from '../http-out-node';
@@ -565,5 +566,54 @@ describe( 'HttpOut — an undelivered command', () => {
 		await new Promise( ( r ) => setTimeout( r, 0 ) );
 
 		expect( sent ).toEqual( [] );
+	} );
+} );
+
+describe( 'HttpOut — a per-batch claim', () => {
+	beforeEach( () => {
+		require( '../core' ).Core.reset();
+	} );
+
+	it( 'still needs a key until it is claimed, then never again', () => {
+		const { node } = makeNode();
+
+		node.lock();
+
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( true );
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( true );
+		node.claimInBatch( 'mount:complete.p3' );
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( false );
+	} );
+
+	it( 'keeps distinct keys independent within one batch', () => {
+		const { node } = makeNode();
+
+		node.lock();
+
+		node.claimInBatch( 'mount:complete.p3' );
+
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( false );
+		expect( node.onceInBatch( 'mount:aggregator.p7' ) ).toBe( true );
+	} );
+
+	it( 'grants the key again in the next batch', () => {
+		const { node } = makeNode();
+
+		node.lock();
+		node.claimInBatch( 'mount:complete.p3' );
+		node.flush();
+		node.lock();
+
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( true );
+	} );
+
+	it( 'treats a re-lock inside an open one as the same batch', () => {
+		const { node } = makeNode();
+
+		node.lock();
+		node.claimInBatch( 'mount:complete.p3' );
+		node.lock();
+
+		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( false );
 	} );
 } );

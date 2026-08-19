@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **An unauthenticated send left `_http` locked.** `RemoteIpcNode::fill()` returned early when `command()` refused to mint — re-auth under way — without flushing the lock it had just opened, so every later direct `fill()` silently buffered until the next Router tick POSTed the pile. The lock/flush bracket is now `try`/`finally`, which also releases it if anything in the block throws.
+- **A send during a backbone rebuild threw instead of dropping.** `RemoteIpcNode::fill()` and `RemoteLinkNode::send()`/`ensureChildren()` dereferenced `Core.node( '_http' )` unguarded, between `teardownBackbone()` and `mountBackbone()`; from `fill()` the `TypeError` unwound out of `notifyTimer()` and killed the rest of that tick's pollers. All three now guard, as `RouterNode::fireCb()` already did. The two that discard a delivery say so through `dropMessage()` — no reply is deliverable in that window, but silence reads exactly like a 202.
+
+### Changed
+- **`scripts/lint-contract.mjs` now gates `src/runtime/` too.** The whole directory was exempt as "code that legitimately implements the routing itself", which is true of four files and not of the other 34 — so the substrate, where these shapes get invented before consumers copy them, was the one tree with no mechanical contract check. The exemption is now those four by name. Validated at zero new failures across all six plugins.
+- **The per-batch mount rule moved onto the boundary that owns the batch.** `HttpOut` published a monotonic `batch` id in 2.35.1 and `RemoteIpc` kept a memo against it — plus a second field naming the `HttpOut` that issued it, since a rebuilt backbone restarts the count at 0. Both are gone: `HttpOut::onceInBatch( key )` answers whether a key still needs sending in the open batch and `claimInBatch( key )` records that it is in — two steps, because minting can fail between them and a claim taken for a message that never reached the buffer would let the next sender skip a mount that never went out. `flush()` clears the set, so a claim dies with the POST it describes and cannot disagree with it, and a replacement `HttpOut` starts with nothing claimed by construction rather than by a paired guard. `HttpOut` stays dumb — the key is opaque to it, and the sender still decides what to send.
+
 ## [2.35.1] - 2026-08-18
 
 ### Fixed

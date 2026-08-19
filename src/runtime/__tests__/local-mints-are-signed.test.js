@@ -12,6 +12,7 @@
  */
 import { Core } from '../core';
 import { HeartbeatNode } from '../heartbeat-node';
+import { HttpOutNode } from '../http-out-node';
 import { RemoteIpcNode } from '../remote-ipc-node';
 import { ensureSession, forgetSession, __setAuthFetch } from '../command-auth';
 import { newMessage, TYPE, TO, VALUE, LOCAL, TM_COMMAND } from '../message';
@@ -85,15 +86,15 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		node.pid = () => 7;
 		node.connect = () => {};
 		// The ONE `_http` boundary; RemoteIpc no longer aliases it per-link.
-		Core.registerNode( '_http', {
-			locked: true,
-			// The real HttpOut carries one; RemoteIpc keys its per-batch
-			// worker mount to it.
-			batch: 1,
-			lock: () => {},
-			flush: () => {},
-			fill: ( m ) => sent.push( m ),
-		} );
+		// The REAL node, not a literal: RemoteIpc asks it about the batch.
+		const http = new HttpOutNode();
+		http.client = {
+			postBatch: ( messages ) => {
+				sent.push( ...messages );
+				return Promise.resolve( [] );
+			},
+		};
+		Core.registerNode( '_http', http );
 
 		const typed = newMessage();
 		typed[ TYPE ] = TM_COMMAND;
