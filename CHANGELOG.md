@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.35.2] - 2026-08-18
+
 ### Fixed
 - **An unauthenticated send left `_http` locked.** `RemoteIpcNode::fill()` returned early when `command()` refused to mint — re-auth under way — without flushing the lock it had just opened, so every later direct `fill()` silently buffered until the next Router tick POSTed the pile. The lock/flush bracket is now `try`/`finally`, which also releases it if anything in the block throws.
 - **A send during a backbone rebuild threw instead of dropping.** `RemoteIpcNode::fill()` and `RemoteLinkNode::send()`/`ensureChildren()` dereferenced `Core.node( '_http' )` unguarded, between `teardownBackbone()` and `mountBackbone()`; from `fill()` the `TypeError` unwound out of `notifyTimer()` and killed the rest of that tick's pollers. All three now guard, as `RouterNode::fireCb()` already did. The two that discard a delivery say so through `dropMessage()` — no reply is deliverable in that window, but silence reads exactly like a 202.
