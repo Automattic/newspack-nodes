@@ -343,6 +343,28 @@ final class Cache_Backend {
 	}
 
 	/**
+	 * Write many entries under ONE ttl in a single round trip — the write-side
+	 * counterpart of `read_multi()`, for a caller that just resolved a page of
+	 * misses and would otherwise pay a round trip per key.
+	 *
+	 * One TTL per call because both backends take it that way; a caller with
+	 * mixed lifetimes groups by TTL and calls once per group.
+	 *
+	 * @param array<string,mixed> $items Cache key => value.
+	 * @param int                 $ttl   Expiry in seconds; 0 = no expiry.
+	 */
+	public function write_multi( array $items, int $ttl ): void {
+		if ( [] === $items ) {
+			return;
+		}
+		if ( null !== $this->memd ) {
+			$this->memd->setMulti( $items, $ttl );
+			return;
+		}
+		\apcu_store( $items, null, $ttl );
+	}
+
+	/**
 	 * Rotate the salt: every key on this install is orphaned at once, and no
 	 * co-tenant's is touched. THE flush — plugins do not keep their own.
 	 */

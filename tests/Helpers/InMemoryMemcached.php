@@ -126,6 +126,17 @@ class InMemoryMemcached extends \Memcached {
 		return true;
 	}
 
+	/**
+	 * @param array<string,mixed> $items
+	 */
+	public function setMulti( array $items, int $expiration = 0 ): bool {
+		$ok = true;
+		foreach ( $items as $key => $value ) {
+			$ok = $this->set( (string) $key, $value, $expiration ) && $ok;
+		}
+		return $ok;
+	}
+
 	public function add( string $key, mixed $value, int $expiration = 0 ): bool {
 		$this->get( $key );
 		if ( \Memcached::RES_SUCCESS === $this->result_code ) {

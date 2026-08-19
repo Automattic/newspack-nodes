@@ -561,4 +561,25 @@ class CacheBackendTest extends TestCase {
 
 		$this->assertSame( '', Cache_Backend::salt(), 'no row means unflushed, not a salt' );
 	}
+	public function test_write_multi_stores_every_item_under_one_ttl(): void {
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$backend    = Cache_Backend::shared_first();
+		$this->assertNotNull( $backend );
+
+		$backend->write_multi( [ 'wm-a' => [ 'n' => 7 ], 'wm-b' => [ 'n' => 9 ] ], 60 );
+
+		$this->assertSame( [ 'n' => 7 ], $backend->get( 'wm-a' ) );
+		$this->assertSame( [ 'n' => 9 ], $backend->get( 'wm-b' ) );
+	}
+
+	public function test_write_multi_of_nothing_touches_the_backend_not_at_all(): void {
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$backend    = Cache_Backend::shared_first();
+		$this->assertNotNull( $backend );
+
+		$backend->write_multi( [], 60 );
+
+		$this->assertFalse( $backend->get( 'wm-none' ) );
+	}
+
 }

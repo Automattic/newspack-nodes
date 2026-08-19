@@ -1049,6 +1049,11 @@ class Partition_Node extends Timer_Node {
 	 * this directory: a batch of misses costs one walk between them, and an
 	 * append invalidates rather than leaving a holder blind to what it wrote.
 	 *
+	 * That cache is keyed by DIRECTORY, so it assumes one index format per
+	 * directory — which is what `with_index` already means. Two readers of one
+	 * dir passing different `$extract` parsers would share the first one's
+	 * table, and the second's keys would all read as misses.
+	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
 	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
@@ -1146,6 +1151,9 @@ class Partition_Node extends Timer_Node {
 		}
 		$out = [];
 		foreach ( $by_segment as $segment => $wanted ) {
+			if ( $segment < 0 ) {
+				continue; // Bounds-checked like read_at(), which never throws.
+			}
 			$path = $this->get_segment_path( $segment );
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
 			$fh = \file_exists( $path ) ? @\fopen( $path, 'r' ) : false;

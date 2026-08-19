@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Cache_Backend::write_multi()`** — the write-side counterpart of `read_multi()`. `Table_Node`'s read-through resolved a page of misses in one round trip and then stored them back one key at a time, which put the latency cliff back on the write half; it now groups by lifetime and writes once per distinct TTL.
+
 ## [2.35.0] - 2026-08-18
 
 ### Added
