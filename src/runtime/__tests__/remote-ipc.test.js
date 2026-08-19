@@ -112,6 +112,46 @@ describe( 'RemoteIpcNode', () => {
 		expect( ipc.arguments ).toEqual( [ 'combined.p7' ] );
 	} );
 
+	// The Router brackets every tick in _http.lock()/flush() (router-node.js),
+	// so N poller sends to one worker ride ONE POST — and each was dragging its
+	// own identical mount.
+	it( 'mounts the worker once per batch however many commands ride it', () => {
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
+		const http = Core.node( names.HTTP );
+
+		http.lock();
+		node.fill( command( { from: '_metadata' } ) );
+		node.fill( command( { from: 'uptime' } ) );
+		http.flush();
+
+		const mounts = posted.filter(
+			( m ) => m[ VALUE ]?.name === 'connect_worker_input'
+		);
+		expect( mounts ).toHaveLength( 1 );
+		expect( posted ).toHaveLength( 3 );
+	} );
+
+	it( 'mounts the worker again in the next batch', () => {
+		// The memo is keyed to the batch, not to the node: a later tick must
+		// re-mount, or its command routes to a graph that never mounted one.
+		const { interpreter } = mountExospine();
+		const node = makeRemoteIpc( 'aggregator-hub.p0', interpreter );
+		const http = Core.node( names.HTTP );
+
+		http.lock();
+		node.fill( command( { from: '_metadata' } ) );
+		http.flush();
+		http.lock();
+		node.fill( command( { from: 'uptime' } ) );
+		http.flush();
+
+		const mounts = posted.filter(
+			( m ) => m[ VALUE ]?.name === 'connect_worker_input'
+		);
+		expect( mounts ).toHaveLength( 2 );
+	} );
+
 	it( 'is registered at the runtime level so the console resolves it via make_node', () => {
 		expect( CommandInterpreterNode.includeNodes.RemoteIpc ).toBe(
 			RemoteIpcNode

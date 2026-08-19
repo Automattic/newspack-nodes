@@ -51,6 +51,8 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		this.reader = '';
 		// Attached IPC, not a subscription: keep worker TO=FROM, don't re-home.
 		this.rehomeReceived = false;
+		// _http batch this node last mounted its worker in; -1 = none yet.
+		this.mountedIn = -1;
 	}
 
 	/**
@@ -71,6 +73,8 @@ export class RemoteIpcNode extends RemoteLinkNode {
 	 */
 	set arguments( value ) {
 		this.reader = '';
+		// A re-pointed node has mounted nothing for its new reader.
+		this.mountedIn = -1;
 		super.arguments = value;
 	}
 
@@ -97,20 +101,25 @@ export class RemoteIpcNode extends RemoteLinkNode {
 		command[ TO ] =
 			'' === remainder ? reader : `${ reader }/${ remainder }`;
 
-		// Our own mint beside the Shell's; TO after, since it isn't signed.
-		const connect = this.command( 'connect_worker_input', [ reader ] );
-		if ( null === connect ) {
-			return; // unauthenticated; re-auth is under way
-		}
-		connect[ TO ] = 'topologies';
-
 		// One POST: ride a pre-existing lock, else open one around this pair.
 		const h = Core.node( names.HTTP );
 		const pre = h.locked;
 		if ( ! pre ) {
 			h.lock();
 		}
-		h.fill( connect );
+
+		// Idempotent and serves the whole POST, so it rides once per batch.
+		if ( this.mountedIn !== h.batch ) {
+			// Our own mint beside the Shell's; TO after, since it isn't signed.
+			const connect = this.command( 'connect_worker_input', [ reader ] );
+			if ( null === connect ) {
+				return; // unauthenticated; re-auth is under way
+			}
+			connect[ TO ] = 'topologies';
+			h.fill( connect );
+			this.mountedIn = h.batch;
+		}
+
 		h.fill( command );
 		if ( ! pre ) {
 			h.flush();

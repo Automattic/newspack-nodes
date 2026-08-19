@@ -87,6 +87,9 @@ describe( 'Remote_IPC bundles a signed connect', () => {
 		// The ONE `_http` boundary; RemoteIpc no longer aliases it per-link.
 		Core.registerNode( '_http', {
 			locked: true,
+			// The real HttpOut carries one; RemoteIpc keys its per-batch
+			// worker mount to it.
+			batch: 1,
 			lock: () => {},
 			flush: () => {},
 			fill: ( m ) => sent.push( m ),

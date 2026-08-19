@@ -70,6 +70,8 @@ export class HttpOutNode extends Node {
 		// When locked, fill() buffers; flush() drains it as ONE postBatch.
 		this.locked = false;
 		this.buffer = [];
+		// Monotonic batch id: this owns the boundary, so it owns the identity.
+		this.batch = 0;
 	}
 
 	/**
@@ -193,6 +195,10 @@ export class HttpOutNode extends Node {
 	 * emissions ride out in a single request.
 	 */
 	lock() {
+		// A re-lock inside an open one is not a new batch.
+		if ( ! this.locked ) {
+			this.batch++;
+		}
 		this.locked = true;
 	}
 

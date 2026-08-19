@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A worker was mounted once per command instead of once per POST.** `RemoteIpcNode` minted a `connect_worker_input` on every send, and `RouterNode::fireCb()` brackets a whole tick in `_http`'s lock — so N poller commands to one worker rode one POST dragging N identical mounts. `HttpOut` now carries a monotonic `batch` id (it owns the boundary, so it owns the identity) and `RemoteIpc` mounts once per batch. The mount is idempotent, so the duplicates were waste rather than error: one HMAC verify and one single-use nonce claim — a cache round trip — per redundant copy. Keyed to the BATCH rather than to `locked`, because with the Router holding the lock every send sees a pre-existing one and a `locked`-keyed memo would never reset.
+
 ## [2.35.0] - 2026-08-18
 
 ### Added
