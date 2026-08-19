@@ -40,6 +40,14 @@ class Table_Node extends Node {
 	/** In-memory accumulator, or null until accumulator() opts in. */
 	private ?LRU_Cache $buffer = null;
 
+	/**
+	 * Durable system of record behind this table, or null until backed_by()
+	 * opts in. Invoked with the keys a read missed on.
+	 *
+	 * @var (\Closure(list<string>): array<array-key,array{value: mixed, ttl?: int}>)|null
+	 */
+	private ?\Closure $backing = null;
+
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter that serves `get` / `rm`. */
 	public function __construct() {
 		parent::__construct();
@@ -156,7 +164,14 @@ class Table_Node extends Node {
 		foreach ( $fetched as $entry_key => $value ) {
 			$found[ $entry_keys[ $entry_key ] ] = $value;
 		}
-		return $found;
+		// ONE backing call for every miss; per-key defeats this round trip.
+		$missed = [];
+		foreach ( $keys as $key ) {
+			if ( ! \array_key_exists( $key, $found ) ) {
+				$missed[] = $key;
+			}
+		}
+		return $found + $this->read_through( $missed );
 	}
 
 	/**
@@ -239,9 +254,40 @@ class Table_Node extends Node {
 			Core::print_less_often( 'Table: backend read error for ', "{$this->namespace}:{$key}" );
 		}
 		if ( Cache_Backend::READ_HIT !== ( $read['status'] ?? null ) ) {
-			return null;
+			return $this->read_through( [ $key ] )[ $key ] ?? null;
 		}
 		return $read['value'];
+	}
+
+	/**
+	 * Fill missed keys from the durable backing and store each, so the next
+	 * read hits the table instead of the system of record.
+	 *
+	 * An entry may carry its OWN remaining lifetime. That does not reopen the
+	 * table's "one table, one lifetime" rule, which governs what a CALLER
+	 * stores: a backing is re-materializing an entry that already had a life,
+	 * and giving it a fresh full TTL would extend what it is restoring. A
+	 * lifetime already spent stores nothing and reads as the miss it is.
+	 *
+	 * @param list<string> $keys Keys that missed.
+	 * @return array<string,mixed> Values recovered, under the caller's keys.
+	 */
+	private function read_through( array $keys ): array {
+		if ( [] === $keys || null === $this->backing ) {
+			return [];
+		}
+		$out = [];
+		foreach ( ( $this->backing )( $keys ) as $key => $entry ) {
+			// A STATED lifetime that ran out is a miss, not a resurrection.
+			if ( isset( $entry['ttl'] ) && $entry['ttl'] <= 0 ) {
+				continue;
+			}
+			$ttl = $entry['ttl'] ?? $this->ttl;
+			// Best-effort: a dead backend must not turn a read into a miss.
+			Cache_Backend::shared_first()?->set( self::entry_key( $this->namespace, (string) $key ), $entry['value'], $ttl );
+			$out[ (string) $key ] = $entry['value'];
+		}
+		return $out;
 	}
 
 	/**
@@ -292,6 +338,29 @@ class Table_Node extends Node {
 	 */
 	public function accumulator( int $bucket_size, int $num_buckets ): self {
 		$this->buffer = new LRU_Cache( $bucket_size, $num_buckets );
+		return $this;
+	}
+
+	/**
+	 * Opt in to a durable system of record behind this table.
+	 *
+	 * A table is a CACHE of something when it has one: `lookup()` and
+	 * `lookup_multi()` fall through on a miss, store what comes back, and
+	 * return it, so every caller reads one API and the durable tier is asked
+	 * once per miss rather than once per caller.
+	 *
+	 * The closure takes the keys that missed and returns
+	 * `key => { value, ttl? }` for whichever of them the record still holds;
+	 * absent keys stay absent. `ttl` is that entry's REMAINING life — omit it
+	 * to store under the table's own.
+	 *
+	 * @api Callers whose table fronts a durable source (a partition, an option).
+	 * @param \Closure(list<string>): array<array-key,array{value: mixed, ttl?: int}> $backing Durable reader.
+	 *        A numeric-string key comes back int, so the shape is array-key.
+	 * @return self For chaining off table().
+	 */
+	public function backed_by( \Closure $backing ): self {
+		$this->backing = $backing;
 		return $this;
 	}
 

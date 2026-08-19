@@ -3472,6 +3472,103 @@ class PartitionTest extends TestCase {
 		$p->arguments( [ "{$this->tmp}.p0", '1', '2', '4', '0', '0', '86400', '0' ] );
 		$this->assertStringContainsString( "{$this->tmp}.p0 1 ", $p->dump_config() );
 	}
+	/** Write N indexed records and return the partition over them. */
+	private function indexed_partition( string $suffix, int $count ): Partition_Node {
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.{$suffix}" ] );
+		$p->void_warranty();
+		// key(8) offset(10) length(8): the app owns the line, Partition the walk.
+		$p->with_index(
+			static fn ( array $message, array $position ): string =>
+				\str_pad( Core::as_string( $message[ Message::KEY ], '' ), 8 )
+				. \str_pad( (string) $position['offset'], 10, '0', STR_PAD_LEFT )
+				. \str_pad( (string) $position['length'], 8, '0', STR_PAD_LEFT )
+		);
+		for ( $i = 1; $i <= $count; $i++ ) {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$msg[ Message::KEY ]   = "k{$i}";
+			$msg[ Message::VALUE ] = "value {$i}";
+			$p->fill( $msg );
+		}
+		$p->flush();
+		return $p;
+	}
+
+	/** The app's half of the line: key plus where the record sits. */
+	private static function unpack_index_line( string $line ): ?array {
+		return \strlen( \rtrim( $line, "\n" ) ) < 26 ? null : [
+			'key'    => \trim( \substr( $line, 0, 8 ) ),
+			'offset' => (int) \substr( $line, 8, 10 ),
+			'length' => (int) \substr( $line, 18, 8 ),
+		];
+	}
+
+	public function test_locate_by_maps_every_key_to_its_newest_record(): void {
+		$p = $this->indexed_partition( 'locate', 3 );
+
+		$found = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+
+		$this->assertSame( [ 'k3', 'k2', 'k1' ], \array_keys( $found ), 'newest first, one entry per key' );
+		$this->assertCount( 3, $found['k1'] );
+	}
+
+	public function test_locate_by_rebuilds_when_the_partition_grows(): void {
+		$p     = $this->indexed_partition( 'grow', 1 );
+		$first = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$this->assertSame( [ 'k1' ], \array_keys( $first ) );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::KEY ]   = 'k2';
+		$msg[ Message::VALUE ] = 'later';
+		$p->fill( $msg );
+		$p->flush();
+
+		$after = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$this->assertArrayHasKey( 'k2', $after, 'an append invalidates the table it would otherwise be blind to' );
+	}
+
+	public function test_read_many_returns_each_located_record(): void {
+		$p        = $this->indexed_partition( 'readmany', 3 );
+		$locators = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+
+		$records = $p->read_many( [ 'a' => $locators['k1'], 'b' => $locators['k3'] ] );
+
+		$this->assertSame( 'value 1', $records['a'][ Message::VALUE ] );
+		$this->assertSame( 'value 3', $records['b'][ Message::VALUE ] );
+	}
+
+	public function test_an_index_line_is_visible_to_another_reader_at_once(): void {
+		// The frame bytes and its index entry must land together: a reader that
+		// can see the record but not its locator cannot find the record.
+		$dir    = "{$this->tmp}.idxvis";
+		$writer = new Partition_Node();
+		$writer->arguments( [ $dir ] );
+		$writer->void_warranty();
+		$writer->with_index( static fn ( array $message, array $position ): string => 'k' . \str_pad( (string) $position['offset'], 10, '0', STR_PAD_LEFT ) );
+
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::KEY ]       = 'only';
+		$msg[ Message::VALUE ]     = 'a short record';
+		$writer->fill( $msg );
+		$writer->flush();
+
+		$reader = new Partition_Node();
+		$reader->arguments( [ $dir ] );
+		$reader->with_index( static fn ( array $message, array $position ): string => '' );
+		$seen = 0;
+		$reader->scan_index(
+			static function ( string $line, int $segment ) use ( &$seen ): bool {
+				++$seen;
+				return true;
+			}
+		);
+
+		$this->assertSame( 1, $seen, 'the index entry is on disk as soon as its record is' );
+	}
+
 }
 
 /**
