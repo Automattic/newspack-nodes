@@ -158,7 +158,7 @@ const REQUIRED_ROLE_PAIRS = [
 	[ 'topology-palette__toggle', 'newspack-nodes-rail-toggle' ],
 	[ 'triage-view__status', 'newspack-nodes-status' ],
 	[ 'test-status', 'newspack-nodes-status' ],
-	[ 'nodes-vault__add-status', 'newspack-nodes-status' ],
+	[ 'nodes-vault__save-status', 'newspack-nodes-status' ],
 	[ 'newspack-nodes-connection-banner', 'newspack-nodes-error-banner' ],
 ];
 const SURFACE_SELECTORS = new Set( [

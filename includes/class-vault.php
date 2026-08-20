@@ -132,8 +132,14 @@ class Vault {
 	}
 
 	/**
-	 * Partial-update an existing server. Whitelists keys, merges with current
-	 * config, then validates the result.
+	 * Partial-update an existing server, optionally under a NEW id. Whitelists
+	 * keys, merges with current config, then validates the result.
+	 *
+	 * The id is a field like any other on an edit form, so a rename rides the
+	 * same call rather than a verb of its own: both halves land in ONE option
+	 * write, and a refused move applies nothing. The entry carries every stored
+	 * key across, validated or not — the operator editing a spoke never retypes
+	 * a credential, and never silently loses one this projection cannot see.
 	 *
 	 * Config-file servers are fully immutable — URL and credentials are pinned
 	 * by the file, so update() is a no-op (returns false) for those entries.
@@ -141,8 +147,9 @@ class Vault {
 	 * @api
 	 * @param string $id      Server ID.
 	 * @param array<string,mixed>  $partial Partial configuration to merge.
+	 * @param string $new_id  Id to move the entry to; '' keeps the current one.
 	 */
-	public function update( string $id, array $partial ): bool {
+	public function update( string $id, array $partial, string $new_id = '' ): bool {
 		if ( ! self::is_valid_id( $id ) ) {
 			return false;
 		}
@@ -156,6 +163,13 @@ class Vault {
 			return false;
 		}
 
+		// The entry keeps its id unless a valid, unclaimed one is asked for.
+		$target   = '' === $new_id ? $id : $new_id;
+		$renaming = $target !== $id;
+		if ( $renaming && ( ! self::is_valid_id( $target ) || isset( $all[ $target ] ) ) ) {
+			return false;
+		}
+
 		// Whitelist keys before merge.
 		$partial = \array_intersect_key( $partial, \array_flip( self::ALLOWED_KEYS ) );
 
@@ -165,18 +179,27 @@ class Vault {
 			return false;
 		}
 
-		$wp_servers        = $this->get_wp_servers();
-		$wp_servers[ $id ] = $validated;
+		$wp_servers = $this->get_wp_servers();
+		if ( $renaming ) {
+			// One write does the move; no reader sees both ids or neither.
+			unset( $wp_servers[ $id ] );
+		}
+		// `+` carries stored keys the projection can't see, `token` among them.
+		$wp_servers[ $target ] = $validated + $merged;
 
 		self::write_option( $wp_servers );
 		$this->servers = null;
 
 		$verify = $this->get_wp_servers();
-		if ( ! isset( $verify[ $id ] ) ) {
+		if ( ! isset( $verify[ $target ] ) || ( $renaming && isset( $verify[ $id ] ) ) ) {
 			return false;
 		}
 
-		$this->audit( 'updated', $id, \array_keys( $partial ) );
+		if ( $renaming ) {
+			$this->audit( 'renamed', $target, \array_keys( $partial ), "from={$id}" );
+		} else {
+			$this->audit( 'updated', $id, \array_keys( $partial ) );
+		}
 		return true;
 	}
 
@@ -301,22 +324,25 @@ class Vault {
 	 * Goes to error_log (not LogManager) intentionally: avoids feedback loops if
 	 * the log pipeline itself is unhealthy.
 	 *
-	 * @param string $action Verb: added | updated | removed | registered.
+	 * @param string $action Verb: added | updated | renamed | removed | registered.
 	 * @param string $id     Server ID acted upon.
 	 * @param array<string>  $fields Field names (sanitized — never values).
+	 * @param string $detail One extra `key=value` token, for what $id cannot say.
 	 */
-	private function audit( string $action, string $id, array $fields ): void {
+	private function audit( string $action, string $id, array $fields, string $detail = '' ): void {
 		$user_id  = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		$ts       = \gmdate( 'c' );
 		$fieldstr = empty( $fields ) ? '' : ' fields=' . \implode( ',', $fields );
+		$detail   = '' === $detail ? '' : " {$detail}";
 		Core::stderr(
 			\sprintf(
-				'[NewspackNodes] Vault %s id=%s user=%d ts=%s%s',
+				'[NewspackNodes] Vault %s id=%s user=%d ts=%s%s%s',
 				$action,
 				$id,
 				$user_id,
 				$ts,
-				$fieldstr
+				$fieldstr,
+				$detail
 			)
 		);
 	}

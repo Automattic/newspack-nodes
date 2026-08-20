@@ -151,6 +151,111 @@ final class VaultTest extends TestCase {
 	}
 
 	// ---------------------------------------------------------------------
+	// update — the id itself is editable, and the move is one write.
+	// ---------------------------------------------------------------------
+
+	public function test_update_moves_the_entry_to_a_new_id_carrying_its_credentials(): void {
+		$vault = Vault::get_instance();
+		$this->assertTrue( $vault->add( 'vault-was-4471', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-4471',
+			'auth_password' => 'vault-pw-8823',
+		] ) );
+		$vault->reset_cache();
+
+		$this->assertTrue( $vault->update( 'vault-was-4471', [ 'url' => 'https://after.example' ], 'vault-now-6612' ) );
+
+		$vault->reset_cache();
+		$this->assertNull( $vault->get( 'vault-was-4471' ), 'the old id must not survive the move' );
+		$moved = $vault->get( 'vault-now-6612' );
+		$this->assertNotNull( $moved );
+		$this->assertSame( 'https://after.example', $moved['url'] );
+		// Credentials ride along: an edit that renames must not silently drop them.
+		$this->assertSame( 'vault-user-4471', $moved['auth_username'] );
+		$this->assertSame( 'vault-pw-8823', $moved['auth_password'] );
+	}
+
+	// @longform An edit rebuilds the entry from validate_config()'s three-key
+	// projection, so any OTHER stored key would be dropped by the write-back.
+	// `token` is one: credential_header() documents a token-only spoke, and
+	// Remote_Link reads it. Editing a URL must not silently deauthorize a spoke.
+	public function test_update_preserves_stored_keys_it_does_not_validate(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035' ],
+		] );
+		$vault = Vault::get_instance();
+		$vault->reset_cache();
+
+		$this->assertTrue( $vault->update( 'vault-tok-6035', [ 'url' => 'https://after.example' ] ) );
+
+		$vault->reset_cache();
+		$kept = $vault->get( 'vault-tok-6035' );
+		$this->assertSame( 'https://after.example', $kept['url'] );
+		$this->assertSame( 'bearer-tok-6035', $kept['token'] );
+	}
+
+	public function test_update_carries_unvalidated_keys_through_a_rename(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'vault-tok-6035' => [ 'url' => 'https://before.example', 'token' => 'bearer-tok-6035' ],
+		] );
+		$vault = Vault::get_instance();
+		$vault->reset_cache();
+
+		$this->assertTrue( $vault->update( 'vault-tok-6035', [], 'vault-tok-7791' ) );
+
+		$vault->reset_cache();
+		$this->assertSame( 'bearer-tok-6035', $vault->get( 'vault-tok-7791' )['token'] );
+	}
+
+	public function test_update_keeps_the_id_when_no_new_one_is_named(): void {
+		$vault = Vault::get_instance();
+		$vault->add( 'vault-stay-2290', [ 'url' => 'https://before.example' ] );
+		$vault->reset_cache();
+
+		$this->assertTrue( $vault->update( 'vault-stay-2290', [ 'url' => 'https://after.example' ] ) );
+
+		$vault->reset_cache();
+		$this->assertSame( 'https://after.example', $vault->get( 'vault-stay-2290' )['url'] );
+	}
+
+	public function test_update_refuses_a_new_id_that_is_already_taken(): void {
+		$vault = Vault::get_instance();
+		$vault->add( 'vault-from-3318', [ 'url' => 'https://from.example' ] );
+		$vault->add( 'vault-onto-9074', [ 'url' => 'https://onto.example' ] );
+		$vault->reset_cache();
+
+		$this->assertFalse( $vault->update( 'vault-from-3318', [], 'vault-onto-9074' ) );
+
+		$vault->reset_cache();
+		// Neither entry moved, and the occupant kept its own URL.
+		$this->assertSame( 'https://from.example', $vault->get( 'vault-from-3318' )['url'] );
+		$this->assertSame( 'https://onto.example', $vault->get( 'vault-onto-9074' )['url'] );
+	}
+
+	public function test_update_refuses_a_malformed_new_id(): void {
+		$vault = Vault::get_instance();
+		$vault->add( 'vault-keep-7735', [ 'url' => 'https://before.example' ] );
+		$vault->reset_cache();
+
+		$this->assertFalse( $vault->update( 'vault-keep-7735', [ 'url' => 'https://after.example' ], 'not a valid id!' ) );
+
+		$vault->reset_cache();
+		// A refused move applies nothing at all — not even the valid field.
+		$this->assertSame( 'https://before.example', $vault->get( 'vault-keep-7735' )['url'] );
+	}
+
+	public function test_update_refuses_to_rename_a_config_file_server(): void {
+		$this->seed_config_servers( [ 'vault-cfg-5528' => [ 'url' => 'https://pinned.example' ] ] );
+		$vault = Vault::get_instance();
+
+		$this->assertFalse( $vault->update( 'vault-cfg-5528', [], 'vault-moved-5528' ) );
+
+		$vault->reset_cache();
+		$this->assertNull( $vault->get( 'vault-moved-5528' ) );
+		$this->assertNotNull( $vault->get( 'vault-cfg-5528' ) );
+	}
+
+	// ---------------------------------------------------------------------
 	// add — rejection paths.
 	// ---------------------------------------------------------------------
 

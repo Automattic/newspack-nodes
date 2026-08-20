@@ -5,8 +5,8 @@
  * The graph is owned by useVaultGraph (tested separately); here we mock it to
  * hand back spy CRUD callbacks, and we register a fixture `vault:view` node in
  * Core so the view can read its model via useNodeState. The rendered DOM reuses
- * the class names + ids the table uses (`wp-list-table`, `#new-server-id`,
- * `.event-aggregator-test`, …) so the styled result matches.
+ * the class names + ids the table uses (`wp-list-table`, `#vault-server-id`,
+ * `.nodes-vault__test`, …) so the styled result matches.
  */
 
 jest.mock( '../hooks/useVaultGraph', () => {
@@ -28,12 +28,14 @@ const SAMPLE_SERVERS = [
 	{
 		id: 'spoke-01',
 		url: 'https://a.example.test',
+		auth_username: 'reader-4471',
 		has_credentials: true,
 		is_config: false,
 	},
 	{
 		id: 'spoke-02',
 		url: 'https://b.example.test',
+		auth_username: '',
 		has_credentials: false,
 		is_config: true,
 	},
@@ -74,6 +76,15 @@ function openAddModal( container ) {
 	} );
 }
 
+// Open one row's edit modal by clicking its Edit button.
+function openEditModal( container, id ) {
+	act( () => {
+		container
+			.querySelector( `tr[data-server-id="${ id }"] .nodes-vault__edit` )
+			.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+	} );
+}
+
 // The confirm Modal is a body portal; scope button lookups to the dialog.
 function dialogButton( label ) {
 	const dialog = document.querySelector( '[role="dialog"]' ) || document;
@@ -86,6 +97,7 @@ describe( 'VaultAdmin', () => {
 	let addServer;
 	let removeServer;
 	let testServer;
+	let updateServer;
 	let graphOpts = {};
 	// What the graph reports as outstanding (as a `test`); the screen asks
 	// rather than keeping a flag of its own.
@@ -104,6 +116,7 @@ describe( 'VaultAdmin', () => {
 			return {
 				...model,
 				addServer,
+				updateServer,
 				removeServer,
 				testServer,
 				pendingVerb: ( subject ) =>
@@ -118,6 +131,7 @@ describe( 'VaultAdmin', () => {
 		addServer = jest.fn();
 		removeServer = jest.fn();
 		testServer = jest.fn();
+		updateServer = jest.fn();
 		graphOpts = {};
 		pendingSubjects = [];
 		model = { servers: null, loading: true, error: null };
@@ -235,7 +249,7 @@ describe( 'VaultAdmin', () => {
 		expect( trigger ).toBeTruthy();
 		expect( trigger.classList.contains( 'button' ) ).toBe( true );
 		// The form lives in a modal — its fields are not rendered yet.
-		expect( container.querySelector( '#new-server-id' ) ).toBeNull();
+		expect( container.querySelector( '#vault-server-id' ) ).toBeNull();
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
 	} );
 
@@ -246,13 +260,11 @@ describe( 'VaultAdmin', () => {
 		const dialog = document.querySelector( '[role="dialog"]' );
 		expect( dialog ).toBeTruthy();
 		expect( dialog.className ).toBe( 'newspack-nodes-modal' );
-		expect( dialog.querySelector( '#new-server-id' ) ).toBeTruthy();
-		expect( dialog.querySelector( '#new-server-url' ) ).toBeTruthy();
-		expect( dialog.querySelector( '#new-server-username' ) ).toBeTruthy();
-		expect( dialog.querySelector( '#new-server-password' ) ).toBeTruthy();
-		expect(
-			dialog.querySelector( '#event-aggregator-add-server' )
-		).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-id' ) ).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-url' ) ).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-username' ) ).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-password' ) ).toBeTruthy();
+		expect( dialog.querySelector( '#vault-server-save' ) ).toBeTruthy();
 	} );
 
 	it( 'groups Add Server and Cancel together in the modal footer (not split into the form body)', () => {
@@ -264,13 +276,9 @@ describe( 'VaultAdmin', () => {
 		);
 		expect( footer ).toBeTruthy();
 		// The primary submit lives in the footer, not in the form table.
+		expect( footer.querySelector( '#vault-server-save' ) ).toBeTruthy();
 		expect(
-			footer.querySelector( '#event-aggregator-add-server' )
-		).toBeTruthy();
-		expect(
-			container.querySelector(
-				'table.form-table #event-aggregator-add-server'
-			)
+			container.querySelector( 'table.form-table #vault-server-save' )
 		).toBeNull();
 		// Cancel is in the SAME footer as the submit.
 		const cancel = Array.from( footer.querySelectorAll( 'button' ) ).find(
@@ -297,37 +305,43 @@ describe( 'VaultAdmin', () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
-		setInput( container.querySelector( '#new-server-id' ), 'spoke-09' );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-09' );
 		setInput(
-			container.querySelector( '#new-server-url' ),
+			container.querySelector( '#vault-server-url' ),
 			'https://spoke.example'
 		);
 		await act( async () => {
 			container
-				.querySelector( '#event-aggregator-add-server' )
+				.querySelector( '#vault-server-save' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).toHaveBeenCalled();
 		await act( async () => answer( 'add', { subject: 'spoke-09' } ) );
 		// The modal is gone once the add's answer lands.
 		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
-		expect( container.querySelector( '#new-server-id' ) ).toBeNull();
+		expect( container.querySelector( '#vault-server-id' ) ).toBeNull();
 	} );
 
 	it( 'submits the add form via the graph callback with the field values', async () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
-		setInput( container.querySelector( '#new-server-id' ), 'spoke-09' );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-09' );
 		setInput(
-			container.querySelector( '#new-server-url' ),
+			container.querySelector( '#vault-server-url' ),
 			'https://spoke.example'
 		);
-		setInput( container.querySelector( '#new-server-username' ), 'admin' );
-		setInput( container.querySelector( '#new-server-password' ), 'secret' );
+		setInput(
+			container.querySelector( '#vault-server-username' ),
+			'admin'
+		);
+		setInput(
+			container.querySelector( '#vault-server-password' ),
+			'secret'
+		);
 		await act( async () => {
 			container
-				.querySelector( '#event-aggregator-add-server' )
+				.querySelector( '#vault-server-save' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).toHaveBeenCalledWith( {
@@ -343,12 +357,12 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		openAddModal( container );
 		setInput(
-			container.querySelector( '#new-server-url' ),
+			container.querySelector( '#vault-server-url' ),
 			'https://spoke.example'
 		);
 		await act( async () => {
 			container
-				.querySelector( '#event-aggregator-add-server' )
+				.querySelector( '#vault-server-save' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
@@ -361,18 +375,174 @@ describe( 'VaultAdmin', () => {
 		registerViewFixture( { servers: [], loading: false } );
 		const { container } = mount();
 		openAddModal( container );
-		setInput( container.querySelector( '#new-server-id' ), 'spoke-09' );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-09' );
 		setInput(
-			container.querySelector( '#new-server-url' ),
+			container.querySelector( '#vault-server-url' ),
 			'http://insecure'
 		);
 		await act( async () => {
 			container
-				.querySelector( '#event-aggregator-add-server' )
+				.querySelector( '#vault-server-save' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
 		} );
 		expect( addServer ).not.toHaveBeenCalled();
 		expect( container.textContent ).toContain( 'https://' );
+	} );
+
+	// ---------------------------------------------------------------------
+	// Edit — the same form the add uses, seeded from the row.
+	// ---------------------------------------------------------------------
+
+	it( 'renders an Edit button on every row', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		expect(
+			container.querySelectorAll( 'tbody .nodes-vault__edit' )
+		).toHaveLength( 2 );
+	} );
+
+	it( 'seeds the edit form with the row it was opened from', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		const dialog = document.querySelector( '[role="dialog"]' );
+		expect( dialog.textContent ).toContain( 'Edit Server' );
+		expect( dialog.querySelector( '#vault-server-id' ).value ).toBe(
+			'spoke-01'
+		);
+		expect( dialog.querySelector( '#vault-server-url' ).value ).toBe(
+			'https://a.example.test'
+		);
+		expect( dialog.querySelector( '#vault-server-username' ).value ).toBe(
+			'reader-4471'
+		);
+		// A stored password is never sent to the browser, so it starts blank.
+		expect( dialog.querySelector( '#vault-server-password' ).value ).toBe(
+			''
+		);
+	} );
+
+	it( 'saves an edit against the id the row HAS, carrying the new one as a field', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-77' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://moved.example.test'
+		);
+		setInput(
+			container.querySelector( '#vault-server-username' ),
+			'editor-6612'
+		);
+		setInput(
+			container.querySelector( '#vault-server-password' ),
+			'pw-8823'
+		);
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		expect( addServer ).not.toHaveBeenCalled();
+		expect( updateServer ).toHaveBeenCalledWith( 'spoke-01', {
+			id: 'spoke-77',
+			url: 'https://moved.example.test',
+			auth_username: 'editor-6612',
+			auth_password: 'pw-8823',
+		} );
+	} );
+
+	it( 'leaves the password empty when the operator types none', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		setInput(
+			container.querySelector( '#vault-server-url' ),
+			'https://moved.example.test'
+		);
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		expect( updateServer ).toHaveBeenCalledWith(
+			'spoke-01',
+			expect.objectContaining( { auth_password: '' } )
+		);
+	} );
+
+	it( 'closes the edit modal on the update answer, which names the OLD id', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		setInput( container.querySelector( '#vault-server-id' ), 'spoke-77' );
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		await act( async () => answer( 'update', { subject: 'spoke-01' } ) );
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeNull();
+	} );
+
+	it( 'keeps the edit modal open and shows the refusal when the update fails', async () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		await act( async () => {
+			container
+				.querySelector( '#vault-server-save' )
+				.dispatchEvent( new Event( 'click', { bubbles: true } ) );
+		} );
+		await act( async () =>
+			answer( 'update', {
+				subject: 'spoke-01',
+				error: 'server already exists: spoke-77',
+			} )
+		);
+		expect( document.querySelector( '[role="dialog"]' ) ).toBeTruthy();
+		expect( document.body.textContent ).toContain(
+			'server already exists: spoke-77'
+		);
+	} );
+
+	// A config-file server is pinned by the file; offering buttons that can
+	// only ever be refused is worse than not offering them.
+	it( 'disables Edit and Remove on a config-file server', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		const pinned = container.querySelector(
+			'tr[data-server-id="spoke-02"]'
+		);
+		expect( pinned.querySelector( '.nodes-vault__edit' ).disabled ).toBe(
+			true
+		);
+		expect( pinned.querySelector( '.nodes-vault__remove' ).disabled ).toBe(
+			true
+		);
+		const editable = container.querySelector(
+			'tr[data-server-id="spoke-01"]'
+		);
+		expect( editable.querySelector( '.nodes-vault__edit' ).disabled ).toBe(
+			false
+		);
+	} );
+
+	it( 'opens the add modal blank even after an edit was opened first', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
+		const { container } = mount();
+		openEditModal( container, 'spoke-01' );
+		act( () => {
+			dialogButton( 'Cancel' ).dispatchEvent(
+				new Event( 'click', { bubbles: true } )
+			);
+		} );
+		openAddModal( container );
+		const dialog = document.querySelector( '[role="dialog"]' );
+		expect( dialog.textContent ).toContain( 'Add New Server' );
+		expect( dialog.querySelector( '#vault-server-id' ).value ).toBe( '' );
+		expect( dialog.querySelector( '#vault-server-url' ).value ).toBe( '' );
 	} );
 
 	it( 'opens the confirm dialog (not removeServer) when remove is clicked', async () => {
@@ -380,7 +550,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__remove' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -396,7 +566,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__remove' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -413,7 +583,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__remove' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -437,7 +607,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-test' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__test' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -459,7 +629,7 @@ describe( 'VaultAdmin', () => {
 
 		act( () =>
 			rows()[ 0 ]
-				.querySelector( '.event-aggregator-test' )
+				.querySelector( '.nodes-vault__test' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) )
 		);
 		answer( 'test', { subject: 'spoke-01' } );
@@ -469,7 +639,7 @@ describe( 'VaultAdmin', () => {
 
 		act( () =>
 			rows()[ 1 ]
-				.querySelector( '.event-aggregator-test' )
+				.querySelector( '.nodes-vault__test' )
 				.dispatchEvent( new Event( 'click', { bubbles: true } ) )
 		);
 		answer( 'test', { subject: 'spoke-02', error: 'refused' } );
@@ -491,7 +661,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-test' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__test' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -514,7 +684,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__remove' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -546,7 +716,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-test' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__test' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );
@@ -572,7 +742,7 @@ describe( 'VaultAdmin', () => {
 		const { container } = mount();
 		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
 		await act( async () => {
-			row.querySelector( '.event-aggregator-remove' ).dispatchEvent(
+			row.querySelector( '.nodes-vault__remove' ).dispatchEvent(
 				new Event( 'click', { bubbles: true } )
 			);
 		} );

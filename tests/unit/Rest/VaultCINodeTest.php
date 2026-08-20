@@ -77,7 +77,8 @@ class VaultCINodeTest extends TestCase {
 		$this->assertTrue( $out['spoke1']['has_credentials'] );
 		$this->assertSame( 'https://e.com', $out['spoke1']['url'] );
 		$this->assertArrayNotHasKey( 'auth_password', $out['spoke1'] );
-		$this->assertArrayNotHasKey( 'auth_username', $out['spoke1'] );
+		// The username is not a secret, and an edit form has to show it.
+		$this->assertSame( 'u', $out['spoke1']['auth_username'] );
 		$this->assertArrayNotHasKey( 'logs', $out['spoke1'] );
 		$this->assertArrayNotHasKey( 'enabled', $out['spoke1'] ); // enabled dropped from public shape.
 	}
@@ -171,6 +172,131 @@ class VaultCINodeTest extends TestCase {
 		$this->assertSame( 'removed', $captured['action'] );
 		Vault::get_instance()->reset_cache();
 		$this->assertNull( Vault::get_instance()->get( 'spoke1' ) );
+	}
+
+	// ---------------------------------------------------------------------
+	// update --new_id — the id is an editable field, so an edit can rename.
+	// ---------------------------------------------------------------------
+
+	public function test_update_moves_the_entry_to_the_new_id(): void {
+		Vault::get_instance()->add( 'vault-was-4471', [
+			'url'           => 'https://before.example',
+			'auth_username' => 'vault-user-4471',
+			'auth_password' => 'vault-pw-8823',
+		] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			'vault-was-4471 --new_id=vault-now-6612 --url=https://after.example'
+		);
+
+		$this->assertIsArray( $out );
+		// The reply names the entry's identity NOW, which is what the table lists.
+		$this->assertSame( 'vault-now-6612', $out['id'] );
+		Vault::get_instance()->reset_cache();
+		$this->assertNull( Vault::get_instance()->get( 'vault-was-4471' ) );
+		$moved = Vault::get_instance()->get( 'vault-now-6612' );
+		$this->assertSame( 'https://after.example', $moved['url'] );
+		$this->assertSame( 'vault-pw-8823', $moved['auth_password'] );
+	}
+
+	public function test_update_announces_a_rename_once_naming_the_id_it_retired(): void {
+		Vault::get_instance()->add( 'vault-was-4471', [ 'url' => 'https://before.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$captured = [];
+		\add_action(
+			'newspack_nodes/vault/changed',
+			static function ( $id, $action, $previous ) use ( &$captured ) {
+				$captured[] = \compact( 'id', 'action', 'previous' );
+			},
+			10,
+			3
+		);
+
+		VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-was-4471 --new_id=vault-now-6612' );
+
+		// ONCE: two announcements are indistinguishable to a listener, and every
+		// current one re-reads the whole vault, so the second only duplicates
+		// the reload fan-out. The retired name rides as the third argument, for
+		// a listener that genuinely keys by it.
+		$this->assertSame(
+			[
+				[
+					'id'       => 'vault-now-6612',
+					'action'   => 'renamed',
+					'previous' => 'vault-was-4471',
+				],
+			],
+			$captured
+		);
+	}
+
+	public function test_update_refuses_a_new_id_that_names_nothing(): void {
+		Vault::get_instance()->add( 'vault-keep-7735', [ 'url' => 'https://before.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		// Present and empty is the same operator mistake as a bare `--new_id`,
+		// and swallowing it reports a rename that never happened.
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			[ 'vault-keep-7735', '--new_id=', '--url=https://after.example' ]
+		);
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'invalid server id', $out );
+		Vault::get_instance()->reset_cache();
+		$this->assertSame( 'https://before.example', Vault::get_instance()->get( 'vault-keep-7735' )['url'] );
+	}
+
+	public function test_update_refuses_a_new_id_that_is_already_taken(): void {
+		Vault::get_instance()->add( 'vault-from-3318', [ 'url' => 'https://from.example' ] );
+		Vault::get_instance()->add( 'vault-onto-9074', [ 'url' => 'https://onto.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-from-3318 --new_id=vault-onto-9074' );
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'vault-onto-9074', $out );
+		Vault::get_instance()->reset_cache();
+		$this->assertSame( 'https://from.example', Vault::get_instance()->get( 'vault-from-3318' )['url'] );
+		$this->assertSame( 'https://onto.example', Vault::get_instance()->get( 'vault-onto-9074' )['url'] );
+	}
+
+	public function test_update_refuses_a_malformed_new_id(): void {
+		Vault::get_instance()->add( 'vault-keep-7735', [ 'url' => 'https://before.example' ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire(
+			new Vault_CI_Node(),
+			'vault',
+			'update',
+			[ 'vault-keep-7735', '--new_id=not a valid id!', '--url=https://after.example' ]
+		);
+
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'invalid server id', $out );
+		Vault::get_instance()->reset_cache();
+		$this->assertSame( 'https://before.example', Vault::get_instance()->get( 'vault-keep-7735' )['url'] );
+	}
+
+	public function test_update_names_the_config_file_as_the_reason_it_refuses(): void {
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'config_defaults' );
+		$ref->setValue( null, [ 'vault' => [ 'vault-cfg-5528' => [ 'url' => 'https://pinned.example' ] ] ] );
+		Vault::get_instance()->reset_cache();
+
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'vault-cfg-5528 --url=https://after.example' );
+
+		$ref->setValue( null, null );
+		\Newspack_Nodes\Config::reset();
+		$this->assertIsString( $out );
+		// "update failed" leaves the operator guessing; name the config file.
+		$this->assertStringContainsString( 'config file', $out );
 	}
 
 	// ---------------------------------------------------------------------
@@ -327,7 +453,9 @@ class VaultCINodeTest extends TestCase {
 		Vault::get_instance()->reset_cache();
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'cfg' );
 		$this->assertIsString( $out );
-		$this->assertStringContainsString( 'delete failed', $out );
+		// Both mutating verbs name the config file; a bare "delete failed" left
+		// the operator guessing at the one cause they cannot fix from here.
+		$this->assertStringContainsString( 'config file', $out );
 		\Newspack_Nodes\Config::reset();
 	}
 

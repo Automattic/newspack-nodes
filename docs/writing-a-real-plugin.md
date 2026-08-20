@@ -371,13 +371,14 @@ A real source needs a token, a repo list, a feed list. There is **no per-plugin 
 
 ### The Vault — where the operator enters the token
 
-The Vault is a real tab in the devtools hub (`admin.php?page=newspack-nodes-hub&tab=vault`), a React surface under `newspack-nodes/src/vault/` backed by `Vault_CI_Node` and the `newspack_nodes_vault` option. An operator adds one entry per credential — an `id`, a `url`, and a Basic-Auth `auth_username` / `auth_password` pair; the token goes in `auth_password`. The store is write-and-forget: the `list`/`get` verbs return only the **public shape** — `{ id, url, has_credentials, is_config }` — so the secret itself never leaves the server, not even to the dashboard that manages it:
+The Vault is a real tab in the devtools hub (`admin.php?page=newspack-nodes-hub&tab=vault`), a React surface under `newspack-nodes/src/vault/` backed by `Vault_CI_Node` and the `newspack_nodes_vault` option. An operator adds one entry per credential — an `id`, a `url`, and a Basic-Auth `auth_username` / `auth_password` pair; the token goes in `auth_password`. The `list`/`get` verbs return only the **public shape** — `{ id, url, auth_username, has_credentials, is_config }` — so the SECRET never leaves the server, not even to the dashboard that manages it. The username does: it is half an address rather than a secret, and the Edit form cannot offer to change what it cannot show.
 
 ```php
-// Vault_CI_Node::public_shape() — credentials are computed away, never returned.
+// Vault_CI_Node::public_shape() — the password is computed away, never returned.
 return [
 	'id'              => $id,
 	'url'             => (string) $raw_url,
+	'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
 	'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
 	'is_config'       => $registry->is_config_server( $id ),
 ];

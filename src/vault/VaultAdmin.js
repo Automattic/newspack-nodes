@@ -4,14 +4,18 @@
  * The graph (useVaultGraph) owns all data + the CRUD transport across two
  * per-concern views; this component reads the credential-LIST view model via
  * `useNodeState('vault:list','view')` and renders a server-credential table +
- * add form. (The TEST-result concern publishes into the sibling `vault:test`
- * view; each row's Test status is surfaced locally from the test() callback.)
- * The credential list uses the substrate's canonical themed table. The add
- * form keeps WordPress's structural `form-table` layout.
+ * the add/edit form. (The TEST-result concern publishes into the sibling
+ * `vault:test` view; each row's Test status is surfaced locally from the test()
+ * callback.) The credential list uses the substrate's canonical themed table.
+ * The form keeps WordPress's structural `form-table` layout.
  *
- * A successful add / remove re-`list()`s and the table re-renders from the
- * fresh model (no page reload). Test status + the add-form validation messages
- * are local component state.
+ * ONE form serves add and edit, seeded blank or from the row: the two collect
+ * the same four fields, and the verb is the only difference — so it is the only
+ * thing that varies, right down to the words the status line uses.
+ *
+ * A successful add / edit / remove re-`list()`s and the table re-renders from
+ * the fresh model (no page reload). Test status + the form's validation
+ * messages are local component state.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -67,8 +71,14 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 	);
 }
 
-// What each verb says on a row, in that verb's own words.
-const ROW_TEXTS = {
+const errorText = ( e ) =>
+	// translators: %s: error message.
+	sprintf( __( 'Error: %s', 'newspack-nodes' ), e );
+
+// What each verb says about its own outcome, in that verb's own words.
+const VERB_TEXTS = {
+	add: { busy: __( 'Adding…', 'newspack-nodes' ), failed: errorText },
+	update: { busy: __( 'Saving…', 'newspack-nodes' ), failed: errorText },
 	test: {
 		busy: __( 'Testing…', 'newspack-nodes' ),
 		failed: ( e ) =>
@@ -84,8 +94,11 @@ const ROW_TEXTS = {
 	},
 };
 
+/** What the form starts from when it is adding rather than editing. */
+const BLANK_SERVER = { id: '', url: '', auth_username: '' };
+
 /**
- * A single server row — id / url / status + Test / Remove actions.
+ * A single server row — id / url / status + Test / Edit / Remove actions.
  *
  * The row renders the answer that NAMED it. Each reply arrives already
  * addressed to one server — the sender put it in the reply path — so the table
@@ -95,18 +108,21 @@ const ROW_TEXTS = {
  * @param {Object}   props.server   Public server shape from the view model.
  * @param {?Object}  props.answer   This row's last answer, or null.
  * @param {?string}  props.pending  The verb outstanding about this row, if any.
+ * @param {Function} props.onEdit   Edit callback (server).
  * @param {Function} props.onRemove Remove callback (id).
  * @param {Function} props.onTest   Test callback (id).
  * @return {import('react').ReactElement} The rendered row.
  */
-function ServerRow( { server, answer, pending, onRemove, onTest } ) {
+function ServerRow( { server, answer, pending, onEdit, onRemove, onTest } ) {
 	const { id, url } = server;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 	const busy = Boolean( pending );
+	// Pinned by the config file, so the store refuses both verbs anyway.
+	const pinned = Boolean( server.is_config );
 	// The outstanding verb picks the words; the answered one after.
 	const status = answerStatus(
 		answer,
-		ROW_TEXTS[ pending ?? answer?.verb ] ?? {},
+		VERB_TEXTS[ pending ?? answer?.verb ] ?? {},
 		busy
 	);
 
@@ -131,7 +147,7 @@ function ServerRow( { server, answer, pending, onRemove, onTest } ) {
 			<td>
 				<button
 					type="button"
-					className="button button-small event-aggregator-test"
+					className="button button-small nodes-vault__test"
 					data-server-id={ id }
 					disabled={ busy }
 					onClick={ () => onTest( id ) }
@@ -140,9 +156,18 @@ function ServerRow( { server, answer, pending, onRemove, onTest } ) {
 				</button>{ ' ' }
 				<button
 					type="button"
-					className="button button-small button-link-delete event-aggregator-remove"
+					className="button button-small nodes-vault__edit"
 					data-server-id={ id }
-					disabled={ busy }
+					disabled={ busy || pinned }
+					onClick={ () => onEdit( server ) }
+				>
+					{ __( 'Edit', 'newspack-nodes' ) }
+				</button>{ ' ' }
+				<button
+					type="button"
+					className="button button-small button-link-delete nodes-vault__remove"
+					data-server-id={ id }
+					disabled={ busy || pinned }
 					onClick={ () => setIsConfirmOpen( true ) }
 				>
 					{ __( 'Remove', 'newspack-nodes' ) }
@@ -157,13 +182,6 @@ function ServerRow( { server, answer, pending, onRemove, onTest } ) {
 		</tr>
 	);
 }
-
-const ADD_TEXTS = {
-	busy: __( 'Adding…', 'newspack-nodes' ),
-	failed: ( e ) =>
-		// translators: %s: error message.
-		sprintf( __( 'Error: %s', 'newspack-nodes' ), e ),
-};
 
 /**
  * The form's own refusal, before anything is sent.
@@ -186,23 +204,28 @@ function validate( id, url ) {
 }
 
 /**
- * The "Add New Server" form — id / url / username / password + submit. Owns the
- * field state + the validation/status line. Rendered inside the add-server modal.
+ * The server form — id / url / username / password + submit. Owns the field
+ * state + the validation/status line. Rendered inside the server modal.
  *
- * The add's answer arrives named after the id it submitted, like every other
- * verb here, so the form renders it the same way a row does.
+ * The seed says which act this is: a server with no id yet is one being added,
+ * the same signal the rules editor takes from its own blank draft. The answer
+ * arrives named after the id that was SENT — the row's existing one on an edit
+ * — like every other verb here, so the form renders it the way a row does.
  *
  * @param {Object}     props          Component props.
- * @param {Function}   props.onAdd    Add callback (fields).
+ * @param {Object}     props.server   The row being edited, or BLANK_SERVER.
+ * @param {Function}   props.onSave   Save callback (fields).
  * @param {?Object}    props.answer   The answer for the submitted id, if any.
- * @param {boolean}    props.busy     Whether the add is outstanding.
+ * @param {boolean}    props.busy     Whether the save is outstanding.
  * @param {() => void} props.onCancel Dismisses the modal from the footer Cancel button.
  * @return {import('react').ReactElement} The rendered form.
  */
-function AddServerForm( { onAdd, answer, busy, onCancel } ) {
-	const [ id, setId ] = useState( '' );
-	const [ url, setUrl ] = useState( '' );
-	const [ username, setUsername ] = useState( '' );
+function ServerForm( { server, onSave, answer, busy, onCancel } ) {
+	const isNew = '' === server.id;
+	const [ id, setId ] = useState( server.id );
+	const [ url, setUrl ] = useState( server.url );
+	const [ username, setUsername ] = useState( server.auth_username ?? '' );
+	// Never seeded: the stored password does not reach the browser at all.
 	const [ password, setPassword ] = useState( '' );
 	// Local validation only; the answer supplies everything else.
 	const [ invalid, setInvalid ] = useState( '' );
@@ -210,14 +233,14 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 
 	const status = invalid
 		? { text: invalid, tone: 'is-error' }
-		: answerStatus( answer, ADD_TEXTS, busy );
+		: answerStatus( answer, VERB_TEXTS[ isNew ? 'add' : 'update' ], busy );
 
 	// Focus the first field when the modal opens.
 	useEffect( () => {
 		idRef.current?.focus();
 	}, [] );
 
-	const handleAdd = () => {
+	const handleSave = () => {
 		const trimmedId = id.trim();
 		const trimmedUrl = url.trim();
 		const refusal = validate( trimmedId, trimmedUrl );
@@ -225,7 +248,7 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 		if ( refusal ) {
 			return;
 		}
-		onAdd( {
+		onSave( {
 			id: trimmedId,
 			url: trimmedUrl,
 			auth_username: username.trim(),
@@ -239,7 +262,7 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 				<tbody>
 					<tr>
 						<th>
-							<label htmlFor="new-server-id">
+							<label htmlFor="vault-server-id">
 								{ __( 'ID', 'newspack-nodes' ) }
 							</label>
 						</th>
@@ -247,7 +270,7 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 							<input
 								ref={ idRef }
 								type="text"
-								id="new-server-id"
+								id="vault-server-id"
 								className="regular-text"
 								placeholder="prod-web-01"
 								pattern="[a-zA-Z0-9_-]+"
@@ -259,19 +282,24 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 									'Unique identifier (alphanumeric, hyphen, underscore).',
 									'newspack-nodes'
 								) }
+								{ ! isNew &&
+									` ${ __(
+										'Renaming does not update topologies that name it — those spokes stay disconnected until you edit them.',
+										'newspack-nodes'
+									) }` }
 							</p>
 						</td>
 					</tr>
 					<tr>
 						<th>
-							<label htmlFor="new-server-url">
+							<label htmlFor="vault-server-url">
 								{ __( 'Server URL', 'newspack-nodes' ) }
 							</label>
 						</th>
 						<td>
 							<input
 								type="url"
-								id="new-server-url"
+								id="vault-server-url"
 								className="regular-text"
 								placeholder="https://example.com"
 								value={ url }
@@ -287,14 +315,14 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 					</tr>
 					<tr>
 						<th>
-							<label htmlFor="new-server-username">
+							<label htmlFor="vault-server-username">
 								{ __( 'Username', 'newspack-nodes' ) }
 							</label>
 						</th>
 						<td>
 							<input
 								type="text"
-								id="new-server-username"
+								id="vault-server-username"
 								className="regular-text"
 								value={ username }
 								onChange={ ( e ) =>
@@ -311,7 +339,7 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 					</tr>
 					<tr>
 						<th>
-							<label htmlFor="new-server-password">
+							<label htmlFor="vault-server-password">
 								{ __(
 									'Application Password',
 									'newspack-nodes'
@@ -321,7 +349,7 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 						<td>
 							<input
 								type="password"
-								id="new-server-password"
+								id="vault-server-password"
 								className="regular-text"
 								value={ password }
 								onChange={ ( e ) =>
@@ -329,10 +357,15 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 								}
 							/>
 							<p className="description">
-								{ __(
-									'WordPress Application Password (Users → Profile → Application Passwords).',
-									'newspack-nodes'
-								) }
+								{ isNew
+									? __(
+											'WordPress Application Password (Users → Profile → Application Passwords).',
+											'newspack-nodes'
+									  )
+									: __(
+											'Leave blank to keep the stored password.',
+											'newspack-nodes'
+									  ) }
 							</p>
 						</td>
 					</tr>
@@ -340,8 +373,8 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 			</table>
 			<div className="newspack-nodes-modal__actions">
 				<span
-					id="add-server-status"
-					className={ `newspack-nodes-status nodes-vault__add-status ${ status.tone }` }
+					id="vault-server-status"
+					className={ `newspack-nodes-status nodes-vault__save-status ${ status.tone }` }
 				>
 					{ status.text }
 				</span>
@@ -351,11 +384,13 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 				<button
 					type="button"
 					className={ primaryButtonClass( busy ) }
-					id="event-aggregator-add-server"
+					id="vault-server-save"
 					disabled={ busy }
-					onClick={ handleAdd }
+					onClick={ handleSave }
 				>
-					{ __( 'Add Server', 'newspack-nodes' ) }
+					{ isNew
+						? __( 'Add Server', 'newspack-nodes' )
+						: __( 'Save Changes', 'newspack-nodes' ) }
 				</button>
 			</div>
 		</>
@@ -363,27 +398,29 @@ function AddServerForm( { onAdd, answer, busy, onCancel } ) {
 }
 
 /**
- * The add-server modal: the heading + the AddServerForm. Closes on a successful
- * add (onSuccess → onClose) or on ESC / backdrop / Cancel.
+ * The server modal: the heading + the ServerForm. Closes on a successful save
+ * (the answer clears `editing`) or on ESC / backdrop / Cancel.
  *
  * @param {Object}     props         Component props.
- * @param {Function}   props.onAdd   Add callback (fields).
+ * @param {Object}     props.server  The row being edited, or BLANK_SERVER.
+ * @param {Function}   props.onSave  Save callback (fields).
  * @param {?Object}    props.answer  The answer for the submitted id, if any.
- * @param {boolean}    props.busy    Whether the add is outstanding.
+ * @param {boolean}    props.busy    Whether the save is outstanding.
  * @param {() => void} props.onClose Dismisses the modal.
  * @return {import('react').ReactElement} The modal.
  */
-function AddServerModal( { onAdd, answer, busy, onClose } ) {
+function ServerModal( { server, onSave, answer, busy, onClose } ) {
+	const title =
+		'' === server.id
+			? __( 'Add New Server', 'newspack-nodes' )
+			: __( 'Edit Server', 'newspack-nodes' );
+
 	return (
-		<Modal
-			ariaLabel={ __( 'Add new server', 'newspack-nodes' ) }
-			onClose={ onClose }
-		>
-			<h4 className="newspack-nodes-modal__title">
-				{ __( 'Add New Server', 'newspack-nodes' ) }
-			</h4>
-			<AddServerForm
-				onAdd={ onAdd }
+		<Modal ariaLabel={ title } onClose={ onClose }>
+			<h4 className="newspack-nodes-modal__title">{ title }</h4>
+			<ServerForm
+				server={ server }
+				onSave={ onSave }
 				answer={ answer }
 				busy={ busy }
 				onCancel={ onClose }
@@ -394,41 +431,63 @@ function AddServerModal( { onAdd, answer, busy, onClose } ) {
 
 /**
  * Vault server-credential admin app. Reads the view model the graph publishes
- * and renders the server table + add form.
+ * and renders the server table + add/edit form.
  *
  * @param {Object}  props                      Props.
  * @param {Element} [props.headerControlsSlot] Hub shared-header slot to portal the controls into.
  * @return {import('react').ReactElement} The rendered admin app.
  */
 export default function VaultAdmin( { headerControlsSlot } ) {
-	const [ isAddOpen, setIsAddOpen ] = useState( false );
+	// The row open in the form; BLANK_SERVER means adding, null means closed.
+	const [ editing, setEditing ] = useState( null );
 	const [ submitted, setSubmitted ] = useState( null );
 	// @longform Each row's last answer, put there BY the reply that named it.
 	// This is the screen laying out answers it was handed, not a correlation
 	// table: the graph did the matching, in the address, before it got here —
 	// which is why a row keeps its line when a sibling is tested.
 	const [ answers, setAnswers ] = useState( {} );
-	const { servers, error, addServer, removeServer, testServer, pendingVerb } =
-		useVaultGraph( {
-			onAnswer: ( { verb, subject, error: refusal } ) => {
-				setAnswers( ( prior ) => ( {
-					...prior,
-					[ subject ]: { verb, error: refusal },
-				} ) );
-				// A successful add closes the modal, on its own answer.
-				if ( 'add' === verb && ! refusal ) {
-					setIsAddOpen( false );
-					setSubmitted( null );
-				}
-			},
-		} );
+	const {
+		servers,
+		error,
+		addServer,
+		updateServer,
+		removeServer,
+		testServer,
+		pendingVerb,
+	} = useVaultGraph( {
+		onAnswer: ( { verb, subject, error: refusal } ) => {
+			setAnswers( ( prior ) => ( {
+				...prior,
+				[ subject ]: { verb, error: refusal },
+			} ) );
+			// A successful save closes the modal, on its own answer.
+			if ( ! refusal && ( 'add' === verb || 'update' === verb ) ) {
+				setEditing( null );
+				setSubmitted( null );
+			}
+		},
+	} );
+
+	// An entry with no id yet is one being added; everything else is an edit.
+	const verb = editing && '' === editing.id ? 'add' : 'update';
+
+	const saveServer = ( fields ) => {
+		if ( 'add' === verb ) {
+			setSubmitted( fields.id );
+			addServer( fields );
+			return;
+		}
+		// Addressed by the id the row HAS — the new one rides as a field.
+		setSubmitted( editing.id );
+		updateServer( editing.id, fields );
+	};
 
 	// Portal the +Add trigger into the hub header slot (undefined=inline).
 	const controls = (
 		<button
 			type="button"
 			className="nodes-cards__new nodes-vault__add-trigger button"
-			onClick={ () => setIsAddOpen( true ) }
+			onClick={ () => setEditing( BLANK_SERVER ) }
 		>
 			{ __( '+ Add Server', 'newspack-nodes' ) }
 		</button>
@@ -448,13 +507,13 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 						<th style={ { width: '12%' } }>
 							{ __( 'ID', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '53%' } }>
+						<th style={ { width: '48%' } }>
 							{ __( 'URL', 'newspack-nodes' ) }
 						</th>
 						<th style={ { width: '15%' } }>
 							{ __( 'Status', 'newspack-nodes' ) }
 						</th>
-						<th style={ { width: '20%' } }>
+						<th style={ { width: '25%' } }>
 							{ __( 'Actions', 'newspack-nodes' ) }
 						</th>
 					</tr>
@@ -467,6 +526,7 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 								server={ server }
 								answer={ answers[ server.id ] ?? null }
 								pending={ pendingVerb( server.id ) }
+								onEdit={ setEditing }
 								onRemove={ removeServer }
 								onTest={ testServer }
 							/>
@@ -484,16 +544,14 @@ export default function VaultAdmin( { headerControlsSlot } ) {
 				</tbody>
 			</table>
 
-			{ isAddOpen && (
-				<AddServerModal
-					onAdd={ ( fields ) => {
-						setSubmitted( fields.id );
-						addServer( fields );
-					} }
+			{ editing && (
+				<ServerModal
+					server={ editing }
+					onSave={ saveServer }
 					answer={ answers[ submitted ] ?? null }
-					busy={ 'add' === pendingVerb( submitted ) }
+					busy={ verb === pendingVerb( submitted ) }
 					onClose={ () => {
-						setIsAddOpen( false );
+						setEditing( null );
 						setSubmitted( null );
 					} }
 				/>

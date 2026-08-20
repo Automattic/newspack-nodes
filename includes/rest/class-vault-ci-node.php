@@ -6,14 +6,15 @@
  *   list   — all registered servers as a map keyed by id.
  *   get    — a single server record by id.
  *   add    — add a new server. Auth-gated on manage_options.
- *   update — partial-update of an existing server. Auth-gated on manage_options.
+ *   update — partial-update of an existing server, which `--new_id` also
+ *            renames. Auth-gated on manage_options.
  *   delete — remove a server. Auth-gated on manage_options.
  *   test   — probe the remote server's discovery endpoint with stored Basic
  *            Auth, return a sanitised subset of the response. Auth-gated on
  *            manage_options.
  *
- * Public list/get shape: `{ id, url, has_credentials, is_config }` — never
- * credentials. Mutating verbs fire the `newspack_nodes/vault/changed` action so
+ * Public list/get shape: `{ id, url, auth_username, has_credentials, is_config }`
+ * — never the password. Mutating verbs fire the `newspack_nodes/vault/changed` action so
  * applications can react (settings-sync, fleet restart, etc.) without the
  * substrate knowing those application concerns.
  *
@@ -27,6 +28,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Args;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Vault;
@@ -68,8 +70,11 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Project a stored server config into its public dashboard shape. Strips
-	 * credentials and adds computed `has_credentials` + `is_config` flags.
+	 * Project a stored server config into its public dashboard shape. Strips the
+	 * password and adds computed `has_credentials` + `is_config` flags. The
+	 * username stays: it is half an address, not a secret, and an edit form
+	 * cannot offer to change what it cannot show — which holds only while every
+	 * vault verb is MANAGE by construction. Declaring one READ discloses it.
 	 *
 	 * @param string               $id     Server id.
 	 * @param array<string,mixed> $config Stored server config.
@@ -77,11 +82,10 @@ class Vault_CI_Node extends Service_CI_Node {
 	 * @return array<string,mixed> Public server record.
 	 */
 	private static function public_shape( string $id, array $config, Vault $registry ): array {
-		/** @var int|float|string|bool|null $raw_url */
-		$raw_url = $config['url'] ?? '';
 		return [
 			'id'              => $id,
-			'url'             => (string) $raw_url,
+			'url'             => Core::as_string( $config['url'] ?? '' ),
+			'auth_username'   => Core::as_string( $config['auth_username'] ?? '' ),
 			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
 			'is_config'       => $registry->is_config_server( $id ),
 		];
@@ -97,14 +101,9 @@ class Vault_CI_Node extends Service_CI_Node {
 	public static function cmd_add( array $args ): array {
 		$parsed = Command_Args::parse( $args );
 		$opts   = $parsed['options'];
-		$id     = $parsed['positional'][0] ?? '';
-		if ( ! Vault::is_valid_id( $id ) ) {
-			throw new \RuntimeException( 'invalid server id' );
-		}
+		$id       = $parsed['positional'][0] ?? '';
 		$registry = Vault::fresh();
-		if ( null !== $registry->get( $id ) ) {
-			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
-		}
+		self::assert_free_id( $id, $registry );
 		$config = self::extract_server_config( $opts );
 		if ( ! $registry->add( $id, $config ) ) {
 			// Registry rejected (bad/non-HTTPS URL) or hit MAX_SERVERS.
@@ -130,7 +129,8 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * `update` verb handler — update a server; returns its id.
+	 * `update` verb handler — update a server; returns its id, which `--new_id`
+	 * may have just changed.
 	 *
 	 * @param list<string> $args Verb argument.
 	 *
@@ -147,13 +147,62 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $existing ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
+		self::assert_not_pinned( $id, $registry );
+		$new_id = self::renamed_to( $parsed['options'], $id, $registry );
 		// Partial update: an absent --key leaves the stored field alone.
 		$partial = self::partial_config( $parsed['options'] );
-		if ( ! $registry->update( $id, $partial ) ) {
+		if ( ! $registry->update( $id, $partial, $new_id ) ) {
 			throw new \RuntimeException( 'update failed' );
 		}
-		self::fire_changed( $id, 'updated' );
-		return [ 'id' => $id ];
+		if ( '' === $new_id ) {
+			self::fire_changed( $id, 'updated' );
+			return [ 'id' => $id ];
+		}
+		// ONE announcement: two read alike, and each reloads the whole vault.
+		self::fire_changed( $new_id, 'renamed', $id );
+		return [ 'id' => $new_id ];
+	}
+
+	/**
+	 * The id `update` was asked to move an entry to, checked against everything
+	 * the store would otherwise refuse without saying why. Returns '' when the
+	 * entry keeps the id it has.
+	 *
+	 * @param array<string,string|true> $opts     Parsed `--key=value` options.
+	 * @param string                    $id       The entry's current id.
+	 * @param Vault                     $registry Backing vault.
+	 * @return string The new id, or '' for no rename.
+	 */
+	private static function renamed_to( array $opts, string $id, Vault $registry ): string {
+		// Absent asks for no rename; present and unusable is a refusal.
+		if ( ! isset( $opts['new_id'] ) ) {
+			return '';
+		}
+		$named = $opts['new_id'];
+		if ( ! \is_string( $named ) ) {
+			throw new \RuntimeException( 'invalid server id' );
+		}
+		if ( $named === $id ) {
+			return '';
+		}
+		self::assert_free_id( $named, $registry );
+		return $named;
+	}
+
+	/**
+	 * Refuse an id that is malformed or already spoken for, in the operator's
+	 * words rather than the store's bare `false`.
+	 *
+	 * @param string $id       Id being claimed.
+	 * @param Vault  $registry Backing vault.
+	 */
+	private static function assert_free_id( string $id, Vault $registry ): void {
+		if ( ! Vault::is_valid_id( $id ) ) {
+			throw new \RuntimeException( 'invalid server id' );
+		}
+		if ( null !== $registry->get( $id ) ) {
+			throw new \RuntimeException( \esc_html( "server already exists: {$id}" ) );
+		}
 	}
 
 	/**
@@ -187,8 +236,8 @@ class Vault_CI_Node extends Service_CI_Node {
 		if ( null === $registry->get( $id ) ) {
 			throw new \RuntimeException( \esc_html( "server not found: {$id}" ) );
 		}
+		self::assert_not_pinned( $id, $registry );
 		if ( ! $registry->remove( $id ) ) {
-			// Config-file servers reach here.
 			throw new \RuntimeException( 'delete failed' );
 		}
 		self::fire_changed( $id, 'removed' );
@@ -196,15 +245,32 @@ class Vault_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * Refuse an entry the config file pins. Both mutating verbs ask, because the
+	 * store refuses both for this reason and neither can say so from a `false`.
+	 *
+	 * @param string $id       Server id.
+	 * @param Vault  $registry Backing vault.
+	 */
+	private static function assert_not_pinned( string $id, Vault $registry ): void {
+		if ( $registry->is_config_server( $id ) ) {
+			throw new \RuntimeException( \esc_html( "pinned by the config file, so it cannot be changed here: {$id}" ) );
+		}
+	}
+
+	/**
 	 * Announce a Vault mutation so applications can react (settings-sync,
 	 * fleet restart, etc.) without the substrate knowing those concerns.
 	 *
-	 * @param string $id     Server id.
-	 * @param string $action added|updated|removed.
+	 * A listener receives only as many arguments as it declared, so the third
+	 * reaches whoever wants the name a rename retired and nobody else.
+	 *
+	 * @param string $id       Server id, as it stands after the change.
+	 * @param string $action   added|updated|renamed|removed.
+	 * @param string $previous The id a rename moved away from, else ''.
 	 */
-	private static function fire_changed( string $id, string $action ): void {
+	private static function fire_changed( string $id, string $action, string $previous = '' ): void {
 		if ( \function_exists( 'do_action' ) ) {
-			\do_action( 'newspack_nodes/vault/changed', $id, $action );
+			\do_action( 'newspack_nodes/vault/changed', $id, $action, $previous );
 		}
 	}
 
@@ -313,9 +379,10 @@ class Vault_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'update',
-					'description' => 'Partial-update of an existing server (manage_options).',
+					'description' => 'Partial-update of an existing server, renamed by --new_id (manage_options).',
 					'args'        => [
 						[ 'name' => 'id', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'new_id', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
