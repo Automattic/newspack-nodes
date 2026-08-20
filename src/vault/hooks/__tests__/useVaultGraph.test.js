@@ -4,7 +4,7 @@
  *   _http (HttpOut)
  *   vault:list:fetch → :in → :view (VaultListView)    — the credential table,
  *                                                       polled as a slice
- *   vault:{add,delete,test}:in → :result              — one one-shot per verb
+ *   vault:{add,update,delete,test}:in → :result       — one one-shot per verb
  *
  * What every test here leans on: nothing correlates. Each verb is minted FROM
  * the node that wants its answer, the reply comes back TO = FROM, and it lands
@@ -31,9 +31,10 @@ const CONSOLE_TAP = '_shell';
 const LIST_RECV = 'vault:list:in';
 const LIST_VIEW = 'vault:list:view';
 const ADD = 'vault:add:in';
+const UPDATE = 'vault:update:in';
 const DELETE = 'vault:delete:in';
 const TEST = 'vault:test:in';
-const VERB_RECEIVERS = [ ADD, DELETE, TEST ];
+const VERB_RECEIVERS = [ ADD, UPDATE, DELETE, TEST ];
 const ALL_GRAPH_NAMES = [ HTTP, LIST_RECV, LIST_VIEW, ...VERB_RECEIVERS ];
 
 // A verb's command is on the wire within a tick of the click.
@@ -135,11 +136,12 @@ describe( 'useVaultGraph — exospine + per-concern view wiring', () => {
 		expect( msg[ FROM ] ).toBe( LIST_RECV );
 	} );
 
-	test( 'returns the table plus the three CRUD callbacks', async () => {
+	test( 'returns the table plus the four CRUD callbacks', async () => {
 		installWire();
 		const { result } = renderHook( () => useVaultGraph() );
 		await act( async () => {} );
 		expect( typeof result.current.addServer ).toBe( 'function' );
+		expect( typeof result.current.updateServer ).toBe( 'function' );
 		expect( typeof result.current.removeServer ).toBe( 'function' );
 		expect( typeof result.current.testServer ).toBe( 'function' );
 	} );
@@ -265,6 +267,58 @@ describe( 'useVaultGraph — what a row is waiting on', () => {
 			'--auth_password=hunter2',
 		] );
 		expect( add[ FROM ] ).toBe( 'vault:add:in/spoke-04' );
+	}, 30000 );
+
+	test( 'updateServer names the entry by the id it HAS and the new one by --new_id', async () => {
+		const wire = installWire( { list: {}, update: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.updateServer( 'spoke-was-4471', {
+				id: 'spoke-now-6612',
+				url: 'https://after.example.test',
+				auth_username: 'editor-4471',
+				auth_password: 'pw-8823',
+			} )
+		);
+
+		await waitForVerb( wire, 'update' );
+		const update = findVerb( wire.batches, 'update' );
+		expect( update[ VALUE ].arguments ).toEqual( [
+			'spoke-was-4471',
+			'--new_id=spoke-now-6612',
+			'--url=https://after.example.test',
+			'--auth_username=editor-4471',
+			'--auth_password=pw-8823',
+		] );
+		// The reply is about the row on screen, which still wears the old id.
+		expect( update[ FROM ] ).toBe( 'vault:update:in/spoke-was-4471' );
+	}, 30000 );
+
+	// A blank password field means "leave it alone" — sending `--auth_password=`
+	// would clear the stored one, so the token has to be absent entirely.
+	test( 'updateServer omits the password entirely when none was typed', async () => {
+		const wire = installWire( { list: {}, update: { ok: 1 } } );
+		const { result } = renderHook( () => useVaultGraph() );
+		await act( async () => {} );
+
+		act( () =>
+			result.current.updateServer( 'spoke-was-4471', {
+				id: 'spoke-was-4471',
+				url: 'https://after.example.test',
+				auth_username: 'editor-4471',
+				auth_password: '',
+			} )
+		);
+
+		await waitForVerb( wire, 'update' );
+		const update = findVerb( wire.batches, 'update' );
+		expect( update[ VALUE ].arguments ).toEqual( [
+			'spoke-was-4471',
+			'--url=https://after.example.test',
+			'--auth_username=editor-4471',
+		] );
 	}, 30000 );
 } );
 

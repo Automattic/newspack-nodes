@@ -10,8 +10,8 @@
 	// button (the Overview's "+ New Topology" look), styled there — not here.
 }
 
-// The add-form status sits left of the footer buttons; the shared modal owns
+// The form status sits left of the footer buttons; the shared modal owns
 // the flex row, this owns which end this element takes.
-.newspack-nodes-modal__actions .nodes-vault__add-status {
+.newspack-nodes-modal__actions .nodes-vault__save-status {
 	margin-right: auto;
 }

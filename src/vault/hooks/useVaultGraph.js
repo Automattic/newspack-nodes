@@ -35,7 +35,7 @@ const LIST_INTERVAL_MS = 30000;
  * @param {Object}   [o]
  * @param {Function} [o.onAnswer] `( { verb, subject, error } )` — once per
  *                                reply, naming the row it was about.
- * @return {{addServer: Function, removeServer: Function, testServer: Function, pendingVerb: (subject: string) => ?string, servers: ?Object[], loading: boolean, error: ?string, refresh: Function}}
+ * @return {{addServer: Function, updateServer: Function, removeServer: Function, testServer: Function, pendingVerb: (subject: string) => ?string, servers: ?Object[], loading: boolean, error: ?string, refresh: Function}}
  *   The table's model and the verbs. Each answer reaches the caller through
  *   `onAnswer`, which is where a row learns its own outcome.
  */
@@ -64,6 +64,11 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		command: 'add',
 		onDone: answered( 'add' ),
 	} );
+	const update = useCommandOnce( {
+		ci: VAULT_CI,
+		command: 'update',
+		onDone: answered( 'update' ),
+	} );
 	const remove = useCommandOnce( {
 		ci: VAULT_CI,
 		command: 'delete',
@@ -76,6 +81,7 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		onDone: answered( 'test' ),
 	} );
 	const { run: runAdd } = add;
+	const { run: runUpdate } = update;
 	const { run: runRemove } = remove;
 	const { run: runTest } = test;
 
@@ -88,12 +94,15 @@ export function useVaultGraph( { onAnswer } = {} ) {
 			if ( add.isPending( subject ) ) {
 				return 'add';
 			}
+			if ( update.isPending( subject ) ) {
+				return 'update';
+			}
 			if ( remove.isPending( subject ) ) {
 				return 'delete';
 			}
 			return test.isPending( subject ) ? 'test' : null;
 		},
-		[ add, remove, test ]
+		[ add, update, remove, test ]
 	);
 
 	// id is positional; credentials are named args (no enabled flag).
@@ -107,6 +116,24 @@ export function useVaultGraph( { onAnswer } = {} ) {
 				} )
 			),
 		[ runAdd ]
+	);
+
+	// Addressed by the id the entry HAS; the one it moves TO rides as a field.
+	const updateServer = useCallback(
+		( id, fields ) => {
+			const options = {};
+			if ( fields.id !== id ) {
+				options.new_id = fields.id;
+			}
+			options.url = fields.url;
+			options.auth_username = fields.auth_username;
+			// Blank keeps the stored one; `--auth_password=` would CLEAR it.
+			if ( fields.auth_password ) {
+				options.auth_password = fields.auth_password;
+			}
+			return runUpdate( formatCommandArgs( [ id ], options ) );
+		},
+		[ runUpdate ]
 	);
 
 	const removeServer = useCallback(
@@ -123,6 +150,7 @@ export function useVaultGraph( { onAnswer } = {} ) {
 		...list,
 		servers: list.servers ?? null,
 		addServer,
+		updateServer,
 		removeServer,
 		testServer,
 		pendingVerb,

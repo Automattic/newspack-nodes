@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The Vault table has an Edit button.** An entry's ID, URL, Username and Application Password are all editable in place; a blank password field keeps the stored one, which is what lets the other three be changed without retyping a secret the browser never sees. Add and Edit are ONE form — they collect the same four fields and differ only in the verb, so the verb is the only thing that varies, down to the words the status line uses. Config-file entries are pinned by the file and the store refuses to touch them, so their Edit and Remove buttons are disabled rather than offered and refused.
+- **`vault update <id> --new_id=<new>` renames an entry.** The id is a field on the edit form like any other, so a rename rides the update rather than a verb of its own: `Vault::update()` takes an optional new id and moves the entry in ONE option write, carrying its stored credentials across, and a refused move applies nothing at all. The verb names its refusals — a taken id, a malformed id, an entry pinned by the config file — where it used to answer a bare "update failed". Both the old and the new id are announced through `newspack_nodes/vault/changed`, because a consumer keys a command session by NAME and the one that just stopped existing has to be retired too. Renaming does not rewrite topologies that name the old id; the edit form says so.
+
+### Changed
+- **The Vault's public shape carries `auth_username`.** The password still never leaves the server. A username is half an address rather than a secret, and an edit form cannot offer to change what it cannot show — which holds only while every vault verb is MANAGE by construction, as `public_shape()` now says out loud.
+- **`vault delete` names the config file too.** It answered a bare "delete failed" for the one cause an operator cannot fix from the dashboard, under a comment admitting as much. Both mutating verbs now ask the same guard.
+
+### Fixed
+- **An edit silently dropped a stored `token`.** `Vault::update()` wrote back `validate_config()`'s three-key projection, so any other stored key went with it — and `token` is live: `credential_header()` documents a token-only spoke and `Remote_Link_Node` reads it. Nothing in `add`/`update` can write one, so it took a migration or a direct `update_option` to get there, but the entry survived every CLI edit until this Edit button put the path one click away. The write-back now carries every stored key across, validated or not.
+
 ## [2.35.2] - 2026-08-18
 
 ### Fixed
