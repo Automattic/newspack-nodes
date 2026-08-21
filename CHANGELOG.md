@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.36.1] - 2026-08-21
+
+### Fixed
+- **The log column header no longer insets itself by a hardcoded scrollbar width.** `.newspack-nodes-log-rows` reserves a gutter permanently with `overflow-y: scroll`, and the header carried `margin-right: $stream-scrollbar` — 17px — to line its columns up with the rows beneath it. The variable and the margin are both gone. Consumers inline this shared stylesheet rather than loading it, so every dashboard with a log pane picks the change up on its next build, and one built against an older pin keeps the inset.
+
 ## [2.36.0] - 2026-08-20
 
 ### Added
