@@ -12,7 +12,6 @@
 
 $stream-gap: 12px;
 $stream-padding-x: 12px;
-$stream-scrollbar: 17px;
 
 .newspack-nodes-log-rows {
 	flex: 1;
@@ -28,7 +27,6 @@ $stream-scrollbar: 17px;
 	display: flex;
 	gap: $stream-gap;
 	padding: 6px $stream-padding-x;
-	margin-right: $stream-scrollbar;
 	flex-shrink: 0;
 }
 
