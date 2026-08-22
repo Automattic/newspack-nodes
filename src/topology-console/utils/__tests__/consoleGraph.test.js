@@ -1,13 +1,12 @@
 /**
  * consoleGraph — the graph helpers that outlived the draft reducer.
  *
- * What is left after the draft interpreter took the mutation half: the
- * dirty-check, the canvas's `_repl` anchor, and unique-name generation. None
+ * What is left after the draft interpreter took the mutation half and the
+ * dirty-check: the canvas's `_repl` anchor, and unique-name generation. None
  * of them mutate a document; they are all reads over one.
  */
 
 import {
-	draftIsDirty,
 	withReplAnchor,
 	generateNodeName,
 	withResolvedConfigEdges,
@@ -70,18 +69,6 @@ describe( 'consoleGraph', () => {
 		).not.toThrow();
 	} );
 
-	describe( 'draftIsDirty', () => {
-		it( 'returns false when draft equals baseline', () => {
-			const g = graphFromTsl( 'make_node Echo a' );
-			expect( draftIsDirty( g, g ) ).toBe( false );
-		} );
-
-		it( 'returns true when a node is added', () => {
-			const baseline = empty;
-			const draft = graphFromTsl( 'make_node Echo a' );
-			expect( draftIsDirty( draft, baseline ) ).toBe( true );
-		} );
-	} );
 	describe( 'withReplAnchor', () => {
 		it( 'adds a reserved _repl Partition node to a blank graph', () => {
 			const next = withReplAnchor( empty );

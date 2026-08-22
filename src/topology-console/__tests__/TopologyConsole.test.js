@@ -1114,7 +1114,7 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'open' ) ); // show the Open picker
 		} );
 		await act( async () => {
-			// onPick('picked') → handleOpenPick → editingName='picked'.
+			// onPick('picked') → handleOpenTopology → editingName='picked'.
 			fireEvent.click( getByText( 'pick' ) );
 		} );
 		await act( async () => {
@@ -2987,7 +2987,7 @@ describe( 'TopologyConsole boot', () => {
 		).toBeNull();
 	} );
 
-	it( 'handleOpenPick fetches the picked topology + replaces draft', async () => {
+	it( 'handleOpenTopology fetches the picked topology + replaces draft', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: '',
 			name: 'demo',
@@ -3375,7 +3375,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( toast.textContent ).toMatch( /line 5/ );
 	} );
 
-	it( 'handleOpenPick: clicking pick replaces draft + emits success toast', async () => {
+	it( 'handleOpenTopology: clicking pick replaces draft + emits success toast', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: '',
 			name: 'demo',
@@ -3401,7 +3401,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( toast.textContent ).toMatch( /picked/ );
 	} );
 
-	it( 'handleOpenPick uses the PHP class catalog when opened from local view', async () => {
+	it( 'handleOpenTopology uses the PHP class catalog when opened from local view', async () => {
 		globalThis.__catalog.classes = [
 			{ shell_name: 'Tap', fans_out: true },
 			{ shell_name: 'Echo', fans_out: false },
@@ -3439,7 +3439,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	} );
 
-	it( 'handleOpenPick waits for a deferred PHP catalog before folding custom Tee edges', async () => {
+	it( 'handleOpenTopology waits for a deferred PHP catalog before folding custom Tee edges', async () => {
 		// The catalog has not landed yet; the poll is still loading.
 		globalThis.__catalog = { classes: [], formatters: [], loading: true };
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -3572,7 +3572,7 @@ describe( 'TopologyConsole boot', () => {
 		).toBeNull();
 	} );
 
-	it( 'handleOpenPick: open error toasts the error', async () => {
+	it( 'handleOpenTopology: open error toasts the error', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: '',
 			name: 'demo',
@@ -5229,7 +5229,7 @@ describe( 'TopologyConsole boot', () => {
 			} );
 		} );
 
-		it( 'handleOpenPick surfaces a failed expand for the picked topology via toast (not a silent blank canvas)', async () => {
+		it( 'handleOpenTopology surfaces a failed expand for the picked topology via toast (not a silent blank canvas)', async () => {
 			mockTopologyGet( 'wombat-top', 'make_node Echo own-echo\n' );
 			hooks.fetchTopology.mockResolvedValueOnce( {
 				tsl: 'include performance\nmake_node Echo picked-echo\n',

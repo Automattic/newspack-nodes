@@ -48,11 +48,7 @@ import {
 	invalidateExpandedIncludes,
 	primeExpandedIncludes,
 } from './hooks/useExpandedIncludes';
-import {
-	draftIsDirty,
-	generateNodeName,
-	withReplAnchor,
-} from './utils/consoleGraph';
+import { generateNodeName, withReplAnchor } from './utils/consoleGraph';
 import { DraftProvider, useDraftInterpreter } from './DraftContext';
 import { DraftInterpreterNode } from '../runtime/draft-interpreter-node';
 import { CatalogProvider } from './CatalogContext';
@@ -359,6 +355,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const draftDoc = useDraftInterpreter();
 	const {
 		graph: draft,
+		isDirty: draftIsDirty,
+		markSaved: markDraftSaved,
 		run: runDraft,
 		load: loadDraft,
 		reseed: reseedDraft,
@@ -371,10 +369,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// `_repl` is a canvas anchor, not a line any topology contains.
 	const editGraph = useMemo( () => withReplAnchor( draft ), [ draft ] );
 
-	// From the document: a literal that disagrees reads as dirty at once.
-	const [ dirtySnapshot, setDirtySnapshot ] = useState(
-		() => draftDoc.graph
-	);
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source of the topology being edited; drives the DELETE button.
 	const [ editingSource, setEditingSource ] = useState( '' );
@@ -386,6 +380,8 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Live-mode palette drop with declared args stages here (NewNodeModal).
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const [ saveModal, setSaveModal ] = useState( null );
+	// What the in-flight write carries; null when it carries a live graph.
+	const sentGraphRef = useRef( null );
 	// { name } while the post-save "Activate now?" prompt is up, else null.
 	const [ activateModal, setActivateModal ] = useState( null );
 	// Pending delete confirm: { name } while ConfirmModal is up, else null.
@@ -643,14 +639,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			setDraftCatalog( catalogClasses );
 			// Sync ref: re-fetch diffs vs THIS, not EMPTY.
 			seededExpansionRef.current = fetchedExpansion;
-			const snapshot = loadDraft(
-				tsl,
-				fetchedExpansion,
-				resolvedConfigEdges
-			);
+			// An uploaded document has no stored copy to be equal to.
+			loadDraft( tsl, fetchedExpansion, resolvedConfigEdges, {
+				stored: fromServer,
+			} );
 			if ( fromServer ) {
-				// Re-baselining is what makes the load clean.
-				setDirtySnapshot( snapshot );
 				assertResolved( resolvedConfigEdges );
 			}
 			setEditingName( name );
@@ -659,14 +652,20 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			// Close settings so the panel reseeds from loaded frontmatter.
 			setSettingsOpen( false );
 		},
-		[
-			assertResolved,
-			catalogClasses,
-			loadDraft,
-			setDraftCatalog,
-			setDirtySnapshot,
-		]
+		[ assertResolved, catalogClasses, loadDraft, setDraftCatalog ]
 	);
+
+	/**
+	 * Blank the editor: an empty document, no name, no source, no expansion to
+	 * reconcile against. The empty document IS its own baseline, so nothing
+	 * here re-bases by hand.
+	 */
+	const discardDraft = useCallback( () => {
+		seededExpansionRef.current = null;
+		loadDraft( '' );
+		setEditingName( '' );
+		setEditingSource( '' );
+	}, [ loadDraft ] );
 
 	/**
 	 * The editor's OPEN pipeline.
@@ -1163,19 +1162,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			if ( next === 'edit' ) {
 				// Auto-load the currently-live topology; blank canvas if none.
 				setMode( 'edit' );
-				setEditingName( '' );
-				setEditingSource( '' );
-				seededExpansionRef.current = null;
-				setDirtySnapshot( loadDraft( '' ) );
+				discardDraft();
 				if ( topology ) {
 					openForEdit( topology, false );
 				}
 				return;
 			}
-			// Dirty = draft vs the edit-entry snapshot, not live parsed.
-			const dirty =
-				JSON.stringify( draft ) !== JSON.stringify( dirtySnapshot );
-			if ( ! dirty ) {
+			if ( ! draftIsDirty ) {
 				setMode( 'view' );
 				return;
 			}
@@ -1186,16 +1179,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				),
 				onConfirm: () => {
 					setDiscardModal( null );
-					// Actually DROP it; flipping the mode left it alive.
-					setDirtySnapshot( loadDraft( '' ) );
-					setEditingName( '' );
-					setEditingSource( '' );
+					discardDraft();
 					setMode( 'view' );
 				},
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ mode, draft, dirtySnapshot, topology, openForEdit, loadDraft ]
+		[ mode, draftIsDirty, topology, openForEdit, discardDraft ]
 	);
 
 	// Source of truth: live `parsed` in view mode, frozen draft in edit mode.
@@ -1414,12 +1404,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			// A delete restarts the matching fleet — re-fetch the live catalog.
 			invalidateExpandedIncludes();
 			reloadCatalog();
-			// Drop back to view mode; the file no longer exists.
+			// The file is gone; the draft naming it goes with it.
+			discardDraft();
 			setMode( 'view' );
-			setEditingName( '' );
-			setEditingSource( '' );
 		},
-		[ reloadCatalog ]
+		[ reloadCatalog, discardDraft ]
 	);
 	const { remove } = useDeleteTopology( onDeleted );
 
@@ -1495,26 +1484,23 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ replaceVerbs, draft.nodes, schemasByShellName ]
 	);
 
-	// Opening a topology lands you in the editor, from live too — like New.
-	const handleOpenPick = useCallback(
+	/**
+	 * Open a topology, from the OPEN dialog or by drilling into a hull. Both
+	 * REPLACE the draft, so a diverged one is confirmed away first — same
+	 * contract as leaving edit mode, and for the same reason. One guard for
+	 * both: they do the identical destructive thing, and only one used to ask.
+	 */
+	const handleOpenTopology = useCallback(
 		( name ) => {
 			setOpenModalShown( false );
-			setMode( 'edit' );
-			// Storage key includes editingName, so the hook auto-loads.
-			openForEdit( name, true );
-		},
-		[ openForEdit ]
-	);
-
-	/**
-	 * Drill into a hull: open the topology it stands for. This REPLACES the draft,
-	 * so an edited draft must be confirmed away first — same contract as leaving
-	 * edit mode, and for the same reason.
-	 */
-	const handleDrillIntoHull = useCallback(
-		( name ) => {
-			if ( ! draftIsDirty( draft, dirtySnapshot ) ) {
-				handleOpenPick( name );
+			// Opening lands you in the editor, from live too — like New.
+			const open = () => {
+				setMode( 'edit' );
+				// Storage key includes editingName, so the hook auto-loads.
+				openForEdit( name, true );
+			};
+			if ( ! draftIsDirty ) {
+				open();
 				return;
 			}
 			setDiscardModal( {
@@ -1528,12 +1514,12 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 				),
 				onConfirm: () => {
 					setDiscardModal( null );
-					handleOpenPick( name );
+					open();
 				},
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ draft, dirtySnapshot, handleOpenPick ]
+		[ draftIsDirty, openForEdit ]
 	);
 
 	// SAVE snapshots the live graph via dump_config (edit saves the draft).
@@ -1599,13 +1585,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	const handleNew = useCallback( () => {
 		// New starts a fresh topology from live mode too — lands you in edit.
 		setMode( 'edit' );
-		setDirtySnapshot( loadDraft( '' ) );
-		setEditingName( '' );
-		setEditingSource( '' );
+		discardDraft();
 		setSelectedId( null );
 		setSettingsOpen( false );
 		resetLayout();
-	}, [ resetLayout, loadDraft ] );
+	}, [ resetLayout, discardDraft ] );
 
 	// Honor the Topologies tab's ?new / ?edit deep-links, then consume it.
 	useEffect( () => {
@@ -1753,13 +1737,18 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			invalidateExpandedIncludes();
 			reloadCatalog();
 			setSettingsOpen( false );
+			// The baseline is what was WRITTEN, not what the canvas holds.
+			if ( sentGraphRef.current ) {
+				markDraftSaved( sentGraphRef.current );
+				sentGraphRef.current = null;
+			}
 			setMode( 'view' );
 			// A brand-new topology saves inactive; offer to activate now.
 			if ( newTopologyRef.current === args?.[ 0 ] ) {
 				setActivateModal( { name: result.name } );
 			}
 		},
-		[ reloadCatalog ]
+		[ reloadCatalog, markDraftSaved ]
 	);
 	const { save } = useSaveTopology( onSaved );
 
@@ -1775,9 +1764,11 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			)
 				? null
 				: name;
+			// A live SAVE writes a captured graph; no draft to re-base.
+			sentGraphRef.current = capturedTsl ? null : JSON.stringify( draft );
 			save( { name, tsl: capturedTsl ?? dumpDraft( ownExpansion ) } );
 		},
-		[ saveModal, save, dumpDraft, ownExpansion, topologyWorkers ]
+		[ saveModal, save, dumpDraft, ownExpansion, topologyWorkers, draft ]
 	);
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.
@@ -1947,7 +1938,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									includes: activeIncludes,
 									onRemoveInclude: handleRemoveInclude,
 									// Drill into a hull; guarded when dirty.
-									onOpenTopology: handleDrillIntoHull,
+									onOpenTopology: handleOpenTopology,
 									onSelectionChange: ( id ) => {
 										setSelectedId( id );
 										// Auto-open; no refocus.
@@ -2098,7 +2089,7 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 									topologies={ topologyList.topologies }
 									loading={ topologyList.loading }
 									error={ topologyList.error }
-									onPick={ handleOpenPick }
+									onPick={ handleOpenTopology }
 									onCancel={ () =>
 										setOpenModalShown( false )
 									}

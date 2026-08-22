@@ -100,6 +100,85 @@ describe( 'useDraftInterpreter', () => {
 		);
 	} );
 
+	it( 'knows whether it has diverged from what was stored', () => {
+		// The baseline used to live in TopologyConsole, assigned at six call
+		// sites and read at two. Two of the six forgot the pairing and shipped:
+		// a save left the document reading dirty for the rest of the session,
+		// so the next drill-in offered to discard work already on disk.
+		const { result } = renderHook( () => useDraftInterpreter() );
+		expect( result.current.isDirty ).toBe( false );
+
+		act( () => {
+			result.current.load( 'make_node Grep pangolin ^quagga\n' );
+		} );
+		expect( result.current.isDirty ).toBe( false );
+
+		act( () => {
+			result.current.run( 'make_node Null narwhal' );
+		} );
+		expect( result.current.isDirty ).toBe( true );
+
+		// A save keeps the document and makes what it wrote the baseline.
+		act( () => {
+			result.current.markSaved( JSON.stringify( result.current.graph ) );
+		} );
+		expect( result.current.isDirty ).toBe( false );
+	} );
+
+	it( 'is saved against what was WRITTEN, not what it holds on reply', () => {
+		// The write carries a document captured at send; the reply lands
+		// seconds later, and the canvas is live for the whole round trip. If a
+		// save baselines whatever is there when it answers, an edit made in
+		// flight is adopted as saved and exists nowhere but memory.
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.load( 'make_node Null ibex\n' );
+		} );
+		const written = JSON.stringify( result.current.graph );
+
+		act( () => {
+			result.current.run( 'make_node Null jerboa' );
+		} );
+		act( () => {
+			result.current.markSaved( written );
+		} );
+
+		expect( result.current.isDirty ).toBe( true );
+	} );
+
+	it( 'an upload matching the loaded document is still dirty', () => {
+		// `stored: false` has to make the document unequal to ANY baseline —
+		// leaving the old one standing lets an upload that happens to match
+		// read as clean and be dropped without a prompt.
+		const { result } = renderHook( () => useDraftInterpreter() );
+		act( () => {
+			result.current.load( 'make_node Null kudu\n' );
+		} );
+		expect( result.current.isDirty ).toBe( false );
+
+		act( () => {
+			result.current.load( 'make_node Null kudu\n', null, null, {
+				stored: false,
+			} );
+		} );
+
+		expect( result.current.isDirty ).toBe( true );
+	} );
+
+	it( 'stays dirty for a document that arrived from nowhere', () => {
+		// An upload has no stored copy to be equal TO, so it is dirty on
+		// arrival — the one load that must not re-baseline.
+		const { result } = renderHook( () => useDraftInterpreter() );
+
+		act( () => {
+			result.current.load( 'make_node Null tapir\n', null, null, {
+				stored: false,
+			} );
+		} );
+
+		expect( result.current.isDirty ).toBe( true );
+	} );
+
 	it( 'keeps one door identity across renders so consumers do not churn', () => {
 		const { result, rerender } = renderHook( () => useDraftInterpreter() );
 		const first = result.current.run;

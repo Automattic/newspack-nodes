@@ -25,6 +25,12 @@
  *
  * `graph` is a READ of the interpreter, re-derived after every change. The
  * interpreter is the document; the graph is what the canvas draws.
+ *
+ * The document also knows whether it has diverged from what is stored. That
+ * baseline lives here because it is a property of the document: held outside,
+ * every operation that replaced or wrote it had to remember to re-establish
+ * it, and the ones that forgot left the editor claiming unsaved changes to a
+ * document already on disk.
  */
 
 import {
@@ -44,9 +50,9 @@ const DraftContext = createContext( null );
 /**
  * Own a draft document and expose its editor surface.
  *
- * @return {Object} `{ graph, run, load, reseed, dump, replaceVerbs,
- *                     replaceFrontmatter, clearSecure, setCatalog,
- *                     assertResolved, revertIncludes }`.
+ * @return {Object} `{ graph, isDirty, markSaved, run, load, reseed, dump,
+ *                     replaceVerbs, replaceFrontmatter, clearSecure,
+ *                     setCatalog, assertResolved, revertIncludes }`.
  */
 export function useDraftInterpreter() {
 	const ref = useRef( null );
@@ -55,6 +61,10 @@ export function useDraftInterpreter() {
 		ref.current = new DraftInterpreterNode();
 	}
 	const [ graph, setGraph ] = useState( () => draftToGraph( ref.current ) );
+	// What the document last equalled on disk.
+	const [ baseline, setBaseline ] = useState( () =>
+		JSON.stringify( draftToGraph( ref.current ) )
+	);
 
 	// Every mutation ends here, so every mutation re-reads exactly once.
 	const commit = useCallback( () => {
@@ -63,7 +73,7 @@ export function useDraftInterpreter() {
 		return next;
 	}, [] );
 
-	// Returns the graph, for the caller that also records a dirty snapshot.
+	// Returns the graph, as every mutator does.
 	const run = useCallback(
 		( line ) => {
 			ref.current.run( line );
@@ -72,12 +82,48 @@ export function useDraftInterpreter() {
 		[ commit ]
 	);
 
+	/**
+	 * Replace the whole document. A loaded document IS its baseline — that is
+	 * what makes the load clean — unless it came from somewhere with no stored
+	 * copy to be equal to, which is an upload.
+	 *
+	 * @param {string}  tsl         The document source.
+	 * @param {?Object} expansion   Include expansion, or null.
+	 * @param {?Array}  configEdges Resolved config edges, or null.
+	 * @param {Object}  [opts]      `stored: false` for a document off disk.
+	 * @return {Object} The new graph.
+	 */
 	const load = useCallback(
-		( tsl, expansion = null, configEdges = null ) => {
+		(
+			tsl,
+			expansion = null,
+			configEdges = null,
+			{ stored = true } = {}
+		) => {
 			ref.current.load( tsl, expansion, configEdges );
-			return commit();
+			const next = commit();
+			// null matches no serialization: an unstored document is dirty.
+			setBaseline( stored ? JSON.stringify( next ) : null );
+			return next;
 		},
 		[ commit ]
+	);
+
+	/**
+	 * The document was written. The caller passes what it SENT: the reply lands
+	 * seconds later with the canvas live throughout, so baselining whatever is
+	 * here on reply would adopt an edit made in flight as already saved.
+	 *
+	 * @param {string} written Serialization of the graph that was written.
+	 */
+	const markSaved = useCallback( ( written ) => {
+		setBaseline( written );
+	}, [] );
+
+	// One serialization per mutation, not per render.
+	const isDirty = useMemo(
+		() => JSON.stringify( graph ) !== baseline,
+		[ graph, baseline ]
 	);
 
 	/**
@@ -171,6 +217,8 @@ export function useDraftInterpreter() {
 	return useMemo(
 		() => ( {
 			graph,
+			isDirty,
+			markSaved,
 			run,
 			load,
 			reseed,
@@ -184,6 +232,8 @@ export function useDraftInterpreter() {
 		} ),
 		[
 			graph,
+			isDirty,
+			markSaved,
 			run,
 			load,
 			reseed,
