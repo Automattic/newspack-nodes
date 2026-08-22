@@ -110,17 +110,6 @@ export function withReplAnchor( graph ) {
 	return { ...graph, nodes: [ ...graph.nodes, REPL_ANCHOR ] };
 }
 
-/**
- * True when the draft has diverged from the edit-entry snapshot.
- *
- * @param {Object} draft    Current draft graph.
- * @param {Object} baseline Snapshot taken when edit mode was entered.
- * @return {boolean} True if draft has diverged.
- */
-export function draftIsDirty( draft, baseline ) {
-	return JSON.stringify( draft ) !== JSON.stringify( baseline );
-}
-
 const configSlotsOf = ( edge ) =>
 	Array.isArray( edge?.config_slots ) ? edge.config_slots : [];
 

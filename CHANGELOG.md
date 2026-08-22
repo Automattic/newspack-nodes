@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A saved topology kept offering to discard the changes you had just saved.** The Topology Console held the edit draft's baseline in component state, and `onSaved` dropped back to view mode without re-establishing it — so the draft read as diverged for the rest of the session, and the next "Open <name>" on a hull asked to discard work already on disk. `onDeleted` had the same hole. The baseline was not the only thing at stake: it had SIX writers and two readers, and two of the six forgot the pairing, which is the bug. It now belongs to the document that it describes — `useDraftInterpreter` re-baselines on `load()`, exposes `markSaved()` for a write that keeps the document, and derives `isDirty` — so the console holds no baseline assignments at all and a seventh unpaired mutation site (`reseed`, which fires only when an include expansion genuinely changed) is closed by construction. A save baselines what it WROTE, captured at send: the reply lands seconds later with the canvas live throughout, so re-basing to whatever is there on arrival adopts an edit made in flight as already saved — silent loss, the worse direction. An upload sets an unmatchable baseline rather than leaving the old one standing, since one that happens to equal it would otherwise read as clean and be dropped without a prompt. This reverses the trade recorded in 2.7.0 — "`baseline` stays with the load door … carrying it here would re-render every consumer on a save for data none of them read". Two things changed: the data IS read now, as `isDirty`, and the context value already carries `graph`, so its identity moves on every mutation regardless. The only added change is when dirtiness flips without the graph moving — a save and a stored load — and the console re-renders at both anyway.
+- **The OPEN dialog destroyed an edited draft without asking, while drilling into a hull asked about a clean one.** Both run the same `openForEdit`, which replaces the draft; only the hull path guarded, so the primary route was the unguarded one. They now share a single `handleOpenTopology`, and the guard reads the document's own `isDirty` rather than a comparison spelled two ways.
+
+### Changed
+- **One blank-the-editor path, not four.** Entering edit mode, discarding, deleting and New each hand-wrote the same clear in three different orderings, and they had already drifted — only one reset `seededExpansionRef`, leaving the reconcile effect a stale expansion to diff against. `discardDraft()` is the one path, and `loadDraft` is down to two callers.
+
 ## [2.36.1] - 2026-08-21
 
 ### Fixed
