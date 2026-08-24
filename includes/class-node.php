@@ -143,12 +143,12 @@ class Node {
 	 * ranks LAST despite coming first by insertion order, derived scaffolding
 	 * being the least useful collision to report.
 	 *
-	 * @longform It checks the siblings that EXIST, so it covers a RENAME fully
-	 * and a lazy patron's FIRST naming not at all: `make_node` runs `name()`
-	 * before `arguments()`, so `Topic_Node` cannot know its partition count
-	 * that early and has nothing to check. That collision surfaces a step
-	 * later, from the sibling's own `name()`; `make_node` unwinds either way,
-	 * so only the timing differs.
+	 * It checks the siblings that EXIST, so it covers a RENAME fully and a lazy
+	 * patron's FIRST naming not at all: `make_node` runs `name()` before
+	 * `arguments()`, so `Topic_Node` cannot know its partition count that early
+	 * and has nothing to check. That collision surfaces a step later, from the
+	 * sibling's own `name()`; `make_node` unwinds either way, so only the
+	 * timing differs.
 	 *
 	 * Pre-checking rather than unwinding is sound only because the registry is
 	 * a per-process array mutated synchronously (`Core::register_node()`), so
