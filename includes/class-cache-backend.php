@@ -112,8 +112,8 @@ final class Cache_Backend {
 	 * separate prefixes (the dndocker second-docroot posture) or separate
 	 * databases (Atomic).
 	 *
-	 * @longform Two identifiers this deliberately is NOT. Not `home_url()`:
-	 * that is per-REQUEST — forced to https under `is_ssl()`, filtered by
+	 * Two identifiers this deliberately is NOT. Not `home_url()`: that is
+	 * per-REQUEST — forced to https under `is_ssl()`, filtered by
 	 * domain-mapping plugins, moved by `switch_to_blog()`. Not `$wpdb->prefix`:
 	 * that is per-BLOG, while the fleet is network-global (`fleet_site()` turns
 	 * subsites away, and locks/IPC/logs carry no blog namespace). Either would
@@ -145,10 +145,10 @@ final class Cache_Backend {
 	/**
 	 * The install's cache salt. Empty until something rotates it.
 	 *
-	 * @longform Read through `$wpdb` rather than `get_option()` because pyrobase's
+	 * Read through `$wpdb` rather than `get_option()` because pyrobase's
 	 * `bin/pyrate` runs under SHORTINIT, where the option API is stubbed to
-	 * return defaults — and pyrate warms the SAME caches the web serves. Reading
-	 * the row directly is what keeps one rotation coherent across both.
+	 * return defaults — and pyrate warms the SAME caches the web serves.
+	 * Reading the row directly is what keeps one rotation coherent across both.
 	 */
 	public static function salt(): string {
 		if ( null !== self::$salt ) {

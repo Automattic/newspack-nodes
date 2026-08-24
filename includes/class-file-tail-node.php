@@ -257,11 +257,11 @@ class File_Tail_Node extends Tail_Node {
 	/**
 	 * Always name the generation this offset belongs to.
 	 *
-	 * @longform The inode reaches cursor_segment only when the handle opens on
-	 * the first poll, and a stream that seeks to EOF and hangs up never polls —
-	 * so ask the path, which next_offset() already stats for its size. An
-	 * unnamed generation is indistinguishable from a foreign one and reads the
-	 * whole file back on every reconnect. The offset is named even when it is
+	 * The inode reaches cursor_segment only when the handle opens on the first
+	 * poll, and a stream that seeks to EOF and hangs up never polls — so ask
+	 * the path, which next_offset() already stats for its size. An unnamed
+	 * generation is indistinguishable from a foreign one and reads the whole
+	 * file back on every reconnect. The offset is named even when it is
 	 * mid-line; the resume syncs forward from there.
 	 *
 	 * @return string `{inode}:{offset}`, or `:{offset}` when there is no file.
@@ -402,14 +402,14 @@ class File_Tail_Node extends Tail_Node {
 	 * Offset the lag read may trust: a queued seek counts only while it still
 	 * describes the file that is there — same generation, not past its end.
 	 *
-	 * @longform A candidate is not yet validated; `validate_resume_offset()`
-	 * runs at the first poll and cannot run here, with no follow handle open.
-	 * Honouring a stale one lets a client echo a pre-rotation position and have
-	 * the new generation declared caught up, so SSE_Out closes on the first
-	 * tick and never delivers it. Falling back to the raw cursor reads as
-	 * behind, which keeps the stream open long enough to validate and rewind.
-	 * An unnamed generation is one of those stale cases — the poll will read
-	 * the file whole — so only a candidate naming THIS one may be trusted.
+	 * A candidate is not yet validated; `validate_resume_offset()` runs at the
+	 * first poll and cannot run here, with no follow handle open. Honouring a
+	 * stale one lets a client echo a pre-rotation position and have the new
+	 * generation declared caught up, so SSE_Out closes on the first tick and
+	 * never delivers it. Falling back to the raw cursor reads as behind, which
+	 * keeps the stream open long enough to validate and rewind. An unnamed
+	 * generation is one of those stale cases — the poll will read the file
+	 * whole — so only a candidate naming THIS one may be trusted.
 	 */
 	private function lag_cursor_offset(): int {
 		$candidate = $this->file_seek_candidate;

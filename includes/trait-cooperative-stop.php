@@ -189,11 +189,12 @@ trait Cooperative_Stop {
 	 * same fold `SSE_Out_Node::opened_at_eof_since()` applies to its consumers.
 	 * A graph with no reporter has nothing to measure and never exits.
 	 *
-	 * @longform Throttled to once a second because `Consumer_Node::idle_since()`
-	 * lists segments and stats the newest one, while `should_continue()` runs on
+	 * Throttled to once a second because `Consumer_Node::idle_since()` lists
+	 * segments and stats the newest one, while `should_continue()` runs on
 	 * every drain tick — per-tick disk I/O would spend more than the residency
-	 * this is meant to give back. A skipped scan reads as "keep running", so the
-	 * exit lands at most a second past the window, which is measured in seconds.
+	 * this is meant to give back. A skipped scan reads as "keep running", so
+	 * the exit lands at most a second past the window, which is measured in
+	 * seconds.
 	 *
 	 * @param float $now Current time, shared with the rest of should_continue().
 	 */

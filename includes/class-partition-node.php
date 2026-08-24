@@ -30,12 +30,12 @@ class Partition_Node extends Timer_Node {
 	 * have no loop to retry from. Long enough to ride out a live writer's burst,
 	 * short enough that a web request never hangs on one.
 	 *
-	 * @longform It deliberately does NOT outwait a crashed predecessor's lock,
-	 * which only becomes stealable once its heartbeat ages past STALE_TIMEOUT.
-	 * Sitting through that window means blocking longer than the lease anyone
-	 * inside a drain loop is working under, so the safe default is to fail and
-	 * let the caller come back. Topology workers pass 0 (try-lock) or a debounce
-	 * window and retry on their next tick, which costs nothing.
+	 * It deliberately does NOT outwait a crashed predecessor's lock, which only
+	 * becomes stealable once its heartbeat ages past STALE_TIMEOUT. Sitting
+	 * through that window means blocking longer than the lease anyone inside a
+	 * drain loop is working under, so the safe default is to fail and let the
+	 * caller come back. Topology workers pass 0 (try-lock) or a debounce window
+	 * and retry on their next tick, which costs nothing.
 	 */
 	public const DEFAULT_LOCK_WAIT_MS = 15000;
 
@@ -299,10 +299,10 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Note that this partition was written to, for the next flush to act on.
 	 *
-	 * @longform Every producer reaches disk through a Partition — Job_Intake
-	 * writes one, a Topic fans into them, a Log extends one, a worker's IPC is
-	 * one — so this is the single place that sees every hop. Hanging the wake
-	 * off producer helpers covered only the FIRST hop: a job routed firehose →
+	 * Every producer reaches disk through a Partition — Job_Intake writes one,
+	 * a Topic fans into them, a Log extends one, a worker's IPC is one — so
+	 * this is the single place that sees every hop. Hanging the wake off
+	 * producer helpers covered only the FIRST hop: a job routed firehose →
 	 * jobs, or drained jobintake → jobs, landed where nothing woke its reader.
 	 *
 	 * Marking is deliberately cheap — the resolved directory as its own key, no

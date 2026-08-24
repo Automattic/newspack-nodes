@@ -244,14 +244,14 @@ class Lock_Node extends Node {
 	/**
 	 * Give up the lock — but only if we still hold it.
 	 *
-	 * @longform Verified against the heartbeat PID, never against our own
-	 * `is_held` flag. A worker blocked in a long job stops heartbeating, goes
-	 * stale, and a peer steals the dir; `restart_reason()` reports the theft but
-	 * deliberately leaves `is_held` alone, so a flag-only check here would have
-	 * the evicted holder `force_release_at()` the SUCCESSOR's directory. The
-	 * successor then dies of "lock dir gone" on its next tick and both respawn,
-	 * turning a self-correcting handoff into a restart loop. Failing closed
-	 * leaks a dir at worst, and a leaked dir goes stale and is stolen normally.
+	 * Verified against the heartbeat PID, never against our own `is_held` flag.
+	 * A worker blocked in a long job stops heartbeating, goes stale, and a peer
+	 * steals the dir; `restart_reason()` reports the theft but deliberately
+	 * leaves `is_held` alone, so a flag-only check here would have the evicted
+	 * holder `force_release_at()` the SUCCESSOR's directory. The successor then
+	 * dies of "lock dir gone" on its next tick and both respawn, turning a
+	 * self-correcting handoff into a restart loop. Failing closed leaks a dir
+	 * at worst, and a leaked dir goes stale and is stolen normally.
 	 */
 	public function release(): void {
 		if ( ! $this->verify_ownership() ) {

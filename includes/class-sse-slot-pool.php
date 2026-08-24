@@ -25,8 +25,8 @@ class SSE_Slot_Pool {
 	/**
 	 * Maximum concurrent SSE streams per user/IP, when config says nothing.
 	 *
-	 * @longform An SSE stream is a SUSTAINED PHP-FPM child, never a bursty one,
-	 * and a host tolerates only a handful sustained before the platform starts
+	 * An SSE stream is a SUSTAINED PHP-FPM child, never a bursty one, and a
+	 * host tolerates only a handful sustained before the platform starts
 	 * refusing requests outright. This cap is per user/IP, so it has never
 	 * bounded a host's total — it is the per-reader share of a budget the
 	 * global cap owns. Three, because idle streams close and reopen on a
@@ -38,33 +38,34 @@ class SSE_Slot_Pool {
 	/**
 	 * Lease TTL in seconds, when config says nothing.
 	 *
-	 * @longform The floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not
-	 * two. Only an owner-matched `workers heartbeat` refreshes a lease —
-	 * `check()` never does — and a client that loses its session stops
-	 * heartbeating for the whole re-auth round trip, so a TTL sized for
-	 * heartbeat loss alone fences a stream that is merely re-authenticating.
-	 * Shortening this to reclaim crashed readers faster is tempting once the
-	 * pool is small; 45 is the wall, and the existing test pins it.
+	 * The floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not two. Only
+	 * an owner-matched `workers heartbeat` refreshes a lease — `check()` never
+	 * does — and a client that loses its session stops heartbeating for the
+	 * whole re-auth round trip, so a TTL sized for heartbeat loss alone fences
+	 * a stream that is merely re-authenticating. Shortening this to reclaim
+	 * crashed readers faster is tempting once the pool is small; 45 is the
+	 * wall, and the existing test pins it.
 	 */
 	public const DEFAULT_TTL = 60;
 
 	/**
 	 * Concurrent SSE streams for the whole host, when config says nothing.
 	 *
-	 * @longform This is the cap that actually protects the site; the per-identity
-	 * one only divides it fairly. An SSE stream occupies a php-fpm child for its
+	 * This is the cap that actually protects the site; the per-identity one
+	 * only divides it fairly. An SSE stream occupies a php-fpm child for its
 	 * entire life, and Atomic replies 599 once PHP requests backlog, which puts
-	 * the EDGE into auto-defensive mode for 60s for every visitor. Six against a
-	 * ~10-worker allocation leaves room for page requests and the worker itself;
-	 * burst capacity above the allocation is explicitly not guaranteed, so it
-	 * cannot be spent on something sustained. See docs/sse-host-budget.md.
+	 * the EDGE into auto-defensive mode for 60s for every visitor. Six against
+	 * a ~10-worker allocation leaves room for page requests and the worker
+	 * itself; burst capacity above the allocation is explicitly not guaranteed,
+	 * so it cannot be spent on something sustained. See
+	 * docs/sse-host-budget.md.
 	 */
 	public const DEFAULT_MAX_STREAMS = 6;
 
 	/**
 	 * Host slots held back from browsers, when config says nothing.
 	 *
-	 * @longform Zero, because a reservation is only meaningful where something
+	 * Zero, because a reservation is only meaningful where something
 	 * machine-driven pulls from this host — a spoke sets 1 so the hub's
 	 * aggregation pull always finds a slot. It comes OUT of the host total, not
 	 * on top of it: reserving raises nobody's ceiling, it only decides who may
@@ -179,12 +180,12 @@ class SSE_Slot_Pool {
 	 * The pool namespace: this SITE on this MACHINE — both halves from
 	 * `Cache_Backend`, which owns key scope for every surface.
 	 *
-	 * @longform Neither half identifies the protected resource alone, and the
-	 * two deployments fail in opposite directions. On Atomic one pool host
-	 * serves many sites, so a machine-only key put 15 of them on one 10-slot
-	 * budget. In dndocker one site spans many containers over a shared database
-	 * and memcached, so a site-only key would collapse those instead. This is
-	 * the only surface that wants the machine: everything else is site-scoped,
+	 * Neither half identifies the protected resource alone, and the two
+	 * deployments fail in opposite directions. On Atomic one pool host serves
+	 * many sites, so a machine-only key put 15 of them on one 10-slot budget.
+	 * In dndocker one site spans many containers over a shared database and
+	 * memcached, so a site-only key would collapse those instead. This is the
+	 * only surface that wants the machine: everything else is site-scoped,
 	 * because the hostname fragments what a fleet must agree on.
 	 */
 	public static function namespace_key(): string {
@@ -272,12 +273,13 @@ class SSE_Slot_Pool {
 	/**
 	 * How many live host slots this identity already holds.
 	 *
-	 * @longform Two connections from one identity can both read a stale count and
-	 * both claim, overshooting the per-identity cap by the number racing. That is
-	 * deliberate: only the HOST cap has to be exact, and it is, because a claim is
-	 * a CAS on a fixed number of pointers. Making this exact too would need a
-	 * second CAS'd counter to stay consistent with the pointers it describes, and
-	 * a wrong count there leaks capacity permanently rather than for one TTL.
+	 * Two connections from one identity can both read a stale count and both
+	 * claim, overshooting the per-identity cap by the number racing. That is
+	 * deliberate: only the HOST cap has to be exact, and it is, because a claim
+	 * is a CAS on a fixed number of pointers. Making this exact too would need
+	 * a second CAS'd counter to stay consistent with the pointers it describes,
+	 * and a wrong count there leaks capacity permanently rather than for one
+	 * TTL.
 	 *
 	 * A read that fails is counted as not-held, so this fails OPEN while the
 	 * rest of the class fails closed. That is the safe direction for a SHARE:
@@ -305,12 +307,12 @@ class SSE_Slot_Pool {
 	/**
 	 * Whether this request is a machine pull rather than a browser.
 	 *
-	 * @longform A fairness hint, NOT a security boundary: the endpoint already
-	 * requires the READ capability, and any holder of it could send the header.
-	 * All it decides is which side of an authorized reader's own budget the
-	 * request draws from, so forging it costs a reserved slot and grants no
-	 * access. Anything stronger would need the pull to carry a distinct
-	 * credential, which is a Vault change, not a slot-pool one.
+	 * A fairness hint, NOT a security boundary: the endpoint already requires
+	 * the READ capability, and any holder of it could send the header. All it
+	 * decides is which side of an authorized reader's own budget the request
+	 * draws from, so forging it costs a reserved slot and grants no access.
+	 * Anything stronger would need the pull to carry a distinct credential,
+	 * which is a Vault change, not a slot-pool one.
 	 */
 	public static function is_machine_pull(): bool {
 		// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__HTTP_USER_AGENT__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -370,11 +372,11 @@ class SSE_Slot_Pool {
 	/**
 	 * Which kind of not-ours a pointer holding someone else's value is.
 	 *
-	 * @longform The tombstone is not a takeover. `release()` CAS's the pointer
-	 * to 0, so an idle stream ending its own slot leaves exactly this, and a
-	 * client heartbeat already in flight lands on it — routine, and constant
-	 * when the idle timeout is shorter than the heartbeat interval. A positive
-	 * owner is the real thing: our lease TTL expired and a rival claimed it.
+	 * The tombstone is not a takeover. `release()` CAS's the pointer to 0, so
+	 * an idle stream ending its own slot leaves exactly this, and a client
+	 * heartbeat already in flight lands on it — routine, and constant when the
+	 * idle timeout is shorter than the heartbeat interval. A positive owner is
+	 * the real thing: our lease TTL expired and a rival claimed it.
 	 *
 	 * @param mixed $pointer_value The pointer's current value.
 	 */

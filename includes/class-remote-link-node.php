@@ -5,9 +5,10 @@
  * One Remote_Link patrons two hidden siblings: an `SSE_In_Node` (`<name>:sse-in`)
  * that pulls one remote partition, and an `HTTP_Out_Node` (`<name>:http-out`)
  * that carries outbound commands + the slot-keepalive heartbeat. A recurring tick
- * drives the passive SSE_In (`check_stale` + `maybe_connect`), mints a
+ * drives the passive SSE_In (`check_stale` + a queued `maybe_connect`), mints a
  * `workers.heartbeat` every ~HEARTBEAT_INTERVAL (filled into the patron HTTP_Out,
- * whose reply self-routes back into `fill()` for RTT bookkeeping)
+ * whose reply self-routes back into `fill()` for RTT bookkeeping), and publishes
+ * the connection-state snapshot a dashboard reads.
  *
  * Credentials + URL come from the Vault entry resolved by `<vault-id>`; a missing
  * entry leaves the node disconnected (no mis-configured patrons created).
@@ -147,8 +148,9 @@ class Remote_Link_Node extends Timer_Node {
 
 	/**
 	 * Per-tick housekeeping (Timer_Node::fire_cb calls this): drive the passive
-	 * SSE_In, persist the cursor, and keep the slot alive. Idempotent and cheap.
-	 * `should_connect()` gates whether a tick initiates/keeps the connection.
+	 * SSE_In, keep the slot alive, and publish the status snapshot. Idempotent
+	 * and cheap. `should_connect()` gates whether a tick initiates/keeps the
+	 * connection.
 	 */
 	public function fire(): void {
 		// Housekeeping once per second; subclass fast paths ride every tick.
@@ -200,17 +202,17 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Subscribe this link's CURRENT name to the fleet's RELOAD.
 	 *
-	 * @longform Null outside a worker (REPL or request scope): no fleet, so
-	 * nothing detects a change.
+	 * Null outside a worker (REPL or request scope): no fleet, so nothing
+	 * detects a change.
 	 *
-	 * @longform CLOSURE, not Node-name dispatch. `fill()` relays anything it
-	 * does not recognize OUT to a remote spoke, so a name registration would
-	 * route control through the one entry point whose fall-through is a third
-	 * party, and every message would then have to be discriminated from
-	 * control. A closure builds no message at all: provenance is the callback
-	 * identity, one closure per (emitter, event), so there is nothing to
-	 * verify. Only an explicit `return false` unregisters (`notify()` compares
-	 * identity), so a void handler keeps listening.
+	 * CLOSURE, not Node-name dispatch. `fill()` relays anything it does not
+	 * recognize OUT to a remote spoke, so a name registration would route
+	 * control through the one entry point whose fall-through is a third party,
+	 * and every message would then have to be discriminated from control. A
+	 * closure builds no message at all: provenance is the callback identity,
+	 * one closure per (emitter, event), so there is nothing to verify. Only an
+	 * explicit `return false` unregisters (`notify()` compares identity), so a
+	 * void handler keeps listening.
 	 */
 	private function subscribe_reload(): void {
 		Core::node( Node_Names::FLEET )?->register(
@@ -303,10 +305,10 @@ class Remote_Link_Node extends Timer_Node {
 	 * Queue this link's connect instead of running it inline, and make sure the
 	 * shared drain timer is up.
 	 *
-	 * @longform Tachikoma `Job.pm`: a spawn pushes a closure onto `@SPAWN_QUEUE`
-	 * and mounts `_spawn_timer` if absent. Same shape, same reason — an
-	 * aggregator brings every Remote_Source up in one tick, and N simultaneous
-	 * SSE connects are what the spoke answers with 429. The queued flag is what
+	 * Tachikoma `Job.pm`: a spawn pushes a closure onto `@SPAWN_QUEUE` and
+	 * mounts `_spawn_timer` if absent. Same shape, same reason — an aggregator
+	 * brings every Remote_Source up in one tick, and N simultaneous SSE
+	 * connects are what the spoke answers with 429. The queued flag is what
 	 * keeps a once-per-second housekeeping tick from queueing the same connect
 	 * over and over while it waits its turn.
 	 *
@@ -560,9 +562,9 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Tear down the three patron siblings and any connect queued against them.
 	 *
-	 * @longform A queued closure holds this node and its SSE_In; popped after
-	 * teardown it reconnects a stream nothing owns any more and strands a cURL
-	 * handle in the drain loop, holding a slot nothing can release.
+	 * A queued closure holds this node and its SSE_In; popped after teardown it
+	 * reconnects a stream nothing owns any more and strands a cURL handle in
+	 * the drain loop, holding a slot nothing can release.
 	 */
 	private function drop_patrons(): void {
 		$this->connect_queued = false;
