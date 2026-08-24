@@ -389,6 +389,94 @@ PHP
 assert_clean 'a WP-CLI section below the tags is not stray prose (php)' \
 	"$tmp/class-wpcli-node.php"
 
+# ---- docblock: @longform buys nothing, so it is an error there ----
+# Docblocks are already exempt from the length gate, so the marker marks
+# nothing and the next reader hunts for the rule it is opting out of.
+cat > "$tmp/class-tagged-node.php" <<'PHP'
+<?php
+class Tagged_Node {
+	/**
+	 * Does the thing.
+	 *
+	 * @longform The explanation this tag was introducing, which stays; only
+	 * the marker in front of it goes.
+	 *
+	 * @return int The result.
+	 */
+	public function f(): int {
+		return 1;
+	}
+}
+PHP
+assert_flags '@longform in a docblock is flagged (php)' \
+	"$tmp/class-tagged-node.php" '@longform in a docblock'
+
+# Prose NAMING the tag is not the marker — the gate's own header documents the
+# rule, and a docblock that cannot mention it cannot describe it.
+cat > "$tmp/class-mentions-node.php" <<'PHP'
+<?php
+class Mentions_Node {
+	/**
+	 * Does the thing, and explains that a comment tagged `@longform` is
+	 * exempt from the length gate.
+	 *
+	 * @return int The result.
+	 */
+	public function f(): int {
+		return 1;
+	}
+}
+PHP
+assert_clean 'prose naming @longform is not the marker (php)' \
+	"$tmp/class-mentions-node.php"
+
+# The tag used to exempt a whole docblock from the prose-after-tags rule, which
+# hid real violations. Naming the tag must not buy that exemption back.
+cat > "$tmp/class-tagged-trailer-node.php" <<'PHP'
+<?php
+class Tagged_Trailer_Node {
+	/**
+	 * Does the thing, and mentions `@longform` in passing.
+	 *
+	 * @return int The result.
+	 *
+	 * A note the author appended after the tags, where it does not belong.
+	 */
+	public function f(): int {
+		return 1;
+	}
+}
+PHP
+assert_flags 'a docblock naming @longform is still gated on prose after the tags (php)' \
+	"$tmp/class-tagged-trailer-node.php" 'prose after the tag block'
+
+# A ONE-LINE docblock is the shape whose only content line is also its opening
+# and closing line. Read it as furniture rather than content and the marker
+# inside it is checked by nothing, which is where the rule leaks.
+cat > "$tmp/class-oneline-tagged-node.php" <<'PHP'
+<?php
+class Oneline_Tagged_Node {
+	/** @longform Live counter, explained at length on a single line. */
+	protected int $count = 0;
+}
+PHP
+assert_flags '@longform in a one-line docblock is flagged (php)' \
+	"$tmp/class-oneline-tagged-node.php" '@longform in a docblock'
+
+# The same shape carrying a REAL tag is the discriminator: reading that one
+# content line must not turn every one-line docblock into a violation.
+cat > "$tmp/class-oneline-clean-node.php" <<'PHP'
+<?php
+class Oneline_Clean_Node {
+	/** @return int The result. */
+	public function f(): int {
+		return 1;
+	}
+}
+PHP
+assert_clean 'a one-line docblock carrying a real tag passes (php)' \
+	"$tmp/class-oneline-clean-node.php"
+
 # ---- the JS twin must agree, since JSDoc is where this was found ----
 command -v node >/dev/null 2>&1 || { echo "✗ node not found on PATH"; exit 2; }
 
@@ -447,6 +535,73 @@ export function f( baseline ) {
 JS
 assert_clean_js 'a wrapped tag description is not prose after the tags (js)' \
 	"$tmp/wrapped.js"
+
+cat > "$tmp/tagged.js" <<'JS'
+/**
+ * Does the thing.
+ *
+ * @longform The explanation this tag was introducing, which stays; only the
+ * marker in front of it goes.
+ *
+ * @return {number} The result.
+ */
+export function f() {
+	return 1;
+}
+JS
+assert_flags_js '@longform in a JSDoc block is flagged (js)' \
+	"$tmp/tagged.js" '@longform in a docblock'
+
+cat > "$tmp/mentions.js" <<'JS'
+/**
+ * Does the thing, and explains that a comment tagged `@longform` is exempt
+ * from the length gate.
+ *
+ * @return {number} The result.
+ */
+export function f() {
+	return 1;
+}
+JS
+assert_clean_js 'prose naming @longform is not the marker (js)' \
+	"$tmp/mentions.js"
+
+# The opening line is where the JS twin read the tag, so that is where the
+# exemption it used to buy has to be proven gone.
+cat > "$tmp/tagged-trailer.js" <<'JS'
+/** Does the thing, and mentions `@longform` in passing.
+ *
+ * @return {number} The result.
+ *
+ * A note the author appended after the tags, where it does not belong.
+ */
+export function f() {
+	return 1;
+}
+JS
+assert_flags_js 'a JSDoc block naming @longform is still gated on prose after the tags (js)' \
+	"$tmp/tagged-trailer.js" 'prose after the tag block'
+
+# The JS twin walks lines rather than tokens, so a one-line JSDoc opens and
+# closes on the same line and its only content line is that line. Seeding the
+# block with anything less leaves the marker inside it checked by nothing.
+cat > "$tmp/oneline-tagged.js" <<'JS'
+/** @longform Live counter, explained at length on a single line. */
+export const count = 0;
+JS
+assert_flags_js '@longform in a one-line JSDoc block is flagged (js)' \
+	"$tmp/oneline-tagged.js" '@longform in a docblock'
+
+# The same shape carrying a REAL tag is the discriminator: reading that one
+# content line must not turn every one-line JSDoc into a violation.
+cat > "$tmp/oneline-clean.js" <<'JS'
+/** @return {number} The result. */
+export function f() {
+	return 1;
+}
+JS
+assert_clean_js 'a one-line JSDoc block carrying a real tag passes (js)' \
+	"$tmp/oneline-clean.js"
 
 [ "$fail" -eq 0 ] && echo "all comment-gate tests passed"
 exit "$fail"

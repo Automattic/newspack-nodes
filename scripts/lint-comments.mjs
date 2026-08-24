@@ -4,11 +4,13 @@
  *
  * Heuristic lexer over comment-only lines (only whitespace before the `//`),
  * so string contents rarely false-positive; a hit inside a template literal is
- * fixable with @longform. JSDoc blocks (slash-star-star) are exempt. A comment
- * tagged `@longform` (first line) is exempt — the greppable marker for footgun
- * comments whose full length is strictly necessary. Directive comments
- * (eslint-, prettier-, @ts-, istanbul, jsx pragma) are exempt. Unit tests are
- * exempt by path (__tests__/, *.test.js*, tests/).
+ * fixable with @longform. JSDoc blocks (slash-star-star) are exempt from
+ * length. An INLINE comment tagged `@longform` (first line) is exempt — the
+ * greppable marker for footgun comments whose full length is strictly
+ * necessary. A JSDoc block is exempt already, so opening one of its lines with
+ * that tag marks nothing and is itself an error; prose naming the tag is fine.
+ * Directive comments (eslint-, prettier-, @ts-, istanbul, jsx pragma) are
+ * exempt. Unit tests are exempt by path (__tests__/, *.test.js*, tests/).
  *
  * Exit 0 clean; exit 1 with `file:line: message` per violation.
  */
@@ -37,12 +39,46 @@ const isDirective = ( text ) =>
 const isLongform = ( text ) => text.includes( '@longform' );
 
 /**
- * Docblock content lines, stripped of their leading `*`, as [line, text].
+ * One JSDoc content line, stripped of its comment furniture.
  *
- * The line a description sits BELOW the tags on, or 0. No renderer shows that
- * text, so it reads as documentation while documenting nothing. The separator
- * is what identifies it: a wrapped tag description continues on the very next
- * line, so only a blank `*` followed by non-tag text is this shape.
+ * @param {string} trimmed The whitespace-trimmed source line.
+ * @return {string} Its content.
+ */
+const docText = ( trimmed ) =>
+	trimmed
+		.replace( /\*\/$/, '' )
+		.replace( /^\/?\*+/, '' )
+		.trim();
+
+/**
+ * The line a JSDoc block carries a `@longform` tag on, or 0.
+ *
+ * The tag exempts an inline comment from the length gate, and a JSDoc block is
+ * exempt already, so inside one it marks nothing while reading as an opt-out
+ * the next editor goes hunting for. Only a content line OPENING with it is
+ * that marker: prose NAMING the tag stays legal, or this gate's own
+ * documentation could not describe the rule it enforces. PHP twin:
+ * `longform_tag` in lint-comments.php.
+ *
+ * @param {Array} content `[ lineNumber, text ]` pairs.
+ * @return {number} The offending line, or 0 when the block carries no tag.
+ */
+const longformTag = ( content ) => {
+	for ( const [ n, text ] of content ) {
+		if ( text.startsWith( '@longform' ) ) {
+			return n;
+		}
+	}
+	return 0;
+};
+
+/**
+ * The line a JSDoc description sits BELOW the tags on, or 0.
+ *
+ * No renderer shows that text, so it reads as documentation while documenting
+ * nothing. The separator is what identifies it: a wrapped tag description
+ * continues on the very next line, so only a blank `*` followed by non-tag
+ * text is this shape.
  *
  * @param {Array} content `[ lineNumber, text ]` pairs.
  * @return {number} The offending line, or 0 when the block is well-formed.
@@ -91,17 +127,33 @@ function checkFile( path ) {
 	let blockExempt = false;
 	let blockContent = [];
 
+	// The two JSDoc rules, run wherever the block turns out to end.
+	const closeBlock = () => {
+		if ( ! blockIsDoc ) {
+			return;
+		}
+		const tagged = longformTag( blockContent );
+		if ( tagged ) {
+			violations.push(
+				`${ tagged }: @longform in a docblock (docblocks are exempt from the length gate; drop the tag)`
+			);
+		}
+		const stray = proseAfterTags( blockContent );
+		if ( stray ) {
+			violations.push(
+				`${ stray }: prose after the tag block (the description goes above the tags)`
+			);
+		}
+	};
+
 	lines.forEach( ( raw, i ) => {
 		const n = i + 1;
 		const line = raw.replace( /\r$/, '' );
 		const trimmed = line.trim();
 
 		if ( inBlock ) {
+			blockContent.push( [ n, docText( trimmed ) ] );
 			if ( ! trimmed.includes( '*/' ) ) {
-				blockContent.push( [
-					n,
-					trimmed.replace( /^\*+\s?/, '' ).trim(),
-				] );
 				return;
 			}
 			inBlock = false;
@@ -110,25 +162,19 @@ function checkFile( path ) {
 					`${ blockStart }: multi-line /* */ comment (use JSDoc, one line, or @longform)`
 				);
 			}
-			const stray =
-				blockIsDoc && ! blockExempt
-					? proseAfterTags( blockContent )
-					: 0;
-			if ( stray ) {
-				violations.push(
-					`${ stray }: prose after the tag block (the description goes above the tags)`
-				);
-			}
+			closeBlock();
 			return;
 		}
 		if ( trimmed.startsWith( '/*' ) ) {
 			blockIsDoc = trimmed.startsWith( '/**' );
 			blockExempt = isLongform( trimmed ) || isDirective( trimmed );
 			blockStart = n;
-			blockContent = [];
+			blockContent = [ [ n, docText( trimmed ) ] ];
 			if ( ! trimmed.includes( '*/' ) ) {
 				inBlock = true;
-			} else if (
+				return;
+			}
+			if (
 				! blockIsDoc &&
 				! blockExempt &&
 				visualLength( line ) > MAX_COLS
@@ -137,6 +183,7 @@ function checkFile( path ) {
 					`${ n }: comment exceeds ${ MAX_COLS } columns (condense, or tag @longform)`
 				);
 			}
+			closeBlock();
 			return;
 		}
 		if ( trimmed.startsWith( '//' ) ) {

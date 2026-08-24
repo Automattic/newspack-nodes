@@ -7,9 +7,9 @@
  * histogram, which by design preserves every newline, so a method moved out of
  * a class leaves its blank lines behind. Deleting a comment block does the same.
  *
- * @longform Only T_WHITESPACE tokens are rewritten, never the raw text. Blank
- * lines inside a heredoc, nowdoc or quoted string are DATA — collapsing them
- * changes what the program prints — and a line-oriented pass cannot tell the
+ * Only T_WHITESPACE tokens are rewritten, never the raw text. Blank lines
+ * inside a heredoc, nowdoc or quoted string are DATA — collapsing them changes
+ * what the program prints — and a line-oriented pass cannot tell the
  * difference. Those bodies are other token types, so they are never reached.
  *
  * Usage:

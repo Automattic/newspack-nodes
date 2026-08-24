@@ -24,9 +24,9 @@ class Fleet_Node extends Timer_Node {
 	use Schema_Reflection;
 
 	/**
-	 * @longform Scan cadence, and so also the topology (de)activation latency.
-	 * Not the router tick: a missing lock dir is the only case a faster scan
-	 * reaches sooner, and a crashed worker's queue is durable, so that lag costs
+	 * Scan cadence, and so also the topology (de)activation latency. Not the
+	 * router tick: a missing lock dir is the only case a faster scan reaches
+	 * sooner, and a crashed worker's queue is durable, so that lag costs
 	 * nothing. The stale-heartbeat case is dominated by the topology's
 	 * stale_timeout (60s default) either way. Fifteen seconds is 15x fewer
 	 * glob/stat passes per worker, times every worker.
@@ -34,12 +34,12 @@ class Fleet_Node extends Timer_Node {
 	public const SCAN_INTERVAL_MS = 15000;
 
 	/**
-	 * @longform Ceiling on spawn POSTs per pass. Each is a BLOCKING curl capped
-	 * at Core::POST_TIMEOUT_MS, and unlike the cron reconciliation pass — which
-	 * has a process to itself — this runs inside a worker's drain loop, so every
-	 * POST is time stolen from message processing. A cold fleet spreads its
-	 * spawns over consecutive passes instead of stalling one; the uncapped cron
-	 * pass is what revives a large fleet in one go.
+	 * Ceiling on spawn POSTs per pass. Each is a BLOCKING curl capped at
+	 * Core::POST_TIMEOUT_MS, and unlike the cron reconciliation pass — which
+	 * has a process to itself — this runs inside a worker's drain loop, so
+	 * every POST is time stolen from message processing. A cold fleet spreads
+	 * its spawns over consecutive passes instead of stalling one; the uncapped
+	 * cron pass is what revives a large fleet in one go.
 	 */
 	public const MAX_SPAWNS_PER_TICK = 4;
 

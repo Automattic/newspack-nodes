@@ -102,9 +102,9 @@ class Bootstrap {
 	 * nothing tails is simply absent from the map, which is why no exclusion
 	 * rule is needed for offsetlogs, deadletter dirs or scratch.
 	 *
-	 * @longform Cached in APCu (`local_first`, memcached only as its fallback)
-	 * because the derivation globs both topology dirs and parses every `.tsl`,
-	 * while the askers sit on request paths. Host-LOCAL is the correct tier: the
+	 * Cached in APCu (`local_first`, memcached only as its fallback) because
+	 * the derivation globs both topology dirs and parses every `.tsl`, while
+	 * the askers sit on request paths. Host-LOCAL is the correct tier: the
 	 * inputs are TSL files on disk, which differ per host. The key carries the
 	 * active set, so activation cannot serve a stale answer; the TTL is what
 	 * covers an edited `.tsl`, and a stale miss costs one cron-cadence wake.

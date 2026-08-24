@@ -282,12 +282,12 @@ class Core {
 	/**
 	 * Site identity for the log midfix — the host of `home_url()`.
 	 *
-	 * @longform `gethostname()` names the MACHINE, and on shared hosting that is
-	 * a pool box every site on it reports identically
+	 * `gethostname()` names the MACHINE, and on shared hosting that is a pool
+	 * box every site on it reports identically
 	 * (`pool195-106-36.bur.atomicsites.net`), so an aggregated log cannot tell
 	 * whose worker wrote a line. The site's own host can. Memoized because
-	 * `home_url()` reads an option and runs filters, and this is on every logged
-	 * line; falls back to the machine name before WordPress is loaded.
+	 * `home_url()` reads an option and runs filters, and this is on every
+	 * logged line; falls back to the machine name before WordPress is loaded.
 	 */
 	private static function log_host(): string {
 		if ( '' !== self::$log_host ) {

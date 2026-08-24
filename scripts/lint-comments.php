@@ -6,9 +6,11 @@
  * files lint-staged passes as argv are one line and <= 80 columns; docblocks
  * are exempt from length. PLACEMENT: outside a function body the only comment
  * allowed is a docblock immediately preceding the declaration it documents, so
- * a docblock whose declaration is gone is itself a violation. A comment tagged
- * `@longform` (first line) is exempt — the greppable marker for footgun
- * comments whose full length is strictly necessary. Directive comments
+ * a docblock whose declaration is gone is itself a violation. An INLINE
+ * comment tagged `@longform` (first line) is exempt — the greppable marker for
+ * footgun comments whose full length is strictly necessary. A docblock is
+ * exempt already, so opening one of its lines with that tag marks nothing and
+ * is itself an error; prose naming the tag is fine. Directive comments
  * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split.
  *
  * GENERICS: a docblock type carries no space after its comma. Write
@@ -31,10 +33,10 @@ const SKIP_DIRS = [ 'tests', 'vendor', 'node_modules', 'build', 'coverage', 'rel
 /**
  * Visual length with tabs expanded to the next TAB_WIDTH stop.
  *
- * @longform Characters, not bytes: `str_split` counted an em dash as 3, so the
- * PHP gate was roughly 3x stricter than the documented 80 columns on exactly
- * the prose it is applied to — and the JS twin, iterating code points, passed
- * the same line. The twins have to agree.
+ * Characters, not bytes: `str_split` counted an em dash as 3, so the PHP gate
+ * was roughly 3x stricter than the documented 80 columns on exactly the prose
+ * it is applied to — and the JS twin, iterating code points, passed the same
+ * line. The twins have to agree.
  *
  * @param string $line One source line.
  * @return int Visual columns.
@@ -51,14 +53,14 @@ function visual_length( string $line ): int {
  * The balanced `<...>` span starting at `$start`, collapsed, or null when it
  * is not a type at all.
  *
- * @longform Two prose shapes defeat a plain depth counter, and both reached
- * the tree. `n<10, retry, then bail` never closes, so the collapse ran to end
- * of line and ate the spaces after every later comma. `a<b, see c>d` DOES
- * close, so buffering alone still accepted it. The discriminator is the
- * content: a type argument carries no internal space once its comma-spaces are
- * gone, and `see c` does. Rejecting a candidate must also backtrack rather
- * than skip the rest of the line, or a stray `<` earlier in a sentence hides a
- * real generic behind it from the gate.
+ * Two prose shapes defeat a plain depth counter, and both reached the tree.
+ * `n<10, retry, then bail` never closes, so the collapse ran to end of line
+ * and ate the spaces after every later comma. `a<b, see c>d` DOES close, so
+ * buffering alone still accepted it. The discriminator is the content: a type
+ * argument carries no internal space once its comma-spaces are gone, and
+ * `see c` does. Rejecting a candidate must also backtrack rather than skip the
+ * rest of the line, or a stray `<` earlier in a sentence hides a real generic
+ * behind it from the gate.
  *
  * @param string $line  One source line.
  * @param int    $start Index of the candidate `<`.
@@ -132,10 +134,10 @@ const DECLARATION_TOKENS = [
 /**
  * Comments at class-body level that document no declaration.
  *
- * @longform The only comment allowed outside a function body is a docblock
- * immediately preceding the member it documents. A section header, a `//` note
- * between methods, or a docblock whose method was deleted all describe nothing
- * — and the orphan is worse than noise: it reads as documentation for whatever
+ * The only comment allowed outside a function body is a docblock immediately
+ * preceding the member it documents. A section header, a `//` note between
+ * methods, or a docblock whose method was deleted all describe nothing — and
+ * the orphan is worse than noise: it reads as documentation for whatever
  * happens to sit under it. Scope is the CLASS BODY, found by brace depth, so
  * file-level headers are out of scope and closures, anonymous classes and match
  * arms all nest deeper and count as function scope.
@@ -239,8 +241,44 @@ function stray_comments( string $source ): array {
 }
 
 /**
- * @return array<int,string> `line: message` violations for one file.
+ * A docblock's content lines, stripped of their comment furniture.
+ *
+ * @param string $doc   The whole T_DOC_COMMENT text.
+ * @param int    $start Its first line number.
+ * @return list<array{0:int,1:string}> `[ line, text ]` pairs. JS twin:
+ *                                     `blockContent` in lint-comments.mjs.
  */
+function doc_lines( string $doc, int $start ): array {
+	$out = [];
+	foreach ( \explode( "\n", $doc ) as $offset => $raw ) {
+		$text  = \trim( (string) \preg_replace( '{^\s*/?\*+/?\s?}', '', $raw ) );
+		$out[] = [ $start + $offset, \trim( (string) \preg_replace( '{\*/$}', '', $text ) ) ];
+	}
+	return $out;
+}
+
+/**
+ * The line a docblock carries a `@longform` tag on, or 0.
+ *
+ * The tag exempts an inline comment from the length gate, and a docblock is
+ * exempt already, so inside one it marks nothing while reading as an opt-out
+ * the next editor goes hunting for. Only a content line OPENING with it is
+ * that marker: prose NAMING the tag stays legal, or this gate's own
+ * documentation could not describe the rule it enforces. JS twin:
+ * `longformTag` in lint-comments.mjs.
+ *
+ * @param list<array{0:int,1:string}> $content `[ line, text ]` pairs.
+ * @return int The offending line, or 0 when the block carries no tag.
+ */
+function longform_tag( array $content ): int {
+	foreach ( $content as [ $line, $text ] ) {
+		if ( \str_starts_with( $text, '@longform' ) ) {
+			return $line;
+		}
+	}
+	return 0;
+}
+
 /**
  * The line a docblock's description sits BELOW its tags on, or 0.
  *
@@ -250,16 +288,13 @@ function stray_comments( string $source ): array {
  * blank `*` line followed by non-tag text is this shape. JS twin:
  * `proseAfterTags` in lint-comments.mjs.
  *
- * @param string $doc   The whole T_DOC_COMMENT text.
- * @param int    $start Its first line number.
+ * @param list<array{0:int,1:string}> $content `[ line, text ]` pairs.
  * @return int The offending line, or 0 when the block is well-formed.
  */
-function prose_after_tags( string $doc, int $start ): int {
+function prose_after_tags( array $content ): int {
 	$seen_tag = false;
 	$blank    = false;
-	foreach ( \explode( "\n", $doc ) as $offset => $raw ) {
-		$text = \trim( (string) \preg_replace( '{^\s*/?\*+/?\s?}', '', $raw ) );
-		$text = \trim( (string) \preg_replace( '{\*/$}', '', $text ) );
+	foreach ( $content as [ $line, $text ] ) {
 		if ( \str_starts_with( $text, '##' ) ) {
 			// WP-CLI parses `## OPTIONS` / `## EXAMPLES` below the tags.
 			return 0;
@@ -271,7 +306,7 @@ function prose_after_tags( string $doc, int $start ): int {
 			$blank = true;
 		} else {
 			if ( $seen_tag && $blank ) {
-				return $start + $offset;
+				return $line;
 			}
 			$blank = false;
 		}
@@ -279,6 +314,12 @@ function prose_after_tags( string $doc, int $start ): int {
 	return 0;
 }
 
+/**
+ * Every violation in one file.
+ *
+ * @param string $file Path to check.
+ * @return array<int,string> `line: message` violations.
+ */
 function check_file( string $file ): array {
 	$source = \file_get_contents( $file );
 	if ( false === $source ) {
@@ -335,12 +376,18 @@ function check_file( string $file ): array {
 		}
 	}
 
-	// Docblocks: a description below the tags documents nothing.
+	// Docblocks: @longform marks nothing here, and a description below the
+	// tags documents nothing.
 	foreach ( \token_get_all( $source ) as $token ) {
-		if ( ! \is_array( $token ) || \T_DOC_COMMENT !== $token[0] || is_longform( $token[1] ) ) {
+		if ( ! \is_array( $token ) || \T_DOC_COMMENT !== $token[0] ) {
 			continue;
 		}
-		$stray = prose_after_tags( $token[1], $token[2] );
+		$content = doc_lines( $token[1], $token[2] );
+		$tagged  = longform_tag( $content );
+		if ( 0 !== $tagged ) {
+			$violations[] = "{$tagged}: @longform in a docblock (docblocks are exempt from the length gate; drop the tag)";
+		}
+		$stray = prose_after_tags( $content );
 		if ( 0 !== $stray ) {
 			$violations[] = "{$stray}: prose after the tag block (the description goes above the tags)";
 		}
@@ -386,9 +433,9 @@ function check_file( string $file ): array {
 /**
  * Expand a directory argument to the `.php` files under it; pass a file through.
  *
- * @longform Without this a directory argument matched neither branch of the
- * filter below and was silently skipped, so `lint-comments.php .` — the
- * form `npm run lint:php` uses — exited 0 having checked nothing. The gate ran
+ * Without this a directory argument matched neither branch of the filter
+ * below and was silently skipped, so `lint-comments.php .` — the form
+ * `npm run lint:php` uses — exited 0 having checked nothing. The gate ran
  * green by hand for everyone while lint-staged, which passes explicit paths,
  * failed at commit time on violations nobody could reproduce.
  *
