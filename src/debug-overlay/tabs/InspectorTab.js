@@ -202,30 +202,14 @@ export default function InspectorTab( {
 		[ graph.nodes ]
 	);
 
-	// Reachable `cd` targets: top-level substrate names, minus internal-only.
-	const NON_NAVIGABLE = useMemo(
-		() =>
-			new Set( [
-				names.COMMAND_INTERPRETER,
-				names.ROUTER,
-				names.CWD,
-				names.METADATA,
-				names.UPTIME,
-				names.COMPLETION,
-				names.HEARTBEAT,
-				names.OUTPUT,
-				names.SSE,
-				names.CONSOLE_TAP,
-			] ),
-		[]
-	);
-	// LOCAL cd targets from the browser registry, not the (maybe remote) graph.
-	const pathOptions = [ '' ];
-	for ( const id of Core.nodes.keys() ) {
-		if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
-			pathOptions.push( id );
-		}
-	}
+	// @longform LOCAL cd targets, from the browser registry rather than the
+	// (maybe remote) graph. `_http` is the only one worth offering: a cwd is
+	// useful when commands prefixed with it reach something, and every other
+	// reserved `_` node is a sink or plumbing. Naming what IS navigable keeps
+	// a node added later off the menu until someone decides it belongs.
+	const pathOptions = Core.nodes.has( names.HTTP )
+		? [ '', names.HTTP ]
+		: [ '' ];
 
 	// Publish cwd PATH selector to shared Header; ref-wrap setPath (churn).
 	const setPathRef = useRef( setPath );
