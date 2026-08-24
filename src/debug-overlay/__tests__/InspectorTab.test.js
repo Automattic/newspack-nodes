@@ -237,6 +237,19 @@ describe( 'InspectorTab interactions', () => {
 		}
 	} );
 
+	it( 'offers only `_http` as a cwd, never a terminal sink like `_stdout`', () => {
+		const publishHeader = jest.fn();
+		renderInspector( { publishHeader } );
+		const cfg = publishHeader.mock.calls
+			.map( ( c ) => c[ 0 ] )
+			.find( ( c ) => c && Array.isArray( c.pathOptions ) );
+		expect( cfg ).toBeTruthy();
+		// The overlay mounts `_stdout`; it is a sink, so it is not a cwd.
+		expect( Core.nodes.has( '_stdout' ) ).toBe( true );
+		expect( cfg.pathOptions ).not.toContain( '_stdout' );
+		expect( cfg.pathOptions ).toEqual( [ '', '_http' ] );
+	} );
+
 	it( 'publishes a ref-stable onPathChange that routes through setPath', () => {
 		const publishHeader = jest.fn();
 		renderInspector( { publishHeader } );

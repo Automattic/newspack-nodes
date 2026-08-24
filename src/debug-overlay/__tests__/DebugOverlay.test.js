@@ -507,11 +507,14 @@ describe( 'DebugOverlay', () => {
 		expect( handles.length ).toBeGreaterThanOrEqual( 4 );
 	} );
 
-	it( 'pathOptions includes substrate top-level nodes whose names start with `_`', () => {
-		// _http is mounted by the exospine; path menu surfaces it as a `cd`.
+	it( 'offers `_http` as the only cwd, not plumbing or an arbitrary `_` node', () => {
+		// A cwd is useful when commands prefixed with it reach something. `_http`
+		// is the only reserved name that qualifies; `_shell` is routing plumbing
+		// and `_router` internal, and a node someone mounts later is not a cwd
+		// until somebody decides it is.
 		mountExospine();
-		const httpish = new Node();
-		httpish.name = '_my_service';
+		const svc = new Node();
+		svc.name = '_my_service';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -525,36 +528,13 @@ describe( 'DebugOverlay', () => {
 		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
 			( o ) => o.value
 		);
-		expect( optionValues ).toContain( '_my_service' );
-		// And does NOT include the non-navigable reserved names (e.g. _router).
-		expect( optionValues ).not.toContain( '_router' );
-	} );
-
-	it( 'excludes the _shell console Tap from the path menu (routing plumbing, not a cd target)', () => {
-		// `_shell` (CONSOLE_TAP) is routing plumbing, not a `cd` scope.
-		mountExospine();
-		const svc = new Node();
-		svc.name = '_my_service'; // a real navigable node so the menu expands
-		const { getByRole, container } = render(
-			<DebugOverlay search="?nodes-debug=1" />
-		);
-		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		const selects = container.querySelectorAll( '.topology-select' );
-		const pathSelect = [ ...selects ].find(
-			( s ) => ! s.classList.contains( 'topology-select--skin' )
-		);
-		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
-			( o ) => o.value
-		);
-		expect( optionValues ).not.toContain( '_shell' );
-		expect( optionValues ).toContain( '_my_service' );
+		expect( optionValues ).toEqual( [ '', '_http' ] );
 	} );
 
 	it( 'keeps the local navigable scopes in the path menu at a remote cwd', () => {
 		// Remote cwd: path menu still offers local `cd` targets from Core.
 		mountExospine();
-		const svc = new Node();
-		svc.name = '_my_service'; // a local navigable node, always in Core
+		// `_http` comes from the local registry, so a remote poll cannot drop it.
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -576,7 +556,7 @@ describe( 'DebugOverlay', () => {
 		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
 			( o ) => o.value
 		);
-		expect( optionValues ).toContain( '_my_service' );
+		expect( optionValues ).toContain( '_http' );
 	} );
 
 	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', async () => {

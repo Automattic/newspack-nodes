@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The debug overlay's PATH menu offered `_stdout`.** It listed every `_`-prefixed node in the browser registry minus a ten-name denylist, so anything not enumerated was navigable by default — including a bare terminal sink with nothing under it to address. Eight of the eighteen reserved names were navigable purely by omission, and a node mounted later joined them. `_http` is the one useful cwd, because a cwd earns its place only when commands prefixed with it reach something, so the menu names what IS navigable rather than what is not.
+
 ### Changed
 - **`@longform` in a docblock is an error, in both gates.** The tag exempts an inline comment from the 80-column rule, and a docblock is exempt already — so inside one it marked nothing while reading as an opt-out the next editor went hunting for. `lint-comments.php` and `lint-comments.mjs` report a content line that OPENS with the tag; prose naming it is untouched, or neither gate could document the rule it enforces. 35 markers came off across the four plugins that carried one in source — 25 in the substrate, four in event-logger-nodes, three each in nuclear-gyrobase and pyrobase — prose intact and re-wrapped. Intelligence and cache-cozy carried none; they take the rule through their vendored copy of the gate. The exemption the tag used to buy — a tagged docblock skipped the prose-after-tags rule entirely — is gone with it, so that rule now applies to every docblock. The two gates also agree on what a docblock CONTAINS: the PHP twin passes `doc_lines()` to both rules where it used to re-strip the token per rule, and the JS twin feeds the opening and closing lines into `blockContent` instead of dropping them, so a one-line JSDoc is checked at all — a pair of fixtures per twin pins that, one flagging `/** @longform … */` and one keeping a one-line block with a real tag clean.
 
