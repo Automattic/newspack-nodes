@@ -23,6 +23,7 @@ import {
 	isEdgeVisible,
 	clipSegmentExit,
 } from '../utils/viewportCull';
+import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
 import { maxInsetBeforeLOD } from '../utils/viewportResize';
 import { useLayoutContext } from '../LayoutContext';
 import { useChrome } from '../ChromeContext';
@@ -637,21 +638,14 @@ export default function SchematicCanvas( {
 
 	// Track canvas px reactively so autofit + cull recompute on panel resize.
 	const [ canvasPx, setCanvasPx ] = useState( { w: 0, h: 0 } );
-	useEffect( () => {
+	const measureCanvas = useCallback( () => {
 		const el = svgRef.current;
-		if ( ! el ) {
-			return undefined;
-		}
-		const measure = () =>
+		if ( el ) {
 			setCanvasPx( { w: el.clientWidth, h: el.clientHeight } );
-		measure();
-		if ( typeof window === 'undefined' || ! window.ResizeObserver ) {
-			return undefined;
 		}
-		const ro = new window.ResizeObserver( measure );
-		ro.observe( el );
-		return () => ro.disconnect();
 	}, [] );
+	useEffect( measureCanvas, [ measureCanvas ] );
+	useContainerRefit( svgRef, measureCanvas, [ measureCanvas ], 0 );
 
 	const defaultViewBox = useMemo(
 		() => autofitFor( displayNodes, canvasPx, bottomObstructionPx ),

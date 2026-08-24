@@ -210,6 +210,28 @@ class Timer_Node extends Node {
 	}
 
 	/**
+	 * Move the router hitchhike with the name. That registration is keyed by
+	 * NAME, so a rename leaving it behind strands an entry addressing nothing:
+	 * the router shouts `forgot to unregister` on the next tick, drops it, and
+	 * the timer stops firing under either spelling.
+	 *
+	 * @param string|null $name New name; omit the argument entirely to read.
+	 */
+	public function name( ?string $name = null ): string {
+		if ( 0 === \func_num_args() ) {
+			return parent::name();
+		}
+		$previous = $this->name;
+		$result   = parent::name( $name );
+		$router   = Core::node( Node_Names::ROUTER );
+		if ( 'router' === $this->mode && $previous !== $result && $router instanceof self ) {
+			$router->unregister( 'TIMER', $previous );
+			$router->register( 'TIMER', $result );
+		}
+		return $result;
+	}
+
+	/**
 	 * Milliseconds for an operator-supplied cadence declared in SECONDS — the one
 	 * conversion every self-pacing Timer subclass shares. `parse_schema_args()`
 	 * has already refused anything that is not the declared numeric type, so what

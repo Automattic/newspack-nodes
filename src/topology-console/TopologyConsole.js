@@ -12,6 +12,7 @@ import {
 } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
+import { useContainerRefit } from '../shared/hooks/useContainerRefit';
 import { formatCommandArgs } from '../runtime/command-args';
 import CanvasFrame from './components/CanvasFrame';
 import ConsoleShell from './components/ConsoleShell';
@@ -422,20 +423,13 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 	// Measure .topology-app so the REPL ceiling tracks real height.
 	const appRef = useRef( null );
 	const [ appHeight, setAppHeight ] = useState( 0 );
-	useEffect( () => {
-		const el = appRef.current;
-		if ( ! el ) {
-			return undefined;
+	const measureApp = useCallback( () => {
+		if ( appRef.current ) {
+			setAppHeight( appRef.current.offsetHeight );
 		}
-		const measure = () => setAppHeight( el.offsetHeight );
-		measure();
-		if ( typeof window === 'undefined' || ! window.ResizeObserver ) {
-			return undefined;
-		}
-		const ro = new window.ResizeObserver( measure );
-		ro.observe( el );
-		return () => ro.disconnect();
 	}, [] );
+	useEffect( measureApp, [ measureApp ] );
+	useContainerRefit( appRef, measureApp, [ measureApp ], 0 );
 	const replMaxHeightPx = replCeilingFromAppHeight( appHeight );
 
 	// Dumper verbosity dial (0/1/2); a ref so it's read without re-binding.

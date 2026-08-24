@@ -139,21 +139,50 @@ trait Schema_Reflection {
 	}
 
 	/**
-	 * Round-trippable `command_node {name}:config <verb> 1` lines for every schema-declared
+	 * Round-trippable `command_node {name}:config <verb> true` lines for every schema-declared
 	 * toggle currently ON — the dump_config fragment the old per-toggle ritual
 	 * (handler + fragment + truthy-parse) hand-rolled per class. node_schema()'s
 	 * `toggle` key is the whole declaration.
+	 *
+	 * Emits `true`, not `1`: the dump is TSL a person reads, and the arg is
+	 * declared `bool`. `truthy()` accepts either coming back.
 	 */
 	protected function dump_toggles(): string {
+		return $this->dump_declared( 'toggle', static fn ( mixed $value ): string => $value ? 'true' : '' );
+	}
+
+	/**
+	 * Round-trippable `command_node {name}:config <verb> <value>` lines for every
+	 * schema-declared setter currently holding one — the string twin of
+	 * `dump_toggles()`. An empty setter dumps nothing: replaying its default is
+	 * what `make_node` already does.
+	 */
+	protected function dump_setters(): string {
+		return $this->dump_declared( 'setter', static fn ( mixed $value ): string => Core::as_string( $value ?? '' ) );
+	}
+
+	/**
+	 * The one walk both dumps make: every verb declaring $schema_key names a
+	 * property, and $render turns that property's value into the argument to
+	 * emit — '' meaning nothing to say, so the line is skipped.
+	 *
+	 * @param string               $schema_key Verb declaration key naming the property.
+	 * @param callable(mixed):string $render   Property value to emitted argument.
+	 */
+	private function dump_declared( string $schema_key, callable $render ): string {
 		$out      = '';
 		$commands = static::node_schema()['commands'] ?? [];
 		foreach ( \is_array( $commands ) ? $commands : [] as $verb ) {
-			if ( ! \is_array( $verb ) ) {
+			if ( ! \is_array( $verb ) || ! ( $verb['dump'] ?? true ) ) {
 				continue;
 			}
-			$prop = Core::as_string( $verb['toggle'] ?? '' );
-			if ( '' !== $prop && ( $verb['dump'] ?? true ) && ( $this->{$prop} ?? false ) ) {
-				$out .= $this->config_line( Core::as_string( $verb['name'] ?? '' ), '1' );
+			$prop = Core::as_string( $verb[ $schema_key ] ?? '' );
+			if ( '' === $prop ) {
+				continue;
+			}
+			$value = $render( $this->{$prop} ?? null );
+			if ( '' !== $value ) {
+				$out .= $this->config_line( Core::as_string( $verb['name'] ?? '' ), $value );
 			}
 		}
 		return $out;
@@ -180,9 +209,7 @@ trait Schema_Reflection {
 		$interpreter->patron( $this );
 		$interpreter->commands( $verbs );
 		$this->interpreter = $interpreter;
-		if ( '' !== $this->name ) {
-			$this->interpreter->name( $this->name . ':config' );
-		}
+		$this->publish_sibling( 'config', $interpreter );
 	}
 
 	/**
@@ -211,14 +238,13 @@ trait Schema_Reflection {
 			}
 			$prop = Core::as_string( $verb['toggle'] ?? '' );
 			if ( '' !== $prop ) {
-				// Declarative toggle: synthesize the truthy-set handler.
-				$table[ $name ] = static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop ): string {
-					$patron = $interpreter->patron();
-					if ( $patron instanceof static ) {
-						$patron->{"set_{$prop}"}( self::truthy( Core::as_string( $args[0] ?? '' ) ) );
-					}
-					return "ok\n";
-				};
+				$table[ $name ] = self::declared_setter( $prop, self::truthy( ... ) );
+				continue;
+			}
+			$prop = Core::as_string( $verb['setter'] ?? '' );
+			if ( '' !== $prop ) {
+				// The string twin: trim and assign. An empty arg clears it.
+				$table[ $name ] = self::declared_setter( $prop, \trim( ... ) );
 				continue;
 			}
 			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
@@ -227,5 +253,26 @@ trait Schema_Reflection {
 			$table[ $name ] = $verb['handler'];
 		}
 		return $table;
+	}
+
+	/**
+	 * Synthesize the handler a `toggle` or `setter` declaration stands for:
+	 * coerce the one argument, then hand it to the patron's `set_{$prop}()`.
+	 *
+	 * @param string                  $prop   Property the verb writes, minus the `set_` prefix.
+	 * @param callable(string):mixed  $coerce Raw argument to the setter's type.
+	 * @return callable(Command_Interpreter_Node,array<array-key,mixed>):string
+	 */
+	private static function declared_setter( string $prop, callable $coerce ): callable {
+		return static function ( Command_Interpreter_Node $interpreter, array $args ) use ( $prop, $coerce ): string {
+			$patron = $interpreter->patron();
+			if ( ! $patron instanceof static ) {
+				throw new \RuntimeException(
+					\esc_html( "set_{$prop}: not a " . static::class )
+				);
+			}
+			$patron->{"set_{$prop}"}( $coerce( Core::as_string( $args[0] ?? '' ) ) );
+			return "ok\n";
+		};
 	}
 }

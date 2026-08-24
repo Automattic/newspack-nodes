@@ -25,6 +25,10 @@ Don't renumber — supersede.
 | [13](#adr-13-fill-returns-nothing) | `fill()` returns nothing |
 | [14](#adr-14-cooperative-stop-propagates-through-broad-catches) | Cooperative-stop propagates through broad catches |
 | [15](#adr-15-command-authorization-local-taint--the-minter-signs) | Command authorization: LOCAL taint + the minter signs |
+| [16](#adr-16-js-node-class-resolution--names-are-the-tsl-surface-classes-are-the-api) | JS node-class resolution — names are the TSL surface, classes are the API |
+| [17](#adr-17-timers-fire-on-a-shared-wall-clock-grid) | Timers fire on a shared wall-clock grid |
+| [18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app) | A Table can front a durable record; the walk that finds it stays in the app |
+| [19](#adr-19-a-node-may-declare-a-destination-it-writes-without-routing) | A node may DECLARE a destination it writes without routing |
 
 ---
 
@@ -168,6 +172,10 @@ interleave — which lets the firehose skip a lock on the common path.
   locks on the caller's assertion that it is the sole writer. For partitions already inside a
   single-writer boundary (a worker's own offsetlog under its topology lock, a per-worker
   durable log). Two concurrent writers + `void_warranty()` = silent torn-write corruption.
+
+The two are one MODE, not two flags: taking the lock supersedes a voided warranty, and a
+refused acquisition puts the cap all the way back down — a lifted cap with no lock behind it
+is the corruption both opt-ins exist to bound, so the unwind must never arrive at it.
 
 Concurrent large writes without either opt-in silently corrupt.
 
@@ -963,3 +971,62 @@ what keep that to one walk per reader rather than one per key.
 **Revisit if:** a consumer needs a miss to stay a miss (a negative cache), or a backing whose
 cost makes synchronous read-through wrong — at which point the fill belongs on a queue rather
 than in `lookup()`.
+
+---
+
+## ADR-19: A node may DECLARE a destination it writes without routing
+
+**Status:** Accepted
+
+**Context:** [ADR-7](#adr-7-sink-vs-target-and-tofrom-replies) splits destinations two ways:
+`sink` is the physical next hop, `target` is the logical TO path. A third kind exists in
+practice and had no name. `Flame_Builder_Node` resolves its stats-mirror Partition by NAME
+through `Core::node()` and fills it directly at flush, bypassing both its sink and its target;
+`Request_Builder_Node` stamps TO per message from one of four conditional routes rather than
+from the single `target` field. Both are real destinations, and neither appeared in `target()`,
+so the console drew those partitions with no inbound edge while they filled — a node reading as
+disconnected at the moment it is being written to.
+
+**Decision:** `Node::extra_targets(): list<string>` is a DECLARATION, not a route. A node
+returns the destinations it writes without going through `target`; `Node::display_targets()`
+unions them with `target_list( target() )`, primary first, de-duplicated, empties dropped. The
+union is consumed by presentation only — `ls`'s TARGET column and `dump_metadata`'s `targets`
+key. Nothing routes through it; `fill()` continues to read `$this->target` alone.
+
+`dump_metadata` therefore carries both keys. `target` is `Node::target()` verbatim, scalar
+unless the node fans out, and is what a console mutation reads and patches; `targets` is the
+display union, always a list, and is what edges are drawn from. Two keys because a flattened
+list cannot express fan-out, and the connect/disconnect verbs need that distinction.
+
+**This does not license a second physical output.** ADR-7's reopen condition — a node needing a
+true second physical output means reintroducing `edge` deliberately — still stands, and
+`Flame_Builder_Node`'s direct partition write is the case that would trigger it. Declaring a
+destination makes an existing write VISIBLE; it does not make it a supported way to build new
+ones.
+
+**Alternatives considered:**
+
+- **Widen `target` to hold the extras.** Rejected: it is the routing contract, `dump_config()`
+  round-trips it as `connect_node` lines, and a display-only entry would replay as a route that
+  does not exist.
+- **Have the console infer edges from node class.** Rejected: it puts one plugin's write
+  topology inside the substrate's renderer, the boundary
+  [ADR-18](#adr-18-a-table-can-front-a-durable-record-the-walk-that-finds-it-stays-in-the-app)
+  draws for `locate_by()`.
+- **Let each dashboard synthesize the missing edges.** Rejected: three consumers, three shapes,
+  and the node is the only thing that knows where it writes.
+
+**Consequences:** A node's declared extras and its actual writes can drift, and nothing detects
+it — the declaration is prose the class keeps honest. `display_targets()` is not a routing
+surface and must never acquire a caller in `fill()`.
+
+The union is POSITIONAL: `target_list( target() )` first, then the extras. So index 0 is the
+routing target only when a routing target is SET — a node with an empty `target` and one
+declared extra puts the EXTRA at index 0, and a consumer slicing `[0]` as "the target" presents
+a presentation-only destination as the routing contract. Four consumers have trusted that
+ordering and three were wrong. A consumer needing the routing value reads `target`; one that
+must split the union splits by the routing COUNT, never at a fixed index.
+
+**Revisit if:** anything routes on `display_targets()`, at which point the two planes have
+merged and ADR-7 is the decision in play; or if `edge` is reintroduced, which would absorb the
+physical-write case and leave only the conditional-TO one.

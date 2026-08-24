@@ -254,3 +254,34 @@ describe( 'ingest filter', () => {
 		expect( v.lines.map( ( r ) => r.content ) ).toEqual( [ 'anything' ] );
 	} );
 } );
+
+// `select` is a base verb: every subscription switch resets the same way, and
+// arming breadcrumbs on the chosen dir is what the ELN log views each hand-rolled.
+describe( 'select', () => {
+	it( 'tracks breadcrumbs by default and after a dir-less select', () => {
+		const v = makeView();
+		expect( v.seekTracking() ).toBe( true );
+		v.fill( controlMsg( { action: 'select' } ) );
+		expect( v.seekTracking() ).toBe( true );
+	} );
+
+	it( 'arms tracking for one dir, clears the ring and resets the rail', () => {
+		const v = makeView();
+		v.fill( rowMsg( 'stale', '9:400:20' ) );
+		expect( v.lastReceivedSegment ).toBe( 9 );
+		v.fill( controlMsg( { action: 'select', dir: 'audit.p7' } ) );
+		expect( v.seekTracking() ).toBe( true );
+		expect( v.linesCount ).toBe( 0 );
+		expect( v.lastReceivedSegment ).toBe( null );
+		v.fill( rowMsg( 'fresh', '6:80:12' ) );
+		expect( v.setStateCache.view.lastReceivedSegment ).toBe( 6 );
+	} );
+
+	it( 'disarms tracking for the multi-dir glob', () => {
+		const v = makeView();
+		v.fill( controlMsg( { action: 'select', dir: '' } ) );
+		expect( v.seekTracking() ).toBe( false );
+		v.fill( rowMsg( 'globbed', '5:16:8' ) );
+		expect( v.lastReceivedSegment ).toBe( null );
+	} );
+} );

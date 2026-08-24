@@ -15,10 +15,10 @@
 import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 import {
-	MARGIN,
 	PALETTE,
 	drawLegend,
 	formatXTick,
+	openFrame,
 	setupTooltip,
 	useTimeChart,
 } from '@newspack-nodes/shared/hooks/useTimeChart';
@@ -76,25 +76,10 @@ export const TopicsChart = memo(
 				}
 				const { series: aligned, dates } = chartState;
 
-				d3.select( refs.containerRef.current )
-					.selectAll( '*' )
-					.remove();
-
-				const width = refs.containerRef.current.clientWidth || 800;
-				const innerW = width - MARGIN.left - MARGIN.right;
-				const innerH = HEIGHT - MARGIN.top - MARGIN.bottom;
-
-				const svg = d3
-					.select( refs.containerRef.current )
-					.append( 'svg' )
-					.attr( 'width', width )
-					.attr( 'height', HEIGHT );
-				const g = svg
-					.append( 'g' )
-					.attr(
-						'transform',
-						`translate(${ MARGIN.left },${ MARGIN.top })`
-					);
+				const { svg, g, width, innerW, innerH } = openFrame(
+					refs.containerRef.current,
+					HEIGHT
+				);
 
 				const x = d3
 					.scaleTime()

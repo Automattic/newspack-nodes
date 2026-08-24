@@ -35,6 +35,26 @@ describe( 'dumpMetadataPayload', () => {
 		);
 	} );
 
+	it( 'emits both wire keys: the routing `target` and the `targets` list', () => {
+		// PHP parity: a JS worker's row must be indistinguishable from a PHP
+		// one. JS nodes declare no extras, so `targets` is just the target.
+		const relay = new Node();
+		relay.name = 'beacon-relay';
+		relay.target = 'downstream-sump';
+		const fanout = new TeeNode();
+		fanout.name = 'spindle-fanout';
+		fanout.target = [ 'quarry-sump', 'lantern-sump' ];
+		const payload = dumpMetadataPayload();
+		expect( payload[ 'beacon-relay' ].target ).toBe( 'downstream-sump' );
+		expect( payload[ 'beacon-relay' ].targets ).toEqual( [
+			'downstream-sump',
+		] );
+		expect( payload[ 'spindle-fanout' ].targets ).toEqual( [
+			'quarry-sump',
+			'lantern-sump',
+		] );
+	} );
+
 	it( 'skips patron-linked plumbing nodes', () => {
 		const a = new Node();
 		a.name = 'a';

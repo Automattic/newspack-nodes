@@ -150,6 +150,28 @@ class TimerTest extends TestCase {
 	}
 
 	/**
+	 * The hitchhike is keyed by NAME, so a rename must move the registration.
+	 * Left behind it addresses a name nothing resolves: the router shouts
+	 * `forgot to unregister` on the next tick, drops the entry, and the timer
+	 * stops firing under either spelling.
+	 */
+	public function test_renaming_a_hitchhiking_timer_moves_its_router_registration(): void {
+		$router = new Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+		$timer = new Timer_Node();
+		$timer->name( 'capstan-tick' );
+		// 20000 is well above the router cadence, so this hitchhikes.
+		$timer->set_timer( 20000 );
+
+		$timer->name( 'windlass-tick' );
+
+		$armed = \array_keys( $this->read_private( $router, 'registrations' )['TIMER'] ?? [] );
+		$this->assertContains( 'windlass-tick', $armed );
+		$this->assertNotContains( 'capstan-tick', $armed );
+		$timer->stop_timer();
+	}
+
+	/**
 	 * The hitchhike is name-keyed — Router::notify_timer resolves each
 	 * registration through Core::node() — so an unnamed node cannot ride it.
 	 * It takes an own slot at the interval asked for rather than failing:

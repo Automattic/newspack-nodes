@@ -107,9 +107,33 @@ class DeadLetterQueueTest extends TestCase {
 		$dlq = $d->build_dlq( "{$this->tmp}/dlq.p0" );
 		$this->assertInstanceOf( Partition_Node::class, $dlq );
 		// Sole writer: the cap is lifted so poison larger than PIPE_BUF still quarantines.
-		$this->assertTrue( $this->read_private( $dlq, 'warranty_voided' ) );
+		$this->assertSame( 'void', $this->read_private( $dlq, 'large_write_mode' ) );
 		// Idempotent — a second call returns the same partition.
 		$this->assertSame( $dlq, $d->build_dlq( "{$this->tmp}/dlq.p0" ) );
+	}
+
+	/**
+	 * A squatted `{name}:deadletter` slot refuses the sidecar's name. The
+	 * refusal must leave the slot EMPTY: a cached half-built quarantine is
+	 * served by the idempotency guard forever, still under the PIPE_BUF cap,
+	 * so poison over 4KB never quarantines and the failure is silent.
+	 */
+	public function test_a_refused_deadletter_name_leaves_no_cached_sidecar(): void {
+		$squatter = new Capture_Sink_Node();
+		$squatter->name( 'brigantine:deadletter' );
+		$d = new Dead_Letter_Queue_Double();
+		$d->name( 'brigantine' );
+
+		try {
+			$d->build_dlq( "{$this->tmp}/quarantine.p3" );
+			$this->fail( 'expected the squatted deadletter slot to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'brigantine:deadletter already registered', $e->getMessage() );
+		}
+
+		$this->assertNull( $this->read_private( $d, 'deadletter' ), 'the refused sidecar is not cached' );
+		$this->expectException( \RuntimeException::class );
+		$d->build_dlq( "{$this->tmp}/quarantine.p3" );
 	}
 
 	public function test_deadletter_retention_is_count_based_with_no_time_aging(): void {

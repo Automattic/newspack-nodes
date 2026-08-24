@@ -179,12 +179,20 @@ It's correct *only* on a full-page console with exactly that chrome above it. Th
 **Host A — the full-page Topology Console.** It measures its `.topology-app` grid with a `ResizeObserver` rather than trusting the viewport (the `appRef` measure effect in `TopologyConsole.js`):
 
 ```js
-const measure = () => setAppHeight( el.offsetHeight );
-measure();
-…
-const ro = new window.ResizeObserver( measure );
-ro.observe( el );
+const measureApp = useCallback( () => {
+	if ( appRef.current ) {
+		setAppHeight( appRef.current.offsetHeight );
+	}
+}, [] );
+useEffect( measureApp, [ measureApp ] );
+useContainerRefit( appRef, measureApp, [ measureApp ], 0 );
 ```
+
+`useContainerRefit` is the shared hook every chart and canvas observes through: it
+ignores the observation `observe()` delivers for the box you just drew, debounces
+the rest, and falls back to a `window` listener where `ResizeObserver` is missing.
+A `debounceMs` of `0` runs the callback in the observation itself — after layout,
+before paint — which is what a measurement wants.
 
 and derives the ceiling from the *measured* app height, subtracting only the grid's own rows (`replCeilingFromAppHeight` in `TopologyConsole.js`):
 

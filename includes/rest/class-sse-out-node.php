@@ -297,17 +297,17 @@ class SSE_Out_Node extends Node {
 			$this->sink( $interpreter );
 
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
-			$http_filter->name( Node_Names::OUTPUT );
-			$http_filter->sink( $this );
 			// SSE egress plumbing — patron-linked so dump_metadata hides it.
 			$http_filter->patron( $this );
+			$http_filter->name( Node_Names::OUTPUT );
+			$http_filter->sink( $this );
 
 			// Consumers sink to a plain Node; keep the _router round-trip.
 			$default_route = new Node();
+			$default_route->patron( $this );
 			$default_route->name( '_default_route' );
 			$default_route->sink( $interpreter );
 			$default_route->target( Node_Names::SSE );
-			$default_route->patron( $this );
 
 			$glob_subs  = [];
 			$glob_owned = [];
@@ -733,9 +733,9 @@ class SSE_Out_Node extends Node {
 		if ( '' === $name || isset( $consumers[ $name ] ) ) {
 			return;
 		}
+		$c->patron( $this );
 		$c->name( $name );
 		$c->sink( $route );
-		$c->patron( $this );
 		$consumers[ $name ] = $c;
 	}
 

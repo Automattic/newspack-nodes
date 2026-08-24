@@ -1,4 +1,3 @@
-/* global localStorage */
 /**
  * useAggregatorStatusGraph — the de-god Aggregator Status data graph as a GENUINE
  * node graph on the substrate batched-poll toolkit (useBatchedPoll +
@@ -37,8 +36,9 @@
  * useNodeState('<slice>:view','view').
  */
 
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback } from '@wordpress/element';
 import { useBatchedPoll } from '@newspack-nodes/shared/hooks/useBatchedPoll';
+import { usePersistedChoice } from '@newspack-nodes/shared/hooks/usePersistedState';
 import { useCommandOnce } from '@newspack-nodes/shared/hooks/useCommandOnce';
 import { addSliceFetcher } from '@newspack-nodes/shared/helpers/addSliceFetcher';
 import { formatCommandArgs } from '../../runtime/command-args';
@@ -62,21 +62,6 @@ const PROBE_SCOPE = 'aggregator:probe';
 
 const DEFAULT_REFRESH_MS = '2000';
 const REFRESH_KEY = 'aggregator-status-refresh';
-
-/**
- * Resolve the initial refresh interval from localStorage (matches the old
- * AggregatorStatus useState initializer).
- *
- * @return {string} A valid REFRESH_OPTIONS value, or DEFAULT_REFRESH_MS.
- */
-function initialRefresh() {
-	const validValues = REFRESH_OPTIONS.map( ( opt ) => opt.value );
-	const saved = localStorage.getItem( REFRESH_KEY );
-	if ( saved && validValues.includes( saved ) ) {
-		return saved;
-	}
-	return DEFAULT_REFRESH_MS;
-}
 
 // Two slices; each a Fetcher → receiver Tee → view with its own reply path.
 const SLICES = [
@@ -106,8 +91,11 @@ const SLICES = [
  */
 export function useAggregatorStatusGraph( { onAnswer } = {} ) {
 	// The persisted refresh interval (string ms); seeds from localStorage.
-	const [ refreshInterval, setRefreshIntervalState ] =
-		useState( initialRefresh );
+	const [ refreshInterval, setRefreshInterval ] = usePersistedChoice(
+		REFRESH_KEY,
+		REFRESH_OPTIONS,
+		DEFAULT_REFRESH_MS
+	);
 
 	// De-god poll graph: each slice its own Fetcher→Tee→view; one POST/tick.
 	useBatchedPoll( {
@@ -143,16 +131,6 @@ export function useAggregatorStatusGraph( { onAnswer } = {} ) {
 		( vaultId ) => runProbe( formatCommandArgs( [ vaultId ] ) ),
 		[ runProbe ]
 	);
-
-	// Persist the refresh choice to localStorage.
-	useEffect( () => {
-		localStorage.setItem( REFRESH_KEY, refreshInterval );
-	}, [ refreshInterval ] );
-
-	// Change the refresh interval; useBatchedPoll's effect re-paces.
-	const setRefreshInterval = ( value ) => {
-		setRefreshIntervalState( value );
-	};
 
 	return { setRefreshInterval, refreshInterval, probeServer, isPending };
 }

@@ -41,12 +41,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	private ?string $last_heartbeat_error = null;
 
 	/**
-	 * True once restore_position() has read the durable frame + seeded the cursor. Makes
-	 * restore_position idempotent: ensure_patrons calls it to seed SSE_In's connect position
-	 * BEFORE connect, and the Durable_Reader boot seam (init_position) calls it again on the
-	 * first poll — the second call is a no-op that returns the already-seeded cursor.
+	 * The offsetlog restore_position() read the durable frame + seeded the cursor FROM.
+	 * Makes restore_position idempotent: ensure_patrons calls it to seed SSE_In's connect
+	 * position BEFORE connect, and the Durable_Reader boot seam (init_position) calls it
+	 * again on the first poll — the second call is a no-op that returns the already-seeded
+	 * cursor. It latches the sidecar rather than a bare `true` so it cannot outlive one: a
+	 * replayed `arguments()` naming a new offsetlog_dir builds a new Partition, and a bool
+	 * would keep the cursor seeded from the dir the args superseded.
 	 */
-	private bool $position_restored = false;
+	private ?Partition_Node $position_restored_from = null;
 
 	/** Valve state mirror (buffer-driven only): true while SSE_In is armed. */
 	private bool $pump_armed = true;
@@ -205,9 +208,7 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$sink->fill( $message );
 			// Clear streak on forward itself (cursor at boot); not in crawl.
 			if ( ! $this->crawl && $this->attempts > 1 ) {
-				$this->attempts       = 1;
-				$this->first_crash_ts = null;
-				$this->poison_reason  = '';
+				$this->reset_poison_streak();
 				$this->write_checkpoint_frame( true, true );
 			}
 		} catch ( Worker_Should_Stop $e ) {
@@ -225,26 +226,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 			$this->dead_letter( $message, 'throw', $e );
 			$this->disposed_record = true;
 		}
-	}
-
-	/**
-	 * Durable-commit seam: commit the node-owned cursor as an offsetlog frame. Mirrors Consumer's
-	 * checkpoint() — advance-guard (skip a redundant same-cursor write), forward-progress streak
-	 * reset past the boot cursor (not in crawl, where attempts stay pinned), then write the frame.
-	 */
-	public function checkpoint( bool $graceful = false ): void {
-		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return;
-		}
-		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_segment, $this->cursor_offset ) ) {
-			return;
-		}
-		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
-			$this->attempts       = 1;
-			$this->first_crash_ts = null;
-			$this->poison_reason  = '';
-		}
-		$this->write_checkpoint_frame( $graceful, true );
 	}
 
 	/**
@@ -314,14 +295,15 @@ class Remote_Source_Node extends Remote_Link_Node {
 	 * @return array{segment?:int,offset?:int}
 	 */
 	protected function restore_position(): array {
-		if ( $this->position_restored ) {
-			return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
-		}
-		if ( null === $this->ensure_offsetlog() ) {
+		$offsetlog = $this->ensure_offsetlog();
+		if ( null === $offsetlog ) {
 			return [];
 		}
-		$this->position_restored = true;
-		$value                   = $this->read_last_offsetlog_frame();
+		if ( $offsetlog === $this->position_restored_from ) {
+			return [ 'segment' => $this->cursor_segment, 'offset' => $this->cursor_offset ];
+		}
+		$this->position_restored_from = $offsetlog;
+		$value                        = $this->read_last_offsetlog_frame();
 		if ( null === $value ) {
 			return [];
 		}
@@ -599,13 +581,27 @@ class Remote_Source_Node extends Remote_Link_Node {
 		}
 	}
 
-	/** One node pulls one remote partition, so its sidecars are named for it. */
-	protected function offsetlog_name(): string {
-		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:offsetlog" : '';
+	/**
+	 * Drop the slots the base cascade just tore down, so a later
+	 * `ensure_offsetlog()` — `init_position()` reaches it — rebuilds instead of
+	 * handing back a node whose name, sink and patron are cleared.
+	 */
+	public function remove_node(): void {
+		parent::remove_node();
+		$this->offsetlog  = null;
+		$this->deadletter = null;
 	}
 
-	protected function deadletter_name(): string {
-		return '' !== $this->name ? "{$this->name}:{$this->remote_partition}:deadletter" : '';
+	/**
+	 * Name the spoke in each SIDECAR's slot: one node pulls one remote
+	 * partition. Only these two are re-keyed — the transports inherited from
+	 * the link are declared under their plain suffixes, and a blanket rewrite
+	 * would publish them into slots nothing declares.
+	 */
+	protected function sibling_suffix( string $kind ): string {
+		return \in_array( $kind, [ 'offsetlog', 'deadletter' ], true )
+			? "{$this->remote_partition}:{$kind}"
+			: parent::sibling_suffix( $kind );
 	}
 
 	/**
@@ -648,19 +644,6 @@ class Remote_Source_Node extends Remote_Link_Node {
 	/** PAUSE also stops the pull: drop the live SSE stream so no data flows while paused. */
 	protected function time_travel_on_pause(): void {
 		$this->sse_in?->disconnect();
-	}
-
-	/**
-	 * Teardown: tear down the offsetlog + deadletter, then the patrons + self via the base.
-	 *
-	 * @api Dynamic entrypoint.
-	 */
-	public function remove_node(): void {
-		$this->offsetlog?->remove_node();
-		$this->offsetlog = null;
-		$this->deadletter?->remove_node();
-		$this->deadletter = null;
-		parent::remove_node();
 	}
 
 	/**

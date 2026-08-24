@@ -395,6 +395,28 @@ class BootstrapTest extends TestCase {
 		$this->assertFalse( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
 	}
 
+	/**
+	 * `Partition_Node::sink()` announces READY with the node's own name, and
+	 * `Node::register()` REPLAYS the cached payload to late subscribers — so a
+	 * mount that sinks before it names caches an empty announcement, and every
+	 * later subscriber is told the partition has no name.
+	 */
+	public function test_register_worker_partition_announces_ready_under_its_worker_id(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( Node_Names::COMMAND_INTERPRETER );
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/quoin.p3.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/quoin.p3/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'quoin.p3', $base ) );
+
+		$seen = null;
+		Core::node( 'quoin.p3' )->register( 'READY', 'probe', static function ( $payload ) use ( &$seen ): void {
+			$seen = $payload;
+		} );
+		$this->assertSame( 'quoin.p3', $seen, 'the cached READY payload must carry the worker id' );
+	}
+
 	public function test_register_worker_partition_sets_patron_to_interpreter_when_present(): void {
 		// Rule 2: the mounted IPC Partition is a sibling (plumbing). With a
 		// _command_interpreter in scope it must be patron-linked to it so

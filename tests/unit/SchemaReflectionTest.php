@@ -450,6 +450,85 @@ class SchemaReflectionTest extends TestCase {
 		};
 	}
 
+	public function test_schema_setter_synthesizes_the_verb_handler(): void {
+		// The string twin of `toggle`. Without it every plugin hand-rolls the
+		// same trim-and-assign closure per target verb, and the matching
+		// `dump_config` line with it.
+		$node = $this->setter_node();
+		$node->name( 'setter-probe' );
+		$node->wire();
+
+		$commands = $node->interpreter()->commands();
+		$this->assertArrayHasKey( 'set_relay_target', $commands );
+
+		$this->assertSame( "ok\n", $commands['set_relay_target']( $node->interpreter(), [ '  alerts:partition  ' ] ) );
+		$this->assertSame( 'alerts:partition', $this->read_private( $node, 'relay_target' ), 'trimmed' );
+		$this->assertSame(
+			"command_node setter-probe:config set_relay_target alerts:partition\n",
+			$node->dump()
+		);
+
+		$commands['set_relay_target']( $node->interpreter(), [ '' ] );
+		$this->assertSame( '', $this->read_private( $node, 'relay_target' ), 'an empty arg clears it' );
+		$this->assertSame( '', $node->dump(), 'and a cleared setter dumps nothing' );
+	}
+
+	public function test_a_setter_aimed_at_a_foreign_node_refuses(): void {
+		// A refusal THROWS; returning "ok" for a write that never happened is
+		// the silent guard `Dead_Letter_Queue` answers loudly.
+		$node = $this->setter_node();
+		$node->name( 'setter-probe' );
+		$node->wire();
+		$commands = $node->interpreter()->commands();
+
+		$foreign = new Command_Interpreter_Node();
+		$foreign->name( 'wrong-node:config' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'set_relay_target' );
+		$commands['set_relay_target']( $foreign, [ 'binnacle:partition' ] );
+	}
+
+	/** A node whose only verb is a declarative string setter. */
+	private function setter_node(): object {
+		return new class extends Node {
+			use Schema_Reflection;
+
+			protected string $relay_target = '';
+
+			public function set_relay_target( string $name ): void {
+				$this->relay_target = $name;
+			}
+
+			public function wire(): void {
+				$this->auto_wire_interpreter();
+			}
+
+			public function interpreter(): ?Command_Interpreter_Node {
+				return $this->interpreter;
+			}
+
+			public function dump(): string {
+				return $this->dump_setters();
+			}
+
+			public static function node_schema(): array {
+				return [
+					'category'    => 'Test',
+					'description' => 'setter probe',
+					'arguments'   => [],
+					'commands'    => [
+						[
+							'name'        => 'set_relay_target',
+							'description' => 'Name the relay target.',
+							'setter'      => 'relay_target',
+						],
+					],
+				];
+			}
+		};
+	}
+
 	public function test_schema_toggle_synthesizes_the_verb_handler(): void {
 		$node = $this->toggle_node();
 		$node->name( 'toggle-probe' );
@@ -476,7 +555,9 @@ class SchemaReflectionTest extends TestCase {
 
 		$commands = $node->interpreter()->commands();
 		$commands['set_turbo_mode']( $node->interpreter(), [ '1' ] );
-		$this->assertSame( "command_node toggle-probe:config set_turbo_mode 1\n", $node->dump() );
+		// `true`, not `1`: the dump is TSL a person reads and edits, and the
+		// arg is declared `bool`. `truthy()` accepts either on the way back.
+		$this->assertSame( "command_node toggle-probe:config set_turbo_mode true\n", $node->dump() );
 	}
 
 	public function test_truthy_is_the_one_canonical_bool_parse(): void {

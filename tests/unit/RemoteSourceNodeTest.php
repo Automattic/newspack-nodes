@@ -124,6 +124,51 @@ class RemoteSourceNodeTest extends TestCase {
 		$this->assertSame( 1, $node->housekeeping_runs, 'housekeeping latched to the wall-second' );
 	}
 
+	/**
+	 * The two transports are owned siblings, so a rename carries them. Left
+	 * inline, `{old}:sse-in` and `{old}:http-out` stay registered under a
+	 * spelling nothing resolves while `{new}:sse-in` resolves to null.
+	 */
+	public function test_renaming_a_connected_source_moves_its_transports(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		$node->fire();
+		$sse  = Core::node( 'remote-austin:sse-in' );
+		$http = Core::node( 'remote-austin:http-out' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$this->assertInstanceOf( HTTP_Out_Node::class, $http );
+
+		$node->name( 'remote-galveston' );
+
+		$this->assertSame( $sse, Core::node( 'remote-galveston:sse-in' ) );
+		$this->assertSame( $http, Core::node( 'remote-galveston:http-out' ) );
+		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
+		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
+		// target is a stored STRING; the moved Null needs re-addressing.
+		$this->assertSame( 'remote-galveston:null', $http->target() );
+	}
+
+	/**
+	 * A refused transport name must leave every slot empty, or `ensure_patrons()`
+	 * hands back an unnamed SSE_In on every later tick — one reading the spoke
+	 * while the registry, `ls` and `command_node` all see nothing.
+	 */
+	public function test_a_refused_transport_name_caches_no_patron(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example' ] );
+		$squatter = new Capture_Sink_Node();
+		$squatter->name( 'remote-austin:http-out' );
+		[ $node ] = $this->make_remote( 'remote-austin' );
+
+		try {
+			$node->fire();
+			$this->fail( 'expected the squatted http-out slot to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'remote-austin:http-out already registered', $e->getMessage() );
+		}
+
+		$this->assertNull( $this->read_private( $node, 'sse_in' ) );
+	}
+
 	public function test_arguments_parses_positional_tokens(): void {
 		[ $node ] = $this->make_remote();
 		$this->assertSame( 'austin', $this->read_private( $node, 'vault_id' ) );
@@ -486,6 +531,197 @@ class RemoteSourceNodeTest extends TestCase {
 		$interpreter = $this->read_private( $replayed, 'interpreter' );
 		$interpreter->commands()['set_multi_writer']( $interpreter, [ $matches[1] ] );
 		$this->assertTrue( $this->read_private( $replayed, 'multi_writer' ), 'and replays back to on' );
+	}
+
+	/**
+	 * Renaming a Remote_Source must carry its sidecars with it. The suffix is
+	 * interpolated, so a compound one moves whole: each lands on
+	 * `{new}:{remote_partition}:offsetlog` / `:deadletter` and nothing is left
+	 * squatting the old slot.
+	 */
+	public function test_renaming_a_remote_source_moves_its_sidecars(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$node    = new Remote_Source_Node();
+		$node->name( 'lighthouse-keeper' );
+		$node->arguments( [ 'galveston', 'beacon.p7', "{$offsets}/lighthouse-keeper.beacon.p7", "{$base}/deadletter/lighthouse-keeper.beacon.p7" ] );
+		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
+		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
+
+		$node->name( 'harbourwatch' );
+
+		$offsetlog  = $this->read_private( $node, 'offsetlog' );
+		$deadletter = $this->read_private( $node, 'deadletter' );
+		$this->assertSame( 'harbourwatch:beacon.p7:offsetlog', $offsetlog->name() );
+		$this->assertSame( $offsetlog, Core::node( 'harbourwatch:beacon.p7:offsetlog' ) );
+		$this->assertSame( 'harbourwatch:beacon.p7:deadletter', $deadletter->name() );
+		$this->assertSame( $deadletter, Core::node( 'harbourwatch:beacon.p7:deadletter' ) );
+		$this->assertNull( Core::node( 'lighthouse-keeper:beacon.p7:offsetlog' ) );
+		$this->assertNull( Core::node( 'lighthouse-keeper:beacon.p7:deadletter' ) );
+	}
+
+	/**
+	 * `arguments()` is a replay setter here too, and a replay may name a new
+	 * spoke AND new dirs. The next restore_position() has to commit the cursor
+	 * into the dir the args just gave it, never into the superseded one.
+	 */
+	public function test_replayed_arguments_commits_the_cursor_into_the_new_offsetlog_dir(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$stale   = "{$offsets}/quarterdeck-stale.binnacle.p5";
+		$fresh   = "{$offsets}/quarterdeck-fresh.gimbal.p9";
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node    = new Remote_Source_Node();
+		$node->name( 'quarterdeck-pull' );
+		$node->arguments( [ 'austin', 'binnacle.p5', $stale, "{$base}/deadletter/quarterdeck-stale.binnacle.p5" ] );
+		$this->seed_position( $node );
+
+		$node->arguments( [ 'austin', 'gimbal.p9', $fresh, "{$base}/deadletter/quarterdeck-fresh.gimbal.p9" ] );
+		$this->seed_position( $node );
+		$node->next_offset( 0 );
+		$node->checkpoint();
+
+		$this->assertNotNull( $this->last_frame_in( $fresh ), 'the cursor commits into the replayed dir' );
+		$this->assertNull( $this->last_frame_in( $stale ), 'nothing reaches the superseded dir' );
+		$this->assertSame(
+			$this->read_private( $node, 'offsetlog' ),
+			Core::node( 'quarterdeck-pull:gimbal.p9:offsetlog' ),
+			'the rebuilt cursor is published under the replayed spoke key'
+		);
+		$this->assertNull(
+			Core::node( 'quarterdeck-pull:binnacle.p5:offsetlog' ),
+			'and the superseded sidecar is unregistered, not orphaned'
+		);
+	}
+
+	/**
+	 * A replay may name a new spoke while keeping the dirs. The dir guard hands
+	 * back the incumbent, so nothing rebuilds — but its registered name still
+	 * spells the superseded spoke, and the slot it occupies must not be one the
+	 * next retract computes past.
+	 */
+	public function test_replayed_spoke_renames_the_sidecar_even_when_the_dirs_are_unchanged(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$dir     = "{$offsets}/sextant-pull.shared";
+		$dead    = "{$base}/deadletter/sextant-pull.shared";
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = new Remote_Source_Node();
+		$node->name( 'sextant-pull' );
+		$node->arguments( [ 'austin', 'astrolabe.p3', $dir, $dead ] );
+		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
+
+		$node->arguments( [ 'austin', 'chronometer.p8', $dir, $dead ] );
+		( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
+
+		$this->assertNull( Core::node( 'sextant-pull:astrolabe.p3:offsetlog' ), 'the superseded name is released' );
+		$this->assertSame(
+			$this->read_private( $node, 'offsetlog' ),
+			Core::node( 'sextant-pull:chronometer.p8:offsetlog' ),
+			'and the incumbent answers to the replayed spoke'
+		);
+	}
+
+	/**
+	 * The quarantine is superseded the same way: a replay naming a different
+	 * deadletter_dir has to quarantine poison into the dir it was just given.
+	 */
+	public function test_replayed_arguments_quarantines_into_the_new_deadletter_dir(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$stale   = "{$base}/deadletter/mizzen-stale.p2";
+		$fresh   = "{$base}/deadletter/mizzen-fresh.p2";
+		$node    = new Remote_Source_Node();
+		$node->name( 'mizzen-pull' );
+		$node->arguments( [ 'galveston', 'mizzen.p2', "{$offsets}/mizzen-pull.mizzen.p2", $stale ] );
+		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
+
+		$node->arguments( [ 'galveston', 'mizzen.p2', "{$offsets}/mizzen-pull.mizzen.p2", $fresh ] );
+		( new \ReflectionMethod( $node, 'ensure_deadletter' ) )->invoke( $node );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'brackish-water';
+		( new \ReflectionMethod( $node, 'dead_letter' ) )->invoke( $node, $message, 'throw', null );
+
+		$this->assertSame( [ 'brackish-water' ], $this->values_in( $fresh ), 'poison lands in the replayed dir' );
+		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
+	}
+
+	/**
+	 * Committing into the replayed dir is half the invariant; RESUMING from it
+	 * is the other half. The restore latch therefore has to name the offsetlog
+	 * it read, not a bare `true` — a bool outlives the sidecar a replay
+	 * supersedes and pins the cursor to the dir the args just dropped.
+	 */
+	public function test_replayed_arguments_resumes_the_cursor_from_the_new_offsetlog_dir(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$stale   = "{$offsets}/binnacle-stale.p5";
+		$fresh   = "{$offsets}/binnacle-fresh.p9";
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->commit_frame_at( $fresh, 7, 4242 );
+
+		$node = new Remote_Source_Node();
+		$node->name( 'binnacle-pull' );
+		$node->arguments( [ 'austin', 'binnacle.p5', $stale, "{$base}/deadletter/binnacle-stale.p5" ] );
+		$this->seed_position( $node );
+
+		$node->arguments( [ 'austin', 'binnacle.p9', $fresh, "{$base}/deadletter/binnacle-fresh.p9" ] );
+		$this->seed_position( $node );
+
+		$this->assertSame( 7, $this->read_private( $node, 'cursor_segment' ), 'the replayed dir seats the segment' );
+		$this->assertSame( 4242, $this->read_private( $node, 'cursor_offset' ), 'and the offset' );
+	}
+
+	/** Leave one durable frame at {segment,offset} in $dir, written by a real reader. */
+	private function commit_frame_at( string $dir, int $segment, int $offset ): void {
+		$base   = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$scribe = new Remote_Source_Node();
+		$scribe->name( 'binnacle-scribe' );
+		$scribe->arguments( [ 'austin', 'binnacle.p9', $dir, "{$base}/deadletter/binnacle-scribe.p9" ] );
+		$scribe->next_offset( [ 'segment' => $segment, 'offset' => $offset ] );
+		$scribe->checkpoint();
+		$scribe->remove_node();
+	}
+
+	/** Seed the durable read position the way both production callers do. */
+	private function seed_position( Remote_Source_Node $node ): void {
+		( new \ReflectionMethod( $node, 'restore_position' ) )->invoke( $node );
+	}
+
+	/** @return array<array-key,mixed>|null */
+	private function last_frame_in( string $dir ): ?array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return Remote_Source_Node::last_frame_of( $partition );
+	}
+
+	/** @return array<int,mixed> Every record VALUE written into $dir. */
+	private function values_in( string $dir ): array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return $this->read_partition_values( $partition );
+	}
+
+	/**
+	 * Teardown cascades into the sidecars, so the slots must be cleared with
+	 * them. A slot still pointing at a torn-down node hands `ensure_offsetlog()`
+	 * a node whose name, sink and patron are gone: its writes reach disk and
+	 * nothing can address it.
+	 */
+	public function test_teardown_clears_the_sidecar_slots(): void {
+		$offsets = \Newspack_Nodes\Config::get_offsets_directory();
+		$base    = \rtrim( \Newspack_Nodes\Config::get_base_directory(), '/' );
+		$node    = new Remote_Source_Node();
+		$node->name( 'capstan-watch' );
+		$node->arguments( [ 'galveston', 'beacon.p7', "{$offsets}/capstan-watch.beacon.p7", "{$base}/deadletter/capstan-watch.beacon.p7" ] );
+		$offsetlog = ( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node );
+
+		$node->remove_node();
+
+		$this->assertNull( $this->read_private( $node, 'offsetlog' ), 'the torn-down offsetlog is dropped' );
+		$this->assertNull( $this->read_private( $node, 'deadletter' ), 'the torn-down quarantine is dropped' );
+		$this->assertNotSame( $offsetlog, ( new \ReflectionMethod( $node, 'ensure_offsetlog' ) )->invoke( $node ) );
 	}
 
 	// ---------------------------------------------------------------------
@@ -1359,6 +1595,7 @@ public function test_relay_with_null_sink_fails_loud(): void {
 		$this->assertNull( Core::node( 'remote-austin:sse-in' ) );
 		$this->assertNull( Core::node( 'remote-austin:http-out' ) );
 		$this->assertNull( Core::node( 'remote-austin:firehose.p0:offsetlog' ) );
+		$this->assertNull( Core::node( 'remote-austin:firehose.p0:deadletter' ) );
 	}
 
 	public function test_node_schema_visible_io_with_args(): void {

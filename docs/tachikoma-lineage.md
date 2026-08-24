@@ -172,6 +172,12 @@ Tachikoma's `Table.pm` holds windowed in-memory buckets. Ours stores through to 
 
 **Why:** the dashboards, REST endpoints, and CLI here have no efficient way to query a live worker's memory, so a value that exists only inside one worker process is a value nothing can read. Two consequences follow deliberately: a `GET` on an absent key replies `TM_ERROR` rather than the empty string Tachikoma returns — an empty string cannot distinguish *absent* from *stored-empty* — and `KEYS` / `STATS` are absent entirely, because both enumerate in-memory buckets that a memcache backing cannot enumerate.
 
+### A self-registration moves with its node's name
+
+`Timer_Node::name()` re-keys the router's TIMER entry, and `Remote_Link_Node::name()` re-keys the fleet's RELOAD entry. Upstream, `Node.pm::name()` re-keys `%Nodes` and nothing else, while `Timer.pm` registers `_router`'s TIMER by name — so a rename upstream strands the entry under the old spelling.
+
+**Why ours differs:** this is a deliberate divergence rather than a port, because renaming is routine here — `make_node` names before `arguments()`, and a topology reload re-spells nodes — and the failure is silent. A stranded TIMER entry makes the router shout `forgot to unregister` and drop it, so the timer stops firing under either spelling; a stranded RELOAD entry does not even do that, since the listener is a closure and `notify()` keeps anything that does not return exactly false. The rule the two share is on `Node::register()`: a node that registers itself by name at another node owes that registration a move in `name()` and a drop in `remove_node()`.
+
 ### `profile` is one verb, not two
 
 Upstream has `enable_profiling` / `disable_profiling`. Ours has `profile [ on | off ]`, where a bare `profile` toggles and an explicit `on`/`off` is an idempotent set. The reply strings are preserved.

@@ -409,9 +409,9 @@ class Job_Intake {
 		// pid+object-id token: 2nd JobIntake won't clash with stale Core regs.
 		$instance_token = \getmypid() . '-' . \spl_object_id( $this );
 		$p              = new Partition_Node();
-		$p->name( "{$basename}.{$instance_token}.p{$partition}" );
 		// Sibling plumbing: patron-link so dump_metadata hides from canvas.
 		$p->patron( $p );
+		$p->name( "{$basename}.{$instance_token}.p{$partition}" );
 		// Rule 4: sink into the interpreter only when one is in scope.
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null === $p->sink() && null !== $ci ) {

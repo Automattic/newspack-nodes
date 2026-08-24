@@ -8,6 +8,7 @@ import { ModalShell, PromptModal } from './Modal';
 import InspectorViewModal from './InspectorViewModal';
 import { CtorField } from './CtorField';
 import { tokenize } from '../../runtime/shell-node';
+import { targetsOf } from '../../runtime/node';
 import IncludeTree from './IncludeTree';
 import HullPanel from './HullPanel';
 import TimeTravelPanel from './TimeTravelPanel';
@@ -1902,7 +1903,10 @@ export default function Inspector( {
 		);
 	}
 
-	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
+	// Display union less registration edges — listeners, not destinations.
+	const displayEdges = parsed.edges.filter(
+		( e ) => e.from === selectedId && ! e.registration
+	);
 	// Other live nodes, for the "+ add target…" dropdown (mirrors EditForm).
 	const nodeNames = parsed.nodes
 		.map( ( n ) => n.id )
@@ -1910,11 +1914,14 @@ export default function Inspector( {
 	// The node's valid registration events (catalog) — drives Register modal.
 	const catalogEntry = catalog.find( ( c ) => c.shell_name === node.class );
 	const regEvents = catalogEntry?.registrations ?? [];
-	// Use the node's FULL uncollapsed targets (parsed.edges head-collapsed).
-	const editorTargets = ( node.targets || [] ).map( ( to ) => ( {
+	// The ROUTING value: an extra is no edge disconnect_node removes (ADR-19).
+	const editorTargets = targetsOf( node ).map( ( to ) => ( {
 		from: selectedId,
 		to,
 	} ) );
+	// display_targets() is routing-first: the routing count splits it.
+	const routingEdges = displayEdges.slice( 0, editorTargets.length );
+	const extraEdges = displayEdges.slice( editorTargets.length );
 	const type = node.class;
 	// The tail/tap button keys off the catalog fans_out flag.
 	const fansOut = nodeFansOut( node, catalog );
@@ -1925,9 +1932,8 @@ export default function Inspector( {
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
-	// A tail defaults to the session's reply FROM; match node's FULL targets.
-	const tailOn =
-		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
+	// Tail connect/disconnect move the ROUTING value, so the toggle reads it.
+	const tailOn = !! parsed.pwd && targetsOf( node ).includes( parsed.pwd );
 	// Read-only Constructor: declared args + given values (no live re-arg).
 	const argSpecs =
 		catalog.find( ( c ) => c.shell_name === node.class )?.arguments || [];
@@ -1976,23 +1982,21 @@ export default function Inspector( {
 									target →
 								</span>
 								<NodeLinks
-									names={ targets
-										.slice( 0, 1 )
-										.map( ( t ) => t.to ) }
+									names={ routingEdges.map( ( t ) => t.to ) }
 									nodeIds={ nodeIds }
 									onSelect={ onSelect }
 									onHover={ onHover }
 								/>
 							</div>
-							{ targets.length > 1 && (
+							{ extraEdges.length > 0 && (
 								<div className="topology-field-row">
 									<span className="topology-field-row__key">
 										also →
 									</span>
 									<NodeLinks
-										names={ targets
-											.slice( 1 )
-											.map( ( t ) => t.to ) }
+										names={ extraEdges.map(
+											( t ) => t.to
+										) }
 										nodeIds={ nodeIds }
 										onSelect={ onSelect }
 										onHover={ onHover }

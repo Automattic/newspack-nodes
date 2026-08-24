@@ -46,6 +46,126 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 	}
 
+	/**
+	 * `arguments()` is a replay setter and publishes `source` on every call, so
+	 * a second call has to REPLACE the source Partition rather than overwrite
+	 * the slot around it — an overwritten incumbent keeps its open handle and
+	 * its own siblings while leaving all four cascades.
+	 */
+	public function test_replayed_arguments_replaces_the_source_partition(): void {
+		$c = new Consumer_Node();
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ "{$this->tmp}/scupper.p7" ] );
+		$ref   = new \ReflectionClass( $c );
+		$first = $ref->getProperty( 'source' )->getValue( $c );
+
+		$c->arguments( [ "{$this->tmp}/scupper.p8" ] );
+
+		$second = $ref->getProperty( 'source' )->getValue( $c );
+		$this->assertNotSame( $first, $second, 'the replay must build a fresh source' );
+		$this->assertNull( $first->sink(), 'the displaced source must be torn down, not orphaned' );
+		$c->name( 'scupper' );
+		$this->assertSame( $second, Core::node( 'scupper:source' ) );
+	}
+
+	/**
+	 * `arguments()` is a replay setter for all three sidecars, not just the
+	 * source: a replay naming a different offsetlog_dir has to commit the
+	 * cursor into the dir it was just given.
+	 */
+	public function test_replayed_arguments_commits_the_cursor_into_the_new_offsetlog_dir(): void {
+		$source = $this->three_segment_source();
+		$stale  = "{$this->tmp}/binnacle-stale.p3";
+		$fresh  = "{$this->tmp}/binnacle-fresh.p3";
+		$c      = new Consumer_Node();
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ $source, $stale ] );
+
+		$c->arguments( [ $source, $fresh ] );
+		$c->next_offset( 0 );
+		$c->checkpoint();
+
+		$this->assertNotNull( $this->last_frame_in( $fresh ), 'the cursor commits into the replayed dir' );
+		$this->assertNull( $this->last_frame_in( $stale ), 'nothing reaches the superseded dir' );
+	}
+
+	/**
+	 * The quarantine is a sidecar like the cursor, and equally superseded: a
+	 * replay naming a different deadletter_dir has to quarantine poison into
+	 * the dir it was just given.
+	 */
+	public function test_replayed_arguments_quarantines_into_the_new_deadletter_dir(): void {
+		$source = "{$this->tmp}/data.p0";
+		$stale  = "{$this->tmp}/oubliette-stale.p4";
+		$fresh  = "{$this->tmp}/oubliette-fresh.p4";
+		$c      = new Consumer_Node();
+		$c->name( 'oubliette-reader' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ $source, "{$this->tmp}/offsets.p4", $stale ] );
+
+		$c->arguments( [ $source, "{$this->tmp}/offsets.p4", $fresh ] );
+		$this->quarantine( $c, 'spiked-grog' );
+
+		$this->assertSame( [ 'spiked-grog' ], $this->values_in( $fresh ), 'poison lands in the replayed dir' );
+		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
+	}
+
+	/** Dead-letter one bytestream message through the node's own quarantine path. */
+	private function quarantine( Consumer_Node $c, string $value ): void {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $value;
+		( new \ReflectionMethod( Consumer_Node::class, 'dead_letter' ) )->invoke( $c, $message, 'throw', null );
+	}
+
+	/** @return array<int,mixed> Every record VALUE written into $dir. */
+	private function values_in( string $dir ): array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return $this->read_partition_values( $partition );
+	}
+
+	/** @return array<array-key,mixed>|null */
+	private function last_frame_in( string $dir ): ?array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return Consumer_Node::last_frame_of( $partition );
+	}
+
+	/**
+	 * A refused publish unwinds to the sibling the caller BUILT, never to the
+	 * one the retract already tore down — `source()` only refuses null, so a
+	 * dead Partition passes it and writes reach a node nothing addresses.
+	 */
+	public function test_a_refused_source_publish_leaves_the_live_partition_in_the_property(): void {
+		$c = new class() extends Consumer_Node {
+			public bool $refuse_naming = false;
+
+			protected function set_sibling_names(): void {
+				if ( $this->refuse_naming ) {
+					throw new \RuntimeException( 'grapnel refuses the name' );
+				}
+				parent::set_sibling_names();
+			}
+		};
+		$c->sink( new Capture_Sink_Node() );
+		$c->arguments( [ "{$this->tmp}/grapnel.p6" ] );
+		$superseded = $this->read_private( $c, 'source' );
+		$c->refuse_naming = true;
+
+		try {
+			$c->arguments( [ "{$this->tmp}/grapnel.p9" ] );
+			$this->fail( 'expected the refused naming to unwind the replay' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'grapnel refuses the name', $e->getMessage() );
+		}
+
+		$live = $this->read_private( $c, 'source' );
+		$this->assertNotSame( $superseded, $live, 'the property holds the source the replay built' );
+		$this->assertNull( $superseded->sink(), 'the superseded source is torn down' );
+		$this->assertNotNull( $live->sink(), 'the property holds a live Partition, not a dead one' );
+	}
+
 	// ------------------------------------------------------------------
 	// Seek vocabulary — Tachikoma's offset sentinels (Consumer.pm:89,
 	// "valid offsets: start (0), recent (-2), end (-1)").
@@ -1458,7 +1578,7 @@ class ConsumerTest extends TestCase {
 		$c->name( 'firehose:consumer' );
 		$this->assertStringNotContainsString( 'assume_clean_shutdown', $c->dump_config() );
 		$c->set_assume_clean_shutdown( true );
-		$this->assertStringContainsString( 'command_node firehose:consumer:config assume_clean_shutdown 1', $c->dump_config() );
+		$this->assertStringContainsString( 'command_node firehose:consumer:config assume_clean_shutdown true', $c->dump_config() );
 	}
 
 	public function test_cooperative_timeout_strikes_when_stopped_on_the_boot_cursor(): void {
@@ -4014,6 +4134,25 @@ class ConsumerTest extends TestCase {
 		$c->name( 'feed' );
 	}
 
+	/**
+	 * Owned siblings are checked BEFORE the patron's own name, so when both
+	 * slots are squatted the sibling is the one reported. The sibling slot is
+	 * the harder collision to diagnose from the outside — the patron's own name
+	 * is right there in the topology — so it is the one worth naming.
+	 */
+	public function test_a_squatted_sibling_outranks_the_patrons_own_name(): void {
+		$patron_squatter = new Partition_Node();
+		$patron_squatter->name( 'feed' );
+		$sibling_squatter = new Partition_Node();
+		$sibling_squatter->name( 'feed:source' );
+		$c = new Consumer_Node();
+		$c->arguments( [ "{$this->tmp}/data.p0" ] );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'node name collision: feed:source already registered' );
+		$c->name( 'feed' );
+	}
+
 	public function test_sink_cascades_to_both_children(): void {
 		$downstream = new Capture_Sink_Node();
 		$c          = new Consumer_Node();
@@ -4072,6 +4211,42 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
 		$this->assertSame( 'feed:offsetlog', $offsetlog->name() );
 		$this->assertSame( $c, $offsetlog->patron(), 'offsetlog must mark the Consumer as its patron' );
+	}
+
+	/**
+	 * The declared suffix is the ONLY spelling of a sidecar's name. A patron
+	 * that keys its slots differently gets each sidecar registered under the
+	 * key it declared and under nothing else — including when the sidecar is
+	 * built during `arguments()`, after `name()`, which is the order make_node
+	 * runs and the one where a builder spelling its own name drifts silently
+	 * from the key the four cascades use.
+	 */
+	public function test_the_declared_slot_is_the_only_name_a_sidecar_answers_to(): void {
+		$c = new class() extends Consumer_Node {
+			/**
+			 * Slots deliberately unlike every real suffix, so a sidecar
+			 * reachable under an inherited key came from a second spelling.
+			 * Re-keying goes through sibling_suffix(), which the publish reads
+			 * — one spelling, shared by the builder and the four cascades.
+			 */
+			protected function sibling_suffix( string $kind ): string {
+				return [
+					'source'     => 'spigot',
+					'offsetlog'  => 'ledger',
+					'deadletter' => 'oubliette',
+				][ $kind ] ?? parent::sibling_suffix( $kind );
+			}
+		};
+
+		$c->name( 'quaywatch' );
+		$c->arguments( [ "{$this->tmp}/data.p0", "{$this->tmp}/offsets.p0", "{$this->tmp}/quarantine.p0" ] );
+
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'quaywatch:spigot' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'quaywatch:ledger' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'quaywatch:oubliette' ) );
+		$this->assertNull( Core::node( 'quaywatch:source' ) );
+		$this->assertNull( Core::node( 'quaywatch:offsetlog' ) );
+		$this->assertNull( Core::node( 'quaywatch:deadletter' ) );
 	}
 
 	public function test_siblings_inherit_the_consumers_sink_whatever_it_is(): void {

@@ -107,11 +107,6 @@ trait Dead_Letter_Queue {
 		return $this->deadletter_dir;
 	}
 
-	/** What it answers to. Override to qualify the name (e.g. by remote partition). */
-	protected function deadletter_name(): string {
-		return '' !== $this->name ? "{$this->name}:deadletter" : '';
-	}
-
 	/**
 	 * Whether this node is the ONLY writer of its quarantine (readers are; a
 	 * multi-writer Partition's shared write-quarantine is not). True lifts the
@@ -122,16 +117,24 @@ trait Dead_Letter_Queue {
 		return true;
 	}
 
+	/**
+	 * Build the quarantine Partition for the CONFIGURED dir, publishing it into
+	 * the `deadletter` slot. Idempotent on the dir, not on the property, for the
+	 * reason `ensure_offsetlog()` is: an incumbent built for a dir a replayed
+	 * `arguments()` has superseded quarantines where nothing triages.
+	 */
 	protected function ensure_deadletter(): ?Partition_Node {
-		if ( null !== $this->deadletter ) {
+		$dir = \rtrim( $this->deadletter_dir(), '/' );
+		if ( null !== $this->deadletter && $dir === $this->deadletter->partition_dir() ) {
 			return $this->deadletter;
 		}
-		$dir = $this->deadletter_dir();
+		$this->retract_sibling( 'deadletter' );
+		$this->deadletter = null;
 		if ( '' === $dir ) {
 			return null;
 		}
 		// All five axes explicit; an omitted one inherits <config:*> forever.
-		$deadletter = $this->make_sidecar( $dir, $this->deadletter_name(), [
+		$deadletter = $this->make_sidecar( $dir, [
 			self::DEADLETTER_SEGMENT_SIZE,
 			self::DEADLETTER_MIN_SEGMENTS,
 			self::DEADLETTER_NUM_SEGMENTS,
@@ -145,6 +148,7 @@ trait Dead_Letter_Queue {
 		}
 		// Triage metadata rides in .idx; ingest replays only .log (verbatim).
 		$deadletter->with_index( $this->deadletter_index_row( ... ) );
+		$this->publish_sibling( 'deadletter', $deadletter );
 		$this->deadletter = $deadletter;
 		return $deadletter;
 	}
@@ -462,8 +466,13 @@ trait Dead_Letter_Queue {
 
 	/** Leave crawl at the healthy baseline: the poison region is behind us. */
 	protected function exit_crawl(): void {
-		$this->crawl          = false;
-		$this->crawl_started  = 0.0;
+		$this->crawl         = false;
+		$this->crawl_started = 0.0;
+		$this->reset_poison_streak();
+	}
+
+	/** Back to a virgin first attempt: forward progress cleared the streak. */
+	protected function reset_poison_streak(): void {
 		$this->attempts       = 1;
 		$this->first_crash_ts = null;
 		$this->poison_reason  = '';

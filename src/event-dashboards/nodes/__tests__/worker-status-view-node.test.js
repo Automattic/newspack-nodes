@@ -4,12 +4,9 @@
  *
  * Post-migration to substrate `_http`, the view follows the canonical
  * serversView pattern:
- *   - awaited verbs (restart) stash a `{ resolve, reject }` in the view's
- *     `pending` Map keyed by `message[ID]`; the reply lands at the view
- *     (FROM=view → reply routes TO=view) and the view settles the Promise.
- *   - pending-matched TM_ERROR rejects the Promise but does NOT pollute the
- *     view-model's global `error` field — that surface is for un-correlated
- *     errors (e.g. broadcasts).
+ *   - TM_ERROR goes to the base, which surfaces it on the view model's
+ *     `error` without blanking what is on screen. A restart's failure lands
+ *     on ITS own node, so this one only ever sees the poll's and broadcasts.
  *   - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
  *     the model (the dump_graph reply path: HttpOut → transform → view).
  *   - A model with non-empty removingSegments schedules a 400ms self-fill of
@@ -111,7 +108,7 @@ describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
 		const v = makeView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel() ) );
-		// No pending entry for this id → falls to the global error path.
+		// Nothing correlates a restart here, so it takes the global error path.
 		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
 		expect( v.setStateCache.view.error ).toBe( 'broadcast failure' );
 		expect( v.setStateCache.view.loading ).toBe( false );

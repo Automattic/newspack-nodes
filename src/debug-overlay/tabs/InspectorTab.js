@@ -5,8 +5,14 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { useContainerRefit } from '../../shared/hooks/useContainerRefit';
+import {
+	subscribeDevtoolsTabs,
+	getDevtoolsTabsVersion,
+} from '../../shared/devtools/tabRegistry';
 import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
@@ -104,23 +110,22 @@ export default function InspectorTab( {
 	const measureTabBar = useCallback( () => {
 		setTabBarHeight( measureTabBarHeight( rootRef.current ) );
 	}, [] );
-	useEffect( () => {
-		measureTabBar();
-		const content = rootRef.current?.closest?.(
-			'.nodes-devtools__tab-content'
-		);
-		const bar = content?.previousElementSibling;
-		if (
-			! bar ||
-			typeof window === 'undefined' ||
-			! window.ResizeObserver
-		) {
-			return undefined;
-		}
-		const ro = new window.ResizeObserver( measureTabBar );
-		ro.observe( bar );
-		return () => ro.disconnect();
-	}, [ measureTabBar ] );
+	// Tabs register lazily, so a late one must re-resolve the bar.
+	const tabsVersion = useSyncExternalStore(
+		subscribeDevtoolsTabs,
+		getDevtoolsTabsVersion,
+		getDevtoolsTabsVersion
+	);
+	useEffect( measureTabBar, [ measureTabBar, tabsVersion ] );
+	useContainerRefit(
+		// The tab bar is the content pane's previous sibling, not a ref.
+		() =>
+			rootRef.current?.closest?.( '.nodes-devtools__tab-content' )
+				?.previousElementSibling,
+		measureTabBar,
+		[ measureTabBar, tabsVersion ],
+		0
+	);
 	// Palette + skin shared with the topology console; overlay uses live key.
 	const {
 		paletteCollapsed,

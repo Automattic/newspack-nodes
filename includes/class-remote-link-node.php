@@ -88,6 +88,14 @@ class Remote_Link_Node extends Timer_Node {
 	/**
 	 * Parse `<vault-id> <remote_partition>` and arm the recurring tick.
 	 *
+	 * A replay supersedes the url, credentials and subscription the live
+	 * patrons were configured from, and `ensure_patrons()` is idempotent on the
+	 * property — so an unchecked replay goes on pulling the old spoke until a
+	 * fleet RELOAD or a teardown, neither of which a replay reaches. Dropping
+	 * them here is the same half-re-read `reload()` does; the next tick
+	 * rebuilds. A credential rotated WITHIN a vault_id moves neither argument,
+	 * and stays `reload()`'s job.
+	 *
 	 * @api Dynamic entrypoint.
 	 * @param list<string>|null $args
 	 * @return list<string>
@@ -96,29 +104,18 @@ class Remote_Link_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
+		// Pairwise: joining on a space makes two different pairs one key.
+		$previous = [ $this->vault_id, $this->remote_partition ];
 		$this->parse_schema_args( $args );
+		// `remote_partition` spells the sidecar suffixes; a replay moves them.
+		$this->set_sibling_names();
+		if ( $previous !== [ $this->vault_id, $this->remote_partition ] ) {
+			$this->drop_patrons();
+		}
 		if ( [] !== $args ) {
 			$this->set_timer( self::TICK_INTERVAL_MS );
-			// @longform Subscribe where the vault config is captured, so
-			// capture and re-read live together. Null outside a worker (REPL
-			// or request scope): no fleet, so nothing detects a change.
-			//
-			// @longform CLOSURE, not Node-name dispatch. `fill()` relays
-			// anything it does not recognize OUT to a remote spoke, so a name
-			// registration would route control through the one entry point
-			// whose fall-through is a third party, and every message would then
-			// have to be discriminated from control. A closure builds no
-			// message at all: provenance is the callback identity, one closure
-			// per (emitter, event), so there is nothing to verify. Only an
-			// explicit `return false` unregisters (`notify()` compares
-			// identity), so a void handler keeps listening.
-			Core::node( Node_Names::FLEET )?->register(
-				'RELOAD',
-				$this->name,
-				function (): void {
-					$this->reload();
-				}
-			);
+			// Subscribed where the vault config is captured: one lifetime.
+			$this->subscribe_reload();
 		}
 		return $args;
 	}
@@ -171,6 +168,58 @@ class Remote_Link_Node extends Timer_Node {
 		$this->queue_connect( $sse );
 		$this->maybe_send_heartbeat();
 		$this->publish_status();
+	}
+
+	/**
+	 * Move the fleet RELOAD subscription with the name. It is keyed by NAME in
+	 * ANOTHER node's registrations, and this listener is a CLOSURE, so nothing
+	 * self-heals it: `notify()` keeps any listener that does not return
+	 * exactly false, and a void closure returns null. An entry left under the
+	 * old spelling therefore keeps firing on a link the topology renamed —
+	 * healthy-looking, while `remove_node()` unregisters the new name as a
+	 * no-op and a later link taking the old name overwrites it, ending the
+	 * original's reloads and reconnecting it with a rotated credential's
+	 * predecessor.
+	 *
+	 * @param string|null $name New name; omit the argument entirely to read.
+	 */
+	public function name( ?string $name = null ): string {
+		if ( 0 === \func_num_args() ) {
+			return parent::name();
+		}
+		$previous = $this->name;
+		$result   = parent::name( $name );
+		// vault_id is required, so a configured link is a subscribed one.
+		if ( $previous !== $result && '' !== $this->vault_id ) {
+			Core::node( Node_Names::FLEET )?->unregister( 'RELOAD', $previous );
+			$this->subscribe_reload();
+		}
+		return $result;
+	}
+
+	/**
+	 * Subscribe this link's CURRENT name to the fleet's RELOAD.
+	 *
+	 * @longform Null outside a worker (REPL or request scope): no fleet, so
+	 * nothing detects a change.
+	 *
+	 * @longform CLOSURE, not Node-name dispatch. `fill()` relays anything it
+	 * does not recognize OUT to a remote spoke, so a name registration would
+	 * route control through the one entry point whose fall-through is a third
+	 * party, and every message would then have to be discriminated from
+	 * control. A closure builds no message at all: provenance is the callback
+	 * identity, one closure per (emitter, event), so there is nothing to
+	 * verify. Only an explicit `return false` unregisters (`notify()` compares
+	 * identity), so a void handler keeps listening.
+	 */
+	private function subscribe_reload(): void {
+		Core::node( Node_Names::FLEET )?->register(
+			'RELOAD',
+			$this->name,
+			function (): void {
+				$this->reload();
+			}
+		);
 	}
 
 	/**
@@ -426,7 +475,6 @@ class Remote_Link_Node extends Timer_Node {
 		$restored = $this->restore_position();
 
 		$sse = new SSE_In_Node();
-		$sse->name( "{$this->name}:sse-in" );
 		$sse->patron( $this );
 		// Delivery seam: links forward downstream; Remote_Source buffers.
 		$sse->on_message = function ( string $raw ): void {
@@ -442,22 +490,49 @@ class Remote_Link_Node extends Timer_Node {
 			$verify_ssl,
 			$require_ssl
 		);
-		$this->sse_in = $sse;
 
 		$http = new HTTP_Out_Node();
-		$http->name( "{$this->name}:http-out" );
 		$http->patron( $this );
 		$http->arguments( [ $this->vault_id ] );
 		$http->sink( $this->sink );
 		// Arms HTTP_Out's wire-inbound clause; a Null, since the link relays.
 		$null = new Null_Node();
-		$null->name( "{$this->name}:null" );
 		$null->patron( $this );
+
+		$this->sse_in    = $sse;
+		$this->http_out  = $http;
 		$this->null_sink = $null;
-		$http->target( $null->name() );
-		$this->http_out = $http;
+		try {
+			// Published into their slots, so a rename carries all three.
+			$this->publish_sibling( 'sse-in', $sse );
+			$this->publish_sibling( 'http-out', $http );
+			$this->publish_sibling( 'null', $null );
+			$this->address_null_sink();
+		} catch ( \Throwable $e ) {
+			// A cached unnamed patron would be served on every later tick.
+			$this->drop_patrons();
+			throw $e;
+		}
 
 		return $sse;
+	}
+
+	/** Name the transports, then re-address HTTP_Out at the Null it targets. */
+	protected function set_sibling_names(): void {
+		parent::set_sibling_names();
+		$this->address_null_sink();
+	}
+
+	/**
+	 * Point HTTP_Out at the Null by its CURRENT name. `target` is a stored
+	 * string, not a reference, so every step that spells the Null's name —
+	 * the first build and every rename after it — has to re-address the
+	 * writer, or it keeps addressing a name the registry dropped.
+	 */
+	private function address_null_sink(): void {
+		if ( '' !== $this->name && null !== $this->http_out && null !== $this->null_sink ) {
+			$this->http_out->target( $this->null_sink->name() );
+		}
 	}
 
 	/**
@@ -497,12 +572,12 @@ class Remote_Link_Node extends Timer_Node {
 				fn ( $queued ): bool => $queued[1] !== $this
 			)
 		);
-		$this->sse_in?->remove_node();
-		$this->sse_in = null;
-		$this->http_out?->remove_node();
-		$this->http_out = null;
-		$this->null_sink?->remove_node();
+		$this->sse_in    = null;
+		$this->http_out  = null;
 		$this->null_sink = null;
+		$this->retract_sibling( 'sse-in' );
+		$this->retract_sibling( 'http-out' );
+		$this->retract_sibling( 'null' );
 	}
 
 	/**
@@ -566,10 +641,6 @@ class Remote_Link_Node extends Timer_Node {
 	 */
 	public function close(): void {
 		$this->sse_in?->disconnect();
-	}
-
-	public function connect_node( string $target ): void {
-		$this->target = $target;
 	}
 
 	/**

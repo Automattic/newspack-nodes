@@ -321,6 +321,36 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->assertSame( [ 'link-austin' ], $this->reload_subscribers( $fleet ), 'only vault-consuming nodes subscribe' );
 	}
 
+	/**
+	 * The RELOAD subscription is an entry keyed by MY name in ANOTHER node's
+	 * registrations, so a rename must move it. Left under the old key it still
+	 * FIRES — the handler is a closure, and `notify()` keeps a listener that
+	 * returns anything but false — so the link looks healthy while
+	 * `remove_node()` unregisters the new name as a no-op and the closure
+	 * outlives the node, and a later link taking the old name silently
+	 * overwrites it, ending the original's reloads for good.
+	 */
+	public function test_renaming_a_link_moves_its_reload_subscription(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-southbound-4471' );
+
+		$node->name( 'link-northbound-9203' );
+
+		$this->assertSame( [ 'link-northbound-9203' ], $this->reload_subscribers( $fleet ) );
+	}
+
+	public function test_a_renamed_link_unregisters_from_reload_on_teardown(): void {
+		$fleet = $this->mount_fleet();
+		$this->seed_vault();
+		[ $node ] = $this->make_link( 'link-southbound-4471' );
+		$node->name( 'link-northbound-9203' );
+
+		$node->remove_node();
+
+		$this->assertSame( [], $this->reload_subscribers( $fleet ) );
+	}
+
 	public function test_remove_node_unregisters_from_reload(): void {
 		// Registrations are keyed by name, so a removed node that left one
 		// behind keeps a closure alive holding the dead node.
@@ -1107,5 +1137,68 @@ class RemoteLinkNodeTest extends TestCase {
 		$sse->process_sse_chunk( "event: msg\ndata: {not a message}\n\n" );
 
 		$this->assertCount( 0, $sink->captured );
+	}
+
+	/**
+	 * `vault_id` and `remote_partition` are schema args, so a replay supersedes
+	 * the URL and credentials the live patrons were configured from. A patron
+	 * cached on its property alone goes on pulling the old spoke until a fleet
+	 * RELOAD or a teardown — neither of which a replay reaches.
+	 */
+	public function test_replayed_vault_id_rebuilds_the_patrons_against_the_new_spoke(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'harbour'  => [ 'url' => 'https://harbour.example', 'auth_username' => 'u1', 'auth_password' => 'p1' ],
+			'quayside' => [ 'url' => 'https://quayside.example', 'auth_username' => 'u2', 'auth_password' => 'p2' ],
+		] );
+		Vault::get_instance()->reset_cache();
+		$urls                       = [];
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
+			$urls[] = (string) $opts[ \CURLOPT_URL ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node = new Remote_Link_Node();
+		$node->name( 'dockmaster' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->arguments( [ 'harbour', 'capstan.p4' ] );
+		$node->connect();
+
+		$node->arguments( [ 'quayside', 'windlass.p6' ] );
+		$node->connect();
+
+		$this->assertCount( 2, $urls, 'the replay reconnects rather than serving the incumbent' );
+		$this->assertStringStartsWith( 'https://quayside.example', $urls[1], 'against the replayed spoke url' );
+		$this->assertStringContainsString( 'windlass.p6', $urls[1], 'subscribed to the replayed partition' );
+	}
+
+	/**
+	 * Joining the two fields on a space aliases `("a", "b c")` with
+	 * `("a b", "c")`: the same string, a different spoke and different
+	 * credentials. A move between those shapes read as no change at all, and
+	 * the superseded SSE_In went on streaming from the old URL.
+	 */
+	public function test_a_move_between_space_aliasing_argument_shapes_still_rebuilds(): void {
+		\update_option( Vault::OPTION_KEY, [
+			'schooner mainsail' => [ 'url' => 'https://mainsail.example', 'auth_username' => 'u3', 'auth_password' => 'p3' ],
+			'schooner'          => [ 'url' => 'https://schooner.example', 'auth_username' => 'u4', 'auth_password' => 'p4' ],
+		] );
+		Vault::get_instance()->reset_cache();
+		$urls                       = [];
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ) use ( &$urls ): \CurlHandle {
+			$urls[] = (string) $opts[ \CURLOPT_URL ];
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$node = new Remote_Link_Node();
+		$node->name( 'bosun' );
+		$node->sink( new Capture_Sink_Node() );
+		$node->arguments( [ 'schooner mainsail', 'topsail.p9' ] );
+		$node->connect();
+
+		$node->arguments( [ 'schooner', 'mainsail topsail.p9' ] );
+		$node->connect();
+
+		$this->assertCount( 2, $urls, 'the aliasing replay reconnects rather than serving the incumbent' );
+		$this->assertStringStartsWith( 'https://schooner.example', $urls[1], 'against the replayed spoke url' );
 	}
 }

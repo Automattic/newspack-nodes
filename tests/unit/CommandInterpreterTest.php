@@ -2430,6 +2430,41 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 99, $decoded['clobber']['extra_only'], 'a non-conflicting hook key is added' );
 	}
 
+	public function test_dump_metadata_target_is_the_routing_value_and_targets_the_display_union(): void {
+		// Two keys, two concerns: `target` is what connect_node reads back
+		// (scalar here, so the console REPLACES), `targets` is what it draws.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$relay = new Extra_Targets_Node();
+		$relay->name( 'beacon-relay' );
+		$relay->connect_node( 'downstream-sump' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertSame( 'downstream-sump', $decoded['beacon-relay']['target'] );
+		$this->assertSame(
+			[ 'downstream-sump', 'telemetry-sidecar' ],
+			$decoded['beacon-relay']['targets']
+		);
+	}
+
+	public function test_dump_metadata_keeps_a_fanout_nodes_target_array(): void {
+		// A Fanout_Targets node routes to a LIST; both keys report it, and
+		// the console's array test still means "append" for this node only.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$interpreter->dispatch( 'make_node', [ 'Tee', 'spindle-fanout' ] );
+		$interpreter->dispatch( 'connect_node', [ 'spindle-fanout', 'quarry-sump' ] );
+		$interpreter->dispatch( 'connect_node', [ 'spindle-fanout', 'lantern-sump' ] );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertSame( [ 'quarry-sump', 'lantern-sump' ], $decoded['spindle-fanout']['target'] );
+		$this->assertSame( [ 'quarry-sump', 'lantern-sump' ], $decoded['spindle-fanout']['targets'] );
+	}
+
 	// ── Argument validation paths on verb handlers ────────────────
 
 	public function test_make_node_with_too_few_args_raises_usage(): void {
@@ -2601,6 +2636,20 @@ class CommandInterpreterTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'usage: disconnect_node' );
 		$interpreter->dispatch( 'disconnect_node', [ 'fanout' ] );
+	}
+
+	public function test_disconnect_node_clears_a_node_that_only_declares_extra_targets(): void {
+		// Extras are display metadata, not fan-out: `disconnect_node <node>`
+		// with no target must clear the primary, not take the Tee branch.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$relay = new Extra_Targets_Node();
+		$relay->name( 'beacon-relay' );
+		$relay->connect_node( 'downstream-sump' );
+
+		$this->assertSame( "ok\n", $interpreter->dispatch( 'disconnect_node', [ 'beacon-relay' ] ) );
+		$this->assertSame( '', $relay->target() );
 	}
 
 	public function test_disconnect_node_tee_defaults_to_envelope_FROM_when_target_omitted(): void {
@@ -3550,6 +3599,14 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 2, Core::$secure_level );
 	}
 
+}
+
+/** Fixture: a node declaring a display-only extra target. */
+final class Extra_Targets_Node extends Node {
+	/** @return list<string> */
+	protected function extra_targets(): array {
+		return [ 'telemetry-sidecar' ];
+	}
 }
 
 /** Fixture: a node that contributes extra dump_metadata fields via the generic hook. */
