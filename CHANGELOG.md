@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.37.1] - 2026-08-24
+
 ### Fixed
 - **The debug overlay's PATH menu offered `_stdout`.** It listed every `_`-prefixed node in the browser registry minus a ten-name denylist, so anything not enumerated was navigable by default — including a bare terminal sink with nothing under it to address. Eight of the eighteen reserved names were navigable purely by omission, and a node mounted later joined them. `_http` is the one useful cwd, because a cwd earns its place only when commands prefixed with it reach something, so the menu names what IS navigable rather than what is not.
 
