@@ -48,6 +48,16 @@ class Node {
 
 	/** @var array<string,string> */
 	protected array $set_state = [];
+
+	/**
+	 * The nodes this one built for itself, keyed by the KIND each was built for
+	 * — the collision pre-check, the rename, the sink and the teardown all walk
+	 * this. Written only by `publish_sibling()` / `retract_sibling()`, so
+	 * publishing IS declaring and there is no declaration to forget.
+	 *
+	 * @var array<string,Node>
+	 */
+	private array $siblings = [];
 	protected ?Node  $sink = null;
 	/** @var string|array<int,string> */
 	protected $target = '';
@@ -64,12 +74,10 @@ class Node {
 	}
 
 	/**
-	 * Get/set the node's raw argument string — the trivial Tachikoma getter/setter
-	 * (`if (@_) { $self->{arguments} = shift } return $self->{arguments}`). It does
-	 * NOT parse the string. A node that wants positional config calls the
-	 * Schema_Reflection trait's parse_schema_args() from its own arguments()
-	 * override, then derives — gating both on a non-empty string so a bare
-	 * `make_node Foo` assigns nothing and triggers no side-effects.
+	 * Get/set the node's raw argument tokens — Tachikoma's plain getter/setter,
+	 * which does NOT parse them. A node wanting positional config runs the
+	 * tokens through the Schema_Reflection trait's parse_schema_args() from its
+	 * own arguments() override, then derives.
 	 *
 	 * @param list<string>|null $args New argument tokens (null = pure getter).
 	 * @return list<string> Last-set argument tokens.
@@ -96,9 +104,7 @@ class Node {
 	}
 
 	/**
-	 * The wired sink, or a loud refusal. A node with no sink cannot emit, and
-	 * every node that emits asked the same question in the same words — this is
-	 * where that question lives.
+	 * The wired sink, or a loud refusal — a node with no sink cannot emit.
 	 *
 	 * @throws \RuntimeException When no sink is wired.
 	 */
@@ -120,28 +126,101 @@ class Node {
 			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
-			$this->set_sibling_names( $name );
+			$this->set_sibling_names();
 		}
 		return $this->name;
 	}
 
+	/**
+	 * Pre-check each owned sibling's slot and then the node's own, so a
+	 * collision throws before anything is registered. The recursion has to
+	 * reach exactly as far as the rename cascade does, since
+	 * `set_sibling_names()` calls `$sibling->name()`: stop at the direct slots
+	 * and a deeper squat throws from the middle of a half-applied rename.
+	 * Siblings rank first because a squatted sibling slot is the harder
+	 * collision to diagnose from outside — the patron's own name is right there
+	 * in the topology — and the constructor-published `:config` interpreter
+	 * ranks LAST despite coming first by insertion order, derived scaffolding
+	 * being the least useful collision to report.
+	 *
+	 * @longform It checks the siblings that EXIST, so it covers a RENAME fully
+	 * and a lazy patron's FIRST naming not at all: `make_node` runs `name()`
+	 * before `arguments()`, so `Topic_Node` cannot know its partition count
+	 * that early and has nothing to check. That collision surfaces a step
+	 * later, from the sibling's own `name()`; `make_node` unwinds either way,
+	 * so only the timing differs.
+	 *
+	 * Pre-checking rather than unwinding is sound only because the registry is
+	 * a per-process array mutated synchronously (`Core::register_node()`), so
+	 * nothing can take a name between the check and the cascade. Give it an
+	 * out-of-process source and this becomes TOCTOU and the unwind returns.
+	 *
+	 * @param string $name Name the node is about to take.
+	 * @throws \RuntimeException When the node's or a sibling's slot is taken.
+	 */
 	protected function check_name_availability( string $name ): void {
+		$deferred = $this->siblings['config'] ?? null;
+		foreach ( $this->siblings as $kind => $sibling ) {
+			if ( $sibling !== $deferred ) {
+				$sibling->check_name_availability( "{$name}:{$this->sibling_suffix( $kind )}" );
+			}
+		}
+		$deferred?->check_name_availability( "{$name}:{$this->sibling_suffix( 'config' )}" );
 		if ( Core::node( $name ) !== null ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name} already registered" ) );
-		}
-		if ( null !== $this->interpreter && Core::node( "{$name}:config" ) !== null ) {
-			throw new \RuntimeException( \esc_html( "node name collision: {$name}:config already registered" ) );
 		}
 	}
 
 	/**
-	 * Cascade the node's name to owned siblings. Only ever called from name()
-	 * with a non-empty $name (name() throws on null/''), so overrides can use
-	 * the bare "{$name}:suffix" form without a presence guard. Sibling teardown
-	 * lives in remove_node(), not here.
+	 * Publish a FINISHED sibling into the slot it was built for, then name it
+	 * `{name}:{suffix}`. Publishing is what enrols the sibling in the four
+	 * cascades — the collision pre-check, the rename, the sink and teardown —
+	 * so a builder that publishes cannot leave one unnamed, unreachable from
+	 * the registry, `ls` and `command_node`, and still writing to disk.
+	 *
+	 * A refused name empties the slot again, so a caller's idempotency guard
+	 * rebuilds rather than serving a half-published sibling.
+	 *
+	 * An OCCUPIED slot is refused rather than overwritten: overwriting strands
+	 * the displaced node, still registered and still holding whatever handle it
+	 * opened, but reached by no cascade. A publisher that means to REPLACE
+	 * empties the slot with `retract_sibling()` first.
+	 *
+	 * @param string $kind    What the builder built; the slot key.
+	 * @param Node   $sibling The finished sibling.
+	 * @throws \RuntimeException When the slot is occupied or the name is refused.
 	 */
-	protected function set_sibling_names( ?string $name = null ): void {
-		$this->interpreter?->name( "{$name}:config" );
+	protected function publish_sibling( string $kind, Node $sibling ): void {
+		if ( isset( $this->siblings[ $kind ] ) ) {
+			throw new \RuntimeException( \esc_html( "sibling slot occupied: {$kind}; retract_sibling() to replace it" ) );
+		}
+		$this->siblings[ $kind ] = $sibling;
+		try {
+			$this->set_sibling_names();
+		} catch ( \Throwable $e ) {
+			unset( $this->siblings[ $kind ] );
+			throw $e;
+		}
+	}
+
+	/**
+	 * Name every owned sibling `{name}:{suffix}`, resolving the suffix from the
+	 * slot's stable KIND — the ONE place a sibling's name is spelled, reached
+	 * from `name()` on a rename, from `publish_sibling()` on a new slot and
+	 * from a schema-arg replay, so a re-keyed suffix cannot leave a sibling
+	 * answering to a superseded name. One live exception: `Raw_Logs_CI_Node`
+	 * spells `{name}:status` inline for a probe it builds, reads and tears down
+	 * inside a single verb call, which no rename can reach. A no-op while the
+	 * patron is unnamed, which is what lets a builder publish from a
+	 * constructor.
+	 */
+	protected function set_sibling_names(): void {
+		if ( '' === $this->name ) {
+			return;
+		}
+		foreach ( $this->siblings as $kind => $sibling ) {
+			$sibling->name( "{$this->name}:{$this->sibling_suffix( $kind )}" );
+		}
 	}
 
 	/**
@@ -166,6 +245,14 @@ class Node {
 
 	/**
 	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
+	 *
+	 * A node that registers ITSELF by name at another node owes that
+	 * registration a move in its own `name()` and a drop in `remove_node()` —
+	 * the entry lives in the emitter's table, so nothing here follows a
+	 * rename. A closure listener has no self-heal at all: `notify()` keeps
+	 * anything that does not return exactly false. `Timer_Node` (the router's
+	 * TIMER list) and `Remote_Link_Node` (the fleet's RELOAD) are both this
+	 * shape.
 	 *
 	 * @param string        $event    Must be pre-declared in registrations.
 	 * @param string        $listener Identity (closure ID or Node name).
@@ -352,9 +439,9 @@ class Node {
 		return $out;
 	}
 
-	/** A `command_node <name>:config …` line addressed to this node's own sibling interpreter. */
+	/** A `command_node <name>:<config-slot> …` line addressed to this node's own sibling interpreter. */
 	protected function config_line( string ...$tokens ): string {
-		return self::command_line( 'command_node', $this->name . ':config', ...$tokens );
+		return self::command_line( 'command_node', $this->sibling_name( 'config' ), ...$tokens );
 	}
 
 	/**
@@ -450,6 +537,124 @@ class Node {
 	}
 
 	/**
+	 * Patron getter/setter. Setting one is both the canvas-visibility flag and
+	 * the auto-wired interpreter's drop, so it MUST run before name(): a named
+	 * node has already registered `{name}:{config-slot}`, and taking a patron
+	 * then registers it only to tear it straight down again. Refused rather
+	 * than tolerated, because nothing else enforces that order.
+	 *
+	 * @throws \RuntimeException When the node is already named and wired.
+	 */
+	public function patron( ?Node $node = null ): ?Node {
+		if ( null !== $node ) {
+			if ( '' !== $this->name && null !== $this->interpreter ) {
+				throw new \RuntimeException(
+					\esc_html(
+						static::class . '::patron() must be set before name(): '
+						. $this->sibling_name( 'config' )
+						. ' is registered already and would be torn down.'
+					)
+				);
+			}
+			$this->patron = $node;
+			// Sidecar needs no `{name}:config`; drop auto-wired interpreter.
+			$this->retract_sibling( 'config' );
+			$this->interpreter = null;
+		}
+		return $this->patron;
+	}
+
+	/**
+	 * Tear the sibling in a slot down and empty the slot — the exact inverse of
+	 * `publish_sibling()`, which owns the name as well as the slot. Forgetting
+	 * one without unregistering the other is the bug in both directions: a slot
+	 * the four cascades still reach re-registers a dead sibling under the new
+	 * name, and a name the registry still holds refuses the slot's next
+	 * occupant for the life of the process. A no-op on an empty slot.
+	 *
+	 * @param string $kind The kind the slot was published under.
+	 */
+	protected function retract_sibling( string $kind ): void {
+		( $this->siblings[ $kind ] ?? null )?->remove_node();
+		unset( $this->siblings[ $kind ] );
+	}
+
+	/**
+	 * The name the sibling in $kind's slot answers to. Anything ADDRESSING a
+	 * sibling reads it here rather than spelling the suffix again, so a
+	 * re-keyed slot cannot leave a message routed at a name nothing holds.
+	 *
+	 * @param string $kind What the builder built, resolved through `sibling_suffix()`.
+	 */
+	protected function sibling_name( string $kind ): string {
+		return $this->name . ':' . $this->sibling_suffix( $kind );
+	}
+
+	/**
+	 * The NAME suffix a builder's $kind takes, `{patron}:{suffix}`. A class
+	 * re-spelling an inherited sibling's name overrides this one method — the
+	 * rename, the collision pre-check and `sibling_name()` all read it here.
+	 * The slot KEY stays the kind and never moves, or a re-spelling would
+	 * strand the incumbent in a slot the next retract computes past. The suffix
+	 * is interpolated, never parsed, so a COMPOUND one is fine:
+	 * `Remote_Source_Node` names its sidecars `{remote_partition}:offsetlog`.
+	 *
+	 * @param string $kind What a builder built — `source`, `offsetlog`, `deadletter`.
+	 */
+	protected function sibling_suffix( string $kind ): string {
+		return $kind;
+	}
+
+	/**
+	 * Every destination the console draws an edge for: the routing target plus
+	 * the declared extras, primary first, de-duplicated and without empties.
+	 *
+	 * @return list<string>
+	 */
+	public function display_targets(): array {
+		$extras = \array_filter( $this->extra_targets(), static fn ( string $extra ): bool => '' !== $extra );
+		return \array_values( \array_unique( [ ...self::target_list( $this->target() ), ...$extras ] ) );
+	}
+
+	/**
+	 * Get/set target — the ROUTING contract. String or array (Tee uses the
+	 * array form for fan-out), so an array answer means this node fans out.
+	 *
+	 * @param string|array<int,string>|null $value New target (null = getter).
+	 * @return string|array<int,string>
+	 */
+	public function target( $value = null ) {
+		if ( null !== $value ) {
+			$this->target = $value;
+		}
+		return $this->target;
+	}
+
+	/**
+	 * A target value as a list: the array form as-is, a non-empty scalar
+	 * wrapped, an unset scalar dropped.
+	 *
+	 * @param string|array<int,string> $value Scalar or fan-out target.
+	 * @return list<string>
+	 */
+	public static function target_list( $value ): array {
+		return \is_array( $value ) ? \array_values( $value ) : ( '' !== $value ? [ $value ] : [] );
+	}
+
+	/**
+	 * The destinations this node writes to WITHOUT routing through `target` — a
+	 * sibling's own target, a partition written straight at flush. The console
+	 * draws one edge per entry, so an omitted destination renders disconnected
+	 * on the canvas while it fills. Declare the fields; empties and duplicates
+	 * are `display_targets()`'s problem, not the declaration's.
+	 *
+	 * @return list<string>
+	 */
+	protected function extra_targets(): array {
+		return [];
+	}
+
+	/**
 	 * Quote+escape ONE token so the Shell's tokenizer recovers it exactly.
 	 * Mirror of the JS serializeArg; the inverse of tokenize().
 	 *
@@ -467,21 +672,6 @@ class Node {
 		return "'" . \str_replace( [ '\\', "'" ], [ '\\\\', "\\'" ], $token ) . "'";
 	}
 
-	/** Patron getter/setter. */
-	public function patron( ?Node $node = null ): ?Node {
-		if ( null !== $node ) {
-			$this->patron = $node;
-			// Sidecar needs no `{name}:config`; drop auto-wired interpreter.
-			if ( null !== $this->interpreter ) {
-				if ( '' !== $this->interpreter->name() ) {
-					$this->interpreter->remove_node();
-				}
-				$this->interpreter = null;
-			}
-		}
-		return $this->patron;
-	}
-
 	public function debug_state( ?int $level = null ): int {
 		if ( null !== $level ) {
 			$this->debug_state = \max( 0, $level );
@@ -489,27 +679,22 @@ class Node {
 		return $this->debug_state;
 	}
 
+	/**
+	 * Set/get the sink, cascading a set to every owned sibling so it too sinks
+	 * into `_command_interpreter` like any other node (Rule 2c). Without the
+	 * cascade a sibling's emits drop on the floor.
+	 *
+	 * @param Node|null $node New sink; omit the argument entirely to read.
+	 * @return Node|null The current sink.
+	 */
 	public function sink( ?Node $node = null ): ?Node {
 		if ( \func_num_args() > 0 ) {
 			$this->sink = $node;
-			if ( null !== $this->interpreter ) {
-				$this->interpreter->sink( $node );
+			foreach ( $this->siblings as $sibling ) {
+				$sibling->sink( $node );
 			}
 		}
 		return $this->sink;
-	}
-
-	/**
-	 * Get/set target. String or array (Tee uses array form for fan-out).
-	 *
-	 * @param string|array<int,string>|null $value New target (null = getter).
-	 * @return string|array<int,string>
-	 */
-	public function target( $value = null ) {
-		if ( null !== $value ) {
-			$this->target = $value;
-		}
-		return $this->target;
 	}
 
 	public function counter(): int {
@@ -571,18 +756,21 @@ class Node {
 		$this->target = '';
 	}
 
-	/** Teardown. Order matters: name LAST, so in-flight Core::node() lookups see null not a half-torn-down self. */
+	/**
+	 * Teardown, cascading a full remove_node() to each owned sibling first so a
+	 * same-name respawn cannot collide with a leftover slot.
+	 */
 	public function remove_node(): void {
+		foreach ( $this->siblings as $sibling ) {
+			$sibling->remove_node();
+		}
+		$this->siblings      = [];
 		$this->registrations = [];
 		$this->set_state     = [];
 		$this->sink          = null;
 		$this->target        = '';
 		$this->patron        = null;
-		// Cascade-unregister sibling interpreter so a rename can't collide.
-		if ( null !== $this->interpreter && '' !== $this->interpreter->name() ) {
-			Core::unregister_node( $this->interpreter->name() );
-		}
-		$this->interpreter = null;
+		$this->interpreter   = null;
 		if ( '' !== $this->name ) {
 			Core::unregister_node( $this->name );
 			$this->name = '';

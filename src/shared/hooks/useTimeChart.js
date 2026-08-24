@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 
+import { useContainerRefit } from './useContainerRefit';
+
 // --- Constants ---
 
 /**
@@ -94,6 +96,82 @@ export const formatXTick = ( d ) => {
 	const hour = d.getHours();
 	const min = String( d.getMinutes() ).padStart( 2, '0' );
 	return `${ month }/${ day } ${ hour }:${ min }`;
+};
+
+/**
+ * Wipe a chart container and open a fresh frame in it.
+ *
+ * Every render redraws from scratch; d3 holds no update join. The container's
+ * measured width drives the plot box, so a resize is just another render.
+ *
+ * @param {Element} container Container element the chart owns.
+ * @param {number}  height    Total SVG height in pixels.
+ * @return {Object} { svg, g, width, innerW, innerH } — `g` is the plot area.
+ */
+export const openFrame = ( container, height ) => {
+	const root = d3.select( container );
+	// Before the wipe: measuring after it forces a layout flush.
+	const width = container.clientWidth || 800;
+
+	root.selectAll( '*' ).remove();
+	const svg = root
+		.append( 'svg' )
+		.attr( 'width', width )
+		.attr( 'height', height );
+	const g = svg
+		.append( 'g' )
+		.attr( 'transform', `translate(${ MARGIN.left },${ MARGIN.top })` );
+
+	return {
+		svg,
+		g,
+		width,
+		innerW: width - MARGIN.left - MARGIN.right,
+		innerH: height - MARGIN.top - MARGIN.bottom,
+	};
+};
+
+/**
+ * Draw the axis frame: rotated time axis, value axis, and Y-axis title.
+ *
+ * @param {Object}   g                D3 group selection (inner chart area).
+ * @param {Object}   params           Configuration.
+ * @param {Object}   params.x         D3 time scale.
+ * @param {Object}   params.y         D3 value scale.
+ * @param {number}   params.innerH    Chart inner height.
+ * @param {number}   params.tickCount Slot count; the time axis caps ticks at 8.
+ * @param {Function} params.yFormat   Formats a value for the Y axis.
+ * @param {string}   [params.yLabel]  Translated Y-axis title; omitted leaves the axis unlabelled.
+ */
+export const drawAxes = (
+	g,
+	{ x, y, innerH, tickCount, yFormat, yLabel = '' }
+) => {
+	g.append( 'g' )
+		.attr( 'transform', `translate(0,${ innerH })` )
+		.call(
+			d3
+				.axisBottom( x )
+				.ticks( Math.min( tickCount, 8 ) )
+				.tickFormat( formatXTick )
+		)
+		.selectAll( 'text' )
+		.attr( 'transform', 'rotate(-45)' )
+		.style( 'text-anchor', 'end' );
+
+	g.append( 'g' ).call( d3.axisLeft( y ).ticks( 5 ).tickFormat( yFormat ) );
+
+	if ( yLabel ) {
+		g.append( 'text' )
+			.attr( 'class', 'y-label' )
+			.attr( 'transform', 'rotate(-90)' )
+			.attr( 'y', 0 - MARGIN.left )
+			.attr( 'x', 0 - innerH / 2 )
+			.attr( 'dy', '1em' )
+			.style( 'text-anchor', 'middle' )
+			.style( 'font-size', '12px' )
+			.text( yLabel );
+	}
 };
 
 /**
@@ -281,34 +359,8 @@ export function useTimeChart( renderFn ) {
 		renderChart();
 	}, [ renderChart ] );
 
-	// Handle resize.
-	useEffect( () => {
-		const handleResize = () => renderChart();
-		window.addEventListener( 'resize', handleResize );
-		return () => window.removeEventListener( 'resize', handleResize );
-	}, [ renderChart ] );
-
-	// Also re-fit on CONTAINER resize (window resize misses panels); debounced.
-	useEffect( () => {
-		const container = containerRef.current;
-		if ( ! container || typeof window.ResizeObserver === 'undefined' ) {
-			return undefined;
-		}
-		let timer = null;
-		const ro = new window.ResizeObserver( () => {
-			if ( timer ) {
-				clearTimeout( timer );
-			}
-			timer = setTimeout( renderChart, 150 );
-		} );
-		ro.observe( container );
-		return () => {
-			if ( timer ) {
-				clearTimeout( timer );
-			}
-			ro.disconnect();
-		};
-	}, [ renderChart ] );
+	// The dep that binds it: a chart rendering null has no container yet.
+	useContainerRefit( containerRef, renderChart, [ renderChart ] );
 
 	// Hide tooltip on scroll.
 	useEffect( () => {

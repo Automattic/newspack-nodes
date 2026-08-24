@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\File_Tail_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -44,6 +45,65 @@ class TailFileFollowTest extends TestCase {
 		$t = new File_Tail_Node();
 		$t->arguments( [ $path, $offsetlog ] );
 		return $t;
+	}
+
+	/**
+	 * `arguments()` is a replay setter here too, and this class overrides it
+	 * wholesale: a replay naming a different offsetlog_dir has to commit the
+	 * cursor into the dir it was just given, never into the superseded one.
+	 */
+	public function test_replayed_arguments_commits_the_cursor_into_the_new_offsetlog_dir(): void {
+		$path = "{$this->tmp}/capstan.log";
+		\file_put_contents( $path, "one\ntwo\n" );
+		$stale = "{$this->tmp}/capstan-stale.p5";
+		$fresh = "{$this->tmp}/capstan-fresh.p5";
+		$t     = $this->follow( $path, $stale );
+		$t->sink( new Capture_Sink_Node() );
+
+		$t->arguments( [ $path, $fresh ] );
+		$t->next_offset( 0 );
+		$t->checkpoint();
+
+		$this->assertNotNull( $this->last_frame_in( $fresh ), 'the cursor commits into the replayed dir' );
+		$this->assertNull( $this->last_frame_in( $stale ), 'nothing reaches the superseded dir' );
+	}
+
+	/**
+	 * The quarantine is superseded by a replay the same way the cursor is: a
+	 * replay naming a different deadletter_dir has to quarantine poison there.
+	 */
+	public function test_replayed_arguments_quarantines_into_the_new_deadletter_dir(): void {
+		$path = "{$this->tmp}/oakum.log";
+		\file_put_contents( $path, "one\n" );
+		$stale = "{$this->tmp}/oakum-stale.p5";
+		$fresh = "{$this->tmp}/oakum-fresh.p5";
+		$t     = new File_Tail_Node();
+		$t->name( 'oakum-tail' );
+		$t->sink( new Capture_Sink_Node() );
+		$t->arguments( [ $path, "{$this->tmp}/oakum-offsets.p5", $stale ] );
+
+		$t->arguments( [ $path, "{$this->tmp}/oakum-offsets.p5", $fresh ] );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'tarred-rope';
+		( new \ReflectionMethod( File_Tail_Node::class, 'dead_letter' ) )->invoke( $t, $message, 'throw', null );
+
+		$this->assertSame( [ 'tarred-rope' ], $this->values_in( $fresh ), 'poison lands in the replayed dir' );
+		$this->assertSame( [], $this->values_in( $stale ), 'nothing reaches the superseded dir' );
+	}
+
+	/** @return array<array-key,mixed>|null */
+	private function last_frame_in( string $dir ): ?array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return File_Tail_Node::last_frame_of( $partition );
+	}
+
+	/** @return array<int,mixed> Every record VALUE written into $dir. */
+	private function values_in( string $dir ): array {
+		$partition = new Partition_Node();
+		$partition->arguments( [ $dir ] );
+		return $this->read_partition_values( $partition );
 	}
 
 	/**

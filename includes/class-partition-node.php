@@ -44,6 +44,16 @@ class Partition_Node extends Timer_Node {
 	/** Retention floor: no rule prunes below this, whatever min_segments says. */
 	public const MIN_SEGMENTS_FLOOR = 2;
 
+	/**
+	 * The three large-write modes, shared with `Topic_Node`, which propagates
+	 * the setting to every partition it materializes. NONE keeps the 4KB
+	 * PIPE_BUF cap; LOCK lifts it behind a held exclusivity lock; VOID lifts it
+	 * on the caller's single-writer assertion, with no lock.
+	 */
+	public const LARGE_WRITE_NONE = '';
+	public const LARGE_WRITE_LOCK = 'lock';
+	public const LARGE_WRITE_VOID = 'void';
+
 	/** Write-lock heartbeat age past which another writer may steal the lock. */
 	public const LOCK_STALE_TIMEOUT_SECONDS = 60;
 
@@ -76,8 +86,6 @@ class Partition_Node extends Timer_Node {
 
 	/** Guards the one shutdown-time flush registration per process. */
 	private static bool $wake_flush_registered = false;
-
-	protected bool $allow_large_writes = false;
 
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
@@ -118,6 +126,8 @@ class Partition_Node extends Timer_Node {
 	protected $index_callback = null;
 	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
 	protected ?string $index_formatter_name = null;
+	/** Large-write opt-in: NONE, LOCK (allow_large_writes, held Lock), VOID (void_warranty, no lock). Topic_Node carries the same three. */
+	protected string $large_write_mode = self::LARGE_WRITE_NONE;
 	protected float $last_lock_heartbeat = 0.0;
 
 	protected float $last_segment_check = 0.0;
@@ -142,8 +152,6 @@ class Partition_Node extends Timer_Node {
 	protected ?array $segments_cache = null;
 	protected float $segments_cache_time = 0.0;
 	protected ?Lock_Node $write_lock = null;
-	/** True when the large-write cap was lifted via void_warranty() (no lock) rather than allow_large_writes() (held lock) — drives which verb dump_config round-trips. */
-	private bool $warranty_voided = false;
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
 	public function __construct() {
@@ -199,7 +207,7 @@ class Partition_Node extends Timer_Node {
 		}
 
 		// No-event-loop heartbeat: throw if heartbeat() shows lost ownership.
-		if ( $this->allow_large_writes && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
+		if ( $this->large_writes_allowed() && $this->lock_held && null === $this->heartbeat_timer && null !== $this->write_lock ) {
 			// Staleness needs a REAL clock: no drain refreshes the cache here.
 			$hb_now = Core::right_now();
 			if ( $hb_now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / self::LOCK_HEARTBEAT_DIVISOR ) {
@@ -217,7 +225,7 @@ class Partition_Node extends Timer_Node {
 
 		// Size cap is on the packed bytes (not VALUE) — what hits PIPE_BUF.
 		$record = $this->serialize_record( $message );
-		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
+		$max    = $this->large_writes_allowed() ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		$size   = \strlen( $record );
 		if ( $size > $max ) {
 			$this->drop_message( $message, "oversize: {$size} > {$max}" );
@@ -456,86 +464,94 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache_time = Core::$now ?: Core::right_now();
 	}
 
-	/** Flush the residual batch, then close file handles + release write lock before normal Node teardown. */
+	/** Flush the residual batch, then close file handles + cap the lifted line size before normal Node teardown. */
 	public function remove_node(): void {
 		$this->flush(); // deterministic shutdown flush (cleanup_all_nodes), not GC/__destruct
 		$this->close_handle();
-		// Timer::remove_node() unregisters it from _router's TIMER list.
-		if ( null !== $this->heartbeat_timer ) {
-			$this->heartbeat_timer->remove_node();
-			$this->heartbeat_timer = null;
-		}
-		if ( null !== $this->write_lock ) {
-			// Release only a lock we hold — a debounced peer may own it now.
-			if ( $this->lock_held ) {
-				$this->write_lock->release();
-			}
-			// Unregister the sibling: a later Partition may reuse the name.
-			$this->write_lock->remove_node();
-			$this->write_lock = null;
-		}
+		// Through the single writer: a torn-down node must refuse >PIPE_BUF.
+		$this->enter_large_write_mode( self::LARGE_WRITE_NONE );
 		parent::remove_node();
+		// The cascade tore it down; drop the slot so ensure_ rebuilds.
+		$this->deadletter = null;
 	}
 
 	/**
 	 * Lift the line-size limit to MAX_LARGE_LINE_SIZE (32 MiB) and acquire a Lock
 	 * serializing cross-process writes.
 	 *
-	 * Requires name() and sink() to be set BEFORE this is called.
+	 * Requires name() and sink() to be set BEFORE this is called. A repeat call
+	 * REPLACES: the Lock and heartbeat Timer already installed are released and
+	 * unregistered first, so re-arming with a different debounce re-locks
+	 * rather than colliding with its own sibling. The lock also supersedes a
+	 * voided warranty. A refusal anywhere puts the cap all the way DOWN, a
+	 * prior void included — lifted with no lock behind it is the corruption
+	 * both modes exist to bound.
 	 *
 	 * @param int $max_wait_ms Lock acquisition timeout (ms).
 	 * @param int $debounce_ms 0 (default) = acquire the lock now and hold it for life.
 	 *                         > 0 = debounced mode: acquire lazily on each write burst and
 	 *                         release after this many ms of idle so other writers can take
 	 *                         turns ([65]). Lock acquisition is deferred to the first write.
-	 * @throws \RuntimeException when the lock cannot be acquired (hold mode).
+	 * @throws \RuntimeException when a sibling name is refused, or the lock cannot be acquired (hold mode).
 	 * @return self
 	 */
 	public function allow_large_writes( int $max_wait_ms = self::DEFAULT_LOCK_WAIT_MS, int $debounce_ms = 0 ): self {
+		// A re-arm REPLACES: free the pair it supersedes, or both leak.
+		$this->enter_large_write_mode( self::LARGE_WRITE_NONE );
+
 		$lock = new Lock_Node( $this->write_lock_path(), self::LOCK_STALE_TIMEOUT_SECONDS );
 
-		// Sibling lock: name it, share our sink, patron-link to hide it.
-		if ( '' !== $this->name ) {
-			$lock->name( "{$this->name}:lock" );
-		}
+		// Sibling lock: share our sink, patron-link to hide it.
 		$lock->sink( $this->sink );
 		$lock->patron( $this );
 
-		$this->allow_large_writes = true;
-		$this->write_lock         = $lock;
-		$this->lock_stale_timeout = self::LOCK_STALE_TIMEOUT_SECONDS;
-		$this->lock_max_wait_ms   = $max_wait_ms;
+		// Hold mode heartbeats the lock; built here so one unwind frees both.
+		$hold  = 0 === $debounce_ms && Event_Framework::instance()->is_running();
+		$timer = $hold ? new Timer_Node() : null;
+		$timer?->patron( $this );
 
-		if ( $debounce_ms > 0 ) {
-			// Debounced: fill() grabs the lock per burst, fire() frees it.
-			$this->debounce_lock_ms = $debounce_ms;
-			return $this;
-		}
+		$this->enter_large_write_mode( self::LARGE_WRITE_LOCK );
+		$this->write_lock      = $lock;
+		$this->heartbeat_timer = $timer;
+		try {
+			// Published into their slots, so a rename carries both.
+			$this->publish_sibling( 'lock', $lock );
+			if ( null !== $timer ) {
+				$this->publish_sibling( 'heartbeat', $timer );
+			}
+			$this->lock_stale_timeout = self::LOCK_STALE_TIMEOUT_SECONDS;
+			$this->lock_max_wait_ms   = $max_wait_ms;
 
-		// Hold mode: acquire for life; arm heartbeat Timer, else fill() drives.
-		$ef_running = Event_Framework::instance()->is_running();
+			if ( $debounce_ms > 0 ) {
+				// Debounced: fill() grabs the lock per burst, fire() frees it.
+				$this->debounce_lock_ms = $debounce_ms;
+				return $this;
+			}
 
-		if ( ! $lock->acquire( $max_wait_ms ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					"Partition::allow_large_writes() failed to acquire write lock at "
-					. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
-					. 'Two concurrent writers on the same Partition is unsupported.'
-				)
-			);
-		}
+			// Hold mode: acquire for life; Timer beats, else fill() does.
+			if ( ! $lock->acquire( $max_wait_ms ) ) {
+				throw new \RuntimeException(
+					\esc_html(
+						"Partition::allow_large_writes() failed to acquire write lock at "
+						. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
+						. 'Two concurrent writers on the same Partition is unsupported.'
+					)
+				);
+			}
 
-		$this->lock_held           = true;
-		$this->last_lock_heartbeat = Core::right_now();
+			$this->lock_held           = true;
+			$this->last_lock_heartbeat = Core::right_now();
 
-		if ( $ef_running ) {
-			// LOCK_HEARTBEAT_DIVISOR beats per stale window, in ms.
-			$this->heartbeat_timer = new Timer_Node();
-			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-			$this->heartbeat_timer->arguments( [ (string) \intdiv( self::LOCK_STALE_TIMEOUT_SECONDS * 1000, self::LOCK_HEARTBEAT_DIVISOR ) ] );
-			$this->heartbeat_timer->sink( $this->write_lock );
-			$this->heartbeat_timer->key( 'heartbeat' );
-			$this->heartbeat_timer->patron( $this );
+			if ( null !== $timer ) {
+				// LOCK_HEARTBEAT_DIVISOR beats per stale window, in ms.
+				$timer->arguments( [ (string) \intdiv( self::LOCK_STALE_TIMEOUT_SECONDS * 1000, self::LOCK_HEARTBEAT_DIVISOR ) ] );
+				$timer->sink( $this->write_lock );
+				$timer->key( 'heartbeat' );
+			}
+		} catch ( \Throwable $e ) {
+			// Cap all the way down: a lift with no lock behind it corrupts.
+			$this->enter_large_write_mode( self::LARGE_WRITE_NONE );
+			throw $e;
 		}
 
 		return $this;
@@ -676,7 +692,7 @@ class Partition_Node extends Timer_Node {
 	protected function rotate_segment(): void {
 		$this->close_handle();
 
-		if ( $this->allow_large_writes ) {
+		if ( $this->large_writes_allowed() ) {
 			$this->do_rotate();
 			return;
 		}
@@ -732,7 +748,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	protected function do_rotate(): void {
 		// Multi-writer rescans for peer rotations; single-writer stays warm.
-		$segments = $this->get_segments( ! $this->allow_large_writes );
+		$segments = $this->get_segments( ! $this->large_writes_allowed() );
 
 		if ( ! empty( $segments ) ) {
 			$newest = \end( $segments );
@@ -870,7 +886,7 @@ class Partition_Node extends Timer_Node {
 			$this->fh_segment_id = $segment;
 
 			// Single-writer: disable PHP's 8KB buffer so readers see writes.
-			if ( $this->allow_large_writes ) {
+			if ( $this->large_writes_allowed() ) {
 				\stream_set_write_buffer( $this->fh, 0 );
 			}
 		}
@@ -1204,7 +1220,7 @@ class Partition_Node extends Timer_Node {
 	public function get_segments( bool $force_refresh = false, ?float $now = null ): array {
 		// fill() threads its read; else cached clock (no clobber) or warm.
 		$now = $now ?? ( Core::$now ?: Core::right_now() );
-		$cache_fresh = $this->allow_large_writes || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
+		$cache_fresh = $this->large_writes_allowed() || ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL;
 		if ( ! $force_refresh && null !== $this->segments_cache && $cache_fresh ) {
 			return $this->segments_cache;
 		}
@@ -1397,6 +1413,74 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * The write-quarantine is shared by every writer of this partition dir; it
+	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
+	 * lockless (void_warranty) quarantine under multi-writer stalls would race
+	 * rotation exactly when every writer stalls at once (disk full).
+	 */
+	protected function deadletter_sole_writer(): bool {
+		return $this->large_writes_allowed();
+	}
+
+	/** Whether the 4KB PIPE_BUF cap is lifted — either large-write mode does it. */
+	protected function large_writes_allowed(): bool {
+		return self::LARGE_WRITE_NONE !== $this->large_write_mode;
+	}
+
+	/**
+	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
+	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
+	 * partition's sole writer (e.g. a worker that already holds its topology lock,
+	 * so the offset/snapshot offsetlog it owns has no other writer). Permits
+	 * > PIPE_BUF writes and skips the rotate-lock, exactly like allow_large_writes(),
+	 * but trusts the caller instead of enforcing exclusivity with a held lock.
+	 *
+	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
+	 * with no lock to stop the second writer. If you can't guarantee single-writer,
+	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
+	 */
+	public function void_warranty(): self {
+		$this->enter_large_write_mode( self::LARGE_WRITE_VOID );
+		return $this;
+	}
+
+	/**
+	 * The ONE write of $large_write_mode. Leaving LOCK caps the lock off, so a
+	 * mode that disclaims the lock cannot leave one held, its heartbeat beating
+	 * and `{name}:lock` registered — a state `dump_config()` cannot express, and
+	 * would replay as a silently dropped lock.
+	 */
+	private function enter_large_write_mode( string $mode ): void {
+		if ( self::LARGE_WRITE_LOCK !== $mode ) {
+			$this->release_write_lock();
+		}
+		$this->large_write_mode = $mode;
+	}
+
+	/**
+	 * Release and unregister the write lock and its heartbeat Timer, leaving
+	 * both slots empty — the exact inverse of the hold-mode setup above, and
+	 * the reason a refused one can be unwound without a hand-copy of it.
+	 * Unregistering matters as much as releasing: `{name}:lock` left behind
+	 * refuses the next Partition to take that name.
+	 */
+	private function release_write_lock(): void {
+		// Release only a lock we hold — a debounced peer may own it now.
+		if ( $this->lock_held ) {
+			$this->write_lock?->release();
+		}
+		$this->write_lock         = null;
+		$this->heartbeat_timer    = null;
+		$this->lock_held          = false;
+		$this->lock_stale_timeout = 0;
+		$this->lock_max_wait_ms   = 0;
+		$this->debounce_lock_ms   = 0;
+		// Retracting unregisters both; a left `{name}:lock` refuses the next.
+		$this->retract_sibling( 'heartbeat' );
+		$this->retract_sibling( 'lock' );
+	}
+
+	/**
 	 * Wake every on-demand worker tailing a partition written since the last
 	 * flush. Fire-and-forget; `Bootstrap::on_demand_wake_map()` caches the
 	 * lookup and `Spawn_Coordinator` throttles the spawn, so a partition nothing
@@ -1433,16 +1517,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * The write-quarantine is shared by every writer of this partition dir; it
-	 * is sole-writer only when the SOURCE is single-writer ([159] audit) — a
-	 * lockless (void_warranty) quarantine under multi-writer stalls would race
-	 * rotation exactly when every writer stalls at once (disk full).
-	 */
-	protected function deadletter_sole_writer(): bool {
-		return $this->allow_large_writes;
-	}
-
-	/**
 	 * Refuse the trait's requeue: it redelivers to the node's SINK, which is a
 	 * reader's downstream. This quarantine holds records whose WRITE stalled, and
 	 * a Partition's sink is `_command_interpreter` — redelivering there would
@@ -1460,38 +1534,17 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
-	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
-	 * partition's sole writer (e.g. a worker that already holds its topology lock,
-	 * so the offset/snapshot offsetlog it owns has no other writer). Permits
-	 * > PIPE_BUF writes and skips the rotate-lock, exactly like allow_large_writes(),
-	 * but trusts the caller instead of enforcing exclusivity with a held lock.
-	 *
-	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
-	 * with no lock to stop the second writer. If you can't guarantee single-writer,
-	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
-	 */
-	public function void_warranty(): self {
-		$this->allow_large_writes = true;
-		$this->warranty_voided    = true;
-		return $this;
-	}
-
-	/**
 	 * Emit the base config plus this Partition's verb-config, from STATE — the
-	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
-	 * callback itself can't be dumped; the formatter name is its round-trip form.)
+	 * large-write mode and the `with_index` formatter name. (The index callback
+	 * itself can't be dumped; the formatter name is its round-trip form.)
 	 */
 	public function dump_config(): string {
 		$out = parent::dump_config();
-		if ( $this->allow_large_writes ) {
-			if ( $this->warranty_voided ) {
-				$out .= $this->config_line( 'void_warranty' );
-			} elseif ( $this->debounce_lock_ms > 0 ) {
-				$out .= $this->config_line( 'allow_large_writes', (string) $this->debounce_lock_ms );
-			} else {
-				$out .= $this->config_line( 'allow_large_writes' );
-			}
+		if ( self::LARGE_WRITE_VOID === $this->large_write_mode ) {
+			$out .= $this->config_line( 'void_warranty' );
+		} elseif ( self::LARGE_WRITE_LOCK === $this->large_write_mode ) {
+			$args = $this->debounce_lock_ms > 0 ? [ (string) $this->debounce_lock_ms ] : [];
+			$out .= $this->config_line( 'allow_large_writes', ...$args );
 		}
 		if ( null !== $this->index_formatter_name ) {
 			$out .= $this->config_line( 'with_index', $this->index_formatter_name );
@@ -1627,10 +1680,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	public function sink( ?Node $node = null ): ?Node {
-		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
-		if ( \func_num_args() > 0 ) {
-			$this->set_state( 'READY', $this->name );
+		if ( 0 === \func_num_args() ) {
+			return parent::sink();
 		}
+		$result = parent::sink( $node );
+		// The base cascade rewired the Timer; it beats the Lock, not this.
+		$this->heartbeat_timer?->sink( $this->write_lock );
+		$this->set_state( 'READY', $this->name );
 		return $result;
 	}
 

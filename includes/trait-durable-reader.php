@@ -105,25 +105,30 @@ trait Durable_Reader {
 		return $this->offsetlog_dir;
 	}
 
-	/** What it answers to. Override to qualify the name (e.g. by remote partition). */
-	protected function offsetlog_name(): string {
-		return '' !== $this->name ? "{$this->name}:offsetlog" : '';
-	}
-
 	/**
-	 * Build + register the offsetlog Partition once (idempotent). The sidecar inherits
-	 * its patron's sink, which make_node always sets to _command_interpreter — flow is
-	 * steered by target(), so a sink is control-plane, and the offsetlog's belongs there.
+	 * Build the offsetlog Partition for the CONFIGURED dir, then publish it into
+	 * its `offsetlog` slot. The sidecar inherits its patron's sink, which
+	 * make_node always sets to _command_interpreter — flow is steered by target(), so
+	 * a sink is control-plane, and the offsetlog's belongs there.
+	 *
+	 * Idempotent on the dir, not on the property: `arguments()` is a replay
+	 * setter, so an incumbent built for a dir the args have since superseded
+	 * goes on committing the cursor where nothing reads it. Retracting here is
+	 * what covers every reader — the two that build their sidecars from
+	 * `arguments()` and the one that builds them lazily — without any of them
+	 * spelling the rule again.
 	 */
 	protected function ensure_offsetlog(): ?Partition_Node {
-		if ( null !== $this->offsetlog ) {
+		$dir = \rtrim( $this->offsetlog_dir(), '/' );
+		if ( null !== $this->offsetlog && $dir === $this->offsetlog->partition_dir() ) {
 			return $this->offsetlog;
 		}
-		$dir = $this->offsetlog_dir();
+		$this->retract_sibling( 'offsetlog' );
+		$this->offsetlog = null;
 		if ( '' === $dir ) {
 			return null;
 		}
-		$this->offsetlog = $this->make_sidecar( $dir, $this->offsetlog_name(), [
+		$offsetlog = $this->make_sidecar( $dir, [
 			self::OFFSETLOG_SEGMENT_SIZE,
 			self::OFFSETLOG_MIN_SEGMENTS,
 			self::OFFSETLOG_NUM_SEGMENTS,
@@ -131,7 +136,9 @@ trait Durable_Reader {
 			self::OFFSETLOG_MIN_LIFETIME,
 			self::OFFSETLOG_LIFETIME,
 		] );
-		return $this->offsetlog;
+		$this->publish_sibling( 'offsetlog', $offsetlog );
+		$this->offsetlog = $offsetlog;
+		return $offsetlog;
 	}
 
 	/**
@@ -452,9 +459,7 @@ trait Durable_Reader {
 		if ( $this->crawl || ( 1 >= $this->attempts && null === $this->first_crash_ts ) ) {
 			return;
 		}
-		$this->attempts       = 1;
-		$this->first_crash_ts = null;
-		$this->poison_reason  = '';
+		$this->reset_poison_streak();
 		$this->write_checkpoint_frame( true, true );
 	}
 
@@ -623,8 +628,29 @@ trait Durable_Reader {
 	 */
 	abstract protected function init_position(): void;
 
-	/** Durable-commit seam: commit the current cursor as an offsetlog checkpoint frame. */
-	abstract protected function checkpoint( bool $graceful = false ): void;
+	/**
+	 * Commit the current cursor as an offsetlog checkpoint frame: skip an
+	 * unestablished cursor (a 0:0 commit clobbers the durable position), skip a
+	 * redundant same-cursor write, clear the crash streak on forward progress
+	 * past the boot cursor (never while crawling, where attempts stay pinned),
+	 * then write the frame.
+	 *
+	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
+	 *                       (the cursor sits at an un-attempted message), so a respawn
+	 *                       resumes at a virgin first attempt rather than counting a strike.
+	 */
+	public function checkpoint( bool $graceful = false ): void {
+		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
+			return;
+		}
+		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_segment, $this->cursor_offset ) ) {
+			return;
+		}
+		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
+			$this->reset_poison_streak();
+		}
+		$this->write_checkpoint_frame( $graceful, true );
+	}
 
 	/** Durable-commit seam: write one offsetlog frame at the current cursor (unconditional; no advance-guard). */
 	abstract protected function write_checkpoint_frame( bool $graceful, bool $with_state, array $extra = [] ): void;

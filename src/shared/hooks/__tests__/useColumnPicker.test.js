@@ -7,7 +7,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { useColumnPicker } from '../useColumnPicker';
+import { gridTemplate, useColumnPicker } from '../useColumnPicker';
 
 const COLUMNS = {
 	type: { label: 'Type' },
@@ -16,6 +16,25 @@ const COLUMNS = {
 };
 
 beforeEach( () => window.localStorage.clear() );
+
+it( 'joins the declared widths in display order', () => {
+	// One owner: a table's header and its rows must not be laid out by two
+	// functions that can drift apart.
+	const cols = {
+		mast: { width: '137px' },
+		jib: { width: '211px' },
+		boom: {},
+	};
+	expect( gridTemplate( cols, [ 'jib', 'boom', 'mast' ] ) ).toBe(
+		'211px auto 137px'
+	);
+} );
+
+it( 'falls back to auto for a column that declares no width', () => {
+	expect(
+		gridTemplate( { quixote: { label: 'Quixote' } }, [ 'quixote' ] )
+	).toBe( 'auto' );
+} );
 
 it( 'starts from the declared default set', () => {
 	const { result } = renderHook( () =>
@@ -75,6 +94,25 @@ it( 'persists the selection and restores it', () => {
 		'type',
 		'value',
 	] );
+} );
+
+it( 'restores a stored key through a rename, in canonical order', () => {
+	// A renamed column is not a removed one: filtering by the current keys
+	// alone drops it from every selection saved before the rename, and the
+	// write-back makes that permanent.
+	window.localStorage.setItem(
+		'cols:renamed',
+		JSON.stringify( [ 'ts', 'val' ] )
+	);
+	const { result } = renderHook( () =>
+		useColumnPicker( {
+			columns: COLUMNS,
+			storageKey: 'cols:renamed',
+			defaultVisible: [ 'type' ],
+			aliases: { val: 'value' },
+		} )
+	);
+	expect( result.current.visibleColumns ).toEqual( [ 'ts', 'value' ] );
 } );
 
 it( 'ignores a stored set naming columns that no longer exist', () => {

@@ -32,12 +32,18 @@ import {
 
 // jsdom has no ResizeObserver; capture its callback to fire a synthetic resize.
 let resizeObserverCb = null;
+let resizeObserverDisconnected = false;
 global.ResizeObserver = class {
 	constructor( cb ) {
 		resizeObserverCb = cb;
 	}
-	observe() {}
-	disconnect() {}
+	observe() {
+		// The spec seeds lastReportedSize to 0x0 and jsdom lays nothing
+		// out, so a real observer would deliver nothing here.
+	}
+	disconnect() {
+		resizeObserverDisconnected = true;
+	}
 };
 
 // Fluent chain mock — every d3 method returns the same object.
@@ -385,11 +391,66 @@ describe( 'useTimeChart hook lifecycle', () => {
 		expect( args.lastMouseXRef ).toBeDefined();
 	} );
 
-	it( 'invokes renderFn again on window resize', () => {
-		const renderFn = jest.fn();
+	it( 'coalesces a burst of window resizes into a single render', () => {
+		// Dragging a window edge fires ~60 events/sec, and every renderFn opens
+		// by emptying the container: one render per event tore down and rebuilt
+		// the whole SVG 60 times a second.
+		jest.useFakeTimers();
+		resizeObserverCb = null;
+		const container = document.createElement( 'div' );
+		const renderFn = jest.fn( ( refs ) => {
+			refs.containerRef.current = container;
+		} );
 		renderHook( () => useTimeChart( renderFn ) );
-		window.dispatchEvent( new Event( 'resize' ) );
+		act( () => {
+			for ( let i = 1; i <= 7; i++ ) {
+				window.dispatchEvent( new Event( 'resize' ) );
+				resizeObserverCb( [
+					{ contentRect: { width: 300 + i, height: 80 } },
+				] );
+			}
+			jest.advanceTimersByTime( 300 );
+		} );
+		// 1 mount render + 1 for the whole burst.
 		expect( renderFn ).toHaveBeenCalledTimes( 2 );
+		jest.useRealTimers();
+	} );
+
+	it( 'falls back to the window where ResizeObserver is missing', () => {
+		// An embedded webview without the observer would otherwise never
+		// re-fit a chart at all.
+		jest.useFakeTimers();
+		const saved = global.ResizeObserver;
+		delete global.ResizeObserver;
+		const remove = jest.spyOn( window, 'removeEventListener' );
+		try {
+			const container = document.createElement( 'div' );
+			const renderFn = jest.fn( ( refs ) => {
+				refs.containerRef.current = container;
+			} );
+			const { unmount } = renderHook( () => useTimeChart( renderFn ) );
+			act( () => {
+				for ( let i = 0; i < 5; i++ ) {
+					window.dispatchEvent( new Event( 'resize' ) );
+				}
+				jest.advanceTimersByTime( 300 );
+			} );
+			// 1 mount render + 1 debounced for the burst.
+			expect( renderFn ).toHaveBeenCalledTimes( 2 );
+
+			// Cleared first, so only the unmount removal can satisfy this.
+			remove.mockClear();
+			unmount();
+			expect( remove ).toHaveBeenCalledWith(
+				'resize',
+				expect.any( Function )
+			);
+		} finally {
+			// Restore before any failure escapes, or it cascades into the rest.
+			remove.mockRestore();
+			global.ResizeObserver = saved;
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 're-renders (debounced) when the container resizes, not just the window', () => {
@@ -404,20 +465,22 @@ describe( 'useTimeChart hook lifecycle', () => {
 		expect( resizeObserverCb ).toEqual( expect.any( Function ) );
 		renderFn.mockClear();
 		act( () => {
-			resizeObserverCb();
+			resizeObserverCb( [ { contentRect: { width: 640, height: 80 } } ] );
 			jest.advanceTimersByTime( 200 );
 		} );
 		expect( renderFn ).toHaveBeenCalledTimes( 1 );
 		jest.useRealTimers();
 	} );
 
-	it( 'removes the resize listener on unmount', () => {
-		const renderFn = jest.fn();
-		const spy = jest.spyOn( window, 'removeEventListener' );
+	it( 'disconnects the container observer on unmount', () => {
+		resizeObserverDisconnected = false;
+		const container = document.createElement( 'div' );
+		const renderFn = jest.fn( ( refs ) => {
+			refs.containerRef.current = container;
+		} );
 		const { unmount } = renderHook( () => useTimeChart( renderFn ) );
 		unmount();
-		expect( spy ).toHaveBeenCalledWith( 'resize', expect.any( Function ) );
-		spy.mockRestore();
+		expect( resizeObserverDisconnected ).toBe( true );
 	} );
 
 	it( 'hides an open tooltip when the nearest modal content scrolls', () => {

@@ -353,3 +353,25 @@ export const formatDuration = ( ms ) => {
 	}
 	return `${ ( ms / 1000 ).toFixed( 2 ) }s`;
 };
+
+/**
+ * A unix timestamp as a local wall clock, to the millisecond.
+ *
+ * Blanks rather than the epoch when there is no timestamp: a row still
+ * arriving should not claim to have happened in 1970. `formatLocalDateTime`
+ * is the one to reach for when the record is hours or days old.
+ *
+ * @param {?number} ts Unix seconds.
+ * @return {string} `HH:MM:SS.mmm`, or blanks.
+ */
+export const formatTime = ( ts ) => {
+	if ( ! ts ) {
+		return '--:--:--.---';
+	}
+	const date = new Date( ts * 1000 );
+	const h = String( date.getHours() ).padStart( 2, '0' );
+	const m = String( date.getMinutes() ).padStart( 2, '0' );
+	const s = String( date.getSeconds() ).padStart( 2, '0' );
+	const ms = String( date.getMilliseconds() ).padStart( 3, '0' );
+	return `${ h }:${ m }:${ s }.${ ms }`;
+};

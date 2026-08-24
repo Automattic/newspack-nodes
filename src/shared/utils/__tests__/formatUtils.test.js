@@ -13,8 +13,30 @@ import {
 	getStatusColor,
 	getTextColor,
 	formatLocalDateTime,
+	formatTime,
 	hexToRgba,
 } from '../formatUtils';
+
+describe( 'formatTime', () => {
+	it( 'renders a local wall clock to the millisecond', () => {
+		// 1_777_000_123.456 in local time, whatever the runner's zone is.
+		const ts = 1_777_000_123.456;
+		const d = new Date( ts * 1000 );
+		const pad = ( n, w ) => String( n ).padStart( w, '0' );
+		expect( formatTime( ts ) ).toBe(
+			`${ pad( d.getHours(), 2 ) }:${ pad( d.getMinutes(), 2 ) }:${ pad(
+				d.getSeconds(),
+				2
+			) }.${ pad( d.getMilliseconds(), 3 ) }`
+		);
+	} );
+
+	it( 'blanks rather than claiming the epoch when there is no ts', () => {
+		expect( formatTime( null ) ).toBe( '--:--:--.---' );
+		expect( formatTime( 0 ) ).toBe( '--:--:--.---' );
+		expect( formatTime( undefined ) ).toBe( '--:--:--.---' );
+	} );
+} );
 
 describe( 'formatLocalDateTime', () => {
 	it( 'renders local YYYY-MM-DD HH:MM:SS with a timezone label', () => {

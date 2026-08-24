@@ -352,6 +352,151 @@ class TopicTest extends TestCase {
 		$this->assertSame( $t, $partitions[ $idx ]->patron() );
 	}
 
+	/**
+	 * Re-wiring a Topic reaches every declared partition AND what each
+	 * partition owns. `ls` and `Core::node()` walk the registry, so a
+	 * partition an idle worker never writes to still has to be addressable —
+	 * and the write Lock a partition builds is a sibling of the same kind, so
+	 * a cascade that stops at the partitions leaves it emitting into the sink
+	 * the topology replaced.
+	 */
+	public function test_wiring_a_topic_reaches_every_partition_and_its_own_siblings(): void {
+		$this->use_base_dir( $this->tmp );
+		$t = new Topic_Node();
+		$t->arguments( [ "{$this->tmp}/capstan.p{partition}", "3", "65536", "2", "4", "86400", "0" ] );
+		$t->name( 'capstan' );
+		$t->allow_large_writes();
+		$t->sink( new Capture_Sink_Node() );
+
+		$rewired = new Capture_Sink_Node();
+		$t->sink( $rewired );
+
+		for ( $i = 0; $i < 3; $i++ ) {
+			$this->assertNotNull( Core::node( "capstan:p{$i}" ), "partition {$i}" );
+			$this->assertSame( $rewired, Core::node( "capstan:p{$i}" )->sink(), "partition {$i} sink" );
+			$this->assertSame( $rewired, Core::node( "capstan:p{$i}:lock" )->sink(), "partition {$i} lock sink" );
+		}
+	}
+
+	/**
+	 * `arguments()` is a replay setter, so a Topic can be handed a SMALLER
+	 * geometry than the one it already materialized partitions under. Those
+	 * partitions are still this Topic's, still registered and still holding
+	 * file handles: a rename that walks the declared range alone leaves one
+	 * squatting the old spelling while `{new}:p{i}` resolves to nothing.
+	 */
+	public function test_a_partition_past_a_shrunken_geometry_still_follows_a_rename(): void {
+		$t = new Topic_Node();
+		$t->name( 'sextant' );
+		$t->arguments( [ "{$this->tmp}/sextant.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
+		$t->sink( new Capture_Sink_Node() );
+		$p3 = Core::node( 'sextant:p3' );
+		$this->assertNotNull( $p3 );
+
+		$t->arguments( [ "{$this->tmp}/sextant.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
+		$t->name( 'astrolabe' );
+
+		$this->assertSame( 'astrolabe:p3', $p3->name() );
+		$this->assertSame( $p3, Core::node( 'astrolabe:p3' ) );
+		$this->assertNull( Core::node( 'sextant:p3' ) );
+	}
+
+	/** The same partition must be torn down, not left registered under a name nothing owns. */
+	public function test_a_partition_past_a_shrunken_geometry_is_still_torn_down(): void {
+		$t = new Topic_Node();
+		$t->name( 'sextant' );
+		$t->arguments( [ "{$this->tmp}/sextant.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
+		$t->sink( new Capture_Sink_Node() );
+		$this->assertNotNull( Core::node( 'sextant:p3' ) );
+
+		$t->arguments( [ "{$this->tmp}/sextant.p{partition}", "2", "65536", "2", "4", "86400", "0" ] );
+		$t->remove_node();
+
+		$this->assertNull( Core::node( 'sextant:p3' ) );
+	}
+
+	/**
+	 * Renaming a Topic must carry its Partition siblings with it: each moves to
+	 * `{new}:p{i}` and nothing is left squatting the old slot.
+	 */
+	public function test_renaming_a_topic_moves_every_partition_sibling(): void {
+		$t = new Topic_Node();
+		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
+		$t->name( 'quarterdeck' );
+		$this->produce_into( $t, 'data', 'k1' );
+		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
+
+		$t->name( 'binnacle' );
+
+		$ref        = new \ReflectionClass( Topic_Node::class );
+		$partitions = $ref->getProperty( 'partitions' )->getValue( $t );
+		$this->assertSame( "binnacle:p{$idx}", $partitions[ $idx ]->name() );
+		$this->assertSame( $partitions[ $idx ], Core::node( "binnacle:p{$idx}" ) );
+		$this->assertNull( Core::node( "quarterdeck:p{$idx}" ) );
+	}
+
+	/**
+	 * The Partition's own path guard is the FIRST check on a dir_template, and
+	 * it throws from `arguments()`. A refused Partition must never reach the
+	 * cache or the registry, or the next fill is served from the cache and
+	 * writes to the unvalidated path with the guard already behind it.
+	 */
+	public function test_a_refused_partition_dir_is_never_cached(): void {
+		$moorage = "{$this->tmp}/moorage";
+		mkdir( $moorage, 0700, true );
+		$this->use_base_dir( $moorage );
+		$t = new Topic_Node();
+		$t->name( 'flotsam' );
+		$t->arguments( [ "{$this->tmp}/trespass.p{partition}", "1", "65536", "2", "4", "86400", "0" ] );
+
+		try {
+			$this->produce_into( $t, 'contraband', 'k9' );
+			$this->fail( 'expected the out-of-base partition dir to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'outside the runtime base directory', $e->getMessage() );
+		}
+
+		$this->assertNull( Core::node( 'flotsam:p0' ), 'a refused partition stays out of the registry' );
+		$this->expectException( \RuntimeException::class );
+		$this->produce_into( $t, 'contraband', 'k9' );
+	}
+
+	/**
+	 * The lock is acquired AFTER the partition is named, so a failed acquire
+	 * throws with `{topic}:p{i}` and `{topic}:p{i}:lock` registered. Evicting
+	 * the cache entry alone strands both in `Core`, and every later fill()
+	 * dies on a name collision instead of retrying the write — a transient
+	 * lock failure turned into a permanently broken topic.
+	 */
+	public function test_a_partition_refused_while_locking_leaves_no_registration(): void {
+		$t = new Topic_Node();
+		$t->name( 'kedge' );
+		$t->arguments( [ "{$this->tmp}/kedge.p{partition}", '1', '65536', '2', '4', '86400', '0' ] );
+		$t->allow_large_writes();
+		// A regular FILE where the lock DIR goes: mkdir can never succeed, so
+		// acquire() fails on its I/O branch instead of waiting out the 15s.
+		mkdir( "{$this->tmp}/kedge.p0", 0700, true );
+		file_put_contents( "{$this->tmp}/kedge.p0/write.lock.d", 'not a lock dir' );
+
+		try {
+			$this->produce_into( $t, 'windward', 'k3' );
+			$this->fail( 'expected the write lock acquire to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
+		}
+
+		$this->assertNull( Core::node( 'kedge:p0' ), 'a refused partition stays out of the registry' );
+		$this->assertNull( Core::node( 'kedge:p0:lock' ), 'and so does its lock' );
+
+		try {
+			$this->produce_into( $t, 'windward', 'k3' );
+			$this->fail( 'expected the second fill to be refused too' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringNotContainsString( 'collision', $e->getMessage() );
+			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
+		}
+	}
+
 	public function test_remove_node_tears_down_partitions(): void {
 		$t = new Topic_Node();
 		$t->arguments( [ "{$this->tmp}/firehose.p{partition}", "4", "65536", "2", "4", "86400", "0" ] );
@@ -452,7 +597,7 @@ class TopicTest extends TestCase {
 		$this->assertSame( $t, $t->allow_large_writes() );
 		$partition = $this->read_private( $t, 'partitions' )[0];
 		// The mode actually reached the materialized partition.
-		$this->assertTrue( $this->read_private( $partition, 'allow_large_writes' ) );
+		$this->assertNotSame( '', $this->read_private( $partition, 'large_write_mode' ) );
 		$held_lock = $this->read_private( $partition, 'write_lock' );
 
 		// Repeat in the same mode is a genuine no-op: the partition's held lock is the
@@ -461,6 +606,27 @@ class TopicTest extends TestCase {
 		$this->assertSame( $t, $t->allow_large_writes() );
 		$this->assertSame( 'lock', $this->read_private( $t, 'large_write_mode' ) );
 		$this->assertSame( $held_lock, $this->read_private( $partition, 'write_lock' ) );
+	}
+
+	/**
+	 * The debounce travels WITH the lock mode, so it has to be written by the
+	 * same setter: `allow_large_writes()` stored it and then hit the
+	 * same-mode early return, leaving every materialized Partition holding the
+	 * lock for life while `dump_config()` advertised a debounce that only a
+	 * REPLAYED topic would honour.
+	 */
+	public function test_re_arming_with_a_debounce_reaches_the_materialized_partitions(): void {
+		$t = new Topic_Node();
+		$t->name( 'marlinspike' );
+		$t->arguments( [ "{$this->tmp}/marlinspike.p{partition}", "1", "67108864", "2", "4", "0", "0" ] );
+		$this->produce_into( $t, 'small', 'k1' );
+		$t->allow_large_writes();
+
+		$t->allow_large_writes( 1250 );
+
+		$partition = $this->read_private( $t, 'partitions' )[0];
+		$this->assertSame( 1250, $this->read_private( $partition, 'debounce_lock_ms' ), 'the new debounce must reach the live Partition' );
+		$this->assertStringContainsString( 'allow_large_writes 1250', $t->dump_config() );
 	}
 
 	public function test_byte_stats_aggregate_across_materialized_partitions(): void {

@@ -115,6 +115,28 @@ describe( 'parseMetadata', () => {
 		] );
 	} );
 
+	it( 'prefers the wire `targets` union over normalizing `target`', () => {
+		// `target` is the ROUTING value; `targets` is the display union a node
+		// declares extras into. Every destination still draws an edge.
+		const { nodes, edges } = parseMetadata( {
+			'beacon-relay': {
+				class: 'Echo',
+				counter: 3,
+				target: 'downstream-sump',
+				targets: [ 'downstream-sump', 'telemetry-sidecar' ],
+			},
+		} );
+		expect( nodes[ 0 ].target ).toBe( 'downstream-sump' );
+		expect( nodes[ 0 ].targets ).toEqual( [
+			'downstream-sump',
+			'telemetry-sidecar',
+		] );
+		expect( edges ).toEqual( [
+			{ from: 'beacon-relay', to: 'downstream-sump' },
+			{ from: 'beacon-relay', to: 'telemetry-sidecar' },
+		] );
+	} );
+
 	it( 'normalizes a string target and a missing target to a targets array', () => {
 		const { nodes } = parseMetadata( {
 			one: { class: 'Echo', counter: 1, target: 'beta' },

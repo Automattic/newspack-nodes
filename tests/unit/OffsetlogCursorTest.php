@@ -25,10 +25,6 @@ class Offsetlog_Cursor_Double extends Node {
 		return $this->crawl_skip_head;
 	}
 
-	protected function offsetlog_name(): string {
-		return 'double:offsetlog';
-	}
-
 	protected function get_batch(): void {}
 	protected function init_position(): void {}
 	protected function checkpoint( bool $graceful = false ): void {}
@@ -86,6 +82,30 @@ class OffsetlogCursorTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $first );
 		// A second call returns the SAME partition (idempotent), never a fresh build.
 		$this->assertSame( $first, $d->build( "{$this->tmp}/offsets.p0" ) );
+	}
+
+	/**
+	 * A squatted `{name}:offsetlog` slot refuses the sidecar's name. The refusal
+	 * must leave the slot EMPTY: a cached unnamed offsetlog keeps committing the
+	 * cursor to disk while being unreachable from the registry, `ls` and
+	 * `command_node` — a live node nobody can address.
+	 */
+	public function test_a_refused_offsetlog_name_leaves_no_cached_sidecar(): void {
+		$squatter = new Offsetlog_Cursor_Double();
+		$squatter->name( 'sextant:offsetlog' );
+		$d = new Offsetlog_Cursor_Double();
+		$d->name( 'sextant' );
+
+		try {
+			$d->build( "{$this->tmp}/cursors.p5" );
+			$this->fail( 'expected the squatted offsetlog slot to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'sextant:offsetlog already registered', $e->getMessage() );
+		}
+
+		$this->assertNull( $this->read_private( $d, 'offsetlog' ), 'the refused sidecar is not cached' );
+		$this->expectException( \RuntimeException::class );
+		$d->build( "{$this->tmp}/cursors.p5" );
 	}
 
 	public function test_commit_then_read_round_trips_the_value(): void {

@@ -906,11 +906,14 @@ class Bootstrap {
 			return false;
 		}
 		$part = new Partition_Node();
-		$part->name( $worker_id );
 		// Patron + sink to in-scope interpreter (Rule 4 skips both if none).
 		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( null !== $ci ) {
 			$part->patron( $ci );
+		}
+		// Named between the two: sink() announces READY with the name.
+		$part->name( $worker_id );
+		if ( null !== $ci ) {
 			$part->sink( $ci );
 		}
 		$part->arguments( Worker_Base::ipc_partition_args( $input_dir ) );

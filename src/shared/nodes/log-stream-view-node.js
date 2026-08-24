@@ -19,7 +19,9 @@ const MAX_LINES = 100000;
  * - seek tracking (`SeekTracker` breadcrumbs; publishes on segment change or
  *   the replay→live flip only, never per record);
  * - the shared control verbs: `pause`, `step`, `connection`, `browse`
- *   (which CLEARS — a rewind starts from a clean slate), `follow`, `clear`.
+ *   (which CLEARS — a rewind starts from a clean slate), `follow`, `clear`,
+ *   `filter`, and `select` (the subscription switch, which resets the tracker,
+ *   clears the ring, and arms breadcrumbs for the dir it names).
  *
  * Subclasses implement `shapeRow( message )` → row fields (or null to drop),
  * and extend `_control()` / `viewModel()` for their extra verbs and model
@@ -57,6 +59,8 @@ export class LogStreamViewNode extends Node {
 		// position in the unfiltered stream, and non-matches still consumed
 		// ring slots, so a rare match aged out while its filter still stood.
 		this.filter = '';
+		// Breadcrumb arming: a `select` naming a dir sets it, a glob clears it.
+		this.seekActive = true;
 		// Seek/live feedback (rail highlight + replay→live flip).
 		this.seek = new SeekTracker();
 	}
@@ -85,14 +89,25 @@ export class LogStreamViewNode extends Node {
 
 	/**
 	 * Apply one shared control verb: `pause`, `step`, `connection`, `browse`,
-	 * `follow`, or `clear`. Subclasses handle their own verbs first and defer
-	 * the rest here with `super._control( value )`.
+	 * `follow`, `clear`, `filter`, or `select`. Subclasses handle their own
+	 * verbs first and defer the rest here with `super._control( value )`.
 	 *
-	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number, term?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
+	 * `select` is the subscription switch: it resets the seek tracker and drops
+	 * every buffered row, since rows read under the previous subscription don't
+	 * belong to the new one. A `dir` names one partition directory and arms
+	 * breadcrumb tracking; `''` widens back to a glob, whose interleaved
+	 * segment ids would jitter the rail highlight, and disarms it. A payload
+	 * carrying no `dir` at all selects a single source and stays armed.
+	 *
+	 * @param {?{action?: string, paused?: boolean, frames?: number, connectionError?: boolean, endSegment?: ?number, endOffset?: number, term?: string, dir?: string}} value The control payload: `action` picks the verb, the remaining fields are that verb's arguments. An unrecognised or absent verb is a no-op.
 	 */
 	_control( value ) {
 		const action = value?.action;
-		if ( 'pause' === action ) {
+		if ( 'select' === action ) {
+			this.seekActive = undefined === value.dir ? true : !! value.dir;
+			this.seek.select();
+			this._clear();
+		} else if ( 'pause' === action ) {
 			this.paused = value.paused;
 			this.stepBudget = 0;
 		} else if ( 'step' === action ) {
@@ -160,14 +175,14 @@ export class LogStreamViewNode extends Node {
 	}
 
 	/**
-	 * Subclass hook: whether position breadcrumbs mean anything for the
-	 * current source. False suspends tracking — a stream mixing several
+	 * Whether position breadcrumbs mean anything for the current source, as
+	 * `select` last armed it. False suspends tracking — a stream mixing several
 	 * directories carries segment ids from unrelated sequences.
 	 *
 	 * @return {boolean} True while breadcrumbs should be tracked.
 	 */
 	seekTracking() {
-		return true;
+		return this.seekActive;
 	}
 
 	/**

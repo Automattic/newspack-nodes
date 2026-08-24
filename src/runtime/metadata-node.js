@@ -6,6 +6,7 @@
  */
 
 import { Core } from './core';
+import { targetsOf } from './node';
 import { PollerNode } from './poller-node';
 import { VALUE, payloadOf } from './message';
 import { RouterNode } from './router-node';
@@ -17,7 +18,7 @@ import reservedNames from './reserved-node-names.json';
  *
  * @param {string} [only]     Single node name to snapshot; '' = all nodes.
  * @param {Object} [registry] The name table to read; defaults to Core's.
- * @return {Object} Map of node name to { class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }.
+ * @return {Object} Map of node name to { class, counter, sink, target, targets, debug_state, arguments, lgst_msg, bytes_read, bytes_written }.
  */
 export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 	const out = {};
@@ -38,6 +39,8 @@ export function dumpMetadataPayload( only = '', registry = Core.registry ) {
 			counter: node.counter ?? 0,
 			sink: node.sink && node.sink.name ? node.sink.name : '',
 			target: node.target ?? '',
+			// Routing value vs display union; JS nodes declare no extras.
+			targets: targetsOf( node ),
 			debug_state: node.debugState ?? 0,
 			arguments: node.arguments ?? [],
 			lgst_msg: node.largestMsgSent ?? 0,
@@ -103,8 +106,8 @@ const SCAFFOLDING = new Set( [
  * @property {boolean}         accepts_fill          Whether the canvas draws an input port.
  * @property {boolean}         has_target            Whether the canvas draws an output port.
  * @property {boolean}         has_config            Whether a `:config` sidecar node is registered.
- * @property {string[]}        targets               Full target paths, before head-collapse.
- * @property {string|string[]} target                Raw target: an array for a Tee fan-out, else a string.
+ * @property {string[]}        targets               Display union — routing target plus declared extras, before head-collapse.
+ * @property {string|string[]} target                Routing value: an array for a Tee fan-out, else a string.
  * @property {Array}           [frames]              Consumer read surface: offsetlog frames.
  * @property {Object}          [cursor]              Consumer read cursor.
  * @property {number}          [deadletter_segments] Dead-letter segment count (Triage badge).
@@ -160,15 +163,12 @@ export function parseMetadata( payload ) {
 		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
 			continue;
 		}
-		// Full target paths, pre head-collapse; the toggle matches `pwd`.
-		let targets = [];
-		if ( Array.isArray( meta.target ) ) {
-			targets = meta.target.filter(
-				( t ) => typeof t === 'string' && t !== ''
-			);
-		} else if ( typeof meta.target === 'string' && meta.target !== '' ) {
-			targets = [ meta.target ];
-		}
+		// Display union, pre head-collapse; older workers send `target` only.
+		const targets = (
+			Array.isArray( meta.targets )
+				? meta.targets
+				: [].concat( meta.target ?? [] )
+		).filter( ( t ) => typeof t === 'string' && t !== '' );
 		nodes.push( {
 			id: name,
 			count: typeof meta.counter === 'number' ? meta.counter : 0,
@@ -224,15 +224,8 @@ export function parseMetadata( payload ) {
 			const slash = t.indexOf( '/' );
 			return -1 === slash ? t : t.slice( 0, slash );
 		};
-		const target = meta.target;
-		if ( Array.isArray( target ) ) {
-			for ( const t of target ) {
-				if ( typeof t === 'string' && t !== '' ) {
-					edges.push( { from: name, to: headOf( t ) } );
-				}
-			}
-		} else if ( typeof target === 'string' && target !== '' ) {
-			edges.push( { from: name, to: headOf( target ) } );
+		for ( const t of targets ) {
+			edges.push( { from: name, to: headOf( t ) } );
 		}
 		// Registration edges: emitter → each event listener (dashed).
 		const regs = meta.registrations;

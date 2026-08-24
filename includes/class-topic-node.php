@@ -30,10 +30,10 @@ class Topic_Node extends Node {
 	protected string $dir_template  = '';
 
 	/** Debounce for 'lock' mode, propagated with it. */
-	protected int $large_write_debounce_ms = 0;
+	protected int $debounce_lock_ms = 0;
 
-	/** Large-write opt-in propagated to every partition: '' none, 'lock' (allow_large_writes), 'void' (void_warranty). */
-	protected string $large_write_mode = '';
+	/** Large-write opt-in propagated to every partition; see Partition_Node's LARGE_WRITE_* trio. */
+	protected string $large_write_mode = Partition_Node::LARGE_WRITE_NONE;
 	protected int $lifetime         = Partition_Node::DEFAULT_LIFETIME;
 	protected int $max_segments     = Partition_Node::DEFAULT_MAX_SEGMENTS;
 	protected int $min_lifetime     = Partition_Node::DEFAULT_MIN_LIFETIME;
@@ -98,13 +98,12 @@ class Topic_Node extends Node {
 
 	/** Lift the 4KB cap on every partition via a held write lock — propagates to future children too. See Partition_Node::allow_large_writes(). */
 	public function allow_large_writes( int $debounce_ms = 0 ): self {
-		$this->large_write_debounce_ms = \max( 0, $debounce_ms );
-		return $this->set_large_write_mode( 'lock' );
+		return $this->set_large_write_mode( Partition_Node::LARGE_WRITE_LOCK, \max( 0, $debounce_ms ) );
 	}
 
 	/** Lift the 4KB cap on every partition with NO lock — caller asserts single-writer. See Partition_Node::void_warranty(). */
 	public function void_warranty(): self {
-		return $this->set_large_write_mode( 'void' );
+		return $this->set_large_write_mode( Partition_Node::LARGE_WRITE_VOID );
 	}
 
 	/** Name the companion-index formatter; applies to every partition, including ones materialized later. See Partition_Node::with_index(). */
@@ -116,44 +115,59 @@ class Topic_Node extends Node {
 		return $this;
 	}
 
-	/** Set the mode once and apply to already-materialized partitions; a repeat call in the same mode is a no-op (Partition::allow_large_writes re-locks). */
-	private function set_large_write_mode( string $mode ): self {
-		if ( $mode === $this->large_write_mode ) {
+	/**
+	 * The ONE write of the mode AND the debounce that travels with it: the
+	 * knob only means anything under `_LOCK`, and a re-arm that changes it
+	 * has to reach the partitions already materialized, or the live topic
+	 * holds the lock for life while `dump_config()` advertises a debounce
+	 * only a replayed one would honour. A repeat call in the same mode with
+	 * the same debounce is a no-op (`Partition::allow_large_writes` re-locks).
+	 */
+	private function set_large_write_mode( string $mode, int $debounce_ms = 0 ): self {
+		if ( $mode === $this->large_write_mode && $debounce_ms === $this->debounce_lock_ms ) {
 			return $this;
 		}
 		$this->large_write_mode = $mode;
+		$this->debounce_lock_ms = $debounce_ms;
 		foreach ( $this->partitions as $p ) {
 			$this->apply_large_write_mode( $p );
 		}
 		return $this;
 	}
 
-	/** Override Node::sink() so child Partitions inherit the new sink. */
+	/** Cascade the sink to the Partitions, then announce READY. */
 	public function sink( ?Node $node = null ): ?Node {
-		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
-		if ( \func_num_args() > 0 ) {
-			for ( $i = 0; $i < $this->num_partitions; ++$i ) {
-				$this->partition( $i )->sink( $node );
-			}
-			$this->set_state( 'READY', $this->name );
+		if ( 0 === \func_num_args() ) {
+			return parent::sink();
 		}
+		$result = parent::sink( $node );
+		// The registry is what `ls` walks; an unwritten partition is in it.
+		for ( $i = 0; $i < $this->num_partitions; ++$i ) {
+			$this->partition( $i );
+		}
+		$this->set_state( 'READY', $this->name );
 		return $result;
 	}
 
 	protected function partition( int $i ): Partition_Node {
 		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$p = new Partition_Node();
-			// Name the sibling `{topic}:p{i}` when the Topic is named.
-			if ( '' !== $this->name ) {
-				$p->name( "{$this->name}:p{$i}" );
-			}
+			$p         = new Partition_Node();
 			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
 			$p->arguments( [ $child_dir, (string) $this->segment_size, (string) $this->min_segments, (string) $this->num_segments, (string) $this->max_segments, (string) $this->min_lifetime, (string) $this->lifetime ] );
-			// Keep Topic's sink + patron-link so dump_metadata hides it.
+			// Topic's sink + patron-link, so dump_metadata hides it.
 			$p->sink( $this->sink );
 			$p->patron( $this );
-			$this->apply_large_write_mode( $p );
 			$this->apply_index( $p );
+			// Named from its `p{i}` slot; :lock and :config derive.
+			$this->publish_sibling( "p{$i}", $p );
+			try {
+				// Needs the name: it acquires a lock through a named sibling.
+				$this->apply_large_write_mode( $p );
+			} catch ( \Throwable $e ) {
+				$this->retract_sibling( "p{$i}" );
+				throw $e;
+			}
+			// Cached last: a refused partition is never served cap-lifted.
 			$this->partitions[ $i ] = $p;
 		}
 		return $this->partitions[ $i ];
@@ -166,11 +180,11 @@ class Topic_Node extends Node {
 		}
 	}
 
-	/** Apply the current large-write mode to one freshly-materialized partition (called once per partition, at creation). */
+	/** Apply the current large-write mode to one partition, freshly materialized or already live. */
 	private function apply_large_write_mode( Partition_Node $p ): void {
-		if ( 'lock' === $this->large_write_mode ) {
-			$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS, $this->large_write_debounce_ms );
-		} elseif ( 'void' === $this->large_write_mode ) {
+		if ( Partition_Node::LARGE_WRITE_LOCK === $this->large_write_mode ) {
+			$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS, $this->debounce_lock_ms );
+		} elseif ( Partition_Node::LARGE_WRITE_VOID === $this->large_write_mode ) {
 			$p->void_warranty();
 		}
 	}
@@ -223,11 +237,11 @@ class Topic_Node extends Node {
 	/** Emit the base config plus the verb-config, from STATE — like Partition's. */
 	public function dump_config(): string {
 		$out = parent::dump_config();
-		if ( 'void' === $this->large_write_mode ) {
+		if ( Partition_Node::LARGE_WRITE_VOID === $this->large_write_mode ) {
 			$out .= $this->config_line( 'void_warranty' );
-		} elseif ( 'lock' === $this->large_write_mode ) {
-			$out .= $this->large_write_debounce_ms > 0
-				? $this->config_line( 'allow_large_writes', (string) $this->large_write_debounce_ms )
+		} elseif ( Partition_Node::LARGE_WRITE_LOCK === $this->large_write_mode ) {
+			$out .= $this->debounce_lock_ms > 0
+				? $this->config_line( 'allow_large_writes', (string) $this->debounce_lock_ms )
 				: $this->config_line( 'allow_large_writes' );
 		}
 		if ( null !== $this->index_formatter_name ) {
@@ -259,13 +273,10 @@ class Topic_Node extends Node {
 		return $sum;
 	}
 
-	/** Tear down owned Partitions before normal Node teardown so file handles close deterministically. */
+	/** Forget the torn-down Partitions so a later fill re-materializes cleanly. */
 	public function remove_node(): void {
-		foreach ( $this->partitions as $p ) {
-			$p->remove_node();
-		}
-		$this->partitions = [];
 		parent::remove_node();
+		$this->partitions = [];
 	}
 
 	public static function node_schema(): array {

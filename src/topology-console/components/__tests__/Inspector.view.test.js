@@ -936,6 +936,8 @@ describe( 'Inspector (view mode)', () => {
 	const node = {
 		id: 'echo',
 		class: 'Echo',
+		// Routing target + one extra: `edges` below is the display union.
+		target: 'tee_a',
 		count: 1234,
 		lgstMsg: 4096,
 		bytesRead: 0,
@@ -1106,6 +1108,44 @@ describe( 'Inspector (view mode)', () => {
 		expect( onConnect ).toHaveBeenCalledWith( 'tee', 'b' );
 	} );
 
+	it( 'live mode target editor reads the ROUTING target, never a declared extra', () => {
+		// `targets` is the display union (`display_targets()`); a Flame_Builder
+		// with `set_stats_target` and no routing target has an extra and no
+		// target. Editing off the union offers a disconnect the worker
+		// ignores, and the chip returns on the next metadata poll.
+		const onConnect = jest.fn();
+		const onRemoveEdge = jest.fn();
+		const parsedExtras = {
+			nodes: [
+				{
+					id: 'flame-builder',
+					class: 'Flame_Builder',
+					target: '',
+					targets: [ 'flame-stats:partition' ],
+				},
+				{ id: 'auto-tuner', class: 'Echo' },
+			],
+			edges: [ { from: 'flame-builder', to: 'flame-stats:partition' } ],
+		};
+		const { container } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="flame-builder"
+				parsed={ parsedExtras }
+				nodeIds={ new Set( [ 'flame-builder', 'auto-tuner' ] ) }
+				onConnect={ onConnect }
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		const select = container.querySelector(
+			'#topology-target-input-flame-builder'
+		);
+		expect( select.value ).toBe( '' );
+		// Clearing an already-empty target dispatches nothing.
+		fireEvent.change( select, { target: { value: '' } } );
+		expect( onRemoveEdge ).not.toHaveBeenCalled();
+	} );
+
 	it( 'live mode does NOT show the targets editor for a reserved node', () => {
 		const onConnect = jest.fn();
 		const onRemoveEdge = jest.fn();
@@ -1180,6 +1220,68 @@ describe( 'Inspector (view mode)', () => {
 		const labels = Array.from( rows ).map( ( r ) => r.textContent );
 		expect( labels ).toContain( 'target →' );
 		expect( labels ).toContain( 'also →' );
+	} );
+
+	// One Routing row by its key label, or undefined when absent.
+	const fieldRow = ( container, label ) =>
+		Array.from( container.querySelectorAll( '.topology-field-row' ) ).find(
+			( r ) =>
+				r.querySelector( '.topology-field-row__key' )?.textContent ===
+				label
+		);
+
+	it( 'labels a declared extra as "also →" when the routing target is empty', () => {
+		// display_targets() is routing-first, but an empty routing target puts
+		// the ADR-19 extra at edges[0] — it is not the routing contract.
+		const { container } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="wombat"
+				parsed={ {
+					nodes: [
+						{ id: 'wombat', class: 'Request_Builder', target: '' },
+					],
+					edges: [ { from: 'wombat', to: 'quokka.p3' } ],
+				} }
+				nodeIds={ new Set( [ 'wombat', 'quokka.p3' ] ) }
+			/>
+		);
+		expect( fieldRow( container, 'target →' ).textContent ).toBe(
+			'target →—'
+		);
+		expect( fieldRow( container, 'also →' ).textContent ).toContain(
+			'quokka.p3'
+		);
+	} );
+
+	it( 'keeps a registration listener out of the routing rows', () => {
+		// A registration edge is a listener, not a destination; it has its own
+		// section.
+		const { container } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="ocelot"
+				parsed={ {
+					nodes: [
+						{ id: 'ocelot', class: 'Echo', target: 'meerkat' },
+					],
+					edges: [
+						{ from: 'ocelot', to: 'meerkat' },
+						{
+							from: 'ocelot',
+							to: 'gazelle',
+							registration: true,
+							event: 'boot',
+						},
+					],
+				} }
+				nodeIds={ new Set( [ 'ocelot', 'meerkat', 'gazelle' ] ) }
+			/>
+		);
+		expect( fieldRow( container, 'target →' ).textContent ).toBe(
+			'target →meerkat'
+		);
+		expect( fieldRow( container, 'also →' ) ).toBeUndefined();
 	} );
 
 	it( 'renders a dash for routing when there are no edges', () => {
@@ -1439,6 +1541,7 @@ describe( 'Inspector (view mode)', () => {
 					nodes: [
 						{
 							...teeNode,
+							target: [ '_output' ],
 							targets: [ '_output' ],
 						},
 					],
@@ -1705,6 +1808,31 @@ describe( 'Inspector (view mode)', () => {
 			/>
 		);
 		expect( getByText( 'Disconnect' ) ).not.toBeNull();
+	} );
+
+	it( 'stays Connect when the reply path is only a DECLARED extra, not routed', () => {
+		// A tail is `connect_node`, which moves the routing value; an extra is
+		// declared, not wired, so a disconnect against one goes nowhere.
+		const teeNode = {
+			id: 'tee_a',
+			class: 'Tee',
+			count: 0,
+			target: [],
+			targets: [ '_repl/_output/_sse:9/_output' ],
+		};
+		const { getByText } = renderWithCatalog(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ teeNode ],
+					edges: [],
+					pwd: '_repl/_output/_sse:9/_output',
+				} }
+				nodeIds={ new Set( [ 'tee_a' ] ) }
+			/>
+		);
+		expect( getByText( 'Connect' ) ).not.toBeNull();
 	} );
 
 	it( 'stays Connect when only ANOTHER session reply path is wired (collapsed _repl edge is shared)', () => {

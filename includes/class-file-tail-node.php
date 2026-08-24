@@ -74,9 +74,7 @@ class File_Tail_Node extends Tail_Node {
 			return parent::arguments();
 		}
 		$this->parse_schema_args( $args );
-		$this->offsetlog_dir = \rtrim( $this->offsetlog_dir, '/' );
 		$this->ensure_offsetlog();
-		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
 		$this->ensure_deadletter();
 		// No I/O at construction; first poll opens + seats the cursor (ADR-5).
 		$this->poll_cb = $this->poll_init( ... );

@@ -106,6 +106,13 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	 * Partitions (the offsetlog is a flat segmented-log dir) and seed the in-memory
 	 * cursor from any existing offsetlog entries.
 	 *
+	 * A replay REPLACES the source unconditionally, and each sidecar whenever its
+	 * dir moved — the `ensure_*` guards own that rule, so it reaches every reader
+	 * rather than only the ones routed through here. The source is assigned BEFORE
+	 * its publish, so a refused publish unwinds to the node this call BUILT; a
+	 * sidecar publishes first and assigns after, leaving a refused slot empty for
+	 * its own guard to rebuild.
+	 *
 	 * @param list<string>|null $args
 	 * @return list<string>
 	 */
@@ -116,21 +123,20 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		$this->parse_schema_args( $args );
 		[ $source_path, $offsetlog_path ] = $this->resolve_args();
 		$this->source_dir    = \rtrim( $source_path, '/' );
-		$this->offsetlog_dir = \rtrim( $offsetlog_path, '/' );
+		$this->offsetlog_dir = $offsetlog_path;
 		Config::assert_within_base( $this->source_dir );
 		Config::assert_within_base( $this->offsetlog_dir );
 
-		$this->source = $this->make_source();
-		if ( '' !== $this->name ) {
-			$this->source->name( "{$this->name}:source" );
-		}
-		$this->source->arguments( [ $this->source_dir ] );
-		$this->source->sink( $this->sink );
-		$this->source->patron( $this );
+		$source = $this->make_source();
+		$source->arguments( [ $this->source_dir ] );
+		$source->sink( $this->sink );
+		$source->patron( $this );
+		// Assign before publish: a refusal must unwind to the live node.
+		$this->retract_sibling( 'source' );
+		$this->source = $source;
+		$this->publish_sibling( 'source', $source );
 
 		$this->ensure_offsetlog();
-
-		$this->deadletter_dir = \rtrim( $this->deadletter_dir, '/' );
 		$this->ensure_deadletter();
 
 		// No I/O at construction: first poll loads cursor + restores snapshot.
@@ -598,29 +604,6 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 	}
 
 	/**
-	 * @param bool $graceful Final checkpoint of a clean shutdown — stamps attempts=0
-	 *                       (the cursor sits at an un-attempted message), so a respawn
-	 *                       resumes at a virgin first attempt rather than counting a strike.
-	 */
-	public function checkpoint( bool $graceful = false ): void {
-		// Skip an unestablished cursor: 0:0 commit clobbers durable pos.
-		if ( null === $this->offsetlog || ( ! $this->poll_initialized && ! $this->offset_set ) ) {
-			return;
-		}
-		// Advance-guard: skip redundant same-cursor write (graceful is exempt).
-		if ( ! $graceful && ! $this->cursor_moved_since_checkpoint( $this->cursor_segment, $this->cursor_offset ) ) {
-			return;
-		}
-		// Progress past boot cursor ends crash streak; not while crawling.
-		if ( ! $graceful && ! $this->crawl && $this->cursor_advanced_since_boot() ) {
-			$this->attempts       = 1;
-			$this->first_crash_ts = null;
-			$this->poison_reason  = '';
-		}
-		$this->write_checkpoint_frame( $graceful, true );
-	}
-
-	/**
 	 * Commit one offsetlog frame at the current cursor — UNCONDITIONALLY (no
 	 * advance-guard; the boot sequence re-commits the same cursor on purpose). The
 	 * shared base frame + Consumer's static extra ride commit_checkpoint_frame(); the
@@ -942,53 +925,16 @@ class Consumer_Node extends Timer_Node implements Idle_Reporter {
 		return $this->time_travel_metadata() + $this->deadletter_metadata();
 	}
 
-	protected function check_name_availability( string $name ): void {
-		parent::check_name_availability( $name );
-		if ( null !== $this->source && null !== Core::node( "{$name}:source" ) ) {
-			throw new \RuntimeException( \esc_html( "node name collision: {$name}:source already registered" ) );
-		}
-		if ( null !== $this->offsetlog && null !== Core::node( "{$name}:offsetlog" ) ) {
-			throw new \RuntimeException( \esc_html( "node name collision: {$name}:offsetlog already registered" ) );
-		}
-		if ( null !== $this->deadletter && null !== Core::node( "{$name}:deadletter" ) ) {
-			throw new \RuntimeException( \esc_html( "node name collision: {$name}:deadletter already registered" ) );
-		}
-	}
-
-	protected function set_sibling_names( ?string $name = null ): void {
-		$this->source?->name( "{$name}:source" );
-		$this->offsetlog?->name( "{$name}:offsetlog" );
-		$this->deadletter?->name( "{$name}:deadletter" );
-		parent::set_sibling_names( $name );
-	}
-
-	public function sink( ?Node $node = null ): ?Node {
-		if ( \func_num_args() > 0 ) {
-			if ( null !== $this->source ) {
-				$this->source->sink( $node );
-			}
-			if ( null !== $this->offsetlog ) {
-				$this->offsetlog->sink( $node );
-			}
-			if ( null !== $this->deadletter ) {
-				$this->deadletter->sink( $node );
-			}
-			return parent::sink( $node );
-		}
-		return parent::sink();
-	}
-
+	/**
+	 * Drop the slots the base cascade just tore down. A slot still pointing at
+	 * a torn-down node hands `ensure_offsetlog()`/`source()` a node whose name,
+	 * sink and patron are gone — writes reach disk, nothing is addressable.
+	 */
 	public function remove_node(): void {
-		if ( null !== $this->source ) {
-			$this->source->remove_node();
-		}
-		if ( null !== $this->offsetlog ) {
-			$this->offsetlog->remove_node();
-		}
-		if ( null !== $this->deadletter ) {
-			$this->deadletter->remove_node();
-		}
 		parent::remove_node();
+		$this->source     = null;
+		$this->offsetlog  = null;
+		$this->deadletter = null;
 	}
 
 	public static function node_schema(): array {

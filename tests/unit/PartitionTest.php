@@ -193,7 +193,7 @@ class PartitionTest extends TestCase {
 		$multi->arguments( [ "{$this->tmp}/logs/shared.p0", '1048576', '2', '4', '0', '0', '0' ] );
 		$dl = ( new \ReflectionMethod( $multi, 'ensure_deadletter' ) )->invoke( $multi );
 		$this->assertNotNull( $dl );
-		$this->assertFalse( $this->read_node_prop( $dl, 'allow_large_writes' ) );
+		$this->assertSame( '', $this->read_node_prop( $dl, 'large_write_mode' ) );
 
 		// A single-writer source (void_warranty) keeps a sole-writer quarantine.
 		$solo = new Partition_Node();
@@ -202,7 +202,31 @@ class PartitionTest extends TestCase {
 		$solo->void_warranty();
 		$dl_solo = ( new \ReflectionMethod( $solo, 'ensure_deadletter' ) )->invoke( $solo );
 		$this->assertNotNull( $dl_solo );
-		$this->assertTrue( $this->read_node_prop( $dl_solo, 'allow_large_writes' ) );
+		$this->assertNotSame( '', $this->read_node_prop( $dl_solo, 'large_write_mode' ) );
+	}
+
+	/**
+	 * The write-stall quarantine is a declared owned sibling, so it takes its
+	 * name from that slot and follows the Partition through a rename and a
+	 * teardown — it is built on the first stall, long after naming, which is
+	 * exactly when a sidecar the patron never declared gets stranded.
+	 */
+	public function test_the_write_quarantine_follows_a_rename_and_a_teardown(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'quaystore' );
+		$p->arguments( [ "{$this->tmp}/logs/quaystore.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$dl = ( new \ReflectionMethod( $p, 'ensure_deadletter' ) )->invoke( $p );
+		$this->assertSame( 'quaystore:deadletter', $dl->name() );
+
+		$p->name( 'lampstore' );
+
+		$this->assertSame( $dl, Core::node( 'lampstore:deadletter' ) );
+		$this->assertNull( Core::node( 'quaystore:deadletter' ) );
+
+		$p->remove_node();
+
+		$this->assertNull( Core::node( 'lampstore:deadletter' ) );
 	}
 
 	/**
@@ -234,7 +258,7 @@ class PartitionTest extends TestCase {
 		);
 
 		$maker = new \ReflectionMethod( $p, 'make_sidecar' );
-		$side  = $maker->invoke( $p, "{$this->tmp}/side", 'data:side', [ 1024, 2, 2, 0, 0 ] );
+		$side  = $maker->invoke( $p, "{$this->tmp}/side", [ 1024, 2, 2, 0, 0 ] );
 		$this->assertSame( '', $this->read_node_prop( $side, 'deadletter_dir' ) );
 	}
 
@@ -577,6 +601,243 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ str_repeat( 'x', 5000 ) ], $this->read_partition_values( $p ) );
 	}
 
+	/**
+	 * The write Lock is an owned sibling like the quarantine, so it follows a
+	 * rename. It matters because a Topic rename cascades to its Partitions: a
+	 * Lock left under the old spelling is unreachable from the registry while
+	 * the new slot resolves to nothing, and the sink cascade skips it too.
+	 */
+	public function test_renaming_a_partition_moves_its_write_lock(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'windlass' );
+		$p->arguments( [ "{$this->tmp}/logs/windlass.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes();
+		$lock = $this->read_node_prop( $p, 'write_lock' );
+		$this->assertSame( $lock, Core::node( 'windlass:lock' ) );
+
+		$p->name( 'davit' );
+
+		$this->assertSame( 'davit:lock', $lock->name() );
+		$this->assertSame( $lock, Core::node( 'davit:lock' ) );
+		$this->assertNull( Core::node( 'windlass:lock' ) );
+	}
+
+	/**
+	 * A squatted `{name}:lock` slot is only discoverable from inside
+	 * allow_large_writes() — write_lock is null when the Partition is named,
+	 * so the collision pre-check has nothing to look at. The refusal must
+	 * leave the Partition believing nothing: a lifted cap with no lock held
+	 * lets two writers interleave >PIPE_BUF appends into one segment.
+	 */
+	public function test_a_squatted_lock_slot_leaves_the_cap_in_place(): void {
+		$this->use_base_dir( $this->tmp );
+		$squatter = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$squatter->name( 'grapnel:lock' );
+		$p = new Partition_Node();
+		$p->name( 'grapnel' );
+		$p->arguments( [ "{$this->tmp}/logs/grapnel.p0", '1048576', '2', '4', '0', '0', '0' ] );
+
+		try {
+			$p->allow_large_writes();
+			$this->fail( 'expected the squatted lock slot to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'node name collision: grapnel:lock already registered', $e->getMessage() );
+		}
+
+		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ) );
+		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
+	}
+
+	/**
+	 * `void_warranty()` then `allow_large_writes()` is one Partition changing
+	 * its mind, and the lock SUPERSEDES the void — the round trip has to
+	 * replay the verb that is actually in force, or a replay drops the lock.
+	 */
+	public function test_taking_the_lock_supersedes_a_voided_warranty(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'capstan' );
+		$p->arguments( [ "{$this->tmp}/logs/capstan.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->void_warranty();
+
+		$p->allow_large_writes( 1750, 750 );
+
+		$dump = $p->dump_config();
+		$this->assertStringContainsString( 'command_node capstan:config allow_large_writes 750', $dump );
+		$this->assertStringNotContainsString( 'void_warranty', $dump );
+	}
+
+	/**
+	 * `allow_large_writes()` then `void_warranty()` is the same change of mind
+	 * in the other direction, and it has to CAP the lock off. Leaving it held
+	 * keeps `{name}:lock` registered and the heartbeat beating for a mode that
+	 * disclaims the lock, while `dump_config()` emits `void_warranty` alone —
+	 * so a replay quietly drops a lock this process still believes it owns.
+	 */
+	public function test_voiding_the_warranty_releases_the_lock_it_supersedes(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'windlass' );
+		$p->arguments( [ "{$this->tmp}/logs/windlass.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 2250 );
+
+		$p->void_warranty();
+
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ), 'the superseded lock must not stay held' );
+		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
+		$this->assertNull( Core::node( 'windlass:lock' ), 'the lock sibling must free its name' );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/windlass.p0/write.lock.d" );
+		$dump = $p->dump_config();
+		$this->assertStringContainsString( 'command_node windlass:config void_warranty', $dump );
+		$this->assertStringNotContainsString( 'allow_large_writes', $dump );
+	}
+
+	/**
+	 * Teardown is the third exit from LOCK mode, and it bypassed the single
+	 * writer: `remove_node()` released the lock directly, so the mode stayed
+	 * `LARGE_WRITE_LOCK` with nothing behind it. `fill()` needs no sink and
+	 * reopens its handle lazily, so anything still holding the torn-down
+	 * Partition as its sink went on accepting 32 MiB records and skipping the
+	 * rotate lock.
+	 */
+	public function test_teardown_puts_the_large_write_cap_back_down(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'futtock' );
+		$p->arguments( [ "{$this->tmp}/logs/futtock.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 3250 );
+
+		$p->remove_node();
+
+		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ), 'teardown must cap the lifted limit' );
+		$this->produce_into( $p, \str_repeat( 'q', 6000 ) );
+		$this->assertSame( [], $this->read_partition_values( $p ), 'a torn-down Partition must refuse a >PIPE_BUF record' );
+	}
+
+	/**
+	 * The one throw that lands PAST acquire(): arming the heartbeat needs a
+	 * `_router` to hitchhike, and a named Partition in a drain loop with no
+	 * router mounted gets a refusal from `set_timer()`. The unwind has to
+	 * RELEASE what it took — a held-but-unheartbeaten lock goes stale, a peer
+	 * steals it, and this process still believes it owns the partition.
+	 */
+	public function test_a_refused_heartbeat_releases_the_lock_it_already_took(): void {
+		$this->use_base_dir( $this->tmp );
+		Event_Framework::reset();
+		$ef   = Event_Framework::instance();
+		$flag = ( new \ReflectionClass( $ef ) )->getProperty( 'draining' );
+		$flag->setValue( $ef, true );
+		$p = new Partition_Node();
+		$p->name( 'binnacle' );
+		$p->arguments( [ "{$this->tmp}/logs/binnacle.p0", '1048576', '2', '4', '0', '0', '0' ] );
+
+		try {
+			$p->allow_large_writes();
+			$this->fail( 'expected the unrouted heartbeat arm to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'Router-hitchhike requires _router', $e->getMessage() );
+		}
+
+		$this->assertDirectoryDoesNotExist(
+			"{$this->tmp}/logs/binnacle.p0/write.lock.d",
+			'the lock taken before the throw must be released, not left to go stale'
+		);
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ), 'the lock must not stay held' );
+		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
+		$this->assertNull( $this->read_node_prop( $p, 'heartbeat_timer' ) );
+		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ) );
+	}
+
+	/**
+	 * An UNNAMED Partition names no sibling, so nothing refuses a second
+	 * `allow_large_writes()` — and the pair the first call installed is simply
+	 * overwritten. The Timer keeps beating a Lock nothing references, and the
+	 * lock dir on disk is never released, because the fresh `lock_held = false`
+	 * tells the next release there is nothing to free.
+	 */
+	public function test_re_arming_large_writes_frees_the_pair_it_replaces(): void {
+		$this->use_base_dir( $this->tmp );
+		Event_Framework::reset();
+		$ef   = Event_Framework::instance();
+		$flag = ( new \ReflectionClass( $ef ) )->getProperty( 'draining' );
+		$flag->setValue( $ef, true );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/logs/hawser.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes();
+		$first_timer = $this->read_node_prop( $p, 'heartbeat_timer' );
+		$first_lock  = $this->read_node_prop( $p, 'write_lock' );
+		$this->assertNotNull( $first_timer, 'the drain loop arms a heartbeat Timer' );
+
+		$p->allow_large_writes( Partition_Node::DEFAULT_LOCK_WAIT_MS, 1500 );
+
+		$armed = ( new \ReflectionClass( $ef ) )->getProperty( 'timers' )->getValue( $ef );
+		$this->assertArrayNotHasKey(
+			\spl_object_id( $first_timer ),
+			$armed,
+			'the replaced Timer must leave the event loop'
+		);
+		$this->assertFalse( $first_lock->is_held(), 'the replaced Lock must be released' );
+		$this->assertNotSame( $first_lock, $this->read_node_prop( $p, 'write_lock' ) );
+	}
+
+	/**
+	 * A refused re-arm has already freed the pair it was replacing, so there
+	 * is no lock left to stand behind a lifted cap. Leaving the cap up is the
+	 * torn >PIPE_BUF write this whole mechanism exists to prevent, and leaving
+	 * the debounce and wait budgets up describes a lock that is gone.
+	 */
+	public function test_a_refused_re_arm_puts_the_cap_back_down(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}/logs/gunwale.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->allow_large_writes( 4500, 750 );
+		$this->assertSame( 750, $this->read_node_prop( $p, 'debounce_lock_ms' ) );
+		// A regular FILE where the lock DIR goes: the re-arm's acquire fails.
+		\mkdir( "{$this->tmp}/logs/gunwale.p0", 0700, true );
+		\file_put_contents( "{$this->tmp}/logs/gunwale.p0/write.lock.d", 'not a lock dir' );
+
+		try {
+			$p->allow_large_writes( 9000 );
+			$this->fail( 'expected the re-arm acquire to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
+		}
+
+		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ), 'no lock, no lifted cap' );
+		$this->assertSame( 0, $this->read_node_prop( $p, 'debounce_lock_ms' ) );
+		$this->assertSame( 0, $this->read_node_prop( $p, 'lock_max_wait_ms' ) );
+		$this->assertSame( 0, $this->read_node_prop( $p, 'lock_stale_timeout' ) );
+	}
+
+	/**
+	 * A refused re-arm after `void_warranty()` puts the cap all the way DOWN.
+	 * Restoring the void would leave it lifted with `write_lock` null — cap
+	 * lifted, no lock — and would round-trip `void_warranty` for a partition
+	 * that asked for the lock, silently dropping it on replay.
+	 */
+	public function test_a_refused_re_arm_after_a_voided_warranty_puts_the_cap_down(): void {
+		$this->use_base_dir( $this->tmp );
+		$p = new Partition_Node();
+		$p->name( 'taffrail' );
+		$p->arguments( [ "{$this->tmp}/logs/taffrail.p0", '1048576', '2', '4', '0', '0', '0' ] );
+		$p->void_warranty();
+		\mkdir( "{$this->tmp}/logs/taffrail.p0", 0700, true );
+		\file_put_contents( "{$this->tmp}/logs/taffrail.p0/write.lock.d", 'not a lock dir' );
+
+		try {
+			$p->allow_large_writes( 9000 );
+			$this->fail( 'expected the acquire to be refused' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
+		}
+
+		$this->assertSame( '', $this->read_node_prop( $p, 'large_write_mode' ) );
+		$this->assertNull( $this->read_node_prop( $p, 'write_lock' ) );
+		$this->assertFalse( $this->read_node_prop( $p, 'lock_held' ) );
+		$this->assertStringNotContainsString( 'void_warranty', $p->dump_config() );
+	}
+
 	public function test_dump_config_reflects_allow_large_writes_state(): void {
 		// dump_config emits the config from the node's own STATE — not from a
 		// generically-recorded verb invocation. Setting the flag (however) shows
@@ -620,9 +881,21 @@ class PartitionTest extends TestCase {
 
 		$p2->arguments( [ "{$this->tmp}.p0", (string) ( 64*1024 ), "2", "4", "0", "0", "86400", "0" ] );
 		$p2->name( 'p2' );
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'failed to acquire write lock' );
-		$p2->allow_large_writes( 100 ); // 100ms — well under stale_timeout
+		try {
+			$p2->allow_large_writes( 100 ); // 100ms — well under stale_timeout
+			$this->fail( 'expected the held lock to refuse the second writer' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'failed to acquire write lock', $e->getMessage() );
+		}
+
+		// The refused writer believes nothing: a lifted cap with no lock held
+		// is the state this exit exists to prevent — it also skips the rotate
+		// lock, so two writers interleave >PIPE_BUF appends into one segment.
+		$this->assertSame( '', $this->read_node_prop( $p2, 'large_write_mode' ) );
+		$this->assertFalse( $this->read_node_prop( $p2, 'lock_held' ) );
+		$this->assertNull( $this->read_node_prop( $p2, 'write_lock' ) );
+		// And the lock sibling is gone, so a retry dies on the lock, not a name.
+		$this->assertNull( Core::node( 'p2:lock' ) );
 	}
 
 	/** Partition exposing fire() so tests can drive the debounce timer without an event loop. */
@@ -1856,6 +2129,73 @@ class PartitionTest extends TestCase {
 		} finally {
 			$flag->setValue( $ef, false );
 			\Newspack_Nodes\Event_Framework::reset();
+		}
+	}
+
+	/**
+	 * The heartbeat Timer follows a rename like the Lock does. A Topic rename
+	 * cascades into `{topic}:p{i}`, and a Timer stranded under the old
+	 * spelling is unreachable from the registry while `{new}:heartbeat`
+	 * resolves to nothing.
+	 */
+	public function test_renaming_a_partition_moves_its_heartbeat_timer(): void {
+		Event_Framework::reset();
+		$ef   = Event_Framework::instance();
+		$flag = ( new \ReflectionClass( $ef ) )->getProperty( 'draining' );
+		$flag->setValue( $ef, true );
+		$router = new \Newspack_Nodes\Router_Node();
+		$router->name( \Newspack_Nodes\Node_Names::ROUTER );
+
+		try {
+			$p = new Partition_Node();
+			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), '2', '4', '0', '0', '86400', '0' ] );
+			$p->name( 'kedge' );
+			$p->allow_large_writes();
+			$hb = $this->read_node_prop( $p, 'heartbeat_timer' );
+			$this->assertSame( 'kedge:heartbeat', $hb->name() );
+
+			$p->name( 'sheerlegs' );
+
+			$this->assertSame( 'sheerlegs:heartbeat', $hb->name() );
+			$this->assertSame( $hb, Core::node( 'sheerlegs:heartbeat' ) );
+			$this->assertNull( Core::node( 'kedge:heartbeat' ) );
+			// The hitchhike moves too, or the lock stops being refreshed.
+			$armed = \array_keys( $this->read_private( $router, 'registrations' )['TIMER'] ?? [] );
+			$this->assertContains( 'sheerlegs:heartbeat', $armed );
+			$this->assertNotContains( 'kedge:heartbeat', $armed );
+			$p->remove_node();
+		} finally {
+			$flag->setValue( $ef, false );
+			Event_Framework::reset();
+		}
+	}
+
+	/**
+	 * The heartbeat Timer beats the write Lock, not the Partition's own sink,
+	 * so the sink cascade a declared sibling inherits must not rewire it —
+	 * a heartbeat delivered downstream never refreshes the lock file.
+	 */
+	public function test_setting_a_partition_sink_leaves_the_heartbeat_beating_the_lock(): void {
+		Event_Framework::reset();
+		$ef   = Event_Framework::instance();
+		$flag = ( new \ReflectionClass( $ef ) )->getProperty( 'draining' );
+		$flag->setValue( $ef, true );
+		( new \Newspack_Nodes\Router_Node() )->name( \Newspack_Nodes\Node_Names::ROUTER );
+
+		try {
+			$p = new Partition_Node();
+			$p->arguments( [ "{$this->tmp}.p0", (string) ( 64 * 1024 ), '2', '4', '0', '0', '86400', '0' ] );
+			$p->name( 'kentledge' );
+			$p->allow_large_writes();
+			$hb = $this->read_node_prop( $p, 'heartbeat_timer' );
+
+			$p->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+
+			$this->assertSame( $this->read_node_prop( $p, 'write_lock' ), $hb->sink() );
+			$p->remove_node();
+		} finally {
+			$flag->setValue( $ef, false );
+			Event_Framework::reset();
 		}
 	}
 

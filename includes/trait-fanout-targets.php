@@ -39,14 +39,8 @@ trait Fanout_Targets {
 	 * @return list<string>
 	 */
 	public function target( $value = null ) {
-		if ( null !== $value ) {
-			$this->target = \is_array( $value ) ? \array_values( $value ) : ( '' !== $value ? [ $value ] : [] );
-			return $this->target;
-		}
-		if ( ! \is_array( $this->target ) ) {
-			$this->target = '' !== $this->target ? [ $this->target ] : [];
-		}
-		return \array_values( $this->target );
+		$this->target = Node::target_list( null !== $value ? $value : $this->target );
+		return $this->target;
 	}
 
 	/**
@@ -54,9 +48,7 @@ trait Fanout_Targets {
 	 * target assigned before the first connect (a graph may `arguments()` one in).
 	 */
 	public function connect_node( string $target ): void {
-		if ( ! \is_array( $this->target ) ) {
-			$this->target = '' !== $this->target ? [ $this->target ] : [];
-		}
+		$this->target = Node::target_list( $this->target );
 		if ( ! \in_array( $target, $this->target, true ) ) {
 			$this->target[] = $target;
 		}

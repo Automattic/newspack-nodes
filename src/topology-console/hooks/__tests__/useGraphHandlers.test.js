@@ -80,6 +80,23 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		] );
 	} );
 
+	it( 'onConnect REPLACES on a plain node that declares extra targets', () => {
+		// `target` is the routing value, `targets` the display union: a node
+		// with extras is not a fan-out, so connect replaces and draws no
+		// phantom edge to the superseded target.
+		Core.node( names.METADATA ).rawMap = {
+			'beacon-relay': {
+				target: 'downstream-sump',
+				targets: [ 'downstream-sump', 'telemetry-sidecar' ],
+			},
+		};
+		const { result } = renderHandlers( {} );
+		result.current.onConnect( 'beacon-relay', 'quarry-sump' );
+		expect( patched ).toEqual( [
+			[ 'beacon-relay', { target: 'quarry-sump' } ],
+		] );
+	} );
+
 	it( 'onConnect does not duplicate a target already in the Tee fan-out', () => {
 		Core.node( names.METADATA ).rawMap = { tee: { target: [ 'x', 'y' ] } };
 		const { result } = renderHandlers( {} );

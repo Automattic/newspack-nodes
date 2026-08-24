@@ -69,8 +69,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		// Sibling plumbing: name + patron + sink the probe, read, remove.
 		$ci        = Core::node( Node_Names::COMMAND_INTERPRETER );
 		$partition = new Partition_Node();
-		$partition->name( "{$self->name()}:status" );
 		$partition->patron( $self );
+		$partition->name( "{$self->name()}:status" );
 		if ( null === $partition->sink() && null !== $ci ) {
 			$partition->sink( $ci );
 		}

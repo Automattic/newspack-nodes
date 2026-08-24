@@ -919,13 +919,7 @@ class Command_Interpreter_Node extends Node {
 					continue;
 				}
 				$sink_name  = $node->sink() ? $node->sink()->name() : '';
-				$target_val = $node->target();
-				$target_str = '';
-				if ( \is_array( $target_val ) ) {
-					$target_str = \implode( ', ', $target_val );
-				} elseif ( '' !== $target_val ) {
-					$target_str = $target_val;
-				}
+				$target_str = \implode( ', ', $node->display_targets() );
 
 				if ( $list_matches ) {
 					if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
@@ -1092,6 +1086,7 @@ class Command_Interpreter_Node extends Node {
 				'counter'       => $node->counter(),
 				'sink'          => $sink instanceof Node ? $sink->name() : '',
 				'target'        => $node->target(),
+				'targets'       => $node->display_targets(),
 				'debug_state'   => $node->debug_state(),
 				'arguments'     => $node->arguments(),
 				'lgst_msg'      => $node->largest_msg_sent(),

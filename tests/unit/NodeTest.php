@@ -690,6 +690,21 @@ class NodeTest extends TestCase {
 		$this->assertSame( $primary, $plumbing->patron() );
 	}
 
+	/**
+	 * `patron()` is both the canvas-visibility flag and the interpreter drop,
+	 * so setup carries an order dependency nothing enforced: given a patron
+	 * AFTER name(), a node registers a `{name}:config` and then tears it down
+	 * again. It is refused, so the order is a contract rather than a habit.
+	 */
+	public function test_patron_refuses_a_node_that_is_already_named_and_wired(): void {
+		$plumbing = new Config_Sibling_Node();
+		$plumbing->name( 'binnacle-4471' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'patron() must be set before name()' );
+		$plumbing->patron( new Capture_Sink_Node() );
+	}
+
 	public function test_patron_getter_does_not_overwrite_when_null_arg(): void {
 		// Calling patron() with no arg (or explicit null) returns current
 		// value without overwriting. Same pattern as sink() and target()
@@ -987,6 +1002,41 @@ class NodeTest extends TestCase {
 		$n->target( 'somewhere' );
 		// Calling again with no arg returns the stored value.
 		$this->assertSame( 'somewhere', $n->target() );
+	}
+
+	/**
+	 * A node that writes somewhere its target never routes — a sibling's own
+	 * target, a partition written straight at flush — declares those
+	 * destinations so the console draws an edge for each. `display_targets()`
+	 * unions them onto the target, de-duplicating and skipping the empties, so
+	 * the declaration is a plain field list. `target()` stays the ROUTING
+	 * contract: an array answer there still means the node fans out.
+	 */
+	public function test_display_targets_unions_target_with_the_declared_extras(): void {
+		$n = new class() extends \Newspack_Nodes\Node {
+			/** @var list<string> */
+			public array $extras = [];
+
+			/** @return list<string> */
+			protected function extra_targets(): array {
+				return $this->extras;
+			}
+		};
+		$n->target( 'grapnel-primary' );
+		$this->assertSame( [ 'grapnel-primary' ], $n->display_targets(), 'no extras is the target alone' );
+
+		$n->extras = [ '', '' ];
+		$this->assertSame( [ 'grapnel-primary' ], $n->display_targets(), 'nor do extras that are all unset' );
+
+		$n->extras = [ 'binnacle-mirror', '', 'grapnel-primary', 'oubliette-quarantine' ];
+
+		$this->assertSame(
+			[ 'grapnel-primary', 'binnacle-mirror', 'oubliette-quarantine' ],
+			$n->display_targets(),
+			'the union dedups and drops the empties, primary first'
+		);
+		$this->assertSame( 'grapnel-primary', $n->target(), 'target() stays the scalar routing contract' );
+		$this->assertSame( 'capstan-primary', $n->target( 'capstan-primary' ), 'the setter writes only the primary' );
 	}
 
 	// ── log_midfix / stderr / print_*_often (per-node) ───────────────────
