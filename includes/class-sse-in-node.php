@@ -76,6 +76,7 @@ class SSE_In_Node extends Node {
 	protected string $url               = '';
 
 	private string $buffer              = '';
+	/** The LEASE: true only past the `connected` handshake, never at open. */
 	private bool   $connected           = false;
 	private ?float $connected_at        = null;
 	private int    $current_backoff     = self::INITIAL_BACKOFF;
@@ -226,7 +227,7 @@ class SSE_In_Node extends Node {
 		$this->buffer             = '';
 		$this->current_event      = [ 'event' => '', 'data' => '' ];
 		$this->last_event_time    = $now;
-		$this->connected          = true;
+		$this->connected          = false;
 		$this->last_error         = null;
 		$this->last_http_code     = null;
 		$this->last_sse_heartbeat = null;
@@ -585,12 +586,15 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Reconnect-on-stale check. Driven by the patron (no timer here).
+	 * Reconnect-on-stale check. Driven by the patron (no timer here). Gated on
+	 * the HANDLE rather than the lease: a socket that opened and then went
+	 * silent before its handshake is exactly what this watchdog is for, and
+	 * CURLOPT_TIMEOUT is 0, so nothing else covers that window.
 	 *
 	 * @api Dynamic entrypoint.
 	 */
 	public function check_stale(): void {
-		if ( ! $this->connected || ! ( $this->handle instanceof \CurlHandle ) ) {
+		if ( ! ( $this->handle instanceof \CurlHandle ) ) {
 			return;
 		}
 		$now     = Core::$now ?: Core::right_now();
@@ -814,17 +818,20 @@ class SSE_In_Node extends Node {
 	}
 
 	/**
-	 * Connection-state snapshot for the patron. `scheduled_reconnect_at` is the
-	 * explicit "closed on purpose, back at T" reading — a null `last_error` also
-	 * means "never attempted", so idleness gets a field of its own rather than
-	 * being inferred from the absence of a failure.
+	 * Connection-state snapshot for the patron. `connected` is the LEASE — true
+	 * only past the `connected` handshake; an open handle still awaiting it is
+	 * `connecting`, which is neither up nor a failure. `scheduled_reconnect_at`
+	 * is the explicit "closed on purpose, back at T" reading — a null
+	 * `last_error` also means "never attempted", so idleness gets a field of its
+	 * own rather than being inferred from the absence of a failure.
 	 *
 	 * @api Dynamic entrypoint.
-	 * @return array{connected:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int}
+	 * @return array{connected:bool,connecting:bool,last_http_code:?int,last_error:?string,current_backoff:int,last_sse_heartbeat:?int,last_attempt:?int,scheduled_reconnect_at:?int}
 	 */
 	public function connection(): array {
 		return [
 			'connected'              => $this->connected,
+			'connecting'             => $this->handle instanceof \CurlHandle && ! $this->connected,
 			'last_http_code'         => $this->last_http_code,
 			'last_error'             => $this->last_error,
 			'current_backoff'        => $this->current_backoff,

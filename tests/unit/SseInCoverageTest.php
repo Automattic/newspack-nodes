@@ -53,6 +53,13 @@ class SseInCoverageTest extends TestCase {
 		return $handle;
 	}
 
+	/** Connect AND complete the `connected` handshake: an established lease. */
+	private function establish( SSE_In_Node $node ): \CurlHandle {
+		$handle = $this->connect( $node );
+		$node->process_sse_chunk( $this->connected_frame( 'PID 61781 SLOT 5 OWNER 90210007' ) );
+		return $handle;
+	}
+
 	/** A `msg` SSE frame whose data is a packed 7-field Message envelope. */
 	private function msg_frame( string $id, string $key, $value ): string {
 		$m                   = Message::new_message();
@@ -215,7 +222,7 @@ class SseInCoverageTest extends TestCase {
 
 	public function test_on_curl_message_ignores_non_done(): void {
 		[ $node ] = $this->configured_node();
-		$handle   = $this->connect( $node );
+		$handle   = $this->establish( $node );
 		$node->on_curl_message( [ 'msg' => 0, 'handle' => $handle, 'result' => \CURLE_OK ] );
 		$this->assertTrue( $node->connection()['connected'] );
 		$this->assertSame( $handle, $node->test_get_handle() );
@@ -223,7 +230,7 @@ class SseInCoverageTest extends TestCase {
 
 	public function test_on_curl_message_foreign_handle_is_cleaned_up_without_state_change(): void {
 		[ $node ] = $this->configured_node();
-		$this->connect( $node );
+		$this->establish( $node );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
 		$foreign = \curl_init();
 
@@ -557,7 +564,7 @@ class SseInCoverageTest extends TestCase {
 	public function test_check_stale_noop_within_heartbeat_timeout(): void {
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1000.0;
-		$this->connect( $node );
+		$this->establish( $node );
 		$node->check_stale();
 		$this->assertTrue( $node->connection()['connected'] );
 		$this->assertNull( $node->connection()['last_error'] );
@@ -566,13 +573,29 @@ class SseInCoverageTest extends TestCase {
 	public function test_check_stale_reconnects_when_idle_past_timeout(): void {
 		[ $node ]  = $this->configured_node();
 		Core::$now = 1000.0;
-		$this->connect( $node );
+		$this->establish( $node );
 
 		Core::$now = 1000.0 + SSE_In_Node::HEARTBEAT_TIMEOUT + 5;
 		$node->check_stale();
 
 		$this->assertNull( $node->test_get_handle() );
 		$this->assertFalse( $node->connection()['connected'] );
+		$this->assertStringContainsString( 'Stale connection', (string) $node->connection()['last_error'] );
+	}
+
+	public function test_check_stale_still_watches_a_stream_silent_before_its_handshake(): void {
+		// The pre-handshake window is exactly when a hung server strands a socket:
+		// CURLOPT_TIMEOUT is 0, so this watchdog is the only thing covering it.
+		[ $node ]  = $this->configured_node();
+		Core::$now = 1000.0;
+		$this->connect( $node );
+		$this->assertTrue( $node->connection()['connecting'] );
+
+		Core::$now = 1000.0 + SSE_In_Node::HEARTBEAT_TIMEOUT + 5;
+		$node->check_stale();
+
+		$this->assertNull( $node->test_get_handle() );
+		$this->assertFalse( $node->connection()['connecting'] );
 		$this->assertStringContainsString( 'Stale connection', (string) $node->connection()['last_error'] );
 	}
 
