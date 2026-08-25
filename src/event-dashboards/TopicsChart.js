@@ -16,8 +16,8 @@ import { memo, useCallback, useMemo, useRef } from '@wordpress/element';
 import * as d3 from 'd3';
 import {
 	PALETTE,
+	drawAxes,
 	drawLegend,
-	formatXTick,
 	openFrame,
 	setupTooltip,
 	useTimeChart,
@@ -94,24 +94,13 @@ export const TopicsChart = memo(
 					.domain( [ 0, maxVal * 1.1 ] )
 					.range( [ innerH, 0 ] );
 
-				g.append( 'g' )
-					.attr( 'transform', `translate(0,${ innerH })` )
-					.call(
-						d3.axisBottom( x ).ticks( 8 ).tickFormat( formatXTick )
-					)
-					.selectAll( 'text' )
-					.attr( 'transform', 'rotate(-45)' )
-					.style( 'text-anchor', 'end' );
-
-				g.append( 'g' )
-					.call(
-						d3
-							.axisLeft( y )
-							.ticks( 5 )
-							.tickFormat( ( v ) => formatValue( v ) )
-					)
-					.selectAll( 'text' )
-					.style( 'font-size', '10px' );
+				drawAxes( g, {
+					x,
+					y,
+					innerH,
+					tickCount: dates.length,
+					yFormat: formatValue,
+				} );
 
 				const area = d3
 					.area()

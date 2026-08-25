@@ -109,9 +109,10 @@
 		width: 100%;
 		min-height: 200px;
 
-		// d3 axis ink on the light panel.
+		// d3 axis ink and type size on the light panel.
 		.tick text {
 			fill: var(--ink-3);
+			font-size: 10px;
 		}
 
 		.tick line,

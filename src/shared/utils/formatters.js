@@ -8,6 +8,8 @@
 
 import { __ } from '@wordpress/i18n';
 
+import { binaryTicks } from './axis-ticks';
+
 /**
  * A rate ladder is derived from its base ladder, so the two cannot drift.
  *
@@ -25,10 +27,13 @@ const MSG_RATE_UNITS = perSecond( COUNT_UNITS );
  * at or above it. `parseFloat` then drops a trailing ".0", so 2 KB reads "2 KB"
  * rather than "2.0 KB".
  *
+ * The one precision rule every unit ladder here rounds by, exported for the
+ * ones that live in a consumer plugin's chart.
+ *
  * @param {number} value Unit-scaled value (e.g. bytes / 1024^i).
  * @return {number} The value rounded to the compact precision.
  */
-function compactFixed( value ) {
+export function compactFixed( value ) {
 	return parseFloat( value.toFixed( value >= 10 ? 0 : 1 ) );
 }
 
@@ -73,6 +78,7 @@ function scaleUnits( value, base, units ) {
 export function formatBytes( bytes ) {
 	return scaleUnits( bytes, 1024, BYTE_UNITS );
 }
+formatBytes.tickValues = binaryTicks;
 
 /**
  * Format bytes per second, e.g. 47514 → "46 KB/s".
@@ -83,6 +89,7 @@ export function formatBytes( bytes ) {
 export function formatByteRate( bytesPerSec ) {
 	return scaleUnits( bytesPerSec, 1024, BYTE_RATE_UNITS );
 }
+formatByteRate.tickValues = binaryTicks;
 
 /**
  * Format a message rate, e.g. 2996 → "3K/s".

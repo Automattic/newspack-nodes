@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A byte-valued Y axis reads `0 B, 1 MB, 2 MB, 3 MB, 4 MB` instead of `0 B, 977 KB, 1.9 MB, 2.9 MB, 3.8 MB`.** d3 picks tick values that are round in base 10 — 1,000,000, 2,000,000 — and `formatBytes` divides by 1024, so every label came out a fraction: the ticks and the formatter disagreed about what a kilobyte is. A formatter now carries the ladder its unit is round in as a `tickValues` property (`src/shared/utils/axis-ticks.js`), and `drawAxes` ticks the value axis with it. `formatBytes` and `formatByteRate` carry `binaryTicks`, which steps by the power of two nearest the span d3 would have given each tick, so the tick COUNT stays what d3 would have picked. Nothing is declared at the call site: `formatValue={ formatBytes }` already says the axis is in bytes. A formatter without the property is untouched, so millisecond and base-1000 count axes keep d3's ticks. Seen on Topics Cache Size, and it also fixes Topics Byte Rate and Job Backlog.
+
 - **A node no longer names itself twice in its own log lines.** `Node::log_midfix()` already prepends `"<name>: "` to every line a node emits through `$this->stderr()` / `print_less_often()`, and omits it only when the process name already starts with that name — so a message that hard-codes its own node name reads `settings-sync: settings-sync: no session for ...` on every worker whose process name differs. Three such messages here dropped the redundant prefix: two in `Settings_Sync_Node` and one in `Job_Worker_Node`, whose `JobWorker: ` spelled the same node in a different case. The static `Core::` log helpers add no node midfix, so their context tags are the only identity those lines carry and are left alone.
+
+### Changed
+
+- **`TopicsChart` draws its axes through the shared `drawAxes` instead of its own copy of it.** It was the one chart still calling `d3.axisBottom`/`axisLeft` directly, which is why the byte fix had to land somewhere both could reach — and its private copy would have needed the same edit. Its Y-axis tick type size moved from an inline style to the `.nodes-topics__chart .tick text` rule that already colors those labels, which also brings the time axis down to 10px to match.
 
 ### Added
 
