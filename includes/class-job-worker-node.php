@@ -158,7 +158,7 @@ class Job_Worker_Node extends Node {
 		$raw_handler = $entry['handler'] ?? '';
 		$handler     = (string) $raw_handler;
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $handler ) ) {
-			$this->print_less_often( 'JobWorker: invalid handler name: ', $handler );
+			$this->print_less_often( 'invalid handler name: ', $handler );
 			return;
 		}
 		$handlers = ( 'remote_job' === $kind ) ? $this->remote_handlers : $this->local_handlers;

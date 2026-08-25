@@ -115,7 +115,7 @@ class Settings_Sync_Node extends Timer_Node {
 		$scalar = self::scalarize( $value );
 		// Skip unencodable values; an empty token would WIPE the option.
 		if ( null === $scalar ) {
-			$this->print_less_often( 'settings-sync: cannot encode value for ', $local, '; skipping' );
+			$this->print_less_often( 'cannot encode value for ', $local, '; skipping' );
 			return;
 		}
 		// One `set` per mapping — a local may target several spoke options.
@@ -144,7 +144,7 @@ class Settings_Sync_Node extends Timer_Node {
 			if ( '' === $spoke || ! Command_Auth::has_session( $spoke ) ) {
 				$uptime = (int) ( Core::$now - Core::$init_time );
 				if ( $uptime > 30 ) {
-					$this->print_less_often( 'settings-sync: no session for ', $target, '; skipping this push' );
+					$this->print_less_often( 'no session for ', $target, '; skipping this push' );
 				}
 				// Skipping alone deadlocks: someone must ask for the handshake.
 				$egress?->ensure_session();
