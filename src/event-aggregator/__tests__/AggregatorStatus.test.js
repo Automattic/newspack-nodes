@@ -109,6 +109,47 @@ const OPENING = [
 	},
 ];
 
+// A spoke that never opened. "not connected" is the only thing its heartbeat
+// can say, so the transport's reason is the card's whole Status reading.
+const DEAD_STREAM_ERROR =
+	"cURL error 7 (Couldn't connect to server): Failed to connect to h.example.test port 8443";
+const DEAD = [
+	{
+		id: 'server6',
+		vault_id: 'server6-vault-cred',
+		url: 'https://h.example.test',
+		partitions: {
+			5: {
+				connected: false,
+				last_connection_attempt: 1749002000,
+				last_error: DEAD_STREAM_ERROR,
+				last_http_code: 409,
+			},
+		},
+	},
+];
+
+// A spoke still connected and answering client heartbeats when a frame broke
+// mid-stream: SSE_In sets last_error without dropping `connected`, the one
+// state where the badge the error displaces was reading success.
+const MIDSTREAM_ERROR = 'Buffer overflow (no newline in 65536 bytes)';
+const CONNECTED_AND_BROKEN = [
+	{
+		id: 'server7',
+		vault_id: 'server7-vault-cred',
+		url: 'https://i.example.test',
+		partitions: {
+			9: {
+				connected: true,
+				last_heartbeat_response: 1749001234,
+				last_heartbeat_rtt: 13,
+				last_connection_attempt: 1749001200,
+				last_error: MIDSTREAM_ERROR,
+			},
+		},
+	},
+];
+
 // A stand-in slice-view node: model in setStateCache.view; setState notifies.
 function fixtureNode( name, model ) {
 	const node = {
@@ -181,6 +222,14 @@ describe( 'AggregatorStatus', () => {
 			container
 				.querySelectorAll( '.aggregator-fleet-probe-button' )
 				[ n ].dispatchEvent( new Event( 'click', { bubbles: true } ) )
+		);
+	// One card's Status row, found by its label rather than its position.
+	const statusRow = ( partition ) =>
+		[ ...partition.querySelectorAll( '.aggregator-partition-row' ) ].find(
+			( row ) =>
+				'Status' ===
+				row.querySelector( '.aggregator-partition-stat-label' )
+					.textContent
 		);
 	const mounted = [];
 
@@ -409,6 +458,105 @@ describe( 'AggregatorStatus', () => {
 
 		expect( errLine.textContent ).toBe( 'timed out' );
 		expect( errLine.getAttribute( 'title' ) ).toBe( CURL_TIMEOUT_ERROR );
+	} );
+
+	it( 'reads a connection error on the Status row, not a line beneath the card', () => {
+		registerSlices( {
+			summary: { serverNow: 1749002006, loading: false },
+			servers: { servers: DEAD, loading: false },
+		} );
+		const { container } = mount();
+		const partition = container.querySelector( '.aggregator-partition' );
+		const errBadge = statusRow( partition ).querySelector(
+			'.aggregator-partition-error'
+		);
+
+		expect( errBadge.textContent ).toBe( "couldn't connect to server" );
+		expect(
+			partition.querySelectorAll( '.aggregator-partition-error' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'keeps the whole transport string on the Status-row error', () => {
+		registerSlices( {
+			summary: { serverNow: 1749002006, loading: false },
+			servers: { servers: DEAD, loading: false },
+		} );
+		const { container } = mount();
+		const errBadge = container.querySelector(
+			'.aggregator-partition-error'
+		);
+
+		expect( errBadge.getAttribute( 'title' ) ).toBe( DEAD_STREAM_ERROR );
+	} );
+
+	it( 'paints the Status-row error as a canonical error badge, leaving the caps to CSS', () => {
+		registerSlices( {
+			summary: { serverNow: 1749002006, loading: false },
+			servers: { servers: DEAD, loading: false },
+		} );
+		const { container } = mount();
+		const errBadge = container.querySelector(
+			'.aggregator-partition-error'
+		);
+
+		expect( [ ...errBadge.classList ] ).toEqual(
+			expect.arrayContaining( [
+				'newspack-nodes-status-badge',
+				'small',
+				'is-error',
+			] )
+		);
+	} );
+
+	it( 'drops a pending heartbeat badge the error already accounts for', () => {
+		registerSlices( {
+			summary: { serverNow: 1749002006, loading: false },
+			servers: { servers: DEAD, loading: false },
+		} );
+		const { container } = mount();
+		const partition = container.querySelector( '.aggregator-partition' );
+
+		expect(
+			statusRow( partition ).querySelector(
+				'.aggregator-heartbeat-badge'
+			)
+		).toBeNull();
+		expect( statusRow( partition ).textContent ).not.toContain( 'pending' );
+		expect( statusRow( partition ).textContent ).toContain( 'HTTP 409' );
+	} );
+
+	it( 'replaces even a succeeding heartbeat badge, the error being the reading that matters', () => {
+		registerSlices( {
+			summary: { serverNow: 1749001240, loading: false },
+			servers: { servers: CONNECTED_AND_BROKEN, loading: false },
+		} );
+		const { container } = mount();
+		const partition = container.querySelector( '.aggregator-partition' );
+		const row = statusRow( partition );
+
+		expect( row.querySelector( '.aggregator-heartbeat-badge' ) ).toBeNull();
+		expect(
+			row.querySelector( '.aggregator-partition-error' ).textContent
+		).toBe( 'Buffer overflow' );
+		// The heartbeat it displaced still reads off the Client HB row and rail.
+		expect( partition.classList.contains( 'is-ok' ) ).toBe( true );
+		expect( partition.textContent ).toContain( '13.0ms' );
+	} );
+
+	it( 'leaves a healthy partition Status row reading success alone', () => {
+		registerSlices( {
+			servers: { servers: SAMPLE_SERVERS, loading: false },
+		} );
+		const { container } = mount();
+		const row = statusRow(
+			container.querySelector( '.aggregator-partition.is-ok' )
+		);
+
+		expect(
+			row.querySelector( '.aggregator-heartbeat-badge' ).textContent
+		).toBe( 'success' );
+		expect( row.querySelector( '.aggregator-partition-error' ) ).toBeNull();
 	} );
 
 	it( 'counts an idle partition as present in the server card total', () => {

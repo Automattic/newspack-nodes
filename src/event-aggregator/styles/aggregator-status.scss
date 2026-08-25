@@ -256,20 +256,6 @@
 	gap: 6px;
 }
 
-// A real error line — rendered only when the partition carries an error
-// message (the HTTP code now lives on the Status row). A subtle error notice:
-// error-tinted fill + red text, never shown for a healthy 200.
-.aggregator-partition-error {
-	font-size: 10px;
-	line-height: 1.4;
-	color: base.$error-text;
-	background: var(--oxide-subtle);
-	padding: 4px 8px;
-	border-radius: base.$border-radius-sm;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
 .aggregator-status-badge {
 	// Semantic text is independently contrast-audited against its tint.
 	&.connected {
