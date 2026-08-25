@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.39.0] - 2026-08-25
+
 ### Fixed
 
 - **A byte-valued Y axis reads `0 B, 1 MB, 2 MB, 3 MB, 4 MB` instead of `0 B, 977 KB, 1.9 MB, 2.9 MB, 3.8 MB`.** d3 picks tick values that are round in base 10 — 1,000,000, 2,000,000 — and `formatBytes` divides by 1024, so every label came out a fraction: the ticks and the formatter disagreed about what a kilobyte is. A formatter now carries the ladder its unit is round in as a `tickValues` property (`src/shared/utils/axis-ticks.js`), and `drawAxes` ticks the value axis with it. `formatBytes` and `formatByteRate` carry `binaryTicks`, which steps by the power of two nearest the span d3 would have given each tick, so the tick COUNT stays what d3 would have picked. Nothing is declared at the call site: `formatValue={ formatBytes }` already says the axis is in bytes. A formatter without the property is untouched, so millisecond and base-1000 count axes keep d3's ticks. Seen on Topics Cache Size, and it also fixes Topics Byte Rate and Job Backlog.
