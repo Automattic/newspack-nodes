@@ -1534,6 +1534,45 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 'my-key', $received[ Message::KEY ] );
 	}
 
+	public function test_index_mtimes_report_each_segments_last_append_and_omit_an_unindexed_one(): void {
+		// The reader's own clock: when THIS machine last took a line for that
+		// segment, whatever producer time the lines themselves carry.
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", "1024", "2", "4", "0", "86400", "0" ] );
+		$p->with_index( static fn ( array $message, array $pos ): string => 'seg-' . $pos['segment'] );
+		for ( $i = 0; $i < 30; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+		$segments = $p->get_segments( true );
+		$this->assertGreaterThan( 2, \count( $segments ), 'needs a closed segment, a live one, and one to unlink' );
+		$closed_id = $segments[0]['id'];
+		$bare_id   = $segments[1]['id'];
+		$live_id   = $segments[ \count( $segments ) - 1 ]['id'];
+		$closed_at = \time() - 8123;
+		\touch( "{$this->tmp}.p0/{$closed_id}.idx", $closed_at );
+		\unlink( "{$this->tmp}.p0/{$bare_id}.idx" );
+
+		$mtimes = $p->index_mtimes();
+
+		$this->assertSame( $closed_at, $mtimes[ $closed_id ] ?? null, 'a closed segment keeps the time of its last append' );
+		$this->assertGreaterThan( $closed_at, $mtimes[ $live_id ] ?? 0, 'the filling segment is not the closed one' );
+		$this->assertArrayNotHasKey( $bare_id, $mtimes, 'a segment with no index has no last append to report' );
+	}
+
+	public function test_index_mtimes_re_stat_rather_than_serving_a_warm_list(): void {
+		// A cached mtime would say a filling segment closed, which is exactly
+		// the reading a time-bounded walk must never be given.
+		$p = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "0", "86400", "0" ] );
+		$p->with_index( static fn ( array $message, array $pos ): string => 'seg-' . $pos['segment'] );
+		$this->produce_into( $p, 'first' );
+		$p->index_mtimes();
+		$moved_to = \time() - 4517;
+		\touch( "{$this->tmp}.p0/0.idx", $moved_to );
+
+		$this->assertSame( $moved_to, $p->index_mtimes()[0] ?? null );
+	}
+
 	public function test_with_index_uses_callback_for_idx_format(): void {
 		$p = new Partition_Node();
 		$p->arguments( [ "{$this->tmp}.p0", (string) ( 1024 * 1024 ), "2", "4", "86400", "0" ] );
@@ -3825,14 +3864,19 @@ class PartitionTest extends TestCase {
 				. \str_pad( (string) $position['length'], 8, '0', STR_PAD_LEFT )
 		);
 		for ( $i = 1; $i <= $count; $i++ ) {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$msg[ Message::KEY ]   = "k{$i}";
-			$msg[ Message::VALUE ] = "value {$i}";
-			$p->fill( $msg );
+			$this->write_keyed( $p, "k{$i}", "value {$i}" );
 		}
 		$p->flush();
 		return $p;
+	}
+
+	/** Append one keyed record to an indexed partition. */
+	private function write_keyed( Partition_Node $p, string $key, string $value ): void {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::KEY ]   = $key;
+		$msg[ Message::VALUE ] = $value;
+		$p->fill( $msg );
 	}
 
 	/** The app's half of the line: key plus where the record sits. */
@@ -3853,16 +3897,28 @@ class PartitionTest extends TestCase {
 		$this->assertCount( 3, $found['k1'] );
 	}
 
+	public function test_locate_by_resolves_a_repeated_key_to_its_newest_record(): void {
+		// Both writes land in ONE segment, so only reversing the lines within a
+		// segment resolves the key to its last write. The stats mirror reads a
+		// frame's remaining ttl off the record it lands on, so an older frame
+		// reads as expired and the entry silently vanishes.
+		$p = $this->indexed_partition( 'dupkey', 0 );
+		$this->write_keyed( $p, 'k7', 'stale frame' );
+		$this->write_keyed( $p, 'k7', 'current frame' );
+		$p->flush();
+
+		$locators = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$records  = $p->read_many( [ 'k7' => $locators['k7'] ] );
+
+		$this->assertSame( 'current frame', $records['k7'][ Message::VALUE ] );
+	}
+
 	public function test_locate_by_rebuilds_when_the_partition_grows(): void {
 		$p     = $this->indexed_partition( 'grow', 1 );
 		$first = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
 		$this->assertSame( [ 'k1' ], \array_keys( $first ) );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::KEY ]   = 'k2';
-		$msg[ Message::VALUE ] = 'later';
-		$p->fill( $msg );
+		$this->write_keyed( $p, 'k2', 'later' );
 		$p->flush();
 
 		$after = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
@@ -3888,11 +3944,7 @@ class PartitionTest extends TestCase {
 		$writer->void_warranty();
 		$writer->with_index( static fn ( array $message, array $position ): string => 'k' . \str_pad( (string) $position['offset'], 10, '0', STR_PAD_LEFT ) );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::KEY ]       = 'only';
-		$msg[ Message::VALUE ]     = 'a short record';
-		$writer->fill( $msg );
+		$this->write_keyed( $writer, 'only', 'a short record' );
 		$writer->flush();
 
 		$reader = new Partition_Node();
