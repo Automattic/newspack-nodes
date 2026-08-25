@@ -273,11 +273,21 @@ function PartitionStatus( { partition, status, now } ) {
 						{ __( 'Status', 'newspack-nodes' ) }
 					</span>
 					<span className="newspack-nodes-stat-value aggregator-partition-stat-value">
-						<span
-							className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
-						>
-							{ heartbeatStatus.replace( /_/g, ' ' ) }
-						</span>
+						{ /* What broke outranks a heartbeat reading it explains. */ }
+						{ errorMessage ? (
+							<span
+								className="newspack-nodes-status-badge aggregator-partition-error small is-error"
+								title={ status.last_error }
+							>
+								{ errorMessage }
+							</span>
+						) : (
+							<span
+								className={ `newspack-nodes-status-badge aggregator-heartbeat-badge small ${ heartbeatStatus }` }
+							>
+								{ heartbeatStatus.replace( /_/g, ' ' ) }
+							</span>
+						) }
 						{ /* HTTP code as a muted caption on Status line. */ }
 						{ status.last_http_code && (
 							<span className="aggregator-http-code">
@@ -287,15 +297,6 @@ function PartitionStatus( { partition, status, now } ) {
 					</span>
 				</div>
 			</div>
-			{ /* A dedicated error line, only when there's a real message. */ }
-			{ errorMessage && (
-				<div
-					className="aggregator-partition-error"
-					title={ status.last_error }
-				>
-					{ errorMessage }
-				</div>
-			) }
 		</div>
 	);
 }
