@@ -179,4 +179,23 @@ final class UninstallCleanupTest extends TestCase {
 			\unlink( $conf );
 		}
 	}
+
+	/**
+	 * An install that configured no base directory deletes NOTHING.
+	 *
+	 * With every ledger key commented out, the schema default `/tmp/newspack-nodes`
+	 * is the path EVERY unconfigured install on the host shares. Resolving to it
+	 * here would make uninstalling one site delete another's live logs, locks and
+	 * offsets. Leaving a tree behind is the cheaper mistake.
+	 */
+	public function test_runtime_base_directory_refuses_the_shared_schema_default(): void {
+		$GLOBALS['_wp_options'] = [];
+		$prev                   = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		try {
+			$this->assertSame( '', \Newspack_Nodes\runtime_base_directory() );
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev ? '' : $prev ) );
+		}
+	}
 }

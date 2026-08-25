@@ -22,58 +22,6 @@ use Newspack_Nodes\Rest\SSE_Out_Node;
 
 class SSE_Slot_Pool {
 
-	/**
-	 * Maximum concurrent SSE streams per user/IP, when config says nothing.
-	 *
-	 * An SSE stream is a SUSTAINED PHP-FPM child, never a bursty one, and a
-	 * host tolerates only a handful sustained before the platform starts
-	 * refusing requests outright. This cap is per user/IP, so it has never
-	 * bounded a host's total — it is the per-reader share of a budget the
-	 * global cap owns. Three, because idle streams close and reopen on a
-	 * `sse_idle_timeout` + `sse_retry_ms` cycle and a dead lease can linger for
-	 * its TTL while the client is already back asking for another.
-	 */
-	public const DEFAULT_MAX_SLOTS = 3;
-
-	/**
-	 * Lease TTL in seconds, when config says nothing.
-	 *
-	 * The floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not two. Only
-	 * an owner-matched `workers heartbeat` refreshes a lease — `check()` never
-	 * does — and a client that loses its session stops heartbeating for the
-	 * whole re-auth round trip, so a TTL sized for heartbeat loss alone fences
-	 * a stream that is merely re-authenticating. Shortening this to reclaim
-	 * crashed readers faster is tempting once the pool is small; 45 is the
-	 * wall, and the existing test pins it.
-	 */
-	public const DEFAULT_TTL = 60;
-
-	/**
-	 * Concurrent SSE streams for the whole host, when config says nothing.
-	 *
-	 * This is the cap that actually protects the site; the per-identity one
-	 * only divides it fairly. An SSE stream occupies a php-fpm child for its
-	 * entire life, and Atomic replies 599 once PHP requests backlog, which puts
-	 * the EDGE into auto-defensive mode for 60s for every visitor. Six against
-	 * a ~10-worker allocation leaves room for page requests and the worker
-	 * itself; burst capacity above the allocation is explicitly not guaranteed,
-	 * so it cannot be spent on something sustained. See
-	 * docs/sse-host-budget.md.
-	 */
-	public const DEFAULT_MAX_STREAMS = 6;
-
-	/**
-	 * Host slots held back from browsers, when config says nothing.
-	 *
-	 * Zero, because a reservation is only meaningful where something
-	 * machine-driven pulls from this host — a spoke sets 1 so the hub's
-	 * aggregation pull always finds a slot. It comes OUT of the host total, not
-	 * on top of it: reserving raises nobody's ceiling, it only decides who may
-	 * reach the last slot. A pull is otherwise bounded exactly like a browser,
-	 * same per-identity share and same TTL.
-	 */
-	public const DEFAULT_RESERVED_SLOTS = 0;
-
 	/** @api Tests override; production reads config through max_slots(). */
 	public static ?int $max_slots = null;
 
@@ -87,34 +35,52 @@ class SSE_Slot_Pool {
 	public static ?int $reserved_slots = null;
 
 	/**
-	 * One reader's share: the override, else config, else the default — never
+	 * One reader's share of the host total: the override, else config — never
 	 * more than the whole host, since a share that cannot bind is not a share.
+	 *
+	 * A per-identity cap, so it has never bounded a host's total; the shipped 3
+	 * allows for idle streams reopening on the `sse_idle_timeout` +
+	 * `sse_retry_ms` cycle while a dead lease still holds its slot.
 	 */
 	public static function max_slots(): int {
 		return self::$max_slots
 			?? \min(
 				self::max_streams(),
-				\max( 1, Core::num_int( Config::value( 'sse_max_slots' ), self::DEFAULT_MAX_SLOTS ) )
+				\max( 1, self::budget( 'sse_max_slots' ) )
 			);
 	}
 
 	/**
-	 * Host slots browsers may not claim: the override, else config, else the
-	 * default — never the whole host, since reserving every slot locks out the
-	 * readers the host exists to serve.
+	 * Host slots browsers may not claim: the override, else config — never the
+	 * whole host, since reserving every slot locks out the readers the host
+	 * exists to serve.
+	 *
+	 * A reservation comes OUT of the host total, not on top of it: it raises
+	 * nobody's ceiling, it only decides who may reach the last slot. Meaningful
+	 * only where something machine-driven pulls from this host — a spoke sets 1
+	 * so the hub's aggregation pull always finds a slot.
 	 */
 	public static function reserved_slots(): int {
 		return self::$reserved_slots
 			?? \min(
 				self::max_streams() - 1,
-				\max( 0, Core::num_int( Config::value( 'sse_reserved_slots' ), self::DEFAULT_RESERVED_SLOTS ) )
+				\max( 0, self::budget( 'sse_reserved_slots' ) )
 			);
 	}
 
-	/** Whole-host concurrent-stream cap: the override, else config, else the default. */
+	/**
+	 * Whole-host concurrent-stream cap: the override, else config.
+	 *
+	 * This is the cap that actually protects the site; the per-identity one only
+	 * divides it fairly. An SSE stream occupies a php-fpm child for its entire
+	 * life, and Atomic replies 599 once PHP requests backlog, which puts the
+	 * EDGE into auto-defensive mode for 60s for every visitor. The shipped 6
+	 * leaves a ~10-worker allocation room for page requests and the worker
+	 * itself. See docs/sse-host-budget.md.
+	 */
 	public static function max_streams(): int {
 		return self::$max_streams
-			?? \max( 1, Core::num_int( Config::value( 'sse_max_streams' ), self::DEFAULT_MAX_STREAMS ) );
+			?? \max( 1, self::budget( 'sse_max_streams' ) );
 	}
 
 	/**
@@ -142,16 +108,38 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Lease TTL in seconds: the override, else config, else the default, floored
-	 * at the re-auth window. A configured value below it is raised, not honoured
-	 * — see DEFAULT_TTL for why 45 is a wall rather than a preference.
+	 * Lease TTL in seconds: the override, else config, floored at the re-auth
+	 * window. A configured value below it is raised, not honoured.
+	 *
+	 * That floor is THREE `Remote_Link_Node::HEARTBEAT_INTERVAL`s, not two. Only
+	 * an owner-matched `workers heartbeat` refreshes a lease — `check()` never
+	 * does — and a client that loses its session stops heartbeating for the
+	 * whole re-auth round trip, so a TTL sized for heartbeat loss alone fences a
+	 * stream that is merely re-authenticating. Shortening it to reclaim crashed
+	 * readers faster is tempting once the pool is small; 45 is the wall.
 	 */
 	public static function ttl(): int {
 		return self::$ttl
 			?? \max(
 				3 * Remote_Link_Node::HEARTBEAT_INTERVAL,
-				Core::num_int( Config::value( 'sse_slot_ttl' ), self::DEFAULT_TTL )
+				self::budget( 'sse_slot_ttl' )
 			);
+	}
+
+	/**
+	 * A budget knob, falling back to the value the SCHEMA declares.
+	 *
+	 * `Config_Utils::validate_config_values()` accepts null and `Core::num_int`
+	 * defaults to 0, so reading these unguarded lets an operator's blank entry
+	 * silently collapse the host cap to 1 rather than hold the platform budget
+	 * the knob documents.
+	 *
+	 * @param string $key One of the four declared sse_* keys.
+	 * @return int Configured value, else the declared default.
+	 */
+	private static function budget( string $key ): int {
+		$declared = Settings_Schema::get()->defaults()[ $key ];
+		return Core::num_int( Config::value( $key ), Core::num_int( $declared ) );
 	}
 
 	/**

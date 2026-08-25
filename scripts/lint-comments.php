@@ -315,6 +315,69 @@ function prose_after_tags( array $content ): int {
 }
 
 /**
+ * A commented-out or live `'key' => value,` entry in a config ledger.
+ */
+const LEDGER_ENTRY      = "/^\\s*(?:\\/\\/\\s*)?'[a-z0-9_]+'\\s*=>/";
+const LEDGER_ENTRY_LIVE = "/^\\s*'[a-z0-9_]+'\\s*=>/";
+
+/**
+ * Is this a plugin's root configuration ledger?
+ *
+ * A `<slug>-config.php` is nothing but a returned array of deployment
+ * overrides, each commented out beside the description of its key. The block
+ * rule reads those description/entry pairs as prose blocks and rejects the
+ * whole file, so a ledger is judged by its own shape instead: a run of comment
+ * lines must LAND on an entry. That still gates the file — a comment run
+ * naming no key is a violation — where exempting it would stop reading it.
+ *
+ * Anchored to the plugin ROOT, not the basename: `includes/class-config.php`
+ * is real code, `tests/*-test-config.php` is a fixture, and neither may take
+ * the relaxed placement rule. The root is this script's parent, so a vendored
+ * copy resolves its OWN plugin.
+ *
+ * @param string $file Path being checked.
+ * @return bool True when the file is a config ledger.
+ */
+function is_config_ledger( string $file ): bool {
+	if ( 1 !== \preg_match( '/^[a-z0-9-]+-config\.php$/', \basename( $file ) ) ) {
+		return false;
+	}
+	$dir = \realpath( \dirname( $file ) );
+	return false !== $dir && $dir === \realpath( \dirname( __DIR__ ) );
+}
+
+/**
+ * Does a run of comment lines name the key it describes?
+ *
+ * Either the run CONTAINS a commented-out entry, or the next non-blank source
+ * line after it is a live one. Containment rather than landing, because a
+ * commented-out multi-line array default ends on `// ],` — the common config
+ * shape. A run naming no key at all is a description of nothing, which is what
+ * this rule exists to catch.
+ *
+ * @param int                $start   First line of the run, 1-based.
+ * @param int                $len     Lines in the run.
+ * @param array<int,string>  $comments Comment text keyed by line.
+ * @param array<int,string>  $lines   Every source line, 0-indexed.
+ * @return bool True when the run documents a key.
+ */
+function ledger_run_names_a_key( int $start, int $len, array $comments, array $lines ): bool {
+	for ( $l = $start; $l < $start + $len; $l++ ) {
+		if ( 1 === \preg_match( LEDGER_ENTRY, $comments[ $l ] ?? '' ) ) {
+			return true;
+		}
+	}
+	for ( $l = $start + $len; $l <= \count( $lines ); $l++ ) {
+		$text = \trim( $lines[ $l - 1 ] ?? '' );
+		if ( '' === $text ) {
+			continue;
+		}
+		return 1 === \preg_match( LEDGER_ENTRY_LIVE, $text );
+	}
+	return false;
+}
+
+/**
  * Every violation in one file.
  *
  * @param string $file Path to check.
@@ -398,8 +461,15 @@ function check_file( string $file ): array {
 	$run_len   = 0;
 	$prev      = 0;
 	\ksort( $comment_only );
-	$flush = static function () use ( &$run_start, &$run_len, $comment_only, &$violations ): void {
+	$is_ledger = is_config_ledger( $file );
+	$flush     = static function () use ( &$run_start, &$run_len, $comment_only, $lines, $is_ledger, &$violations ): void {
 		if ( $run_len < 2 ) {
+			return;
+		}
+		if ( $is_ledger ) {
+			if ( ! ledger_run_names_a_key( $run_start, $run_len, $comment_only, $lines ) ) {
+				$violations[] = "{$run_start}: {$run_len}-line comment run documents no config key";
+			}
 			return;
 		}
 		$non_directive = 0;

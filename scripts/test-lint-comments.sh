@@ -24,7 +24,8 @@ cd "$( dirname "$0" )" || exit 2
 command -v php >/dev/null 2>&1 || { echo "✗ php not found on PATH"; exit 2; }
 
 tmp="$( mktemp -d )"
-trap 'rm -rf "$tmp"' EXIT
+root="$( cd .. && pwd )"
+trap 'rm -rf "$tmp" "$root"/zzlint-*-config.php' EXIT
 fail=0
 
 # assert_flags LABEL FILE NEEDLE — the gate must report NEEDLE for FILE.
@@ -602,6 +603,133 @@ export function f() {
 JS
 assert_clean_js 'a one-line JSDoc block carrying a real tag passes (js)' \
 	"$tmp/oneline-clean.js"
+
+# --- Root config files: a ledger shape, not an exemption -------------------
+#
+# A `<slug>-config.php` at a plugin root is nothing but a returned array of
+# deployment overrides, each commented out beside its one-line description.
+# The general placement rule rejects every one of those lines (a comment at
+# file scope documents no declaration), so the file gets its OWN shape: a run
+# of comment lines must land on an entry, commented or live. That still gates
+# the file — a floating prose block is a violation — where an exemption would
+# have stopped reading it entirely.
+
+cat > "$root/zzlint-demo-config.php" <<'PHP'
+<?php
+/**
+ * Demo configuration — deployment OVERRIDES.
+ *
+ * @package Demo
+ */
+
+\defined( 'ABSPATH' ) || exit;
+
+return [
+	// Filesystem root for logs / locks / offsets / IPC dirs.
+	// 'base_directory' => '/tmp/newspack-nodes',
+
+	// Sustained SSE streams this HOST allows; each holds a php-fpm child
+	// for its whole life. Raise only where the platform grants them.
+	// 'sse_max_streams' => 6,
+
+	// A live override sits uncommented beside the rest, and its
+	// description still has to land on that entry.
+	'on_demand_idle' => 30,
+];
+PHP
+assert_clean 'a root config ledger passes' "$root/zzlint-demo-config.php"
+
+# The rule earns itself only if it still REJECTS prose that documents no key.
+cat > "$root/zzlint-prose-config.php" <<'PHP'
+<?php
+/**
+ * Demo configuration — deployment OVERRIDES.
+ *
+ * @package Demo
+ */
+
+\defined( 'ABSPATH' ) || exit;
+
+return [
+	// A note about the deployment that names no key at all, and so
+	// documents nothing an operator can uncomment.
+
+	// 'base_directory' => '/tmp/newspack-nodes',
+];
+PHP
+assert_flags 'a comment run naming no key is flagged in a config file' \
+	"$root/zzlint-prose-config.php" 'documents no config key'
+
+# Length is NOT relaxed: a ledger line still fits the 80 columns.
+cat > "$root/zzlint-long-config.php" <<'PHP'
+<?php
+/**
+ * Demo configuration — deployment OVERRIDES.
+ *
+ * @package Demo
+ */
+
+\defined( 'ABSPATH' ) || exit;
+
+return [
+	// This description of the key runs well past the eighty column budget the gate enforces.
+	// 'base_directory' => '/tmp/newspack-nodes',
+];
+PHP
+assert_flags 'a config-file comment still obeys the column budget' \
+	"$root/zzlint-long-config.php" 'exceeds 80 columns'
+
+# The predicate must not leak onto real code that merely ends in -config.php.
+cat > "$tmp/class-config.php" <<'PHP'
+<?php
+/**
+ * Config.
+ *
+ * @package Demo
+ */
+
+class Config {
+
+	// A stray section header that the general rule must still reject.
+
+	/** @return int The value. */
+	public function value(): int {
+		return 1;
+	}
+}
+PHP
+assert_flags 'class-config.php is still judged as code, not a ledger' \
+	"$tmp/class-config.php" 'stray'
+
+# Same ledger content, one directory down: judged as code, and rejected.
+mkdir -p "$tmp/includes"
+cp "$root/zzlint-demo-config.php" "$tmp/includes/zzlint-demo-config.php"
+assert_flags 'a -config.php outside the plugin root is not a ledger' \
+	"$tmp/includes/zzlint-demo-config.php" 'comment block'
+
+# A commented-out MULTI-LINE array default is the common config shape, and its
+# run ends on `// ],` rather than on the key. The run must NAME a key, not land
+# on one — ELN's `recommended_log_events` is ~60 lines inside one entry.
+cat > "$root/zzlint-array-config.php" <<'PHP'
+<?php
+/**
+ * Demo configuration — deployment OVERRIDES.
+ *
+ * @package Demo
+ */
+
+\defined( 'ABSPATH' ) || exit;
+
+return [
+	// Hook names the picker stars; this is a menu, not an instruction.
+	// 'recommended_log_events' => [
+	//     'init',
+	//     'wp_loaded',
+	// ],
+];
+PHP
+assert_clean 'a commented multi-line array default passes' \
+	"$root/zzlint-array-config.php"
 
 [ "$fail" -eq 0 ] && echo "all comment-gate tests passed"
 exit "$fail"

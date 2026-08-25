@@ -253,6 +253,9 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 		$dir = $root . '/' . $prefix . \getmypid() . '-' . \uniqid( '', true );
 		\mkdir( $dir, 0700, true );
+		// Register for teardown; without this the loop there is dead code and
+		// every call in the suite leaks a directory under the runtime base.
+		$this->temp_dirs[] = $dir;
 		return $dir;
 	}
 

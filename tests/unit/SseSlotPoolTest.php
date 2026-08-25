@@ -7,6 +7,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Cache_Backend;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Rest\SSE_Out_Node;
+use Newspack_Nodes\Settings_Schema;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Tests\Helpers\InMemoryMemcached;
 use Newspack_Nodes\Tests\TestCase;
@@ -74,7 +75,7 @@ class SseSlotPoolTest extends TestCase {
 			3 * \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL,
 			SSE_Slot_Pool::ttl()
 		);
-		$this->assertSame( SSE_Slot_Pool::DEFAULT_MAX_SLOTS, SSE_Slot_Pool::max_slots() );
+		$this->assertSame( 3, SSE_Slot_Pool::max_slots() );
 	}
 
 	/**
@@ -84,7 +85,7 @@ class SseSlotPoolTest extends TestCase {
 	 * Read off the DECLARED default; setUp's fixture value must not mask it.
 	 */
 	public function test_default_ttl_outlives_the_client_session_forget_threshold(): void {
-		$declared = SSE_Slot_Pool::DEFAULT_TTL;
+		$declared = Settings_Schema::get()->defaults()['sse_slot_ttl'];
 		$forget   = \Newspack_Nodes\Remote_Link_Node::HEARTBEAT_INTERVAL * 3;
 
 		$this->assertGreaterThan(
@@ -982,10 +983,11 @@ class SseSlotPoolTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 
 		// Each stream is a SUSTAINED php-fpm child against a ~10-worker budget.
-		$this->assertSame( 6, SSE_Slot_Pool::DEFAULT_MAX_STREAMS );
+		$defaults = Settings_Schema::get()->defaults();
+		$this->assertSame( 6, $defaults['sse_max_streams'] );
 		$this->assertGreaterThan(
-			SSE_Slot_Pool::DEFAULT_MAX_SLOTS,
-			SSE_Slot_Pool::DEFAULT_MAX_STREAMS,
+			$defaults['sse_max_slots'],
+			$defaults['sse_max_streams'],
 			'a host cap at or below the per-identity cap makes the per-identity cap dead'
 		);
 	}

@@ -34,7 +34,7 @@ class RawLogsCITest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		$this->tmp = (string) \realpath( \sys_get_temp_dir() ) . '/raw-logs-ci-test-' . \uniqid();
 		\mkdir( $this->tmp, 0755, true );
-		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1, 'max_lifespan' => 86400 ] );
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 1 ] );
 		Log_Discovery::reset();
 	}
 

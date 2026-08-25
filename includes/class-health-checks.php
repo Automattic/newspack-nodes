@@ -32,7 +32,7 @@ final class Health_Checks {
 	private function __construct() {}
 
 	/**
-	 * Evaluate the ordered health report: seven results, plus `fleet-hold`
+	 * Evaluate the ordered health report: eight results, plus `fleet-hold`
 	 * while a deploy hold stands.
 	 *
 	 * @param HealthResult|null $cache_result Validated remote cache result, or null for a local probe.
@@ -57,6 +57,7 @@ final class Health_Checks {
 			self::filesystem( $base_dir, $refused ),
 			self::ownership( $base_dir, $configured, $refused ),
 			self::housekeeping(),
+			self::config_keys(),
 			...self::fleet_hold(),
 			...$fleet,
 		];
@@ -84,6 +85,35 @@ final class Health_Checks {
 					. 'Run `wp nodes start` to release it.'
 			),
 		];
+	}
+
+	/**
+	 * Config keys the runtime ignored.
+	 *
+	 * The deploy copies the operator's own file over the shipped path, so a key
+	 * renamed in `Settings_Schema` leaves a stale entry there. It is ignored
+	 * rather than fatal — this is where it becomes visible, since the value the
+	 * operator set is silently not in effect.
+	 *
+	 * @return HealthResult
+	 */
+	private static function config_keys(): array {
+		try {
+			$unknown = Config::unrecognized_keys();
+		} catch ( \Throwable $e ) {
+			return self::result( 'config-keys', 'Configuration keys', self::STATUS_RECOMMENDED, 'Configuration could not be read: ' . $e->getMessage() );
+		}
+		if ( [] === $unknown ) {
+			return self::result( 'config-keys', 'Configuration keys', self::STATUS_GOOD, 'Every key in newspack-nodes-config.php is declared by the settings schema.' );
+		}
+		return self::result(
+			'config-keys',
+			'Configuration keys',
+			self::STATUS_CRITICAL,
+			'newspack-nodes-config.php sets key(s) no longer declared by the settings schema, so the '
+			. 'value you set is NOT in effect: ' . \implode( ', ', $unknown ) . '. Remove them, or '
+			. 'rename each to its current key.'
+		);
 	}
 
 	/**

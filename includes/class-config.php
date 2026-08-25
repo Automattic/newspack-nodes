@@ -33,6 +33,23 @@ class Config {
 	/** @var array<string,mixed>|null Cached config defaults from files. */
 	private static $config_defaults = null;
 
+	/**
+	 * Keys the shipped config named that no Field declares. Reported, never
+	 * thrown — see `note_unrecognized_keys()`.
+	 *
+	 * @var list<string>
+	 */
+	private static array $unrecognized = [];
+
+	/**
+	 * Shipped-config read seam. Tests reassign to inject a file that is not on
+	 * disk, which is the only way to exercise an operator's stale key.
+	 * Signature: `function (array $base): array`
+	 *
+	 * @var \Closure(array<string,mixed>): array<string,mixed>|null
+	 */
+	public static ?\Closure $read_shipped_config = null;
+
 	/** @var bool Inside declare_keys(): a DECLARE_ACTION callback that reads config can't re-enter. */
 	private static bool $declaring = false;
 
@@ -317,9 +334,12 @@ class Config {
 	}
 
 	/**
-	 * Derive the declared set on first read: the substrate's own keys (Settings_Schema
-	 * overlay keys ∪ config-file default keys), then DECLARE_ACTION so every consumer
-	 * plugin declares its own.
+	 * Derive the declared set on first read: the substrate's own keys (the
+	 * Settings_Schema overlay keys, which is every Field with a key), then
+	 * DECLARE_ACTION so every consumer plugin declares its own. NOT the config
+	 * file's keys — deriving from the file makes an operator's typo
+	 * self-declaring, and leaves an install whose file predates a key unable to
+	 * read it at all.
 	 *
 	 * Declaration is PULLED, not pushed, because push has no safe moment to happen:
 	 * Bootstrap wiring runs on diagnostic and storage-backed entry points only (never
@@ -329,8 +349,8 @@ class Config {
 	 * plugins_loaded:-10001) and the fail-loud value() gate threw on a real key.
 	 * Pulling it here means the keys exist by construction whenever anyone asks.
 	 *
-	 * Costs nothing on the hot path: load_config() already builds both of the substrate
-	 * halves on any request that reads config.
+	 * Costs nothing on the hot path: load_config() already builds the schema on
+	 * any request that reads config.
 	 */
 	private static function declare_keys(): void {
 		if ( self::$keys_declared || self::$declaring ) {
@@ -340,7 +360,6 @@ class Config {
 		self::$declaring     = true;
 		try {
 			self::register_keys( Settings_Schema::get()->overlay_keys() );
-			self::register_keys( \array_keys( self::load_config_defaults() ) );
 			if ( \function_exists( 'do_action' ) ) {
 				\do_action( self::DECLARE_ACTION );
 			}
@@ -398,7 +417,20 @@ class Config {
 	}
 
 	/**
-	 * Load configuration defaults from file only (no WordPress options).
+	 * Stray keys the last config load ignored, for Site Health and doctor.
+	 *
+	 * @return list<string>
+	 */
+	public static function unrecognized_keys(): array {
+		self::load_config_defaults();
+		return self::$unrecognized;
+	}
+
+	/**
+	 * Configuration WITHOUT the WordPress option overlay: the schema's code
+	 * defaults, overridden by the shipped config file, then by an operator's
+	 * LOCAL_NEWSPACK_NODES_CONF. The schema is the definition; both files are
+	 * override surfaces.
 	 *
 	 * @return array<string,mixed>
 	 * @throws \RuntimeException If an explicit local config path or value tree is invalid.
@@ -408,11 +440,10 @@ class Config {
 			return self::$config_defaults;
 		}
 
-		$config = Config_Utils::load_config_file(
-			[],
-			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
-			'Newspack_Nodes\\Config'
-		);
+		// Code defaults first; a file only overrides values it names.
+		$read   = self::$read_shipped_config ?? self::shipped_config_reader();
+		$config = $read( Settings_Schema::get()->defaults() );
+		self::note_unrecognized_keys( $config );
 		// Operator-controlled local override (CLI/testing).
 		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		if ( false !== $local_config_file && '' !== $local_config_file ) {
@@ -438,6 +469,63 @@ class Config {
 	}
 
 	/**
+	 * Record and log an operator's stray key WITHOUT throwing.
+	 *
+	 * `setup/newspack-nodes.sh` copies the deployment's own config over the
+	 * shipped path, so this file belongs to the operator. Throwing runs at
+	 * `plugins_loaded:-10001` and would take down every request, wp-admin
+	 * included, the day a key is renamed — recoverable only over SSH. Loud
+	 * means visible: stderr once per key set, plus Site Health and doctor.
+	 *
+	 * @param array<string,mixed> $config Schema defaults + config-file contents.
+	 */
+	private static function note_unrecognized_keys( array $config ): void {
+		self::$unrecognized = self::unknown_keys( $config );
+		if ( [] === self::$unrecognized ) {
+			return;
+		}
+		Core::print_less_often(
+			'newspack-nodes: unrecognized config key(s) ignored: ' . \implode( ', ', self::$unrecognized )
+		);
+	}
+
+	/**
+	 * Keys in $config that no Field declares.
+	 *
+	 * A stray key is an operator typo: 'base_directroy' leaves the real
+	 * base_directory on its default and the runtime writes its tree somewhere
+	 * else. LOCAL_NEWSPACK_NODES_CONF is deliberately free-form, and `value()`
+	 * refuses an undeclared key — but that is not a total barrier, because
+	 * `register_token_namespace()` resolves `<config:key>` off `load_config()`
+	 * directly, so an undeclared local key IS reachable from a TSL token. The
+	 * hatch is operator-owned and CLI-scoped, which is why it stays open.
+	 *
+	 * @param array<string,mixed> $config Any config array.
+	 * @return list<string>
+	 */
+	public static function unknown_keys( array $config ): array {
+		return \array_values(
+			\array_diff( \array_keys( $config ), Settings_Schema::get()->overlay_keys() )
+		);
+	}
+
+	/**
+	 * The real shipped-config read the `$read_shipped_config` seam replaces.
+	 *
+	 * @return \Closure(array<string,mixed>): array<string,mixed>
+	 */
+	private static function shipped_config_reader(): \Closure {
+		return static function ( array $base ): array {
+			/** @var array<string,mixed> $base */
+			return Config_Utils::load_config_file(
+				$base,
+				\dirname( __DIR__ ) . '/newspack-nodes-config.php',
+				'Newspack_Nodes\\Config'
+			);
+		};
+	}
+
+	/**
 	 * Register the substrate's `config` topology-token namespace.
 	 *
 	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
@@ -456,6 +544,11 @@ class Config {
 				];
 				if ( isset( $derived[ $key ] ) ) {
 					return \rtrim( self::get_base_directory(), '/' ) . '/' . $derived[ $key ];
+				}
+				// Credential store; the Vault API is the only way in.
+				if ( Vault::CONFIG_KEY === $key ) {
+					Core::print_less_often( 'newspack-nodes: <config:vault> refused; use the Vault API' );
+					return null;
 				}
 				$cfg = self::load_config();
 				return $cfg[ $key ] ?? null;
@@ -495,6 +588,7 @@ class Config {
 	public static function reset(): void {
 		self::$config                   = null;
 		self::$config_defaults          = null;
+		self::$unrecognized             = [];
 		self::$keys_declared            = false;
 		self::$validated_base_directory = null;
 		self::$validated_subdirs        = [];
