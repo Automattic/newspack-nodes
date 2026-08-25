@@ -29,6 +29,9 @@ export const NUM_BUCKETS = Math.ceil(
 
 export const MARGIN = { top: 20, right: 160, bottom: 65, left: 60 };
 
+// Value-axis ticks a 200-280px plot reads comfortably.
+const Y_TICKS = 5;
+
 export const PALETTE = [
 	'#4e79a7',
 	'#f28e2b',
@@ -134,14 +137,14 @@ export const openFrame = ( container, height ) => {
 /**
  * Draw the axis frame: rotated time axis, value axis, and Y-axis title.
  *
- * @param {Object}   g                D3 group selection (inner chart area).
- * @param {Object}   params           Configuration.
- * @param {Object}   params.x         D3 time scale.
- * @param {Object}   params.y         D3 value scale.
- * @param {number}   params.innerH    Chart inner height.
- * @param {number}   params.tickCount Slot count; the time axis caps ticks at 8.
- * @param {Function} params.yFormat   Formats a value for the Y axis.
- * @param {string}   [params.yLabel]  Translated Y-axis title; omitted leaves the axis unlabelled.
+ * @param {Object}                                      g                D3 group selection (inner chart area).
+ * @param {Object}                                      params           Configuration.
+ * @param {Object}                                      params.x         D3 time scale.
+ * @param {Object}                                      params.y         D3 value scale.
+ * @param {number}                                      params.innerH    Chart inner height.
+ * @param {number}                                      params.tickCount Slot count; the time axis caps ticks at 8.
+ * @param {import('../utils/axis-ticks').AxisFormatter} params.yFormat   Formats a value for the Y axis; a `tickValues` property on it ticks the axis in its own unit.
+ * @param {string}                                      [params.yLabel]  Translated Y-axis title; omitted leaves the axis unlabelled.
  */
 export const drawAxes = (
 	g,
@@ -159,7 +162,11 @@ export const drawAxes = (
 		.attr( 'transform', 'rotate(-45)' )
 		.style( 'text-anchor', 'end' );
 
-	g.append( 'g' ).call( d3.axisLeft( y ).ticks( 5 ).tickFormat( yFormat ) );
+	const yAxis = d3.axisLeft( y ).ticks( Y_TICKS ).tickFormat( yFormat );
+	if ( yFormat.tickValues ) {
+		yAxis.tickValues( yFormat.tickValues( y, Y_TICKS ) );
+	}
+	g.append( 'g' ).call( yAxis );
 
 	if ( yLabel ) {
 		g.append( 'text' )

@@ -5,16 +5,19 @@
 
 import * as d3 from 'd3';
 import { MARGIN, drawAxes, formatXTick } from '../useTimeChart';
+import { integerTicks } from '../../utils/axis-ticks';
+import { formatBytes } from '../../utils/formatters';
 
 const INNER_H = 133;
 
 /**
  * Draw the frame into a detached SVG and hand back the inner group.
  *
- * @param {Object} params Extra `drawAxes` params merged over the defaults.
+ * @param {Object}   params         Extra `drawAxes` params merged over the defaults.
+ * @param {number[]} params.yDomain Value-scale domain.
  * @return {Element} The `<g>` the axes were drawn into.
  */
-function frame( params = {} ) {
+function frame( { yDomain = [ 0, 900 ], ...params } = {} ) {
 	const svg = d3.select( document.createElement( 'div' ) ).append( 'svg' );
 	const g = svg.append( 'g' );
 	const x = d3
@@ -24,7 +27,7 @@ function frame( params = {} ) {
 			new Date( 2026, 4, 19, 20 ),
 		] )
 		.range( [ 0, 640 ] );
-	const y = d3.scaleLinear().domain( [ 0, 900 ] ).range( [ INNER_H, 0 ] );
+	const y = d3.scaleLinear().domain( yDomain ).range( [ INNER_H, 0 ] );
 	drawAxes( g, {
 		x,
 		y,
@@ -48,6 +51,21 @@ function timeLabels( g ) {
 			group.getAttribute( 'transform' ) === `translate(0,${ INNER_H })`
 	);
 	return [ ...bottom.querySelectorAll( 'g.tick text' ) ];
+}
+
+/**
+ * The value axis's tick labels, in draw order.
+ *
+ * @param {Element} g The group `drawAxes` drew into.
+ * @return {Array<string>} The left axis's rendered label text.
+ */
+function valueLabels( g ) {
+	const left = [ ...g.querySelectorAll( 'g' ) ].find(
+		( group ) => ! group.getAttribute( 'transform' )
+	);
+	return [ ...left.querySelectorAll( 'g.tick text' ) ].map(
+		( text ) => text.textContent
+	);
 }
 
 describe( 'drawAxes', () => {
@@ -94,6 +112,30 @@ describe( 'drawAxes', () => {
 		expect( labels.every( ( l ) => l.textContent.endsWith( 'u' ) ) ).toBe(
 			true
 		);
+	} );
+
+	it( 'ticks a byte axis in whole binary units', () => {
+		const labels = valueLabels(
+			frame( { yDomain: [ 0, 4_600_000 ], yFormat: formatBytes } )
+		);
+		expect( labels ).toEqual( [ '0 B', '1 MB', '2 MB', '3 MB', '4 MB' ] );
+	} );
+
+	it( 'ticks a whole-unit axis in whole units, so no label repeats', () => {
+		const yFormat = ( v ) => `${ v } runs`;
+		yFormat.tickValues = integerTicks;
+		const labels = valueLabels( frame( { yDomain: [ 0, 3.3 ], yFormat } ) );
+		expect( labels ).toEqual( [ '0 runs', '1 runs', '2 runs', '3 runs' ] );
+	} );
+
+	it( 'leaves a formatter with no ladder on d3 base-10 ticks', () => {
+		expect( valueLabels( frame() ) ).toEqual( [
+			'0u',
+			'200u',
+			'400u',
+			'600u',
+			'800u',
+		] );
 	} );
 
 	it( 'draws the rotated Y title at the left margin, centred on the plot', () => {

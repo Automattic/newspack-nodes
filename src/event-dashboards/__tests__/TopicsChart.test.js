@@ -108,6 +108,8 @@ jest.mock( '@newspack-nodes/shared/hooks/useTimeChart', () => {
 	};
 } );
 
+import { readFileSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 import { render } from '@testing-library/react';
 import * as d3 from 'd3';
 import { TopicsChart } from '../TopicsChart';
@@ -289,6 +291,16 @@ describe( 'TopicsChart', () => {
 			'low.p0',
 		] );
 		expect( entries.every( ( e ) => e.raw > 0 ) ).toBe( true );
+	} );
+
+	it( 'draws its axes through the shared frame, not a private copy', () => {
+		const source = readFileSync(
+			resolvePath( __dirname, '../TopicsChart.js' ),
+			'utf8'
+		);
+		expect( source ).toContain( 'drawAxes' );
+		expect( source ).not.toContain( 'axisBottom' );
+		expect( source ).not.toContain( 'axisLeft' );
 	} );
 
 	it( 'wires d3 area/axis accessors that read the scaled point fields', () => {
