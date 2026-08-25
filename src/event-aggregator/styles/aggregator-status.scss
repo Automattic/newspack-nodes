@@ -206,6 +206,11 @@
 		background: var(--ink-3);
 	}
 
+	// Opening: not up yet, and not a fault either.
+	&.is-connecting::before {
+		background: var(--ink-3);
+	}
+
 	&.is-degraded::before {
 		background: var(--brass);
 	}
@@ -289,6 +294,24 @@
 	&.idle {
 		background: var(--paper-2);
 		color: var(--ink-2);
+	}
+
+	// Connecting: the same quiet tint, with the dot's beat to say it is working.
+	&.connecting {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		background: var(--paper-2);
+		color: var(--ink-2);
+
+		&::before {
+			content: "";
+			width: 5px;
+			height: 5px;
+			border-radius: 50%;
+			background: currentcolor;
+			animation: pulse 1.6s ease-in-out infinite;
+		}
 	}
 
 	&.disconnected {

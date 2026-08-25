@@ -948,7 +948,8 @@ class RemoteLinkNodeTest extends TestCase {
 
 		$node->connect();
 
-		$this->assertTrue( Core::node( 'link-austin:sse-in' )->connection()['connected'] );
+		// Open, awaiting the handshake — `connected` is the lease, not the socket.
+		$this->assertTrue( Core::node( 'link-austin:sse-in' )->connection()['connecting'] );
 	}
 
 	public function test_close_disconnects_the_stream(): void {
@@ -956,10 +957,11 @@ class RemoteLinkNodeTest extends TestCase {
 		$this->stub_sse_connect();
 		[ $node ] = $this->make_link( 'link-austin' );
 		$node->connect();
-		$this->assertTrue( Core::node( 'link-austin:sse-in' )->connection()['connected'] );
+		$this->assertTrue( Core::node( 'link-austin:sse-in' )->connection()['connecting'] );
 
 		$node->close();
 
+		$this->assertFalse( Core::node( 'link-austin:sse-in' )->connection()['connecting'] );
 		$this->assertFalse( Core::node( 'link-austin:sse-in' )->connection()['connected'] );
 	}
 

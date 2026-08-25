@@ -236,6 +236,46 @@ class SseInTest extends TestCase {
 		$this->assertSame( '{not a message}', $captured, 'raw torn frame handed to the delivery seam' );
 	}
 
+	public function test_open_handle_awaiting_handshake_is_connecting_not_connected(): void {
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+
+		$this->assertTrue( $node->maybe_connect() );
+
+		$this->assertFalse( $node->connection()['connected'], 'an opening socket is not connected' );
+		$this->assertTrue( $node->connection()['connecting'], 'an opening socket is connecting' );
+	}
+
+	public function test_completed_handshake_reports_connected_and_no_longer_connecting(): void {
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static function ( array $opts ): \CurlHandle {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_init
+			return \curl_init();
+		};
+		$this->assertTrue( $node->maybe_connect() );
+
+		$node->process_sse_chunk( $this->connected_frame( 'PID 61781 SLOT 5 OWNER 90210007' ) );
+
+		$this->assertTrue( $node->connection()['connected'] );
+		$this->assertFalse( $node->connection()['connecting'] );
+		$this->assertSame( 5, $node->slot() );
+		$this->assertSame( 61781, $node->pid() );
+	}
+
+	public function test_failed_open_reaches_disconnected_without_passing_through_connected(): void {
+		[ $node ] = $this->configured_node();
+		SSE_In_Node::$curl_dispatch = static fn ( array $opts ): bool => false;
+
+		$this->assertFalse( $node->maybe_connect() );
+
+		$this->assertFalse( $node->connection()['connected'] );
+		$this->assertFalse( $node->connection()['connecting'] );
+		$this->assertSame( 'curl_init failed', $node->connection()['last_error'] );
+	}
+
 	public function test_connected_handshake_consumed_and_captures_exact_lease(): void {
 		[ $node, $sink ] = $this->configured_node();
 

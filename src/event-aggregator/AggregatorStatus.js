@@ -121,18 +121,48 @@ const getRttClass = ( rtt ) => {
 };
 
 /**
- * One partition's three-state connection reading. A stream the server closed at
- * EOF is IDLE — healthy, and due back at `scheduled_reconnect_at` — so it must
- * never be styled or counted as the failure a bare `! connected` would make it.
+ * One partition's four-state connection reading. A stream the server closed at
+ * EOF is IDLE — healthy, and due back at `scheduled_reconnect_at`. A socket
+ * still opening is CONNECTING — `connected` is the handshake, not the handle.
+ * Neither is the failure a bare `! connected` would make it.
  *
  * @param {Object} status Partition status data.
- * @return {string} One of connected|idle|disconnected.
+ * @return {string} One of connected|idle|connecting|disconnected.
  */
 const partitionState = ( status ) => {
 	if ( status?.connected ) {
 		return 'connected';
 	}
-	return status?.scheduled_reconnect_at ? 'idle' : 'disconnected';
+	if ( status?.scheduled_reconnect_at ) {
+		return 'idle';
+	}
+	return status?.connecting ? 'connecting' : 'disconnected';
+};
+
+/**
+ * What broke, in a phrase. A status card carries the diagnosis; the transport's
+ * own wording stays reachable in the hover title beside it.
+ *
+ * @param {?string} error Raw `last_error` from the partition snapshot.
+ * @return {?string} A short phrase, or the input when there is nothing to trim.
+ */
+const shortError = ( error ) => {
+	if ( ! error ) {
+		return error;
+	}
+	if ( /timed out|timeout/i.test( error ) ) {
+		return __( 'timed out', 'newspack-nodes' );
+	}
+	if ( /SSE stream ended/.test( error ) ) {
+		return __( 'stream ended', 'newspack-nodes' );
+	}
+	// libcurl's parenthetical is its human half; the detail only restates it.
+	const curl = /^cURL error \d+ \(([^)]+)\)/.exec( error );
+	if ( curl ) {
+		return curl[ 1 ].toLowerCase();
+	}
+	// Everything else already reads as a phrase; drop the parenthetical detail.
+	return error.replace( /\s*\([^)]*\)/g, '' ).trim() || error;
 };
 
 /**
@@ -168,12 +198,13 @@ function PartitionStatus( { partition, status, now } ) {
 	// Gate on connected: heartbeat ts is sticky, else dead spoke latches OK.
 	const heartbeatStatus =
 		connected && status.last_heartbeat_response ? 'success' : 'pending';
-	// Health rails the card's left edge: ok / idle / degraded / down.
-	let health = idle ? 'idle' : 'down';
+	// Health rails the left edge: ok / degraded / idle / connecting / down.
+	let health =
+		'disconnected' === connectionStatus ? 'down' : connectionStatus;
 	if ( connected ) {
 		health = heartbeatStatus === 'success' ? 'ok' : 'degraded';
 	}
-	const errorMessage = status.last_error;
+	const errorMessage = shortError( status.last_error );
 	const rtt = status.last_heartbeat_rtt;
 	const rttFormatted = formatRtt( rtt );
 
@@ -260,7 +291,7 @@ function PartitionStatus( { partition, status, now } ) {
 			{ errorMessage && (
 				<div
 					className="aggregator-partition-error"
-					title={ errorMessage }
+					title={ status.last_error }
 				>
 					{ errorMessage }
 				</div>

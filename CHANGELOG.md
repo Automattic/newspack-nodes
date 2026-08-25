@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An aggregator spoke card read CONNECTED seconds before it timed out.** `SSE_In_Node` set `connected` the moment the easy handle was registered, and its own comment said what that really meant — the real lease lands on the `connected` handshake, which sets slot, owner, session pid and `connected_at`. So `connection()['connected']` conflated "socket opening" with "stream established", and every reader downstream inherited it: the status snapshot, `Aggregator_CI_Node::server_state()`, and the card, which showed `CONNECTED 3s ago` right before `cURL error 28`. `connected` is now the LEASE only, and `connection()` gained `connecting` — an open handle awaiting its handshake, which is neither up nor a failure. `check_stale()` moved its gate from the flag to the HANDLE, which is what kept the 45s watchdog over the pre-handshake window (`CURLOPT_TIMEOUT` is 0, so nothing else covers it). `Remote_Source_Node::publish_status()` publishes `connecting`, and the card rails it neutrally with a CONNECTING badge instead of counting it green or red.
+
+- **A spoke card no longer repeats libcurl at the operator.** The card rendered `cURL error 28 (Timeout was reached): Connection timed out after 5000 milliseconds` verbatim, and that one string set the card's width. It now reads `timed out`, with the full transport string on the element's `title` — the same hover the server URL already uses. The shortening is a rendering decision and lives in the card: two phrases (timeout, stream ended), libcurl's own parenthetical for any other cURL code, and a fallback that only drops the parenthetical detail. The payload keeps carrying the truth.
+
 ## [2.39.0] - 2026-08-25
 
 ### Fixed

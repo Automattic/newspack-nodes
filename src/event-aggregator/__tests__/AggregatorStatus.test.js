@@ -84,6 +84,31 @@ const IDLE_AND_FAILED = [
 	},
 ];
 
+// A spoke whose socket is open but whose `connected` handshake has not landed.
+// It is neither up nor down, and the raw transport string is the one the card
+// must translate rather than repeat.
+const CURL_TIMEOUT_ERROR =
+	'cURL error 28 (Timeout was reached): Connection timed out after 5000 milliseconds';
+const OPENING = [
+	{
+		id: 'server4',
+		vault_id: 'server4-vault-cred',
+		url: 'https://d.example.test',
+		partitions: {
+			0: {
+				connected: false,
+				connecting: true,
+				last_connection_attempt: 1748980000,
+			},
+			1: {
+				connected: false,
+				connecting: false,
+				last_error: CURL_TIMEOUT_ERROR,
+			},
+		},
+	},
+];
+
 // A stand-in slice-view node: model in setStateCache.view; setState notifies.
 function fixtureNode( name, model ) {
 	const node = {
@@ -354,6 +379,38 @@ describe( 'AggregatorStatus', () => {
 		).toContain( 'connection refused 8531' );
 	} );
 
+	it( 'renders a socket that is still opening as connecting, never as connected', () => {
+		registerSlices( {
+			summary: { serverNow: 1748980002, loading: false },
+			servers: { servers: OPENING, loading: false },
+		} );
+		const { container } = mount();
+		const opening = container.querySelector(
+			'.aggregator-partition.is-connecting'
+		);
+
+		expect( opening ).toBeTruthy();
+		expect( opening.textContent ).toContain( 'connecting' );
+		expect( opening.textContent ).not.toContain( 'disconnected' );
+		expect(
+			container.querySelector( '.aggregator-partition.is-ok' )
+		).toBeNull();
+	} );
+
+	it( 'says what broke in short, keeping the transport string on hover', () => {
+		registerSlices( {
+			summary: { serverNow: 1748980002, loading: false },
+			servers: { servers: OPENING, loading: false },
+		} );
+		const { container } = mount();
+		const errLine = container.querySelector(
+			'.aggregator-partition-error'
+		);
+
+		expect( errLine.textContent ).toBe( 'timed out' );
+		expect( errLine.getAttribute( 'title' ) ).toBe( CURL_TIMEOUT_ERROR );
+	} );
+
 	it( 'counts an idle partition as present in the server card total', () => {
 		registerSlices( {
 			summary: { serverNow: IDLE_CLOCK, loading: false },
@@ -430,7 +487,7 @@ describe( 'AggregatorStatus', () => {
 			'.aggregator-partition-error'
 		);
 		expect( errLine ).toBeTruthy();
-		expect( errLine.textContent ).toContain( 'timeout' );
+		expect( errLine.textContent ).toContain( 'timed out' );
 		expect( errLine.textContent ).not.toContain( 'HTTP 504' );
 		expect(
 			container.querySelector( '.aggregator-http-code' ).textContent

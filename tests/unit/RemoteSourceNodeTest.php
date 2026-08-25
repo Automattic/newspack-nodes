@@ -1903,6 +1903,42 @@ public function test_relay_with_null_sink_fails_loud(): void {
 		$this->assertSame( 1748970009, $status['scheduled_reconnect_at'] );
 	}
 
+	public function test_publish_status_reports_an_opening_stream_as_connecting(): void {
+		// A socket mid-open is neither up nor down; publishing it as connected
+		// is what made a card read CONNECTED seconds before it timed out.
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1748970000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		// fire() housekeeps once per wall-second; the publish rides the next one.
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
+		$this->assertFalse( $status['connected'], 'no handshake yet' );
+		$this->assertTrue( $status['connecting'] );
+	}
+
+	public function test_publish_status_reports_a_handshaken_stream_as_connected(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$this->stub_sse_connect();
+		[ $node ] = $this->make_remote( 'remote-austin' );
+		Core::$now = 1748970000.0;
+		$node->fire();
+		$this->drain_connect_queue();
+		$sse = Core::node( 'remote-austin:sse-in' );
+		$this->assertInstanceOf( SSE_In_Node::class, $sse );
+		$this->set_slot( $sse, 5 );
+		Core::$now = 1748970001.0;
+		$node->fire();
+
+		$status = Core::$memd->get( Remote_Source_Node::status_key_for( 'remote-austin', 'firehose.p0' ) );
+		$this->assertTrue( $status['connected'] );
+		$this->assertFalse( $status['connecting'] );
+	}
+
 	public function test_a_released_slot_never_reaches_the_dashboard(): void {
 		// An idle stream ends and releases its own slot; a heartbeat already in
 		// flight lands on the tombstone. Latching that into last_error paints a

@@ -1042,7 +1042,6 @@ describe( 'canonical appearance ownership', () => {
 		for ( const selector of [
 			'.aggregator-status-refresh-indicator.refreshing',
 			'.aggregator-status-refresh-dot.refreshing',
-			'.aggregator-status-badge.connecting',
 			'.aggregator-status-badge.backoff',
 			'.aggregator-status-badge.connection_refused',
 			'.aggregator-status-badge.error',

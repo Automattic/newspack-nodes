@@ -462,10 +462,12 @@ class Remote_Source_Node extends Remote_Link_Node {
 	protected function publish_status(): void {
 		$conn = null !== $this->sse_in
 			? $this->sse_in->connection()
-			: [ 'connected' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
+			: [ 'connected' => false, 'connecting' => false, 'last_http_code' => null, 'last_error' => null, 'current_backoff' => SSE_In_Node::INITIAL_BACKOFF, 'last_sse_heartbeat' => null, 'last_attempt' => null, 'scheduled_reconnect_at' => null ];
 		$data = [
 			'last_connection_attempt' => $conn['last_attempt'],
 			'connected'               => $conn['connected'],
+			// A socket mid-open: neither up nor a failure to rail red.
+			'connecting'              => $conn['connecting'],
 			'last_http_code'          => $conn['last_http_code'],
 			'last_error'              => $conn['last_error'] ?? $this->last_heartbeat_error,
 			'current_backoff'         => $conn['current_backoff'],
