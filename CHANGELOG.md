@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A node no longer names itself twice in its own log lines.** `Node::log_midfix()` already prepends `"<name>: "` to every line a node emits through `$this->stderr()` / `print_less_often()`, and omits it only when the process name already starts with that name — so a message that hard-codes its own node name reads `settings-sync: settings-sync: no session for ...` on every worker whose process name differs. Three such messages here dropped the redundant prefix: two in `Settings_Sync_Node` and one in `Job_Worker_Node`, whose `JobWorker: ` spelled the same node in a different case. The static `Core::` log helpers add no node midfix, so their context tags are the only identity those lines carry and are left alone.
+
+### Added
+
+- **A guard that catches the next one.** `NodeLogPrefixTestCase` (shared from `tests/Helpers/`, subclassed per plugin) reads the `make_node` lines of a plugin's topologies for the names its node classes actually run under, then tokenizes each class and fails on a `$this->` log call whose first argument hard-codes that name. Tokenized rather than grepped, because the string often sits on the line after the call and a `Core::` call on the same method name must not match; names are compared case- and separator-insensitively, which is what catches `JobWorker` against `job-worker`.
+
 ## [2.38.0] - 2026-08-25
 
 ### Added

@@ -80,6 +80,7 @@ unset( $GLOBALS['_wp_record_registrations'] );
 
 // Load test helpers. (CaptureSink.php defines Capture_Sink_Node.)
 require_once __DIR__ . '/Helpers/TestCase.php';
+require_once __DIR__ . '/Helpers/NodeLogPrefixTestCase.php';
 require_once __DIR__ . '/Helpers/RedirectException.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/CaptureStdout.php';
