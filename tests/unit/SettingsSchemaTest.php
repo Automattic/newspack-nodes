@@ -49,6 +49,9 @@ class SettingsSchemaTest extends TestCase {
 		'topologies',
 		'allowed_users',
 		'spawn_verify_ssl',
+		'vault',
+		'vault_verify_ssl',
+		'vault_require_ssl',
 	];
 
 	private const OPTION_NAMES = [
@@ -201,58 +204,13 @@ class SettingsSchemaTest extends TestCase {
 		\sort( $actual );
 		$this->assertSame( $expected, $actual );
 	}
-	/**
-	 * Bootstrap reads these during diagnostic/runtime wiring, and `Config::value()`
-	 * throws on an undeclared key — so a key declared only in
-	 * `newspack-nodes-config.php` fatals plugin load in a real install, because
-	 * that file is NOT in the release archive. The schema is the durable
-	 * declaration; the config file only supplies a dev/test default.
-	 */
-	public function test_every_key_bootstrap_reads_is_schema_declared(): void {
-		$bootstrap = \file_get_contents( \dirname( __DIR__, 2 ) . '/includes/class-bootstrap.php' );
-		\preg_match_all( "/Config::value\(\s*'([^']+)'/", (string) $bootstrap, $m );
-
-		$this->assertNotEmpty( $m[1], 'Bootstrap should read at least one config key' );
-		foreach ( \array_unique( $m[1] ) as $key ) {
-			$this->assertContains(
-				$key,
-				Settings_Schema::get()->overlay_keys(),
-				"Bootstrap reads '{$key}', which no schema declares — plugin load will fatal"
-			);
-		}
-	}
-
-	/**
-	 * `Field::$default` and `newspack-nodes-config.php` are two copies of one
-	 * number, and the file is the one the runtime reads — so a Field default
-	 * that disagrees is a lie the settings page prints as its placeholder.
-	 * Seven of them had drifted before this net went up.
-	 */
-	public function test_every_field_default_matches_the_config_file_default(): void {
-		// The SHIPPED file, not load_config_defaults() — the suite's own config
-		// overrides half these keys, which is not the drift under test.
-		$file = require \dirname( __DIR__, 2 ) . '/newspack-nodes-config.php';
-
-		foreach ( Settings_Schema::get()->fields() as $field ) {
-			if ( null === $field->default || ! \array_key_exists( $field->key, $file ) ) {
-				continue;
-			}
-			$this->assertSame(
-				$file[ $field->key ],
-				$field->default,
-				"Field default for '{$field->key}' disagrees with newspack-nodes-config.php"
-			);
-		}
-	}
-
 	public function test_the_sse_stream_knobs_declare_their_defaults_on_the_field(): void {
 		// @longform A default that lives only in the shipped
 		// newspack-nodes-config.php is null on every EXISTING deployment,
 		// permanently: a deploy preserves the operator's config file, so a key
 		// added later never appears in it. SSE_Out reads `$idle_timeout > 0`,
-		// so null read as "disabled" and the idle close shipped inert. Asserting
-		// Config::value() cannot catch this — the test env loads the repo's own
-		// config file and answers the default either way.
+		// so null read as "disabled" and the idle close shipped inert. The
+		// Field is now the only home for the value; the file only documents it.
 		$fields = [];
 		foreach ( Settings_Schema::get()->fields() as $field ) {
 			$fields[ $field->key ] = $field;

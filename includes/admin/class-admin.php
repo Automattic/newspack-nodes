@@ -399,7 +399,7 @@ class Admin {
 		$default = self::default_int(
 			Config::load_config_defaults(),
 			$field,
-			$bounds->default ?? 0
+			Core::as_int( $bounds->default, 0 )
 		);
 		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
 		$html    = Settings_Renderer::number(

@@ -141,6 +141,32 @@ class Schema {
 		return \array_values( \array_filter( $this->fields, static fn ( Field $f ): bool => $f->is_rendered() ) );
 	}
 
+	/**
+	 * Every declared key's built-in default — the base `Config` merges the
+	 * config file and the WP-option overlay onto. The schema is the definition;
+	 * the file is an override surface, so a key absent from an operator's older
+	 * file still resolves here instead of reading null forever.
+	 *
+	 * Only Fields that DECLARE a default appear: a keyed Field written without
+	 * `default:` is omitted, and `Config::value()` then returns null for a key
+	 * that is nonetheless declared — the inert-feature bug this exists to
+	 * close. A plugin using this as its config base must assert completeness
+	 * itself (`ConfigSchemaTest::test_the_schema_supplies_a_default_for_every_declared_key`).
+	 * Plugins whose defaults live in a `Config::config_defaults()` array
+	 * instead — pyrobase, nuclear — legitimately declare no Field defaults.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function defaults(): array {
+		$out = [];
+		foreach ( $this->fields as $field ) {
+			if ( '' !== $field->key && null !== $field->default ) {
+				$out[ $field->key ] = $field->default;
+			}
+		}
+		return $out;
+	}
+
 	public function prefix(): string {
 		return $this->prefix;
 	}

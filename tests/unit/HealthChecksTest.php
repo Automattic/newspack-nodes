@@ -300,7 +300,7 @@ class HealthChecksTest extends TestCase {
 		$this->assertNotContains( 'fleet-hold', \array_column( $results, 'id' ) );
 	}
 
-	public function test_evaluate_returns_exactly_the_seven_results_in_canonical_order(): void {
+	public function test_evaluate_returns_exactly_the_eight_results_in_canonical_order(): void {
 		$results = Health_Checks::evaluate(
 			[
 				'id'       => 'cache-backend',
@@ -316,6 +316,7 @@ class HealthChecksTest extends TestCase {
 				'filesystem',
 				'ownership',
 				'housekeeping',
+				'config-keys',
 				'worker-liveness',
 				'consumer-lag',
 				'dead-letters',
@@ -328,6 +329,7 @@ class HealthChecksTest extends TestCase {
 				'Filesystem',
 				'Ownership',
 				'Housekeeping',
+				'Configuration keys',
 				'Worker liveness',
 				'Consumer lag',
 				'Dead letters',
@@ -335,7 +337,7 @@ class HealthChecksTest extends TestCase {
 			\array_column( $results, 'label' )
 		);
 		$this->assertSame(
-			\array_fill( 0, 7, [ 'id', 'label', 'messages', 'status' ] ),
+			\array_fill( 0, 8, [ 'id', 'label', 'messages', 'status' ] ),
 			\array_map(
 				static function ( array $result ): array {
 					$keys = \array_keys( $result );

@@ -231,7 +231,7 @@ class CliDoctorCommandTest extends TestCase {
 		return \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 	}
 
-	public function test_clean_report_renders_exactly_seven_canonical_ok_rows_and_exits_zero(): void {
+	public function test_clean_report_renders_exactly_eight_canonical_ok_rows_and_exits_zero(): void {
 		$this->run_doctor_expecting_exit_zero();
 
 		$ids = [
@@ -239,19 +239,20 @@ class CliDoctorCommandTest extends TestCase {
 			'filesystem',
 			'ownership',
 			'housekeeping',
+			'config-keys',
 			'worker-liveness',
 			'consumer-lag',
 			'dead-letters',
 		];
-		$this->assertCount( 7, $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertCount( 8, $GLOBALS['_test_wp_cli_logs'] );
 		foreach ( $ids as $index => $id ) {
 			$this->assertStringStartsWith( "ok   {$id} — ", $GLOBALS['_test_wp_cli_logs'][ $index ] );
 			$this->assertSame( 1, \substr_count( $this->log_haystack(), " {$id} — " ), $id );
 		}
-		$this->assertSame( 7, \count( \preg_grep( '/^ok   /', $GLOBALS['_test_wp_cli_logs'] ) ) );
+		$this->assertSame( 8, \count( \preg_grep( '/^ok   /', $GLOBALS['_test_wp_cli_logs'] ) ) );
 		$this->assertSame( 'ok   cache-backend — ' . self::CACHE_MESSAGE, $GLOBALS['_test_wp_cli_logs'][0] );
 		$this->assertStringNotContainsString( 'wp-cron', $this->log_haystack() );
-		$this->assertSame( [ 'All 7 Nodes health checks passed.' ], $GLOBALS['_test_wp_cli_success'] );
+		$this->assertSame( [ 'All 8 Nodes health checks passed.' ], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
 		$this->assertSame( 1, $this->http_calls );
@@ -264,7 +265,7 @@ class CliDoctorCommandTest extends TestCase {
 		$this->run_doctor_expecting_exit_zero();
 
 		$this->assertSame( "WARN cache-backend — {$message}", $GLOBALS['_test_wp_cli_logs'][0] );
-		$this->assertSame( [ '1 of 7 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [ '1 of 8 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertSame( 1, $this->http_calls );
@@ -283,7 +284,7 @@ class CliDoctorCommandTest extends TestCase {
 
 		$this->assertInstanceOf( \RuntimeException::class, $thrown );
 		$this->assertSame( "FAIL cache-backend — {$message}", $GLOBALS['_test_wp_cli_logs'][0] );
-		$this->assertSame( [ '1 of 7 Nodes health checks failed.' ], $GLOBALS['_test_wp_cli_errors'] );
+		$this->assertSame( [ '1 of 8 Nodes health checks failed.' ], $GLOBALS['_test_wp_cli_errors'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_success'] );
 		$this->assertSame( 1, $this->http_calls );
@@ -303,7 +304,7 @@ class CliDoctorCommandTest extends TestCase {
 			'     Consumer doctor-reader-b-7319.p0 is 12345681 bytes behind on doctor-source-b-7319.p0.',
 			$GLOBALS['_test_wp_cli_logs']
 		);
-		$this->assertSame( [ '1 of 7 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
+		$this->assertSame( [ '1 of 8 Nodes health checks need attention.' ], $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] );
 	}
 }

@@ -1037,3 +1037,86 @@ must split the union splits by the routing COUNT, never at a fixed index.
 **Revisit if:** anything routes on `display_targets()`, at which point the two planes have
 merged and ADR-7 is the decision in play; or if `edge` is reintroduced, which would absorb the
 physical-write case and leave only the conditional-TO one.
+
+## ADR-20: A config default lives in CODE; every config file is an override surface
+
+**Status:** Accepted
+
+**Context:** Substrate config had three homes for a default and they had drifted in both
+directions. Four `sse_*` keys existed only in `Settings_Schema`, deferring to
+`SSE_Slot_Pool::DEFAULT_*` class constants; three `vault*` keys existed only in
+`newspack-nodes-config.php`, declared by nothing. `Config::declare_keys()` derived the valid
+key set from `array_keys( load_config_defaults() )` — the config FILE — so the file was
+simultaneously the override surface and the declaration.
+
+That coupling fails in two directions, and both have shipped. **Forward:** a deploy preserves
+the operator's config file, so a key added later never appears in it, and a default living only
+there reads null forever — `sse_idle_timeout` shipped inert exactly that way, silently, for
+weeks. **Backward:** deriving the key set from the file makes an operator's typo self-declaring.
+`base_directroy` becomes a valid key, the real `base_directory` quietly falls back, and the
+runtime writes its whole tree somewhere else with nothing in the log. Nuclear Gyrobase hit the
+same class of bug from the other side on 2026-07-13: an environment without the file declared
+nothing, the first `Config::value()` threw `unknown config key`, and every request including
+wp-admin fataled.
+
+**Decision:** The schema declares every key AND its default, in code. Every config file — the
+one in the plugin, and the operator's — is an override surface and nothing more.
+
+A plugin declares defaults one of two ways, and both are first-class. Where it already has a
+`Config_System\Field` per setting, the Field carries the default and `Schema::defaults()` is the
+base (`newspack-nodes`, `newspack-event-logger-nodes`). Where it has no Field layer, a plain
+static `Config::config_defaults()` array is the base (`newspack-nuclear-gyrobase`,
+`newspack-pyrobase`). Declaring the same key in both places is the drift this ADR exists to
+prevent — pick the one the plugin already has.
+
+The declared key set derives from the SCHEMA, never from a file. A key the schema does not
+declare is refused by `Config::value()`.
+
+**A key with no sensible universal value declares `null`, and that is not a missing default.**
+Per-deployment identity — `publication`, `script_alias`, `table_prefix`, credentials, host
+paths — has no default that is right anywhere else, and committing one deployment's value as
+"the default" is worse than declaring none. The test is evidence, not taste: a key every
+deployment overrides is identity.
+
+**An unrecognized key in a config file is REPORTED, never thrown.** Each plugin's setup script
+copies the deployment's own config over the shipped path (`newspack-nodes.sh`,
+`newspack-pyrobase.sh`, `newspack-nuclear-gyrobase.sh` all `cp -f`), so that file is the
+operator's, not ours. The first config read happens at `plugins_loaded:-10001`; throwing there
+takes down every request including wp-admin the day a key is renamed, recoverable only over SSH.
+It is logged rate-limited and surfaced in Site Health and `wp nodes doctor` as `config-keys`.
+Loud means visible, not fatal.
+
+**The shipped config file ships every key COMMENTED OUT beside its default**, so it doubles as
+the documentation of what can be set and uncommenting one line is the whole edit. A drift test
+parses those lines back and compares them to the code defaults key-for-key and value-for-value,
+because a documented default that drifts is worse than none.
+
+**Alternatives considered:**
+
+- **Keep the file as the base and add a completeness test.** Rejected: the test can only see the
+  file in THIS checkout, and the failure is on an installed host whose file is older.
+- **Throw on an unknown file key, as Nuclear did.** Rejected: see above. It converts an
+  operator typo into an outage, and the file is not ours to validate that strictly.
+- **Register the file's keys so nothing is ever refused.** Rejected: that is the backward
+  failure — it makes typos self-declaring and silently shadows the real key.
+- **Put every default in a `Field`, including for plugins with no settings UI.** Rejected:
+  pyrobase would need 87 Fields for 15 settings, and nuclear has no Field layer at all. The
+  array form is not a lesser shape.
+
+**Consequences:** `Field::$default` widened from `?int` to `mixed`, so array, string and bool
+defaults are declarable. `Schema::defaults()` OMITS a keyed Field written without `default:`,
+which makes that key null on every install — a plugin using it as its config base must assert
+completeness itself; the shared `Schema` cannot enforce it, because plugins whose defaults live
+in a `config_defaults()` array legitimately declare none.
+
+A reader must not fall back to zero where the schema declares a value:
+`Core::num_int( Config::value( $k ) )` returns 0 for a null or blank entry, which collapsed the
+whole-host SSE cap to 1. Read through a helper that falls back to the DECLARED default.
+
+Uninstall must not treat the schema default as "this install's directory". It is the path every
+unconfigured install on a host shares, and deleting it takes a sibling's live logs, locks and
+offsets. `runtime_base_directory()` resolves only EXPLICIT sources.
+
+**Revisit if:** a plugin needs a default that genuinely cannot be expressed in code — a value
+derived from the host at runtime — at which point the answer is a resolver called from the
+declaration, not a value in a file.

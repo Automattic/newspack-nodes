@@ -137,6 +137,7 @@ class Settings_Schema {
 				new Field(
 					key: 'base_directory',
 					type: 'path',
+					default: '/tmp/newspack-nodes',
 					label: static fn(): string => \__( 'Base Directory', 'newspack-nodes' ),
 					section: $storage,
 					// Long-lived workers resolve paths from base_directory.
@@ -147,6 +148,7 @@ class Settings_Schema {
 				new Field(
 					key: 'memcache_servers',
 					type: 'memcache_servers',
+					default: [ '127.0.0.1:11211' ],
 					label: static fn(): string => \__( 'Memcache Servers', 'newspack-nodes' ),
 					section: $storage,
 					// The Memcached handle lives in every long-lived worker.
@@ -158,6 +160,7 @@ class Settings_Schema {
 				new Field(
 					key: 'log_sources',
 					type: 'array_strings',
+					default: [],
 					label: static fn(): string => \__( 'Log Sources', 'newspack-nodes' ),
 					section: $storage,
 					// Registry resolves per-request; no restarts.
@@ -294,7 +297,7 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_max_streams',
 					type: 'int',
-					default: SSE_Slot_Pool::DEFAULT_MAX_STREAMS,
+					default: 6,
 					min: 1,
 					max: 64,
 					ui: false,
@@ -302,7 +305,7 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_reserved_slots',
 					type: 'int',
-					default: SSE_Slot_Pool::DEFAULT_RESERVED_SLOTS,
+					default: 0,
 					min: 0,
 					max: 63,
 					ui: false,
@@ -310,7 +313,7 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_max_slots',
 					type: 'int',
-					default: SSE_Slot_Pool::DEFAULT_MAX_SLOTS,
+					default: 3,
 					min: 1,
 					max: 64,
 					ui: false,
@@ -318,7 +321,7 @@ class Settings_Schema {
 				new Field(
 					key: 'sse_slot_ttl',
 					type: 'int',
-					default: SSE_Slot_Pool::DEFAULT_TTL,
+					default: 60,
 					min: 45,
 					max: 3600,
 					ui: false,
@@ -334,18 +337,41 @@ class Settings_Schema {
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
+					default: [],
 					ui: false,
 				),
 				// Overlay-only access whitelist; no settings field.
 				new Field(
 					key: 'allowed_users',
 					type: 'array_strings',
+					default: [],
 					ui: false,
 				),
 				// Deploy replaces the config file; only this survives.
 				new Field(
 					key: 'spawn_verify_ssl',
 					type: 'bool',
+					default: true,
+					ui: false,
+				),
+				// Encrypted registry; a ui Field joins the audit allowlist.
+				new Field(
+					key: 'vault',
+					type: 'array_strings',
+					default: [],
+					ui: false,
+				),
+				// Lowered ONLY for a self-signed cert; not a checkbox.
+				new Field(
+					key: 'vault_verify_ssl',
+					type: 'bool',
+					default: true,
+					ui: false,
+				),
+				new Field(
+					key: 'vault_require_ssl',
+					type: 'bool',
+					default: true,
 					ui: false,
 				),
 			],

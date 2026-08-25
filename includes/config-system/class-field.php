@@ -81,8 +81,18 @@ class Field {
 		public readonly ?int $min = null,
 		/** @api Inclusive upper bound for an `int` field. See $min. */
 		public readonly ?int $max = null,
-		/** @api The value a blank falls back to; also the page's placeholder. */
-		public readonly ?int $default = null,
+		/**
+		 * The key's built-in value: what `Config::load_config_defaults()` starts
+		 * from, what a blank save falls back to, and the page's placeholder. It
+		 * lives HERE because a default that lives only in the shipped config
+		 * file is null on every install whose file predates the key — a deploy
+		 * preserves the operator's file, so the key never appears in it. null
+		 * means the Field declares none.
+		 *
+		 * @api
+		 * @var mixed
+		 */
+		public readonly mixed $default = null,
 		mixed $sanitize = null,
 		mixed $render = null,
 		public readonly bool $ui = true,

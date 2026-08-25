@@ -34,6 +34,9 @@ class Vault {
 	 */
 	public const OPTION_KEY = 'newspack_nodes_vault';
 
+	/** The config-array key the same registry occupies; see Config's token resolver. */
+	public const CONFIG_KEY = 'vault';
+
 	/**
 	 * Whitelisted config keys for partial-update merge.
 	 */

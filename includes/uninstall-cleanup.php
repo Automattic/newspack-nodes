@@ -40,10 +40,15 @@ function delete_prefixed_options( $wpdb, string $prefix ): int {
 }
 
 /**
- * Resolve the runtime base directory WITHOUT loading the Config machinery:
- * the option overlay, else the LOCAL_NEWSPACK_NODES_CONF file, else the
- * shipped `newspack-nodes-config.php` — the same three-layer precedence
- * `Config::get_base_directory()` reads. '' when nothing resolves.
+ * Resolve the base directory this install EXPLICITLY configured, without
+ * loading the Config machinery: the option overlay, else the
+ * LOCAL_NEWSPACK_NODES_CONF file, else the shipped `newspack-nodes-config.php`.
+ * '' when none of them names one.
+ *
+ * It deliberately stops short of the schema default. That default is the path
+ * every unconfigured install on a host SHARES, so resolving to it would make
+ * uninstalling one site delete another's live logs, locks and offsets. Leaving
+ * a tree behind for an operator to remove is the cheaper mistake.
  */
 function runtime_base_directory(): string {
 	$opt = \function_exists( 'get_option' ) ? \get_option( 'newspack_nodes_base_directory' ) : false;
