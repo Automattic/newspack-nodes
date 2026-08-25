@@ -952,6 +952,13 @@ opaque strings because the formatter that wrote them belongs to the caller, so
 `read_many()` reads those positions one file handle per SEGMENT. Partition owns the walk,
 its extent-keyed memo and the syscalls; the app owns only what a line means.
 
+`locate_by()` resolves a key to its NEWEST record: one newest-first pass, so the first line
+a key appears on is its last write — within a segment as well as across them. That is not an
+implementation detail of the walk. The remaining-`ttl` rule above reads the lifetime off
+whichever record the key lands on, so resolving to an older write makes a live entry read as
+expired and vanish silently rather than loudly. Pinned by
+`tests/unit/PartitionTest.php::test_locate_by_resolves_a_repeated_key_to_its_newest_record`.
+
 **Alternatives considered:**
 
 - **Leave it in the application.** Rejected: it was already there twice, and the second copy

@@ -1208,6 +1208,35 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * When each segment's companion index was last appended, `id => mtime`.
+	 *
+	 * The one clock a READER owns. `scan_index()` walks lines whose contents
+	 * carry a producer's time, and on a hub those producers are many; the
+	 * index file's mtime is instead this machine's own record of when the
+	 * segment last took a line, so a walk bounding itself by time can tell a
+	 * segment that is still filling from one that closed hours ago.
+	 *
+	 * Stat'd fresh, never cached: a warm list would say a filling segment
+	 * closed. Segments whose index cannot be stat'd are OMITTED — `scan_index()`
+	 * skips them too, and an absent entry is the honest answer to "when".
+	 *
+	 * @api Readers that bound an index walk by time.
+	 * @return array<int,int> Segment id => last-append time, unix seconds.
+	 */
+	public function index_mtimes(): array {
+		$out = [];
+		foreach ( $this->get_segments() as $s ) {
+			$path = $this->get_index_path( $s['id'] );
+			\clearstatcache( true, $path );
+			$mtime = @\filemtime( $path );
+			if ( false !== $mtime ) {
+				$out[ $s['id'] ] = $mtime;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
 	 *
 	 * An allow_large_writes (single-writer) log skips the TTL: with no peer able to

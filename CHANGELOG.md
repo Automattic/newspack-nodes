@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`Partition_Node::index_mtimes()` — when each segment's companion index last took a line.** The one clock a READER owns. `scan_index()` walks lines carrying a PRODUCER's time, and a hub has many producers, so a walk bounding itself by time cannot tell a segment that is still filling from one that closed hours ago by reading the lines. `get_segments()` reports id and size, both of which come off a cached list a single-writer log never refreshes; this stats fresh every call, because a warm mtime would say a filling segment closed. Segments whose index cannot be stat'd are omitted — `scan_index()` skips them too. Event-logger-nodes' per-URL request walk is the first caller: it may end a partition only inside a segment that closed before its window.
+- **A test pins which record `locate_by()` resolves a repeated key to.** `scan_index( …, true )` reverses the segments and the lines within each, so the first line a key appears on is its LAST write — which is the record ELN's stats mirror needs, because it reads a frame's remaining ttl off whatever record it lands on and an older frame reads as expired, dropping the entry. Every existing case wrote one record per key, so nothing asserted the resolution; two records under one key in ONE segment now do, and reversing only the segment list fails it.
+- **`PartitionTest` writes its keyed records through its own `write_keyed()` helper.** Two cases still hand-rolled the five-line message the helper writes, one of them beside a call to it.
+
 ## [2.37.1] - 2026-08-24
 
 ### Fixed
