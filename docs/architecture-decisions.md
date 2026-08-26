@@ -948,9 +948,30 @@ the record the backing read, or a cache failure silently becomes a data failure.
 **The complement, and the boundary this ADR is really about.** Finding WHICH durable record
 answers a key is the app's business, not the table's. `Partition_Node` treats index lines as
 opaque strings because the formatter that wrote them belongs to the caller, so
-`locate_by( \Closure $extract )` takes the line parser and returns key → position, and
+`locate_by( \Closure $extract, array $wanted )` takes the line parser and the keys to
+resolve, and returns key → position for those keys only — the key set bounds the table,
+the index walk and the memo, because a whole-index table grows with the partition
+rather than the query and exhausted a 512MB request while resolving a handful of rows
+(a locator costs ~300 bytes, so that table had reached order-1M keys). The result is a
+lookup table addressed by key. Its ORDER carries no meaning — that is separate from the
+newest-per-key rule below, which is about WHICH record a key resolves to, not the order
+the keys come back in.
+
 `read_many()` reads those positions one file handle per SEGMENT. Partition owns the walk,
-its extent-keyed memo and the syscalls; the app owns only what a line means.
+its extent-keyed memo and the syscalls; the app owns only what a line means. Naming the
+keys does not move that boundary — a key is as opaque to Partition as a line is.
+
+The memo records what was SEARCHED FOR as well as what was found, so a key absent from
+the index stays answered rather than costing a walk per batch. That is negative caching,
+but not the kind the reopen condition below means: it is per process, it is discarded the
+moment an append changes the segment extent or the memo passes its key ceiling, and it
+caches "this index did not answer for this key", never "this record does not exist". A
+reader that must distinguish those asks the record.
+
+One sharp edge: `scan_index()` skips a segment whose `.idx` is missing or unreadable, and
+the extent is built from the `.log` id and size — so a transient index read failure
+(EMFILE, a rotation in flight, a permissions blip) is recorded as absence and does not
+self-heal until the log grows. Pre-existing, but the memo is what makes it persist.
 
 `locate_by()` resolves a key to its NEWEST record: one newest-first pass, so the first line
 a key appears on is its last write — within a segment as well as across them. That is not an
