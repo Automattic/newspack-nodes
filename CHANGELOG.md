@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Partition_Node::locate_by()` no longer builds a table of the whole partition.** It held one locator per distinct key ever written, so a caller resolving a handful of rows paid an allocation that grows with the partition rather than with its query — a 31,500-URL stats mirror exhausted a 512MB request and fataled the Event Logger overview. The key set is now REQUIRED, not optional: retention, the index walk and the memo are all bounded by what is asked for, so no caller can reintroduce the whole-index table. The walk stops on the last wanted key found, and the per-directory memo records what was SEARCHED FOR as well as what was found, so an absent key stays answered and a miss-heavy reader does not re-walk the index once per batch. The result is a lookup table addressed by key; its order follows the memo rather than the index.
+
+
 ## [2.40.0] - 2026-08-25
 
 ### Changed

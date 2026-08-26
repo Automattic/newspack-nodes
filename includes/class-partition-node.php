@@ -94,10 +94,10 @@ class Partition_Node extends Timer_Node {
 	protected array $batch_index_args = [];
 
 	/**
-	 * Locator tables per partition dir: `dir => [extent, key => position]`.
-	 * Shared across readers of one directory; see locate_by().
+	 * Per partition dir: `dir => [extent, found, searched]`. Bounded by what
+	 * callers ask for; see locate_by().
 	 *
-	 * @var array<string,array{0: string, 1: array<string,array{0: int, 1: int, 2: int}>}>
+	 * @var array<string,array{0: string, 1: array<string,array{0: int, 1: int, 2: int}>, 2: array<string,mixed>}>
 	 */
 	private static array $locator_cache = [];
 	protected ?string $current_idx_path = null;
@@ -1070,32 +1070,57 @@ class Partition_Node extends Timer_Node {
 	 * dir passing different `$extract` parsers would share the first one's
 	 * table, and the second's keys would all read as misses.
 	 *
+	 * $wanted is REQUIRED, and that is the point: a whole-index table holds one
+	 * locator per distinct key ever written, an allocation that grows with the
+	 * partition rather than with the query. A 31,500-URL stats mirror exhausted
+	 * a 512MB request building one so the caller could read a handful of rows.
+	 * Retention, the walk and the memo below are all bounded by what is asked
+	 * for, so no caller can reintroduce that.
+	 *
+	 * The memo is per directory and keyed on the segment extent, holding what
+	 * was FOUND and what was SEARCHED FOR separately — an absent key stays
+	 * answered, so a miss-heavy reader does not re-walk the index per batch.
+	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
+	 * The result is a LOOKUP table, not a sequence: its order follows the memo,
+	 * not the index, so read it by key.
+	 *
+	 * @param list<string> $wanted The keys to resolve; empty reads nothing.
 	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
 	 */
-	public function locate_by( \Closure $extract ): array {
+	public function locate_by( \Closure $extract, array $wanted ): array {
+		if ( [] === $wanted ) {
+			return [];
+		}
 		$extent = '';
 		foreach ( $this->get_segments() as $segment ) {
 			$extent .= $segment['id'] . ':' . $segment['size'] . ',';
 		}
 		$dir = $this->partition_dir();
-		if ( ( self::$locator_cache[ $dir ][0] ?? null ) === $extent ) {
-			return self::$locator_cache[ $dir ][1];
+		if ( ( self::$locator_cache[ $dir ][0] ?? null ) !== $extent ) {
+			self::$locator_cache[ $dir ] = [ $extent, [], [] ];
 		}
-		$locators = [];
-		$this->scan_index(
-			static function ( string $line, int $segment ) use ( $extract, &$locators ): bool {
-				$at = $extract( $line );
-				if ( null !== $at && ! isset( $locators[ $at['key'] ] ) ) {
-					$locators[ $at['key'] ] = [ $segment, $at['offset'], $at['length'] ];
-				}
-				return true;
-			},
-			true
-		);
-		self::$locator_cache[ $dir ] = [ $extent, $locators ];
-		return $locators;
+		[ , $found, $searched ] = self::$locator_cache[ $dir ];
+		// Only keys nobody has walked for yet; the rest are already answered.
+		$seeking = \array_diff_key( \array_flip( $wanted ), $searched );
+		if ( [] !== $seeking ) {
+			$this->scan_index(
+				static function ( string $line, int $segment ) use ( $extract, &$found, $seeking ): bool {
+					$at = $extract( $line );
+					if ( null === $at || isset( $found[ $at['key'] ] ) || ! isset( $seeking[ $at['key'] ] ) ) {
+						return true;
+					}
+					// Newest-first: a key's FIRST hit is its current record.
+					$found[ $at['key'] ] = [ $segment, $at['offset'], $at['length'] ];
+					return \count( \array_intersect_key( $found, $seeking ) ) < \count( $seeking );
+				},
+				true
+			);
+			// Searched, not found: a key absent from the index stays answered.
+			self::$locator_cache[ $dir ] = [ $extent, $found, $searched + $seeking ];
+		}
+		return \array_intersect_key( $found, \array_flip( $wanted ) );
 	}
 
 	public function partition_dir(): string {
