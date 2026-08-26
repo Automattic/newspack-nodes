@@ -63,6 +63,15 @@ class Partition_Node extends Timer_Node {
 	public const MAX_LARGE_LINE_SIZE  = 33554432;
 	public const MAX_LINE_SIZE        = 4096;
 
+	/**
+	 * Keys one directory's locator memo holds before it is discarded whole.
+	 *
+	 * Measured at ~320 bytes per key — both buckets plus the locator array —
+	 * so this caps one directory near 31MB, and a dashboard fans several
+	 * directories in a single request.
+	 */
+	public const MAX_LOCATOR_MEMO_KEYS = 100000;
+
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
 	public const SEGMENT_CACHE_TTL    = 0.25;
@@ -94,10 +103,10 @@ class Partition_Node extends Timer_Node {
 	protected array $batch_index_args = [];
 
 	/**
-	 * Per partition dir: `dir => [extent, found, searched]`. Bounded by what
-	 * callers ask for; see locate_by().
+	 * Per partition dir: extent, what was found, what was searched for.
+	 * Bounded by what callers ask for; see locate_by().
 	 *
-	 * @var array<string,array{0: string, 1: array<string,array{0: int, 1: int, 2: int}>, 2: array<string,mixed>}>
+	 * @var array<string,array{extent: string, found: array<string,array{0: int, 1: int, 2: int}>, searched: array<string,int>}>
 	 */
 	private static array $locator_cache = [];
 	protected ?string $current_idx_path = null;
@@ -1070,27 +1079,36 @@ class Partition_Node extends Timer_Node {
 	 * dir passing different `$extract` parsers would share the first one's
 	 * table, and the second's keys would all read as misses.
 	 *
-	 * $wanted is REQUIRED, and that is the point: a whole-index table holds one
-	 * locator per distinct key ever written, an allocation that grows with the
-	 * partition rather than with the query. A 31,500-URL stats mirror exhausted
-	 * a 512MB request building one so the caller could read a handful of rows.
-	 * Retention, the walk and the memo below are all bounded by what is asked
-	 * for, so no caller can reintroduce that.
+	 * $wanted names every key to resolve, and the table, the walk and the memo
+	 * are all bounded by it. Without that bound this held one locator per key
+	 * ever written — an allocation growing with the partition rather than the
+	 * query. A stats-mirror read exhausted a 512MB request building one so its
+	 * caller could read a handful of rows; a locator costs ~300 bytes, so that
+	 * table had reached order-1M keys. The URL count is not the key count.
 	 *
-	 * The memo is per directory and keyed on the segment extent, holding what
-	 * was FOUND and what was SEARCHED FOR separately — an absent key stays
-	 * answered, so a miss-heavy reader does not re-walk the index per batch.
+	 * It defaults to EMPTY, which reads nothing. That default exists so a caller
+	 * compiled against the older one-argument form degrades to an empty result
+	 * rather than an ArgumentCountError: `Table_Node::lookup_multi()` invokes
+	 * the backing seam bare, so a fatal there is an uncaught 500.
+	 *
+	 * The result is a LOOKUP table addressed by key. Its order follows $wanted,
+	 * not the index — read it by key rather than by position.
+	 *
+	 * The memo is per directory, keyed on the segment extent, and holds what was
+	 * FOUND and what was SEARCHED FOR separately — so an absent key stays
+	 * answered and a miss-heavy reader does not re-walk the index per batch. It
+	 * is discarded WHOLE at MAX_LOCATOR_MEMO_KEYS as well as on an append, so a
+	 * long-lived reader can pay a re-walk mid-request; that costs time, never a
+	 * wrong answer, because a discard is always followed by a full walk.
 	 *
 	 * @api Readers resolving many keys to positions before reading any of them.
 	 * @param \Closure(string): ?array{key: string, offset: int, length: int} $extract Line parser.
-	 * The result is a LOOKUP table, not a sequence: its order follows the memo,
-	 * not the index, so read it by key.
-	 *
-	 * @param list<string> $wanted The keys to resolve; empty reads nothing.
+	 * @param list<string> $wanted Keys to resolve; empty reads nothing.
 	 * @return array<string,array{0: int, 1: int, 2: int}> key => [segment, offset, length].
 	 */
-	public function locate_by( \Closure $extract, array $wanted ): array {
-		if ( [] === $wanted ) {
+	public function locate_by( \Closure $extract, array $wanted = [] ): array {
+		// No formatter reads nothing, so it must not record a miss either.
+		if ( [] === $wanted || null === $this->index_callback ) {
 			return [];
 		}
 		$extent = '';
@@ -1098,29 +1116,51 @@ class Partition_Node extends Timer_Node {
 			$extent .= $segment['id'] . ':' . $segment['size'] . ',';
 		}
 		$dir = $this->partition_dir();
-		if ( ( self::$locator_cache[ $dir ][0] ?? null ) !== $extent ) {
-			self::$locator_cache[ $dir ] = [ $extent, [], [] ];
+		// Discard whole: after one walk a key costs nothing to keep.
+		if ( ( self::$locator_cache[ $dir ]['extent'] ?? null ) !== $extent
+			|| \count( self::$locator_cache[ $dir ]['searched'] ) > self::MAX_LOCATOR_MEMO_KEYS ) {
+			self::$locator_cache[ $dir ] = [ 'extent' => $extent, 'found' => [], 'searched' => [] ];
 		}
-		[ , $found, $searched ] = self::$locator_cache[ $dir ];
-		// Only keys nobody has walked for yet; the rest are already answered.
-		$seeking = \array_diff_key( \array_flip( $wanted ), $searched );
+		// Unwalked keys only; array_flip dedupes, which the stop relies on.
+		$keyset  = \array_flip( $wanted );
+		$seeking = \array_diff_key( $keyset, self::$locator_cache[ $dir ]['searched'] );
 		if ( [] !== $seeking ) {
+			// Fresh map: a by-ref memo separates wholly on the first write.
+			$new       = [];
+			$remaining = $seeking;
 			$this->scan_index(
-				static function ( string $line, int $segment ) use ( $extract, &$found, $seeking ): bool {
+				static function ( string $line, int $segment ) use ( $extract, &$new, &$remaining ): bool {
 					$at = $extract( $line );
-					if ( null === $at || isset( $found[ $at['key'] ] ) || ! isset( $seeking[ $at['key'] ] ) ) {
+					if ( null === $at ) {
 						return true;
 					}
-					// Newest-first: a key's FIRST hit is its current record.
-					$found[ $at['key'] ] = [ $segment, $at['offset'], $at['length'] ];
-					return \count( \array_intersect_key( $found, $seeking ) ) < \count( $seeking );
+					// Cheapest test first: most lines name a key nobody wants.
+					$key = $at['key'];
+					if ( ! isset( $remaining[ $key ] ) ) {
+						return true;
+					}
+					// Newest-first; leaving $remaining dedupes a repeat.
+					$new[ $key ] = [ $segment, $at['offset'], $at['length'] ];
+					unset( $remaining[ $key ] );
+					return [] !== $remaining;
 				},
 				true
 			);
-			// Searched, not found: a key absent from the index stays answered.
-			self::$locator_cache[ $dir ] = [ $extent, $found, $searched + $seeking ];
+			// `+=` merges in place; searched-not-found stays answered.
+			$memo              = &self::$locator_cache[ $dir ];
+			$memo['found']    += $new;
+			$memo['searched'] += $seeking;
+			unset( $memo );
 		}
-		return \array_intersect_key( $found, \array_flip( $wanted ) );
+		// Walk the QUERY: the memo accumulates across every batch.
+		$found = self::$locator_cache[ $dir ]['found'];
+		$out   = [];
+		foreach ( $keyset as $key => $_ ) {
+			if ( isset( $found[ $key ] ) ) {
+				$out[ $key ] = $found[ $key ];
+			}
+		}
+		return $out;
 	}
 
 	public function partition_dir(): string {
@@ -1161,10 +1201,11 @@ class Partition_Node extends Timer_Node {
 			}
 
 			$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
-			if ( $newest_first ) {
-				$lines = \array_reverse( $lines );
-			}
-			foreach ( $lines as $line ) {
+			// Free the raw copy; walking backwards avoids a reversed one.
+			unset( $idx );
+			$last = \count( $lines ) - 1;
+			for ( $i = 0; $i <= $last; $i++ ) {
+				$line = $lines[ $newest_first ? $last - $i : $i ];
 				if ( '' === $line ) {
 					continue;
 				}
@@ -1173,6 +1214,8 @@ class Partition_Node extends Timer_Node {
 					return;
 				}
 			}
+			// Free before the next: else the peak is two segments.
+			unset( $lines );
 		}
 	}
 

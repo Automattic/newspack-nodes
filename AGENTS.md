@@ -103,6 +103,8 @@ The version lives in four places: the `Version:` header and the `NEWSPACK_NODES_
 
 Each location has a distinct consumer: the header is what WordPress shows in the admin, the constant is what the runtime asserts against, `package.json` is what npm tooling reads, and the banner is what a consumer's bundle stamps. Drift between any two is a real bug we have shipped.
 
+**A signature change here must DEGRADE for a consumer that has not updated.** The substrate ships before its consumers, by design and by necessity — a consumer pins the substrate tag, so that tag has to exist first. The window where a host runs the new substrate against an older consumer is therefore guaranteed, not hypothetical. Adding a required parameter to an `@api` method closes that window with a fatal: `Partition_Node::locate_by()` briefly required its key set, and an older `Flame_Builder_Node` calling it raised `ArgumentCountError` through `Table_Node::lookup_multi()`, which invokes the seam bare — an uncaught 500 on every dashboard request, worse than the OOM it was fixing. Give the parameter a default whose behaviour is safe-but-useless (there, `[]`, which reads nothing), so the stale consumer degrades until it catches up.
+
 Releases are automated by GitHub Actions (`.github/workflows/release.yml`): pushing a `v<major>.<minor>.<patch>` tag builds the archive and publishes the Release. You only bump, changelog, commit and tag:
 
 ```bash

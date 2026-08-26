@@ -3902,13 +3902,23 @@ class PartitionTest extends TestCase {
 		$this->assertCount( 3, $found['k1'] );
 	}
 
+	/**
+	 * A repeated key resolves to its NEWEST record, and the early stop cannot
+	 * change that: it fires on the first match, so it is correct only while the
+	 * newest record is the one seen first. Delete the already-found check, or
+	 * drop newest_first, and a stale frame wins silently. (Reordering the two
+	 * membership tests is safe — both are side-effect-free.)
+	 *
+	 * Both k7 writes land in ONE segment, so only reversing the lines WITHIN a
+	 * segment resolves the key to its last write. The interleaved k9 proves the
+	 * walk is not merely stopping on the first line it reads. The stats mirror
+	 * reads a frame's remaining ttl off the record it lands on, so an older
+	 * frame reads as expired and the entry silently vanishes.
+	 */
 	public function test_locate_by_resolves_a_repeated_key_to_its_newest_record(): void {
-		// Both writes land in ONE segment, so only reversing the lines within a
-		// segment resolves the key to its last write. The stats mirror reads a
-		// frame's remaining ttl off the record it lands on, so an older frame
-		// reads as expired and the entry silently vanishes.
 		$p = $this->indexed_partition( 'dupkey', 0 );
 		$this->write_keyed( $p, 'k7', 'stale frame' );
+		$this->write_keyed( $p, 'k9', 'other' );
 		$this->write_keyed( $p, 'k7', 'current frame' );
 		$p->flush();
 
@@ -3934,6 +3944,102 @@ class PartitionTest extends TestCase {
 		$this->assertArrayHasKey( 'k2', $after, 'an append invalidates the table it would otherwise be blind to' );
 	}
 
+	/**
+	 * The walk STOPS on the last wanted key rather than reading the rest.
+	 *
+	 * Nothing else pins this: the table returned is byte-identical whether the
+	 * callback stops or runs to completion, so only the line count shows it.
+	 * Newest-first means k5 is the first line read, so one line answers it.
+	 */
+	public function test_the_walk_stops_once_every_wanted_key_is_found(): void {
+		$p    = $this->indexed_partition( 'earlystop', 5 );
+		$seen = 0;
+
+		$found = $p->locate_by(
+			static function ( string $line ) use ( &$seen ): ?array {
+				++$seen;
+				return self::unpack_index_line( $line );
+			},
+			[ 'k5' ]
+		);
+
+		$this->assertArrayHasKey( 'k5', $found );
+		$this->assertSame( 1, $seen, 'the newest line answered it; the other four were not read' );
+	}
+
+	/** A wanted key absent from the index costs a full pass, then is memoized. */
+	public function test_an_absent_key_is_walked_once_and_then_answered(): void {
+		$p     = $this->indexed_partition( 'absentmemo', 3 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$p->locate_by( $parse, [ 'k99' ] );
+
+		$seen = 0;
+		$p->locate_by(
+			static function ( string $line ) use ( &$seen, $parse ): ?array {
+				++$seen;
+				return $parse( $line );
+			},
+			[ 'k99' ]
+		);
+
+		$this->assertSame( 0, $seen, 'searched-and-absent stays answered' );
+	}
+
+	/**
+	 * An instance with no index formatter must not answer for the directory.
+	 *
+	 * `scan_index()` returns immediately when `index_callback` is null, so such
+	 * an instance finds nothing — and the memo is keyed by DIRECTORY and static,
+	 * so recording those keys as searched would make a second instance WITH a
+	 * formatter read them as answered misses, for the life of the process.
+	 */
+	public function test_a_partition_without_an_index_does_not_answer_for_the_dir(): void {
+		// The records must exist FIRST: an append moves the extent, which would
+		// discard the poisoned memo and hide the bug.
+		$seeing = $this->indexed_partition( 'noindex', 2 );
+		$parse  = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+
+		$blind = new Partition_Node();
+		$blind->arguments( [ "{$this->tmp}.noindex" ] );
+		$blind->void_warranty();
+
+		$this->assertSame( [], $blind->locate_by( $parse, [ 'k1' ] ), 'no formatter, no answer' );
+
+		$this->assertArrayHasKey(
+			'k1',
+			$seeing->locate_by( $parse, [ 'k1' ] ),
+			'a blind instance must not have recorded k1 as searched-and-absent'
+		);
+	}
+
+	/**
+	 * Past the cap the memo is discarded WHOLE, and the next walk still answers.
+	 *
+	 * This is the branch that exists to stop the OOM recurring, and nothing else
+	 * reaches it — the memo is private and static, so only 100,000 real keys or
+	 * this reflection gets there. A discard must cost a re-walk, never an answer.
+	 */
+	public function test_the_memo_is_discarded_whole_past_its_ceiling(): void {
+		$p     = $this->indexed_partition( 'ceiling', 3 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$this->assertArrayHasKey( 'k2', $p->locate_by( $parse, [ 'k2' ] ) );
+
+		$cache = new \ReflectionProperty( Partition_Node::class, 'locator_cache' );
+		$all   = $cache->getValue();
+		// This partition's own slot: the static is shared, so array_key_first()
+		// picks whichever dir another test left behind.
+		$dir   = $p->partition_dir();
+		$over  = Partition_Node::MAX_LOCATOR_MEMO_KEYS + 1;
+		$all[ $dir ]['searched'] = \array_fill( 0, $over, 1 );
+		$cache->setValue( null, $all );
+
+		// The stuffed memo is over the cap, so this call must discard and re-walk.
+		$this->assertArrayHasKey( 'k2', $p->locate_by( $parse, [ 'k2' ] ), 'a discard costs a walk, not an answer' );
+
+		$after = $cache->getValue();
+		$this->assertLessThan( $over, \count( $after[ $dir ]['searched'] ), 'the memo was discarded, not grown' );
+	}
+
 	/** An empty wanted set reads nothing at all. */
 	public function test_locate_by_reads_nothing_for_an_empty_wanted_set(): void {
 		$p    = $this->indexed_partition( 'emptywant', 6 );
@@ -3949,30 +4055,6 @@ class PartitionTest extends TestCase {
 
 		$this->assertSame( [], $found );
 		$this->assertSame( 0, $seen, 'nothing wanted must read no index lines' );
-	}
-
-	/**
-	 * The bounded walk resolves a repeated key to its NEWEST record.
-	 *
-	 * The early stop fires on the first match, so it is only correct while the
-	 * newest record is the one seen first. Reorder the isset() guard below the
-	 * wanted-set filter, or drop newest_first, and a stale frame wins silently —
-	 * which reads as expired and makes the entry vanish.
-	 */
-	public function test_a_bounded_walk_resolves_a_repeated_key_to_its_newest(): void {
-		$p = $this->indexed_partition( 'boundeddup', 0 );
-		$this->write_keyed( $p, 'k7', 'stale frame' );
-		$this->write_keyed( $p, 'k9', 'other' );
-		$this->write_keyed( $p, 'k7', 'current frame' );
-		$p->flush();
-
-		$locators = $p->locate_by(
-			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
-			[ 'k7' ]
-		);
-		$records  = $p->read_many( [ 'k7' => $locators['k7'] ] );
-
-		$this->assertSame( 'current frame', $records['k7'][ Message::VALUE ] );
 	}
 
 	/** A key already searched for is answered without re-reading the index. */
@@ -4026,7 +4108,7 @@ class PartitionTest extends TestCase {
 	 *
 	 * The reader's cost must scale with its query, not with everything ever
 	 * written: a whole-index table on a large keyspace is what exhausted a
-	 * 512MB request, which is why the key set is required rather than optional.
+	 * 512MB request.
 	 */
 	public function test_locate_by_retains_only_the_wanted_keys(): void {
 		$p = $this->indexed_partition( 'wanted', 5 );
