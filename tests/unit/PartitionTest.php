@@ -3891,9 +3891,14 @@ class PartitionTest extends TestCase {
 	public function test_locate_by_maps_every_key_to_its_newest_record(): void {
 		$p = $this->indexed_partition( 'locate', 3 );
 
-		$found = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$found = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k1', 'k2', 'k3' ]
+		);
 
-		$this->assertSame( [ 'k3', 'k2', 'k1' ], \array_keys( $found ), 'newest first, one entry per key' );
+		$keys = \array_keys( $found );
+		\sort( $keys );
+		$this->assertSame( [ 'k1', 'k2', 'k3' ], $keys, 'one entry per key' );
 		$this->assertCount( 3, $found['k1'] );
 	}
 
@@ -3907,7 +3912,10 @@ class PartitionTest extends TestCase {
 		$this->write_keyed( $p, 'k7', 'current frame' );
 		$p->flush();
 
-		$locators = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$locators = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k7' ]
+		);
 		$records  = $p->read_many( [ 'k7' => $locators['k7'] ] );
 
 		$this->assertSame( 'current frame', $records['k7'][ Message::VALUE ] );
@@ -3915,19 +3923,142 @@ class PartitionTest extends TestCase {
 
 	public function test_locate_by_rebuilds_when_the_partition_grows(): void {
 		$p     = $this->indexed_partition( 'grow', 1 );
-		$first = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$first = $p->locate_by( $parse, [ 'k1', 'k2' ] );
 		$this->assertSame( [ 'k1' ], \array_keys( $first ) );
 
 		$this->write_keyed( $p, 'k2', 'later' );
 		$p->flush();
 
-		$after = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$after = $p->locate_by( $parse, [ 'k1', 'k2' ] );
 		$this->assertArrayHasKey( 'k2', $after, 'an append invalidates the table it would otherwise be blind to' );
+	}
+
+	/** An empty wanted set reads nothing at all. */
+	public function test_locate_by_reads_nothing_for_an_empty_wanted_set(): void {
+		$p    = $this->indexed_partition( 'emptywant', 6 );
+		$seen = 0;
+
+		$found = $p->locate_by(
+			static function ( string $line ) use ( &$seen ): ?array {
+				++$seen;
+				return self::unpack_index_line( $line );
+			},
+			[]
+		);
+
+		$this->assertSame( [], $found );
+		$this->assertSame( 0, $seen, 'nothing wanted must read no index lines' );
+	}
+
+	/**
+	 * The bounded walk resolves a repeated key to its NEWEST record.
+	 *
+	 * The early stop fires on the first match, so it is only correct while the
+	 * newest record is the one seen first. Reorder the isset() guard below the
+	 * wanted-set filter, or drop newest_first, and a stale frame wins silently —
+	 * which reads as expired and makes the entry vanish.
+	 */
+	public function test_a_bounded_walk_resolves_a_repeated_key_to_its_newest(): void {
+		$p = $this->indexed_partition( 'boundeddup', 0 );
+		$this->write_keyed( $p, 'k7', 'stale frame' );
+		$this->write_keyed( $p, 'k9', 'other' );
+		$this->write_keyed( $p, 'k7', 'current frame' );
+		$p->flush();
+
+		$locators = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k7' ]
+		);
+		$records  = $p->read_many( [ 'k7' => $locators['k7'] ] );
+
+		$this->assertSame( 'current frame', $records['k7'][ Message::VALUE ] );
+	}
+
+	/** A key already searched for is answered without re-reading the index. */
+	public function test_a_second_walk_for_the_same_key_reads_no_index_lines(): void {
+		$p     = $this->indexed_partition( 'memo', 4 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$p->locate_by( $parse, [ 'k2' ] );
+
+		$seen  = 0;
+		$again = $p->locate_by(
+			static function ( string $line ) use ( &$seen, $parse ): ?array {
+				++$seen;
+				return $parse( $line );
+			},
+			[ 'k2' ]
+		);
+
+		$this->assertArrayHasKey( 'k2', $again );
+		$this->assertSame( 0, $seen, 'a searched key is memoized, not re-walked' );
+	}
+
+	/** A key NOT previously searched for still gets found. */
+	public function test_a_later_walk_finds_a_key_the_first_never_sought(): void {
+		$p     = $this->indexed_partition( 'widen', 4 );
+		$parse = static fn ( string $line ): ?array => self::unpack_index_line( $line );
+		$p->locate_by( $parse, [ 'k2' ] );
+
+		$found = $p->locate_by( $parse, [ 'k2', 'k4' ] );
+
+		$keys = \array_keys( $found );
+		\sort( $keys );
+		$this->assertSame( [ 'k2', 'k4' ], $keys );
+	}
+
+	/** Duplicates in the wanted set must not break the early stop. */
+	public function test_duplicate_wanted_keys_do_not_stall_the_walk(): void {
+		$p = $this->indexed_partition( 'dupwant', 5 );
+
+		$found = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k2', 'k2', 'k4' ]
+		);
+
+		$keys = \array_keys( $found );
+		\sort( $keys );
+		$this->assertSame( [ 'k2', 'k4' ], $keys );
+	}
+
+	/**
+	 * A wanted set bounds the table to the keys asked for.
+	 *
+	 * The reader's cost must scale with its query, not with everything ever
+	 * written: a whole-index table on a large keyspace is what exhausted a
+	 * 512MB request, which is why the key set is required rather than optional.
+	 */
+	public function test_locate_by_retains_only_the_wanted_keys(): void {
+		$p = $this->indexed_partition( 'wanted', 5 );
+
+		$found = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k2', 'k4' ]
+		);
+
+		$keys = \array_keys( $found );
+		\sort( $keys );
+		$this->assertSame( [ 'k2', 'k4' ], $keys, 'wanted only' );
+	}
+
+	/** A wanted key absent from the partition is simply missing, not an error. */
+	public function test_locate_by_omits_a_wanted_key_it_never_finds(): void {
+		$p = $this->indexed_partition( 'absent', 2 );
+
+		$found = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k1', 'k99' ]
+		);
+
+		$this->assertSame( [ 'k1' ], \array_keys( $found ) );
 	}
 
 	public function test_read_many_returns_each_located_record(): void {
 		$p        = $this->indexed_partition( 'readmany', 3 );
-		$locators = $p->locate_by( static fn ( string $line ): ?array => self::unpack_index_line( $line ) );
+		$locators = $p->locate_by(
+			static fn ( string $line ): ?array => self::unpack_index_line( $line ),
+			[ 'k1', 'k3' ]
+		);
 
 		$records = $p->read_many( [ 'a' => $locators['k1'], 'b' => $locators['k3'] ] );
 
