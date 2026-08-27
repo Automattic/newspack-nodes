@@ -25,6 +25,16 @@
 
 	.button {
 		appearance: none;
+		// @longform Kills `.wp-core-ui .button`'s `display: inline-block`,
+		// which is two classes deep and beat every single-class component rule
+		// that tried to lay a button out — so `display: flex` silently did
+		// nothing and the contents lay out as one run of inline text. Setting
+		// it HERE wins once, at the layer that owns what a button is, instead
+		// of each component re-fighting it. Inline-level still, so buttons flow
+		// beside text as before; the change is that their CONTENTS lay out.
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 		border: 1px solid transparent;
 		border-radius: var(--button-radius, 5px);
 		box-sizing: border-box;

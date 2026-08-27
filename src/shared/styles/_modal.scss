@@ -64,25 +64,26 @@
 			}
 		}
 
-		// Plain header chrome only — heading, close, back. A button carrying a
-		// role brings its own fill AND text; painting it ink leaves the toggle
-		// pale on its own accent.
+		// Plain header chrome only — heading, close, back. Anything carrying a
+		// role brings its own fill AND text, so painting it ink leaves a toggle
+		// pale on its own accent — and leaves a `.button` in a header looking
+		// nothing like the identical `.button` in the body beside it.
 		.components-modal__header-heading,
 		.components-modal__header
-			> button:not(.is-active):not(.button-primary):not(.is-danger):not(
-				.button-link-delete
-			):not(.is-paused) {
-			color: var(--ink, var(--np-text));
+			> button:not(.button):not(.is-active):not(.button-primary):not(
+				.is-danger
+			):not(.button-link-delete):not(.is-paused) {
+			color: var(--ink, var(--np-text)); // styles-ok: stock modal chrome, which carries no role
 		}
 
 		// Out-specifies the Emotion rules WordPress injects inside a modal.
 		.components-base-control__label,
 		.components-input-control__label {
-			color: var(--ink, var(--np-text));
+			color: var(--ink, var(--np-text)); // styles-ok: out-specifies Emotion
 		}
 
 		.components-base-control__help {
-			color: var(--ink-3, var(--np-text-secondary));
+			color: var(--ink-3, var(--np-text-secondary)); // styles-ok: out-specifies Emotion
 		}
 	}
 }

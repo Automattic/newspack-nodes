@@ -107,7 +107,6 @@ body:has(.nodes-devtools-hub .topology-app) {
 }
 
 .topology-open-item {
-	display: flex;
 	width: 100%;
 	align-items: center;
 	gap: 8px;
@@ -116,6 +115,8 @@ body:has(.nodes-devtools-hub .topology-app) {
 	margin-bottom: 4px;
 }
 
+// Takes the row, so the badge is pushed to the far end rather than sitting
+// beside the name. Left-aligned, as every other button in this UI is.
 .topology-open-item__name {
 	flex: 1;
 	text-align: left;
@@ -158,13 +159,6 @@ body:has(.nodes-devtools-hub .topology-app) {
 		line-height: 1;
 	}
 
-	// The native number spinner renders in the browser's light UA colors (a
-	// white box that ignores the field's own colors), which jars on a dark skin.
-	// `color-scheme: dark` makes the UA paint the spinner dark to match the skin,
-	// instead of hiding it.
-	input[type="number"] {
-		color-scheme: dark;
-	}
 }
 
 .topology-settings-field {
