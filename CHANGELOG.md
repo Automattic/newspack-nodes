@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A swallowed `after_job` throw names itself.** `Worker_Should_Stop` carries no message, so the rate-limited line read `after_job listener threw:` with nothing after it — a cooperative stop looking exactly like a broken listener, in the one place an operator goes to tell them apart. It falls back to the exception class.
+
 ### Added
 
 - **`Event_Framework::stop_check()` — ask now whether the worker should keep going.** `pump()` is throttled to one liveness check per `PUMP_INTERVAL_S`, which is right for the incidental write path it rides. It is wrong for a caller that has just finished a unit of work and needs the answer at that point: a subprocess that may have outlived the worker's lease, where the parent logged nothing for the whole render. A short one slipped through unchecked and the job recorded a clean finish for work that was cut short. `pump()` is now literally the throttled form of this, and asking directly matters because a write can be declined — `Log_Manager::message()` returns false when the request is not being logged, and whether the worker should stop has nothing to do with that.
