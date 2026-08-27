@@ -73,17 +73,26 @@
 			> button:not(.button):not(.is-active):not(.button-primary):not(
 				.is-danger
 			):not(.button-link-delete):not(.is-paused) {
-			color: var(--ink, var(--np-text)); // styles-ok: stock modal chrome, which carries no role
+			color: var(
+				--ink,
+				var(--np-text)
+			); // styles-ok: stock modal chrome, which carries no role
 		}
 
 		// Out-specifies the Emotion rules WordPress injects inside a modal.
 		.components-base-control__label,
 		.components-input-control__label {
-			color: var(--ink, var(--np-text)); // styles-ok: out-specifies Emotion
+			color: var(
+				--ink,
+				var(--np-text)
+			); // styles-ok: out-specifies Emotion
 		}
 
 		.components-base-control__help {
-			color: var(--ink-3, var(--np-text-secondary)); // styles-ok: out-specifies Emotion
+			color: var(
+				--ink-3,
+				var(--np-text-secondary)
+			); // styles-ok: out-specifies Emotion
 		}
 	}
 }
