@@ -7,7 +7,7 @@ import '@testing-library/jest-dom';
 // The substrate's `Core.stderr()` / `printLessOften()` (../../src/runtime/core.js)
 // route node faults, rate-limited logs, and dropped-message notices through
 // console.warn (never console.error, to skip devtools' error counter), each line
-// stamped `YYYY-MM-DD HH:MM:SS UTC <argv0>: `. Those are expected spam on any test
+// stamped `YYYY-MM-DD HH:MM:SS <ZONE> <argv0>: `. Those are expected spam on any test
 // exercising a fault path, so warn lines matching that signature are dropped. EVERY
 // other console.warn and EVERY console.error (React `act(...)` warnings, third-party
 // deprecations, genuine errors) is recorded and re-thrown in afterEach, failing the
@@ -19,8 +19,9 @@ import '@testing-library/jest-dom';
 // `jest.spyOn( console, … )`; that shadows the recorder for that test and the
 // afterEach restore unwinds both.
 
-// The Core.stderr() line prefix: ISO-ish date + " UTC <argv0>: ".
-const SUBSTRATE_STDERR = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC \S+: /;
+// The Core.stderr() line prefix: ISO-ish date + the local zone + " <argv0>: ".
+const SUBSTRATE_STDERR =
+	/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (?:UTC|GMT[+-][\d:]+|[A-Z]{2,5}) \S+: /;
 
 let violations = [];
 

@@ -69,30 +69,36 @@ function isRequestCommand( message ) {
  */
 export async function answerBatch( messages, replyFor, options = {} ) {
 	const { requireSignature = true } = options;
+	// @longform Every command in the batch reaches the verb, and only then does
+	// the POST answer. Awaiting each in turn instead means one slow command
+	// hides the rest: a test holding the first reply open would see the second
+	// as never sent, when the wire carried both in the same body.
+	const asked = messages.map( ( sent ) => {
+		// An unsigned request never reaches the verb; its answer IS a refusal.
+		const unsigned =
+			requireSignature &&
+			! sent[ VALUE ]?.auth?.sig &&
+			isRequestCommand( sent );
+		return {
+			sent,
+			answer: unsigned
+				? new Error( `unauthorized: ${ sent[ VALUE ]?.name }` )
+				: replyFor( sent ),
+		};
+	} );
 	const replies = [];
-	for ( const sent of messages ) {
-		const unsigned = ! sent[ VALUE ]?.auth?.sig && isRequestCommand( sent );
-		if ( requireSignature && unsigned ) {
-			replies.push(
-				commandReply(
-					sent,
-					`unauthorized: ${ sent[ VALUE ]?.name }`,
-					TM_ERROR
-				)
-			);
-			continue;
-		}
+	for ( const { sent, answer } of asked ) {
 		// Awaited, so a replyFor that resolves a payload works unchanged.
-		const answer = await replyFor( sent );
+		const settled = await answer;
 		// undefined = the server said nothing; a 202-style routed command.
-		if ( undefined === answer ) {
+		if ( undefined === settled ) {
 			continue;
 		}
-		const failed = answer instanceof Error;
+		const failed = settled instanceof Error;
 		replies.push(
 			commandReply(
 				sent,
-				failed ? answer.message : answer,
+				failed ? settled.message : settled,
 				failed ? TM_ERROR : TM_RESPONSE
 			)
 		);

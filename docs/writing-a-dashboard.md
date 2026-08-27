@@ -35,9 +35,9 @@ A dashboard's data flow is a node graph, so here is the whole graph — server s
                                                                 ▲ │
                                   each reply routes TO = the fetcher's receiver Tee
                                                                 │ ▼
-       countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>
-       topIn    (Tee) ─> top-table:view     ─> <TopTable/>
-       accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>
+       countsIn (Tee) ─> source-counts:view ─> <SourceCounts/>      …and back to
+       topIn    (Tee) ─> top-table:view     ─> <TopTable/>          its own Fetcher,
+       accIn    (Tee) ─> accumulated:view   ─> <AccumulatedCard/>   settling the ask
 ```
 
 Read that top to bottom. **One `Timer`** ticks; **one `Tee`** fans the tick to **three `Fetcher`s**; each Fetcher emits *its own* configured command through `_shell/_http/insights-demo`; the service CI answers each with a *small slice*; each reply routes back to *its own* receiver `Tee`, which fans to *its own* thin view node, which feeds *its own* React widget. **There is no place in this graph where the whole model lives.** Counts flow on the counts edges and never touch the top-table view; the top-table reply never touches the accumulated card.
@@ -354,21 +354,28 @@ export class FetcherNode extends Node {
 	//   command  — the verb to send (CONFIGURED on the node, never read from the message)
 	//   command_args — the remaining tokens as a flat token array (list<string>)
 
-	fill( _message ) {
+	fill( message ) {
+		if ( message[ TYPE ] & ( TM_RESPONSE | TM_ERROR ) ) {
+			this._settle( message );   // the answer to an ask; take it off the outbox
+			return;
+		}
 		if ( ! readyToMint() ) {
 			return;   // unauthenticated; re-auth is under way, next poll carries it
 		}
+		if ( this.outbox.length ) {
+			return;   // an ask already stands; asking it again says nothing
+		}
 		const m = newMessage();
 		m[ TYPE ]  = TM_COMMAND;
-		m[ FROM ]  = this.receiver;                                    // reply routes back here
-		m[ VALUE ] = { name: this.command, arguments: this.command_args };  // arguments is a token array
+		m[ FROM ]  = this.receiver;                                 // reply routes back here
+		m[ VALUE ] = { name: this.verb, arguments: this.command_args };  // a token array
 		markLocal( m );    // flag it as this process's own mint, and sign it
 		super.fill( m );   // TO stamped from target, forwarded to sink
 	}
 }
 ```
 
-Read `fill()` carefully — it **ignores its trigger message entirely**. Any message that arrives is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
+Read `fill()` carefully — apart from a reply, it **ignores its trigger message entirely**. Any other message that arrives is only the *trigger* to emit *the Fetcher's own configured command*. The command is configured on the node at `make_node` time (`fetch-counts`'s command is `counts`, fixed), **never read from the triggering message**.
 
 > **A node that sends the command its message carries is a `Shell`, and that's verboten.** A Shell *sends* arbitrary commands; a command *interpreter* is what *interprets* them. A named, always-firing node that relays whatever verb its incoming message names is a Shell wired into the graph — exactly the thing the substrate forbids. The Fetcher is the safe inverse: the command is fixed on the node, the message is only a trigger. When you need "on a tick, send verb X to node Y", reach for a `Fetcher`, never a Shell.
 
@@ -382,6 +389,8 @@ Read `fill()` carefully — it **ignores its trigger message entirely**. Any mes
 ### c. The receiver reply path — why a `counts` reply only touches the counts view
 
 Each Fetcher stamps **`FROM = its receiver Tee`** (`fetch-counts` → `FROM=countsIn`). The service CI replies **`TO = FROM`**, so the `counts` reply routes back to `countsIn`, which fans it to `source-counts:view`, which feeds `<SourceCounts/>`. The `top` reply lands on `topIn → top-table:view`; the `accumulated` reply on `accIn → accumulated:view`. **Three independent reply paths.** Nothing crosses; there is no shared model node to clobber.
+
+Each receiver `Tee` fans the reply **back to its own Fetcher** as well, which is what takes the ask off that Fetcher's outbox. Until it does, the Fetcher is quiet: a one-second refresh on a four-second verb asks once and waits, instead of stacking four identical commands the server is still working through. An answer that never arrives stops holding the outbox open after `retry_after_s` (15 by default), so a lost reply costs one slow refresh rather than a dead widget.
 
 ### d. The thin view node
 
@@ -492,7 +501,7 @@ export function usePublisherInsightsGraph( opts = {} ) {
 }
 ```
 
-`useBatchedPoll` owns everything that used to be hand-wired here — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut (whose command client it assigns, injectable for tests), the fan-out `Tee`, the router-hitchhike `Timer`, the lock/flush bracket, and the page-visibility gate. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, and its view node. (When a slice needs a per-slice merge/dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
+`useBatchedPoll` owns everything that used to be hand-wired here — the `mountExospine` call that brings the `_shell` Tap and the `_http` HttpOut (whose command client it assigns, injectable for tests), the fan-out `Tee`, the router-hitchhike `Timer`, the lock/flush bracket, and the page-visibility gate. Each `addSliceFetcher` wires one Fetcher → `_shell/_http/insights-demo`, its receiver Tee, its view node, and the receiver's edge back to the Fetcher that settles the ask. (When a slice needs a per-slice merge/dedup, pass `addSliceFetcher` a `transform: { name, nodeClass, args }` and it drops that node onto the receiver-Tee → view edge — so the transform lands on a graph edge, not inside the view.)
 
 `useBatchedPoll` also takes two production knobs the real dashboards lean on, passed in the same options bag. Our toy polls every router tick and never pauses, so it passes neither:
 

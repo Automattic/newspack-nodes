@@ -105,6 +105,10 @@ trait Fanout_Targets {
 	 * HEAD segment of its path names a live node — Router peels the rest, so
 	 * `spoke/settings` survives as long as `spoke` does.
 	 *
+	 * CONNECT order is preserved, and that is contractual: a consumer may depend
+	 * on an earlier target having been fully delivered before a later one is.
+	 * The JS port says the same, where `addSliceFetcher` rests on it.
+	 *
 	 * @return list<string>
 	 */
 	protected function live_targets(): array {

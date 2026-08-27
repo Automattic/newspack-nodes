@@ -697,8 +697,15 @@ describe( 'useCommandOnce', () => {
 		);
 		expect( result.current.isPending( 'wombat-4471' ) ).toBe( false );
 
+		// Separate ticks, so each rides its own POST and answers on its own —
+		// two sends in ONE batch share a response body and settle together.
 		act( () => {
 			result.current.run( [ 'wombat-4471' ] );
+		} );
+		await waitFor( () => expect( held.length ).toBe( 1 ), {
+			timeout: 8000,
+		} );
+		act( () => {
 			result.current.run( [ 'quokka-8823' ] );
 		} );
 		expect( result.current.isPending( 'wombat-4471' ) ).toBe( true );

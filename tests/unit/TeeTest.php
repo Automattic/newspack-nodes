@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -41,6 +42,37 @@ class TeeTest extends TestCase {
 		$this->assertCount( 1, $a->captured );
 		$this->assertCount( 1, $b->captured );
 		$this->assertSame( 'fanout', $a->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_fill_delivers_in_connect_order(): void {
+		// @longform Connect order IS delivery order, and a consumer may depend
+		// on an earlier target having been fully delivered before a later one:
+		// the JS port's `addSliceFetcher` fans a reply to the view before the
+		// Fetcher that settles the ask, so the ask still stands while it
+		// renders. Parity with `tee-node.test.js`, which pins the same thing.
+		$order  = [];
+		$router = new Router_Node();
+		$router->name( '_router' );
+		foreach ( [ 'first', 'second' ] as $name ) {
+			$node = new Callback_Node(
+				static function () use ( $name, &$order ): void {
+					$order[] = $name;
+				}
+			);
+			$node->name( $name );
+		}
+
+		$tee = new Tee_Node();
+		$tee->name( 'tee' );
+		$tee->sink( $router );
+		$tee->connect_node( 'first' );
+		$tee->connect_node( 'second' );
+
+		$message = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$tee->fill( $message );
+
+		$this->assertSame( [ 'first', 'second' ], $order );
 	}
 
 	public function test_fill_prepends_subpath_to_each_target_for_nonempty_TO(): void {

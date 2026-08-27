@@ -9,6 +9,11 @@ import { TO } from './message';
  * to `<target>/<TO>` — bare `<target>` when TO is empty — so a fan-out can sit
  * mid-path and each branch still routes down whatever path remains.
  *
+ * Fan-out follows CONNECT order, and that is contractual: a consumer may
+ * depend on an earlier target having been fully delivered — synchronously,
+ * through Router — before a later one is. `addSliceFetcher` does exactly that,
+ * fanning a reply to the view before the Fetcher that settles the ask.
+ *
  * Targets are pruned on every fill against THIS node's registry: a draft graph's
  * nodes are invisible to any other registry, so resolving elsewhere would read
  * every edge as dead and drop it. A target that throws is logged and the
