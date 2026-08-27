@@ -1311,7 +1311,7 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 			title={ __( 'Compose a message', 'newspack-nodes' ) }
 			onDismiss={ onCancel }
 		>
-			<div className="topology-modal__body">
+			<div className="topology-modal__body topology-modal__body--pairs">
 				<label
 					className="topology-modal__label"
 					htmlFor="nodes-compose-type"
@@ -1331,6 +1331,20 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 							</option>
 						) ) }
 					</select>
+				</label>
+				<label
+					className="topology-modal__label"
+					htmlFor="nodes-compose-timestamp"
+				>
+					{ __( 'Timestamp', 'newspack-nodes' ) }
+					<input
+						id="nodes-compose-timestamp"
+						className="topology-modal__input"
+						type="text"
+						value={ timestamp }
+						placeholder={ __( 'now (default)', 'newspack-nodes' ) }
+						onChange={ ( e ) => setTimestamp( e.target.value ) }
+					/>
 				</label>
 				<div className="topology-modal__checkbox-row">
 					<label
@@ -1362,20 +1376,6 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 						{ __( 'TM_ERROR', 'newspack-nodes' ) }
 					</label>
 				</div>
-				<label
-					className="topology-modal__label"
-					htmlFor="nodes-compose-timestamp"
-				>
-					{ __( 'Timestamp', 'newspack-nodes' ) }
-					<input
-						id="nodes-compose-timestamp"
-						className="topology-modal__input"
-						type="text"
-						value={ timestamp }
-						placeholder={ __( 'now (default)', 'newspack-nodes' ) }
-						onChange={ ( e ) => setTimestamp( e.target.value ) }
-					/>
-				</label>
 				<label
 					className="topology-modal__label"
 					htmlFor="nodes-compose-from"
@@ -1439,7 +1439,7 @@ function ComposeModal( { nodeNames, onConfirm, onCancel } ) {
 				</label>
 				{ takesValue && (
 					<label
-						className="topology-modal__label"
+						className="topology-modal__label topology-modal__label--wide"
 						htmlFor="nodes-compose-value"
 					>
 						{ __( 'Value', 'newspack-nodes' ) }

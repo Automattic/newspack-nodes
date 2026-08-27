@@ -2542,7 +2542,7 @@
 // The label sits as a small mono caption above its input; baseline-aligned.
 .topology-modal__label {
 	display: block;
-	margin-top: 8px;
+	margin-top: 14px;
 	font-family: var(--font-mono);
 	font-size: 11px;
 	color: var(--ink-2);
@@ -2552,6 +2552,38 @@
 
 .topology-modal__label:first-child {
 	margin-top: 0;
+}
+
+// The composer fills the width instead of running one field per row down a
+// narrow column: TYPE|TIMESTAMP, FROM|TO, ID|KEY, then VALUE across both.
+// @longform Two rhythms, not one. `row-gap` is the TIGHT one, because the
+// TM_* flags are part of the TYPE above them and reading as a field of their
+// own is exactly what a uniform gap did. The gap BETWEEN fields is that plus
+// the label's own margin, which the flag row does not take — so the pair a
+// label belongs to stays together and the next field still clears it.
+.topology-modal__body--pairs {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	column-gap: 14px;
+	row-gap: 6px;
+	align-items: start;
+
+	.topology-modal__label {
+		margin-top: 10px;
+	}
+
+	// The first row, and the flags that belong to it.
+	.topology-modal__label:nth-of-type(-n + 2),
+	.topology-modal__checkbox-row {
+		margin-top: 0;
+	}
+
+	// The TM_* flags modify the TYPE above them, and VALUE is a textarea that
+	// wants the width — both take the whole row.
+	.topology-modal__checkbox-row,
+	.topology-modal__label--wide {
+		grid-column: 1 / -1;
+	}
 }
 
 // The two reply-flag checkboxes share one row; keep their TM_* labels uppercase
