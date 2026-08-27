@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.42.0] - 2026-08-26
+
 ### Fixed
 
 - **A swallowed `after_job` throw names itself.** `Worker_Should_Stop` carries no message, so the rate-limited line read `after_job listener threw:` with nothing after it — a cooperative stop looking exactly like a broken listener, in the one place an operator goes to tell them apart. It falls back to the exception class.
