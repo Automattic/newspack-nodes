@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.43.2] - 2026-08-27
+
+### Fixed
+
+- **The debug overlay's REPL echoes each line with the prompt it was typed at.** It hard-coded `/`, so every command in the transcript read `/>` however deep the shell was, and a `cd` left no trace — the line after it looked like it ran at the root. The topology console, which renders the same transcript shape, has always passed its cwd; only the overlay's copy of the dispatch did not.
+
+
 ### Added
 
 - **A gate that derives a consumer's substrate floor instead of trusting the number written down.** `scripts/check-substrate-floor.sh` asks PHPStan which class DECLARES each call a consumer makes, then binary-searches the substrate's tags for the release that introduced it, and fails when the declared floor is lower. A floor set too low is the failure it exists for: the handshake passes, the plugin wires itself up, and it fatals on a method the older substrate does not have — where the whole point of the gate is that too-old means dormant. `lint-docs.sh` could never catch it, because it holds the PROSE to the loader and both agreed on the wrong number.

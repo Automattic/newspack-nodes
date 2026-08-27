@@ -524,4 +524,25 @@ describe( 'useDebugRepl', () => {
 		expect( seen[ 1 ][ FROM ] ).toBe( '_overlay:receiver' );
 		teardown();
 	} );
+	/**
+	 * The echoed command carries the prompt it was typed AT, so a transcript
+	 * reads back as the session did. The overlay hard-coded `/`, so every line
+	 * echoed `/>` no matter where the shell was — the topology console, sharing
+	 * this transcript shape, has always passed its cwd.
+	 */
+	it( 'echoes each line with the prompt it was typed at, not a fixed root', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+
+		act( () => result.current.sendLine( 'pwd' ) );
+		shell.path = '_http';
+		act( () => result.current.sendLine( 'pwd' ) );
+
+		const sent = result.current.transcript.filter(
+			( e ) => 'sent' === e.kind
+		);
+		expect( sent.map( ( e ) => e.prompt ) ).toEqual( [ '/', '/_http' ] );
+		teardown();
+	} );
 } );
