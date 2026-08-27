@@ -805,12 +805,15 @@ describe( 'Inspector (view mode)', () => {
 				'.topology-modal__body [id^="nodes-compose-"]'
 			)
 		).map( ( el ) => el.id );
-		// TYPE(0) TIMESTAMP(1) FROM(2) TO(3) ID(4) KEY(5) VALUE(6).
+		// Laid out in two columns — TYPE|TIMESTAMP, FROM|TO, ID|KEY, then VALUE
+		// across both — so source order pairs the way the grid reads, and the
+		// TM_* flags follow the TYPE they modify rather than splitting the
+		// first pair. Tab order follows the same path.
 		expect( ids ).toEqual( [
 			'nodes-compose-type',
+			'nodes-compose-timestamp',
 			'nodes-compose-response',
 			'nodes-compose-error',
-			'nodes-compose-timestamp',
 			'nodes-compose-from',
 			'nodes-compose-to',
 			'nodes-compose-id',
