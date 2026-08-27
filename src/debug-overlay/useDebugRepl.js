@@ -243,7 +243,12 @@ export function useDebugRepl( active = true, shell, onSetSkin = () => {} ) {
 		}
 		// Echo input verbatim; blanks stay silent.
 		if ( '' !== statement.trim() ) {
-			dumper.append( { kind: 'sent', text: statement, prompt: '/' } );
+			// The prompt it was typed AT, or `cd` is invisible.
+			dumper.append( {
+				kind: 'sent',
+				text: statement,
+				prompt: `/${ s.path }`,
+			} );
 		}
 		// Applied on the way out by the gate this hook owns.
 		fieldsRef.current = fields;
