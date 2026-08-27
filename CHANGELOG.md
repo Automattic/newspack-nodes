@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A transport stamps its name on what it brings IN, so a reply carries a route back out.** Tachikoma's `Socket.pm:853` prefixes the transport's own name onto the FROM of every inbound message; both `HTTP_Out` ports had been missing that line, so a reply from `foo` arrived claiming to be from `foo` — a node the receiving graph does not have. It reads `_http/foo` now, which routes. Inbound only: a command going out has not been anywhere yet, and stamping it would tell the remote our name is part of its own address. It goes through `stamp_message` / `stampMessage`, like `Remote_Link_Node` and every other transport that stamps, so the `MAX_FROM_SIZE` guard covers this boundary too: a reply looping hub → spoke → hub is dropped by the transport that overflowed the path, which can name itself, rather than by the Router a layer later, which cannot.
+- **A reply landing after its node was torn down is dropped where that is true, not routed at one.** `removeNode()` clears the name, the sink and the registration, so an in-flight POST resolving afterwards had nothing to route to and no name to stamp with — a lifecycle race that would otherwise be reported as the programming error an unnamed stamp is.
+- **The topology console's time column reads in the same zone as the lines beneath it.** It rendered UTC, by a comment that said it matched "the console's UTC logs" — true until those logs became local. A UTC cell beside a local-stamped line is the two-clocks-per-row problem this release removes from the overlay, one tab over.
+- **A failing command reads as a log line rather than a dumped object.** The overlay's error entry named the TO, which is whoever ASKED and is our own `_output` on every one of these, prefixed `ERROR:` to a diagnosis the server had already written as an error, and printed the whole response envelope as JSON with its newline still on. It names the FROM that failed, the command that elicited it, and the remote's own words — `_http/spoke-4471: topology activate combined: no such topology`.
+- **`log_prefix` stamps LOCAL time with the zone, like Tachikoma.** `Node.pm:459` is `strftime( '%F %T %Z', localtime )`; this port emitted UTC. In a browser the local zone is the reader's own, which is what lets a line here be lined up against the tab beside it. `log_prefixed()` now owns the once-only rule — prefix it unless it already carries one — which `stderr` applied inline and the overlay needed again.
+- **Every message in the overlay's overview tab carries the same prefix.** The ring holds structure — level, text, ts — so the prefix is its rendering, applied at display from the moment the line was RECORDED. Lines reaching the ring straight from `IoTelemetry.recordError` or from Shell3's raw `print {*STDERR}` had none, and the relative `X ago` beside them was a second clock reading nothing the other three surfaces show.
+
 ## [2.43.0] - 2026-08-26
 
 ### Added

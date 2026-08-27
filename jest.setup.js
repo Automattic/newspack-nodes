@@ -40,7 +40,7 @@ beforeEach( () => {
 // `Core.stderr()` / `printLessOften()` (src/runtime/core.js) route node faults,
 // rate-limited logs, and dropped-message notices through console.warn (never
 // console.error, to skip devtools' error counter), each line stamped
-// `YYYY-MM-DD HH:MM:SS UTC <argv0>: `. A test that legitimately exercises a
+// `YYYY-MM-DD HH:MM:SS <zone> <argv0>: `. A test that legitimately exercises a
 // fault path must DECLARE the message it expects:
 //
 //     expectConsoleWarn( 'Router: dropped message not addressed' );
@@ -56,8 +56,12 @@ beforeEach( () => {
 // Tests that prefer to assert via their own `jest.spyOn( console|Core, … )`
 // still can; that shadows the recorder and the afterEach restore unwinds both.
 
-// The Core.stderr() line prefix: ISO-ish date + " UTC <argv0>: ".
-const SUBSTRATE_STDERR = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC \S+: /;
+// The Core.stderr() line prefix: ISO-ish date + " <zone> <argv0>: ".
+// The zone token is constrained to the shapes Intl actually emits — a bare
+// `\S+` there matches any `<date> <time> <word> <word>: ` warning text and
+// strips it, which is the gate swallowing the very lines it exists to report.
+const SUBSTRATE_STDERR =
+	/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d (?:UTC|GMT[+-][\d:]+|[A-Z]{2,5}) \S+: /;
 
 let violations = [];
 let expectedWarns = [];

@@ -438,29 +438,6 @@ describe( 'the command transport — a refusal answers the minter', () => {
 		expect( replies[ 1 ][ VALUE ].arguments ).toEqual( [ 'spoke-4471' ] );
 	} );
 
-	it( 'records a TM_ERROR reply WITH its cause, so the list shows a diagnosis', async () => {
-		const reply = newMessage();
-		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
-		reply[ TO ] = 'topologies:list';
-		reply[ VALUE ] = 'NOT_AVAILABLE: no slot 0 lease';
-		global.fetch = jest.fn().mockResolvedValue( {
-			ok: true,
-			status: 200,
-			text: () => Promise.resolve( pack( reply ) ),
-		} );
-		IoTelemetry.clear();
-		const client = commandTransport( { baseUrl: '/wp-json/', nonce: 'N' } );
-
-		await client.postBatch( [ posted( 'topologies:list' ) ] );
-
-		const snap = IoTelemetry.snapshot();
-		expect( snap.errors ).toBe( 1 );
-		// A textless tally leaves the operator a count and no diagnosis.
-		expect( snap.messages.map( ( m ) => m.text ).join( '\n' ) ).toContain(
-			'NOT_AVAILABLE: no slot 0 lease'
-		);
-	} );
-
 	/**
 	 * The heartbeat judges its own replies and logs the ones that matter, so
 	 * its refusals reach the tile through `stderr` like every other logged

@@ -151,12 +151,24 @@ describe( 'the command transport feeds IoTelemetry "out" and "in"', () => {
 		expect( snap.bytesIn ).toBe( 0 );
 	} );
 
-	test( 'a TM_ERROR reply bumps the error count', async () => {
+	/**
+	 * The BYTES and the COUNTS are the transport's, because it is the thing
+	 * that reads the wire. The error TALLY is not: HttpOut owns it, since it
+	 * stamps the FROM the row names and it can tell a refusal the transport
+	 * FABRICATED from an answer the server actually sent. See `the ERRORS
+	 * tile` in http-out-node.test.js.
+	 */
+	test( 'a TM_ERROR reply is counted IN, and left for HttpOut to tally', async () => {
 		const errReply = [ TM_ERROR, 1, '', '', 'cmd-2', '', 'nope' ];
-		mockFetch( [ errReply ] );
+		const respBody = mockFetch( [ errReply ] );
 		const client = commandTransport( { baseUrl: '/', nonce: 'N' } );
+
 		await client.postBatch( [ command( 'a', 'x' ) ] );
-		expect( IoTelemetry.snapshot().errors ).toBe( 1 );
+
+		const snap = IoTelemetry.snapshot();
+		expect( snap.msgsIn ).toBe( 1 );
+		expect( snap.bytesIn ).toBe( byteLength( respBody ) );
+		expect( snap.errors ).toBe( 0 );
 	} );
 } );
 

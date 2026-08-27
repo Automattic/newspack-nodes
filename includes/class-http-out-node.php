@@ -380,6 +380,16 @@ class HTTP_Out_Node extends Timer_Node {
 	/**
 	 * Wire-inbound discipline, following Tachikoma Socket.pm:852-862.
 	 *
+	 * Everything arriving takes our name on its FROM, so what comes in carries a
+	 * path back out through us: a reply from `foo` reads `remote:austin/foo`
+	 * here, which routes, where bare `foo` names a node this graph lacks.
+	 * Inbound only — a command going out has not been anywhere yet, and stamping
+	 * it would tell the remote our name is part of its own address. Through
+	 * `stamp_message`, like every transport that stamps — the sibling is
+	 * `Remote_Link_Node::deliver_downstream()` — and its two guards are the
+	 * point: an overflowing path is dropped by the boundary that overflowed it,
+	 * which can name itself, not by the Router a layer later, which cannot.
+	 *
 	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
 	 * off our own FROM breadcrumb. Anything else on the reply leg is the remote
 	 * addressing OUR graph, and `target` decides what that means: unaddressed
@@ -393,6 +403,10 @@ class HTTP_Out_Node extends Timer_Node {
 	private function accept_inbound( array &$reply ): bool {
 		$type = Core::int( $reply[ Message::TYPE ], 0 );
 		$to   = Core::as_string( $reply[ Message::TO ] );
+		// Socket.pm:853, through the guarded method; see the docblock.
+		if ( ! $this->stamp_message( $reply, $this->name ) ) {
+			return false;
+		}
 		// A directed error is a reply too; undirected output is the target's.
 		if ( '' !== $to && $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) ) {
 			return true;

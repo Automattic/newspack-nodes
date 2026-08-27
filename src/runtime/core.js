@@ -6,6 +6,48 @@ import { NodeRegistry } from './node-registry';
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
 const RECENT_LOG_MAX = 100;
+// A line already carrying a log prefix: the date sits at column 0.
+const PREFIXED = /^\d{4}-\d\d-\d\d/;
+
+// @longform
+// Built on first use and kept. Constructing a formatter costs 28.5µs against
+// 2.2µs to format with one, and the overlay stamps its whole 200-line ring on
+// every new message — so the per-line construction this replaced was ~13x the
+// work. Re-resolving the zone per line to catch a viewer who MOVED is not the
+// cheap half of that trade: `resolvedOptions()` builds a formatter too, at
+// 21.4µs, which is nearly the whole saving for a case a debug overlay can meet
+// with a reload. `reset()` clears it, which is the deliberate way back.
+let stampFormatter = null;
+
+/**
+ * `YYYY-MM-DD HH:MM:SS <zone>` in the reader's own zone — strftime's
+ * `%F %T %Z`. Assembled from parts by NAME, so neither the locale's field
+ * order nor its separators can reach the output: they are the format here, not
+ * a preference.
+ *
+ * @param {number} seconds Epoch seconds.
+ * @return {string} The stamp, without a trailing space.
+ */
+function localStamp( seconds ) {
+	if ( ! stampFormatter ) {
+		stampFormatter = new Intl.DateTimeFormat( 'en-CA', {
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			hourCycle: 'h23',
+			timeZoneName: 'short',
+		} );
+	}
+	const part = Object.fromEntries(
+		stampFormatter
+			.formatToParts( new Date( seconds * 1000 ) )
+			.map( ( { type, value } ) => [ type, value ] )
+	);
+	return `${ part.year }-${ part.month }-${ part.day } ${ part.hour }:${ part.minute }:${ part.second } ${ part.timeZoneName }`;
+}
 
 /**
  * Mirrors PHP `Core::SECRET_NAME_PATTERNS`. Ask `Core.isSecretProperty()`; the
@@ -35,6 +77,8 @@ class CoreImpl {
 		for ( const node of this._registry?.nodes?.values() ?? [] ) {
 			node.stopTimer?.();
 		}
+		// Re-resolve the zone; nothing else re-reads it (see localStamp).
+		stampFormatter = null;
 		// The name table is its own class; Core keeps ONE as its default.
 		this._registry = new NodeRegistry();
 		this._msgCounter = 0;
@@ -80,9 +124,7 @@ class CoreImpl {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
 		}
-		const line = /^\d{4}-\d\d-\d\d/.test( text )
-			? text.replace( /\n+$/, '' ) + '\n'
-			: this.log_prefix( text );
+		const line = this.log_prefixed( text );
 		this.recentLog.push( line );
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
@@ -134,13 +176,36 @@ class CoreImpl {
 		return this._registry.node( name );
 	}
 
-	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line.
-	log_prefix( msg = null ) {
-		const ts = new Date( this.now() * 1000 )
-			.toISOString()
-			.slice( 0, 19 )
-			.replace( 'T', ' ' );
-		const prefix = `${ ts } UTC ${ this.argv0() }: `;
+	/**
+	 * `text` prefixed unless it already carries one — the rule stderr applies
+	 * on the way out, and the overlay applies again over a stored ring, where
+	 * a line from Shell3's raw `print {*STDERR}` arrives bare.
+	 *
+	 * @param {string}  text Line to prefix.
+	 * @param {?number} [at] Seconds to stamp; defaults to now.
+	 * @return {string} The line, newline-terminated.
+	 */
+	log_prefixed( text, at = null ) {
+		return PREFIXED.test( text )
+			? text.replace( /\n+$/, '' ) + '\n'
+			: this.log_prefix( text, at );
+	}
+
+	/**
+	 * Prepend a `YYYY-MM-DD HH:MM:SS <zone> <argv0>: ` prefix to every line,
+	 * in the reader's own zone like Tachikoma's Node.pm:459
+	 * `strftime( '%F %T %Z', localtime )`. In a browser that zone is the
+	 * viewer's, which is what makes a line here comparable to the tab beside it.
+	 *
+	 * @param {?string} msg  Text to prefix; omitted returns the bare prefix.
+	 * @param {?number} [at] Seconds to stamp; defaults to now. A stored line
+	 *                       prefixed at render passes the moment it was RECORDED, or a whole ring
+	 *                       of them restamps to one render time.
+	 * @return {string} The prefixed text, newline-terminated.
+	 */
+	log_prefix( msg = null, at = null ) {
+		const seconds = null === at || undefined === at ? this.now() : at;
+		const prefix = `${ localStamp( seconds ) } ${ this.argv0() }: `;
 		if ( null === msg || undefined === msg ) {
 			return prefix;
 		}

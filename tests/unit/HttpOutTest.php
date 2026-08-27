@@ -7,6 +7,7 @@ use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -414,6 +415,95 @@ class HttpOutTest extends TestCase {
 		$node->on_curl_message( $this->done_info( $easy ) );
 
 		$this->assertSame( 'settings-sync', $sink->captured[0][ Message::TO ] );
+	}
+
+	/**
+	 * Socket.pm:853. A transport prefixes its own name onto the FROM of
+	 * everything it brings IN, so what arrives carries a path back out through
+	 * it: a reply from `settings-sync` is `remote:austin/settings-sync` here,
+	 * which routes, where the bare name addresses a node this graph lacks.
+	 */
+	public function test_on_curl_message_stamps_our_name_on_an_inbound_from(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = 'settings-sync';
+		$reply[ Message::TO ]    = 'hub-control';
+		$reply[ Message::VALUE ] = 'ok';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'remote:austin/settings-sync', $sink->captured[0][ Message::FROM ] );
+	}
+
+	/** An error is a reply too, and needs the same path back out. */
+	public function test_on_curl_message_stamps_our_name_on_an_inbound_error_from(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_ERROR;
+		$reply[ Message::FROM ]  = 'settings-sync';
+		$reply[ Message::TO ]    = 'hub-control';
+		$reply[ Message::VALUE ] = "no such verb\n";
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'remote:austin/settings-sync', $sink->captured[0][ Message::FROM ] );
+	}
+
+	/** An empty FROM takes our name alone, never a leading separator. */
+	public function test_on_curl_message_stamps_our_name_alone_on_an_empty_inbound_from(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$reply[ Message::VALUE ] = 'hello world';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( 'remote:austin', $sink->captured[0][ Message::FROM ] );
+	}
+
+	/**
+	 * Through `stamp_message`, like every other transport that stamps — the
+	 * sibling is `Remote_Link_Node::deliver_downstream()`. Its two guards are
+	 * the point: a reply looping hub → spoke → hub grows its path without
+	 * bound, and the Router would drop it a layer later naming no transport,
+	 * where the guard names this one at the boundary that overflowed it.
+	 */
+	public function test_on_curl_message_drops_a_reply_whose_stamped_path_is_too_long(): void {
+		[ $node, $easy ] = $this->node_with_one_inflight();
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = \str_repeat( 'x', Node::MAX_FROM_SIZE );
+		$reply[ Message::TO ]    = 'hub-control';
+		$reply[ Message::VALUE ] = 'ok';
+
+		HTTP_Out_Node::$curl_result = static fn ( \CurlHandle $h ): array => [ 'code' => 200, 'body' => Message::packed( $reply ) . "\n" ];
+		$sink                       = new Capture_Sink_Node();
+		$sink->name( '_command_interpreter' );
+		$node->sink( $sink );
+
+		$node->on_curl_message( $this->done_info( $easy ) );
+
+		$this->assertSame( [], $sink->captured );
 	}
 
 	public function test_fire_refuses_non_https_when_require_ssl(): void {

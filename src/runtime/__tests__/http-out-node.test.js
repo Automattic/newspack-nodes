@@ -9,6 +9,8 @@
  */
 
 import { HttpOutNode } from '../http-out-node';
+import { MAX_FROM_SIZE } from '../node';
+import names from '../reserved-node-names.json';
 import { byteLength } from '../io-telemetry';
 import {
 	newMessage,
@@ -33,6 +35,24 @@ function makeNode() {
 	node.name = '_http';
 	return { node, postBatch };
 }
+
+const inboundFrom = async ( from, type = TM_RESPONSE ) => {
+	const { node, postBatch } = makeNode();
+	const reply = newMessage();
+	reply[ TYPE ] = type;
+	reply[ FROM ] = from;
+	reply[ TO ] = '_output';
+	postBatch.mockResolvedValue( [ reply ] );
+	const sink = { fill: jest.fn() };
+	node.sink = sink;
+	const out = newMessage();
+	out[ TYPE ] = TM_COMMAND;
+	out[ TO ] = 'foo';
+	node.fill( out );
+	await Promise.resolve();
+	await Promise.resolve();
+	return { sink, batch: postBatch.mock.calls[ 0 ]?.[ 0 ] };
+};
 
 const batchOf = ( postBatch ) => {
 	expect( postBatch ).toHaveBeenCalledTimes( 1 );
@@ -78,10 +98,13 @@ describe( 'HttpOut', () => {
 			to: '_output/1',
 			value: { name: 'r', arguments: 'ok' },
 		} );
+		// Measured BEFORE intake: the read boundary counts what came off the
+		// wire, and intake stamps this transport's name onto FROM in place.
+		const onTheWire = byteLength( pack( reply ) );
 		postBatch.mockResolvedValue( [ reply ] );
 		node.fill( routed( { to: 'demo.p0' } ) );
 		await new Promise( ( r ) => setTimeout( r, 0 ) );
-		expect( node.bytesRead ).toBe( byteLength( pack( reply ) ) );
+		expect( node.bytesRead ).toBe( onTheWire );
 	} );
 
 	it( 'packs each message once and hands the packed lines to postBatch (no double-serialize)', () => {
@@ -615,5 +638,219 @@ describe( 'HttpOut — a per-batch claim', () => {
 		node.lock();
 
 		expect( node.onceInBatch( 'mount:complete.p3' ) ).toBe( false );
+	} );
+} );
+
+describe( 'the ERRORS tile', () => {
+	const { IoTelemetry } = require( '../io-telemetry' );
+	const { Core } = require( '../core' );
+
+	// makeNode() registers `_http`; a second would collide on the live table.
+	beforeEach( () => Core.reset() );
+	afterEach( () => Core.reset() );
+
+	// Drive one reply of the caller's shape through the node, return the ring.
+	const tallyOf = async ( shape ) => {
+		const { node, postBatch } = makeNode();
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+		reply[ FROM ] = 'spoke-4471';
+		reply[ TO ] = '_output';
+		reply[ VALUE ] = shape;
+		postBatch.mockResolvedValue( [ reply ] );
+		node.sink = { fill: jest.fn() };
+		IoTelemetry.clear();
+		const out = newMessage();
+		out[ TYPE ] = TM_COMMAND;
+		out[ TO ] = 'foo';
+		node.fill( out );
+		await Promise.resolve();
+		await Promise.resolve();
+		return IoTelemetry.snapshot();
+	};
+
+	/**
+	 * The FROM is stamped by the time this runs, which is why the tally lives
+	 * here and not at the wire: the TO is whoever ASKED, our own `_output` on
+	 * every one of these.
+	 */
+	it( 'names the failing node and the command, and quotes the diagnosis', async () => {
+		const snap = await tallyOf( {
+			name: 'topology',
+			arguments: [ 'activate', 'combined' ],
+			payload: 'no such topology\n',
+		} );
+
+		expect( snap.errors ).toBe( 1 );
+		expect( snap.messages[ 0 ].text ).toBe(
+			'_http/spoke-4471: topology activate combined: no such topology'
+		);
+	} );
+
+	it( 'quotes a bare-string diagnosis under the node that sent it', async () => {
+		const snap = await tallyOf( 'NOT_AVAILABLE: no slot 0 lease' );
+
+		expect( snap.messages[ 0 ].text ).toBe(
+			'_http/spoke-4471: NOT_AVAILABLE: no slot 0 lease'
+		);
+	} );
+
+	/**
+	 * `payload` is the interpreter's word. An intermediary answering
+	 * `{ code, message }` would otherwise render as a bare node name with the
+	 * diagnosis dropped — a textless row is a count with nothing to read.
+	 */
+	it( 'keeps the diagnosis when the VALUE is not a command envelope', async () => {
+		const snap = await tallyOf( {
+			code: 'rest_forbidden',
+			message: 'no lease',
+		} );
+
+		expect( snap.messages[ 0 ].text ).toContain( 'rest_forbidden' );
+	} );
+
+	/**
+	 * A malformed `arguments` used to take the whole batch down: the spread
+	 * threw inside the reply loop, the catch answered EVERY command with
+	 * "Command not delivered", and the server's real replies were dropped.
+	 */
+	it( 'survives a reply whose arguments are not a list', async () => {
+		const snap = await tallyOf( {
+			name: 'topology',
+			arguments: 5,
+			payload: 'no such topology',
+		} );
+
+		expect( snap.messages[ 0 ].text ).toBe(
+			'_http/spoke-4471: topology: no such topology'
+		);
+	} );
+
+	/**
+	 * A refusal the TRANSPORT fabricated is the POST failing, which `post()`
+	 * already reports once, rate-limited. Tallying it here as well put one row
+	 * per command in the batch under a single HTTP failure.
+	 */
+	it( 'leaves a fabricated refusal to the one line post() already logs', async () => {
+		const snap = await tallyOf( {
+			name: 'topology',
+			arguments: [],
+			payload: 'Command refused (HTTP 401 rest_forbidden)',
+			undelivered: true,
+		} );
+
+		expect( snap.errors ).toBe( 0 );
+		expect( snap.messages ).toEqual( [] );
+	} );
+
+	// The heartbeat judges its own refusals and logs the ones that matter, so
+	// counting them here too put the expected per-reconnect race on the tile.
+	it( 'leaves the heartbeat to judge its own refusals', async () => {
+		const { node, postBatch } = makeNode();
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_ERROR;
+		reply[ FROM ] = 'spoke-4471';
+		reply[ TO ] = names.HEARTBEAT;
+		reply[ VALUE ] = 'SSE slot lease not owned: slot_released';
+		postBatch.mockResolvedValue( [ reply ] );
+		node.sink = { fill: jest.fn() };
+		IoTelemetry.clear();
+		const out = newMessage();
+		out[ TYPE ] = TM_COMMAND;
+		out[ TO ] = 'foo';
+		node.fill( out );
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( IoTelemetry.snapshot().errors ).toBe( 0 );
+	} );
+} );
+
+describe( 'inbound FROM stamping', () => {
+	beforeEach( () => {
+		const { Core } = require( '../core' );
+		Core.reset();
+	} );
+
+	afterEach( () => {
+		const { Core } = require( '../core' );
+		Core.reset();
+	} );
+
+	// Tachikoma Socket.pm:853 — a transport prefixes its own name onto the FROM
+	// of everything it brings IN, so the address is a path back out through it.
+	// Without it a reply from `foo` reads as bare `foo`, which names a node this
+	// browser does not have and cannot route to.
+	it( 'stamps its name onto a response coming back from the server', async () => {
+		const { sink } = await inboundFrom( 'foo' );
+
+		expect( sink.fill ).toHaveBeenCalledTimes( 1 );
+		expect( sink.fill.mock.calls[ 0 ][ 0 ][ FROM ] ).toBe( '_http/foo' );
+	} );
+
+	it( 'stamps an error reply the same way', async () => {
+		const { sink } = await inboundFrom( 'foo', TM_ERROR );
+
+		expect( sink.fill.mock.calls[ 0 ][ 0 ][ FROM ] ).toBe( '_http/foo' );
+	} );
+
+	it( 'is its own name when the server sent no FROM', async () => {
+		const { sink } = await inboundFrom( '' );
+
+		expect( sink.fill.mock.calls[ 0 ][ 0 ][ FROM ] ).toBe( '_http' );
+	} );
+
+	it( 'leaves a request going OUT unstamped', async () => {
+		// The stamp is a return path, and an outbound command has not been
+		// anywhere yet — stamping it would address the server to our own node.
+		const { batch } = await inboundFrom( 'foo' );
+
+		expect( batch[ 0 ][ FROM ] ).not.toContain( '_http' );
+	} );
+
+	/**
+	 * Through `stampMessage`, like every other transport that stamps — the
+	 * sibling is `RemoteLink`. Its two guards are the point: a reply looping
+	 * hub → spoke → hub grows its path without bound, and the Router would
+	 * drop it a layer later naming no transport, where the guard names this
+	 * one at the boundary that overflowed it.
+	 */
+	it( 'drops a reply whose stamped path would exceed MAX_FROM_SIZE', async () => {
+		expectConsoleWarn( '_http: ERROR: path exceeded' );
+		const { sink } = await inboundFrom( 'x'.repeat( MAX_FROM_SIZE ) );
+
+		expect( sink.fill ).not.toHaveBeenCalled();
+	} );
+
+	/**
+	 * A node torn down while its POST was in flight has no name, no sink and
+	 * no registration — `removeNode()` clears all three. That is a lifecycle
+	 * race, not the programming error `stampMessage` reports, so the reply is
+	 * dropped where it belongs: at the top of the loop, before anything tries
+	 * to stamp or route it.
+	 */
+	it( 'drops replies that land after the node was removed, silently', async () => {
+		const { node, postBatch } = makeNode();
+		const reply = newMessage();
+		reply[ TYPE ] = TM_RESPONSE;
+		reply[ FROM ] = 'foo';
+		reply[ TO ] = '_output';
+		let land;
+		postBatch.mockReturnValue(
+			new Promise( ( res ) => ( land = () => res( [ reply ] ) ) )
+		);
+		const sink = { fill: jest.fn() };
+		node.sink = sink;
+		const out = newMessage();
+		out[ TYPE ] = TM_COMMAND;
+		out[ TO ] = 'foo';
+		node.fill( out );
+		await Promise.resolve();
+		node.removeNode();
+		land();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect( sink.fill ).not.toHaveBeenCalled();
 	} );
 } );

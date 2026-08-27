@@ -78,13 +78,20 @@ describe( 'TimelineView', () => {
 		).toBe( '' );
 	} );
 
-	it( 'renders the entry ts as a UTC HH:MM:SS time cell', () => {
+	/**
+	 * The reader's own clock, matching the prefix `Core.log_prefix` stamps
+	 * onto the very lines these rows are parsed FROM. A UTC cell beside a
+	 * local-stamped line is two clocks describing one event.
+	 */
+	it( 'renders the entry ts as a local HH:MM:SS time cell', () => {
 		const { container } = render(
 			<TimelineView transcript={ transcript } />
 		);
-		const expected = new Date( 1_777_000_000 * 1000 )
-			.toISOString()
-			.slice( 11, 19 );
+		const d = new Date( 1_777_000_000 * 1000 );
+		const pad = ( n ) => String( n ).padStart( 2, '0' );
+		const expected = `${ pad( d.getHours() ) }:${ pad(
+			d.getMinutes()
+		) }:${ pad( d.getSeconds() ) }`;
 		expect(
 			rowsOf( container )[ 0 ].querySelector( '.timeline-view__time' )
 				.textContent

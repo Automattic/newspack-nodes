@@ -110,7 +110,11 @@ test( 'lists the classified messages below the charts (newest first)', () => {
 		rows.map(
 			( r ) => r.querySelector( '.nodes-overview__msg-text' ).textContent
 		)
-	).toEqual( [ 'ERROR: boom', 'WARNING: heads up', 'a trace line' ] );
+	).toEqual( [
+		expect.stringMatching( / browser: ERROR: boom$/ ),
+		expect.stringMatching( / browser: WARNING: heads up$/ ),
+		expect.stringMatching( / browser: a trace line$/ ),
+	] );
 	expect( rows[ 0 ].className ).toContain( 'nodes-overview__msg--error' );
 	expect( rows[ 2 ].className ).toContain( 'nodes-overview__msg--debug' );
 } );
@@ -123,18 +127,58 @@ test( 'labels the panel "Messages (this browser)" so it is not mistaken for serv
 	).toBe( 'Messages (this browser)' );
 } );
 
-test( 'shows a relative timestamp per message from its stored ts', () => {
+/**
+ * A log line, not a relative age: `log_prefix` is what the console, the dmesg
+ * tail and the server's own logs stamp, so a line here can be lined up against
+ * one from anywhere else. It is applied HERE rather than at record time
+ * because the ring is structured — level, text, ts — and the prefix is the
+ * rendering of it.
+ */
+test( "stamps each message from its stored ts, in the reader's own zone", () => {
 	IoTelemetry.recordError( 1, 'ERROR: boom' );
-	// Backdate the stored ts 65s → formatAge renders "1m" (distinct from 0s).
-	IoTelemetry.messages[ 0 ].ts = Math.floor( Date.now() / 1000 ) - 65;
+	// 2026-01-01 00:00:00 UTC — distinct from now, and from any default.
+	const at = 1767225600;
+	IoTelemetry.messages[ 0 ].ts = at;
 	const { getByTestId } = renderTab();
-	const age = getByTestId( 'overview-messages' ).querySelector(
-		'.nodes-overview__msg-age'
-	);
-	expect( age ).not.toBeNull();
-	expect( age.textContent ).toContain( '1m' );
-	expect( age.textContent ).toContain( 'ago' );
+	const panel = getByTestId( 'overview-messages' );
+
+	expect(
+		panel.querySelector( '.nodes-overview__msg-text' ).textContent
+	).toBe( `${ localStamp( at ) } browser: ERROR: boom` );
+	// The stamp replaced the age; two clocks per row is what it read as.
+	expect( panel.querySelector( '.nodes-overview__msg-age' ) ).toBeNull();
 } );
+
+test( 'leaves a line that already carries a prefix alone', () => {
+	IoTelemetry.recordDebug( '2026-01-02 03:04:05 UTC host proc[7]: relayed' );
+	const { getByTestId } = renderTab();
+	expect(
+		getByTestId( 'overview-messages' ).querySelector(
+			'.nodes-overview__msg-text'
+		).textContent
+	).toBe( '2026-01-02 03:04:05 UTC host proc[7]: relayed' );
+} );
+
+/**
+ * `YYYY-MM-DD HH:MM:SS <zone>` for an instant, read off Date's local getters
+ * and one zone-only formatter — a different path from the production prefix,
+ * so a revert to UTC fails anywhere but a UTC host.
+ *
+ * @param {number} seconds Epoch seconds.
+ * @return {string} The stamp.
+ */
+function localStamp( seconds ) {
+	const d = new Date( seconds * 1000 );
+	const pad = ( n ) => String( n ).padStart( 2, '0' );
+	const zone = new Intl.DateTimeFormat( 'en-CA', { timeZoneName: 'short' } )
+		.formatToParts( d )
+		.find( ( { type } ) => 'timeZoneName' === type ).value;
+	return (
+		`${ d.getFullYear() }-${ pad( d.getMonth() + 1 ) }-` +
+		`${ pad( d.getDate() ) } ${ pad( d.getHours() ) }:` +
+		`${ pad( d.getMinutes() ) }:${ pad( d.getSeconds() ) } ${ zone }`
+	);
+}
 
 test( 'level-filter chips hide messages of a toggled-off level', () => {
 	IoTelemetry.recordError( 1, 'ERROR: boom' );

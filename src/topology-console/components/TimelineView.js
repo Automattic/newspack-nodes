@@ -14,12 +14,22 @@ import './timeline-view.scss';
 // DEBUG line; node \S+ (sidecar colons survive); payload line-scoped (.*).
 const DEBUG_TRACE = /(\S+):\s+DEBUG:\s+(\S+)(?:\s+(.*))?$/;
 
-// Entry ts (epoch seconds) → UTC HH:MM:SS, matching the console's UTC logs.
+/**
+ * Entry ts (epoch seconds) → local HH:MM:SS, matching the zone `log_prefix`
+ * stamps onto the very lines these rows are parsed FROM. A UTC cell beside a
+ * local-stamped line is two clocks describing one event.
+ *
+ * @param {number} ts Epoch seconds.
+ * @return {string} `HH:MM:SS`, or an em dash when there is no usable ts.
+ */
 function formatTime( ts ) {
 	if ( 'number' !== typeof ts || ! Number.isFinite( ts ) ) {
 		return '—';
 	}
-	return new Date( ts * 1000 ).toISOString().slice( 11, 19 );
+	const d = new Date( ts * 1000 );
+	return [ d.getHours(), d.getMinutes(), d.getSeconds() ]
+		.map( ( n ) => String( n ).padStart( 2, '0' ) )
+		.join( ':' );
 }
 
 // Keep DEBUG entries; scan per line so the verbose envelope `}` isn't captured.

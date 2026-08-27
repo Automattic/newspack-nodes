@@ -1011,7 +1011,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( dispatch( interpreter, 'log', 'hello' ) ).toBe( '' );
 			expect( spy ).toHaveBeenCalled();
 			expect( spy.mock.calls.at( -1 )[ 0 ] ).toMatch(
-				/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: .*hello$/
+				/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: .*hello$/
 			);
 			spy.mockRestore();
 		} );
@@ -1029,7 +1029,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			Core.stderr( 'one' );
 			Core.stderr( 'two' );
 			expect( dispatch( interpreter, 'dmesg', '' ) ).toMatch(
-				/UTC browser: one\n.*UTC browser: two\n$/s
+				/\S+ browser: one\n.*\S+ browser: two\n$/s
 			);
 			spy.mockRestore();
 		} );
