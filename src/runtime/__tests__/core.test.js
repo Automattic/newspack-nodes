@@ -105,22 +105,74 @@ test( 'stderr forwards a prefixed line to console.warn', () => {
 	Core.stderr( 'hello' );
 	expect( spy ).toHaveBeenCalledTimes( 1 );
 	expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: hello$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: hello$/
 	);
 	spy.mockRestore();
 } );
 
-test( 'log_prefix prepends a UTC timestamp + identity to every line, with a trailing newline', () => {
+test( 'log_prefix prepends a timestamp + identity to every line, with a trailing newline', () => {
 	const out = Core.log_prefix( 'a\nb' );
 	const lines = out.replace( /\n$/, '' ).split( '\n' );
 	expect( lines[ 0 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: a$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: a$/
 	);
 	expect( lines[ 1 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: b$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: b$/
 	);
 	expect( out.endsWith( '\n' ) ).toBe( true );
 } );
+
+// Tachikoma Node.pm:459 stamps `strftime( '%F %T %Z', localtime )` — the
+// reader's own clock, not UTC. The expectations come from Date's local
+// getters, a different path from the Intl formatter the prefix is built with,
+// so a revert to toISOString() fails anywhere but a UTC host.
+describe( 'log_prefix stamps local time with the zone abbreviation', () => {
+	const pad = ( n ) => String( n ).padStart( 2, '0' );
+	const localOf = ( seconds ) => {
+		const d = new Date( seconds * 1000 );
+		return (
+			`${ d.getFullYear() }-${ pad( d.getMonth() + 1 ) }-` +
+			`${ pad( d.getDate() ) } ${ pad( d.getHours() ) }:` +
+			`${ pad( d.getMinutes() ) }:${ pad( d.getSeconds() ) }`
+		);
+	};
+	// 2026-01-01 00:00:00 UTC and 2026-06-20 19:00:00 UTC: a winter and a
+	// summer instant, so a zone with daylight time is exercised both ways.
+	const WINTER = 1767225600;
+	const SUMMER = 1782000000;
+
+	test( 'an explicit instant stamps that moment, not now', () => {
+		expect( Core.log_prefix( 'winter', WINTER ) ).toBe(
+			`${ localOf( WINTER ) } ${ zoneAt( WINTER ) } browser: winter\n`
+		);
+	} );
+
+	test( 'the same holds across the daylight boundary', () => {
+		expect( Core.log_prefix( 'summer', SUMMER ) ).toBe(
+			`${ localOf( SUMMER ) } ${ zoneAt( SUMMER ) } browser: summer\n`
+		);
+	} );
+
+	test( 'log_prefixed leaves a line that already carries one alone', () => {
+		expect(
+			Core.log_prefixed( '2026-01-02 03:04:05 UTC host proc[7]: already' )
+		).toBe( '2026-01-02 03:04:05 UTC host proc[7]: already\n' );
+	} );
+
+	test( 'log_prefixed stamps a bare line at the instant given', () => {
+		expect( Core.log_prefixed( 'bare', WINTER ) ).toBe(
+			`${ localOf( WINTER ) } ${ zoneAt( WINTER ) } browser: bare\n`
+		);
+	} );
+} );
+
+// The zone abbreviation for an instant, read off a formatter asking for
+// nothing else — the one part Date's own getters cannot produce.
+function zoneAt( seconds ) {
+	return new Intl.DateTimeFormat( 'en-CA', { timeZoneName: 'short' } )
+		.formatToParts( new Date( seconds * 1000 ) )
+		.find( ( { type } ) => 'timeZoneName' === type ).value;
+}
 
 test( 'stderr passes an already-date-prefixed line through verbatim (no double prefix)', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );

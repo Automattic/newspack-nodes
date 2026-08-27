@@ -11,6 +11,7 @@ import {
 } from '@newspack-nodes/shared/utils/formatters';
 import { useOverviewStats } from '../useOverviewStats';
 import { IoTelemetry } from '../../runtime/io-telemetry';
+import { Core } from '../../runtime/core';
 // Ship the hub's card/overview layout styles so the overlay is self-contained.
 import '../../event-dashboards/styles/summary-cards.scss';
 import '../../event-dashboards/styles/overview.scss';
@@ -138,12 +139,11 @@ export default function OverviewTab( { publishHeader } ) {
 								className={ `nodes-overview__msg nodes-overview__msg--${ m.level }` }
 							>
 								<span className="nodes-overview__msg-text">
-									{ m.text }
+									{ Core.log_prefixed( m.text, m.ts ).replace(
+										/\n$/,
+										''
+									) }
 								</span>
-								<time className="nodes-overview__msg-age">
-									{ formatAge( Math.floor( m.ts ), nowSec ) }{ ' ' }
-									{ __( 'ago', 'newspack-nodes' ) }
-								</time>
 							</li>
 						) ) }
 				</ul>

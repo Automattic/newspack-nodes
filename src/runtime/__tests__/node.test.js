@@ -48,7 +48,7 @@ test( 'stderr emits a prefixed, node-tagged line to recentLog', () => {
 	n.stderr( 'hello' );
 	expect( Core.recentLog ).toHaveLength( 1 );
 	expect( Core.recentLog[ 0 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: logger: hello\n$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \S+ browser: logger: hello\n$/
 	);
 	spy.mockRestore();
 } );
@@ -57,7 +57,7 @@ test( 'stderr on an unnamed node carries no node tag', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const n = new Node();
 	n.stderr( 'plain' );
-	expect( Core.recentLog[ 0 ] ).toMatch( /UTC browser: plain\n$/ );
+	expect( Core.recentLog[ 0 ] ).toMatch( /\S+ browser: plain\n$/ );
 	spy.mockRestore();
 } );
 

@@ -18,6 +18,7 @@ import { Node } from './node';
 import {
 	newMessage,
 	pack,
+	payloadOf,
 	TYPE,
 	FROM,
 	TO,
@@ -26,8 +27,9 @@ import {
 	TM_RESPONSE,
 	TM_ERROR,
 } from './message';
-import { byteLength } from './io-telemetry';
+import { byteLength, IoTelemetry } from './io-telemetry';
 import { defaultTransport } from './command-transport';
+import names from './reserved-node-names.json';
 
 /**
  * The TM_ERROR an undelivered command earns, addressed back to its minter.
@@ -56,6 +58,47 @@ function failureReply( sent, reason ) {
 /**
  * The `_http` node — POSTs whatever it is filled with, routes what comes back.
  * See the module docblock above for the lock/flush batching and intake rules.
+ */
+/**
+ * One log line for a TM_ERROR reply: `<who failed>: <what was asked>: <why>`.
+ *
+ * The node named is the FROM, stamped — the TO is whoever ASKED, which is our
+ * own `_output` on every one of these. The command rides along because these
+ * land in a shared list where a bare diagnosis has no question above it, and
+ * the diagnosis is quoted as the remote wrote it: an `ERROR:` of ours in front
+ * would announce someone else's error as our own, and the row carries a level.
+ *
+ * A reply is remote wire data, so both reads of the envelope are defensive. A
+ * VALUE that only LOOKS enveloped falls back to the whole object rather than
+ * losing the diagnosis, and a non-list `arguments` is skipped rather than
+ * spread — a throw in this loop would reject the POST promise, and the catch
+ * answers a SUCCESSFUL batch with "not delivered" while dropping real replies.
+ *
+ * @param {Array} message Positional Message of the failing reply.
+ * @return {string} A single line, no trailing newline.
+ */
+function errorEntry( message ) {
+	const value = message[ VALUE ];
+	const cause = payloadOf( value, value );
+	const args = value?.arguments;
+	const asked =
+		Array.isArray( value ) || 'object' !== typeof value
+			? ''
+			: [ value?.name, ...( Array.isArray( args ) ? args : [] ) ]
+					.filter( ( part ) => part )
+					.join( ' ' );
+	return [
+		message[ FROM ] || '/command',
+		asked,
+		'string' === typeof cause ? cause : JSON.stringify( cause ),
+	]
+		.filter( ( part ) => part )
+		.join( ': ' )
+		.replace( /\s+$/, '' );
+}
+
+/**
+ *
  */
 export class HttpOutNode extends Node {
 	/**
@@ -130,14 +173,20 @@ export class HttpOutNode extends Node {
 		}
 		Promise.resolve( this.client.postBatch( entries, packed ) )
 			.then( ( messages ) => {
+				// Torn down mid-flight: nothing left to route to.
+				if ( '' === this.name ) {
+					return;
+				}
 				// A bare 202 resolves null: routed onward, nothing to route.
 				for ( const message of messages ?? [] ) {
 					// Read boundary: tally the wire size of each reply.
 					this.bytesRead += byteLength( pack( message ) );
 					this.counter++;
-					if ( this.acceptInbound( message ) ) {
-						this.sink?.fill( message );
+					if ( ! this.acceptInbound( message ) ) {
+						continue;
 					}
+					this.tallyError( message );
+					this.sink?.fill( message );
 				}
 			} )
 			.catch( ( err ) => {
@@ -162,6 +211,33 @@ export class HttpOutNode extends Node {
 	}
 
 	/**
+	 * Put one failing reply on the ERRORS tile, with a line to read beside it.
+	 *
+	 * Here rather than in the transport for two reasons the transport cannot
+	 * supply: the FROM has been stamped by the time this runs, and a refusal
+	 * the transport FABRICATED is marked `undelivered` — that one is the POST
+	 * failing, which `post()` already reports once, rate-limited, instead of
+	 * once per command in the batch.
+	 *
+	 * The heartbeat judges its own replies and logs the ones that matter, so
+	 * those reach the tile through stderr like any other logged line. Counting
+	 * them here as well put the expected `slot_released` race — one per
+	 * reconnect, forever — on the tile, and textlessly.
+	 *
+	 * @param {Array} message An accepted, stamped reply.
+	 */
+	tallyError( message ) {
+		if (
+			! ( message[ TYPE ] & TM_ERROR ) ||
+			names.HEARTBEAT === message[ TO ] ||
+			true === message[ VALUE ]?.undelivered
+		) {
+			return;
+		}
+		IoTelemetry.recordError( 1, errorEntry( message ) );
+	}
+
+	/**
 	 * Wire-inbound discipline, following Tachikoma Socket.pm:852-862.
 	 *
 	 * A reply — TM_RESPONSE or TM_ERROR — self-routes by the TO the remote echoed
@@ -171,10 +247,20 @@ export class HttpOutNode extends Node {
 	 * non-reply arriving while a target is set is the remote picking its own
 	 * destination inside us — refused. With no target neither arm engages.
 	 *
+	 * Everything arriving takes our name on its FROM first, so what comes in
+	 * carries a path back out through us. Inbound only — a command going out
+	 * has not been anywhere yet, and stamping it would tell the server our name
+	 * is part of its own address. Through `stampMessage`, like every transport
+	 * that stamps: RemoteLink is the sibling, and its two guards are the point.
+	 *
 	 * @param {Array} message A positional Message, mutated in place.
 	 * @return {boolean} True if the message may be forwarded to the sink.
 	 */
 	acceptInbound( message ) {
+		// Socket.pm:853, through the guarded method; see the docblock.
+		if ( ! this.stampMessage( message, this.name ) ) {
+			return false;
+		}
 		// An error is a reply too — but only when directed (see the docblock).
 		if ( message[ TO ] && message[ TYPE ] & ( TM_RESPONSE | TM_ERROR ) ) {
 			return true;
