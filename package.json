@@ -18,7 +18,7 @@
 		"lint:php": "phpcs && php scripts/lint-comments.php .",
 		"lint:phpstan": "vendor/bin/phpstan analyse -c phpstan-deadcode.neon --memory-limit=2G --no-progress",
 		"lint:deadcode": "npm run lint:phpstan",
-		"lint:scss": "stylelint --customSyntax postcss-scss 'src/**/*.scss'",
+		"lint:scss": "stylelint --customSyntax postcss-scss 'src/**/*.scss' && node scripts/lint-styles.mjs src",
 		"lint:shell": "shellcheck scripts/pre-push scripts/*.sh",
 		"make-pot": "wp i18n make-pot . languages/newspack-nodes.pot --domain=newspack-nodes --exclude=node_modules,build,vendor,tests,release",
 		"test:js": "jest --passWithNoTests",
@@ -73,7 +73,10 @@
 			"sh -c 'npm run lint:deadcode:js --silent'",
 			"sh -c 'npm run lint:types --silent'"
 		],
-		"*.scss": "stylelint --customSyntax postcss-scss",
+		"*.scss": [
+			"stylelint --customSyntax postcss-scss",
+			"sh -c 'node scripts/lint-styles.mjs'"
+		],
 		"*.php": [
 			"./vendor/bin/phpcs",
 			"php scripts/reorder-node-methods.php --check",

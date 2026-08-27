@@ -33,6 +33,7 @@ SHARED="reorder-node-methods.php reorder-node-methods.js coverage-gate-js.mjs
 	test-lint-comments.sh
 	test-fix-blank-lines.sh
 	lint-contract.mjs
+	lint-styles.mjs
 	pre-commit commit-msg lint-docs.sh"
 
 [ -d "$SUBSTRATE_DIR/scripts" ] || exit 0
