@@ -8,6 +8,7 @@ use Newspack_Nodes\HTTP_Out_Node;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Vault;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -504,6 +505,42 @@ class HttpOutTest extends TestCase {
 		$node->on_curl_message( $this->done_info( $easy ) );
 
 		$this->assertSame( [], $sink->captured );
+	}
+
+	/**
+	 * A Router BOUNCE must not cross the wire outward. The far side answers an
+	 * error it cannot route with an error of its own, addressed back down the
+	 * FROM trail, and neither end stops — the two POST at each other forever.
+	 * The Router already refuses to bounce an error it cannot route; this is
+	 * that rule at the wire.
+	 */
+	public function test_fill_never_batches_a_router_bounce(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = $this->make_node( 'austin' );
+
+		$bounce                   = Message::new_message();
+		$bounce[ Message::TYPE ]  = Message::TM_ERROR;
+		$bounce[ Message::FROM ]  = Node_Names::ROUTER;
+		$bounce[ Message::TO ]    = '';
+		$bounce[ Message::VALUE ] = "NOT_AVAILABLE\n";
+		$node->fill( $bounce );
+
+		$this->assertSame( [], $this->read_private( $node, 'batch' ) );
+	}
+
+	/** An operator-composed error is a command like any other. */
+	public function test_fill_batches_an_operator_composed_error(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$node = $this->make_node( 'austin' );
+
+		$composed                   = Message::new_message();
+		$composed[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$composed[ Message::FROM ]  = '_output';
+		$composed[ Message::TO ]    = 'foo';
+		$composed[ Message::VALUE ] = 'boom';
+		$node->fill( $composed );
+
+		$this->assertCount( 1, $this->read_private( $node, 'batch' ) );
 	}
 
 	public function test_fire_refuses_non_https_when_require_ssl(): void {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.43.3] - 2026-08-27
+
+### Fixed
+
+- **A Router bounce no longer crosses the wire, which was POSTing ~20 times a second forever.** The far side answers an error it cannot route with an error of its own, addressed back down the FROM trail; neither end stops, so the two POST at each other until the tab closes. `Router_Node` already refuses to bounce an error it cannot route — "already an error, which would loop" — and this is that same rule at the transport, where the loop crosses a network instead of a call stack. Both `HTTP_Out` ports now drop it with an audit line.
+- v2.43.1 is what exposed it: stamping a transport's name onto an inbound FROM made those bounces ROUTABLE. A reply from `foo` used to read bare `foo`, so a bounce addressed to it resolved to nothing locally and hit the Router's own drop; as `_http/foo` it resolves to the transport and goes out. The stamp is right and stays — the missing half was the transport's outbound discipline.
+- The drop is keyed on the Router as SENDER, not on `TM_ERROR` alone. An operator composing a message may set the error flag deliberately, and that is a command like any other — the Compose modal's reply-flags do exactly this.
+
+
 ## [2.43.2] - 2026-08-27
 
 ### Fixed

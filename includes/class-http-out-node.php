@@ -131,10 +131,21 @@ class HTTP_Out_Node extends Timer_Node {
 	 * POST happens on the next drain tick in fire(). Never blocks and never
 	 * resolves the Vault (fire() does that once per batch).
 	 *
+	 * A Router BOUNCE is never POSTed. The far side answers an error it cannot
+	 * route with an error of its own, addressed back down the FROM trail, and
+	 * neither end stops. Keyed on the Router as SENDER, not on TM_ERROR alone:
+	 * an operator may set the error flag deliberately, and that is a command.
+	 *
 	 * @param array<int,mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array $message ): void {
 		++$this->counter;
+		// A Router bounce must not cross the wire OUTWARD; see the docblock.
+		$type = Core::num_int( $message[ Message::TYPE ] ?? 0 );
+		if ( $type & Message::TM_ERROR && Node_Names::ROUTER === Core::as_string( $message[ Message::FROM ] ?? '' ) ) {
+			$this->drop_message( $message, 'NOT_AVAILABLE' );
+			return;
+		}
 		$this->batch[] = $message;
 
 		if ( ! $this->batch_timer_armed ) {

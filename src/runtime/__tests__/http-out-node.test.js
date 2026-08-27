@@ -641,6 +641,68 @@ describe( 'HttpOut — a per-batch claim', () => {
 	} );
 } );
 
+/**
+ * A transport must not carry an error OUTWARD. The far side answers an
+ * unroutable error with an error of its own, addressed back down the FROM
+ * trail — and neither end stops, so the two POST at each other forever.
+ *
+ * The Router already refuses to bounce an error it cannot route ("already an
+ * error, which would loop"); this is the same rule at the wire. Reproduced
+ * live: `_router` NOT_AVAILABLE bounces at ~20 POSTs/second.
+ */
+describe( 'outbound errors', () => {
+	beforeEach( () => {
+		const { Core } = require( '../core' );
+		Core.reset();
+	} );
+	afterEach( () => {
+		const { Core } = require( '../core' );
+		Core.reset();
+	} );
+
+	it( 'never POSTs a Router bounce', async () => {
+		expectConsoleWarn( '_http: NOT_AVAILABLE' );
+		const { node, postBatch } = makeNode();
+		const bounce = newMessage();
+		bounce[ TYPE ] = TM_ERROR;
+		bounce[ FROM ] = names.ROUTER;
+		bounce[ TO ] = '';
+		bounce[ VALUE ] = 'NOT_AVAILABLE\n';
+
+		node.fill( bounce );
+		await Promise.resolve();
+
+		expect( postBatch ).not.toHaveBeenCalled();
+	} );
+
+	// An operator can set the error flag deliberately from Compose; that is a
+	// command like any other, and only the Router's own bounce loops.
+	it( 'still POSTs an operator-composed error', async () => {
+		const { node, postBatch } = makeNode();
+		const composed = newMessage();
+		composed[ TYPE ] = TM_COMMAND | TM_ERROR;
+		composed[ FROM ] = '_output';
+		composed[ TO ] = 'foo';
+
+		node.fill( composed );
+		await Promise.resolve();
+
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'still POSTs an ordinary command', async () => {
+		const { node, postBatch } = makeNode();
+		const out = newMessage();
+		out[ TYPE ] = TM_COMMAND;
+		out[ TO ] = 'foo';
+
+		node.fill( out );
+		await Promise.resolve();
+
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+	} );
+} );
+
 describe( 'the ERRORS tile', () => {
 	const { IoTelemetry } = require( '../io-telemetry' );
 	const { Core } = require( '../core' );

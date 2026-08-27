@@ -122,10 +122,27 @@ export class HttpOutNode extends Node {
 	 * POST the routed Message (or buffer it while locked); feed any synchronous
 	 * reply back into the sink.
 	 *
+	 * A Router BOUNCE is never POSTed. The far side answers an error it cannot
+	 * route with an error of its own, addressed back down the FROM trail, and
+	 * neither end stops — the two POST at each other until the tab closes. The
+	 * Router refuses to bounce an error it cannot route for exactly this
+	 * reason; this is that rule at the wire, where the loop crosses a network
+	 * instead of a call stack.
+	 *
+	 * Keyed on the Router as the SENDER, not on TM_ERROR alone: an operator
+	 * composing a message may set the error flag deliberately, and that is a
+	 * command like any other. A dropped bounce still reaches the operator as an
+	 * audit line, and inbound errors are untouched.
+	 *
 	 * @param {Array} message Positional Message; TO already routed.
 	 */
 	fill( message ) {
 		this.counter++;
+		// A Router bounce must not cross the wire OUTWARD; see the docblock.
+		if ( message[ TYPE ] & TM_ERROR && names.ROUTER === message[ FROM ] ) {
+			this.dropMessage( message, 'NOT_AVAILABLE' );
+			return;
+		}
 		if ( this.locked ) {
 			this.buffer.push( message );
 			return;
