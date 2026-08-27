@@ -610,6 +610,34 @@ describe( 'canonical appearance ownership', () => {
 		}
 	} );
 
+	it( 'lays a button out above WordPress own display, once, for everyone', () => {
+		// `.wp-core-ui .button` sets `display: inline-block` and is two classes
+		// deep, so any single-class component rule that tried to lay a button
+		// out silently did nothing — the contents stayed one run of inline
+		// text. The shared layer wins that once so no component re-fights it,
+		// and specificity is invisible in the rule that needs it, so it is
+		// pinned here.
+		const sheet = compile( UI_ENTRY );
+
+		let owner = null;
+		sheet.walkRules( ( rule ) => {
+			if ( ! /\.button\b/.test( rule.selector ) ) {
+				return;
+			}
+			rule.walkDecls( 'display', () => {
+				owner = owner ?? rule.selector;
+			} );
+		} );
+
+		expect( owner ).not.toBeNull();
+		// `:where()` contributes nothing, so the count has to come from the
+		// classes outside it — and has to clear WordPress's two.
+		const classes = owner
+			.replace( /:where\([^)]*\)/g, '' )
+			.match( /\.[\w-]+/g );
+		expect( classes.length ).toBeGreaterThan( 2 );
+	} );
+
 	it( 'keeps topology semantic roles free from generic button and badge paint', () => {
 		const records = jsxClassRecords();
 		const cases = [
