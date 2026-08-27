@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A gate that derives a consumer's substrate floor instead of trusting the number written down.** `scripts/check-substrate-floor.sh` asks PHPStan which class DECLARES each call a consumer makes, then binary-searches the substrate's tags for the release that introduced it, and fails when the declared floor is lower. A floor set too low is the failure it exists for: the handshake passes, the plugin wires itself up, and it fatals on a method the older substrate does not have — where the whole point of the gate is that too-old means dormant. `lint-docs.sh` could never catch it, because it holds the PROSE to the loader and both agreed on the wrong number.
+- Matching method NAMES is what it deliberately does not do, and the reason is measurable: a by-name audit of the event logger passed `Config_System\Schema::defaults()` because an unrelated `Roles::defaults()` existed at the floor being tested. Since the floor is the MAX over what is found, a false match also runs the other way and would pin a plugin dormant against a substrate that runs it fine — so resolution follows PHP: substrate traits mixed into a consumer's own class (reflection names the USING class, not the trait), and the `extends` chain, so an override added later is not mistaken for a new requirement.
+
 ## [2.43.1] - 2026-08-26
 
 ### Fixed

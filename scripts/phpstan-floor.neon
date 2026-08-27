@@ -1,0 +1,24 @@
+# Substrate-floor collection only. NOT a review config: its "errors" are the
+# report check-substrate-floor.sh parses. Layers onto the plugin's own config
+# so paths, stubs and autoloading are whatever that plugin already declares.
+includes:
+	- ../phpstan.neon.dist
+
+parameters:
+	level: 0
+	customRulesetUsed: true
+	# The collectors live outside any autoloader; load them into PHPStan's own
+	# container. Run from the plugin root, which the wrapper enforces.
+	bootstrapFiles:
+		- %currentWorkingDirectory%/scripts/phpstan-substrate-floor.php
+
+services:
+	-
+		class: Newspack_Nodes\Tools\Substrate_Method_Call_Collector
+		tags: [phpstan.collector]
+	-
+		class: Newspack_Nodes\Tools\Substrate_Static_Call_Collector
+		tags: [phpstan.collector]
+	-
+		class: Newspack_Nodes\Tools\Substrate_Floor_Rule
+		tags: [phpstan.rules.rule]
