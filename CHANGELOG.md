@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.44.0] - 2026-08-27
+
+### Changed
+
+- **A `Fetcher` keeps ONE ask outstanding at a time.** A dashboard on a one-second refresh put a command on the wire every second whether or not the last one had been answered, so a slow verb collected a queue of identical asks the server was still working through. An ask now goes onto the Fetcher's `outbox` when it is sent and leaves when its reply settles it; a trigger that finds one there mints nothing. `retry_after_s` (15 seconds) is the fail-open valve — an answer that never came stops holding the outbox open, so a lost reply costs one slow refresh rather than a dead widget. A transport refusal is not an answer: it re-arms the ask for the next trigger instead of waiting out the window.
+- **`addSliceFetcher` fans the receiver `Tee` back to its Fetcher**, which is what settles the ask. The view cannot: a transform that drops an unchanged reply — the URL-detail merge does — means the view never hears about it, and the poll would wedge until the window every time. The Fetcher goes LAST, after the view, so a consumer acting once per ANSWER can ask `isAsking()` while the reply renders.
+- **`useCommandOnce` sends through that outbox instead of keeping its own.** `run()` calls `FetcherNode.send( args, path, supersede )` and the hook keeps only what a caller waiting on an answer needs: what each send is ABOUT, and whether a write queues behind the last one or replaces it. One mechanism for "what have I asked and not been answered", not two. Two writes run in the same commit now ride ONE POST rather than one per tick, so they share a response body and settle together.
+- **A re-asked poll re-reads its live args instead of replaying them.** An ask carries the state it was minted with, and the reason it is asked again is that time has passed — so a refused batch followed by an operator changing the filter re-sent the OLD search, and the stale answer rendered into a table already marked loading for the new one. An ask minted from `command_args` is marked `live` and re-reads it; a getter that has since gone quiet drops the ask rather than replaying it.
+- **An ask nothing ever answers stops being something to wait for.** A write is never re-asked — an unanswered one may already have applied — but `useCommandOnce` derives `pending` straight from the outbox, so a reply lost without a fabricated refusal left a row's spinner turning and its button disabled for the life of the page. `ASK_EXPIRY_S` is the outer bound on how long any ask may stand.
+- **Tee fan-out order is contractual, and both ports now say so.** `addSliceFetcher` rests on it — a receiver reaches its view before the Fetcher that settles the ask, which is what lets a consumer acting once per ANSWER read `isAsking()` while the reply renders. The JS Tee's only delivery test sorted its result before asserting, so a change that shuffled, batched or deferred targets would have left it green while every `onDone` in the product stopped firing, silently. Both ports' docblocks state it and both suites pin it.
+- The duplicate-ask guard joins on `\u0000` again — a raw NUL BYTE had been written into the source in its place, which reads as a space and would have made `[ 'a b' ]` and `[ 'a', 'b' ]` the same ask.
+- **`useCommandOnce` dropped three refs.** `useNodeEvent` keeps its own live callback ref, so the closure it registers is already the latest one — `onReplyRef` and `onDoneRef` were a second layer freshening what the layer below already freshened. `retryRef` was worse than redundant: it tracked `retry` per render while the node's `retry_after_s` is written once at build, so the two could disagree about what "this is a read" means.
+- **`answerBatch` (the `fakeCommandWire` test double) asks every command in a batch before awaiting any.** Awaiting each in turn modelled a server that stops at the first slow command: a suite holding the first reply open saw the second as never sent, when the wire had carried both in the same body.
+
 ## [2.43.3] - 2026-08-27
 
 ### Fixed

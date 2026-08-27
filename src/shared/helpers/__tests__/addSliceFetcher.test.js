@@ -6,6 +6,7 @@
  * The graph it builds, per slice:
  *   tee ─> fetch-x (Fetcher) ─> <target>            (the tick fans out to it)
  *   xIn (Tee) ─> [transform ─>] x:view (viewClass)  (the reply routes back here)
+ *             ─> fetch-x                            (…and settles the ask)
  */
 
 import {
@@ -91,6 +92,8 @@ describe( 'addSliceFetcher — wiring', () => {
 		const recv = Core.node( 'countsIn' );
 		expect( recv ).toBeTruthy();
 		expect( recv.target ).toContain( 'counts:view' );
+		// …and back to the Fetcher, which settles the ask the reply answers.
+		expect( recv.target ).toContain( 'fetch-counts' );
 
 		const view = Core.node( 'counts:view' );
 		expect( view ).toBeTruthy();
@@ -153,7 +156,13 @@ describe( 'addSliceFetcher — optional transform', () => {
 			tee,
 			target: TARGET,
 		} );
-		expect( Core.node( 'countsIn' ).target ).toEqual( [ 'counts:view' ] );
+		// ORDER matters, so `toEqual` and not `arrayContaining`: the Fetcher
+		// settles the ask, and a consumer acting once per ANSWER reads
+		// `isAsking()` as the view renders — which only works while it is last.
+		expect( Core.node( 'countsIn' ).target ).toEqual( [
+			'counts:view',
+			'fetch-counts',
+		] );
 	} );
 
 	test( 'with a transform, inserts it on the receiver-Tee → view edge (Tee → transform → view)', () => {
@@ -172,7 +181,10 @@ describe( 'addSliceFetcher — optional transform', () => {
 		} );
 
 		// The receiver Tee fans to the transform, NOT straight to the view.
-		expect( Core.node( 'urls:in' ).target ).toEqual( [ 'urls:merge' ] );
+		expect( Core.node( 'urls:in' ).target ).toEqual( [
+			'urls:merge',
+			'urls:fetch',
+		] );
 		// The transform forwards to the view.
 		const transform = Core.node( 'urls:merge' );
 		expect( transform ).toBeInstanceOf( FakeTransformNode );
@@ -221,6 +233,27 @@ describe( 'addSliceFetcher — controlFrom', () => {
 		} );
 
 		expect( Core.node( 'counts:view' ).controlFrom ).toBeUndefined();
+	} );
+
+	test( 'sets the transform its OWN control origin, for a dashboard that drives it', () => {
+		addSliceFetcher( interpreter, {
+			fetcher: 'urls:fetch',
+			receiver: 'urls:in',
+			command: 'urls',
+			view: 'urls:view',
+			viewClass: 'FakeView',
+			tee,
+			target: TARGET,
+			transform: {
+				name: 'urls:merge',
+				nodeClass: 'FakeTransform',
+				controlFrom: 'urls:merge',
+			},
+		} );
+
+		expect( Core.node( 'urls:merge' ).controlFrom ).toBe( 'urls:merge' );
+		// The view's own origin is a separate slot, and stays unset.
+		expect( Core.node( 'urls:view' ).controlFrom ).toBeUndefined();
 	} );
 
 	test( 'sets the declared control origin, which need not be the view', () => {

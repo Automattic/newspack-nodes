@@ -6,6 +6,7 @@ import {
 	__setAuthFetch,
 } from '../command-auth';
 import { CommandInterpreterNode } from '../command-interpreter-node';
+import { Core } from '../core';
 import {
 	newMessage,
 	TYPE,
@@ -13,6 +14,7 @@ import {
 	TO,
 	VALUE,
 	TM_COMMAND,
+	TM_RESPONSE,
 	TM_BYTESTREAM,
 	TM_STRUCT,
 } from '../message';
@@ -107,7 +109,10 @@ test( 'command_args may be a FUNCTION, called at fire time to get current args',
 		arguments: [ '--sort', 'count' ],
 	} );
 
-	// A later tick reflects the CURRENT value the getter returns.
+	// The ask that reply settled is done; the next one reads the getter again.
+	const answer = newMessage();
+	answer[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	f.fill( answer );
 	live = [ '--sort', 'avg_ms', '--order', 'asc' ];
 	f.fill( newMessage() );
 	expect( sent[ 1 ][ VALUE ] ).toMatchObject( {
@@ -141,13 +146,14 @@ test( 'static string command_args still works byte-identically (no getter)', () 
 	} );
 } );
 
-test( 'counter bumps per trigger', () => {
+test( 'counter bumps per ask', () => {
 	const f = new FetcherNode();
 	f.arguments = [ 'countsIn', 'counts' ];
 	f.sink = { fill: () => {} };
 	f.fill( newMessage() );
+	// A trigger arriving on an outstanding ask sends nothing, so counts nothing.
 	f.fill( newMessage() );
-	expect( f.counter ).toBe( 2 );
+	expect( f.counter ).toBe( 1 );
 } );
 
 test( "makeNode('Fetcher', name) resolves the registered class", () => {
@@ -294,43 +300,275 @@ test( 'an unauthenticated tick does not consume the pending arguments', () => {
 	} );
 } );
 
-// @longform The reply routes back along FROM, and the Router peels it one
-// segment at a time — so a subject appended to the receiver arrives AS the
-// remaining TO. That is how one node answers about many subjects without a
-// table: `vault:test:in/tw0` lands on `vault:test:in` reading TO `tw0`.
-describe( 'FetcherNode — the reply path carries the subject', () => {
-	const mount = ( receiver, verb ) => {
+/**
+ * @param {string} path  The reply's remaining TO — the subject it answers.
+ * @param {Object} value The reply VALUE.
+ * @return {Array} A positional reply message, as the server's echo delivers it.
+ */
+const replyNaming = ( path = '', value = {} ) => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	m[ TO ] = path;
+	m[ VALUE ] = value;
+	return m;
+};
+
+/**
+ * The outbox: one ask outstanding at a time.
+ *
+ * A dashboard on a one-second refresh used to put a command on the wire every
+ * second whether or not the last one had been answered, so a slow verb built a
+ * queue of identical asks the server was still working through. An ask now
+ * stands in the Fetcher's outbox until its reply settles it, and a trigger that
+ * finds one there mints nothing.
+ */
+describe( 'FetcherNode — the outbox', () => {
+	const mount = ( verb = 'counts' ) => {
 		const f = new FetcherNode();
-		f.arguments = [ receiver, verb ];
-		f.target = '_http/vault';
+		f.arguments = [ 'countsIn', verb ];
+		f.target = '_http/ci';
 		const sent = [];
 		f.sink = { fill: ( m ) => sent.push( m ) };
 		return { f, sent };
 	};
 
-	it( 'stamps FROM as receiver/<reply_path> when one is given', () => {
-		const { f, sent } = mount( 'vault:test:in', 'test' );
-		f.command_args = () => [ 'tw0' ];
-		f.reply_path = () => 'tw0';
-
+	it( 'asks once and stays quiet while the ask is outstanding', () => {
+		const { f, sent } = mount();
 		f.fill( newMessage() );
-		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in/tw0' );
+		f.fill( newMessage() );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
 	} );
 
-	it( 'stamps the bare receiver when there is no subject', () => {
-		const { f, sent } = mount( 'vault:list:in', 'list' );
-		f.command_args = () => [];
-
+	it( 'asks again once the reply settles the ask', () => {
+		const { f, sent } = mount();
 		f.fill( newMessage() );
-		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:list:in' );
+		f.fill( replyNaming() );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 2 );
 	} );
 
-	it( 'stamps the bare receiver when the getter reports no subject', () => {
-		const { f, sent } = mount( 'vault:test:in', 'test' );
-		f.command_args = () => [ 'tw0' ];
-		f.reply_path = () => null;
-
+	it( 'reads the live args again on the ask AFTER the reply', () => {
+		const { f, sent } = mount( 'urls' );
+		let live = [ '--sort', 'count' ];
+		f.command_args = () => live;
 		f.fill( newMessage() );
-		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:test:in' );
+		live = [ '--sort', 'avg_ms' ];
+		f.fill( replyNaming() );
+		f.fill( newMessage() );
+		expect( sent[ 1 ][ VALUE ].arguments ).toEqual( [
+			'--sort',
+			'avg_ms',
+		] );
+	} );
+
+	it( 'asks again when the answer never came and the window elapsed', () => {
+		const { f, sent } = mount();
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+		at.mockReturnValue( 1771000014 );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+		at.mockReturnValue( 1771000015 );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 2 );
+		at.mockRestore();
+	} );
+
+	/**
+	 * A re-ask must read the getter AGAIN. Replaying the args the ask was made
+	 * with asks yesterday's question: a poll whose reply went missing re-sends
+	 * the filter the operator has since changed, and the stale answer renders
+	 * into a table already marked loading for the new one.
+	 */
+	it( 're-reads the live args when it asks again, rather than replaying', () => {
+		const { f, sent } = mount( 'urls' );
+		let live = [ '--search', 'wombat-4471' ];
+		f.command_args = () => live;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+
+		live = [ '--search', 'quokka-8823' ];
+		at.mockReturnValue( 1771000015 );
+		f.fill( newMessage() );
+
+		expect( sent ).toHaveLength( 2 );
+		expect( sent[ 1 ][ VALUE ].arguments ).toEqual( [
+			'--search',
+			'quokka-8823',
+		] );
+		at.mockRestore();
+	} );
+
+	it( 'drops a live ask whose getter has since gone quiet', () => {
+		const { f, sent } = mount( 'urls' );
+		let live = [ '--hash', 'abc' ];
+		f.command_args = () => live;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+
+		// The modal closed: nothing to ask about any more.
+		live = null;
+		at.mockReturnValue( 1771000015 );
+		f.fill( newMessage() );
+
+		expect( sent ).toHaveLength( 1 );
+		expect( f.isAsking( null ) ).toBe( false );
+		at.mockRestore();
+	} );
+
+	// Never, for as long as the ask stands — and `ASK_EXPIRY_S` is how long
+	// that can be, which the queued-ask suite pins separately.
+	it( 'never re-asks while the ask stands, when the window is disabled', () => {
+		const { f, sent } = mount( 'save' );
+		f.retry_after_s = 0;
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.fill( newMessage() );
+		at.mockReturnValue( 1771000119 );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+		at.mockRestore();
+	} );
+
+	it( 'settles nothing on a reply about another subject', () => {
+		const { f, sent } = mount();
+		f.fill( newMessage() );
+		f.fill( replyNaming( 'quokka-8823' ) );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+	} );
+
+	it( 'counts the answer it settles', () => {
+		const { f } = mount();
+		f.fill( newMessage() );
+		f.fill( replyNaming() );
+		expect( f.counter ).toBe( 2 );
+	} );
+
+	it( 'sends nothing on a reply alone', () => {
+		const { f, sent } = mount();
+		f.fill( replyNaming() );
+		expect( sent ).toHaveLength( 0 );
+	} );
+
+	// A transport refusal never reached the verb, so the ask is unanswered:
+	// asking again is the recovery, and waiting out the window is not.
+	it( 're-asks on the next trigger when the batch never landed', () => {
+		const { f, sent } = mount();
+		f.fill( newMessage() );
+		f.fill( replyNaming( '', { undelivered: true } ) );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 2 );
+	} );
+} );
+
+/**
+ * `send()` is the write side of the same outbox: a caller with an answer to
+ * wait on parks its arguments, and the next trigger puts them on the wire. Two
+ * rows deleted in the same second are two commands that both have to go, so a
+ * queued ask never displaces another unless the caller says so.
+ */
+describe( 'FetcherNode — queued asks', () => {
+	const mount = () => {
+		const f = new FetcherNode();
+		f.arguments = [ 'vault:delete:in', 'delete' ];
+		f.target = '_http/vault';
+		// A one-shot: the trigger mints nothing, `send()` supplies every ask.
+		f.command_args = () => null;
+		f.retry_after_s = 0;
+		const sent = [];
+		f.sink = { fill: ( m ) => sent.push( m ) };
+		return { f, sent };
+	};
+
+	it( 'sends a queued ask on the next trigger, addressed by its subject', () => {
+		const { f, sent } = mount();
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+		expect( sent[ 0 ][ FROM ] ).toBe( 'vault:delete:in/wombat-4471' );
+		expect( sent[ 0 ][ VALUE ].arguments ).toEqual( [ 'wombat-4471' ] );
+	} );
+
+	it( 'sends BOTH queued asks in one trigger', () => {
+		const { f, sent } = mount();
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.send( [ 'quokka-8823' ], 'quokka-8823' );
+		f.fill( newMessage() );
+		expect( sent.map( ( m ) => m[ VALUE ].arguments[ 0 ] ) ).toEqual( [
+			'wombat-4471',
+			'quokka-8823',
+		] );
+	} );
+
+	it( 'settles the ask the reply names and leaves the other outstanding', () => {
+		const { f } = mount();
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.send( [ 'quokka-8823' ], 'quokka-8823' );
+		f.fill( newMessage() );
+		f.fill( replyNaming( 'quokka-8823' ) );
+		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
+		expect( f.isAsking( 'quokka-8823' ) ).toBe( false );
+	} );
+
+	it( 'displaces what is waiting when the caller supersedes', () => {
+		const { f, sent } = mount();
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.send( [ 'quokka-8823' ], 'quokka-8823', true );
+		f.fill( newMessage() );
+		expect( sent.map( ( m ) => m[ VALUE ].arguments[ 0 ] ) ).toEqual( [
+			'quokka-8823',
+		] );
+	} );
+
+	/**
+	 * A write is never re-asked — an unanswered one may already have applied —
+	 * but it must not sit in the outbox for ever either. `useCommandOnce`
+	 * derives `pending` straight from it, so a reply lost without a fabricated
+	 * refusal (a graph rebuild mid-flight) left the row's spinner turning and
+	 * its button disabled for the life of the page.
+	 */
+	it( 'gives up on an ask nothing ever answered, so nobody waits for ever', () => {
+		const { f } = mount();
+		const at = jest.spyOn( Core, 'now' );
+		at.mockReturnValue( 1771000000 );
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.fill( newMessage() );
+		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
+
+		at.mockReturnValue( 1771000119 );
+		f.fill( newMessage() );
+		expect( f.isAsking( 'wombat-4471' ) ).toBe( true );
+
+		at.mockReturnValue( 1771000121 );
+		f.fill( newMessage() );
+		expect( f.isAsking( 'wombat-4471' ) ).toBe( false );
+		at.mockRestore();
+	} );
+
+	it( 'settles a write the transport refused rather than sending it twice', () => {
+		const { f, sent } = mount();
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.fill( newMessage() );
+		f.fill( replyNaming( 'wombat-4471', { undelivered: true } ) );
+		f.fill( newMessage() );
+		expect( sent ).toHaveLength( 1 );
+	} );
+
+	it( 'notifies `settled` with the ask the reply answered', () => {
+		const { f } = mount();
+		const settled = [];
+		f.register( 'settled', 'spy', ( ask ) => {
+			settled.push( ask.path );
+			return true;
+		} );
+		f.send( [ 'wombat-4471' ], 'wombat-4471' );
+		f.fill( newMessage() );
+		f.fill( replyNaming( 'wombat-4471' ) );
+		expect( settled ).toEqual( [ 'wombat-4471' ] );
 	} );
 } );

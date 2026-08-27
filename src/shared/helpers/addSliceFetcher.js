@@ -3,6 +3,7 @@
  *
  *   tee ─> <fetcher> (Fetcher) ─> <target>            the tick fans out to it
  *   <receiver> (Tee) ─> [<transform> ─>] <view>       the reply routes back here
+ *                    ─> <fetcher>                     …and settles the ask
  *
  * A Fetcher emits its ONE configured command (`<receiver> <command>`) toward
  * `target` (`_shell/_http/<ci>`); the server CI replies `TO = FROM = receiver`,
@@ -10,6 +11,18 @@
  * independent reply path per slice, nothing crosses. The optional `transform`
  * slot drops a Hook/Callback/Counter node onto the receiver-Tee → view edge so a
  * per-slice merge/dedup lands on a graph edge, not inside the view.
+ *
+ * The receiver fans the reply back to the Fetcher too, which is what settles the
+ * ask so the next tick may make a new one — the view cannot do it, because a
+ * transform that drops an unchanged reply means the view never hears about it.
+ * The Fetcher goes LAST, after the view: a consumer that acts once per ANSWER
+ * asks `isAsking()` as the reply renders, and a settled ask is gone by then.
+ *
+ * A receiver that ALSO takes out-of-band sends — a dashboard minting straight
+ * from it rather than through the Fetcher — sees those replies settle whatever
+ * the Fetcher had outstanding, since a pathless ask matches any pathless reply.
+ * That costs one extra command in flight and levels out on the next tick; give
+ * such a send its own receiver if one ask at a time has to be exact.
  *
  * Pair it with `useBatchedPoll`, whose `build` calls this once per slice and
  * which owns the `_shell`/`_http`/Timer/lock-flush boilerplate.
@@ -24,9 +37,8 @@
  * @param {Object}     slice.tee           The fan-out Tee node the tick fans through.
  * @param {string}     slice.target        Egress path the Fetcher targets (`_shell/_http/<ci>`).
  * @param {string}     [slice.controlFrom] Optional control origin for views that take local controls: the FROM their dashboard mints under. Omitted for the majority, whose view class owns no control path — stamping every view planted an inert field on them, and the wrong name on any view whose controls come from its transform rather than itself.
- * @param {Object}     [slice.transform]   Optional `{ name, nodeClass, args }` (args a ctor-token array) node inserted on the receiver-Tee → view edge.
+ * @param {Object}     [slice.transform]   Optional `{ name, nodeClass, args, controlFrom }` (args a ctor-token array) node inserted on the receiver-Tee → view edge; `controlFrom` is its own control origin, for a transform its dashboard drives directly.
  * @param {Function}   [slice.argsFn]      Optional fire-time getter `() => argsTokens`; assigned to the Fetcher's `command_args` so each tick emits live, UI-state-driven command args (filter / sort / page) without re-wiring.
- * @param {Function}   [slice.replyPathFn] Optional fire-time getter `() => subject`; appended to the Fetcher's FROM, so the reply arrives at the receiver with the subject as its remaining TO. That is how ONE result node answers about many subjects. Refused alongside `transform`, which would not peel the subject back off.
  * @return {string} The receiver Tee name.
  */
 export function addSliceFetcher(
@@ -42,7 +54,6 @@ export function addSliceFetcher(
 		target,
 		transform,
 		argsFn,
-		replyPathFn,
 	}
 ) {
 	// Fetcher: turns the tick into ONE command (FROM=receiver) at the egress.
@@ -50,19 +61,6 @@ export function addSliceFetcher(
 	// A getter makes the Fetcher emit live args each tick, else static (empty).
 	if ( argsFn ) {
 		f.command_args = argsFn;
-	}
-	if ( replyPathFn ) {
-		// @longform A subject rides as a trailing path segment, and a plain
-		// transform node does not peel it: it would leave a non-empty TO for
-		// the interpreter to route to a node named after the subject, which
-		// does not exist. The two are compatible only once a transform peels,
-		// so refuse the pair here rather than dropping replies at runtime.
-		if ( transform ) {
-			throw new TypeError(
-				`addSliceFetcher( '${ receiver }' ): replyPathFn cannot be combined with transform — the transform would have to peel the subject off TO`
-			);
-		}
-		f.reply_path = replyPathFn;
 	}
 	f.connectNode( target );
 	tee.connectNode( fetcher );
@@ -76,9 +74,13 @@ export function addSliceFetcher(
 			transform.args || []
 		);
 		t.connectNode( view );
-		recv.connectNode( transform.name );
-	} else {
-		recv.connectNode( view );
+		if ( undefined !== transform.controlFrom ) {
+			t.controlFrom = transform.controlFrom;
+		}
+	}
+	// The Fetcher goes LAST: the ask must still stand while the reply renders.
+	for ( const next of [ transform?.name ?? view, fetcher ] ) {
+		recv.connectNode( next );
 	}
 	const v = interpreter.makeNode( viewClass, view );
 	if ( undefined !== controlFrom ) {

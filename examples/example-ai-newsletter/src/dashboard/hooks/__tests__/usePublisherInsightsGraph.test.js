@@ -117,10 +117,15 @@ describe( 'usePublisherInsightsGraph — batched poll', () => {
 	test( 'one router TIMER tick emits exactly three TM_COMMANDs (counts/top/accumulated, FROM=their receivers) batched into ONE HttpOut POST', async () => {
 		const wire = installWire( emptyPayloads );
 		renderHook( () => usePublisherInsightsGraph() );
+		// Twice: the mount's own first load has to be ANSWERED before the next
+		// tick asks again, since a Fetcher holding an outstanding ask is quiet.
+		await act( async () => {} );
 		await act( async () => {} );
 		wire.batches.length = 0;
 
 		await act( async () => {
+			// The dashboard's cadence is slower than the tick, so say it is due.
+			Core.node( 'insights:timer' ).markDue();
 			Core.node( ROUTER ).fireCb();
 		} );
 

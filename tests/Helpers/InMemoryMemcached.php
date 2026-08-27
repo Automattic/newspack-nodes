@@ -48,6 +48,9 @@ class InMemoryMemcached extends \Memcached {
 
 	public int $multi_calls = 0;
 
+	/** Keys ASKED for across every getMulti — the fan-out width, not the trips. */
+	public int $multi_keys = 0;
+
 	/** @var array<string,true> */
 	private array $set_failures = [];
 
@@ -190,6 +193,7 @@ class InMemoryMemcached extends \Memcached {
 	/** Found-only, and a stored `false` IS found — the real getMulti includes it. */
 	public function getMulti( array $keys, int $get_flags = 0 ): array|false {
 		++$this->multi_calls;
+		$this->multi_keys += \count( $keys );
 		$singles = $this->get_calls;
 		$out     = [];
 		foreach ( $keys as $key ) {

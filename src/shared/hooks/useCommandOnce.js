@@ -1,9 +1,14 @@
 /**
  * useCommandOnce — one verb on the batched tick, sent exactly once each time.
  *
- * `run( args )` parks the arguments; the next fan-out sends them, and the reply
- * lands on this hook's own result node because the server echoes TO=FROM.
- * Nothing here mints a POST of its own.
+ * `run( args )` parks the arguments in the Fetcher's outbox; the next fan-out
+ * sends them, and the reply lands on this hook's own result node because the
+ * server echoes TO=FROM. Nothing here mints a POST of its own.
+ *
+ * The outbox is the FETCHER's, the same one a polled slice throttles itself
+ * with — one mechanism for "what have I asked and not been answered", not two.
+ * This hook adds only what a caller waiting on an answer needs: what each send
+ * is ABOUT, and whether a write queues behind the last one or replaces it.
  *
  * Several sends may be outstanding together and nothing pairs them up: both
  * interpreters echo the verb and its arguments into the response VALUE, so a
@@ -47,8 +52,11 @@ const TICK_MS = 1000;
  */
 const IDLE_MS = 60000;
 
-/** How long a retried READ waits before asking again. */
-const RETRY_AFTER_MS = 5000;
+/** Seconds a retried READ waits before asking again; a write never does. */
+const RETRY_AFTER_S = 5;
+
+/** A Fetcher that mints nothing on the tick: `run()` is the only source of asks. */
+const NOTHING_TO_MINT = () => null;
 
 /** An escaped subject longer than this is a body, not an identity. */
 const SUBJECT_MAX = 128;
@@ -117,60 +125,43 @@ export function useCommandOnce( {
 		);
 	}
 	const target = egressPath( ci );
+	const fetcher = `${ scope }:fetch`;
 	const view = `${ scope }:result`;
 
-	// In flight: `askedAt` 0 until sent, and it leaves when a reply names it.
-	const outboxRef = useRef( [] );
-	// The send `argsFn` just handed over, so `replyPathFn` addresses THAT one.
-	const sendingRef = useRef( null );
-	const onDoneRef = useRef( onDone );
-	onDoneRef.current = onDone;
-	const retryRef = useRef( retry );
-	retryRef.current = retry;
+	// @longform No ref for `onDone` or `retry`: `useNodeEvent` keeps its own
+	// live callback ref, so the closure registered below is already the latest
+	// one on every notification. A second layer freshening the same values
+	// froze nothing — and `retryRef` tracked `retry` per render while the
+	// node's `retry_after_s` is written once, so the two could disagree about
+	// what "this is a read" means.
 	const subjectOfRef = useRef( subjectOf );
 	subjectOfRef.current = subjectOf;
+	// A bump, not a copy: the outbox IS what is outstanding.
+	const [ , bumpOutbox ] = useState( 0 );
+	const publishOutstanding = useCallback(
+		() => bumpOutbox( ( n ) => n + 1 ),
+		[]
+	);
 	// The outstanding SUBJECTS, not a boolean: a table asks which row waits.
-	const [ outstanding, setOutstanding ] = useState( [] );
-	const publishOutstanding = () =>
-		setOutstanding( outboxRef.current.map( ( send ) => send.subject ) );
-	// `pollNow` arrives after the build body that needs it; hence the ref.
-	const pollAgainRef = useRef( null );
+	const outstanding = ( Core.node( fetcher )?.outbox ?? [] ).map( ( ask ) =>
+		decodeSubject( ask.path )
+	);
 
 	const { pollNow } = useBatchedPoll( {
-		build: ( { interpreter, tee } ) =>
+		build: ( { interpreter, tee } ) => {
 			addSliceFetcher( interpreter, {
-				fetcher: `${ scope }:fetch`,
+				fetcher,
 				receiver: `${ scope }:in`,
 				command,
-				argsFn: () => {
-					// Unsent goes now; a read re-asks once its window is up.
-					const next = outboxRef.current.find(
-						( send ) =>
-							0 === send.askedAt ||
-							( retryRef.current &&
-								Date.now() - send.askedAt >= RETRY_AFTER_MS )
-					);
-					if ( ! next ) {
-						return null;
-					}
-					next.askedAt = Date.now();
-					sendingRef.current = next;
-					// @longform One send per fire, so a queue behind this one
-					// asks for the next tick rather than waiting out the
-					// cadence — two rows deleted in the same second are two
-					// commands, and a write's cadence is a minute.
-					if ( outboxRef.current.some( ( s ) => 0 === s.askedAt ) ) {
-						pollAgainRef.current?.();
-					}
-					return next.args;
-				},
-				// Read in the same tick, right after argsFn chose the send.
-				replyPathFn: () => sendingRef.current?.path ?? null,
+				argsFn: NOTHING_TO_MINT,
 				view,
 				viewClass: CommandResultNode,
 				tee,
 				target,
-			} ),
+			} );
+			// A read re-asks a request that went missing; a write never does.
+			Core.node( fetcher ).retry_after_s = retry ? RETRY_AFTER_S : 0;
+		},
 		timerName: `${ scope }:timer`,
 		teeName: `${ scope }:tee`,
 		intervalMs: retry ? TICK_MS : IDLE_MS,
@@ -180,49 +171,40 @@ export function useCommandOnce( {
 
 	const [ model, setModel ] = useState( null );
 
-	// Handle ONE reply. Read live from the effect, which registers once.
-	const onReplyRef = useRef( null );
-	onReplyRef.current = ( reply ) => {
-		// A transport refusal is no answer: a read keeps asking.
-		if ( retryRef.current && reply.undelivered ) {
-			return;
-		}
-		const args = reply.args ?? [];
-		// Retire the ask this answers; its ADDRESS is what names it.
-		const subject = decodeSubject( reply.subject );
-		const at = outboxRef.current.findIndex(
-			( send ) => send.subject === subject
-		);
-		if ( 0 > at ) {
-			return;
-		}
-		outboxRef.current = outboxRef.current.filter(
-			( _send, i ) => i !== at
-		);
-		setModel( reply );
-		publishOutstanding();
-		onDoneRef.current?.( {
-			result: reply.ok ? reply.payload : null,
-			error: reply.error ?? null,
-			errorData: reply.errorData ?? null,
-			args,
-			subject,
-		} );
-	};
-
 	// Registering re-delivers the cached reply; this outlives a remount.
 	const seenRef = useRef( null );
 	useNodeEvent( view, 'result', ( reply ) => {
-		if ( seenRef.current !== reply ) {
-			seenRef.current = reply;
-			onReplyRef.current( reply );
+		if ( seenRef.current === reply ) {
+			return;
 		}
+		seenRef.current = reply;
+		// A transport refusal is no answer: a read keeps asking.
+		if ( retry && reply.undelivered ) {
+			return;
+		}
+		// A second answer to a settled question must not run `onDone` again.
+		if ( ! Core.node( fetcher )?.isAsking( reply.subject || null ) ) {
+			return;
+		}
+		setModel( reply );
+		onDone?.( {
+			result: reply.ok ? reply.payload : null,
+			error: reply.error ?? null,
+			errorData: reply.errorData ?? null,
+			args: reply.args ?? [],
+			subject: decodeSubject( reply.subject ),
+		} );
 	} );
 
-	pollAgainRef.current = pollNow;
+	// The outbox emptying is what ends a row's spinner, not the reply landing.
+	useNodeEvent( fetcher, 'settled', publishOutstanding );
 
 	const run = useCallback(
 		( args ) => {
+			const node = Core.node( fetcher );
+			if ( ! node ) {
+				return;
+			}
 			const tokens = Array.isArray( args ) ? args : [];
 			// @longform A body is not an address. Left to the default, a verb
 			// whose first token is a document or a pasted URL would address
@@ -239,32 +221,28 @@ export function useCommandOnce( {
 					`ERROR: useCommandOnce(${ command }): subject of ${ encoded.length } chars is a body, not an address — pass subjectOf`
 				);
 			}
-			const subject = tooLong ? null : named;
-			const path = tooLong ? null : encoded;
 			// @longform Re-asking for the subject ALREADY OUTSTANDING says
 			// nothing new — the retry window owns "ask again for this". Taking
 			// it as a fresh ask resets that window and pokes a tick, so a
 			// caller whose dep identity churns (an object literal rebuilt each
 			// render) would put a command and a whole router tick on the wire
 			// per render.
-			const [ inFlight ] = outboxRef.current;
+			const [ inFlight ] = node.outbox;
 			if (
-				retryRef.current &&
+				retry &&
 				inFlight &&
+				// NUL, not a space: `[ 'a b' ]` is not `[ 'a', 'b' ]`.
 				inFlight.args.join( '\u0000' ) === tokens.join( '\u0000' )
 			) {
 				return;
 			}
-			const send = { args: tokens, subject, path, askedAt: 0 };
 			// A read supersedes: nobody wants the answer to the older ask.
-			outboxRef.current = retryRef.current
-				? [ send ]
-				: [ ...outboxRef.current, send ];
+			node.send( tokens, tooLong ? null : encoded, retry );
 			publishOutstanding();
 			// A click waits for a tick, not for the heartbeat to come round.
 			pollNow();
 		},
-		[ command, pollNow ]
+		[ command, fetcher, pollNow, publishOutstanding, retry ]
 	);
 
 	// One source for "what was answered": the reply the node published.
