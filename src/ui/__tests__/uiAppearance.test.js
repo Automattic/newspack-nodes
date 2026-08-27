@@ -1309,6 +1309,7 @@ describe( 'canonical UI appearance', () => {
 			'border-radius': 'var(--np-radius-sm)',
 			'box-shadow':
 				'inset 0 0 0 1px var(--paper-shadow,var(--np-border-strong))',
+			padding: '2px 6px',
 		} );
 	} );
 
