@@ -11,6 +11,59 @@
  * `scale.ticks()` without this module importing d3.
  */
 
+const MS_PER_SECOND = 1000;
+const MS_PER_KILOSECOND = 1000 * MS_PER_SECOND;
+
+/**
+ * The unit a duration axis should read in, chosen ONCE from its domain.
+ *
+ * Per-value laddering is right for a readout and wrong for an axis: it prints
+ * `200ms` and `1.0s` on the same scale, and the reader has to convert in their
+ * head to see which tick is larger. An axis picks one unit and holds it.
+ *
+ * The unit follows the data rather than being pinned to milliseconds, because
+ * a slow site's ticks then run to five digits — `140000ms` — which is wider
+ * than the axis title beside it, and the two collide.
+ *
+ * @param {number} maxMs Largest value the axis has to show, in milliseconds.
+ * @return {{divisor: number, suffix: string, decimals: number}} The unit.
+ */
+const durationUnit = ( maxMs ) => {
+	if ( maxMs >= MS_PER_KILOSECOND ) {
+		return { divisor: MS_PER_KILOSECOND, suffix: 'Ks', decimals: 1 };
+	}
+	if ( maxMs >= 10 * MS_PER_SECOND ) {
+		return { divisor: MS_PER_SECOND, suffix: 's', decimals: 0 };
+	}
+	if ( maxMs >= MS_PER_SECOND ) {
+		return { divisor: MS_PER_SECOND, suffix: 's', decimals: 1 };
+	}
+	return { divisor: 1, suffix: 'ms', decimals: 0 };
+};
+
+/**
+ * A duration formatter for a value AXIS, in one unit for the whole axis.
+ *
+ * `formatUtils.formatDuration` is the READOUT version and ladders per value,
+ * which a detail panel wants and an axis must not have. Build this once from
+ * the domain and hand it to every tick.
+ *
+ * @param {number} maxMs Largest value the axis has to show, in milliseconds.
+ * @return {AxisFormatter} Formatter, e.g. `0ms`/`250ms` or `0s`/`140s`.
+ */
+export const axisDuration = ( maxMs ) => {
+	const { divisor, suffix, decimals } = durationUnit( maxMs );
+	const format = ( ms ) => {
+		const value = ms / divisor;
+		// Trailing `.0` is noise on a tick.
+		const shown =
+			0 === decimals ? Math.round( value ) : value.toFixed( decimals );
+		return `${ Number( shown ) }${ suffix }`;
+	};
+	format.tickValues = integerTicks;
+	return format;
+};
+
 /**
  * A value formatter that may carry the tick ladder its unit is round in.
  *
