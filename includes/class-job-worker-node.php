@@ -250,7 +250,8 @@ class Job_Worker_Node extends Node {
 			try {
 				\do_action( 'newspack_nodes/job_worker/after_job', $handler, $id, $outcome );
 			} catch ( \Throwable $e ) {
-				$this->print_less_often( 'after_job listener threw: ', $e->getMessage() );
+				// A cooperative stop carries no message; name its class.
+				$this->print_less_often( 'after_job listener threw: ', '' !== $e->getMessage() ? $e->getMessage() : \get_class( $e ) );
 			}
 		}
 		$batch = Core::as_string( $entry['batch'] ?? '', '' );
