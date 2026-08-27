@@ -654,7 +654,7 @@ the predicate. That was a live bug — a mid-job stop was guaranteed only on the
 
 **Decision:** A broad catch on the message/drain path re-throws `Worker_Should_Stop` before
 handling anything else — it's cooperative-stop signalling, not an error. Catch it explicitly
-first (`catch (Worker_Should_Stop $e) { throw $e; }`). Two deliberate carve-outs, documented
+first (`catch (Worker_Should_Stop $e) { throw $e; }`). Three deliberate carve-outs, documented
 at each site:
 
 - **Fan-out (Tee and Tap, via `Fanout_Targets`).** A target throwing says nothing about its
@@ -687,6 +687,15 @@ at each site:
   `before_job` counterpart is NOT a carve-out — it follows the rule, re-throwing WSS first and
   swallowing only a listener's own error, which skips that one job instead of killing the batch.
 
+- **`Log_Manager::finish()` (newspack-event-logger-nodes).** Every line it writes before the
+  terminal is a write — the orphan drain, the memory line, the resources line, and `complete()`
+  itself — so a stop can land on any of them. Skipping the terminal stranded the request in
+  flight until eviction, because `finished` latches on entry and nothing retried it, on any job
+  whose lock went away mid-request. It marks the request aborted, writes the terminal, then
+  re-raises. Same shape as Tap's passthrough: the terminal IS the record, and terminal-LAST is a
+  wire contract rather than a preference — `Reqgrep_Core` finalizes and evicts the rid on it, so
+  anything written after arrives at a request that no longer exists.
+
 **Alternatives considered:** A marker interface / `Control_Flow` exception base caught separately
 — premature: the control-flow family today is `Worker_Should_Stop` plus its subclass
 `Worker_Should_Stop_Clean`, so one explicit-first catch on the parent already covers both. A
@@ -699,6 +708,7 @@ firehose write. Broad catches stay legal for real errors but must front the WSS 
 or a carve-out's rationale stops holding.
 
 ---
+
 
 ## ADR-15: Command authorization: LOCAL taint + the minter signs
 

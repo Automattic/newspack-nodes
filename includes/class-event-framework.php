@@ -201,10 +201,6 @@ class Event_Framework {
 		return $this->curl_multi;
 	}
 
-	public function is_running(): bool {
-		return $this->draining;
-	}
-
 	/**
 	 * Re-run the worker drain's continue-predicate from inside a long in-process
 	 * job (called on the firehose write path) so the worker lock keeps beating
@@ -218,11 +214,38 @@ class Event_Framework {
 	 * stale read couldn't gate this. Routing through right_now() also un-freezes
 	 * the cached clock at pump cadence, so mid-job message TIMESTAMPs advance.
 	 *
+	 * The decision itself is `stop_check()`, which this is the throttled form of.
+	 */
+	public function pump(): void {
+		// Deliberate duplicate: spares non-workers a right_now() per write.
+		if ( null === $this->continue_predicate ) {
+			return;
+		}
+		if ( Core::right_now() - $this->last_pump < self::PUMP_INTERVAL_S ) {
+			return;
+		}
+		$this->stop_check();
+	}
+
+	/**
+	 * Decide NOW whether the worker should keep going, and raise if not.
+	 *
+	 * What `pump()` does once the throttle allows it, for a caller that has just
+	 * finished a unit of work and needs the answer at that point rather than up
+	 * to PUMP_INTERVAL_S later — a subprocess that may have outlived the lease,
+	 * where the parent logged nothing for the whole render. A short one would
+	 * otherwise slip through unchecked and record a clean finish.
+	 *
+	 * Ask directly rather than riding the next write: a write can be declined
+	 * (`Log_Manager::message()` returns false when the request is not being
+	 * logged), and whether the worker should stop has nothing to do with
+	 * whether this request is logged.
+	 *
 	 * A Worker_Should_Stop raised here unwinds the whole fill() stack: broad
 	 * drain-path catches re-throw it before handling (ADR-14), so the mid-job
 	 * stop reaches Worker_Base on every path, not just the direct firehose write.
 	 */
-	public function pump(): void {
+	public function stop_check(): void {
 		if ( null === $this->continue_predicate ) {
 			return;
 		}
@@ -230,15 +253,15 @@ class Event_Framework {
 		if ( Core::in_stderr() ) {
 			return;
 		}
-		$now = Core::right_now();
-		if ( $now - $this->last_pump < self::PUMP_INTERVAL_S ) {
-			return;
-		}
-		$this->last_pump = $now;
+		$this->last_pump = Core::right_now();
 		// mid_work: the idle question is meaningless with a job in flight.
 		if ( ! ( $this->continue_predicate )( true ) ) {
 			throw new Worker_Should_Stop();
 		}
+	}
+
+	public function is_running(): bool {
+		return $this->draining;
 	}
 
 	public static function instance(): self {
