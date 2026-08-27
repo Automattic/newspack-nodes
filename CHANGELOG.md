@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.43.0] - 2026-08-26
+
+### Added
+
+- **`axisDuration( maxMs )` — one duration formatter for value axes, built from the domain.** A response-time axis pinned to milliseconds runs to five digits on a slow site — `140000ms` — wider than the axis title beside it, and the two collide. The unit is picked ONCE from the domain and every tick reads in it, which is what a per-value ladder gets wrong: it prints `200ms` and `1.0s` on one scale and the reader converts in their head to see which tick is larger. `formatUtils.formatDuration` stays the readout version; a detail panel wants its two decimals and a tick label is exactly where they do not belong.
+- **A gate against per-component repaints of a canonical control.** `.button` is painted once by the shared roles; a component that repaints it locally makes a second copy that drifts the moment the shared one moves. `scripts/lint-styles.mjs` reads both languages, because the pairing is not in the CSS — a component that names its button and then paints that name shows the stylesheet only an unfamiliar class, so classes riding a canonical control are read off the JSX and derived, never listed. It fires only on repaints: sizing and placing a shared control is how a component fits one in, and passes.
+
+### Fixed
+
+- **A button lays out above WordPress's own display, once.** `.wp-core-ui .button` sets `display: inline-block` two classes deep, so it beat every single-class component rule that tried to lay a button out — `display: flex` silently did nothing and the contents fell back to one run of inline text, which is why the topology picker centred a name and its `active` badge together instead of pushing the badge to the end. The shared `.button` now sets `display: inline-flex`, winning that at the layer that owns what a button is rather than each component re-fighting it.
+- **A modal header stops repainting canonical buttons.** Its comment already said "a button carrying a role brings its own fill AND text", but the `:not()` chain never exempted a plain `.button` — and the theme gives the secondary role `--button-secondary-color: var(--cyan)`. The same class read cyan in a modal body and ink in its header.
+- **The topology settings panel stops forcing a dark colour scheme on light themes.** It painted `color-scheme: dark` on every number input unconditionally; `_controls.scss` already does exactly that, scoped to the seven dark skins, so the local copy was the shared rule minus the scope that made it right and left the spinners dark on a light theme.
+- **The message composer fills the modal.** Seven fields ran one per row down a narrow column. They pair now — TYPE|TIMESTAMP, FROM|TO, ID|KEY, VALUE across both — and the field ORDER moved with it, since a grid over source order would have put a checkbox where TIMESTAMP belongs and left tab order following neither.
+
 ## [2.42.0] - 2026-08-26
 
 ### Fixed
