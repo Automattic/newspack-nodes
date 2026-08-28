@@ -185,8 +185,9 @@ Intentional, load-bearing choices — "fixing" one usually reintroduces a bug we
 | `includes/class-cli.php` | Worker-discovery + attached-cli IPC helpers, used by `wp nodes status` and `wp nodes cli` |
 | `includes/class-cli-command.php` | `wp nodes cli` (bare + attached); wires the REPL graph — `_stdout` (`TTY_Out_Node`), `_output` (`Dumper_Node`, `target=_stdout`), a `TTY_In_Node` reader — then drains via `Event_Framework` |
 | `includes/class-{stdin,stdout,stderr,tty-in,tty-out}-node.php` | Terminal I/O. `Stdin_Node`/`Stdout_Node` are bare stream drain/sink (self-scheduling 0ms busy / 10ms post-EOF / 100ms idle re-arm); `TTY_In_Node`/`TTY_Out_Node` add readline, completion and prompts for `wp nodes cli`. `Stderr_Node` writes a TM_BYTESTREAM VALUE through the node stderr chain — splice on the end of a `Tee → Dumper → Grep` debug tap |
-| `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status,activate,deactivate,gc,doctor}` |
+| `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,stop,start,status,activate,deactivate,gc,doctor}` |
 | `includes/cli/class-caps-cli-command.php` | `wp nodes caps <status\|install\|uninstall>` and `wp nodes hub-user <login>` — the operator half of `Roles`: install the granular capabilities, then create the least-privilege aggregator user and issue it an application password (shown once) |
+| `includes/cli/class-memcache-cli-command.php` | `wp nodes memcache {get,flush}` — read one entry by its LOGICAL name (the substrate rebuilds the scope), and rotate the install salt, which is THE flush both this and the settings-page button call |
 | `includes/cli/class-ingest-cli-command.php` | `wp nodes ingest` — replay packed partition-segment records back through a Topic onto disk |
 | `includes/cli/class-scaffold-cli-command.php` | `wp nodes scaffold {plugin,node,topology}` — starter files in the canonical shapes of `docs/writing-a-plugin.md`; never overwrites |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC nonce, or admin capability + WP nonce + rate limit) |

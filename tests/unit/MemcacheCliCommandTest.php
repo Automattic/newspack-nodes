@@ -26,10 +26,13 @@ class MemcacheCliCommandTest extends TestCase {
 		$this->prev_memd                 = Core::$memd;
 		$GLOBALS['_test_wp_cli_lines']   = [];
 		$GLOBALS['_test_wp_cli_errors']  = [];
+		$GLOBALS['_test_wp_cli_success'] = [];
+		$GLOBALS['_test_wp_cli_warns']   = [];
 		Cache_Backend::$apcu_usable      = static fn (): bool => false;
 	}
 
 	protected function tearDown(): void {
+		Memcache_CLI_Command::$restart_workers = null;
 		Core::$memd                 = $this->prev_memd;
 		Cache_Backend::$apcu_usable = static fn (): bool => false;
 		parent::tearDown();
@@ -133,5 +136,48 @@ class MemcacheCliCommandTest extends TestCase {
 		}
 		$last = \end( $GLOBALS['_test_wp_cli_errors'] );
 		return \is_string( $last ) ? $last : '';
+	}
+
+	/**
+	 * `flush` is the CLI half of the admin's "Flush Caches" button: rotate the
+	 * install salt, which orphans every Newspack plugin's keys at once. The
+	 * deploy procedures call for it by name, and clicking a button is not
+	 * something a deploy script can do.
+	 */
+	public function test_flush_rotates_the_salt(): void {
+		$before = Cache_Backend::site_key( 'probe-4471' );
+
+		( new Memcache_CLI_Command() )->flush( [], [] );
+
+		$this->assertNotSame(
+			$before,
+			Cache_Backend::site_key( 'probe-4471' ),
+			'the same logical name resolves to a new address'
+		);
+		$this->assertNotSame( [], $GLOBALS['_test_wp_cli_success'] ?? [] );
+	}
+
+	/**
+	 * A worker memoizes the scope at boot, so a rotation without a restart
+	 * leaves live workers writing the OLD prefix. The restart is best-effort —
+	 * a failure only delays the new scope to the next spawn — so it must not
+	 * turn a successful flush into a failed command.
+	 */
+	public function test_a_failed_worker_restart_does_not_fail_the_flush(): void {
+		$before = Cache_Backend::site_key( 'probe-8823' );
+		Memcache_CLI_Command::$restart_workers = static function (): void {
+			throw new \RuntimeException( 'no IPC in a unit test' );
+		};
+
+		( new Memcache_CLI_Command() )->flush( [], [] );
+
+		$this->assertNotSame( $before, Cache_Backend::site_key( 'probe-8823' ), 'the salt still rotated' );
+		$this->assertNotSame( [], $GLOBALS['_test_wp_cli_success'] ?? [], 'and the command still succeeded' );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_errors'] ?? [], 'with no error raised' );
+		$this->assertStringContainsString(
+			'no IPC in a unit test',
+			\implode( "\n", $GLOBALS['_test_wp_cli_warns'] ),
+			'and the operator was told the restart did not happen'
+		);
 	}
 }

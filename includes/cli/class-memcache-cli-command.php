@@ -1,7 +1,8 @@
 <?php
 /**
- * Memcache_CLI_Command: `wp nodes memcache` — read a cache entry by its
- * LOGICAL name, letting the substrate resolve the scope.
+ * Memcache_CLI_Command: `wp nodes memcache` — `get` reads a cache entry by
+ * its LOGICAL name, letting the substrate resolve the scope; `flush` rotates
+ * the install's salt, which orphans every Newspack plugin's keys at once.
  *
  * @package Newspack_Nodes
  */
@@ -11,6 +12,54 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Memcache_CLI_Command {
+
+	/**
+	 * Worker-restart seam, standing in for the `CLI::restart_workers()` call
+	 * that tells live workers to pick up the new scope. Lazily defaulted to the
+	 * real call; tests reassign it to throw, proving a failed restart still
+	 * leaves a rotated salt, a warning, and a command that succeeded.
+	 *
+	 * Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $restart_workers = null;
+
+	/**
+	 * Rotate the install's cache salt — THE flush, and the CLI half of the
+	 * admin's "Flush Caches" button.
+	 *
+	 * One rotation orphans every Newspack plugin's cached values at once and
+	 * touches no co-tenant install sharing the memcached. Plugins deliberately
+	 * keep no salt of their own: three independent rotations meant flushing one
+	 * left the other two serving stale values.
+	 *
+	 * Workers are restarted after, because the scope is memoized per process
+	 * and a live worker keeps writing the OLD prefix until it respawns. That
+	 * restart is best-effort: a failure only delays the new scope to the next
+	 * spawn, so it is reported as a warning rather than failing the flush.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes memcache flush
+	 *
+	 * @param list<string>         $args       Unused.
+	 * @param array<string,string> $assoc_args Unused.
+	 */
+	public function flush( array $args, array $assoc_args ): void {
+		Cache_Backend::rotate_salt();
+
+		$restart = self::$restart_workers ?? static function (): void {
+			( new CLI( Config::get_base_directory() ) )->restart_workers( Bootstrap::expand_workers(), [], -1 );
+		};
+		try {
+			$restart();
+		} catch ( \Throwable $e ) {
+			\WP_CLI::warning( 'Workers were not restarted: ' . $e->getMessage() . ' — the new scope takes effect on their next spawn.' );
+		}
+
+		\WP_CLI::success( 'Cache salt rotated; every Newspack plugin key on this install is orphaned.' );
+	}
 
 	/**
 	 * Read one cache entry by logical name.

@@ -16,6 +16,8 @@ Every substrate command lives under `wp nodes`. This page is the quick reference
 | `wp nodes cli [<reader>.p<N>]` | The REPL. Bare (no arg) runs a local interpreter; with a worker id it pivots into that live worker over IPC. Refuses root. See [troubleshooting.md](troubleshooting.md) for the in-REPL verb table. |
 | `wp nodes scaffold <plugin\|node\|topology> <name>` | Generate a working starting point: a whole consumer plugin directory, a single Node class, or a `.tsl` topology — the shapes from [writing-a-plugin.md](writing-a-plugin.md). Never overwrites. |
 | `wp nodes ingest <topic> [<file>...]` | Replay packed partition-segment records (dead-letter segments included) back through a Topic — re-partitioned by KEY, appended to the destination segments. Omit the file list to read packed records from stdin instead. |
+| `wp nodes memcache get <logical> [--host] [--key] [--porcelain]` | Read one cache entry by its LOGICAL name — the substrate rebuilds `newspack_nodes:{version}:{scope}:{logical}`, so you never type the version or the site hash. `--key` prints the resolved address without reading; `--host` resolves in the per-machine scope. |
+| `wp nodes memcache flush` | Rotate the install's cache salt: every Newspack plugin key here is orphaned at once, and no co-tenant sharing the memcached is touched. Restarts the fleet after, because a live worker keeps writing the old prefix until it respawns. The CLI half of the settings page's Flush Caches button. |
 
 ## The common flows
 
