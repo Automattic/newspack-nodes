@@ -1512,6 +1512,37 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 1, $current_seg->getValue( $p ), 'drift recovery must adopt peer segment 1' );
 	}
 
+	public function test_rotation_sees_peer_growth_of_the_segment_it_is_already_writing(): void {
+		// request-builder.tsl points every worker's completed:partition at one
+		// hardcoded .p0, so N writers share a segment. Each one decides to
+		// rotate from its OWN current_size, so a peer's bytes are invisible and
+		// the file runs to N x segment_size. Sizes distinct from every default:
+		// 5000-byte threshold (not 1 MiB, not 64 MiB), 6000-byte peer append.
+		$segment_size = 5000;
+		$p            = new Partition_Node();
+		$p->arguments( [ "{$this->tmp}.p0", (string) $segment_size, '2', '4', '0', '0', '86400', '0' ] );
+		$this->produce_into( $p, 'ours-1' );
+
+		// A peer worker appends to the SAME segment, filling it past the cap.
+		\file_put_contents( "{$this->tmp}.p0/0.log", \str_repeat( 'p', 6000 ) . "\n", \FILE_APPEND );
+		$this->assertGreaterThan(
+			$segment_size,
+			\filesize( "{$this->tmp}.p0/0.log" ),
+			'precondition: the shared segment is genuinely over the threshold'
+		);
+
+		// Open the rescan window, then write again.
+		$ref        = new \ReflectionClass( $p );
+		$last_check = $ref->getProperty( 'last_segment_check' );
+		$last_check->setValue( $p, \microtime( true ) - 5.0 );
+		$this->produce_into( $p, 'ours-2' );
+
+		$this->assertFileExists(
+			"{$this->tmp}.p0/1.log",
+			'a writer must rotate on the segment\'s REAL size, not its own byte count'
+		);
+	}
+
 	// ============================================================================
 	// Hardening: with_index() round-trip.
 	// ============================================================================
