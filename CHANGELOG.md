@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [2.45.1] - 2026-08-28
+
+### Fixed
+
+- **A config file that assigns `$config` no longer truncates the whole configuration.** `Config_Utils::load_config_file()` names its first parameter `$config` and read the operator's file with a bare `require`, which PHP executes in the *including function's* variable scope — so a config written as `$config = require '<base>'; $config['key'] = …; return $config;` overwrote the schema defaults it had just been handed, and the spread merged the file with itself. On the install that does this, 32 keys became 6: every unnamed key read back as `null`, and the first topology to resolve `<config:segment_size>` died with `segment_size must be a positive byte count, got 0`. The `require` now runs inside a closure, which has no access to the caller's variables. Nothing about the truncation was detectable from the config file itself, which is why it is fixed at the loader rather than documented as a naming convention.
+
+
 ## [2.45.0] - 2026-08-27
 
 ### Fixed

@@ -251,6 +251,27 @@ class ConfigUtilsTest extends TestCase {
 		$this->assertSame( 'from_file', $result['shared'] );
 	}
 
+	public function test_load_config_file_survives_a_file_that_assigns_config(): void {
+		// A `require` runs in the INCLUDING function's variable scope, and this
+		// loader's first parameter is named $config. gyropyro's shipped config
+		// opens `$config = require '<base>';` to override one key, which landed
+		// on the caller's 32 schema defaults and cut them to the base file's
+		// handful. Seeds distinct from every real key and default.
+		$conf = $this->temp_dir . '/assigns-config.php';
+		\file_put_contents(
+			$conf,
+			"<?php\n\$config = [ 'zeta_from_file' => 909 ];\n\$config['eta_override'] = 'phi';\nreturn \$config;\n"
+		);
+		$result = Config_Utils::load_config_file(
+			[ 'alpha_base' => 101, 'beta_base' => 202 ],
+			$conf
+		);
+		$this->assertSame( 101, $result['alpha_base'] ?? null, 'the caller\'s defaults must survive' );
+		$this->assertSame( 202, $result['beta_base'] ?? null, 'the caller\'s defaults must survive' );
+		$this->assertSame( 909, $result['zeta_from_file'] );
+		$this->assertSame( 'phi', $result['eta_override'] );
+	}
+
 	public function test_load_config_file_rejects_non_array_return(): void {
 		$conf = $this->temp_dir . '/string-return.php';
 		\file_put_contents( $conf, "<?php return 'not-an-array';\n" );
