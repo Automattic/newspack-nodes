@@ -421,6 +421,11 @@ class Partition_Node extends Timer_Node {
 			$this->current_size       = $newest['size'];
 			$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
 			$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
+			return;
+		}
+		// Peers append to the segment we hold: rotate on its size, not ours.
+		if ( $newest['size'] > $this->current_size ) {
+			$this->current_size = $newest['size'];
 		}
 	}
 
@@ -1339,7 +1344,10 @@ class Partition_Node extends Timer_Node {
 		$pattern = $this->segment_pattern();
 		foreach ( $files as $f ) {
 			if ( \preg_match( $pattern, $f, $m ) ) {
-				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$dir}/{$f}" ) ?: 0 ];
+				$path = "{$dir}/{$f}";
+				// A peer's append leaves our stat cache reporting the old size.
+				\clearstatcache( true, $path );
+				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( $path ) ?: 0 ];
 			}
 		}
 		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );

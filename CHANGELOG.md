@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `Partition` writer now rotates on its segment's REAL size, not its own byte count.** `current_size` counted only what this instance had written, and `maybe_rescan_segments()` — which force-rescans every second and `filesize()`s every segment — discarded that reading unless the newest segment ID had CHANGED. A peer appending to the segment we already hold was invisible, so N writers sharing one file each carried it to the threshold alone and it grew to roughly N x `segment_size`. `request-builder.tsl` is exactly that shape: `requests.p<partition>` is per-worker, but `completed.p0`, `gyroscope.p0`, `errors.p0` and `alerts.p0` are hardcoded, and every one of the N workers appends to them. A hub running four workers held 1 MiB segments at nearly 4 MiB.
+- **`get_segments()` clears the stat cache before sizing a segment.** PHP caches `filesize()` per path and a peer's append in another process invalidates nothing, so a long-running worker re-read its own first answer forever. Without this the rotation fix above is inert, and `do_rotate()`'s "adopt the newest if it still has room" test was reading the same stale number.
+
 ### Added
 
 - **`wp nodes memcache flush` — the CLI half of the settings page's "Flush Caches" button.** It rotates the install's cache salt, orphaning every Newspack plugin's keys at once, then restarts the fleet: the scope is memoized per process, so a live worker keeps writing the OLD prefix until it respawns. A deploy procedure can call for a flush by name; it cannot click a button. The restart is best-effort — a failure only delays the new scope to the next spawn, so it warns and the command still succeeds.
