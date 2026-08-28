@@ -28,8 +28,11 @@ class Config_Utils {
 		if ( ! \file_exists( $config_file ) ) {
 			return $config;
 		}
-		// Executes PHP; callers must pass a trusted path.
-		$parsed_config = require $config_file;
+		// @longform Executes PHP; callers must pass a trusted path. The closure
+		// is load-bearing: `require` runs in the INCLUDING scope, so a bare one
+		// here lets an operator config that writes `$config` overwrite this
+		// method's own parameter and silently drop every default it was handed.
+		$parsed_config = ( static fn ( string $file ) => require $file )( $config_file );
 		if ( \is_array( $parsed_config ) && self::validate_config_values( $parsed_config ) ) {
 			// require'd config: dynamic array; validated above as scalar/array.
 			/** @var array<string,mixed> $parsed_config */
