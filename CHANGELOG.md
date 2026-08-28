@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session whose lease is gone before its expiry reads as `revoked`, not `expired`.** The Sessions tab showed "expired" on a row whose Expires column was seventeen hours out. It had not expired: `wp nodes memcache flush` rotates the salt and orphans every key on the install, session leases included, while the durable directory row survives. Calling that "expired" sends the reader to look at TTLs. `all()` prunes lapsed rows before it lists, so a listed dead row was ALWAYS taken rather than lapsed — `revoked` is the only dead state a reader can see, and the store now names it rather than the UI guessing from `live`.
+- **`wp nodes memcache flush` says it signs every session out.** The operator running it may be holding one: an MCP client's session went with a deploy's flush and came back as a 401 that nothing connected to the flush.
+
+### Changed
+
+- **An unlabelled session is no longer listed.** Automatic `/auth` mints arrive several per dashboard load, and listing them buries the sessions an operator issued on purpose — at `MAX_ROWS` they evict them. The session still works; it is not a directory entry.
+
 
 ## [2.46.0] - 2026-08-28
 

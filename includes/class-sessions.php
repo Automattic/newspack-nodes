@@ -50,6 +50,13 @@ class Sessions {
 	 * an operator listing what the SSE slot pool needs for correctness.
 	 */
 	public static function record( string $handle, string $scope, string $label, int $ttl ): void {
+		// @longform An unlabelled session is an automatic `/auth` mint, several
+		// per dashboard load. Listing them buries the ones an operator issued
+		// on purpose and, at MAX_ROWS, evicts them — a directory that cannot
+		// be acted on. The session still works; it is just not listed.
+		if ( '' === \trim( $label ) ) {
+			return;
+		}
 		$now  = \time();
 		$rows = self::prune( self::rows(), $now );
 
@@ -85,9 +92,10 @@ class Sessions {
 
 	/**
 	 * The directory, newest first, each row carrying `live` — whether its key
-	 * still resolves. Never carries the key itself.
+	 * still resolves — and `state`, which says WHY when it does not. Never
+	 * carries the key itself.
 	 *
-	 * @return array<string,array{label:string,scope:string,created:int,expires:int,live:bool}>
+	 * @return array<string,array{label:string,scope:string,created:int,expires:int,live:bool,state:string}>
 	 */
 	public static function all(): array {
 		$now  = \time();
@@ -101,15 +109,36 @@ class Sessions {
 		foreach ( $rows as $handle => $row ) {
 			$handle = (string) $handle;
 			$scope  = Core::as_string( $row['scope'] ?? null, '' );
+			$expires = Core::as_int( $row['expires'] ?? 0 );
 			$out[ $handle ] = [
 				'label'   => Core::as_string( $row['label'] ?? '' ),
 				'scope'   => '' === $scope ? Capabilities::MANAGE : $scope,
 				'created' => Core::as_int( $row['created'] ?? 0 ),
-				'expires' => Core::as_int( $row['expires'] ?? 0 ),
+				'expires' => $expires,
 				'live'    => isset( $live[ $handle ] ),
+				'state'   => self::state( isset( $live[ $handle ] ) ),
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * What a row's lease says about it, in one word.
+	 *
+	 * `live` alone cannot separate the two dead states, and they send an
+	 * operator to different places. A lease gone BEFORE its stated expiry was
+	 * taken: revoked here, or orphaned by a salt rotation — `wp nodes memcache
+	 * flush` orphans every key on the install, session leases included. A lease
+	 * gone at or after it simply lapsed — and `all()` prunes those before it
+	 * lists, so a listed dead row was ALWAYS taken rather than lapsed. That is
+	 * the whole reason this exists: the tab said "expired" on rows that had
+	 * hours left, and sent the reader to look at TTLs.
+	 *
+	 * @param bool $live Whether the key still resolves.
+	 * @return string `live` or `revoked`.
+	 */
+	private static function state( bool $live ): string {
+		return $live ? 'live' : 'revoked';
 	}
 
 	/**

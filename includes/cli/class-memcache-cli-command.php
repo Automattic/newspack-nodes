@@ -58,7 +58,14 @@ class Memcache_CLI_Command {
 			\WP_CLI::warning( 'Workers were not restarted: ' . $e->getMessage() . ' — the new scope takes effect on their next spawn.' );
 		}
 
-		\WP_CLI::success( 'Cache salt rotated; every Newspack plugin key on this install is orphaned.' );
+		// @longform Sessions are named because the operator running this may be
+		// holding one: the salt takes their leases like any other key, and an
+		// MCP client's session going with a deploy reads as a 401 nobody
+		// connects to the flush.
+		\WP_CLI::success(
+			'Cache salt rotated; every Newspack plugin key on this install is orphaned, '
+			. 'including every issued session — reissue any you were using.'
+		);
 	}
 
 	/**
