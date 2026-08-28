@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [2.46.0] - 2026-08-28
+
 ### Added
 
 - **`Table_Node::store_multi()` — the half `lookup_multi()` never had.** A reader resolving a set of ids has always paid one `getMulti`; a writer paid one round trip per key, which is what made ELN's stats flush cost scale with URL cardinality rather than with volume. `Cache_Backend::write_multi()` now returns whether the set landed, so a caller can tell. Whole-batch only: neither backend reports success per KEY — memcached's `setMulti` is one bool and apcu returns the failures — so a caller that must know which key was refused re-sends that batch through `store()`.
