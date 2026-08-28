@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [2.45.0] - 2026-08-27
+
 ### Fixed
 
 - **A `Partition` writer now rotates on its segment's REAL size, not its own byte count.** `current_size` counted only what this instance had written, and `maybe_rescan_segments()` — which force-rescans every second and `filesize()`s every segment — discarded that reading unless the newest segment ID had CHANGED. A peer appending to the segment we already hold was invisible, so N writers sharing one file each carried it to the threshold alone and it grew to roughly N x `segment_size`. `request-builder.tsl` is exactly that shape: `requests.p<partition>` is per-worker, but `completed.p0`, `gyroscope.p0`, `errors.p0` and `alerts.p0` are hardcoded, and every one of the N workers appends to them. A hub running four workers held 1 MiB segments at nearly 4 MiB.
