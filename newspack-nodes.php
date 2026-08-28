@@ -57,6 +57,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes ingest',     [ $nodes_ingest_cli, 'ingest' ]     );
 	\WP_CLI::add_command( 'nodes scaffold',   [ $nodes_scaffold_cli, 'scaffold' ] );
 	\WP_CLI::add_command( 'nodes memcache get', [ $nodes_memcache_cli, 'get' ] );
+	\WP_CLI::add_command( 'nodes memcache flush', [ $nodes_memcache_cli, 'flush' ] );
 	\WP_CLI::add_command( 'nodes caps',       [ $nodes_caps_cli, 'caps' ]         );
 	\WP_CLI::add_command( 'nodes hub-user',   [ $nodes_caps_cli, 'hub_user' ]     );
 }

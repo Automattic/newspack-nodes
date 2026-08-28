@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`wp nodes memcache flush` — the CLI half of the settings page's "Flush Caches" button.** It rotates the install's cache salt, orphaning every Newspack plugin's keys at once, then restarts the fleet: the scope is memoized per process, so a live worker keeps writing the OLD prefix until it respawns. A deploy procedure can call for a flush by name; it cannot click a button. The restart is best-effort — a failure only delays the new scope to the next spawn, so it warns and the command still succeeds.
+
+
 ## [2.44.0] - 2026-08-27
 
 ### Changed
