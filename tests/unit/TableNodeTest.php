@@ -333,6 +333,42 @@ class TableNodeTest extends TestCase {
 		$this->assertSame( [ 'usd' => 100 ], $table->lookup( 'sku-1' ), 'the stored value wins over the backing' );
 	}
 
+	public function test_store_multi_writes_every_entry_in_one_backend_call(): void {
+		// lookup_multi()'s missing half. ELN's stats flush issues one
+		// read-modify-write per key and two of its loops are per URL, so the
+		// write path is where a full-window replay decays. Seeds distinct from
+		// every default: three skus, values 707/808/909.
+		$table = Table_Node::table( 'prices', 60 );
+
+		$this->assertTrue( $table->store_multi( [
+			'sku-707' => [ 'usd' => 707 ],
+			'sku-808' => [ 'usd' => 808 ],
+			'sku-909' => [ 'usd' => 909 ],
+		] ) );
+
+		$this->assertSame(
+			[ 'sku-707' => [ 'usd' => 707 ], 'sku-808' => [ 'usd' => 808 ], 'sku-909' => [ 'usd' => 909 ] ],
+			$table->lookup_multi( [ 'sku-707', 'sku-808', 'sku-909' ] ),
+			'every entry must be readable back under the caller\'s own key'
+		);
+	}
+
+	public function test_store_multi_survives_an_all_digit_key(): void {
+		// PHP coerces an all-digit array key to int whatever the docblock says,
+		// and entry_key() takes a string. A url_hash can be all digits.
+		$table = Table_Node::table( 'prices', 60 );
+		$this->assertTrue( $table->store_multi( [ '9777777777777' => [ 'usd' => 41 ] ] ) );
+		$this->assertSame(
+			[ '9777777777777' => [ 'usd' => 41 ] ],
+			$table->lookup_multi( [ '9777777777777' ] )
+		);
+	}
+
+	public function test_store_multi_writes_nothing_for_an_empty_set(): void {
+		$table = Table_Node::table( 'prices', 60 );
+		$this->assertTrue( $table->store_multi( [] ), 'an empty batch is a no-op, not a failure' );
+	}
+
 	public function test_lookup_multi_asks_the_backing_once_for_every_miss(): void {
 		$table = Table_Node::table( 'prices', 60 );
 		$table->store( 'sku-1', [ 'usd' => 100 ] );

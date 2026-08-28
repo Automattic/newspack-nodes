@@ -198,6 +198,29 @@ class Table_Node extends Node {
 	}
 
 	/**
+	 * Store many entries in one backend round trip — `lookup_multi()`'s other
+	 * half, for a writer whose cost is its KEY COUNT rather than its bytes.
+	 *
+	 * Whole-batch success only: neither backend reports per key. A caller that
+	 * must know which key was refused re-sends the batch through `store()`.
+	 *
+	 * @api Batch writers (a stats flush merging many buckets at once).
+	 * @param array<array-key,mixed> $items Entry key => value. An all-digit key
+	 *                                      arrives as an int; the cast takes it back.
+	 * @return bool True when the whole set landed; true for an empty set.
+	 */
+	public function store_multi( array $items ): bool {
+		if ( [] === $items ) {
+			return true;
+		}
+		$entries = [];
+		foreach ( $items as $key => $value ) {
+			$entries[ self::entry_key( $this->namespace, (string) $key ) ] = $value;
+		}
+		return true === Cache_Backend::shared_first()?->write_multi( $entries, $this->ttl );
+	}
+
+	/**
 	 * Delete one entry. Verb-exposed (`rm <key>`).
 	 *
 	 * @param string $key Entry key.
