@@ -180,4 +180,13 @@ class MemcacheCliCommandTest extends TestCase {
 			'and the operator was told the restart did not happen'
 		);
 	}
+	public function test_the_flush_says_it_signs_every_session_out(): void {
+		// The operator running this may be holding one — an MCP client's
+		// session went with a deploy's flush and came back as a 401. The salt
+		// takes session leases like any other key, and nothing said so.
+		( new Memcache_CLI_Command() )->flush( [], [] );
+
+		$said = \strtolower( \implode( ' ', $GLOBALS['_test_wp_cli_success'] ?? [] ) );
+		$this->assertStringContainsString( 'session', $said, 'the flush must name sessions' );
+	}
 }

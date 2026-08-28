@@ -105,4 +105,49 @@ class SessionsTest extends TestCase {
 		Sessions::forget( 'nothing-here' );
 		$this->assertSame( [], Sessions::all() );
 	}
+	public function test_a_lease_gone_before_its_expiry_reads_as_revoked_not_expired(): void {
+		// The tab showed "expired" on a session whose Expires was 17 hours
+		// out. It had not expired: `wp nodes memcache flush` rotates the salt
+		// and orphans every key on the install, session leases included. The
+		// directory row is durable and survives, so the two facts disagree —
+		// and calling that "expired" sends an operator to look at TTLs.
+		// Seeds distinct from every default: a 9000s TTL.
+		Sessions::record( 'handle-4471', Capabilities::MANAGE, 'chris-claude', 9000 );
+		Command_Auth::store_session( 'handle-4471', 'k-4471', 9000, Capabilities::MANAGE );
+
+		$live = Sessions::all()['handle-4471'];
+		$this->assertTrue( $live['live'] );
+		$this->assertSame( 'live', $live['state'] );
+
+		// The lease goes; the row does not.
+		Cache_Backend::rotate_salt();
+
+		$dead = Sessions::all()['handle-4471'];
+		$this->assertFalse( $dead['live'] );
+		$this->assertGreaterThan( \time(), $dead['expires'], 'precondition: not yet expired' );
+		$this->assertSame( 'revoked', $dead['state'], 'a lease gone early was revoked or flushed' );
+	}
+
+	public function test_a_lapsed_row_is_pruned_rather_than_labelled(): void {
+		// Which is why `revoked` is the only dead state a reader can see: a row
+		// past its expiry never reaches the listing at all.
+		Sessions::record( 'handle-6612', Capabilities::MANAGE, 'stale', 1 );
+		$rows = \get_option( Sessions::OPTION );
+		$rows['handle-6612']['expires'] = \time() - 60;
+		\update_option( Sessions::OPTION, $rows, false );
+
+		$this->assertArrayNotHasKey( 'handle-6612', Sessions::all() );
+	}
+
+	public function test_an_unlabelled_session_is_never_recorded(): void {
+		// Auto-minted `/auth` sessions carry no label and arrive several per
+		// dashboard load. Listing them buries the ones an operator issued on
+		// purpose, and the MAX_ROWS cap evicts those first.
+		Sessions::record( 'handle-auto', Capabilities::MANAGE, '', 3600 );
+		Sessions::record( 'handle-named', Capabilities::MANAGE, 'chris-claude', 3600 );
+
+		$all = Sessions::all();
+		$this->assertArrayNotHasKey( 'handle-auto', $all );
+		$this->assertArrayHasKey( 'handle-named', $all );
+	}
 }

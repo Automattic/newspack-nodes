@@ -79,7 +79,7 @@ function when( seconds ) {
  * @return {import('react').ReactElement} The rendered row.
  */
 function SessionRow( { session, answer, busy, onRevoke } ) {
-	const { handle, label, scope, expires, created, live } = session;
+	const { handle, label, scope, expires, created, live, state } = session;
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
 	const status = answerStatus( answer, REVOKE_TEXTS, busy ).text;
 
@@ -106,9 +106,12 @@ function SessionRow( { session, answer, busy, onRevoke } ) {
 						live ? 'is-success' : 'is-error'
 					}` }
 				>
-					{ live
+					{ /* The store names the state; a listed dead row was
+					     TAKEN, not lapsed, because lapsed rows are pruned
+					     before they are listed. */ }
+					{ 'live' === state
 						? __( 'live', 'newspack-nodes' )
-						: __( 'expired', 'newspack-nodes' ) }
+						: __( 'revoked', 'newspack-nodes' ) }
 				</span>
 				{ status && (
 					<div className="nodes-sessions__row-status">{ status }</div>

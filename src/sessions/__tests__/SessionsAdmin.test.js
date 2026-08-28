@@ -31,6 +31,7 @@ const SESSIONS = [
 		expires: 4102444800,
 		created: 1771000000,
 		live: true,
+		state: 'live',
 	},
 	{
 		handle: 'h-8823',
@@ -39,6 +40,7 @@ const SESSIONS = [
 		expires: 4102444800,
 		created: 1771000000,
 		live: true,
+		state: 'live',
 	},
 ];
 
@@ -266,11 +268,11 @@ it( 'renders each session with its scope, state and times', () => {
 	expect( row.textContent ).toContain( 'live' );
 } );
 
-it( 'says an expired session is expired', () => {
+it( 'says a dead session was revoked, not expired', () => {
 	useSessionsGraph.mockImplementation( ( opts = {} ) => {
 		graphOpts = opts;
 		return {
-			sessions: [ { ...SESSIONS[ 0 ], live: false } ],
+			sessions: [ { ...SESSIONS[ 0 ], live: false, state: 'revoked' } ],
 			scopes: [ 'read' ],
 			ttlMax: 86400,
 			loading: false,
@@ -281,7 +283,8 @@ it( 'says an expired session is expired', () => {
 		};
 	} );
 	const { container } = render( <SessionsAdmin /> );
-	expect( rowsOf( container )[ 0 ].textContent ).toContain( 'expired' );
+	// A listed dead row was TAKEN — a lapsed one is pruned before listing.
+	expect( rowsOf( container )[ 0 ].textContent ).toContain( 'revoked' );
 } );
 
 it( 'says so when no session has been issued', () => {
