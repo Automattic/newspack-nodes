@@ -352,16 +352,19 @@ final class Cache_Backend {
 	 *
 	 * @param array<string,mixed> $items Cache key => value.
 	 * @param int                 $ttl   Expiry in seconds; 0 = no expiry.
+	 * @return bool True when the whole set landed. Neither backend reports per
+	 *              KEY — memcached's `setMulti` is one bool and apcu returns the
+	 *              failures — so a caller needing to know WHICH key was refused
+	 *              re-sends that batch one key at a time.
 	 */
-	public function write_multi( array $items, int $ttl ): void {
+	public function write_multi( array $items, int $ttl ): bool {
 		if ( [] === $items ) {
-			return;
+			return true;
 		}
 		if ( null !== $this->memd ) {
-			$this->memd->setMulti( $items, $ttl );
-			return;
+			return $this->memd->setMulti( $items, $ttl );
 		}
-		\apcu_store( $items, null, $ttl );
+		return [] === \apcu_store( $items, null, $ttl );
 	}
 
 	/**
