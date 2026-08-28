@@ -8,7 +8,8 @@
 	display: flex;
 	flex-direction: column;
 	width: 200px;
-	flex-shrink: 0;
+	// The rail dock is a COLUMN, so this axis is height: shrink to it.
+	min-height: 0;
 	overflow: hidden;
 }
 
