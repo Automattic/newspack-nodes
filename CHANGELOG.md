@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [2.46.1] - 2026-08-28
+
 ### Fixed
 
 - **A session whose lease is gone before its expiry reads as `revoked`, not `expired`.** The Sessions tab showed "expired" on a row whose Expires column was seventeen hours out. It had not expired: `wp nodes memcache flush` rotates the salt and orphans every key on the install, session leases included, while the durable directory row survives. Calling that "expired" sends the reader to look at TTLs. `all()` prunes lapsed rows before it lists, so a listed dead row was ALWAYS taken rather than lapsed — `revoked` is the only dead state a reader can see, and the store now names it rather than the UI guessing from `live`.
