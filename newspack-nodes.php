@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: WordPress-internal node-graph runtime for composable services.
- * Version: 2.46.1
+ * Version: 2.46.2
  * Author: Automattic
  * Author URI: https://newspack.com/
  * License: GPL-2.0-or-later
@@ -18,7 +18,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '2.46.1' );
+	\define( 'NEWSPACK_NODES_VERSION', '2.46.2' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
@@ -29,6 +29,9 @@ if ( ! \defined( 'NEWSPACK_NODES_URL' ) && \function_exists( 'plugin_dir_url' ) 
 
 // Composer classmap autoload; release ships it, dev clone: composer install.
 require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
+
+// At LOAD, where consumers register theirs; the runtime tier is lazy.
+\Newspack_Nodes\Topology_Registry::register_builtin();
 
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 	\Newspack_Nodes\Bootstrap::ensure_diagnostics_wired();

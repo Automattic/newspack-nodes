@@ -83,6 +83,37 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [ 'firehose-workers', 'only-stock', 'only-user' ], $names );
 	}
 
+	/**
+	 * The registry lives in `includes/`, so it can always name its own stock
+	 * dir. Bootstrap used to hold that path and register it inside the LAZY
+	 * `ensure_runtime_wired()` — while consumers register theirs at plugin
+	 * load — so a request that wired neither tier saw the consumer topologies
+	 * and not the substrate's, and their `include topic-probe` threw.
+	 */
+	public function test_register_builtin_registers_the_substrates_own_topologies(): void {
+		$this->assertNull( Topology_Registry::resolve( 'topic-probe' ), 'reset leaves nothing registered' );
+
+		Topology_Registry::register_builtin();
+
+		$this->assertStringEndsWith(
+			'/topologies/topic-probe.tsl',
+			(string) Topology_Registry::resolve( 'topic-probe' )
+		);
+	}
+
+	public function test_register_builtin_is_lowest_priority_so_consumers_override(): void {
+		$consumer = $this->make_temp_dir( 'tsl-consumer-' );
+		\file_put_contents( "{$consumer}/topic-probe.tsl", '' );
+
+		// Builtin registered AFTER: priority must not depend on load order.
+		Topology_Registry::register_stock_dir( $consumer );
+		Topology_Registry::register_builtin();
+
+		$this->assertSame( "{$consumer}/topic-probe.tsl", Topology_Registry::resolve( 'topic-probe' ) );
+
+		$this->rmdir_recursive( $consumer );
+	}
+
 	public function test_register_builtin_dir_is_lowest_priority_so_consumers_override(): void {
 		$builtin  = $this->make_temp_dir( 'tsl-builtin-' );
 		$consumer = $this->make_temp_dir( 'tsl-consumer-' );

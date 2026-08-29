@@ -314,6 +314,19 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Register the substrate's OWN topologies. This class ships beside them, so
+	 * nothing needs to tell it where they are — and the caller is the plugin
+	 * file, at load, where consumers register theirs through `register_plugin()`.
+	 *
+	 * It used to be a path literal inside `Bootstrap::ensure_runtime_wired()`,
+	 * which a frontend page view never reaches; a consumer topology registered
+	 * at load then resolved while its `include topic-probe` did not.
+	 */
+	public static function register_builtin(): void {
+		self::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
+	}
+
+	/**
 	 * Register the substrate's own bundled dir as the lowest-priority fallback:
 	 * appended to the END so every consumer-registered stock dir resolves first
 	 * regardless of load-time ordering. Consumers override a builtin topology
