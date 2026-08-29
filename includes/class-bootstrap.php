@@ -721,7 +721,6 @@ class Bootstrap {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 		Config::register_token_namespace();
-		Topology_Registry::register_builtin_dir( \dirname( __DIR__ ) . '/topologies' );
 		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		\add_filter( 'newspack_nodes/registered_log_producers', [ self::class, 'register_log_producers' ] );
 		// Geometry the static TSL scan cannot see (Job_Intake builds its own).

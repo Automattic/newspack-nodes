@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [2.46.2] - 2026-08-29
+
+### Fixed
+
+- **Stock topologies resolve on a request that wires nothing.** The substrate registered its own `topologies/` dir inside `Bootstrap::ensure_runtime_wired()` — a lazy tier a frontend page view reaches by design ("A plain frontend page view touches neither tier") — while consumers register theirs at plugin LOAD. A partition write arms `Partition_Node::flush_pending_wakes()` as a shutdown function; that walks every active topology through `Bootstrap::on_demand_wake_map()`, so a consumer topology resolved and its `include topic-probe` did not, and the wake was lost with `pending wake failed: unknown topology in include: topic-probe`. On a host running `newspack-intelligence` (all five of its topologies include it) that fired on every such request, because `Core::$memd` is unset on the same unwired path and the wake map has no cache to hit. `Topology_Registry::register_builtin()` now owns the path — the registry ships beside those files — and the plugin file calls it at load, beside the autoloader. Priority is unchanged: `register_builtin_dir()` still appends last, so a consumer override wins regardless of order.
+
+
 ## [2.46.1] - 2026-08-28
 
 ### Fixed
