@@ -47,7 +47,7 @@ const HOST = window.location.hostname;
  * @param {string}                 [props.mode]           `'view'` (live) or `'edit'` (editor); gates which buttons render.
  * @param {boolean}                [props.canEdit]        Whether the cwd resolves to a worker, so EDIT is offered.
  * @param {(mode: string) => void} [props.onModeChange]   Switch to `'edit'` or `'view'`.
- * @param {() => void}             [props.onSave]         SAVE: snapshot the live graph, or save the draft in edit mode.
+ * @param {() => void}             [props.onSave]         SAVE the draft; edit mode only.
  * @param {() => void}             [props.onDownload]     DOWNLOAD the editor topology as a .tsl file.
  * @param {(file: File) => void}   [props.onUpload]       Receives the .tsl the hidden file input picked up.
  * @param {() => void}             [props.onOpen]         OPEN the topology picker, which lands in edit mode.
@@ -150,15 +150,18 @@ export function HeaderControls( {
 					>
 						{ __( 'OPEN', 'newspack-nodes' ) }
 					</button>
-					{ /* SAVE works from live too — it snapshots the live graph's
-					     dump_config; in edit it saves the draft. Same slot in both. */ }
-					<button
-						type="button"
-						className="topology-mode__btn topology-mode__btn--save"
-						onClick={ () => onSave && onSave() }
-					>
-						{ __( 'SAVE', 'newspack-nodes' ) }
-					</button>
+					{ /* Edit only: a live SAVE could dump nothing but the
+					     EXPANDED graph, writing every included node back as
+					     this file's own. View mode holds no document. */ }
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--save"
+							onClick={ () => onSave && onSave() }
+						>
+							{ __( 'SAVE', 'newspack-nodes' ) }
+						</button>
+					) }
 					{ mode === 'edit' && (
 						<button
 							type="button"

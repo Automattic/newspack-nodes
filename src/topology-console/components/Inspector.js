@@ -709,7 +709,14 @@ function LockedMultipleVerb( { spec, invocations } ) {
 }
 
 // Borrowed node: config is immutable here — wiring stays editable on canvas.
-function LockedForm( { node, catalog } ) {
+function LockedForm( {
+	node,
+	catalog,
+	formatters,
+	vaults,
+	parsed,
+	onUpdateVerbs,
+} ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
 	const ctorArgs = absorbTrailingArgs(
@@ -766,30 +773,193 @@ function LockedForm( { node, catalog } ) {
 					</div>
 				) ) }
 			</Section>
-			{ commandSpecs.length > 0 && (
-				<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
-					{ commandSpecs.map( ( cspec ) =>
-						cspec.multiple ? (
-							<LockedMultipleVerb
-								key={ cspec.name }
-								spec={ cspec }
-								invocations={ verbInvocations.filter(
-									( inv ) => inv.verb === cspec.name
-								) }
-							/>
-						) : (
-							<LockedVerb
-								key={ cspec.name }
-								spec={ cspec }
-								invocation={ verbInvocations.find(
-									( inv ) => inv.verb === cspec.name
-								) }
-							/>
-						)
-					) }
-				</Section>
-			) }
+			<VerbsSection
+				node={ node }
+				commandSpecs={ commandSpecs }
+				verbInvocations={ verbInvocations }
+				nodeNames={ ( parsed?.nodes || [] )
+					.map( ( n ) => n.id )
+					.filter( ( id ) => id !== node.id ) }
+				formatters={ formatters }
+				vaults={ vaults }
+				onUpdateVerbs={ onUpdateVerbs }
+			/>
 		</aside>
+	);
+}
+
+/**
+ * The Verbs section, shared by the owned and the borrowed form.
+ *
+ * A borrowed node's INCLUDE half is read-only — that configuration belongs to
+ * the topology that defines it — while the lines THIS document aims at the
+ * node are this document's to edit. Stock `hub-control.tsl` is nothing but
+ * that shape: `include settings-sync`, then three `add_setting` lines at it.
+ * `handleUpdateVerbs` drops the seeded half before it writes, so an edit here
+ * can only ever change the file's own declarations.
+ *
+ * @param {Object}   props
+ * @param {Object}   props.node            The selected node.
+ * @param {Array}    props.commandSpecs    Configurable verbs from the catalog.
+ * @param {Array}    props.verbInvocations Seeded rows first, then declared.
+ * @param {string[]} props.nodeNames       Other node ids, for node_name args.
+ * @param {Object}   props.formatters      Formatter registry.
+ * @param {Object}   props.vaults          Vault registry.
+ * @param {Function} props.onUpdateVerbs   (nodeId, invocations) — writes back.
+ * @return {import('react').ReactElement} The section.
+ */
+function VerbsSection( {
+	node,
+	commandSpecs,
+	verbInvocations,
+	nodeNames,
+	formatters,
+	vaults,
+	onUpdateVerbs,
+} ) {
+	return (
+		<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+			{ commandSpecs.length === 0 && (
+				<div className="newspack-nodes-empty-state topology-edit-empty">
+					{ __( 'No verbs registered.', 'newspack-nodes' ) }
+				</div>
+			) }
+			{ commandSpecs.map( ( cspec ) => {
+				// `multiple` verb: row per call + Add, not checkbox.
+				if ( cspec.multiple ) {
+					const invIdxs = verbInvocations
+						.map( ( inv, i ) =>
+							inv.verb === cspec.name ? i : -1
+						)
+						.filter( ( i ) => i >= 0 );
+					const handleAdd = () => {
+						if ( ! onUpdateVerbs ) {
+							return;
+						}
+						onUpdateVerbs( node.id, [
+							...verbInvocations,
+							{
+								verb: cspec.name,
+								args: ( cspec.args || [] ).map( () => '' ),
+							},
+						] );
+					};
+					return (
+						<div
+							key={ cspec.name }
+							className="topology-edit-verb-group"
+						>
+							{ invIdxs.map( ( invIdx ) =>
+								verbInvocations[ invIdx ].seeded ? (
+									<LockedMultipleVerb
+										key={ invIdx }
+										spec={ cspec }
+										invocations={ [
+											verbInvocations[ invIdx ],
+										] }
+									/>
+								) : (
+									<VerbRow
+										key={ invIdx }
+										spec={ cspec }
+										invocation={ verbInvocations[ invIdx ] }
+										multiple
+										nodeNames={ nodeNames }
+										formatters={ formatters }
+										vaults={ vaults }
+										onArgChange={ ( argIdx, value ) => {
+											if ( ! onUpdateVerbs ) {
+												return;
+											}
+											const next =
+												verbInvocations.slice();
+											const args =
+												next[ invIdx ].args.slice();
+											args[ argIdx ] = value;
+											next[ invIdx ] = {
+												...next[ invIdx ],
+												args,
+											};
+											onUpdateVerbs( node.id, next );
+										} }
+										onRemove={ () => {
+											if ( ! onUpdateVerbs ) {
+												return;
+											}
+											const next =
+												verbInvocations.slice();
+											next.splice( invIdx, 1 );
+											onUpdateVerbs( node.id, next );
+										} }
+									/>
+								)
+							) }
+							<button
+								type="button"
+								className="button button-small topology-edit-verb__add"
+								onClick={ handleAdd }
+							>
+								{ `+ ${ cspec.name }` }
+							</button>
+						</div>
+					);
+				}
+				const idx = verbInvocations.findIndex(
+					( inv ) => inv.verb === cspec.name
+				);
+				const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
+				// An include's declaration belongs to the include.
+				if ( invocation?.seeded ) {
+					return (
+						<LockedVerb
+							key={ cspec.name }
+							spec={ cspec }
+							invocation={ invocation }
+						/>
+					);
+				}
+				const handleToggle = ( on ) => {
+					if ( ! onUpdateVerbs ) {
+						return;
+					}
+					if ( on && idx < 0 ) {
+						onUpdateVerbs( node.id, [
+							...verbInvocations,
+							{
+								verb: cspec.name,
+								args: ( cspec.args || [] ).map( () => '' ),
+							},
+						] );
+					} else if ( ! on && idx >= 0 ) {
+						const next = verbInvocations.slice();
+						next.splice( idx, 1 );
+						onUpdateVerbs( node.id, next );
+					}
+				};
+				const handleArgChange = ( argIdx, value ) => {
+					if ( ! onUpdateVerbs || idx < 0 ) {
+						return;
+					}
+					const next = verbInvocations.slice();
+					const args = next[ idx ].args.slice();
+					args[ argIdx ] = value;
+					next[ idx ] = { ...next[ idx ], args };
+					onUpdateVerbs( node.id, next );
+				};
+				return (
+					<VerbRow
+						key={ cspec.name }
+						spec={ cspec }
+						invocation={ invocation }
+						nodeNames={ nodeNames }
+						formatters={ formatters }
+						vaults={ vaults }
+						onToggle={ handleToggle }
+						onArgChange={ handleArgChange }
+					/>
+				);
+			} ) }
+		</Section>
 	);
 }
 
@@ -912,135 +1082,15 @@ function EditForm( {
 			) }
 
 			{ ! isReserved( node ) && (
-				<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
-					{ commandSpecs.length === 0 && (
-						<div className="newspack-nodes-empty-state topology-edit-empty">
-							{ __( 'No verbs registered.', 'newspack-nodes' ) }
-						</div>
-					) }
-					{ commandSpecs.map( ( cspec ) => {
-						// `multiple` verb: row per call + Add, not checkbox.
-						if ( cspec.multiple ) {
-							const invIdxs = verbInvocations
-								.map( ( inv, i ) =>
-									inv.verb === cspec.name ? i : -1
-								)
-								.filter( ( i ) => i >= 0 );
-							const handleAdd = () => {
-								if ( ! onUpdateVerbs ) {
-									return;
-								}
-								onUpdateVerbs( node.id, [
-									...verbInvocations,
-									{
-										verb: cspec.name,
-										args: ( cspec.args || [] ).map(
-											() => ''
-										),
-									},
-								] );
-							};
-							return (
-								<div
-									key={ cspec.name }
-									className="topology-edit-verb-group"
-								>
-									{ invIdxs.map( ( invIdx ) => (
-										<VerbRow
-											key={ invIdx }
-											spec={ cspec }
-											invocation={
-												verbInvocations[ invIdx ]
-											}
-											multiple
-											nodeNames={ nodeNames }
-											formatters={ formatters }
-											vaults={ vaults }
-											onArgChange={ ( argIdx, value ) => {
-												if ( ! onUpdateVerbs ) {
-													return;
-												}
-												const next =
-													verbInvocations.slice();
-												const args =
-													next[ invIdx ].args.slice();
-												args[ argIdx ] = value;
-												next[ invIdx ] = {
-													...next[ invIdx ],
-													args,
-												};
-												onUpdateVerbs( node.id, next );
-											} }
-											onRemove={ () => {
-												if ( ! onUpdateVerbs ) {
-													return;
-												}
-												const next =
-													verbInvocations.slice();
-												next.splice( invIdx, 1 );
-												onUpdateVerbs( node.id, next );
-											} }
-										/>
-									) ) }
-									<button
-										type="button"
-										className="button button-small topology-edit-verb__add"
-										onClick={ handleAdd }
-									>
-										{ `+ ${ cspec.name }` }
-									</button>
-								</div>
-							);
-						}
-						const idx = verbInvocations.findIndex(
-							( inv ) => inv.verb === cspec.name
-						);
-						const invocation =
-							idx >= 0 ? verbInvocations[ idx ] : null;
-						const handleToggle = ( on ) => {
-							if ( ! onUpdateVerbs ) {
-								return;
-							}
-							if ( on && idx < 0 ) {
-								onUpdateVerbs( node.id, [
-									...verbInvocations,
-									{
-										verb: cspec.name,
-										args: ( cspec.args || [] ).map(
-											() => ''
-										),
-									},
-								] );
-							} else if ( ! on && idx >= 0 ) {
-								const next = verbInvocations.slice();
-								next.splice( idx, 1 );
-								onUpdateVerbs( node.id, next );
-							}
-						};
-						const handleArgChange = ( argIdx, value ) => {
-							if ( ! onUpdateVerbs || idx < 0 ) {
-								return;
-							}
-							const next = verbInvocations.slice();
-							const args = next[ idx ].args.slice();
-							args[ argIdx ] = value;
-							next[ idx ] = { ...next[ idx ], args };
-							onUpdateVerbs( node.id, next );
-						};
-						return (
-							<VerbRow
-								key={ cspec.name }
-								spec={ cspec }
-								invocation={ invocation }
-								nodeNames={ nodeNames }
-								formatters={ formatters }
-								vaults={ vaults }
-								onToggle={ handleToggle }
-								onArgChange={ handleArgChange }
-							/>
-						);
-					} ) }
-				</Section>
+				<VerbsSection
+					node={ node }
+					commandSpecs={ commandSpecs }
+					verbInvocations={ verbInvocations }
+					nodeNames={ nodeNames }
+					formatters={ formatters }
+					vaults={ vaults }
+					onUpdateVerbs={ onUpdateVerbs }
+				/>
 			) }
 		</aside>
 	);
@@ -1884,7 +1934,16 @@ export default function Inspector( {
 
 	if ( editMode ) {
 		if ( isBorrowed( node ) ) {
-			return <LockedForm node={ node } catalog={ catalog } />;
+			return (
+				<LockedForm
+					node={ node }
+					catalog={ catalog }
+					formatters={ formatters }
+					vaults={ vaults }
+					parsed={ parsed }
+					onUpdateVerbs={ onUpdateVerbs }
+				/>
+			);
 		}
 		return (
 			<EditForm
