@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.47.0] - 2026-08-29
+
+### Fixed
+
+- **A topology can configure a node it borrows through an `include`.** The Inspector locked a borrowed node's whole edit form on the reading that "its configuration belongs to the topology that defines it" — but stock `hub-control.tsl` is nothing but the opposite shape: `include settings-sync`, then three `cmd settings-sync:config add_setting …` lines aimed at it. The console forbade what the shipped topology does, so those lines could only be written by hand, and an operator swapping one include for a local variant had no way to restore them. The constructor stays read-only, and so does every verb the include itself declared; the lines THIS document aims at the node are now editable, and a verb the include never invoked can be ticked to add one. The plumbing was already there and unreachable — `draftToGraph` has always tagged the include's half `seeded: true`, and `handleUpdateVerbs` has always dropped that half before writing, so an edit can only ever change the file's own declarations. `EditForm` and `LockedForm` now share ONE `VerbsSection` instead of an editable and a read-only copy of the same list.
+
+### Removed
+
+- **The topology console's SAVE button no longer appears in view mode.** View mode holds no document — only the live graph and its expansion — so the button could do nothing but capture `dump_config` and write that back. That output has no `include` in it: every borrowed node comes back as the file's own, which is exactly the flattening the UPLOAD path already parks an upload to avoid ("without that, every included node reads as OWNED and the next save writes them into the file"). Saving a topology that includes another one produced a file that loaded cleanly, looked plausible and had silently absorbed its includes. SAVE is now edit-only, where the draft interpreter is the document and `dumpDocument()` writes the file's own half back. The live-capture path goes with it: the `dump_config` round trip, its `_console:dump_config` reply node and the captured-TSL branch in the save confirm.
+
 
 ## [2.46.2] - 2026-08-29
 

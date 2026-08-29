@@ -71,24 +71,16 @@ import { Core } from '../runtime/core';
 import {
 	newMessage,
 	TYPE,
-	FROM,
-	TO,
 	VALUE,
 	TM_BYTESTREAM,
-	TM_ERROR,
 	applyComposeFields,
-	payloadOf,
 } from '../runtime/message';
-import { CallbackNode } from '../runtime/callback-node';
 import names from '../runtime/reserved-node-names.json';
 import {
 	initSkin,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
-
-/** Receiver for the live-save `dump_config` round trip; one node, one reply. */
-const SAVE_REPLY_NODE = '_console:dump_config';
 
 // Pure derivations over a topology catalog, shared by the seed and live menu.
 
@@ -1516,61 +1508,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 		[ draftIsDirty, openForEdit ]
 	);
 
-	// SAVE snapshots the live graph via dump_config (edit saves the draft).
+	// SAVE is edit-only: view mode holds no document, only an expansion.
 	const handleSave = useCallback( () => {
-		if ( 'edit' === mode ) {
-			setSaveModal( {} );
-			return;
-		}
-		const dumper = Core.node( names.OUTPUT );
-		if ( ! shell || ! dumper ) {
-			return;
-		}
-		const command = dumper.command( 'dump_config', [] );
-		if ( ! command ) {
-			// Re-auth is under way; say so, or the button reads as dead.
-			setToast( {
-				kind: 'error',
-				text: __(
-					'Still authenticating. Try Save again in a moment.',
-					'newspack-nodes'
-				),
-			} );
-			return;
-		}
-		// One node per round trip (ADR-7); an unanswered save left its own.
-		Core.node( SAVE_REPLY_NODE )?.removeNode();
-		const receiver = new CallbackNode( ( reply ) => {
-			receiver.removeNode();
-			const value = reply[ VALUE ];
-			const payload = payloadOf( value );
-			const tsl = String( payload ?? '' );
-			if ( reply[ TYPE ] & TM_ERROR || '' === tsl.trim() ) {
-				setToast( {
-					kind: 'error',
-					text: __(
-						'Could not capture the live topology.',
-						'newspack-nodes'
-					),
-				} );
-				return;
-			}
-			// Prefill a worker snapshot with its topology; local stays blank.
-			setSaveModal( {
-				tsl,
-				initialName: scope.isWorker ? scope.label : '',
-			} );
-		} );
-		receiver.name = SAVE_REPLY_NODE;
-		command[ FROM ] = shell.replyFrom( SAVE_REPLY_NODE );
-		command[ TO ] = shell.prefix( '' );
-		appendTranscript( {
-			kind: 'sent',
-			text: 'dump_config',
-			prompt: `/${ shell.path }`,
-		} );
-		shell.sink?.fill( command );
-	}, [ mode, shell, scope, appendTranscript ] );
+		setSaveModal( {} );
+	}, [] );
 
 	const handleOpen = useCallback( () => {
 		setOpenModalShown( true );
@@ -1748,8 +1689,6 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 
 	const handleSaveConfirm = useCallback(
 		( name ) => {
-			// Live SAVE carries captured TSL; edit serializes the draft.
-			const capturedTsl = saveModal?.tsl;
 			setSaveModal( null );
 			// Snapshot new-vs-existing before the save reloads the catalog.
 			newTopologyRef.current = Object.prototype.hasOwnProperty.call(
@@ -1758,11 +1697,10 @@ export default function TopologyConsole( { headerControlsSlot } ) {
 			)
 				? null
 				: name;
-			// A live SAVE writes a captured graph; no draft to re-base.
-			sentGraphRef.current = capturedTsl ? null : JSON.stringify( draft );
-			save( { name, tsl: capturedTsl ?? dumpDraft( ownExpansion ) } );
+			sentGraphRef.current = JSON.stringify( draft );
+			save( { name, tsl: dumpDraft( ownExpansion ) } );
 		},
-		[ saveModal, save, dumpDraft, ownExpansion, topologyWorkers, draft ]
+		[ save, dumpDraft, ownExpansion, topologyWorkers, draft ]
 	);
 
 	// "Activate now?" confirm — dispatch 'topologies activate <name>'.

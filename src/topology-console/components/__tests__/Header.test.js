@@ -91,17 +91,17 @@ describe( 'Header', () => {
 		expect( queryByLabelText( 'Skin' ) ).toBeNull();
 	} );
 
-	it( 'offers OPEN and SAVE in LIVE mode too — SAVE snapshots the live graph', () => {
+	it( 'offers OPEN in LIVE mode, and withholds SAVE', () => {
 		const onOpen = jest.fn();
-		const onSave = jest.fn();
-		const { getByText } = render(
-			<Header { ...baseProps } onOpen={ onOpen } onSave={ onSave } />
+		const { getByText, queryByText } = render(
+			<Header { ...baseProps } onOpen={ onOpen } onSave={ jest.fn() } />
 		);
 		fireEvent.click( getByText( 'OPEN' ) );
 		expect( onOpen ).toHaveBeenCalled();
-		// SAVE now works from live — it captures the live graph's dump_config.
-		fireEvent.click( getByText( 'SAVE' ) );
-		expect( onSave ).toHaveBeenCalled();
+		// A live save can only dump the EXPANDED graph, so every included
+		// node would be written back as this file's own. There is no
+		// document in view mode to save.
+		expect( queryByText( 'SAVE' ) ).toBeNull();
 	} );
 
 	it( 'shows DOWNLOAD in edit mode and wires onDownload', () => {
@@ -289,14 +289,13 @@ describe( 'Header — mode button order', () => {
 			( b ) => ( b.textContent.trim().match( /^[A-Z]+/ ) ?? [ '' ] )[ 0 ]
 		);
 
-	it( 'live mode: NEW, OPEN, SAVE, EDIT, LIVE', () => {
+	it( 'live mode: NEW, OPEN, EDIT, LIVE', () => {
 		const { container } = render(
 			<Header { ...baseProps } onNew={ jest.fn() } onOpen={ jest.fn() } />
 		);
 		expect( labels( container ) ).toEqual( [
 			'NEW',
 			'OPEN',
-			'SAVE',
 			'EDIT',
 			'LIVE',
 		] );

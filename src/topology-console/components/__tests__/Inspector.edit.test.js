@@ -79,8 +79,12 @@ describe( 'Inspector (edit mode)', () => {
 						via: [ 'request-builder' ],
 						ctorArgs: [],
 						verbInvocations: [
-							{ verb: 'void_warranty', args: [] },
-							{ verb: 'with_index', args: [ 'quokka-idx' ] },
+							{ verb: 'void_warranty', args: [], seeded: true },
+							{
+								verb: 'with_index',
+								args: [ 'quokka-idx' ],
+								seeded: true,
+							},
 						],
 					},
 				],
@@ -113,10 +117,92 @@ describe( 'Inspector (edit mode)', () => {
 		const ticked = getByLabelText( 'void_warranty' );
 		expect( ticked.checked ).toBe( true );
 		expect( ticked.disabled ).toBe( true );
-		// Un-ticked verb still listed so you can see what's off.
-		expect( getByLabelText( 'allow_large_writes' ).checked ).toBe( false );
+		// A verb the include never invoked is listed unticked — and ticking it
+		// is how this document adds its OWN `cmd <node>:config` line.
+		expect(
+			document.getElementById( 'topology-verb-allow_large_writes' )
+				.checked
+		).toBe( false );
 		// A verb's arg value is shown read-only.
 		expect( getByDisplayValue( 'quokka-idx' ).disabled ).toBe( true );
+	} );
+
+	it( 'lets the document edit its OWN verbs on a borrowed node', () => {
+		// stock hub-control.tsl is exactly this: `include settings-sync` plus
+		// `cmd settings-sync:config add_setting ...` lines aimed at it. The
+		// include's half stays read-only; the file's half is the file's.
+		const onUpdateVerbs = jest.fn();
+		const props = {
+			...baseProps,
+			selectedId: 'settings-sync',
+			onUpdateVerbs,
+			parsed: {
+				nodes: [
+					{
+						id: 'settings-sync',
+						class: 'Settings_Sync',
+						origin: [ 'settings-sync' ],
+						via: [ 'settings-sync' ],
+						ctorArgs: [ '300' ],
+						verbInvocations: [
+							{
+								verb: 'add_setting',
+								args: [
+									'from_the_include',
+									'settings',
+									'remote',
+								],
+								seeded: true,
+							},
+							{
+								verb: 'add_setting',
+								args: [
+									'from_the_file',
+									'performance',
+									'remote',
+								],
+							},
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Settings_Sync',
+					arguments: [ { name: 'interval' } ],
+					commands: [
+						{
+							name: 'add_setting',
+							multiple: true,
+							args: [
+								{ name: 'local_option' },
+								{ name: 'to' },
+								{ name: 'remote_option' },
+							],
+						},
+					],
+				},
+			],
+		};
+		const { getByDisplayValue } = renderWithCatalog(
+			<Inspector { ...props } />,
+			{
+				classes: props.catalog,
+				formatters: props.formatters,
+				vaults: props.vaults,
+				composeTargets: props.composeTargets,
+				classCatalog: props.classCatalog,
+			}
+		);
+
+		// The include's row is not ours to edit.
+		expect( getByDisplayValue( 'from_the_include' ).disabled ).toBe( true );
+		// The file's own row is.
+		const mine = getByDisplayValue( 'from_the_file' );
+		expect( mine.disabled ).toBeFalsy();
+		fireEvent.change( mine, { target: { value: 'edited' } } );
+		expect( onUpdateVerbs ).toHaveBeenCalled();
 	} );
 
 	it( 'shows a quoted borrowed verb arg as its VALUE, quotes stripped', () => {
@@ -137,6 +223,7 @@ describe( 'Inspector (edit mode)', () => {
 							{
 								verb: 'add_profile',
 								args: [ '"Engineers build tools."' ],
+								seeded: true,
 							},
 						],
 					},
@@ -190,6 +277,7 @@ describe( 'Inspector (edit mode)', () => {
 							{
 								verb: 'add_profile',
 								args: [ 'Do', 'not', 'produce', 'tables.' ],
+								seeded: true,
 							},
 						],
 					},
@@ -238,8 +326,16 @@ describe( 'Inspector (edit mode)', () => {
 						via: [ 'request-builder' ],
 						ctorArgs: [],
 						verbInvocations: [
-							{ verb: 'add_target', args: [ 'alpha-sink' ] },
-							{ verb: 'add_target', args: [ 'beta-sink' ] },
+							{
+								verb: 'add_target',
+								args: [ 'alpha-sink' ],
+								seeded: true,
+							},
+							{
+								verb: 'add_target',
+								args: [ 'beta-sink' ],
+								seeded: true,
+							},
 						],
 					},
 				],
