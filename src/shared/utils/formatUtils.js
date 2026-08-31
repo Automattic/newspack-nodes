@@ -33,6 +33,14 @@ const SYSTEM_COLORS = {
 	hook: '#66BB6A',
 	plugin: '#AB47BC', // Purple for plugin timing.
 	complete: '#4CAF50',
+	// @longform Query and outbound-HTTP spans are named `base: detail`, so they
+	// resolve here on the base — and both fell through to `request`'s grey,
+	// which left the two most expensive things in a trace the two least
+	// visible. HTTP takes the hook categorizer's own HTTP color so a span reads
+	// like the hooks around it; SQL has no category to borrow from and takes a
+	// hue the 63 in hook_categories.json do not use.
+	sql: '#8E24AA',
+	http: '#42A5F5',
 	aggregate: '#9e9e9e',
 	request: '#9e9e9e',
 	default: '#9e9e9e',

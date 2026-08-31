@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.48.0] - 2026-08-31
+
+### Fixed
+
+- **Query and outbound-HTTP spans get their own colors.** Both are named `base: detail`, so `getStateColor()` resolves them on the base — and neither `sql` nor `http` was in `SYSTEM_COLORS`, so they fell through to the same grey as `request`. That left the two most expensive things in a trace the two least visible in it. HTTP takes `#42A5F5`, the hook categorizer's own HTTP color, so a span reads like the hooks around it; SQL takes `#8E24AA`, a hue none of the 63 categories in `hook_categories.json` uses.
+
 ## [2.47.0] - 2026-08-29
 
 ### Fixed
