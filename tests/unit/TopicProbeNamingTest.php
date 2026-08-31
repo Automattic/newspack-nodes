@@ -8,8 +8,17 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\Medium;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Medium: this reads every file in eight trees, so its cost is the repo's size and not any
+ * unit's. It sat just under the 1s default and aborted mid-suite on a loaded machine, which
+ * reports as a risky test that asserted nothing — a repo-wide guard that silently stops
+ * guarding. Its sibling `SpawnCoordinatorNamingTest` carries the same mark for the same
+ * reason.
+ */
+#[Medium]
 class TopicProbeNamingTest extends TestCase {
 
 	/** Trees the rename must have reached; CHANGELOG history is checked separately. */
