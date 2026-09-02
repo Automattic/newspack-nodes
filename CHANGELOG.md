@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.49.1] - 2026-09-02
+
+### Fixed
+
+- **`lint-comments.php` no longer wraps a config ledger's own entries.** A ledger documents every key by showing the declaration commented out, so the line's width is the code's, not a sentence someone chose to run long — wrapping `// 'objecteditor_url' => '/wp-admin/admin.php?page=…'` makes it stop looking like the line it documents. Scoped to ledgers and matched with `LEDGER_ENTRY`, the constant the block rule already identifies them by, so no other file can hide a long line behind a `//`. Ledger prose still obeys the budget.
+
+### Changed
+
+- The config ledger's entries are aligned and uniformly indented.
+
+
 ## [2.49.0] - 2026-09-02
 
 ### Added
