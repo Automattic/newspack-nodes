@@ -379,6 +379,36 @@ function ledger_run_names_a_key( int $start, int $len, array $comments, array $l
 }
 
 /**
+ * Line numbers belonging to a commented-out entry in a config ledger.
+ *
+ * An entry's continuation lines are code exactly as its first line is: a
+ * multi-line array default, or a closure's body, wraps to nothing useful and
+ * stops looking like the declaration it documents. The span runs from the
+ * `// 'key' =>` line to the one closing it at depth zero.
+ *
+ * @param array<int,string> $comments Comment text keyed by line.
+ * @return array<int,true> The exempt lines, as a set.
+ */
+function ledger_entry_lines( array $comments ): array {
+	$out = []; $open = false; $depth = 0;
+	\ksort( $comments );
+	foreach ( $comments as $line => $text ) {
+		$body = \trim( (string) \preg_replace( '~^\s*//+\s?~', '', $text ) );
+		if ( ! $open && 1 !== \preg_match( LEDGER_ENTRY, $text ) ) {
+			continue;
+		}
+		$open         = true;
+		$out[ $line ] = true;
+		$depth       += \substr_count( $body, '[' ) + \substr_count( $body, '{' )
+			- \substr_count( $body, ']' ) - \substr_count( $body, '}' );
+		if ( 0 === $depth ) {
+			$open = false;
+		}
+	}
+	return $out;
+}
+
+/**
  * Every violation in one file.
  *
  * @param string $file Path to check.
@@ -418,13 +448,15 @@ function check_file( string $file ): array {
 		}
 	}
 
+	$entry_lines = $is_ledger ? ledger_entry_lines( $comment_only ) : [];
+
 	// Length check on each comment-only line.
 	foreach ( $comment_only as $line => $text ) {
 		if ( is_longform( $text ) || is_directive( $text ) ) {
 			continue;
 		}
 		// A ledger entry's width is the declaration's, not a sentence's.
-		if ( $is_ledger && 1 === \preg_match( LEDGER_ENTRY, $text ) ) {
+		if ( $is_ledger && isset( $entry_lines[ $line ] ) ) {
 			continue;
 		}
 		$src_line = \rtrim( $lines[ $line - 1 ] ?? '', "\r" );
