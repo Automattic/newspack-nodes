@@ -755,18 +755,21 @@ class Admin {
 							value="<?php \esc_attr_e( 'Reset to Defaults', 'newspack-nodes' ); ?>"
 							onclick="if ( confirm( '<?php echo \esc_js( \__( 'Are you sure you want to reset all substrate settings to defaults? This cannot be undone.', 'newspack-nodes' ) ); ?>' ) ) { document.getElementById( 'newspack-nodes-reset-form' ).submit(); }" />
 					</span>
+					<?php // Flush posts its own form; submit it from this row. ?>
+					<span style="display:inline-block; margin-left: 10px;">
+						<input type="button" class="button button-secondary"
+							value="<?php \esc_attr_e( 'Flush Caches', 'newspack-nodes' ); ?>"
+							onclick="document.getElementById( 'newspack-nodes-flush-form' ).submit();" />
+					</span>
 				</p>
 			</form>
 			<form id="newspack-nodes-reset-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
 				<input type="hidden" name="action" value="<?php echo \esc_attr( self::RESET_ACTION ); ?>">
 				<?php \wp_nonce_field( self::RESET_ACTION, self::RESET_NONCE ); ?>
 			</form>
-			<form method="post" action="<?php echo \esc_url( $reset_url ); ?>">
+			<form id="newspack-nodes-flush-form" method="post" action="<?php echo \esc_url( $reset_url ); ?>" style="display:none;">
 				<input type="hidden" name="action" value="<?php echo \esc_attr( self::FLUSH_ACTION ); ?>">
 				<?php \wp_nonce_field( self::FLUSH_ACTION, self::FLUSH_NONCE ); ?>
-				<p>
-					<?php \submit_button( \__( 'Flush Caches', 'newspack-nodes' ), 'secondary', 'submit', false ); ?>
-				</p>
 			</form>
 			<?php
 			// Extension plugins inject sections below the form.

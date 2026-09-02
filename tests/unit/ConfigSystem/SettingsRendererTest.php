@@ -105,8 +105,8 @@ class SettingsRendererTest extends TestCase {
 		$this->assertStringContainsString( 'id="enable_logging"', $html );
 		// `checked` follows value="1" adjacently (callers match on that).
 		$this->assertStringContainsString( 'value="1" data-nn-reset-default="1" checked="checked"', $html );
-		// Label wired to the input id.
-		$this->assertStringContainsString( '<label for="enable_logging">Enable event logging</label>', $html );
+		// Label wired to the input id, spaced off the box.
+		$this->assertStringContainsString( '<label for="enable_logging" style="margin-left:6px">Enable event logging</label>', $html );
 		// Reset wrapper + toggle.
 		$this->assertStringContainsString( 'data-nn-reset="mark"', $html );
 		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
@@ -172,4 +172,11 @@ class SettingsRendererTest extends TestCase {
 		$this->assertStringNotContainsString( '<script>z</script>', $html );
 		$this->assertStringNotContainsString( '<b>desc</b>', $html );
 	}
+	/** The box sat flush against its label; the two need visible separation. */
+	public function test_a_checkbox_label_is_spaced_off_the_box(): void {
+		$html = Settings_Renderer::checkbox( 'enable_logging', 'opt', true, true, 'Enable event logging', 'mark' );
+
+		$this->assertStringContainsString( '<label for="enable_logging" style="margin-left:6px"', $html );
+	}
+
 }

@@ -210,9 +210,10 @@ export const drawLegend = ( svg, items, width ) => {
 			.attr( 'width', 10 )
 			.attr( 'height', 10 )
 			.attr( 'fill', item.color );
+		// 8px clear of the 10px swatch; at 4 the two read as one glyph.
 		legend
 			.append( 'text' )
-			.attr( 'x', 14 )
+			.attr( 'x', 18 )
 			.attr( 'y', ly + 9 )
 			.text( label )
 			.style( 'font-size', '11px' )
