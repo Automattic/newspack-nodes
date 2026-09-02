@@ -66,6 +66,46 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onRemoveNode ).toHaveBeenCalledWith( 'echo' );
 	} );
 
+	it( "shows a borrowed node's Routing section, editable like an owned node's", () => {
+		const props = {
+			...baseProps,
+			selectedId: 'firehose:consumer',
+			parsed: {
+				nodes: [
+					{
+						id: 'firehose:consumer',
+						class: 'Consumer',
+						origin: [ 'request-builder' ],
+						via: [ 'performance', 'request-builder' ],
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+					{ id: 'request-builder', class: 'Tee', ctorArgs: [] },
+				],
+				edges: [ { from: 'firehose:consumer', to: 'request-builder' } ],
+			},
+			catalog: [
+				{
+					shell_name: 'Consumer',
+					arguments: [],
+					commands: [],
+					has_target: true,
+				},
+				{ shell_name: 'Tee', arguments: [], commands: [] },
+			],
+		};
+		const { getByText } = renderWithCatalog( <Inspector { ...props } />, {
+			classes: props.catalog,
+			formatters: props.formatters,
+			vaults: props.vaults,
+			composeTargets: props.composeTargets,
+			classCatalog: props.classCatalog,
+		} );
+
+		// The lines THIS document aims at the borrowed node are its own to edit.
+		expect( getByText( 'Routing' ) ).not.toBeNull();
+	} );
+
 	it( "shows a borrowed node's configured verbs read-only", () => {
 		const borrowedProps = {
 			...baseProps,

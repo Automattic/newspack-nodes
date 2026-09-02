@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.49.0] - 2026-09-02
+
+### Added
+
+- **The inspector shows Routing for an included node.** A borrowed node rendered its constructor and verbs but no targets, so the one thing this document *can* say about it — where its output goes — had no control. `LockedForm` now renders the same editable `TargetsField` the owned form does, on the same `nodeHasTarget()` guard. It is not a contradiction of the read-only include: the INCLUDE half stays the defining topology's, while the lines this document aims at the node are this document's, which is what `handleUpdateVerbs` already assumed for verbs.
+
+### Fixed
+
+- **Flush Caches sits on the Save Settings row.** It posts its own form, which is why it had been stranded on a line of its own; it now submits that form from a hidden sibling, exactly as Reset to Defaults already did.
+- **A settings checkbox is no longer flush against its label.** `Settings_Renderer::checkbox()` emitted `<input><label>` adjacently, so the box and its first word read as one glyph. 6px between them.
+- **A chart legend swatch is no longer flush against its label.** The text sat at `x=14`, four pixels clear of a ten-pixel swatch; it now starts at `x=18`.
+
 ## [2.48.0] - 2026-08-31
 
 ### Fixed

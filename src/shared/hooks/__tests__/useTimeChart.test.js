@@ -157,6 +157,17 @@ describe( 'drawLegend', () => {
 		expect( svg.append.mock.calls.length ).toBeGreaterThanOrEqual( 5 );
 	} );
 
+	it( 'clears the swatch before the label text', () => {
+		const svg = makeFluent();
+		drawLegend( svg, [ { label: 'a', color: '#f00' } ], 800 );
+
+		// The swatch is 10 wide at x=0; the text must start clear of it.
+		const xs = svg.attr.mock.calls
+			.filter( ( c ) => 'x' === c[ 0 ] )
+			.map( ( c ) => c[ 1 ] );
+		expect( xs ).toContain( 18 );
+	} );
+
 	it( 'truncates labels longer than 20 chars', () => {
 		const svg = makeFluent();
 		drawLegend(

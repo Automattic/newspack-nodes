@@ -259,7 +259,9 @@ class Settings_Renderer {
 			. ' name="' . \esc_attr( $name ) . '" value="1"'
 			. ' data-nn-reset-default="' . ( $default ? '1' : '0' ) . '"'
 			. $checked_attr . ' />'
-			. '<label for="' . \esc_attr( $id ) . '">' . \esc_html( $label ) . '</label>';
+			// The box and its text read as one word without a gap between them.
+			. '<label for="' . \esc_attr( $id ) . '" style="margin-left:6px">'
+			. \esc_html( $label ) . '</label>';
 		return self::reset_wrapper( $mark_name, $inner );
 	}
 

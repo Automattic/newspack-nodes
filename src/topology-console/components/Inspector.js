@@ -716,6 +716,8 @@ function LockedForm( {
 	vaults,
 	parsed,
 	onUpdateVerbs,
+	onConnect,
+	onRemoveEdge,
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const argumentSpecs = schema?.arguments || [];
@@ -747,6 +749,23 @@ function LockedForm( {
 				<div className="topology-insp__breadcrumb">
 					via { node.via.join( ' → ' ) }
 				</div>
+			) }
+			{ nodeHasTarget( node, catalog ) && (
+				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
+					<TargetsField
+						node={ node }
+						nodeNames={ ( parsed?.nodes || [] )
+							.map( ( n ) => n.id )
+							.filter( ( id ) => id !== node.id ) }
+						catalog={ catalog }
+						targets={ ( parsed?.edges || [] ).filter(
+							( e ) =>
+								e.from === node.id && edgeHasConnectRole( e )
+						) }
+						onConnect={ onConnect }
+						onRemoveEdge={ onRemoveEdge }
+					/>
+				</Section>
 			) }
 			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
 				{ argumentSpecs.length === 0 && (
@@ -1942,6 +1961,8 @@ export default function Inspector( {
 					vaults={ vaults }
 					parsed={ parsed }
 					onUpdateVerbs={ onUpdateVerbs }
+					onConnect={ onConnect }
+					onRemoveEdge={ onRemoveEdge }
 				/>
 			);
 		}
