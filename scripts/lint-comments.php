@@ -11,7 +11,8 @@
  * footgun comments whose full length is strictly necessary. A docblock is
  * exempt already, so opening one of its lines with that tag marks nothing and
  * is itself an error; prose naming the tag is fine. Directive comments
- * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split.
+ * (`phpcs:`, `translators:`, `eslint-`) are exempt: they cannot be split, as is
+ * a commented-out entry in a config ledger, whose width is the declaration's.
  *
  * GENERICS: a docblock type carries no space after its comma. Write
  * `array<string,mixed>`; a space before `mixed` is the violation. Both parse
@@ -390,6 +391,7 @@ function check_file( string $file ): array {
 	}
 	$lines      = \explode( "\n", $source );
 	$violations = [];
+	$is_ledger  = is_config_ledger( $file );
 
 	// Collect comment-only // or # lines (token-verified) keyed by line number.
 	$comment_only = [];
@@ -419,6 +421,10 @@ function check_file( string $file ): array {
 	// Length check on each comment-only line.
 	foreach ( $comment_only as $line => $text ) {
 		if ( is_longform( $text ) || is_directive( $text ) ) {
+			continue;
+		}
+		// A ledger entry's width is the declaration's, not a sentence's.
+		if ( $is_ledger && 1 === \preg_match( LEDGER_ENTRY, $text ) ) {
 			continue;
 		}
 		$src_line = \rtrim( $lines[ $line - 1 ] ?? '', "\r" );
@@ -461,7 +467,6 @@ function check_file( string $file ): array {
 	$run_len   = 0;
 	$prev      = 0;
 	\ksort( $comment_only );
-	$is_ledger = is_config_ledger( $file );
 	$flush     = static function () use ( &$run_start, &$run_len, $comment_only, $lines, $is_ledger, &$violations ): void {
 		if ( $run_len < 2 ) {
 			return;
